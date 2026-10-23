@@ -747,7 +747,7 @@ fn auth_enveloped_aes_gcm_opens_and_a_tampered_one_does_not() {
         &auth_envelope(&bob().cert, INNER, false),
     );
     let opened = opened_by(&raw, &[bob()], &[]);
-    assert_eq!(opened.encryption, SmimeEncryption::Decrypted);
+    assert_eq!(opened.encryption, SmimeEncryption::DecryptedAuthenticated);
     assert_eq!(text_of(&opened), "Inside the envelope.\n");
     assert_eq!(smime::recipients(&raw).unwrap().len(), 1);
 

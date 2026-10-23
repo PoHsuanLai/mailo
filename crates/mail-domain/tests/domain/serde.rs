@@ -1655,6 +1655,9 @@ fixtures! {
         SmimeEncryption::CannotDecrypt { to: vec!["serial 01 from CN=CA".to_owned()] },
         SmimeEncryption::Unreadable { why: "3DES".to_owned() },
     ],
+    "smime_encryptions_authenticated.json" => Vec<SmimeEncryption> = vec![
+        SmimeEncryption::DecryptedAuthenticated,
+    ],
 }
 
 fn cert_fingerprint() -> CertFingerprint {

@@ -586,6 +586,35 @@ mod reading {
         assert_eq!(text_search(&store, "attached"), 0);
     }
 
+    /// CBC proves nothing about the text it decrypts to: one changed block, and a remote image
+    /// in the message could carry the rest of it away (EFAIL). So whatever the reader's settings,
+    /// such a body loads nothing remote; a message that was not encrypted is left to them.
+    #[test]
+    fn a_body_decrypted_without_authentication_loads_nothing_remote() {
+        let _serial = serial();
+        let (store, _dir, secrets) = with_identity();
+        let html = |id: &str| {
+            format!(
+                "From: Bea <bea@example.test>\r\nTo: me@example.test\r\nSubject: Look\r\n\
+                 Date: Thu, 24 Sep 2026 10:00:00 +0000\r\nMessage-ID: <{id}@example.test>\r\n\
+                 MIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+                 <p>Hi</p><img src=\"https://images.example.test/a.png\">\r\n"
+            )
+            .into_bytes()
+        };
+        let looks = mail_core::message::Looks::new();
+        let sealed = arrive(
+            &store,
+            from_bea(Smime::SignAndEncrypt, &[me().cert], &html("sealed")),
+        );
+        let signed = arrive(&store, from_bea(Smime::Sign, &[], &html("signed")));
+        for message in [&sealed, &signed] {
+            let _ = looks.sealed(&store, &secrets, message.id, message.body.raw(), now());
+        }
+        assert!(!looks.opened_may_load_remote(&sealed));
+        assert!(looks.opened_may_load_remote(&signed));
+    }
+
     #[test]
     fn mail_encrypted_to_someone_else_says_so_and_the_cli_shows_the_status() {
         let _serial = serial();

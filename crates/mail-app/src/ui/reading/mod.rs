@@ -215,14 +215,18 @@ pub(super) fn Reader(
         .rev()
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
-            let showing = pressed
-                || images::auto_allow_message(
-                    &reading,
-                    &looks,
-                    &looked.borrow(),
-                    &message,
-                    &mut wanted,
-                );
+            // A body decrypted without proof it is unchanged never loads remote content, and is
+            // offered no button to: the seal's line says why (`Looks::opened_may_load_remote`).
+            let may = looks.opened_may_load_remote(&message);
+            let showing = may
+                && (pressed
+                    || images::auto_allow_message(
+                        &reading,
+                        &looks,
+                        &looked.borrow(),
+                        &message,
+                        &mut wanted,
+                    ));
             let policy = shell.read().policy_with(showing);
             let mut frame = |policy| {
                 frames.on_the_frame(
@@ -238,6 +242,7 @@ pub(super) fn Reader(
             // whose banner needs the blocked count while the images are shown parses once, ever.
             let body = frame(policy);
             let remote = match &body {
+                _ if !may => false,
                 Some(body) if body.blocked_remote() => true,
                 Some(body) if showing && body.frame_html().is_some() => {
                     frame(mail_mime::SanitizePolicy::FRAME).is_some_and(|it| it.blocked_remote())

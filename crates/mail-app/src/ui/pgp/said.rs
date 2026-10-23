@@ -131,10 +131,11 @@ pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<
     let mut out = Vec::new();
     out.push(match &protected.encryption {
         SmimeEncryption::NotEncrypted => line(Tone::Plain, "Not encrypted"),
-        SmimeEncryption::Decrypted => line(
+        SmimeEncryption::DecryptedAuthenticated => line(
             Tone::Good,
             "Encrypted with S/MIME, and decrypted for reading",
         ),
+        SmimeEncryption::Decrypted => line(Tone::Unknown, crate::ui::copy::status::SMIME_NOT_AUTHENTICATED),
         SmimeEncryption::CannotDecrypt { to } => line(
             Tone::Unknown,
             format!(

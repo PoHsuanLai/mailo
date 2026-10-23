@@ -271,7 +271,13 @@ pub fn describe(protected: &Protected) -> String {
     let mut out = String::new();
     match &protected.encryption {
         SmimeEncryption::NotEncrypted => {}
-        SmimeEncryption::Decrypted => out.push_str("    S/MIME encrypted; decrypted for reading\n"),
+        SmimeEncryption::DecryptedAuthenticated => {
+            out.push_str("    S/MIME encrypted; decrypted for reading\n");
+        }
+        SmimeEncryption::Decrypted => out.push_str(
+            "    S/MIME encrypted; decrypted for reading\n    not authenticated: the encryption \
+             can't show it unchanged\n",
+        ),
         SmimeEncryption::CannotDecrypt { to } => out.push_str(&format!(
             "    S/MIME encrypted to certificates you hold no key for ({}); it can't be read \
              here\n",

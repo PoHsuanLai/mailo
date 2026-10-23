@@ -159,7 +159,10 @@ fn every_smime_verdict_is_said_in_words_and_a_changed_or_forged_one_is_unmissabl
         ),
         (
             "altered",
-            protected(SmimeEncryption::Decrypted, bad(BadSignature::Altered)),
+            protected(
+                SmimeEncryption::DecryptedAuthenticated,
+                bad(BadSignature::Altered),
+            ),
             vec![
                 line(
                     Tone::Good,
@@ -534,13 +537,8 @@ async fn an_encrypted_smime_message_shows_its_body_and_lists_what_is_attached_in
         "{page}"
     );
     let said = super::tests::trust_lines(&mut dom, &seen);
-    assert_eq!(
-        said[0],
-        (
-            "seal-line good".to_owned(),
-            "Encrypted with S/MIME, and decrypted for reading".to_owned()
-        )
-    );
+    // Sealed as mailo seals, with CBC: decrypted, and said to be unauthenticated.
+    assert_eq!(said[0].0, "seal-line unknown", "{said:?}");
     assert_eq!(said[1].0, "seal-line good", "{said:?}");
     assert!(
         page.contains("zebra plans"),

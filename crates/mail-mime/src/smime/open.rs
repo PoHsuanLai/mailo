@@ -277,7 +277,11 @@ fn opaque(
                     let checked = within(&plain, keys, from, date, 0);
                     Opened {
                         message: shown(top.head, &checked.content),
-                        encryption: SmimeEncryption::Decrypted,
+                        encryption: if info.content_type == asn1::AUTH_ENVELOPED_DATA {
+                            SmimeEncryption::DecryptedAuthenticated
+                        } else {
+                            SmimeEncryption::Decrypted
+                        },
                         verification: checked.verification,
                         signer: checked.signer,
                     }
