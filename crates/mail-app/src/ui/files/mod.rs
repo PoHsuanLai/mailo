@@ -4,7 +4,7 @@
 //! sheets only draw what it answers. The path is typed, and a Maildir is a directory. The native
 //! dialog beside the field (`ui::pick`) goes through the desktop portal.
 //!
-//! Both jobs run on a blocking thread, spawned from the click (F140), and their progress comes
+//! Both jobs run on a blocking thread, spawned from the click, and their progress comes
 //! back through a counter the task reads while it waits — the progress callback runs on that
 //! thread, where no signal may be written.
 
@@ -95,7 +95,7 @@ const TICK: std::time::Duration = std::time::Duration::from_millis(120);
 /// Run `job` on a blocking thread, drawing its counter into `phase` while it runs, and say what
 /// it said in the sheet and the toast. `after` runs once it has finished either way.
 ///
-/// Call it from an event handler: that is where a spawned task is polled (F140).
+/// Call it from an event handler: that is where a spawned task is polled.
 pub(in crate::ui) fn run(
     mut phase: Signal<Phase>,
     of: usize,

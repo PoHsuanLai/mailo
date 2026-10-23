@@ -35,7 +35,7 @@ pub(super) fn list_for(
 
 /// One count per place, for the sidebar's badges.
 ///
-/// A free function rather than a closure, because phase 8c calls it from two places: once on a
+/// A free function rather than a closure, because it is called from two places: once on a
 /// blocking thread, and once on the render thread for the first frame, when there is no answer
 /// yet. Two copies of it would be two chances for them to disagree about what a badge counts.
 pub(super) fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> Vec<Option<u64>> {

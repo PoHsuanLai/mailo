@@ -403,7 +403,7 @@ fn send_page(
     match sent {
         Ok(Sent::Sealing { leaves, remind }) => {
             let draft = page.peek().draft;
-            // Spawned from a press, which is where a task is polled (F140).
+            // Spawned from a press, which is where a task is polled.
             spawn(async move {
                 match seal_and_queue(store, draft, leaves, remind, passphrase).await {
                     Ok(due) => {

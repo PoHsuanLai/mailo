@@ -1,10 +1,10 @@
-//! An operation refused after the server had done part of it (FINDINGS F159).
+//! An operation refused after the server had done part of it.
 //!
 //! An operation on messages in several IMAP mailboxes goes as one part per mailbox
-//! ([`super::split::per_mailbox`], FINDINGS F154). When an early part is carried out and a later
-//! one refused for good, the whole entry used to be undone here, and the first part's messages
-//! were shown back where the server no longer had them. Now only the messages the server did not
-//! act on are put back ([`mail_store::Settle::InPart`]), and the person is told which part went.
+//! ([`super::split::per_mailbox`]). When an early part is carried out and a later one refused
+//! for good, undoing the whole entry would show the first part's messages back where the server
+//! no longer has them. So only the messages the server did not act on are put back
+//! ([`mail_store::Settle::InPart`]), and the person is told which part went.
 //!
 //! Which messages those are is read from the parts as they were sent, against who each address
 //! was before anything went: a move gives its messages new addresses, and a refusal after it must
@@ -90,7 +90,7 @@ fn all_in(remotes: &[RemoteRef], folder: &str) -> bool {
 
 /// Of `held`, the messages the server has this operation's change for once it stopped at
 /// `progress`: named by a part it answered, or, for a move into `target`, already there, which a
-/// part not reached would have left as it is (FINDINGS F156).
+/// part not reached would have left as it is.
 pub(crate) fn done(
     held: &[(MessageId, Vec<RemoteRef>)],
     progress: &Progress,

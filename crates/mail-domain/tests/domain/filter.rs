@@ -1,8 +1,8 @@
 //! Table-driven coverage of [`Filter::fit`], one case per semantic decision.
 //!
 //! `ThreadSummary` values are built as struct literals rather than through
-//! `ThreadSummary::derive`, which belongs to another brief: these cases are about the
-//! predicate, not about the derivation, and they must not fail for someone else's reason.
+//! `ThreadSummary::derive`: these cases are about the predicate, not about the derivation,
+//! and they must not fail for the derivation's reason.
 
 use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
@@ -816,8 +816,7 @@ fn fit_decides_every_case() {
     }
 }
 
-/// `Filter::To` was always-false until `ThreadSummary` gained `recipients` (FINDINGS F1).
-/// It now answers honestly, against To and Cc only — never Bcc.
+/// `Filter::To` matches a thread's `recipients`: To and Cc only, never Bcc.
 #[test]
 fn to_matches_thread_recipients() {
     let s = summary(|s| {

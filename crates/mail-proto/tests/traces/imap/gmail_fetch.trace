@@ -1,4 +1,4 @@
-# DERIVED from spike/out/imap.trace: the FETCH shape the capture actually contains, with
+# DERIVED from a capture against a real Gmail account: the FETCH shape it contains, with
 # envelope contents replaced. X-GM-MSGID is MessageKey::Gmail and X-GM-THRID is
 # ServerThreads::ProviderId, and an unrecognised attribute here is why imap-codec was rejected:
 # its parser fails the closing parenthesis and the WHOLE untagged FETCH becomes an error.

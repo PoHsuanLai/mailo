@@ -1327,7 +1327,7 @@ fn choose_mech(
 
 /// Whether this mechanism can carry this credential.
 ///
-/// `CramMd5` is absent on purpose: neither account we target offers it (the POP3 spike found
+/// `CramMd5` is absent on purpose: neither account we target offers it (a POP3 probe found
 /// `SASL PLAIN` only), and a mechanism we cannot test against a real server is one we should not
 /// claim to support.
 fn compatible(mech: SaslMech, cred: &Credential) -> bool {

@@ -14,7 +14,7 @@ use porter_core::AccountId;
 ///
 /// Takes a [`Posting`] — envelope *and* bytes — rather than bytes alone. An envelope derived
 /// from the message is how a `Bcc` recipient stops being delivered to the moment the headers
-/// stop naming them (FINDINGS F37), so the two travel together and the closure supplies only
+/// stop naming them, so the two travel together and the closure supplies only
 /// what it alone knows: the host, and the credential.
 ///
 /// A closure for the same reason as POP3's: the backend never holds a password and so cannot

@@ -1,8 +1,7 @@
 //! What a person can ask for, and whether the store answers the same question.
 //!
-//! `mail-domain` has had a complete query algebra since phase 1, proptested against the SQL that
-//! answers it, and every search this application could make was `Text(Contains(the whole line))`.
-//! These tests are in two halves: what the parser builds, and — because a filter that parses and
+//! `mail-domain` has a complete query algebra, proptested against the SQL that answers it. These
+//! tests are in two halves: what the parser builds, and — because a filter that parses and
 //! does not select is worse than no filter — what the store returns for it.
 
 use crate::store::acct_account;

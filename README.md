@@ -165,7 +165,7 @@ installs): the print tests check which regional face Chinese, Japanese and Korea
 The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system,
 at tag v0.2.3 (and builds against quire master with a local `[patch]`, see `.cargo/config.toml` in
 `docs/desktop-member.md`). `crates/mail-app` depends on that tagged release from GitHub, so a plain clone of
-mailo builds on its own. `docs/quire-0.2-upgrade.md` says everything about the move.
+mailo builds on its own.
 
 ## macOS and Windows
 
@@ -208,12 +208,10 @@ by the scripts above.
 
 ## The documents
 
-- **`plan.md`** — the design, and the phases, with what each one actually turned out to cost.
-- **`FINDINGS.md`** — every defect worth remembering, what it cost, and why the tests did not
-  catch it. It is the most useful file here. Four separate features turned out to be modelled,
-  stored, tested and *unreachable* — a capability with no caller looks exactly like a working one
-  from inside a repository.
-- **`CONVENTIONS.md`** — the rules the code is written to.
+- **`CONTRIBUTING.md`** — the rules the code is written to, and the checks that hold them.
+- **`docs/design-language.md`** — what the window shows, and what it keeps one step away.
+- **`docs/desktop-member.md`** — how mailo fits the desktop it belongs to.
+- **`docs/protocol-compliance.md`** — a protocol-by-protocol audit of what mailo does against the RFCs, with the test for each.
 
 ## Licence
 

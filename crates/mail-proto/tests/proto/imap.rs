@@ -43,7 +43,7 @@ fn the_real_gmail_greeting_and_capability_parse() {
     assert!(caps.contains("Idle") || caps.contains("IDLE"), "{caps}");
 }
 
-/// F14 as a test: the same server answers CAPABILITY differently once authenticated, and the
+/// The same server answers CAPABILITY differently once authenticated, and the
 /// later answer must win. Believing the first is how a CONDSTORE server looks like it has none.
 #[test]
 fn a_later_capability_list_replaces_an_earlier_one() {

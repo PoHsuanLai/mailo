@@ -1,7 +1,7 @@
 //! Which accounts keep all their mail on this computer, large attachments included.
 //!
 //! A sync fetches every message, but a large IMAP message only as its text: its attachments stay
-//! on the server until someone opens one (`plan.md` 9.6). An account kept offline in full has
+//! on the server until someone opens one. An account kept offline in full has
 //! them fetched too, a few each pass, after the bodies and largest last. Off unless asked for.
 //!
 //! A preference, so it lives beside the others in the config directory (`offline.json`), not in

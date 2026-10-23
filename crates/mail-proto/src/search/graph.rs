@@ -11,7 +11,7 @@
 //! participant, the fields the store's index holds. `sent` dates in KQL are whole days.
 //!
 //! Written from Graph's description of `$search` and `$filter` on messages; like
-//! `permanentDelete` (FINDINGS F189), it could not be run against a tenant from where it was
+//! `permanentDelete`, it could not be run against a tenant from where it was
 //! built.
 
 use super::{Asked, Unsaid, describe, each, kept_here, on_account, place_of, whole_days, words};

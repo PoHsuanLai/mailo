@@ -100,7 +100,7 @@ pub struct Reconnect {
 /// shortest wait.
 ///
 /// The same doubling as a failing pass ([`fetch::backoff`]), never spinning. A refused sign-in
-/// is not retried in a loop (F128): a pass is asked to find that out, which sets the link to
+/// is not retried in a loop: a pass is asked to find that out, which sets the link to
 /// NeedsSignIn and stops the watch, and the watch only looks again at the ceiling.
 pub fn reconnect(failures: u32, retry: &Retry, floor: Duration) -> Reconnect {
     let schedule = fetch::backoff(failures, floor);

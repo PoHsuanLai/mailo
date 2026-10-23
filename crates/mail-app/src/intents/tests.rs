@@ -78,7 +78,7 @@ impl Drop for Bus {
 }
 
 /// Async, and awaited inside the test's `zbus::block_on`: with zbus's `tokio` feature on (oo7
-/// turns it on for account secrets, E2) `zbus::block_on` is a tokio runtime's, and one inside
+/// turns it on for account secrets) `zbus::block_on` is a tokio runtime's, and one inside
 /// another panics.
 async fn proxy<'a>(connection: &'a zbus::Connection) -> zbus::Proxy<'a> {
     zbus::Proxy::new(connection, APP, PATH, "org.quire.IntentProvider1")

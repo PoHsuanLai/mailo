@@ -1,6 +1,6 @@
 //! What the list pane shows, fetched off the thread that draws, a pause after the last keystroke.
 //!
-//! Split from [`super::app`] (`CONVENTIONS.md` §8). The place's list follows the shell at once:
+//! Split from [`super::app`]. The place's list follows the shell at once:
 //! choosing a place, a Space or another page is one query. A search follows the box through
 //! [`super::debounce`]: it runs once the box has been still for its quiet period, and a result
 //! for text a newer keystroke has replaced is dropped rather than drawn.
@@ -35,12 +35,11 @@ pub(super) struct ListView {
 
 /// Run the list for `shell`, `pages` pages deep, again whenever `revision` moves.
 ///
-/// Computed here the first time, off the thread afterwards. The first attempt at phase 8c was a
-/// bare `use_resource`, and a bare resource is empty until it resolves — so the window opened on
-/// an empty mailbox, and under F140 stayed that way because nothing ever polled the task. This
-/// keeps the synchronous answer for the frame that has no other one, and afterwards the pane
-/// shows what it last drew until a newer answer lands, never a blank and never a query on this
-/// thread.
+/// Computed here the first time, off the thread afterwards. A bare `use_resource` is empty until it
+/// resolves, and a task spawned from a component body is never polled, so the window would open on
+/// an empty mailbox and stay that way. This keeps the synchronous answer for the frame that has no
+/// other one, and afterwards the pane shows what it last drew until a newer answer lands, never a
+/// blank and never a query on this thread.
 pub(super) fn use_list(
     shell: Signal<Shell>,
     pages: Signal<u32>,

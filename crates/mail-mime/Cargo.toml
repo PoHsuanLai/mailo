@@ -27,7 +27,7 @@ chardetng = "1"
 # output, so it must tokenize it with the same parser that produced it. If an ammonia bump
 # moves this, move this line in the same commit.
 html5ever = "0.40"
-# OpenPGP (`openpgp/`): rPGP, MIT OR Apache-2.0. Sequoia is LGPL and stays out (plan.md 10.15).
+# OpenPGP (`openpgp/`): rPGP, MIT OR Apache-2.0. Sequoia is LGPL and stays out.
 # Pure — it takes the random number generator and every instant as arguments, as this crate's
 # callers already hand it the clock. Default features off: the only default is BZip2 compression,
 # whose C-derived implementation is under the bzip2-1.0.6 licence the allow-list does not name.

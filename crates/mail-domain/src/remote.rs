@@ -257,7 +257,7 @@ pub enum ProtoOp {
         /// `RCPT TO`: `To`, `Cc` **and** `Bcc`.
         ///
         /// Carried here rather than re-derived from `raw`, and that is the whole point. The
-        /// transmitted headers deliberately omit `Bcc` (FINDINGS F37), so a recipient list
+        /// transmitted headers deliberately omit `Bcc`, so a recipient list
         /// parsed back out of the bytes would silently drop every blind recipient — on the
         /// retry, not on the first attempt, which is the worst way to find out.
         rcpt_to: Vec<String>,
@@ -307,9 +307,9 @@ pub enum ProtoOp {
     },
     /// The MIME structure of each message, and none of its content: IMAP `BODYSTRUCTURE`.
     ///
-    /// Asked only about messages large enough for the answer to pay for itself. F113 took this
-    /// out of the envelope walk because nothing read it and it cost eleven times the response;
-    /// here the code that reads it exists, and it decides which megabytes not to download.
+    /// Asked only about messages large enough for the answer to pay for itself, and never in
+    /// the envelope walk, where it would cost many times the response; here its answer decides
+    /// which megabytes not to download.
     FetchStructure {
         remotes: Vec<RemoteRef>,
     },

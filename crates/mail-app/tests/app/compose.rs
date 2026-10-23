@@ -1,9 +1,7 @@
-//! Replying and sending from the command line: `plan.md` phase 4's third verb.
+//! Replying and sending from the command line.
 //!
-//! Phase 4 asks that "a tiny CLI can list, open and reply". The first two had tests from the
-//! start. Reply had no implementation at all until this file's subject existed, because the
-//! path it needs — a draft that persists, an identity to send as, an envelope that survives
-//! into the outbox — was missing at every one of those three points.
+//! The path a reply needs is a draft that persists, an identity to send as, and an envelope that
+//! survives into the outbox; these tests cover each of the three.
 
 use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
@@ -799,9 +797,9 @@ mod discarding {
 
     #[test]
     fn a_failed_send_waiting_to_retry_is_withdrawn_with_its_draft() {
-        // Found against a real account: a send refused by the server backs off for a day, still
-        // queued, while the draft reads `Failed`. Discarding it deleted the draft and left the
-        // outbox to send the message anyway the next day.
+        // A send refused by the server backs off for a day, still queued, while the draft reads
+        // `Failed`. Discarding the draft has to withdraw the send too, or the outbox sends the
+        // message anyway the next day.
         let (store, _dir) = seeded();
         let id = a_draft(&store);
         compose::send(&store, id, at(20)).unwrap();
@@ -854,10 +852,7 @@ mod discarding {
     }
 }
 
-/// Forwarding, which the domain modelled and nothing could reach.
-///
-/// `Draft::forward_of` has existed and been tested in `mail-domain` since phase 1, and no surface
-/// in the application called it. A mail client that cannot forward is not one.
+/// Forwarding: `Draft::forward_of`, reached from the command line.
 mod forwarding {
     use super::*;
 
@@ -947,7 +942,7 @@ mod forwarding {
             out.contains(&format!("mailo send {}", draft.id)),
             "it does not say how to send it: {out}"
         );
-        // No double-space check here, unlike the prose messages of F97: this output is an
+        // No double-space check here, unlike the prose messages: this output is an
         // aligned table — `  to      …` — and the runs of spaces are the alignment.
         assert!(
             out.contains("  to      "),
@@ -1200,11 +1195,8 @@ mod forwarding_as_an_attachment {
     }
 }
 
-/// Signatures, which were a column nothing read.
-///
-/// `Identity.signature` has existed since phase 1. No sending path appended one, no composer
-/// showed one, and no command could set one — every message this client had ever sent went out
-/// unsigned.
+/// Signatures: `Identity.signature`, set by a command, shown in the composer and appended when
+/// a message is sent.
 mod signatures {
     use super::*;
 
@@ -1298,13 +1290,10 @@ mod signatures {
     }
 }
 
-/// Writing to someone who has not written first — `plan.md` phase 7a.
+/// Writing to someone who has not written first.
 ///
-/// The gap this closes was not a bug in any function: every function worked. `Draft` carried
-/// every field, `Composer` edited one, `send` sent one, and there was no way to *make* one that
-/// was not a reply or a forward, so mail could only be answered and never begun. The tests below
-/// are written against that sentence rather than against the new code, which is why the first
-/// one sends to an address that appears nowhere in the seeded store.
+/// A draft that is not a reply or a forward, so mail can be begun and not only answered. The
+/// first test sends to an address that appears nowhere in the seeded store.
 mod writing_to_someone_new {
     use super::*;
 
@@ -1312,7 +1301,7 @@ mod writing_to_someone_new {
         vec![Address {
             name: None,
             // Deliberately not `ada@example.test`: nobody at this address has ever written to
-            // us, so no reply or forward could reach it and only 7a can.
+            // us, so no reply or forward could reach it and only a new message can.
             email: "kim@elsewhere.test".to_owned(),
         }]
     }
@@ -1386,7 +1375,7 @@ mod writing_to_someone_new {
 
     #[test]
     fn what_the_command_prints_names_the_draft_and_how_to_send_it() {
-        // The F99 rule: a command that leaves a draft behind has to say what will finish it.
+        // A command that leaves a draft behind has to say what will finish it.
         let (store, _dir) = seeded();
         let out = words::composed(
             &compose::new_message(
@@ -1625,13 +1614,10 @@ mod choosing_the_sender {
     }
 }
 
-/// Attaching a file — `plan.md` phase 7b, and FINDINGS F138.
+/// Attaching a file.
 ///
-/// `PendingAttachment` has existed since phase 1, `mail_mime::build` has assembled multipart
-/// from it since phase 2, `sqlite/draft.rs` has persisted it since phase 3, and nothing in the
-/// application ever constructed one. The send path supported attachments right up to the moment
-/// somebody needed one, which is why the first test below asserts against the bytes that leave
-/// rather than against the draft row: the row was never the part that was missing.
+/// The first test below asserts against the bytes that leave rather than against the draft row:
+/// a row can hold a `PendingAttachment` that the sent message never carries.
 mod carrying_a_file {
     use super::*;
 

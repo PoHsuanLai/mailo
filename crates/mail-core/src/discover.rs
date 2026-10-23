@@ -1153,7 +1153,7 @@ mod tests {
             }
         ));
         // Microsoft's document offers submission with STARTTLS, which a found server may not use,
-        // but OAuth is taken first and the issuer's preset used whole, as before E3.
+        // but OAuth is taken first and the issuer's preset used whole.
         let microsoft = found_in(
             &imap_smtp(
                 ("outlook.office365.com", 993, "SSL"),
@@ -1260,15 +1260,9 @@ mod tests {
         }
     }
 
-    // ---- behaviour restored to what it was before E3 (F201 diffs 1-3) ---------------------------
+    // ---- mailo's own selection rules over the porter-discover seams -----------------------------
     //
-    // The cases below are mailo's own from before E3, with the same documents and the same
-    // expectations, moved over the porter-discover seams. They came from two test files that are
-    // gone now, as they stood at mailo commit 2ea6bbe7: mail-proto's `tests/discover.rs`
-    // (`selection`: the OAuth2 tests, `pop3_is_used_only_when_no_imap_server_will_do`,
-    // `a_personal_microsoft_address_is_not_given_the_tenant_preset`, `starttls_only_is_skipped_and_said`)
-    // and mail-runtime's `tests/discover.rs`
-    // (`a_starttls_only_document_is_skipped_and_the_search_goes_on`).
+    // OAuth2 and issuers, POP3 only as a last resort, and STARTTLS-only documents as misses.
 
     const ADDRESS: &str = "someone@example.test";
 
@@ -1284,7 +1278,7 @@ mod tests {
         }
     }
 
-    /// F201 diff 2: an issuer the document names, or an OAuth2 server at an issuer's host, gives
+    /// An issuer the document names, or an OAuth2 server at an issuer's host, gives
     /// that issuer's preset whole.
     #[test]
     fn oauth2_through_a_known_issuer_uses_that_providers_preset() {
@@ -1335,7 +1329,7 @@ mod tests {
         assert_eq!(found.preset.plan.address, ADDRESS);
     }
 
-    /// F201 diff 2: OAuth2 through an issuer nobody here reads mail through, with a password also
+    /// OAuth2 through an issuer nobody here reads mail through, with a password also
     /// offered, is a password plan.
     #[test]
     fn oauth2_through_an_unknown_issuer_falls_back_to_a_password() {
@@ -1365,7 +1359,7 @@ mod tests {
         assert_eq!(imap_host(&found), "imap.example.test");
     }
 
-    /// F201 diff 2: a document whose servers take OAuth2 and no password, at no issuer's host, is
+    /// A document whose servers take OAuth2 and no password, at no issuer's host, is
     /// dropped and the search goes on: here to the ISPDB's document for the domain, which has a
     /// password. It is never a password plan at the OAuth-only servers.
     #[tokio::test]
@@ -1408,7 +1402,7 @@ mod tests {
         assert!(matches!(found.preset.plan.auth, AuthPlan::Password { .. }));
     }
 
-    /// F201 diff 2: OAuth2 through the issuer a document names is taken even when that is the only
+    /// OAuth2 through the issuer a document names is taken even when that is the only
     /// sign-in it lists, through the whole search.
     #[tokio::test]
     async fn an_oauth_only_document_at_a_known_issuer_is_an_oauth_plan() {
@@ -1456,9 +1450,9 @@ mod tests {
         assert!(found_under_mailo(&xml, "me@firm.example").is_ok());
     }
 
-    /// F201 diff 3, and diff 2 with it: a document that offers OAuth2 at an issuer's host with
-    /// submission on STARTTLS (Microsoft's own) is a miss under the rule, and is taken after the
-    /// later sources fail, as the issuer's preset whole, as it was before.
+    /// A document that offers OAuth2 at an issuer's host with submission on STARTTLS
+    /// (Microsoft's own) is a miss under the rule, and is taken after the later sources fail, as
+    /// the issuer's preset whole.
     #[tokio::test]
     async fn a_starttls_document_that_leads_to_an_issuer_is_still_that_issuers_preset() {
         let mut net = Net::default();
@@ -1482,7 +1476,7 @@ mod tests {
         ));
     }
 
-    /// F201 diff 1: POP3 serves only when no IMAP server will do, with its own login.
+    /// POP3 serves only when no IMAP server will do, with its own login.
     #[test]
     fn pop3_is_used_only_when_no_imap_server_will_do() {
         let pop3_first = document(
@@ -1559,7 +1553,7 @@ mod tests {
         assert_eq!(imap_host(&found), "imap.example.test");
     }
 
-    /// F201 diff 1, through the whole search: a POP3-only domain is found by its document.
+    /// Through the whole search, a POP3-only domain is found by its document.
     #[tokio::test]
     async fn a_pop3_only_domain_is_found_through_the_search() {
         let mut net = Net::default();
@@ -1593,7 +1587,7 @@ mod tests {
         ));
     }
 
-    /// F201 diff 3: a STARTTLS-only document is a miss, the later sources are still asked, and a
+    /// A STARTTLS-only document is a miss, the later sources are still asked, and a
     /// domain with nothing else is told why and how to configure it by hand.
     #[tokio::test]
     async fn a_starttls_only_document_is_skipped_and_the_search_goes_on() {

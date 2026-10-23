@@ -1,14 +1,14 @@
-//! One operation per IMAP mailbox (FINDINGS F154).
+//! One operation per IMAP mailbox.
 //!
 //! An IMAP UID means something only in the mailbox it came from, and a `UID STORE` or
 //! `UID MOVE` acts on the one mailbox selected. A message is often at two addresses (Gmail's
 //! INBOX and Sent Mail; a copy in a folder), and a conversation spans folders, so an operation's
 //! addresses name several mailboxes. The backend runs an operation in the first mailbox its
-//! addresses name, so sent whole, every UID was read in that mailbox, where it may name another
-//! message.
+//! addresses name, so sent whole, every UID would be read in that mailbox, where it may name
+//! another message.
 //!
 //! Here rather than as a method on `ProtoOp`: `mail-domain` is the frozen interface
-//! (CONVENTIONS §1), and the engine is the only caller.
+//! (`CONTRIBUTING.md`, "The frozen interface"), and the engine is the only caller.
 
 use mail_domain::{ProtoOp, RemoteRef};
 

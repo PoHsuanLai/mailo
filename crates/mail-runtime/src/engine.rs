@@ -3,7 +3,7 @@
 //! One generic parameter, not five. `Store` and `Secrets` are process-wide singletons — one
 //! SQLite file with one WAL connection, one keyring — so making them type parameters would
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
-//! rather than a `Clock` trait, per `CONVENTIONS.md` §6.
+//! rather than a `Clock` trait (`CONTRIBUTING.md`, "Time").
 
 use crate::error::Failure;
 use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
@@ -43,8 +43,8 @@ const BANDS: [u64; 3] = [64 * 1024, 1024 * 1024, u64::MAX];
 /// Above this, a large IMAP message is fetched as its text, and its attachments wait on the server
 /// until someone opens one.
 ///
-/// The second band's edge. Below it `BODY.PEEK[]` is a single round trip and F113's measurement
-/// stands — asking for structure costs more than it saves. Above it, one attachment is most of
+/// The second band's edge. Below it `BODY.PEEK[]` is a single round trip, and asking for
+/// structure costs more than it saves. Above it, one attachment is most of
 /// the bytes, and the structure is a few hundred.
 const PARTED_ABOVE: u64 = BANDS[1];
 
@@ -162,7 +162,7 @@ pub(crate) fn note_state(written: Result<(), mail_store::StoreError>) {
 }
 
 /// Refuse queued entry `id`, given up because a message it names was never found
-/// ([`Dispatch::Lost`], FINDINGS F155): settled as [`Retry::Fatal`], so its undo puts back what
+/// ([`Dispatch::Lost`]): settled as [`Retry::Fatal`], so its undo puts back what
 /// the server has, and said, so the person whose change it was is told it did not happen.
 pub(crate) fn given_up(
     store: &dyn Store,
@@ -313,7 +313,7 @@ pub struct AccountEngine<B: Backend> {
     graph: Option<crate::graph::read::Reader>,
     /// The mailboxes synced in full since the last drain: the folders a message the server moved
     /// without saying where has been looked for, counted when the drain begins
-    /// ([`Store::unplaced_pass`], FINDINGS F155).
+    /// ([`Store::unplaced_pass`]).
     synced: Vec<String>,
     /// Where connections to the incoming server come from in place of a socket: a test's server
     /// in memory ([`AccountEngine::with_dial`]). `None` in the program.
@@ -461,13 +461,13 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// [`Self::run_leaving`], once per IMAP mailbox the operation's messages are in
-    /// ([`split::per_mailbox`], FINDINGS F154).
+    /// ([`split::per_mailbox`]).
     ///
     /// Where a split one is interrupted, what already went out stays out and is recorded: a
     /// move's new addresses are kept as each part answers, so the retry of the whole, addressed
     /// again when it is sent, finds those messages where they now are, and a flag set twice is
     /// the same flag. `progress` is left saying which parts the server answered and which it did
-    /// not, so a refusal undoes only the rest (FINDINGS F159); it stays empty for one part.
+    /// not, so a refusal undoes only the rest; it stays empty for one part.
     async fn run_per_mailbox(
         &mut self,
         op: ProtoOp,
@@ -666,7 +666,7 @@ impl<B: Backend> AccountEngine<B> {
                     tls,
                     auth: auth.clone(),
                     // Straight from the Posting. Re-deriving either of these from `message`
-                    // is FINDINGS F37.
+                    // would lose the `Bcc` recipients, which its headers deliberately omit.
                     mail_from: posting.mail_from,
                     recipients: posting.rcpt_to,
                     receipt: None,
@@ -881,7 +881,7 @@ impl<B: Backend> AccountEngine<B> {
     /// Not for ever. A drain after syncs first counts them against every message still waiting
     /// to be found ([`Store::unplaced_pass`]); once the syncs that should have found one have
     /// not, an operation on it is refused, its local change undone, and the reason said
-    /// (FINDINGS F155). A drain with no sync before it, such as `mailo`'s upload, counts nothing.
+    /// A drain with no sync before it, such as `mailo`'s upload, counts nothing.
     pub async fn drain_outbox(
         &mut self,
         cancel: &mut Cancel,
@@ -1017,7 +1017,7 @@ impl<B: Backend> AccountEngine<B> {
                     if tells_the_pass {
                         report.saw(&retry);
                     }
-                    // Refused after part of it was done: only the rest is undone (FINDINGS F159).
+                    // Refused after part of it was done: only the rest is undone.
                     let done = match retry {
                         Retry::Fatal(_) => partial::done(&held, &progress, into.as_deref()),
                         _ => Vec::new(),
@@ -1096,7 +1096,7 @@ impl<B: Backend> AccountEngine<B> {
                 Ok(None)
             }
             Dispatch::Lost(reason) => {
-                // A move leaves alone what is already where it was taking it (FINDINGS F159).
+                // A move leaves alone what is already where it was taking it.
                 let target = mail_proto::backend::imap::move_target(self.caps(), &entry.op);
                 let done = match &target {
                     Some(folder) => partial::already_there(
@@ -1291,7 +1291,7 @@ impl<B: Backend> AccountEngine<B> {
     ///
     /// Without this a draft exists on one machine. That is the difference between a mail client
     /// and a mail client you can start a reply on and finish from a phone, and it is what
-    /// `ProtoOp::Append` was written for — it simply had no caller (FINDINGS F57).
+    /// `ProtoOp::Append` is for.
     ///
     /// The folder comes from the server's own `SPECIAL-USE` reply where there is one. An account
     /// whose capabilities name no Drafts folder is not an error and not a guess: uploading into
@@ -1867,8 +1867,8 @@ impl<B: Backend> AccountEngine<B> {
     /// Fetch large messages as their text and structure, leaving attachments on the server.
     ///
     /// Returns what could not be done that way, for the caller to fetch whole — which is always
-    /// correct, only slower. That covers a server that fails to produce a structure (F112 is one
-    /// that crashed doing it), a message that is not multipart and so has nothing to leave
+    /// correct, only slower. That covers a server that fails to produce a structure (some crash
+    /// doing it), a message that is not multipart and so has nothing to leave
     /// behind, and any section that did not come back.
     async fn fetch_parted(
         &mut self,
@@ -1940,7 +1940,7 @@ impl<B: Backend> AccountEngine<B> {
     /// Fetch attachments that earlier passes left on the server, for an account kept offline in
     /// full: smallest first, so the largest come last, within `budget`.
     ///
-    /// The rebuilt message stays as it was stored (F165): each part is fetched and held exactly
+    /// The rebuilt message stays as it was stored: each part is fetched and held exactly
     /// as opening it would ([`AccountEngine::fetch_part`]). A part the server will not give is
     /// named and passed over, so one bad part cannot hold the rest back pass after pass; a
     /// refused sign-in, a rate limit or a dropped connection ends the step, since every part

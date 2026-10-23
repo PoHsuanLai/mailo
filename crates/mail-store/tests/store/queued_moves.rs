@@ -1,4 +1,4 @@
-//! A queued operation is addressed when it is sent, not when it was queued (FINDINGS F153).
+//! A queued operation is addressed when it is sent, not when it was queued.
 //!
 //! A second move queued behind a first was resolved to the address the first moved the message
 //! away from, sent there, answered OK — a UID set naming nothing is not an error — and lost.
@@ -432,7 +432,7 @@ fn a_send_is_dispatched_exactly_as_it_was_queued() {
     }
 }
 
-// ---- F155: a wait for a sync that never finds the message has an end ----
+// ---- a wait for a sync that never finds the message has an end ----
 
 /// Queue `intent` with `undo`, having applied the local change it undoes, as the window does.
 fn queue_undoable(
@@ -705,7 +705,7 @@ fn an_operation_on_a_message_given_up_is_refused_even_behind_one_still_waiting()
     given_up(&sqlite.1);
 }
 
-// ---- F159: refused after part of it was done ----
+// ---- refused after part of it was done ----
 
 #[test]
 fn a_refusal_after_part_was_done_puts_back_only_the_rest() {

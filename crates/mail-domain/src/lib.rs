@@ -4,8 +4,6 @@
 //! protocol's syntax. It does own [`RemoteRef`] and [`ProtoOp`] — "this message, over there"
 //! and "do this remotely" are product vocabulary that `mail-store` must persist, and
 //! `mail-store` cannot see `mail-proto`.
-//!
-//! See `plan.md` for the design and `CONVENTIONS.md` for the rules this code follows.
 
 pub mod account;
 pub mod address;

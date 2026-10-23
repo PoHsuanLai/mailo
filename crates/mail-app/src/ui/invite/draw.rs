@@ -371,7 +371,7 @@ fn give(
     phase.set(Phase::Working);
     let store = consume_context::<Arc<SqliteStore>>();
     let hours = crate::ui::clock::hours();
-    // Spawned from a click or a key, which is where a task is polled (F140).
+    // Spawned from a click or a key, which is where a task is polled.
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
             let note = Some(note.as_str()).filter(|note| !note.trim().is_empty());

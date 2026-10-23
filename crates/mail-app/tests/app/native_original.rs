@@ -43,7 +43,7 @@ const OFFER: &str = "https://shop.example.test/autumn?ref=mail";
 
 /// A laid-out newsletter: tables, two remote images, an inline one (`cid:`) and a link. The
 /// images carry no size or alt, so one that did not load lays out 0 wide. The sanitizer strips
-/// `class` (F146), so the frame's elements are found by where they sit: [`LOGO`], [`HERO`],
+/// `class`, so the frame's elements are found by where they sit: [`LOGO`], [`HERO`],
 /// [`BADGE`], [`LINK`], and [`LIAR`], a link whose text names somewhere it does not go. [`LINK`]
 /// carries tracking parameters beside its own `ref`; a click opens [`OFFER`], without them.
 const NEWSLETTER: &str = r##"<table width="600" cellpadding="0" cellspacing="0" bgcolor="#f4efe6"><tr><td>
@@ -377,7 +377,7 @@ fn hovering_fetches_nothing() {
 }
 
 /// The newsletter's frame at rest. `cid:` inline images resolve inside the frame, as `data:` in
-/// its own markup (F42): shown before any consent, with no request made for them. (a) No shared
+/// its own markup: shown before any consent, with no request made for them. (a) No shared
 /// DOM in the real window: the sender's elements are found in the frame and never by the
 /// window's queries, and the frame holds none of the window's elements.
 #[test]

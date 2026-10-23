@@ -235,13 +235,11 @@ fn two_writers_do_not_corrupt_the_mailbox() {
     assert_eq!(rows, 400, "remote_map disagrees with the mailbox");
 }
 
-/// Reading while the writer is busy — `plan.md` phase 8b.
+/// Reading while the writer is busy.
 ///
-/// The pragmas have said since migration 0001 that "WAL lets a reader run while a writer commits,
-/// which is what keeps the UI responsive during a sync". That is true of SQLite and was false of
-/// this struct: WAL's concurrent readers are concurrent across *connections*, and there was one,
-/// behind a mutex, so every query in the process waited behind whatever was committing. The
-/// single case the comment named was the single case it did not cover.
+/// WAL lets a reader run while a writer commits, but only across *connections*: with one handle
+/// behind a mutex, every query in the process would wait behind whatever was committing. The
+/// store's read-only connections are what make the claim true of this struct.
 mod a_reader_that_is_not_the_writer {
     use super::*;
 

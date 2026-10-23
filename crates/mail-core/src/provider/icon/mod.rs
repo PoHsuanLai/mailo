@@ -8,7 +8,7 @@
 //! on Linux), 96 px square, and do not expire; one of another size was written before marks were
 //! drawn at the screen's scale and counts as not cached, so it is fetched again. The bytes shown in
 //! the window are `data:image/png;base64,` URIs read once at startup, one per size a window draws
-//! the mark at ([`Loaded::read`]): a `file:` URL would be the protocol-handler problem in F42.
+//! the mark at ([`Loaded::read`]), never a `file:` URL.
 
 mod cache;
 mod decode;

@@ -6,8 +6,8 @@
 //! composer's page); how anything looks is quire's: every colour, size, radius, weight, shadow
 //! and duration is a token, every control a quire component, every animation quire's. quire's
 //! lint holds the line (`lint::assert_clean` at `Profile::Strict`, and the markup lint over the
-//! rendered window); a rule that needs a value quire has no token for is a request to quire
-//! (FINDINGS "quire requests"), never a literal here.
+//! rendered window); a rule that needs a value quire has no token for is a request to quire,
+//! never a literal here.
 //!
 //! The order below is the cascade and is load-bearing. It is one `concat!` and not several
 //! named pieces because `concat!` takes literals only: `include_str!` expands to one, a `const`

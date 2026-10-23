@@ -2,21 +2,20 @@
 //!
 //! An HTML mail that embeds its images refers to them as `<img src="cid:logo@example">`. The
 //! sanitizer keeps `cid:` deliberately — it names this message's own part and is safe in both
-//! image modes — but nothing downstream resolved it, so every inline image rendered broken.
+//! image modes — and unresolved, every inline image renders broken.
 //!
-//! `plan.md` asks for a custom protocol handler keyed on `BlobId`. That cannot work here: the
+//! A custom protocol handler keyed on `BlobId` cannot work here: the
 //! reader renders into an iframe with `sandbox=""` and no `allow-same-origin`, which gives the
 //! document an opaque origin, and a custom scheme requested from an opaque origin is treated as
 //! cross-origin and refused. Adding `allow-same-origin` to make it work would hand every
 //! sanitizer bug direct access to the application's DOM, which is the one thing that iframe
 //! exists to prevent.
 //!
-//! So the bytes are inlined as `data:` URIs instead. That satisfies the plan's actual
-//! requirement more strongly than the handler would have: the plan forbids a path-shaped handler
-//! because it is "a directory-traversal bug driven by untrusted mail", and this resolves nothing
-//! at all at request time — there is no handler, no lookup keyed on anything the message says,
-//! and no filesystem access. A `cid` from the message is only ever compared against the parts of
-//! that same message.
+//! So the bytes are inlined as `data:` URIs instead. That is safer than any handler: a
+//! path-shaped one would be a directory-traversal bug driven by untrusted mail, and this
+//! resolves nothing at all at request time — there is no handler, no lookup keyed on anything
+//! the message says, and no filesystem access. A `cid` from the message is only ever compared
+//! against the parts of that same message.
 
 use crate::parse::ParsedPart;
 use base64::Engine as _;

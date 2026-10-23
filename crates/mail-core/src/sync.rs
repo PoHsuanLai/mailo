@@ -337,7 +337,7 @@ async fn pass_over(
     accounts: Vec<Configured>,
     hooks: Hooks<'_>,
 ) -> Result<Vec<PassEnd>, CoreError> {
-    // All the accounts at once — `plan.md` phase 8f.
+    // All the accounts at once.
     //
     // Accounts are independent by construction: `AccountId` partitions every table, and two
     // accounts are two conversations with two different servers. Run one after another, a pass
@@ -348,7 +348,7 @@ async fn pass_over(
     // so they share one thread and interleave at their `await` points. What overlaps is the
     // network, which is where the time goes. Spawning would need `'static` and would buy only
     // the few milliseconds of SQLite in between — and the store is one connection behind a
-    // mutex, so those milliseconds cannot overlap anyway. That is phase 8b's subject.
+    // mutex, so those milliseconds cannot overlap anyway.
     //
     // Nothing here needs a rate limiter. Throttling is a within-account question — one server,
     // several connections — and this is one connection each to servers that have never heard of
@@ -983,13 +983,9 @@ fn poll_floor(watch: &WatchMode) -> std::time::Duration {
 
 /// One whole sync pass, whatever the protocol underneath.
 ///
-/// Shared rather than written once per branch, because it was written once per branch and the
-/// two drifted: POP3 fetched headers, then bodies, then drained the outbox, while IMAP stopped
-/// after the headers. An IMAP account therefore never downloaded a message body and never sent
-/// anything it had queued, and nothing said so — the pass reported success for the part it did.
-///
-/// `plan.md` phase 5 asks that "the **same** CLI works through the IMAP backend". The surest way
-/// to make two paths the same is for there to be one.
+/// Shared rather than written once per backend, so POP3 and IMAP cannot drift: both fetch
+/// headers, then bodies, then drain the outbox. The surest way to make two paths the same is for
+/// there to be one.
 async fn pass<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailboxes: &[MailboxRef],
@@ -1012,7 +1008,7 @@ async fn pass<B: mail_proto::Backend>(
             Ok(_) => {}
             // A refused sign-in is reported as one, so the watch stops and says so. As prose it
             // read as an ordinary failure, and a watch retries those every minute — against a
-            // credential already refused, which is the loop F128 exists to prevent.
+            // credential already refused.
             Err(e) if e.retry().needs_person() => {
                 let mut done = Done::default();
                 done.trouble(None, e.retry(), e.to_string());
@@ -1136,10 +1132,9 @@ async fn one_mailbox<B: mail_proto::Backend>(
     say(emit, headers(done_count(one.headers_fetched)));
 
     // What the server knows and a header fetch does not carry: flags, Gmail's labels, and
-    // messages that have gone. `AccountEngine::sweep` has done this since phase 3 and was
-    // called from nowhere but its own tests, so every message stayed unread for ever — mail
-    // read on a phone stayed bold, unread counts were the size of the mailbox, and labels
-    // never arrived, since they ride the same survey.
+    // messages that have gone. Without `AccountEngine::sweep`, mail read on a phone would stay
+    // bold, unread counts would be the size of the mailbox, and labels would never arrive,
+    // since they ride the same survey.
     //
     // After the header fetch, because a sweep is about messages already held, and before the
     // bodies, so the list is right as soon as it is populated. Failures are reported and do
@@ -1305,8 +1300,7 @@ pub async fn folder_now_with(
 ///
 /// Reported by `mailo account list`, because "why is my Sent folder empty" is a question a user
 /// asks and the answer is a fact this client knows: only these folders are fetched. Exposed
-/// rather than duplicated so a test can ask the code rather than restate its rules —
-/// CONVENTIONS §"An assertion that was already true proves nothing", second half.
+/// rather than duplicated so a test can ask the code rather than restate its rules.
 pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<String>)>, CoreError> {
     use mail_store::Store as _;
     configured(store)?

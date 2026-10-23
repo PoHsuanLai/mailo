@@ -297,7 +297,7 @@ fn downloaded_toast(saved: &[PathBuf], absent: usize, failed: Option<&str>) -> S
 }
 
 /// Download: save the conversation's messages, then say where. From a press, which is where a
-/// task is polled (F140).
+/// task is polled.
 fn download(thread: ThreadId) {
     // The bytes are here already, so nothing shows as being saved: each file joins the list
     // when it is written.

@@ -7,9 +7,9 @@
 //! them (`$XDG_CONFIG_HOME/porter/clients.toml`). **mailo never writes either file**: the
 //! person's own is written by porter's Settings alone.
 //!
-//! Before E4 mailo kept its own registry in `oauth.json` (`signin::ClientRegistry`). That file is
-//! still read, for each issuer the porter files do not cover, so a client id registered through
-//! mailo keeps working. It is a fallback to be dropped once porter has imported it (FINDINGS F202).
+//! mailo's own earlier registry, `oauth.json` (`signin::ClientRegistry`), is still read for each
+//! issuer the porter files do not cover, so a client id registered through mailo keeps working.
+//! It is a fallback to be dropped once porter has imported it.
 //!
 //! [`remember`] is the one write left, and it is to mailo's own `oauth.json`, as before: an
 //! account signed in with `MAILO_OAUTH_CLIENT_ID` could not be renewed an hour later otherwise.

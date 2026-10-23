@@ -1,5 +1,5 @@
-//! How long a key takes to reach the screen in the real window on Blitz — `plan.md` phase 8, the
-//! half `frame_budget.rs` cannot see.
+//! How long a key takes to reach the screen in the real window on Blitz: the half
+//! `frame_budget.rs` cannot see.
 //!
 //! `frame_budget` times what the store and the reader do on the render thread. This times what a
 //! person waits for: from the key going in to the frame that shows its answer painted, through

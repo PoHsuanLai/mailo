@@ -4,8 +4,7 @@ Every protocol test is a transcript. No test in this crate opens a socket; the r
 in `crates/mail-proto/tests/common/mod.rs` feeds a [`Machine`] or [`Backend`] from a file and
 asserts what it writes back.
 
-This format is part of the frozen interface. Four agents writing four sessions must not invent
-four harnesses.
+This format is part of the frozen interface: every session is tested through the one harness.
 
 ## Why a text format
 

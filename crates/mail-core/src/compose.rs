@@ -94,9 +94,7 @@ where
 
 /// Create and persist a forward of `message`, addressed to `to`.
 ///
-/// Forwarding was modelled and unreachable: `Draft::forward_of` has existed and been tested in
-/// `mail-domain` since phase 1, and no surface in the application called it. A mail client that
-/// cannot forward is not one, and the shape was already there — what was missing is the half
+/// `Draft::forward_of` in `mail-domain` gives the shape; this supplies the half
 /// `Draft::reply_to` also leaves to the caller, the rendering of the message being carried.
 ///
 /// Recipients are a parameter rather than derived: a forward is *to* someone, and there is no
@@ -239,10 +237,8 @@ pub fn account_for(store: &SqliteStore, wanted: Option<&str>) -> Result<AccountI
 
 /// Create and persist a message that answers nothing, returning the draft.
 ///
-/// The gap phase 7 opened with: `Draft` has carried every field a new message needs since phase
-/// 1, `Composer` has edited one since phase 6 and `send` has sent one since phase 4, and there
-/// was no way to *make* one that was not a reply or a forward. Mail could only be written to
-/// someone who had written first.
+/// Mail written to someone who has not written first: a draft that is neither a reply nor a
+/// forward.
 ///
 /// Shaped like [`draft_reply`] deliberately — persisted immediately, returned whole — so the
 /// composer opens on a draft that already exists and Discard has something to delete.
@@ -396,11 +392,6 @@ fn media_type_of(name: &str) -> &'static str {
 ///
 /// Bytes rather than a path, because the window has a file chooser that hands over contents and
 /// the command line has a path, and only one of those is I/O this function should be doing.
-///
-/// `PendingAttachment` has existed since phase 1, `mail_mime::build` has assembled multipart
-/// from it since phase 2 and `sqlite/draft.rs` has persisted it since phase 3 — and nothing in
-/// the application ever constructed one, so the send path supported attachments right up to the
-/// moment somebody needed one. See FINDINGS F138.
 pub fn attach_bytes(
     store: &SqliteStore,
     draft: DraftId,
@@ -765,10 +756,6 @@ pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError>
 }
 
 /// Put the identity's signature beneath what was written.
-///
-/// `Identity.signature` has been a column since phase 1 and nothing has ever read it: no sending
-/// path appended one, no composer showed one, and no command could set one. Every message this
-/// client has sent went out unsigned.
 ///
 /// Appended at compose time rather than at send, like the quoted material beside it, so the user
 /// can see it, edit it, or take it off for one message. A signature the user cannot delete from

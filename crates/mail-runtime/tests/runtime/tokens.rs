@@ -1,4 +1,4 @@
-//! Tokens renewed inside an engine that outlives them — `mailo watch`, `plan.md` 10.1.
+//! Tokens renewed inside an engine that outlives them — `mailo watch`.
 //!
 //! An access token lives about an hour and `mailo watch` runs for days. Every test here drives
 //! one engine, built once, against servers in this process: an IMAP server that accepts only the

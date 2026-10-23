@@ -155,8 +155,8 @@ fn fetching_headers_uses_body_peek() {
     // `matches!(outcome, Fetched { .. })` — true whatever happened to them, and they were
     // dropped. Every message was therefore built unread, and only a later flag sweep could
     // correct it; on a CONDSTORE server that sweep asks `CHANGEDSINCE` and never revisits old
-    // mail, so anything found by backfill stayed unread for ever. Against a real account, 177
-    // of every 200 messages. See `CONVENTIONS.md`, "An assertion that was already true".
+    // mail, so anything found by backfill stayed unread for ever. See `CONTRIBUTING.md`, "An
+    // assertion that was already true proves nothing".
     match outcome {
         ProtoOutcome::Fetched { flags, .. } => assert_eq!(
             flags,
@@ -174,9 +174,8 @@ fn fetching_headers_uses_body_peek() {
 /// Bodies are paired with messages by the UID in each response, not by position.
 ///
 /// A server answers a `UID FETCH` in mailbox order, whatever order the set was written in, and
-/// says nothing about a UID that has gone. Pairing the n-th reply with the n-th request gave
-/// messages each other's bodies on a real Gmail account, once the engine started asking for the
-/// newest first: 1,302 messages ended up holding several UIDs and 1,763 held none.
+/// says nothing about a UID that has gone. Pairing the n-th reply with the n-th request gives
+/// messages each other's bodies as soon as a set is asked for newest first.
 #[test]
 fn bodies_are_matched_by_uid_not_by_order() {
     let trace = concat!(
@@ -550,7 +549,7 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
     assert!(matches!(err, ProtoError::Unsupported(_)), "{err}");
 }
 
-/// F156: a move into the folder its messages are already in sends nothing, with `MOVE` or
+/// A move into the folder its messages are already in sends nothing, with `MOVE` or
 /// without it.
 ///
 /// The retry of a move split per mailbox, interrupted after its first part, finds that part's
@@ -927,7 +926,7 @@ mod gmail_labels {
             ),
             (
                 // Gmail sends modified UTF-7. A Chinese label arriving as `&Ux1Tgg-` and being
-                // shown that way is the same class of bug as F44's mailbox names.
+                // shown that way is wire bytes leaking into the window, as with mailbox names.
                 "a non-ascii label is decoded rather than shown as wire bytes",
                 "S: * 1 FETCH (UID 42 FLAGS () RFC822.SIZE 100 X-GM-LABELS (\"&Ux1Tgg-\"))\n",
                 vec![(imap_ref("INBOX", 42), vec!["\u{531d}\u{5382}".to_owned()])],
@@ -940,7 +939,7 @@ mod gmail_labels {
 
     #[test]
     fn a_server_without_labels_is_not_asked_for_them() {
-        // F113's condition: ask for what is read, and only that. A Dovecot account has
+        // Ask for what is read, and only that. A Dovecot account has
         // no X-GM-LABELS and must not be sent an attribute it will reject.
         let trace = concat!(
             "S: * OK ready\n",

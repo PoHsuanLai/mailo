@@ -20,8 +20,8 @@ use std::time::Duration;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------------------
-// Fixtures. Every instant is fixed: CONVENTIONS.md section 6 forbids `Utc::now()` in tests
-// too, so that a failure reproduces.
+// Fixtures. Every instant is fixed: nothing below `mail-runtime` calls `Utc::now()`, tests
+// included, so that a failure reproduces.
 // ---------------------------------------------------------------------------------------
 
 const fn tid(n: u128) -> ThreadId {
@@ -890,7 +890,7 @@ fn a_message_target_snoozes_and_pins_the_whole_thread() {
 
 #[test]
 fn ops_with_no_server_form_queue_no_remote_work() {
-    // These discriminate for real since F12: `Applied::remote` is `Some(RemoteIntent)` under
+    // These discriminate for real: `Applied::remote` is `Some(RemoteIntent)` under
     // server-backed capabilities, so a `None` here means the capability was honoured rather
     // than that the domain could not address the server. The positive half of the contract is
     // `server_capabilities_queue_remote_intent` below.

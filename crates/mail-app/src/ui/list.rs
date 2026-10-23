@@ -1,7 +1,7 @@
 //! The list pane.
 //!
 //! The search box, what the pane says when it has nothing to show, the rows, and the way to
-//! ask for another page. Split from [`super::app`] (`CONVENTIONS.md` §8). The queries stay in
+//! ask for another page. Split from [`super::app`]. The queries stay in
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
 use super::common::classed;

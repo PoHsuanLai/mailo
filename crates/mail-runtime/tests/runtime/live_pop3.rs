@@ -1,9 +1,8 @@
 //! A POP3 fetch against a real server implementation, checked byte for byte.
 //!
-//! POP3 is the protocol the first real account here will use, and F91 had just found that the
-//! IMAP path was appending the FETCH response's closing paren to every message and running each
-//! body through `from_utf8_lossy`. The same questions had to be asked of this one, against a
-//! server nobody here wrote: `twisted.mail.pop3`.
+//! A client can append a response's closing paren to every message or run each body through
+//! `from_utf8_lossy` and still pass a test written against its own transcript. So this one is
+//! asked of a server nobody here wrote: `twisted.mail.pop3`.
 //!
 //! The fixture is chosen to break a careless client in the three ways POP3 can:
 //!
@@ -68,7 +67,7 @@ async fn a_retrieved_message_is_byte_for_byte_what_the_server_holds() {
         .expect("headers and body are separated");
     let tail = &body[sep + 4..];
 
-    // Byte for byte, not `contains`: F91 shipped because a substring assertion cannot see
+    // Byte for byte, not `contains`: a substring assertion cannot see
     // something *added*, and the three failures below are all additions or substitutions.
     assert_eq!(
         tail, EXPECTED_BODY,

@@ -219,8 +219,8 @@ pub fn perform(
     // What the server actually supports, which is the only thing that decides whether an
     // operation gets a `RemoteIntent` at all — `Op::remote_intent` is the sole consumer of
     // `caps`, and under `ArchiveMeans::LocalOnly` it returns `None` for Archive and Trash.
-    // This used to be a hardcoded struct of safe defaults, so archiving in the window changed
-    // nothing on the server and the conversation came back on the next full sync. See F139.
+    // Defaults in place of the stored capabilities would change nothing on the server, and the
+    // conversation would come back on the next full sync.
     let caps = caps_here(store, account.clone(), chrono::Utc::now());
     let applied = op.apply(
         &Target::Threads(vec![thread]),

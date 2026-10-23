@@ -135,7 +135,7 @@ chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "99eec9dd
 ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6" }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
 ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6", features = ["dioxus"] }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
-# The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
+# The account sheets' views: `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
 ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6" }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
 # anyview, the viewer's light tier, at the rev of its main that names the quire rev above (the same
@@ -170,7 +170,7 @@ url = "2"
 notify = "8.2"
 
 # The native file dialog beside the Import and Export sheets' typed path. Pinned at the version
-# dioxus-desktop linked when the window was a webview (F158); moving it is a decision of its own.
+# dioxus-desktop linked when the window was a webview; moving it is a decision of its own.
 #
 # On Linux and the BSDs, through the desktop portal (and so from inside a Flatpak), with no GTK.
 [target.'cfg(target_os = "linux")'.dependencies]

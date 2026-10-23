@@ -6,7 +6,7 @@
 //! makes a resolver.
 //!
 //! With it on, a message asks only when the receiving server's believed
-//! `Authentication-Results` (`crate::auth`, FINDINGS F161) says DMARC passed for its From domain.
+//! `Authentication-Results` (`crate::auth`) says DMARC passed for its From domain.
 //! The rest — the record, the policy at enforcement, the mark certificate, the drawing and the
 //! cache — is `mail_runtime::bimi`'s. The certificate must chain to a mark verifying authority's
 //! root: those shipped in `roots.pem`, and any the user keeps in `bimi-roots.pem` beside

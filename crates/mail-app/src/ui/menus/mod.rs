@@ -1,7 +1,7 @@
 //! The menus a row opens when a click needs a payload.
 //!
 //! A label and a snooze time are not things a button can carry, so the row opens one of these
-//! instead of performing the operation itself. Split from [`super::app`] (`CONVENTIONS.md` §8).
+//! instead of performing the operation itself. Split from [`super::app`].
 //!
 //! Both are plain lists of words: no header restating what was picked to open them, and no
 //! glyph repeated down every row (design-language §2.2, §2.6).

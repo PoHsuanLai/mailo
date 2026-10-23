@@ -129,7 +129,7 @@ fn take(offer: Offer, mut phase: Signal<Phase>, revision: Option<Signal<u64>>) {
     phase.set(Phase::Working);
     let store = consume_context::<Arc<SqliteStore>>();
     let desk = try_consume_context::<Desk>();
-    // Spawned from a click, which is where a task is polled (F140): a future started from a
+    // Spawned from a click, which is where a task is polled: a future started from a
     // component body is the one thing that may never run.
     spawn(async move {
         let found = offer.found.clone();

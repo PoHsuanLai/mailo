@@ -1,4 +1,4 @@
-//! Reading a mailbox through Microsoft Graph (`plan.md` 10.18): an engine driven against a
+//! Reading a mailbox through Microsoft Graph: an engine driven against a
 //! listener in this process that plays Graph's side — folders and their children, delta pages
 //! and links, `$value` bodies, `PATCH`es and moves, throttling, and a token it stops accepting.
 //!

@@ -1,4 +1,4 @@
-//! The CLI against a real store, which is `plan.md` phase 4's "a tiny CLI can list and open".
+//! The CLI against a real store: listing and opening.
 //!
 //! Driven through `cli::run` rather than by spawning the binary, so the assertions are about what
 //! the user sees rather than about process plumbing. The handle has no OAuth client at hand, on
@@ -731,8 +731,8 @@ mod forwarding {
     #[test]
     fn a_forward_needs_somewhere_to_go() {
         // A forward has no recipients of its own, and the CLI has no command that adds one to an
-        // existing draft — so a forward without `--to` is the F99 dead end again: a draft that
-        // cannot be sent and cannot be repaired.
+        // existing draft — so a forward without `--to` would leave a draft that cannot be sent
+        // and cannot be repaired.
         let id = uuid::Uuid::new_v4().to_string();
         // The message it names is the one asked for.
         let err = parse(&["forward", &id]).unwrap_err();
@@ -820,7 +820,7 @@ mod forwarding {
     }
 }
 
-/// `compose` — phase 7a's command line half.
+/// `compose`: a new message from the command line.
 mod composing {
     use super::*;
 
@@ -830,7 +830,7 @@ mod composing {
 
     #[test]
     fn a_new_message_needs_somewhere_to_go() {
-        // The same F99 dead end `forward` has: no command adds a recipient to an existing draft,
+        // The same dead end `forward` has: no command adds a recipient to an existing draft,
         // so a `compose` without `--to` would leave one that can never be sent.
         let err = parse(&["compose"]).unwrap_err();
         assert!(
@@ -917,8 +917,7 @@ mod composing {
     }
 
     /// The flags that ask for a receipt, OpenPGP or S/MIME. A receipt can be asked for in either
-    /// word order: `plan.md` says one and the brief the other, and a flag refused for its word
-    /// order is a flag nobody finds.
+    /// word order, since a flag refused for its word order is a flag nobody finds.
     #[test]
     fn compose_flags_set_what_they_say() {
         use ReceiptRequest::{Requested, Unrequested};
@@ -1013,7 +1012,7 @@ mod composing {
     }
 }
 
-/// `account add <address> --jmap [URL]` (`plan.md` 10.17).
+/// `account add <address> --jmap [URL]`.
 mod jmap_setup {
     use super::*;
 

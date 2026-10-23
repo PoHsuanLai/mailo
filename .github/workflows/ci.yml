@@ -181,10 +181,9 @@ jobs:
       - name: Live protocol tests
         run: ./scripts/live-tests.sh
 
-  # The whole workspace on macOS and Windows: build, clippy and the tests. Until 2026-09-27 only
-  # `latchkey` ran here and the rest was Linux-only on purpose; mailo now runs on all three, with
-  # the keyring, notifications, file dialogs and per-user directories each on the platform's own
-  # (FINDINGS), and a claim like that checked only on Linux is a claim rather than a fact.
+  # The whole workspace on macOS and Windows: build, clippy and the tests. mailo runs on all three,
+  # with the keyring, notifications, file dialogs and per-user directories each on the platform's
+  # own, and a claim like that checked only on Linux is a claim rather than a fact.
   #
   # A test that cannot hold on a platform says so itself with a `cfg` on the test, rather than
   # being skipped here, so what is not checked where is written beside what it checks.
@@ -313,9 +312,8 @@ jobs:
           path: target/wix/*.msi
           if-no-files-found: error
 
-  # Dependency licences. The allow-list in deny.toml is the machine-readable half of
-  # docs/licensing-references.md: a dependency whose licence is not on it fails here rather than
-  # being noticed later by somebody reading Cargo.lock.
+  # Dependency licences. A dependency whose licence is not on deny.toml's allow-list fails here
+  # rather than being noticed later by somebody reading Cargo.lock.
   licences:
     runs-on: ubuntu-latest
     timeout-minutes: 10

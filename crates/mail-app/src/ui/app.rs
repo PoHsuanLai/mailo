@@ -31,10 +31,10 @@ use std::sync::Arc;
 
 #[component]
 pub(super) fn App() -> Element {
-    // No store handle in the component body any more. Since phase 8c every read this component
-    // makes goes through a `use_resource` that takes its own clone for a blocking thread, or
-    // through the first-frame fallback beside it, which asks the context where it stands. A
-    // handle held here is a handle that invites a query back onto the thread that draws.
+    // No store handle in the component body. Every read this component makes goes through a
+    // `use_resource` that takes its own clone for a blocking thread, or through the first-frame
+    // fallback beside it, which asks the context where it stands. A handle held here is a
+    // handle that invites a query back onto the thread that draws.
     // The launched look, when `main` provided one. A test that builds `App` with only the
     // store keeps the first-run appearance.
     // Opened on a conversation when the window was started to show one (`mailo open`), or on
@@ -213,11 +213,11 @@ pub(super) fn App() -> Element {
     });
     // And the answer for the very first frame, computed here because there is not one yet.
     //
-    // This is what phase 8c got wrong the first time. A bare resource is empty until it
-    // resolves, so the window opened on an empty mailbox — and under F140 it stays empty, since
-    // nothing ever polls the task. Falling back to the synchronous answer costs one query on the
-    // first frame and nothing afterwards: once the resource has a value it keeps it across
-    // restarts, so a search never drops back to computing on this thread.
+    // A bare resource is empty until it resolves, so without this the window would open on an
+    // empty mailbox and stay empty, since a task spawned from a component body is never polled.
+    // Falling back to the synchronous answer costs one query on the first frame and nothing
+    // afterwards: once the resource has a value it keeps it across restarts, so a search never
+    // drops back to computing on this thread.
     let badges = use_memo(move || match counted.read().as_ref() {
         Some(counts) => counts.clone(),
         None => {
@@ -367,7 +367,7 @@ pub(super) fn App() -> Element {
         asked,
     } = use_list(shell, pages, revision);
     // Render what the person is about to open before they open it — the top of the list, and
-    // the neighbours of the open conversation — so that opening it is a lookup (phase 8e).
+    // the neighbours of the open conversation — so that opening it is a lookup.
     super::reading::use_warming(shell, threads);
 
     let drafts = use_memo(move || {
@@ -386,12 +386,12 @@ pub(super) fn App() -> Element {
 
     // One more row than asked for means there is another page. Asking the store for the count
     // would be a second query answering a question this one already answers.
-    // Deliberately a growing limit rather than `Page::next`, which the store also returns.
-    // `plan.md` asks for the cursor, and the cursor is the right answer for an accumulating
-    // list — but accumulating means holding pages in a signal and rebuilding them after every
-    // archive, star and ingest, and a mixture of pages fetched at different moments is exactly
-    // the inconsistency keyset pagination exists to avoid. One query for the whole visible list
-    // is always self-consistent, costs a few thousand indexed rows at the sizes this client is
+    // Deliberately a growing limit rather than `Page::next`, which the store also returns. A
+    // cursor is the usual answer for an accumulating list — but accumulating means holding
+    // pages in a signal and rebuilding them after every archive, star and ingest, and a mixture
+    // of pages fetched at different moments is exactly the inconsistency keyset pagination
+    // exists to avoid. One query for the whole visible list is always self-consistent, costs a
+    // few thousand indexed rows at the sizes this client is
     // for, and needs no invalidation logic at all. Revisit when a mailbox is large enough to
     // measure, at which point the cursor is already there.
     let more = use_memo(move || threads().len() as u32 >= PAGE * pages());
@@ -925,10 +925,10 @@ mod tests {
 
     /// Whether a task spawned from inside an event handler ever runs.
     ///
-    /// F103 established that a future spawned from a *component body* is never polled here, and
-    /// left the other half open: the Sync button spawns from a click handler, which is a
-    /// different path. Left open it is a question about whether the one button that fetches mail
-    /// works at all, so it is worth a component that exists only to ask it.
+    /// A future spawned from a *component body* is never polled here. The Sync button spawns
+    /// from a click handler, which is a different path, and whether it runs decides whether the
+    /// one button that fetches mail works at all, so it is worth a component that exists only to
+    /// ask it.
     static SPAWN_RAN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     #[component]
@@ -957,10 +957,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_future_started_when_a_component_mounts_does_run() {
-        // F103 concluded it does not, from prints taken under the broken launch F107 found. If
-        // that conclusion was an artefact then a periodic sync can be an ordinary `use_future`,
-        // and if it was not then it has to be driven some other way. Worth knowing before
-        // building on either answer.
+        // A future started at mount runs, so a periodic sync can be an ordinary `use_future`.
         MOUNTED_SPAWN_RAN.store(false, std::sync::atomic::Ordering::SeqCst);
         let mut dom = VirtualDom::new(MountedSpawnProbe);
         dom.rebuild_in_place();
@@ -1003,8 +1000,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_keystroke_reaches_the_store() {
-        // The half of F103 that could not be checked by pressing keys at the window: whether a
-        // keydown delivered to the shell reaches the handler, the decision, and the database.
+        // Whether a keydown delivered to the shell reaches the handler, the decision, and the
+        // database.
         // `j` opens the first conversation and `e` archives it.
         dispatching();
         let (store, _dir) = realistic();
@@ -1067,7 +1064,7 @@ mod tests {
 
     #[tokio::test]
     async fn c_writes_to_someone_who_has_not_written_first() {
-        // Phase 7a through the real tree. Everything else the keyboard does acts on the
+        // A new message through the real tree. Everything else the keyboard does acts on the
         // conversation under the cursor; this one has no conversation, which is why it is also
         // the only shortcut that does anything at all in an empty mailbox.
         dispatching();
@@ -1100,10 +1097,8 @@ mod tests {
 
     #[tokio::test]
     async fn the_composer_offers_a_way_to_attach_a_file() {
-        // Phase 7b's window half. `PendingAttachment` was modelled, persisted and assembled into
-        // multipart, and no surface could make one — so what this asserts is the existence of
-        // the control, which is the whole of what was missing. The control is a button that
-        // opens the native dialog (`ui::pick`); `compose::tests::life` presses it.
+        // Attaching from the window: what this asserts is the existence of the control, a button
+        // that opens the native dialog (`ui::pick`); `compose::tests::life` presses it.
         dispatching();
         let (store, _dir) = realistic();
         let mut dom = VirtualDom::new(App).with_root_context(store.clone());

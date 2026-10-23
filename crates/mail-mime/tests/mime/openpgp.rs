@@ -238,7 +238,7 @@ fn a_signed_message_is_pgp_mime_with_the_content_as_its_first_part() {
 #[test]
 fn restamping_the_date_after_signing_leaves_the_signature_good() {
     // The order the outbox runs them in: signed when Send is pressed, `Date` replaced as the
-    // message leaves (`plan.md` 10.8). The signature covers the content entity only, so the
+    // message leaves. The signature covers the content entity only, so the
     // header may change under it.
     let me = key("me", 8);
     let signer = open_key(&me);

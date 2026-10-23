@@ -259,7 +259,7 @@ pub struct Manual {
 
 /// A plan for a server the preset table has never heard of.
 ///
-/// Every preset here was written from a measured spike against a specific host. This one cannot
+/// Every preset here was written from a measured probe of a specific host. This one cannot
 /// be, so it assumes only what is nearly universal and safe to be wrong about:
 ///
 /// - **Implicit TLS.** Never `StartTlsRequired` and never `Plaintext`. An opportunistic upgrade

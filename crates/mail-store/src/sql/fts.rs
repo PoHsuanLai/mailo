@@ -7,7 +7,7 @@
 //!
 //! Tokenizing here rather than in FTS5 is also what makes Chinese searchable at all: `unicode61`
 //! makes one token of an unbroken run of ideographs, so a subject was one word and only typing
-//! all of it found anything (FINDINGS F125).
+//! all of it found anything.
 //!
 //! [`Filter::Text`]: mail_domain::Filter::Text
 

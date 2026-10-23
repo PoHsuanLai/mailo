@@ -37,7 +37,7 @@ impl Fetching {
     /// A folder's place was chosen: fetch it, unless that was done a moment ago or a pass is
     /// running on its account, then read the list and the badges again.
     ///
-    /// Called from the click that chose it, which is where a spawned task is polled (F140).
+    /// Called from the click that chose it, which is where a spawned task is polled.
     pub(in crate::ui) fn open_folder(&self, mailbox: MailboxRef, mut revision: Signal<u64>) {
         let MailboxRef { account, path } = mailbox;
         // Two writers on one account's rows: the pass has them, and opening goes without.

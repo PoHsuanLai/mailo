@@ -1,5 +1,4 @@
 /target
-/spike/out/
 .grok-progress.log
 .live-venv/
 __pycache__/

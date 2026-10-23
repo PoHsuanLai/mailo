@@ -1,4 +1,4 @@
-//! Microsoft Graph's addresses in `remote_map` (`plan.md` 10.18): kept and read back as Graph's,
+//! Microsoft Graph's addresses in `remote_map`: kept and read back as Graph's,
 //! never as POP3's, and moved to the id a folder move returns.
 //!
 //! Every scenario runs against the SQLite store and the in-memory one and compares what each

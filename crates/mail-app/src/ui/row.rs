@@ -4,7 +4,7 @@
 //! draws it and does what it asks. Each row is quire's `ThreadRow` inside mailo's `.row`, the box
 //! the row's own menus and the snooze float are placed against. A click anywhere on a row only
 //! opens or picks it, and it draws no buttons: its actions are in its menu ([`menu`]), opened by
-//! a right click. Split from [`super::app`] (`CONVENTIONS.md` §8).
+//! a right click. Split from [`super::app`].
 
 pub(in crate::ui) mod act;
 pub(in crate::ui) mod listed;

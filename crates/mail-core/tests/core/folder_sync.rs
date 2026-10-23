@@ -1,5 +1,5 @@
 //! Every followed folder of an IMAP account is fetched, not only the inbox and Sent, and one
-//! folder can be fetched on demand — `plan.md` 10.2, the half that lists a folder's mail.
+//! folder can be fetched on demand.
 //!
 //! Against a server on a real socket that holds several mailboxes, including a nested one and one
 //! whose name travels as modified UTF-7, because the parts most likely to be wrong are which
@@ -621,7 +621,7 @@ fn an_account_whose_folders_are_labels_is_not_fetched_by_folder() {
 }
 
 /// Which mailboxes a pass fetches, asked through the same function the pass uses rather than a
-/// copy of its rules — the mistake F116 was about.
+/// copy of its rules, which would agree with itself whatever the pass did.
 #[test]
 fn which_mailboxes_a_pass_fetches() {
     let role = |path: &str, role: MailboxRole| (path.to_owned(), role);

@@ -1,9 +1,7 @@
 //! Putting a conversation off until later, and bringing it back.
 //!
-//! `Op::SetSnooze` has been in the domain since phase 1 and `Filter::Snoozed`/`SnoozeDue` have
-//! been answerable by the store for as long — and nothing could set one. `op_for` returns `None`
-//! for `OpKind::Snooze` because the op needs a payload, and no surface supplied one, so the
-//! whole apparatus sat there unused.
+//! `op_for` returns `None` for `OpKind::Snooze` because `Op::SetSnooze` needs a payload, the
+//! instant to come back at; this module supplies it.
 //!
 //! Nothing is written when a snooze expires. `SnoozeDue` is resolved against `now` at query time,
 //! so a conversation returns to the inbox on the stroke whether the client was running or not;

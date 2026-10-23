@@ -40,11 +40,10 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
             "me@example.test",
             None,
         );
-        // Capabilities, because `account add` always writes them and a fixture without them
-        // is a state the application cannot reach — F133's lesson. Gmail's own, as recorded
-        // against the real account: archiving means dropping the inbox label, and labels
-        // are the server's. This is what decides whether an operation performed in the
-        // window has a server half at all.
+        // Capabilities, because `account add` always writes them and a fixture without them is a
+        // state the application cannot reach. Gmail's own: archiving means dropping the inbox
+        // label, and labels are the server's. This is what decides whether an operation performed
+        // in the window has a server half at all.
         mail_store::testing::seed_caps(&store, acct_account(), &gmail_caps(), chrono::Utc::now())
             .unwrap();
     }
@@ -272,11 +271,8 @@ pub(in crate::ui) fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
 
 /// Write the shell to `target/shell.html`, stylesheet and all, so it can be looked at.
 ///
-/// `#[ignore]`d because it is a tool, not an assertion. It exists because the shell's layout
-/// had never been seen: the desktop window is a WebView surface owned by the compositor, and
-/// under rootless XWayland an X11 grab of it returns `BadMatch`, so there was no way from
-/// here to a picture of it. This produces the same markup and the same stylesheet as a
-/// static page, which any browser will render and screenshot headlessly:
+/// `#[ignore]`d because it is a tool, not an assertion. This produces the same markup and the same
+/// stylesheet as a static page, which any browser will render and screenshot headlessly:
 ///
 /// ```text
 /// cargo test -p mail-app --bins -- --ignored render_the_shell_to_a_file

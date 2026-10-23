@@ -1,8 +1,7 @@
 //! The command line over the store.
 //!
-//! Exists before the Dioxus shell because it is testable: `plan.md` phase 4 asks for "a tiny
-//! CLI can list, open and reply", and a CLI can be driven from a test where a window cannot.
-//! The UI will call the same `Store` methods.
+//! A CLI can be driven from a test where a window cannot. The window calls the same `Store`
+//! methods.
 
 use chrono::Local;
 use mail_core::account::{Receive, Setup};
@@ -432,8 +431,8 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                     return Err(format!("--to needs an address\n\n{}", usage()));
                 }
                 (None, _) => {
-                    // A forward with nobody to send it to is the F99 dead end again: a draft the
-                    // CLI cannot finish and no command can repair.
+                    // A forward with nobody to send it to would be a draft the CLI cannot finish
+                    // and no command can repair.
                     return Err(format!(
                         "forward needs recipients: mailo forward {raw} --to someone@example.com\n\n{}",
                         usage()
@@ -604,8 +603,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             while let Some(flag) = rest.next() {
                 let missing = format!("{flag} needs a value\n\n{}", usage());
                 match flag.as_str() {
-                    // Both word orders: `plan.md` says one and the brief the other, and a flag
-                    // refused for its word order is a flag nobody finds.
+                    // Both word orders: a flag refused for its word order is a flag nobody finds.
                     "--request-receipt" | "--receipt-request" => {
                         receipt = ReceiptRequest::Requested;
                     }
@@ -637,8 +635,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 }
             }
             if to.is_empty() {
-                // The F99 dead end once more: a draft with nobody to send it to is one no
-                // command can finish.
+                // A draft with nobody to send it to is one no command can finish.
                 return Err(format!(
                     "compose needs recipients: mailo compose --to someone@example.com\n\n{}",
                     usage()

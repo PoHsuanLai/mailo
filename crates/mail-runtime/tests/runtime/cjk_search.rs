@@ -1,7 +1,7 @@
 //! Searching mail that is not in English.
 //!
-//! See FINDINGS F125. Full-text search cannot find a *part* of a Chinese phrase, because
-//! `unicode61` makes an unbroken run of ideographs one token; the field clauses can, because
+//! `unicode61` alone cannot find a *part* of a Chinese phrase, because it makes an unbroken
+//! run of ideographs one token; the field clauses can, because
 //! they are `LIKE`. Both halves are asserted here so a change to either is noticed.
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
@@ -119,10 +119,9 @@ const CASES: &[(&str, By, &str, usize)] = &[
     ("subject: a longer part", By::Subject, "系統維護", 1),
     // In the body rather than the subject, so not by this clause, which is correct.
     ("subject: a body word", By::Subject, "服務", 0),
-    // FINDINGS F125, and the migration that answered it. `unicode61` makes one token of an
-    // unbroken run of ideographs, so the index no longer reads the message columns: it reads a
-    // column Rust fills with overlapping bigrams, and the needle is bigrammed the same way.
-    // These rows used to assert the opposite, and were written to fail the day this changed.
+    // `unicode61` makes one token of an unbroken run of ideographs, so the index does not read
+    // the message columns: it reads a column Rust fills with overlapping bigrams, and the needle
+    // is bigrammed the same way.
     (
         "text: the whole run still matches",
         By::Text,

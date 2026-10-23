@@ -3,7 +3,7 @@
 //! The document is [`mail_core::print`]'s, the one `mailo print` writes, so the window and the command
 //! cannot disagree about what a printout holds. Building it reads every message's stored bytes,
 //! so it is done on a blocking thread started by the click or the key that asked for it, and never
-//! from a component body (F140).
+//! from a component body.
 //!
 //! There is no webview anywhere. The document becomes a PDF through quire (`ds_blitz::pdf`,
 //! [`paper`]), and Print hands that PDF to the system's print dialog (`ds_blitz::print_dialog`,

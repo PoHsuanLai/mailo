@@ -398,8 +398,8 @@ mod ingest_throughput {
 
 /// The query shapes the search language made reachable.
 ///
-/// F118 turned `from:ada is:unread after:2026-01-01` into `Filter::And` of three clauses, which
-/// nothing in this application had ever asked the store for. A query language that produces
+/// `from:ada is:unread after:2026-01-01` is `Filter::And` of three clauses, a shape nothing
+/// else in this application asks the store for. A query language that produces
 /// shapes the SQL builder answers by reading the whole mailbox is a slower search than the one
 /// it replaced, so the shapes are measured rather than assumed.
 mod the_search_language {

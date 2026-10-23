@@ -1,4 +1,4 @@
-# DERIVED from spike/out/imap.trace. The finding F14 recorded, as a transcript: the same
+# DERIVED from a capture against a real Gmail account. As a transcript: the same
 # server answers CAPABILITY differently before and after authentication. A client that reads
 # once, before LOGIN, concludes there is no CONDSTORE — and then sees HIGHESTMODSEQ in the
 # very next SELECT, which only a CONDSTORE server sends.

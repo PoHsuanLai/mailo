@@ -4,7 +4,7 @@
 //! up when it leaves rather than when it was queued. Looked up at queue time, a second move of a
 //! message queued behind a first named the address the first moved it away from: `UID MOVE` of
 //! a UID no longer in the mailbox is not an error (RFC 9051), so the second move answered OK,
-//! settled, and was lost (FINDINGS F153).
+//! settled, and was lost.
 
 use crate::{Dispatch, StoreError};
 use mail_domain::{MessageId, ProtoOp, RemoteIntent, RemoteRef};
@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 pub(crate) type Lookup<'a> = &'a dyn Fn(MessageId) -> Result<Place, StoreError>;
 
 /// Complete syncs of the folder a move put a message in that may miss it before an operation
-/// waiting on it is given up ([`Dispatch::Lost`], FINDINGS F155).
+/// waiting on it is given up ([`Dispatch::Lost`]).
 ///
 /// One ought to be enough: a server answers `MOVE` only once the message is in its destination,
 /// under a UID at or above the `UIDNEXT` the next `SELECT` reports, and the next sync of that

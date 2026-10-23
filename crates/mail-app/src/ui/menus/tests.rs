@@ -9,12 +9,10 @@ use mail_core::when::Clock;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 
-/// Labels, in both directions — `plan.md` phase 7d.
+/// Labels, in both directions.
 ///
-/// `label:` has searched since F131 and sync has ingested Gmail's labels since F136, and the
-/// row's own "Label" button opened nothing: `OpKind::AddLabel` has no `Op` because
-/// `Op::Label` carries a payload, and `op_for` correctly returned `None` for it. Correctly,
-/// and then nothing else happened.
+/// `OpKind::AddLabel` has no `Op` because `Op::Label` carries a payload, and `op_for` returns
+/// `None` for it, so the row's own "Label" button has to open a picker of its own.
 mod naming_a_conversation {
     use super::*;
 

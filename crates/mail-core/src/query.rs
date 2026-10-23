@@ -1,11 +1,9 @@
 //! What a person types into a search box, as a [`Filter`].
 //!
-//! `mail-domain` has had a complete query algebra since phase 1 — `From`, `To`, `Subject`,
-//! `Date`, `HasAttachment`, `Read`, `Starred`, `Pinned`, `Snoozed`, `InMailbox`, and `And`/`Or`/
-//! `Not` over all of them — proptested against the SQL that answers it. Every search this
-//! application could make was `Filter::Text(Contains(the whole line))`. On the maildrop this
-//! client is for, "from Bob about the invoice, some time last year" is a question the store could
-//! already answer and nobody could ask.
+//! `mail-domain` has a complete query algebra — `From`, `To`, `Subject`, `Date`,
+//! `HasAttachment`, `Read`, `Starred`, `Pinned`, `Snoozed`, `InMailbox`, and `And`/`Or`/`Not`
+//! over all of them — proptested against the SQL that answers it. This turns a typed line into
+//! it, so "from Bob about the invoice, some time last year" is a question a person can ask.
 //!
 //! The vocabulary is the one every mail client uses, because the point is to be guessable:
 //!

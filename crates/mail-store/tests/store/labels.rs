@@ -1,8 +1,8 @@
 //! Labels the server reports, landing where a search can find them.
 //!
-//! `Ingest.labels` has upserted label *definitions* since phase 1 and nothing ever said which
-//! message carried which. The half added here is `Ingest.label_names`: the server's complete
-//! list per message, by name, which the store resolves to ids and applies as a difference.
+//! `Ingest.labels` upserts label *definitions*; `Ingest.label_names` says which message carries
+//! which: the server's complete list per message, by name, which the store resolves to ids and
+//! applies as a difference.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
@@ -204,7 +204,7 @@ fn a_label_the_server_no_longer_lists_is_removed() {
 #[test]
 fn an_unchanged_list_writes_nothing() {
     // Only the difference is applied. Writing every membership on every pass would fill the
-    // change log with nothing, which is the same waste F95 and F113 were about.
+    // change log with nothing.
     let (store, _dir) = store();
     let id = message(&store, 42);
     let first = label_patch(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);

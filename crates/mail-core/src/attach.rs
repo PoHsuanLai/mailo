@@ -198,7 +198,7 @@ pub fn downloads_dir() -> PathBuf {
 ///
 /// Separated because the workspace forbids `unsafe`, and `std::env::set_var` has been unsafe
 /// since the 2024 edition — so a test that wanted to check this rule could not set the variable
-/// it is about. The same answer `plan.md` gives for the clock: the ambient thing becomes a
+/// it is about. The same answer the workspace gives for the clock: the ambient thing becomes a
 /// parameter, and the decision becomes a function anything can call.
 pub fn downloads_from(named: Option<&std::ffi::OsStr>, home: Option<&std::ffi::OsStr>) -> PathBuf {
     if let Some(named) = named {

@@ -34,7 +34,7 @@ pub(super) struct WindowHost {
     /// The window's own clock, when it has one (a test's follows quire's).
     pub clock: Option<WallClock>,
     pub links: Signal<BTreeMap<AccountId, Link>>,
-    /// What each account's pass is doing, for a spinner: read by the surfaces of the next wave.
+    /// What each account's pass is doing, for a spinner.
     pub ops: Signal<BTreeMap<AccountId, Operation>>,
     pub folders: Signal<BTreeMap<(AccountId, String), FolderFetch>>,
     /// What the last pass of each account offered beside its failure ([`offer_of`]).

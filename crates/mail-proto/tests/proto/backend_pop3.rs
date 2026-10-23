@@ -100,9 +100,9 @@ fn run(op: ProtoOp, trace: &str) -> (ProtoOutcome, Pop3Backend) {
 #[test]
 fn fetch_caps_learns_top_and_pipelining() {
     let trace = concat!(
-        "# DERIVED from spike/out/pop3.trace: the CAPA a campus Dovecot actually returns.\n",
+        "# DERIVED from a capture: the CAPA a campus Dovecot actually returns.\n",
         "# Asked twice, because RFC 2449 permits the answer to differ once authenticated —\n",
-        "# the same trap F14 caught on Gmail's IMAP. Here the second answer adds nothing, but\n",
+        "# the same trap as Gmail's IMAP CAPABILITY. Here the second answer adds nothing, but\n",
         "# the second is the one believed.\n",
         "S: +OK POP3 server ready\n",
         "C: CAPA\n",
@@ -167,7 +167,7 @@ fn capa_refused_does_not_invent_capabilities() {
 #[test]
 fn a_survey_records_uidls_with_their_sizes() {
     let trace = concat!(
-        "# SYNTHETIC, shaped after spike/out/pop3.trace.\n",
+        "# SYNTHETIC, shaped after a captured Dovecot session.\n",
         "S: +OK POP3 server ready\n",
         "C: USER student\n",
         "S: +OK\n",

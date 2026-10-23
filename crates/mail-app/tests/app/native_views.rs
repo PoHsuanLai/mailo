@@ -213,7 +213,7 @@ fn a_search_saved_as_a_view_is_a_place_grouped_as_it_was_saved() {
     harness.key(Key::Char('u'));
     harness.advance(ms(600));
     // Let the selection go. With two picked, the selection bar pushes the list bar's tools past
-    // the list's edge at this width, and Save as view with them (FINDINGS, saved views).
+    // the list's edge at this width, and Save as view with them.
     harness.key(Key::Escape);
     harness.advance(ms(300));
     assert_eq!(harness.count(&place("Mine")), 0);
