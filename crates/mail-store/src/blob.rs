@@ -98,7 +98,8 @@ impl BlobStore {
             fs::create_dir_all(dir).map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
             // Write-then-rename: a crash mid-write must not leave a truncated file sitting at
             // the name its hash promises.
-            crate::file::write_atomic(&full, bytes, None)
+            // Its owner's alone, as the message it came out of is.
+            crate::file::write_atomic(&full, bytes, Some(0o600))
                 .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
 
             db.execute(
@@ -285,6 +286,21 @@ mod tests {
         let large = vec![9u8; INLINE_MAX + 100];
         let id = store.put(&db, &large).unwrap();
         assert_eq!(store.size(&db, id).unwrap(), large.len() as u64);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_blob_written_as_a_file_is_its_owner_s_alone() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let store = BlobStore::new(dir.path());
+        let db = db();
+        let large = vec![9u8; INLINE_MAX + 100];
+        let hash = blake3::hash(&large).to_hex().to_string();
+        store.put(&db, &large).unwrap();
+        let file = dir.path().join(&hash[..2]).join(&hash[2..]);
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{mode:o}");
     }
 
     #[test]

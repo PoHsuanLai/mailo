@@ -67,7 +67,15 @@ pub fn write_json(
 pub fn write_text(dir: &Path, file_name: &str, body: &str) -> Result<(), CoreError> {
     std::fs::create_dir_all(dir).map_err(CoreError::at(dir))?;
     let path = dir.join(file_name);
-    mail_store::write_atomic(&path, body.as_bytes(), None).map_err(CoreError::at(&path))
+    mail_store::write_atomic(&path, body.as_bytes(), Some(0o600)).map_err(CoreError::at(&path))
+}
+
+/// Make `dir`, its owner's alone: [`places::make_private`].
+///
+/// # Errors
+/// When the folder cannot be made or its mode cannot be set.
+pub fn make_private(dir: &Path) -> std::io::Result<()> {
+    places::make_private(dir)
 }
 
 /// The user's home directory.

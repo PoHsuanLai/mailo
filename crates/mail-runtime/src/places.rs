@@ -68,6 +68,29 @@ pub fn downloads_named() -> Option<OsString> {
 
 const APP: &str = "mailo";
 
+/// Make `dir`, and make it its owner's alone: no one else may list it or open what is in it.
+///
+/// mailo's folders hold mail, attachments and the settings that say whose images to trust. Made
+/// with the umask's mode they are `0755` on most Linux systems, which with a home folder others
+/// can enter (`0755` is the default on many) is every message readable by every user. A folder
+/// made by an earlier version is narrowed too. Nothing on systems without Unix modes: on macOS
+/// and Windows the per-user folders these live under are their owner's already.
+///
+/// # Errors
+/// When the folder cannot be made or its mode cannot be set.
+pub fn make_private(dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let mode = std::fs::metadata(dir)?.permissions().mode() & 0o777;
+        if mode != 0o700 {
+            std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(not(any(target_os = "macos", windows)))]
 fn base(place: Place) -> Option<PathBuf> {
     xdg(place, |name| std::env::var_os(name))
@@ -101,6 +124,25 @@ fn xdg(place: Place, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_made_private_is_its_owner_s_alone_whether_new_or_old() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let root = tempfile::tempdir().unwrap();
+        let mode =
+            |dir: &std::path::Path| std::fs::metadata(dir).unwrap().permissions().mode() & 0o777;
+
+        let new = root.path().join("new/mailo");
+        make_private(&new).unwrap();
+        assert_eq!(mode(&new), 0o700);
+
+        let old = root.path().join("old");
+        std::fs::create_dir(&old).unwrap();
+        std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o755)).unwrap();
+        make_private(&old).unwrap();
+        assert_eq!(mode(&old), 0o700);
+    }
 
     fn env<'a>(set: &'a [(&'a str, &'a str)]) -> impl Fn(&str) -> Option<OsString> + 'a {
         move |name| {
