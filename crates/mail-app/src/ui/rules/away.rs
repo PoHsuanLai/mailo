@@ -7,7 +7,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use ds::components::fields::field_row::{FieldRow, RowLayout};
+use ds::components::fields::field_row::FieldRow;
 use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
@@ -299,8 +299,10 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                     },
                 }
             }
-            if on {
-                FieldRow { label: copy::fields::SUBJECT, layout: RowLayout::Form,
+        }
+        if on {
+            FormSection {
+                FieldRow { label: copy::fields::SUBJECT,
                     TextField {
                         label: copy::fields::SUBJECT.to_owned(),
                         value: form.subject.clone(),
@@ -309,7 +311,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                         oninput: move |value: String| away.write().subject = value,
                     }
                 }
-                FieldRow { label: "Reply", layout: RowLayout::Form,
+                FieldRow { label: "Reply",
                     TextField {
                         label: "The reply's text".to_owned(),
                         kind: FieldKind::Multiline,
@@ -320,7 +322,18 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                         oninput: move |value: String| away.write().body = value,
                     }
                 }
-                FieldRow { label: "From", layout: RowLayout::Form,
+                FieldRow { label: "Answers mail to",
+                    TextField {
+                        label: "Answers mail to".to_owned(),
+                        value: form.addresses.clone(),
+                        placeholder: "you@example.com".to_owned(),
+                        common: classed("rules-field"),
+                        oninput: move |value: String| away.write().addresses = value,
+                    }
+                }
+            }
+            FormSection {
+                FieldRow { label: "From",
                     TextField {
                         label: "From".to_owned(),
                         value: form.from.clone(),
@@ -330,7 +343,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                         oninput: move |value: String| away.write().from = value,
                     }
                 }
-                FieldRow { label: "Until", layout: RowLayout::Form,
+                FieldRow { label: "Until",
                     TextField {
                         label: "Until".to_owned(),
                         value: form.until.clone(),
@@ -340,18 +353,10 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                         oninput: move |value: String| away.write().until = value,
                     }
                 }
-                FieldRow { label: "Answers mail to", layout: RowLayout::Form,
-                    TextField {
-                        label: "Answers mail to".to_owned(),
-                        value: form.addresses.clone(),
-                        placeholder: "you@example.com".to_owned(),
-                        common: classed("rules-field"),
-                        oninput: move |value: String| away.write().addresses = value,
-                    }
-                }
-                FieldRow {
-                    label: "",
-                    layout: RowLayout::Form,
+            }
+            // Keep Reply stands alone under the groups, at their end, as a Space's Create Space
+            // does.
+            div { class: "acct-actions",
                     Button {
                         label: "Keep Reply".to_owned(),
                         availability: available(readable),
@@ -369,7 +374,6 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                     }
                 }
             }
-        }
         }
         if let Some(why) = refused() {
             Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| refused.set(None) }

@@ -6,9 +6,8 @@
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
-use ds::components::controls::checkbox::Checkbox;
 use ds::components::controls::segmented::Tracking;
-use ds::components::fields::field_row::{FieldRow, RowLayout};
+use ds::components::fields::field_row::FieldRow;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
@@ -18,6 +17,7 @@ use mail_domain::{AfterMatch, Rule, RuleAction};
 use porter_core::AccountId;
 use std::sync::Arc;
 
+use super::super::common::classed;
 use super::super::data::AccountRow;
 use super::super::menu::{Floating, MenuItem, anchor_at, narrowed, palette_groups};
 use super::super::move_to::destinations;
@@ -264,11 +264,11 @@ fn RuleEditor(
         FormSection {
             FieldRow {
                 label: "Name",
-                layout: RowLayout::Form,
                 TextField {
                     label: "Name".to_owned(),
                     value: draft.name.clone(),
                     placeholder: "Bills".to_owned(),
+                    common: classed("rules-field"),
                     oninput: move |value: String| {
                         if let Some(draft) = editing.write().as_mut() {
                             draft.name = value;
@@ -276,6 +276,8 @@ fn RuleEditor(
                     },
                 }
             }
+        }
+        FormSection {
             ConditionRows {
                 writing,
                 rows,
@@ -289,7 +291,6 @@ fn RuleEditor(
             }
             FieldRow {
                 label: "Do",
-                layout: RowLayout::Form,
                 div { class: "rules-actions",
                     for (at, action) in draft.actions.iter().enumerate() {
                         div { key: "{at}", class: "rules-action",
@@ -365,9 +366,10 @@ fn RuleEditor(
                     }
                 }
             }
+        }
+        FormSection {
             FieldRow {
                 label: "After it matches",
-                layout: RowLayout::Form,
                 SegmentedControl::<AfterMatch> {
                     label: "After it matches".to_owned(),
                     choices: vec![
@@ -383,17 +385,16 @@ fn RuleEditor(
                 }
             }
             FieldRow {
-                label: "",
-                layout: RowLayout::Form,
-                Checkbox {
+                label: copy::fields::apply_to_existing(matching),
+                Toggle {
                     label: copy::fields::apply_to_existing(matching),
                     value: apply(),
                     onchange: move |next: Check| apply.set(next),
                 }
             }
-            FieldRow {
-                label: "",
-                layout: RowLayout::Form,
+        }
+        // Save stands alone under the groups, at their end, as a Space's Create Space does.
+        div { class: "acct-actions",
                 Button {
                     label: copy::controls::SAVE,
                     availability: available(readable),
@@ -410,7 +411,6 @@ fn RuleEditor(
                     }),
                     common: Common { aria_label: Some(copy::aria::SAVE_RULE.to_owned()), ..Common::default() },
                 }
-            }
         }
         if let Some(why) = refused() {
             Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| refused.set(None) }

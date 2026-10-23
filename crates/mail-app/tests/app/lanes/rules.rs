@@ -39,10 +39,10 @@ fn make_the_rule(settings: &mut Harness, store: &SqliteStore) {
     );
     click(settings, ".ds-field-row[*|aria-label=\"Do\"] .ds-button");
     super::hands::menu_item(settings, "Archive");
-    scroll_to(settings, ".settings-scroll", ".ds-checkbox");
-    click(settings, ".ds-checkbox");
-    until(settings, "Also apply is checked", |h| {
-        h.count(".ds-checkbox[*|aria-checked=true]") == 1
+    scroll_to(settings, ".settings-scroll", ".ds-toggle");
+    click(settings, ".ds-toggle");
+    until(settings, "Also apply is on", |h| {
+        h.count(".ds-toggle[*|aria-checked=true]") == 1
     });
     scroll_to(settings, ".settings-scroll", "[*|aria-label=\"Save Rule\"]");
     click(settings, "[*|aria-label=\"Save Rule\"]");
