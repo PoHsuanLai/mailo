@@ -125,8 +125,7 @@ fn percent_decode(text: &str) -> String {
         let escaped = (bytes[i] == b'%')
             .then(|| bytes.get(i + 1..i + 3))
             .flatten()
-            .and_then(|hex| std::str::from_utf8(hex).ok())
-            .and_then(|hex| u8::from_str_radix(hex, 16).ok());
+            .and_then(mail_domain::hex::byte);
         match escaped {
             Some(byte) => {
                 out.push(byte);

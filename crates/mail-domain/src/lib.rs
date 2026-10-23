@@ -15,6 +15,7 @@ pub mod draft;
 pub mod error;
 pub mod filter;
 pub mod folder;
+pub mod hex;
 pub mod id;
 pub mod ingest;
 pub mod invite;

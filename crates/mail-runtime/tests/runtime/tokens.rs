@@ -934,3 +934,36 @@ async fn a_graph_refusal_after_renewing_surfaces_rather_than_renewing_again() {
     assert_eq!(posted.lock().unwrap().len(), 2, "one attempt and one retry");
     assert_eq!(asked.lock().unwrap().len(), 1);
 }
+
+/// Two sessions finding the token due at the same moment spend its refresh token once: an issuer
+/// that rotates them takes a second spend of the same one as a stolen token.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_token_due_for_two_at_once_is_renewed_once() {
+    let (registration, asked) = token_endpoint(vec![issued("second", Some("r2"))]).await;
+    let held = Held::new(token("first", "r1", t0() - minutes(1)));
+    let renewal = OAuthTokens::new(
+        acct_account(),
+        &plan(1),
+        registration,
+        secrets(&token("first", "r1", t0() - minutes(1))),
+        held.clone(),
+    )
+    .with_clock(Clock::at(t0()).now());
+
+    let (one, two) = tokio::join!(
+        renewal.ahead(Token::Incoming),
+        renewal.ahead(Token::Incoming)
+    );
+    one.unwrap();
+    two.unwrap();
+
+    assert_eq!(
+        asked.lock().unwrap().len(),
+        1,
+        "the refresh token was spent twice"
+    );
+    match held.current() {
+        Credential::OAuth { access, .. } => assert_eq!(access.expose(), "second"),
+        other => panic!("{other:?}"),
+    }
+}

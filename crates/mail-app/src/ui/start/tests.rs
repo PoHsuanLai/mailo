@@ -190,3 +190,30 @@ fn a_click_starts_the_window_on_the_conversation_or_the_inbox() {
     assert!(inbox.is_empty());
     assert_eq!(super::start_of(&inbox), Some(Ok(super::Start::Inbox)));
 }
+
+/// A link's `bcc` is a recipient nobody else will see, chosen by whoever wrote the link: the
+/// composer opens with that row shown and the address in it, never folded away.
+#[test]
+fn a_mailto_links_hidden_recipient_is_shown_in_the_composer() {
+    let (store, _dir) = realistic();
+    let Some(link) = mailto_of(&args(&[
+        "mailto:someone@example.org?bcc=hidden@example.org",
+    ])) else {
+        panic!("not read as a mailto link");
+    };
+    let now = chrono::DateTime::from_timestamp(1_790_000_000, 0).unwrap_or_default();
+    let start = match start_mailto(&store, &link, now) {
+        Ok(start) => start,
+        Err(why) => panic!("no draft: {why}"),
+    };
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(store.clone())
+        .with_root_context(start);
+    dom.rebuild_in_place();
+    let composing = dioxus_ssr::render(&dom);
+    assert!(
+        composing.contains(r#"data-row="bcc""#)
+            && composing.contains(r#"aria-label="Remove hidden""#),
+        "the link's Bcc is not shown:\n{composing}"
+    );
+}

@@ -150,9 +150,7 @@ fn unhex(text: &str) -> Result<Vec<u8>, ParseFingerprintError> {
     digits
         .chunks(2)
         .map(|pair| {
-            let not_hex = || ParseFingerprintError::NotHex(text.to_owned());
-            let pair = std::str::from_utf8(pair).map_err(|_| not_hex())?;
-            u8::from_str_radix(pair, 16).map_err(|_| not_hex())
+            crate::hex::byte(pair).ok_or_else(|| ParseFingerprintError::NotHex(text.to_owned()))
         })
         .collect()
 }
