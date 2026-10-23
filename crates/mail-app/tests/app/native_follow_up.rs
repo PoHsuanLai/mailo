@@ -203,7 +203,7 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
         0,
         "a Remind row before a reminder is set"
     );
-    harness.click(centre(&harness, ".c-foot [*|aria-label=\"Send Options\"]"));
+    harness.click(centre(&harness, ".c-send [*|aria-label=\"Send Options\"]"));
     until(&mut harness, "Send ▾ opens", |h| {
         h.count(".ds-menu .ds-menu-item") > 0
     });
@@ -218,7 +218,7 @@ fn a_reminder_set_in_the_composer_brings_the_conversation_back_with_no_reply_yet
                 .is_some_and(|text| text.contains("Tomorrow morning, if no reply"))
     });
 
-    harness.click(centre(&harness, ".c-foot [*|aria-label=\"Send\"]"));
+    harness.click(centre(&harness, ".c-send [*|aria-label=\"Send\"]"));
     until(&mut harness, "the page folds away", |h| {
         h.count(".cpage .c-body") == 0
     });

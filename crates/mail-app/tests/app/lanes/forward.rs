@@ -6,7 +6,7 @@ use super::window::{Window, deliver, hours_ago, panel_row, panel_settled, parsed
 
 const SUBJECT: &str = "Minutes of the board";
 const PDF: &str = "%PDF-1.4\n% the minutes\n";
-const SEND: &str = ".c-foot [*|aria-label=\"Send\"]";
+const SEND: &str = ".c-send [*|aria-label=\"Send\"]";
 const TO: &str = ".c-props [*|data-row=to] .c-pin input";
 
 fn with_pdf(store: &mail_core::SqliteStore) {

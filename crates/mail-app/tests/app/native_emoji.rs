@@ -86,9 +86,9 @@ fn body(harness: &Harness) -> String {
 /// where they can be pressed, with its search field holding the keyboard.
 fn open_picker(harness: &mut Harness) {
     assert_eq!(
-        harness.count(".c-foot [*|aria-label=\"Emoji\"]"),
+        harness.count(".cpage .bar-tools [*|aria-label=\"Emoji\"]"),
         0,
-        "the foot has an emoji button"
+        "the bar has an emoji button"
     );
     type_text(harness, "/emoj");
     settle_until(harness, |h| {

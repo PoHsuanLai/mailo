@@ -90,8 +90,8 @@ fn a_reply_goes_out_quoted_its_answer_threads_back_and_reply_all_answers_everyon
     );
     window.until("the answer shows in the open conversation", |h| {
         h.count(".reader article.frame") == 2
-            && h.text_of(".reader")
-                .is_some_and(|reader| reader.contains("Cc: Grace Hopper"))
+            && h.text_of(".reader [*|data-row=cc]")
+                .is_some_and(|cc| cc.contains("Grace Hopper"))
     });
     assert_eq!(
         window.subjects().len(),

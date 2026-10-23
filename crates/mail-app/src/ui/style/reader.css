@@ -1,7 +1,7 @@
 /* ---- reader ---- */
 .reader { position: relative; display: flex; flex-direction: column; height: 100%; min-width: 0; min-height: 0; background: var(--surface); }
 .reader-head { padding: var(--s-16) var(--s-18) var(--s-12); }
-.reader-head h2 { margin: 0; }
+.reader-head h2 { margin: 0; display: flex; }
 /* The subject: the display face at 20, tight, over the metadata lines (`--fs-subject`). */
 .reader-subject, .peek-own-title, .peek-link-title, .c-title { font-size: var(--fs-subject); line-height: var(--lh-title); }
 /* Message text, read or written, is one setting: the reader's body and its plain text, a peeked
@@ -16,7 +16,8 @@
 .img-ph, .att-tile, .unlock, .o-img .pick, .o-table .tbl, .plain, .c-body pre {
   border: var(--hair) solid var(--line); border-radius: var(--r-media); background: var(--surface-2);
 }
-.reader-head .head-row { display: flex; gap: var(--s-6); align-items: center; margin-bottom: var(--s-9); }
+/* The bar over the subject, a message's and a new one's alike (`.c-head`, `composer.css`). */
+.reader-head .head-row, .c-head .head-row { display: flex; gap: var(--s-6); align-items: center; min-height: var(--ctl-h-l); margin-bottom: var(--s-9); }
 /* A message's header, as Mail draws it: the avatar, then the sender's line (name, address, and
    the date at its end) over whom it went to. The compact one, an earlier message's, is a small
    avatar, the name and the date on one line. */
@@ -26,7 +27,6 @@
 .msg-line > :not(.msg-when) { min-width: 0; flex: 0 1 auto; }
 .msg-head[*|data-detail="compact"] .msg-line { flex: 1; }
 .msg-when { margin-left: auto; flex: none; padding-left: var(--s-8); white-space: nowrap; }
-.reader-who { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; flex: 1; }
 .reader-av {
   border-radius: var(--r-pill); display: grid; place-items: center; flex: none;
   overflow: hidden;
@@ -49,6 +49,13 @@ article.frame:last-of-type { flex: 1 0 auto; }
 article.frame > :not(.html) { margin-left: var(--s-18); margin-right: var(--s-18); }
 article.frame header { margin-top: var(--s-14); margin-bottom: var(--s-12); }
 article.frame header[*|data-detail="compact"] { margin-top: var(--s-10); margin-bottom: var(--s-10); }
+/* The newest message's header is the composer's lines (`.c-props`): From, To and Cc in one label
+   column, across the reader with the one hairline under them, the subject's band above it. */
+article.frame header.reader-meta {
+  display: grid; gap: var(--s-2); margin: 0 0 var(--s-12); padding: 0 var(--s-18) var(--s-12);
+  border-bottom: var(--hair) solid var(--line-soft);
+}
+article.frame + article.frame header.reader-meta { padding-top: var(--s-12); }
 /* An earlier message folded to one line: who, a snippet of what, and when; a press opens it. */
 .fold-line { display: flex; align-items: center; gap: var(--s-8); min-width: 0; margin-top: var(--s-10); margin-bottom: var(--s-10); }
 /* The name is drawn whole; the snippet takes what is left and fades out at its end, as quire's
@@ -146,7 +153,7 @@ article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 32
 .peek-link-actions { display: flex; gap: var(--s-8); margin-top: var(--s-10); }
 .reader-empty { flex: 1; display: grid; place-items: center; padding: var(--s-22); }
 
-.reader-head .bar-tools { gap: var(--s-5); }
+.reader-head .bar-tools, .c-head .bar-tools { gap: var(--s-5); }
 /* Banners in the reader's flow: one above another, a gap under the last. */
 .banners { display: grid; gap: var(--s-8); margin: var(--s-10) var(--s-18) 0; }
 .banners:empty { display: none; }
