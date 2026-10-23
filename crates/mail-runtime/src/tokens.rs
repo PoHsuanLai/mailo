@@ -26,6 +26,7 @@ use porter_provider::ClientEntry;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use zeroize::Zeroizing;
 
 type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, RuntimeError>> + Send + 'a>>;
 
@@ -141,13 +142,15 @@ fn unix(now: DateTime<Utc>) -> UnixSeconds {
 
 /// The refresh token to spend, when `credential` is an OAuth one that is due; none for a password,
 /// which does not expire on a schedule, and for a token with time left.
-fn due_refresh(credential: &Credential, now: DateTime<Utc>) -> Option<String> {
+fn due_refresh(credential: &Credential, now: DateTime<Utc>) -> Option<Zeroizing<String>> {
     match credential {
         Credential::OAuth {
             refresh,
             expires_at,
             ..
-        } if renewal(*expires_at, unix(now)) == Due::Due => Some(refresh.expose().to_owned()),
+        } if renewal(*expires_at, unix(now)) == Due::Due => {
+            Some(Zeroizing::new(refresh.expose().to_owned()))
+        }
         _ => None,
     }
 }
@@ -375,9 +378,9 @@ pub async fn graph_token(
 async fn graph_refresh(
     secrets: &dyn AccountSecrets,
     account: AccountId,
-) -> Result<String, RuntimeError> {
+) -> Result<Zeroizing<String>, RuntimeError> {
     match kept_graph(secrets, account.clone()).await? {
-        Some(Credential::OAuth { refresh, .. }) => Ok(refresh.expose().to_owned()),
+        Some(Credential::OAuth { refresh, .. }) => Ok(Zeroizing::new(refresh.expose().to_owned())),
         _ => sign_in_refresh(secrets, account).await,
     }
 }
@@ -439,7 +442,7 @@ async fn mint_graph(
 async fn sign_in_refresh(
     secrets: &dyn AccountSecrets,
     account: AccountId,
-) -> Result<String, RuntimeError> {
+) -> Result<Zeroizing<String>, RuntimeError> {
     match secrets
         .get(&SecretKey {
             account,
@@ -447,7 +450,7 @@ async fn sign_in_refresh(
         })
         .await?
     {
-        Credential::OAuth { refresh, .. } => Ok(refresh.expose().to_owned()),
+        Credential::OAuth { refresh, .. } => Ok(Zeroizing::new(refresh.expose().to_owned())),
         Credential::Password(_)
         | Credential::ApiKey(_)
         | Credential::Bearer(_)
@@ -461,8 +464,8 @@ async fn sign_in_refresh(
 #[derive(Debug, Default)]
 struct Spent {
     /// The access token a refusal last minted, per token. Refused again, it is not renewed again.
-    incoming: Option<String>,
-    sending: Option<String>,
+    incoming: Option<Zeroizing<String>>,
+    sending: Option<Zeroizing<String>>,
     /// The issuer's own refusal to renew, per token. It does not change within a process: the
     /// grant is revoked or expired, and only the user signing in again brings it back. Per token,
     /// because an administrator can withdraw consent to Graph's `Mail.Send` and leave IMAP be.
@@ -482,6 +485,10 @@ pub struct OAuthTokens {
     held: Held,
     now: Now,
     spent: Mutex<Spent>,
+    /// Held across a renewal, so two sessions finding the token due at once spend its refresh
+    /// token once: an issuer that rotates them (Microsoft) takes the second spend of the same one
+    /// as theft, and revokes the sign-in.
+    renewing: tokio::sync::Mutex<()>,
 }
 
 // By hand: the client carries an application secret and the cell a credential.
@@ -520,6 +527,7 @@ impl OAuthTokens {
             held,
             now: Arc::new(Utc::now),
             spent: Mutex::new(Spent::default()),
+            renewing: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -535,6 +543,8 @@ impl OAuthTokens {
     }
 
     async fn ahead_of(&self, token: Token) -> Result<(), RuntimeError> {
+        // Whoever waited here finds the token the one before renewed, no longer due.
+        let _turn = self.renewing.lock().await;
         let token = self.which(token);
         self.refused(token)?;
         let now = (self.now)();
@@ -560,6 +570,7 @@ impl OAuthTokens {
     }
 
     async fn after_refused(&self, token: Token) -> Result<AfterRefusal, RuntimeError> {
+        let _turn = self.renewing.lock().await;
         let token = self.which(token);
         self.refused(token)?;
         let now = (self.now)();
@@ -572,7 +583,7 @@ impl OAuthTokens {
                     // A password is not renewed; its refusal is the user's to answer.
                     return Ok(AfterRefusal::NotRenewable);
                 };
-                if self.spent().incoming.as_deref() == Some(access.expose()) {
+                if self.spent().incoming.as_deref().map(String::as_str) == Some(access.expose()) {
                     return Ok(AfterRefusal::StillRefused);
                 }
                 let renewed = self.incoming(refresh.expose(), now).await?;
@@ -581,7 +592,7 @@ impl OAuthTokens {
             Token::Sending => {
                 let held = kept_graph(self.secrets.as_ref(), self.account.clone()).await?;
                 if let Some(Credential::OAuth { access, .. }) = &held
-                    && self.spent().sending.as_deref() == Some(access.expose())
+                    && self.spent().sending.as_deref().map(String::as_str) == Some(access.expose())
                 {
                     return Ok(AfterRefusal::StillRefused);
                 }
@@ -717,9 +728,9 @@ impl TokenSource for OAuthTokens {
     }
 }
 
-fn access_of(credential: &Credential) -> Option<String> {
+fn access_of(credential: &Credential) -> Option<Zeroizing<String>> {
     match credential {
-        Credential::OAuth { access, .. } => Some(access.expose().to_owned()),
+        Credential::OAuth { access, .. } => Some(Zeroizing::new(access.expose().to_owned())),
         // Not an OAuth sign-in: nothing to renew. A pasted bearer has no refresh by definition.
         Credential::Password(_)
         | Credential::ApiKey(_)
@@ -902,7 +913,7 @@ mod tests {
         assert!(is_fresh(&oauth(30 * 60), now));
         assert!(is_fresh(&oauth(61), now));
         assert_eq!(
-            due_refresh(&oauth(60), now).as_deref(),
+            due_refresh(&oauth(60), now).as_deref().map(String::as_str),
             Some("the-refresh-token")
         );
         // The state every OAuth account reached an hour after setup.

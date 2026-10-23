@@ -48,9 +48,8 @@ impl FromStr for CertFingerprint {
         }
         let mut out = [0u8; 32];
         for (slot, pair) in out.iter_mut().zip(digits.chunks(2)) {
-            let not_hex = || ParseFingerprintError::NotHex(text.to_owned());
-            let pair = std::str::from_utf8(pair).map_err(|_| not_hex())?;
-            *slot = u8::from_str_radix(pair, 16).map_err(|_| not_hex())?;
+            *slot = crate::hex::byte(pair)
+                .ok_or_else(|| ParseFingerprintError::NotHex(text.to_owned()))?;
         }
         Ok(CertFingerprint(out))
     }

@@ -58,8 +58,7 @@ mod hex32 {
         let (pairs, rest) = raw.as_chunks::<2>();
         debug_assert!(rest.is_empty(), "64 is even");
         for (slot, pair) in out.iter_mut().zip(pairs) {
-            let text = std::str::from_utf8(pair).map_err(D::Error::custom)?;
-            *slot = u8::from_str_radix(text, 16).map_err(D::Error::custom)?;
+            *slot = crate::hex::byte(pair).ok_or_else(|| D::Error::custom("not a hex digit"))?;
         }
         Ok(out)
     }

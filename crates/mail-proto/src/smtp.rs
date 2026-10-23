@@ -1436,13 +1436,41 @@ fn xoauth2_raw(user: &str, token: &str) -> Vec<u8> {
     raw
 }
 
+/// `message` with every line break CRLF: a lone CR or a lone LF becomes CRLF.
+///
+/// For `DATA` and `BDAT` alike. A server that ends a line at a bare CR or LF and one that does
+/// not would read different messages out of the same bytes, and a `.` after a bare break is
+/// where SMTP smuggling hides a second message in the first.
+fn crlf(message: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(message.len());
+    let mut i = 0;
+    while i < message.len() {
+        match message[i] {
+            b'\r' if message.get(i + 1) == Some(&b'\n') => {
+                out.extend_from_slice(b"\r\n");
+                i += 2;
+            }
+            b'\r' | b'\n' => {
+                out.extend_from_slice(b"\r\n");
+                i += 1;
+            }
+            byte => {
+                out.push(byte);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
 /// Dot-stuff `message` and terminate it.
 ///
 /// Each buffer is one transmitted line, including its CRLF. The last line is the
 /// terminating dot. A message line whose first octet is `.` gains an extra `.`.
-/// A lone LF is sent as CRLF. When the message does not already end on a line break,
-/// a CRLF is added first so the dot occupies a line of its own.
+/// A lone CR or LF is sent as CRLF ([`crlf`]). When the message does not already end on a line
+/// break, a CRLF is added first so the dot occupies a line of its own.
 fn data_lines(message: &[u8]) -> Vec<Vec<u8>> {
+    let message = crlf(message);
     let mut lines = Vec::new();
     let mut current = Vec::new();
     let mut ended_on_break = false;
@@ -1495,7 +1523,7 @@ fn transmitted_octets(message: &[u8]) -> u64 {
 /// and can be longer than the message the caller handed us.
 fn transfer_octets(ext: &EhloExtensions, message: &[u8]) -> u64 {
     if ext.chunking == Advertised::Offered {
-        message.len() as u64
+        crlf(message).len() as u64
     } else {
         transmitted_octets(message)
     }
@@ -1505,13 +1533,14 @@ fn transfer_octets(ext: &EhloExtensions, message: &[u8]) -> u64 {
 ///
 /// RFC 3030 makes the octet count authoritative: the server reads exactly
 /// that many bytes and does not look for a terminating dot. The message is
-/// therefore copied unchanged. A missing final CRLF stays missing — adding
-/// one would change both the count and the content — and a line that begins
+/// therefore sent as written, its line breaks made CRLF ([`crlf`]) as `DATA`'s are. A missing
+/// final CRLF stays missing — adding one would change the content — and a line that begins
 /// with `.` is not stuffed, because stuffing would make the count describe
 /// different bytes from the ones the server will store.
 fn bdat_writes(message: &[u8]) -> Vec<Vec<u8>> {
+    let message = crlf(message);
     let line = cmd(&format!("BDAT {} LAST", message.len()));
-    vec![line, message.to_vec()]
+    vec![line, message]
 }
 
 fn has_high_bit(message: &[u8]) -> bool {
@@ -1757,6 +1786,7 @@ mod tests {
             (b".\r\n", &[b"..\r\n", b".\r\n"]),
             (b"", &[b"\r\n", b".\r\n"]),
             (b"a\n.b\n", &[b"a\r\n", b"..b\r\n", b".\r\n"]),
+            (b"a\r.\rb", &[b"a\r\n", b"..\r\n", b"b\r\n", b".\r\n"]),
             (
                 b"Hi.\r\n.this starts with a dot\r\nBye\r\n",
                 &[
@@ -2120,6 +2150,12 @@ mod tests {
         // Stuffing would have turned the second line into "..dot".
         assert!(writes[1].windows(5).any(|window| window == b"\n.dot"));
         assert!(!writes[1].windows(6).any(|window| window == b"\n..dot"));
+
+        // A bare CR or LF goes as CRLF, and the count is of what goes.
+        let bare = b"a\r.\nb";
+        let writes = bdat_writes(bare);
+        assert_eq!(writes[0], b"BDAT 7 LAST\r\n".to_vec());
+        assert_eq!(writes[1], b"a\r\n.\r\nb".to_vec());
 
         let dotted = b".x\r\n";
         assert_eq!(transmitted_octets(dotted), 5);

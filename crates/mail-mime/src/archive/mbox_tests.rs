@@ -220,3 +220,35 @@ fn a_large_mbox_streams_one_message_at_a_time() {
     assert!(total > 8_000_000, "{total} bytes streamed");
     assert!(largest < 8 * 1024, "one message is {largest} bytes");
 }
+
+/// A `Content-Length` found false once is not believed again: each false one reads ahead to
+/// wherever it points, and a file of them would be read once per message.
+#[test]
+fn a_file_whose_lengths_lie_is_scanned_after_the_first() {
+    let mut bytes = Vec::new();
+    for n in 0..50 {
+        bytes.extend_from_slice(
+            format!("From a@b Sat Jan  1 00:00:00 2022\nSubject: {n}\nContent-Length: 999999\n\nbody {n}\n\n")
+                .as_bytes(),
+        );
+    }
+    let mut reader = Reader::new(Cursor::new(bytes));
+    let first = reader.next().expect("a message").expect("reads");
+    assert!(
+        first.raw.ends_with(b"body 0\n\n") || first.raw.ends_with(b"body 0\n"),
+        "{:?}",
+        String::from_utf8_lossy(&first.raw)
+    );
+    assert!(reader.lengths_lie, "the false length was believed again");
+    let rest: Vec<MboxMessage> = reader.collect::<Result<_, _>>().expect("reads");
+    assert_eq!(rest.len(), 49);
+
+    // One past the largest believed is scanned for, without counting against the file.
+    let huge = format!(
+        "From a@b Sat Jan  1 00:00:00 2022\nContent-Length: {}\n\nx\n",
+        MAX_COUNTED + 1
+    );
+    let mut reader = Reader::new(Cursor::new(huge.into_bytes()));
+    assert!(reader.next().expect("a message").is_ok());
+    assert!(!reader.lengths_lie);
+}

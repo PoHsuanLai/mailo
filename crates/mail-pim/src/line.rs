@@ -95,6 +95,11 @@ pub fn lines(text: &str) -> Vec<ContentLine> {
 pub fn unfold(text: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut soft_break = false;
+    // Of the logical line being built: whether a `:` has arrived yet, and once its head has,
+    // whether it declares quoted-printable. Kept rather than read again from the whole line at
+    // every physical one, which made a value folded over many lines quadratic.
+    let mut colon = false;
+    let mut qp: Option<bool> = None;
     for physical in text.split('\n').flat_map(|l| l.split('\r')) {
         // A CRLF split on both characters leaves an empty piece between them, and a blank line
         // means nothing in either format. Neither may end a soft break.
@@ -102,17 +107,32 @@ pub fn unfold(text: &str) -> Vec<String> {
             continue;
         }
         let continues = physical.starts_with([' ', '\t']);
-        match out.last_mut() {
+        let piece = match out.last_mut() {
             Some(last) if soft_break => {
                 last.pop(); // the `=`
                 last.push_str(physical);
+                physical
             }
-            Some(last) if continues => last.push_str(&physical[1..]),
-            _ => out.push(physical.to_owned()),
-        }
-        soft_break = out
-            .last()
-            .is_some_and(|l| l.ends_with('=') && quoted_printable(l));
+            Some(last) if continues => {
+                last.push_str(&physical[1..]);
+                &physical[1..]
+            }
+            _ => {
+                out.push(physical.to_owned());
+                (colon, qp) = (false, None);
+                physical
+            }
+        };
+        colon |= piece.contains(':');
+        soft_break = match out.last() {
+            // Kept only once the head has ended: a `:` inside a quoted parameter does not end it.
+            Some(last) if last.ends_with('=') && colon => match qp {
+                Some(known) => known,
+                None if split_head(last).is_some() => *qp.insert(quoted_printable(last)),
+                None => false,
+            },
+            _ => false,
+        };
     }
     out
 }
@@ -280,11 +300,7 @@ fn from_quoted_printable(value: &str) -> Vec<u8> {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'=' {
-            let hex = bytes.get(i + 1..i + 3).and_then(|h| {
-                std::str::from_utf8(h)
-                    .ok()
-                    .and_then(|h| u8::from_str_radix(h, 16).ok())
-            });
+            let hex = bytes.get(i + 1..i + 3).and_then(mail_domain::hex::byte);
             if let Some(byte) = hex {
                 out.push(byte);
                 i += 3;
@@ -431,6 +447,21 @@ mod tests {
             unfold(text),
             ["NOTE;ENCODING=QUOTED-PRINTABLE:first secondthird", "FN:x"]
         );
+    }
+
+    #[test]
+    fn a_value_soft_broken_over_many_lines_is_joined_whole() {
+        let mut text = String::from("NOTE;X=\"a:b\";ENCODING=QUOTED-PRINTABLE:");
+        for _ in 0..2000 {
+            text.push_str("ab=\r\n");
+        }
+        text.push_str("end\r\nFN:x\r\n");
+        let lines = unfold(&text);
+        let want = format!(
+            "NOTE;X=\"a:b\";ENCODING=QUOTED-PRINTABLE:{}end",
+            "ab".repeat(2000)
+        );
+        assert_eq!(lines, [want, "FN:x".to_owned()]);
     }
 
     #[test]

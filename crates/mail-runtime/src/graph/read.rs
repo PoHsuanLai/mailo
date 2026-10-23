@@ -1017,6 +1017,10 @@ fn property(item: &Value, tag: u32) -> Option<&str> {
 fn property_tag(id: &str) -> Option<u32> {
     let hex = id.split_whitespace().nth(1)?;
     let hex = hex.strip_prefix("0x").or_else(|| hex.strip_prefix("0X"))?;
+    // Digits only: `from_str_radix` would also take a sign.
+    if hex.is_empty() || !hex.bytes().all(|b| mail_domain::hex::digit(b).is_some()) {
+        return None;
+    }
     u32::from_str_radix(hex, 16).ok()
 }
 

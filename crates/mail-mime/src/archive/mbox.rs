@@ -43,6 +43,10 @@ pub struct MboxMessage {
     pub raw: Vec<u8>,
 }
 
+/// The longest body a `Content-Length` is believed for. A longer one is scanned for instead, so
+/// a false one cannot make the reader hold the rest of a several-gigabyte file in memory.
+const MAX_COUNTED: usize = 64 * 1024 * 1024;
+
 /// Messages from an mbox, one at a time.
 ///
 /// Holds one message in memory at a time, however large the file: a Google Takeout of every
@@ -52,6 +56,10 @@ pub struct Reader<R> {
     /// Lines read ahead and handed back, last pushed first out.
     pushback: Vec<Vec<u8>>,
     state: State,
+    /// Whether a `Content-Length` in this file has already been wrong. One that was is not
+    /// believed again: each false one reads ahead to wherever it points before the body is
+    /// scanned for instead, and a file of them would be read once per message.
+    lengths_lie: bool,
 }
 
 // By hand: the source need not be `Debug`, and its bytes are not worth printing.
@@ -77,6 +85,7 @@ impl<R: BufRead> Reader<R> {
             inner,
             pushback: Vec::new(),
             state: State::Start,
+            lengths_lie: false,
         }
     }
 
@@ -142,10 +151,11 @@ impl<R: BufRead> Reader<R> {
             return Ok(Some(MboxMessage { envelope, raw }));
         }
 
-        if let Some(n) = length
-            && self.counted_body(n, &mut raw)?
-        {
-            return Ok(Some(MboxMessage { envelope, raw }));
+        if let Some(n) = length.filter(|n| !self.lengths_lie && *n <= MAX_COUNTED) {
+            if self.counted_body(n, &mut raw)? {
+                return Ok(Some(MboxMessage { envelope, raw }));
+            }
+            self.lengths_lie = true;
         }
         self.scanned_body(&mut raw)?;
         Ok(Some(MboxMessage { envelope, raw }))
