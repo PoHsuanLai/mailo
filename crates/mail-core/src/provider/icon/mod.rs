@@ -34,7 +34,9 @@ pub enum IconError {
     #[error("this provider has no icon")]
     Unmapped,
     /// The body was over 256 KiB, and was not decoded.
-    #[error("the icon is {bytes} bytes, and anything over 256 KiB is refused before decoding")]
+    #[error(
+        "the icon is at least {bytes} bytes, and anything over 256 KiB is refused before decoding"
+    )]
     TooLarge { bytes: usize },
     /// The magic bytes were neither PNG nor ICO.
     #[error("not a png or an ico")]

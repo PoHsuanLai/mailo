@@ -496,8 +496,7 @@ impl Reader {
             let text = refusal_text(response).await;
             return Err(refused(status, &text, after));
         }
-        let text = response
-            .text()
+        let text = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
             .await
             .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         serde_json::from_str(&text).map(Some).map_err(|e| {
@@ -622,8 +621,7 @@ impl Reader {
         }
         // The draft was made: an answer that does not read leaves it unplaced, for the next sync
         // to find, rather than failing an upload that happened and sending it twice.
-        let text = response
-            .text()
+        let text = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
             .await
             .or_log_default("Microsoft Graph's answer to an upload could not be read");
         let created: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -847,11 +845,10 @@ impl Reader {
             let text = refusal_text(response).await;
             return Err(refused(status, &text, after));
         }
-        let bytes = response
-            .bytes()
+        let bytes = crate::http::body_up_to(response, crate::graph::MAX_MESSAGE as usize)
             .await
             .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
-        Ok(Answer::Done(bytes.to_vec()))
+        Ok(Answer::Done(bytes))
     }
 }
 

@@ -65,15 +65,7 @@ async fn one(http: &reqwest::Client, url: &str, address: &str) -> Option<Cert> {
     if !response.status().is_success() {
         return None;
     }
-    if response
-        .content_length()
-        .is_some_and(|len| len > MAX_ANSWER as u64)
-    {
-        return None;
-    }
-    let body = response.bytes().await.ok()?;
-    if body.len() > MAX_ANSWER {
-        return None;
-    }
+    // An answer that does not arrive whole within the limit is no key: the next place is asked.
+    let body = crate::http::body_up_to(response, MAX_ANSWER).await.ok()?;
     key_from_answer(&body, address)
 }

@@ -106,7 +106,15 @@ impl JmapEngine {
             else {
                 return Ok(false);
             };
-            for event in stream.feed(&bytes) {
+            // A stream that will not end its events is one that ended: the interval is the floor.
+            let events = match stream.feed(&bytes) {
+                Ok(events) => events,
+                Err(e) => {
+                    log::warn!("JMAP push: {e}");
+                    return Ok(false);
+                }
+            };
+            for event in events {
                 if event.kind != EventKind::State {
                     continue;
                 }

@@ -12,6 +12,10 @@ use mail_proto::{ProtoError, Refusal};
 use std::fmt;
 use std::time::Duration;
 
+/// The most a JMAP answer or download is read to: a message's bytes, with room to spare, and far
+/// more than any method response.
+const MAX_ANSWER: usize = 256 * 1024 * 1024;
+
 /// How requests prove who is asking. The secret is never printed.
 #[derive(Clone)]
 pub enum Auth {
@@ -229,10 +233,8 @@ impl Client {
 /// The body of a successful response, or the refusal an unsuccessful one means.
 async fn checked(response: reqwest::Response, what: &str) -> Result<Vec<u8>, RuntimeError> {
     if response.status().is_success() {
-        return response
-            .bytes()
+        return crate::http::body_up_to(response, MAX_ANSWER)
             .await
-            .map(|b| b.to_vec())
             .map_err(|e| RuntimeError::Io(Failure::new(format!("JMAP {what}"), e)));
     }
     Err(refusal(response, what).await)
@@ -248,8 +250,9 @@ async fn refusal(response: reqwest::Response, what: &str) -> RuntimeError {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse::<u64>().ok())
         .map(Duration::from_secs);
+    let body = crate::http::text_up_to(response, crate::http::MAX_REFUSAL).await;
     // A refusal's body is only its words: one that does not arrive leaves the status to speak.
-    let body = response.text().await.unwrap_or_default();
+    let body = body.unwrap_or_default();
     RuntimeError::Proto(classify(status, &body, after, what))
 }
 

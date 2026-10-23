@@ -26,6 +26,7 @@ pub use cache::{Cached, cached, remember};
 pub use draw::{SIZE, draw};
 
 use crate::error::Logged;
+use crate::http::BodyError;
 use crate::lookup::{Miss, SystemDns};
 use chrono::{DateTime, Utc};
 use mail_mime::bimi::{self, BimiRecord, MarkProblem, vmc};
@@ -235,7 +236,7 @@ fn answered(result: Result<Vec<String>, Miss>) -> Result<Vec<String>, NoLogo> {
 /// The body at `url`, at most `max` bytes. Anything but a 2xx is unreachable.
 async fn fetch(http: &reqwest::Client, url: &str, max: usize) -> Result<Vec<u8>, NoLogo> {
     let unreachable = |why: String| NoLogo::Unreachable(format!("{url}: {why}"));
-    let mut response = http
+    let response = http
         .get(url)
         .send()
         .await
@@ -243,24 +244,12 @@ async fn fetch(http: &reqwest::Client, url: &str, max: usize) -> Result<Vec<u8>,
     if !response.status().is_success() {
         return Err(unreachable(response.status().to_string()));
     }
-    if response
-        .content_length()
-        .is_some_and(|len| len > max as u64)
-    {
-        return Err(NoLogo::Refused(format!("{url}: larger than {max} bytes")));
-    }
-    let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
+    crate::http::body_up_to(response, max)
         .await
-        .map_err(|e| unreachable(e.to_string()))?
-    {
-        body.extend_from_slice(&chunk);
-        if body.len() > max {
-            return Err(NoLogo::Refused(format!("{url}: larger than {max} bytes")));
-        }
-    }
-    Ok(body)
+        .map_err(|e| match e {
+            BodyError::TooLarge(_) => NoLogo::Refused(format!("{url}: larger than {max} bytes")),
+            BodyError::Read(e) => unreachable(e.to_string()),
+        })
 }
 
 /// `domain` lower case without a trailing dot, when it is a DNS name of at least two labels,

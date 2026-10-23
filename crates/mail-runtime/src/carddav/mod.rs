@@ -341,7 +341,9 @@ async fn exchange(
         header(reqwest::header::LOCATION),
         header(reqwest::header::ETAG),
     );
-    let body = response.text().await.map_err(|e| unreachable(&e))?;
+    let body = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
+        .await
+        .map_err(|e| unreachable(&e))?;
     Ok(Raw {
         status,
         location,
