@@ -1,5 +1,6 @@
 //! The Rules page of Settings: an account's rules, in the order they run, each a page of its own
-//! pushed over the list; and the Vacation Reply page, Settings' next, which shares its account.
+//! pushed over the list; and the Vacation Reply page, Settings' next: the accounts, each one's
+//! reply a page of its own pushed over them ([`vacation`]).
 //!
 //! The search bar's "Rules Settings" opens Settings on it. Everything it writes goes through the
 //! same rows `mailo rules` and `mailo vacation` use — [`work`] and [`away`] are those questions
@@ -18,6 +19,7 @@ mod conditions;
 mod editor;
 mod list;
 mod server;
+mod vacation;
 mod when;
 pub(in crate::ui) mod work;
 
@@ -33,12 +35,11 @@ use super::data::{AccountRow, account_rows};
 use super::files::{Phase, run};
 use crate::ui::copy;
 use crate::ui::view::{RulesAt, Shell};
-use away::AwayPage;
-use ds::components::fields::field_row::FieldRow;
 use editor::RulePage;
 use list::RulesList;
 use mail_domain::Rule;
 use server::{Pusher, put, reach};
+pub(in crate::ui) use vacation::{VacationPage, back as vacation_back};
 
 /// What the last act on the page came to, when it failed: said in a dialog until it is closed.
 pub(super) type Said = Signal<Option<Result<String, String>>>;
@@ -127,39 +128,6 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
             on_back: move |()| back(shell),
             common: Common { id: Some(STACK.to_owned()), ..Common::default() },
         }
-        Told { title: copy::titles::NOT_SAVED, said }
-        Told { title: copy::titles::NOT_ON_SERVER, said: unpushed }
-    }
-}
-
-/// The Vacation Reply page: the account, when there are several (the one the Rules page shows),
-/// and its reply. Whatever is kept goes to the account's server.
-#[component]
-pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let rows = account_rows(&store);
-    let chosen = shell.read().rules.account.clone();
-    let account = chosen
-        .and_then(|id| rows.iter().find(|row| row.id == id))
-        .or_else(|| rows.first())
-        .cloned();
-    let said: Said = use_signal(|| None);
-    let unpushed: Said = use_signal(|| None);
-    let pushed = use_callback(move |row: AccountRow| push(row, unpushed));
-    let Some(row) = account else {
-        return rsx! {
-            Form {
-                FormSection {
-                    FieldRow { label: copy::empty::ADD_AN_ACCOUNT_FIRST }
-                }
-            }
-        };
-    };
-    rsx! {
-        PageHeader { title: copy::titles::VACATION_REPLY }
-        list::AccountChoice { shell, rows, row: row.clone(), said }
-        // Read again for another account.
-        {rsx! { AwayPage { key: "{row.id}", row, pushed } }}
         Told { title: copy::titles::NOT_SAVED, said }
         Told { title: copy::titles::NOT_ON_SERVER, said: unpushed }
     }

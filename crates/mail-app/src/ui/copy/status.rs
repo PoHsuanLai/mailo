@@ -74,6 +74,26 @@ pub fn sender_checks(said: &str) -> String {
 /// The quiet line over a message whose remote images are held back; its actions follow it.
 pub const IMAGES_HIDDEN: &str = "Images hidden";
 
+/// Whether an account's vacation reply is on, beside its address in Settings › Vacation Reply.
+pub mod vacation {
+    pub const OFF: &str = "Off";
+    pub const ON: &str = "On";
+    /// Its "Until" has passed: the server sends it no longer.
+    pub const ENDED: &str = "Ended";
+    /// The account's server runs no vacation reply.
+    pub const UNAVAILABLE: &str = "Not available";
+
+    /// On, starting at `when`.
+    pub fn from(when: &str) -> String {
+        format!("From {when}")
+    }
+
+    /// On, ending at `when`.
+    pub fn until(when: &str) -> String {
+        format!("Until {when}")
+    }
+}
+
 /// How many accounts a Space shows, beside its name in Settings › Spaces.
 pub fn accounts_shown(count: usize) -> String {
     match count {
