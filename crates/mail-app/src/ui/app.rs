@@ -306,10 +306,10 @@ pub(super) fn App() -> Element {
         }
     });
 
-    // An account removed, here or from a terminal, leaves every Space; one added that no Space
-    // holds yet joins the Space on screen. Not while a part of the Space's menu is open: its
-    // close writes the Spaces. Run again when the part closes, which also takes the account out
-    // of the Space it kept.
+    // An account removed, here or from a terminal, leaves every Space. One added stays where it
+    // was put, which may be no Space. Not while a part of the Space's menu is open: its close
+    // writes the Spaces. Run again when the part closes, which also takes the account out of the
+    // Space it kept.
     use_effect(move || {
         let _ = revision();
         if handle.editing().is_some() {
@@ -322,9 +322,9 @@ pub(super) fn App() -> Element {
         let mut next = spaces.peek().clone();
         // The window opens the default Profile until it can open others.
         let profile = ProfileId::default();
-        let forgot = crate::ui::space::forget_unknown(&mut next, &profile, &known);
-        let adopted = crate::ui::space::adopt_unplaced(&mut next, &profile, &known);
-        if forgot == crate::ui::space::Forgot::Changed || adopted == ds_settings::Fixup::Changed {
+        if crate::ui::space::forget_unknown(&mut next, &profile, &known)
+            == crate::ui::space::Forgot::Changed
+        {
             frame::keep(&next);
             let scope = next.current().payload.scope();
             let mut spaces = spaces;

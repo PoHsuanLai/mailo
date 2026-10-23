@@ -43,8 +43,8 @@ fn a_right_click_on_an_account_tile_opens_its_menu() {
             &format!(".ds-menu-list > :nth-child({remove})"),
             "aria-disabled"
         )
-        .is_some_and(|disabled| disabled == "true"),
-        "an account in no other Space can be taken out of this one"
+        .is_none_or(|disabled| disabled != "true"),
+        "an account in no other Space cannot be taken out of this one: it may be in none"
     );
 
     h.key(Key::Escape);

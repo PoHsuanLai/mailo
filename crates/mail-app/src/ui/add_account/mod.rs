@@ -42,13 +42,32 @@ use dioxus::prelude::*;
 use ds_blitz::{WindowHandle, WindowSpec};
 use mail_core::SqliteStore;
 
+use crate::ui::space::SpaceId;
+
 /// What the window and its command are called.
 pub(in crate::ui) const TITLE: &str = "Add Account";
 
-/// What the window opens with: the address of an account being signed in again, already typed.
+/// What the window opens with: the address of an account being signed in again, already typed,
+/// and which Space an account added there joins.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Ask {
     pub address: Option<String>,
+    pub join: Join,
+}
+
+/// Which Space an account added joins. Accounts and Spaces are apart: an account is in a Space
+/// only because someone put it there, so one added from a Space (its menu, its sidebar, the
+/// window with nothing in it) joins that Space, and one added from Settings › Accounts, or signed
+/// in again, joins none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Join {
+    /// The Space on screen when the account is added.
+    #[default]
+    OnScreen,
+    /// This Space, whose menu it was added from.
+    Into(SpaceId),
+    /// No Space.
+    Nowhere,
 }
 
 /// Whatever opens the add-account window: quire's event loop in the launched window, a recorder
@@ -78,6 +97,7 @@ pub(in crate::ui) fn open() {
 pub(in crate::ui) fn open_for(address: String) {
     request(Ask {
         address: Some(address),
+        join: Join::Nowhere,
     });
 }
 
@@ -113,6 +133,7 @@ fn quire(ask: Ask) {
     let props = window::AddAccountWindowProps {
         wiring: window::Wiring::real(store, crate::edge::clients()),
         prefill: ask.address,
+        join: ask.join,
     };
     // It opens at the size of the list, its first step, fitted to the screen (`size`).
     let screen = try_consume_context::<ds_blitz::AppHandle>().and_then(|app| app.screen_extent());

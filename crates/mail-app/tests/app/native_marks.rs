@@ -138,7 +138,7 @@ fn open() -> Opened {
             vec![(
                 "Mail".to_owned(),
                 ds::prelude::SpaceLook::default(),
-                mail_app::ui::space::Mail::default(),
+                mail_app::ui::space::Mail::of(vec![imap_account(), google_account()]),
             )],
             0,
         )),

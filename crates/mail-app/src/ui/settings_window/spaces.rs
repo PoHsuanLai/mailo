@@ -14,11 +14,10 @@
 //! closes, or at once for a preset.
 
 use crate::ui::copy;
-use crate::ui::space::{Handle, Mail, SpaceId, held_elsewhere};
-use crate::ui::space_menu::{accounts, every_id, toggled};
+use crate::ui::space::{Handle, Mail, SpaceId};
+use crate::ui::space_menu::{accounts, toggled};
 use crate::ui::view::{Shell, SpacesPage};
 use dioxus::prelude::*;
-use ds::base::vocab::RowState;
 use ds::components::app::space_editor::swatches::PresetSwatches;
 use ds::components::controls::button_model::ButtonRole;
 use ds::components::controls::choice::Choice;
@@ -144,7 +143,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
                 title: copy::controls::NEW_SPACE,
                 size: RowSize::Settings,
                 onclick: move |_| {
-                    let id = handle.add(Mail::new_in(&ProfileId::default(), every_id()));
+                    let id = handle.add(Mail::new_in(&ProfileId::default()));
                     push(shell, id);
                 },
                 common: Common {
@@ -182,9 +181,7 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
         .into_iter()
         .map(|(account, label)| {
             let on = shown.contains(&account);
-            // An account no other Space shows stays here: every account is in some Space.
-            let stays = on && !held_elsewhere(&spaces, space, &account);
-            account_row(handle, space, account, label, on, stays)
+            account_row(handle, space, account, label, on)
         })
         .collect();
     let theme = look.theme;
@@ -291,14 +288,8 @@ fn account_row(
     account: AccountId,
     label: String,
     on: bool,
-    stays: bool,
 ) -> ListItem<String> {
     let value = if on { Check::On } else { Check::Off };
-    let availability = if stays {
-        Availability::Disabled
-    } else {
-        Availability::Enabled
-    };
     let key = account.to_string();
     ListItem::row(
         key,
@@ -307,16 +298,13 @@ fn account_row(
             Row {
                 title: label.clone(),
                 size: RowSize::Settings,
-                state: RowState { availability, ..RowState::default() },
                 accessory: Accessory::Toggle {
                     value,
                     on_toggle: EventHandler::new(move |_| {
-                        if !stays {
-                            let account = account.clone();
-                            handle.apply(space, |one| {
-                                one.payload.accounts = toggled(&one.payload.accounts, account);
-                            });
-                        }
+                        let account = account.clone();
+                        handle.apply(space, |one| {
+                            one.payload.accounts = toggled(&one.payload.accounts, account);
+                        });
                     }),
                 },
             }

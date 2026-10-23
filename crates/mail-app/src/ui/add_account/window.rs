@@ -28,6 +28,7 @@ use mail_core::SqliteStore;
 use mail_core::profile::ProfileId;
 use porter_core::AccountId;
 
+use super::Join;
 use super::host::{self, Ended, Shown};
 use super::map::{self, Action, Out, Sheet, Step};
 use super::provider::{Added, Seams};
@@ -73,13 +74,13 @@ impl Wiring {
 /// The window as quire opens it: the desktop's settings watched as the first window's root
 /// watches them, then [`AddAccountShell`].
 #[component]
-pub(super) fn AddAccountWindow(wiring: Wiring, prefill: Option<String>) -> Element {
+pub(super) fn AddAccountWindow(wiring: Wiring, prefill: Option<String>, join: Join) -> Element {
     let desktop = crate::ui::launch::DesktopSettings::current();
     let spawner: Arc<dyn Spawner> = Arc::new(ds_blitz::TokioSpawner::current());
     let environment = use_environment(desktop.store(), desktop.prefs.clone(), spawner);
     use_context_provider(|| environment);
     crate::ui::prefs::use_window_settings();
-    rsx! { AddAccountShell { wiring, prefill } }
+    rsx! { AddAccountShell { wiring, prefill, join } }
 }
 
 /// What a test hands the window as a root context: how it signs in, and who is being signed in
@@ -88,25 +89,34 @@ pub(super) fn AddAccountWindow(wiring: Wiring, prefill: Option<String>) -> Eleme
 pub struct Opened {
     wiring: Wiring,
     prefill: Option<String>,
+    join: Join,
 }
 
 impl Opened {
     /// The window drawn for `wiring`, with `prefill` in its address when one is being signed in
-    /// again.
+    /// again; an account added in it joins the Space on screen.
     pub fn new(wiring: Wiring, prefill: Option<String>) -> Opened {
-        Opened { wiring, prefill }
+        Opened {
+            wiring,
+            prefill,
+            join: Join::OnScreen,
+        }
     }
 }
 
 /// The window as a test drives it: [`AddAccountShell`] over the [`Opened`] its root context
 /// names, without the watch on the settings directory.
 pub fn add_account_root() -> Element {
-    let Opened { wiring, prefill } = consume_context::<Opened>();
-    rsx! { AddAccountShell { wiring, prefill } }
+    let Opened {
+        wiring,
+        prefill,
+        join,
+    } = consume_context::<Opened>();
+    rsx! { AddAccountShell { wiring, prefill, join } }
 }
 
 #[component]
-fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
+fn AddAccountShell(wiring: Wiring, prefill: Option<String>, join: Join) -> Element {
     // The provider icons as the first window read them, fetched here too when any is missing:
     // the list offers every known provider before an account is on one.
     let loaded = try_consume_context::<mail_core::provider::icon::Loaded>().unwrap_or_default();
@@ -216,7 +226,7 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>) -> Element {
         sheet.set(Sheet::default());
         if ended == Ended::Added {
             if let Some(account) = added_to.take().and_then(|address| account_at(&address)) {
-                into_scope(&mut spaces, account);
+                into_scope(&mut spaces, account, join);
             }
             revision += 1;
             // Told to the other windows now, not by the effect that publishes `revision`: that
@@ -398,8 +408,11 @@ pub(super) fn account_at(address: &str) -> Option<AccountId> {
         .map(|row| row.id)
 }
 
-/// A new account joins the current Space, the one it was added from.
-pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
+/// A new account joins the Space it was added from, as `join` names it; or none.
+pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId, join: Join) {
+    if join == Join::Nowhere {
+        return;
+    }
     // The Spaces as they are on disk: this window's copy may be older than a Space another
     // window added or switched to meanwhile, and keeping it would undo that.
     if let Some(dirs) = try_consume_context::<crate::ui::appearance::WindowDirs>()
@@ -410,9 +423,12 @@ pub(super) fn into_scope(spaces: &mut Signal<Spaces>, account: AccountId) {
     }
     let widened = {
         let mut all = spaces.write();
-        let current = all.current().id;
+        let into = match join {
+            Join::Into(space) => space,
+            Join::OnScreen | Join::Nowhere => all.current().id,
+        };
         let mut widened = false;
-        all.edit(current, |space| {
+        all.edit(into, |space| {
             widened = space.payload.widen(&ProfileId::default(), account)
         });
         widened

@@ -5,9 +5,10 @@
 //! its [`Mail`] payload: whose mail it shows and what stays pinned. Where
 //! a Space was left is mailo's [`Recall`].
 //!
-//! The accounts are the store's, a level above the Spaces: a Space names the ones it shows, and
-//! only those, so an account added later shows where it is put and nowhere else. Every account is
-//! in at least one Space of its Profile ([`adopt_unplaced`]), so none is out of sight.
+//! The accounts are the store's, a level above the Spaces, and apart from them: a Space names the
+//! ones it shows, and only those, so an account added later shows where it is put and nowhere
+//! else. A Space may show no account, and an account may be in no Space; it still syncs, and is
+//! in Settings › Accounts.
 //!
 //! Stored in `spaces.json` under the config directory, beside appearance and not in the mail
 //! database: a cosmetic choice must not be a write against someone's mail. quire reads the file
@@ -22,13 +23,11 @@ use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
-mod adopt;
 mod forget;
 mod member;
 mod recall;
 mod upgrade;
 
-pub use adopt::{adopt_unplaced, held_elsewhere};
 pub use ds::components::app::spaces::SpaceId;
 pub use forget::{Forgot, forget_account, forget_unknown};
 pub use mail_core::scope::Scope;
@@ -86,12 +85,11 @@ impl Mail {
         }
     }
 
-    /// A new Space's mail in `profile`, over `accounts` (every account the store has, when the
-    /// menu makes one), nothing pinned.
-    pub fn new_in(profile: &ProfileId, accounts: Vec<AccountId>) -> Mail {
+    /// A new Space's mail in `profile`: no account until some are put in it, nothing pinned.
+    pub fn new_in(profile: &ProfileId) -> Mail {
         Mail {
             profile: profile.clone(),
-            ..Mail::of(accounts)
+            ..Mail::default()
         }
     }
 
@@ -188,8 +186,7 @@ pub fn storage(dirs: Option<&WindowDirs>) -> SpacesStorage {
 /// The theme moved from `appearance.json` into each Space. A Space written before that has
 /// none, and takes the window-wide one `legacy` read, so the first read after the upgrade looks
 /// the way the window did; a first run starts from it too. A Space written before Spaces named
-/// their accounts names them now ([`upgrade`]), and an account no Space holds joins the one on
-/// screen ([`adopt_unplaced`]).
+/// their accounts names them now ([`upgrade`]).
 pub fn boot(dirs: Option<&WindowDirs>, accounts: &[AccountId], legacy: &Legacy) -> Spaces {
     let theme = serde_json::to_value(legacy.theme).unwrap_or(serde_json::Value::Null);
     let upgraded = std::cell::Cell::new(Fixup::Kept);
@@ -205,13 +202,7 @@ pub fn boot(dirs: Option<&WindowDirs>, accounts: &[AccountId], legacy: &Legacy) 
         }
         spaces
     };
-    let on_load = |spaces: &mut Spaces| match (
-        upgraded.get(),
-        adopt_unplaced(spaces, &ProfileId::default(), accounts),
-    ) {
-        (Fixup::Kept, Fixup::Kept) => Fixup::Kept,
-        _ => Fixup::Changed,
-    };
+    let on_load = |_: &mut Spaces| upgraded.get();
     storage(dirs).boot_spaces(raw_fix, made, on_load).0
 }
 

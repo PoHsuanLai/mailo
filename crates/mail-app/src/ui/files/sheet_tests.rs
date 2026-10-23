@@ -227,8 +227,16 @@ async fn local_folders_leak_no_address_and_have_nothing_to_sync() {
     dispatching();
     let (store, dir) = crate::ui::fixtures::seeded();
     let local = import_locally(&store, &a_maildir(dir.path()));
-    // One Space, which every account joins as the window opens, the IMAP one among them.
-    let everything = crate::ui::space::first_run(&[]);
+    // One Space showing every account, the IMAP one among them.
+    let known = crate::ui::data::known_accounts(&store).expect("the accounts");
+    let everything = crate::ui::space::built(
+        vec![(
+            "Mail".to_owned(),
+            ds::prelude::SpaceLook::default(),
+            crate::ui::space::Mail::of(known),
+        )],
+        0,
+    );
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
         .with_root_context(everything);
@@ -243,9 +251,8 @@ async fn local_folders_leak_no_address_and_have_nothing_to_sync() {
         "the address leaked: {page}"
     );
 
-    // A Space over the local folders alone, on screen, with the IMAP account in a Space of its
-    // own: an account no Space holds would join the one on screen.
-    let alone = crate::ui::space::first_run(&[local.clone(), crate::ui::fixtures::acct_account()]);
+    // A Space over the local folders alone, on screen; the IMAP account is in no Space.
+    let alone = crate::ui::space::first_run(std::slice::from_ref(&local));
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
         .with_root_context(alone);

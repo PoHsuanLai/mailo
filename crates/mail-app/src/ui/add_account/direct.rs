@@ -35,7 +35,7 @@ use porter_core::AuthKind;
 use porter_provider::{Issuer, ProviderSpec};
 use tokio::sync::watch;
 
-use super::Ask;
+use super::{Ask, Join};
 use crate::ui::motion::Follow;
 use crate::ui::space::Spaces;
 
@@ -236,6 +236,7 @@ pub(in crate::ui) enum Phase {
         run: u64,
         issuer: Issuer,
         mode: Mode,
+        join: Join,
         raised: u32,
     },
     /// It ended: the address added, or why not.
@@ -243,6 +244,7 @@ pub(in crate::ui) enum Phase {
         run: u64,
         issuer: Issuer,
         mode: Mode,
+        join: Join,
         outcome: Result<String, SignInError>,
     },
 }
@@ -261,13 +263,13 @@ fn phase_now() -> Phase {
     PHASE.with(|phase| phase.borrow().clone())
 }
 
-/// Sign in with `issuer` in the browser: `mode`'s account added, or signed in again. Call it from
-/// an event handler, in any window.
+/// Sign in with `issuer` in the browser: `mode`'s account added, joining the Space `join` names,
+/// or signed in again. Call it from an event handler, in any window.
 ///
 /// One at a time: a pick while one waits brings its row back instead of opening a second page.
 /// With no client for the issuer, or nothing here to run a direct sign-in, the window opens
 /// instead, and says why.
-pub(in crate::ui) fn start(issuer: Issuer, mode: Mode) {
+pub(in crate::ui) fn start(issuer: Issuer, mode: Mode, join: Join) {
     if matches!(phase_now(), Phase::Waiting { .. }) {
         PHASE.with(|phase| {
             phase.send_modify(|now| {
@@ -281,7 +283,7 @@ pub(in crate::ui) fn start(issuer: Issuer, mode: Mode) {
     let ready = runner().is_some_and(|runner| runner.0.has_client(issuer))
         && WATCHED.with(|watched| *watched.borrow() > 0);
     if !ready {
-        super::request(window_ask(&mode));
+        super::request(window_ask(&mode, join));
         return;
     }
     let run = RUNS.with(|runs| {
@@ -293,6 +295,7 @@ pub(in crate::ui) fn start(issuer: Issuer, mode: Mode) {
             run,
             issuer,
             mode,
+            join,
             raised: 0,
         });
     });
@@ -313,6 +316,7 @@ fn end_with(run: Option<u64>, outcome: Result<String, SignInError>) {
                 run: waiting,
                 issuer,
                 mode,
+                join,
                 ..
             } = now
             else {
@@ -325,6 +329,7 @@ fn end_with(run: Option<u64>, outcome: Result<String, SignInError>) {
                 run: *waiting,
                 issuer: *issuer,
                 mode: mode.clone(),
+                join: *join,
                 outcome,
             };
             *now = ended;
@@ -333,12 +338,17 @@ fn end_with(run: Option<u64>, outcome: Result<String, SignInError>) {
     });
 }
 
-/// What the window opens with for `mode`: the address of an account being signed in again.
-fn window_ask(mode: &Mode) -> Ask {
+/// What the window opens with for `mode`: the Space an account added joins, or the address of
+/// an account being signed in again, which joins none.
+fn window_ask(mode: &Mode, join: Join) -> Ask {
     match mode {
-        Mode::Add => Ask::default(),
+        Mode::Add => Ask {
+            address: None,
+            join,
+        },
         Mode::Again { address } => Ask {
             address: Some(address.clone()),
+            join: Join::Nowhere,
         },
     }
 }
@@ -347,7 +357,11 @@ fn window_ask(mode: &Mode) -> Ask {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) enum Retry {
     /// The same direct sign-in again.
-    Direct { issuer: Issuer, mode: Mode },
+    Direct {
+        issuer: Issuer,
+        mode: Mode,
+        join: Join,
+    },
     /// The add-account window, which says what is missing.
     Window(Ask),
 }
@@ -365,7 +379,7 @@ impl Retry {
 /// Do what a toast's button offered. Call it from an event handler.
 pub(in crate::ui) fn retry(retry: Retry) {
     match retry {
-        Retry::Direct { issuer, mode } => start(issuer, mode),
+        Retry::Direct { issuer, mode, join } => start(issuer, mode, join),
         Retry::Window(ask) => super::request(ask),
     }
 }
@@ -374,6 +388,7 @@ pub(in crate::ui) fn retry(retry: Retry) {
 pub(in crate::ui) fn told(
     issuer: Issuer,
     mode: &Mode,
+    join: Join,
     outcome: &Result<String, SignInError>,
 ) -> (String, Follow) {
     match outcome {
@@ -390,13 +405,14 @@ pub(in crate::ui) fn told(
         // Nothing to try again here: the window explains what is missing and offers the rest.
         Err(why @ (SignInError::NoClient(_) | SignInError::NotMail(_))) => (
             why.to_string(),
-            Follow::SignIn(Retry::Window(window_ask(mode))),
+            Follow::SignIn(Retry::Window(window_ask(mode, join))),
         ),
         Err(why) => (
             why.to_string(),
             Follow::SignIn(Retry::Direct {
                 issuer,
                 mode: mode.clone(),
+                join,
             }),
         ),
     }
@@ -455,11 +471,12 @@ pub(in crate::ui) fn DirectSignInWatch(spaces: Signal<Spaces>) -> Element {
                 run,
                 issuer,
                 mode,
+                join,
                 outcome,
             } if run > *heard.peek() => {
                 let mut heard = heard;
                 heard.set(run);
-                settle(spaces, issuer, &mode, &outcome);
+                settle(spaces, issuer, &mode, join, &outcome);
             }
             _ => {}
         }
@@ -492,22 +509,25 @@ async fn left(heard: &mut watch::Receiver<Phase>, run: u64) {
 }
 
 /// Say how sign-in ended, and draw what it added: the shared revision moves so every window reads
-/// the store again, and the current Space takes the account in when it shows only some.
+/// the store again, and an account added joins the Space `join` names, if any.
 fn settle(
     mut spaces: Signal<Spaces>,
     issuer: Issuer,
     mode: &Mode,
+    join: Join,
     outcome: &Result<String, SignInError>,
 ) {
     if let Ok(address) = outcome {
-        if let Some(account) = super::window::account_at(address) {
-            super::window::into_scope(&mut spaces, account);
+        if *mode == Mode::Add
+            && let Some(account) = super::window::account_at(address)
+        {
+            super::window::into_scope(&mut spaces, account, join);
         }
         if let Some(revisions) = try_consume_context::<crate::ui::revisions::Revisions>() {
             revisions.bump();
         }
     }
-    let (text, follow) = told(issuer, mode, outcome);
+    let (text, follow) = told(issuer, mode, join, outcome);
     crate::ui::motion::tell(text, follow);
 }
 
@@ -560,11 +580,12 @@ fn Spinning() -> Element {
 }
 
 /// The add menu, hung from `anchor`: each provider that goes straight to the browser, then Other
-/// Account…, and a pick does what it says.
+/// Account…, and a pick does what it says; an account added joins the Space `join` names.
 #[component]
 pub(in crate::ui) fn AddMenu(
     anchor: Option<MountedRef>,
     redirects: Vec<(Issuer, String)>,
+    join: Join,
     on_close: EventHandler<()>,
 ) -> Element {
     rsx! {
@@ -573,7 +594,7 @@ pub(in crate::ui) fn AddMenu(
             anchor: crate::ui::menu::anchor_for(anchor, None),
             items: add_menu(&redirects),
             onpick: move |pick: AddPick| {
-                picked(pick);
+                picked(pick, join);
                 on_close.call(());
             },
             onclose: on_close,
@@ -581,20 +602,22 @@ pub(in crate::ui) fn AddMenu(
     }
 }
 
-/// Do what a row of the add menu says. Call it from an event handler.
-pub(in crate::ui) fn picked(pick: AddPick) {
+/// Do what a row of the add menu says, the account added joining the Space `join` names. Call
+/// it from an event handler.
+pub(in crate::ui) fn picked(pick: AddPick, join: Join) {
     match pick {
-        AddPick::Redirect(issuer) => start(issuer, Mode::Add),
-        AddPick::Other => super::open(),
+        AddPick::Redirect(issuer) => start(issuer, Mode::Add, join),
+        AddPick::Other => super::request(window_ask(&Mode::Add, join)),
     }
 }
 
 /// The add menu's way in, for a control that adds an account: the menu when some provider goes
-/// straight to the browser (`open_menu` is told them), else the window.
-pub(in crate::ui) fn add_from(mut open_menu: impl FnMut(Vec<(Issuer, String)>)) {
+/// straight to the browser (`open_menu` is told them), else the window. An account added joins
+/// the Space `join` names.
+pub(in crate::ui) fn add_from(join: Join, mut open_menu: impl FnMut(Vec<(Issuer, String)>)) {
     let offered = offered_redirects();
     if offered.is_empty() {
-        super::open();
+        super::request(window_ask(&Mode::Add, join));
     } else {
         open_menu(offered);
     }
@@ -614,7 +637,7 @@ pub(in crate::ui) fn again(address: String) {
         _ => Entry::Window,
     };
     match entry {
-        Entry::Redirect(issuer) => start(issuer, Mode::Again { address }),
+        Entry::Redirect(issuer) => start(issuer, Mode::Again { address }, Join::Nowhere),
         Entry::Window => super::open_for(address),
     }
 }
