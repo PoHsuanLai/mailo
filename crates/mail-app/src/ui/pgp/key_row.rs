@@ -147,7 +147,7 @@ pub(in crate::ui) fn KeyRow(
         Act::Trust | Act::Distrust => {}
     };
     let actions = rsx! {
-        RowActions { label: format!("Actions for {id}"), items, opened, onpick }
+        RowActions { label: crate::ui::copy::aria::actions_for(&id.to_string()), items, opened, onpick }
     };
     let title = TextLine::Runs(vec![
         TextRun::new(name, RunTone::Strong),

@@ -152,8 +152,11 @@ fn status(store: &SqliteStore, row: &AccountRow, now: DateTime<Utc>, clock: Cloc
     if reach(&row.plan).is_err() {
         return words::UNAVAILABLE.to_owned();
     }
-    let Some(kept) = store.vacation(row.id.clone()).ok().flatten() else {
-        return words::OFF.to_owned();
+    // A reply the store cannot read is not known to be off.
+    let kept = match store.vacation(row.id.clone()) {
+        Ok(Some(kept)) => kept,
+        Ok(None) => return words::OFF.to_owned(),
+        Err(_) => return words::UNAVAILABLE.to_owned(),
     };
     let at = |t| when_words(t, now, &chrono::Local, clock);
     match (kept.during.from, kept.during.to) {

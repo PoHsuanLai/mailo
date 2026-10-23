@@ -296,7 +296,7 @@ fn CertRow(cert: SmimeCert, confirm: Signal<Confirm>, run: Callback<Job>, busy: 
         Act::ExportSecret | Act::Verify => {}
     };
     let actions = rsx! {
-        RowActions { label: format!("Actions for {id}"), items, opened, onpick }
+        RowActions { label: crate::ui::copy::aria::actions_for(&id.to_string()), items, opened, onpick }
     };
     let title = TextLine::Runs(vec![
         TextRun::new(cert.subject.clone(), RunTone::Strong),
