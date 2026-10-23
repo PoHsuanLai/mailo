@@ -5,16 +5,17 @@
 //! for `OpKind::Snooze` because the op needs a payload, and no surface supplied one, so the
 //! whole apparatus sat there unused.
 //!
-//! Nothing runs when a snooze expires and nothing needs to. `SnoozeDue` is resolved against
-//! `now` at query time, so a conversation returns to the inbox on the stroke whether the client
-//! was running or not — which is the right design for something that may be asleep for a week.
+//! Nothing is written when a snooze expires. `SnoozeDue` is resolved against `now` at query time,
+//! so a conversation returns to the inbox on the stroke whether the client was running or not;
+//! a window that is open asks again at [`next_wake`], so its list shows it come back.
 
 use crate::error::Logged;
 use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, Datelike, Local, TimeDelta, TimeZone, Timelike, Utc, Weekday};
 use mail_domain::{
-    AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FolderRoles, Message, MoveExt, Op,
-    ServerLabels, ServerThreads, Snooze, Supported, Target, ThreadId, WatchMode,
+    AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, Filter, FolderRoles, Message, MoveExt, Op,
+    PageReq, Property, Query, ServerLabels, ServerThreads, Snooze, Sort, SortDir, Supported,
+    Target, ThreadId, WatchMode,
 };
 use mail_store::{SqliteStore, Store};
 
@@ -28,6 +29,46 @@ pub fn snooze(
     let at = snooze_until(phrase, now, &Local)?;
     set(store, thread, Snooze::Until(at), now)?;
     Ok(at)
+}
+
+/// When the next snoozed conversation comes back: the earliest snooze still ahead of `now`, or
+/// `None` with none waiting (or none readable, which is logged).
+pub fn next_wake(store: &SqliteStore, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+    let filter = Filter::And(vec![
+        Filter::Snoozed,
+        Filter::Not(Box::new(Filter::SnoozeDue)),
+    ]);
+    let mut next = None;
+    let mut after = None;
+    loop {
+        let query = Query {
+            filter: filter.clone(),
+            sort: Sort {
+                property: Property::Date,
+                dir: SortDir::Desc,
+            },
+            page: PageReq { after, limit: 500 },
+        };
+        let Some(page) = store
+            .threads(&query, now)
+            .or_log("the snoozed conversations could not be read")
+        else {
+            return next;
+        };
+        next = page
+            .items
+            .iter()
+            .filter_map(|summary| match summary.snooze {
+                Snooze::Until(at) if at > now => Some(at),
+                _ => None,
+            })
+            .chain(next)
+            .min();
+        match page.next {
+            Some(cursor) => after = Some(cursor),
+            None => return next,
+        }
+    }
 }
 
 /// Bring one back now.

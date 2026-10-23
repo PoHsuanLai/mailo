@@ -95,7 +95,6 @@ fn snooze_until_tomorrow_puts_a_conversation_away_until_its_time() {
 }
 
 #[test]
-#[ignore = "gap: snoozing reads the system clock (ui/menus/mod.rs:171) and the list asks the store at Utc::now() only when the revision moves (ui/list_query.rs:64,76); no timer brings a snoozed conversation back when its time comes"]
 fn a_snoozed_conversation_comes_back_to_the_inbox_when_the_window_s_clock_passes_its_time() {
     let mut window = Window::open(|_| {});
     let subject = INBOX[3].1;

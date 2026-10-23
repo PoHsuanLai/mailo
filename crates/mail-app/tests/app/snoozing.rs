@@ -115,6 +115,15 @@ fn a_snoozed_conversation_leaves_the_inbox_and_returns_by_itself() {
 }
 
 #[test]
+fn the_next_wake_is_the_snooze_still_ahead() {
+    let (store, _dir, thread) = seeded();
+    assert_eq!(snooze::next_wake(&store, now()), None, "nothing snoozed");
+    let at = snooze::snooze(&store, thread, "tomorrow", now()).unwrap();
+    assert_eq!(snooze::next_wake(&store, now()), Some(at));
+    assert_eq!(snooze::next_wake(&store, at), None, "due, so not ahead");
+}
+
+#[test]
 fn waking_one_brings_it_back_before_its_hour() {
     let (store, _dir, thread) = seeded();
     snooze::snooze(&store, thread, "weekend", now()).unwrap();

@@ -1,5 +1,5 @@
 //! Remind me if no reply, in the window: the sweep that brings a conversation back. A reminder is
-//! set under the composer's Send ▾ alone.
+//! set under the composer's Send ▾ alone. And the timer that shows a snoozed one come back.
 //!
 //! The deciding is [`mail_core::follow_up`]'s; this is when it runs and how it is shown.
 
@@ -66,6 +66,29 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
                 }
                 ds::base::time::clock::sleep(wait(mail_core::follow_up::next_due(&store), now))
                     .await;
+            }
+        }
+    });
+}
+
+/// Ask the list again when the next snoozed conversation comes back, so it shows in the inbox on
+/// its time rather than at the next change. A revision starts this again, with a snooze just set
+/// or woken counted; the sleep is quire's, on the window's clock, as [`use_reminders`]'s is.
+pub(in crate::ui) fn use_snooze_wake(mut revision: Signal<u64>) {
+    let _waking = use_resource(move || {
+        let _ = revision();
+        async move {
+            let store = consume_context::<Arc<SqliteStore>>();
+            let Some(at) = mail_core::snooze::next_wake(&store, super::clock::now()) else {
+                return;
+            };
+            loop {
+                let now = super::clock::now();
+                if at <= now {
+                    revision += 1;
+                    return;
+                }
+                ds::base::time::clock::sleep(wait(Some(at), now)).await;
             }
         }
     });

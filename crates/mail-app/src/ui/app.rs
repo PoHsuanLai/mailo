@@ -640,6 +640,7 @@ pub(super) fn App() -> Element {
     // Follow-up reminders: swept at launch, when the next comes due, and on every revision, so
     // a conversation nobody answered comes back to the top of the inbox (`mail_core::follow_up`).
     super::follow_up::use_reminders(revision);
+    super::follow_up::use_snooze_wake(revision);
 
     let peek = shell.read().peek;
     let frame_class = if side_hidden() { "app no-side" } else { "app" };
