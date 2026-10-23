@@ -27,7 +27,10 @@ gone "$UNIT_DEST"
 
 step "3/3 the entry, the icon, the intents, the skill and the binary"
 gone "$DESKTOP_DEST"
-gone "$ICON_DEST"
+for size in $ICON_SIZES; do
+  gone "$(icon_dest "$size")"
+done
+gone "$OLD_ICON_DEST"
 gone "$INTENTS_DEST"
 gone "$SKILL_DIR/SKILL.md"
 gone "$SKILL_DIR/skill.toml"

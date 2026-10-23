@@ -40,6 +40,8 @@ package() {
   install -Dm644 dist/skills/mail/SKILL.md "$pkgdir/usr/share/quire/skills/mail/SKILL.md"
   install -Dm644 dist/skills/mail/skill.toml "$pkgdir/usr/share/quire/skills/mail/skill.toml"
   install -Dm644 packaging/org.quire.Mail.service "$pkgdir/usr/share/dbus-1/services/org.quire.Mail.service"
-  install -Dm644 packaging/icons/hicolor/scalable/apps/mailo.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/mailo.svg"
+  for size in 16 32 48 64 128 256 512; do
+    install -Dm644 "packaging/icons/hicolor/${size}x${size}/apps/mailo.png" "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/mailo.png"
+  done
   install -Dm644 README.md "$pkgdir/usr/share/doc/mailo/README.md"
 }

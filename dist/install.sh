@@ -28,7 +28,9 @@ parse_flags "$@"
 step "1/5 checks"
 refuse_root
 command -v cargo >/dev/null || [ "${FLAG_no_build:-0}" = 1 ] || { echo "cargo not found" >&2; exit 1; }
-[ -f "$ICON_SRC" ] || { echo "no icon at $ICON_SRC" >&2; exit 1; }
+for size in $ICON_SIZES; do
+  [ -f "$(icon_src "$size")" ] || { echo "no icon at $(icon_src "$size")" >&2; exit 1; }
+done
 if [ -e "$HOME/.cargo/bin/mailo" ]; then
   note "WARNING: $HOME/.cargo/bin/mailo would come first on a login shell's PATH and shadow $BIN_DEST;"
   note "         remove it (rm $HOME/.cargo/bin/mailo) or a shell runs the old build"
@@ -46,7 +48,10 @@ fi
 step "3/5 the binary, the desktop entry, the icon and the intents"
 put 755 "$BUILT" "$BIN_DEST"
 put 644 "$DIST/mailo.desktop" "$DESKTOP_DEST"
-put 644 "$ICON_SRC" "$ICON_DEST"
+for size in $ICON_SIZES; do
+  put 644 "$(icon_src "$size")" "$(icon_dest "$size")"
+done
+gone "$OLD_ICON_DEST"
 # What the desktop's intent router reads, and the activation that starts `mailo intents` for it.
 put 644 "$DIST/intents/org.quire.Mail.toml" "$INTENTS_DEST"
 put 644 "$DIST/skills/mail/SKILL.md" "$SKILL_DIR/SKILL.md"
@@ -69,7 +74,8 @@ else
   note "no icon cache to refresh under $PREFIX/share/icons/hicolor"
 fi
 if command -v restorecon >/dev/null && [ -n "$SUDO" ]; then
-  asroot restorecon -F "$BIN_DEST" "$DESKTOP_DEST" "$ICON_DEST" "$UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST" "$SKILL_DIR/SKILL.md" "$SKILL_DIR/skill.toml"
+  # shellcheck disable=SC2046 # one path per size
+  asroot restorecon -F "$BIN_DEST" "$DESKTOP_DEST" $(for size in $ICON_SIZES; do icon_dest "$size"; done) "$UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST" "$SKILL_DIR/SKILL.md" "$SKILL_DIR/skill.toml"
 fi
 if manager_present; then
   # --global: every user's graphical-session.target wants the unit, whichever session starts it.

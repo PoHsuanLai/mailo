@@ -13,7 +13,11 @@ PREFIX="${MAILO_PREFIX:-/usr/local}"
 UNIT_DIR="${MAILO_UNIT_DIR:-/etc/systemd/user}"
 BIN_DEST="$PREFIX/bin/mailo"
 DESKTOP_DEST="$PREFIX/share/applications/mailo.desktop"
-ICON_DEST="$PREFIX/share/icons/hicolor/scalable/apps/mailo.svg"
+# The icon at each size it is drawn at: icon_src and icon_dest name one size's file.
+ICON_SIZES="16 32 48 64 128 256 512"
+icon_dest() { echo "$PREFIX/share/icons/hicolor/$1x$1/apps/mailo.png"; }
+# Where an earlier install put the icon as an SVG, which a lookup would still take over the PNGs.
+OLD_ICON_DEST="$PREFIX/share/icons/hicolor/scalable/apps/mailo.svg"
 UNIT_NAME=mailo-watch.service
 UNIT_DEST="$UNIT_DIR/$UNIT_NAME"
 # The intents manifest the desktop's router reads, and the D-Bus service that starts the provider
@@ -25,7 +29,7 @@ SKILL_DIR="$PREFIX/share/quire/skills/mail"
 # The binary to install: a release build unless MAILO_BIN says otherwise (the scenarios install a debug
 # build, which is what carries their test seams).
 BUILT="${MAILO_BIN:-${CARGO_TARGET_DIR:-$ROOT/target}/release/mailo}"
-ICON_SRC="$ROOT/packaging/icons/hicolor/scalable/apps/mailo.svg"
+icon_src() { echo "$ROOT/packaging/icons/hicolor/$1x$1/apps/mailo.png"; }
 # What the person asked to escalate with, if anything (SUDO=doas ./install.sh), read before SUDO is
 # reset below.
 ASKED_SUDO="${SUDO:-}"

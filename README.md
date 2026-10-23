@@ -122,8 +122,10 @@ window is the desktop's, `quire/appearance.toml`, followed live; mailo keeps no 
 cargo build --release -p mail-app
 install -Dm755 target/release/mailo ~/.local/bin/mailo
 install -Dm644 packaging/mailo.desktop ~/.local/share/applications/mailo.desktop
-install -Dm644 packaging/icons/hicolor/scalable/apps/mailo.svg \
-    ~/.local/share/icons/hicolor/scalable/apps/mailo.svg
+for size in 16 32 48 64 128 256 512; do
+    install -Dm644 packaging/icons/hicolor/${size}x${size}/apps/mailo.png \
+        ~/.local/share/icons/hicolor/${size}x${size}/apps/mailo.png
+done
 update-desktop-database ~/.local/share/applications    # so the mailto: handler is found
 xdg-mime default mailo.desktop x-scheme-handler/mailto  # optional: make mailo the mail handler
 ```

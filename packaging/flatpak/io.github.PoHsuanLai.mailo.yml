@@ -42,7 +42,7 @@ modules:
       # window's own app id stays `mailo`, which StartupWMClass names.
       - install -Dm644 packaging/mailo.desktop /app/share/applications/${FLATPAK_ID}.desktop
       - desktop-file-edit --set-icon=${FLATPAK_ID} /app/share/applications/${FLATPAK_ID}.desktop
-      - install -Dm644 packaging/icons/hicolor/scalable/apps/mailo.svg /app/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
+      - for size in 16 32 48 64 128 256 512; do install -Dm644 packaging/icons/hicolor/${size}x${size}/apps/mailo.png /app/share/icons/hicolor/${size}x${size}/apps/${FLATPAK_ID}.png; done
     sources:
       - type: dir
         path: ../..
