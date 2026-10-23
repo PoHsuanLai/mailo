@@ -1,13 +1,12 @@
 //! An account tile's right-click menu: Sync Now; Sign In Again… while the account waits for one;
-//! Remove from This Space, dimmed while the account is in no other Space (it would be out of
-//! sight, and would come straight back, `space::adopt_unplaced`); and Account Settings…. The All
+//! Remove from This Space, which may leave it in no Space; and Account Settings…. The All
 //! tile's menu is Sync Now, for every account the Space shows. What the rows are is data
 //! ([`items`]); [`TileMenu`] draws them at the press and does the pick.
 
 use crate::ui::copy;
 use crate::ui::fetching::Fetching;
 use crate::ui::reauth::Reauth;
-use crate::ui::space::{Handle, Member, held_elsewhere, with_member};
+use crate::ui::space::{Handle, Member, with_member};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::menus::item::item::MenuItem;
@@ -25,12 +24,10 @@ pub(super) enum Pick {
     Settings,
 }
 
-/// What the menu knows of the tile's account: whether it waits for a sign-in, and whether it may
-/// leave the Space.
+/// What the menu knows of the tile's account: whether it waits for a sign-in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Standing {
     pub signed_out: bool,
-    pub elsewhere: bool,
 }
 
 /// The rows for a tile: the All tile's (`None`) or an account's.
@@ -48,14 +45,10 @@ pub(super) fn items(standing: Option<Standing>) -> Vec<MenuItem<Pick>> {
         );
     }
     rows.push(MenuItem::Separator);
-    let remove = MenuItem::new(Pick::RemoveFromSpace, copy::menus::REMOVE_FROM_SPACE);
-    rows.push(if standing.elsewhere {
-        remove
-    } else {
-        remove
-            .with_availability(Availability::Disabled)
-            .with_tip(copy::tooltips::IN_NO_OTHER_SPACE)
-    });
+    rows.push(MenuItem::new(
+        Pick::RemoveFromSpace,
+        copy::menus::REMOVE_FROM_SPACE,
+    ));
     rows.push(MenuItem::Separator);
     rows.push(
         MenuItem::new(Pick::Settings, copy::menus::ACCOUNT_SETTINGS)
@@ -76,12 +69,7 @@ pub(super) fn TileMenu(
     let standing = account.as_ref().map(|id| {
         let signed_out = try_consume_context::<Fetching>()
             .is_some_and(|fetching| fetching.needs().iter().any(|(need, _)| need == id));
-        let spaces = handle.spaces();
-        let spaces = spaces.read();
-        Standing {
-            signed_out,
-            elsewhere: held_elsewhere(&spaces, spaces.current().id, id),
-        }
+        Standing { signed_out }
     });
     rsx! {
         Menu::<Pick> {
@@ -152,10 +140,7 @@ mod tests {
         let cases = [
             (None, vec![Some((SyncNow, true))]),
             (
-                Some(Standing {
-                    signed_out: false,
-                    elsewhere: true,
-                }),
+                Some(Standing { signed_out: false }),
                 vec![
                     Some((SyncNow, true)),
                     None,
@@ -165,15 +150,12 @@ mod tests {
                 ],
             ),
             (
-                Some(Standing {
-                    signed_out: true,
-                    elsewhere: false,
-                }),
+                Some(Standing { signed_out: true }),
                 vec![
                     Some((SyncNow, true)),
                     Some((SignInAgain, true)),
                     None,
-                    Some((RemoveFromSpace, false)),
+                    Some((RemoveFromSpace, true)),
                     None,
                     Some((Settings, true)),
                 ],

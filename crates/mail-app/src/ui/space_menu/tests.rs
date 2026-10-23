@@ -1,4 +1,4 @@
-use super::{AccountPick, Leaving, accounts_menu, toggled};
+use super::{AccountPick, accounts_menu, toggled};
 use crate::ui::add_account::AddPick;
 use ds::components::menus::item::item::{AfterPick, MenuItem};
 use ds::prelude::{Availability, Check};
@@ -11,11 +11,6 @@ fn account(n: u128) -> AccountId {
 
 fn ids(ns: &[u128]) -> Vec<AccountId> {
     ns.iter().map(|n| account(*n)).collect()
-}
-
-/// Every account may leave the Space: each is in another one too.
-fn anywhere(_: &AccountId) -> Leaving {
-    Leaving::Allowed
 }
 
 fn named(ns: &[u128]) -> Vec<(AccountId, String)> {
@@ -74,7 +69,7 @@ fn add(title: &str) -> (String, Check, bool) {
 #[test]
 fn accounts_are_checked_by_the_space_s_accounts_and_stay_open_on_a_pick() {
     let all = named(&[1, 2, 3]);
-    let shown = rows(&accounts_menu(&ids(&[1, 3]), &all, anywhere, &[]));
+    let shown = rows(&accounts_menu(&ids(&[1, 3]), &all, &[]));
     assert_eq!(
         shown,
         [
@@ -87,18 +82,10 @@ fn accounts_are_checked_by_the_space_s_accounts_and_stay_open_on_a_pick() {
     );
 }
 
-/// An account in no other Space cannot be taken out of this one, which would leave it in none;
-/// one the Space does not show can always be put in.
+/// Every account may be taken out of the Space or put in it: one may be in no Space at all.
 #[test]
-fn an_account_s_last_space_cannot_let_it_go() {
-    let only_here = |id: &AccountId| {
-        if *id == account(1) {
-            Leaving::LastSpace
-        } else {
-            Leaving::Allowed
-        }
-    };
-    let menu = accounts_menu(&ids(&[1, 2]), &named(&[1, 2, 3]), only_here, &[]);
+fn any_account_may_leave_the_space() {
+    let menu = accounts_menu(&ids(&[1, 2]), &named(&[1, 2, 3]), &[]);
     let [MenuItem::Submenu { children, .. }] = menu.as_slice() else {
         panic!("not one Accounts submenu");
     };
@@ -117,30 +104,22 @@ fn an_account_s_last_space_cannot_let_it_go() {
     assert_eq!(
         open,
         [
-            ("a1@example.test".to_owned(), Availability::Disabled),
+            ("a1@example.test".to_owned(), Availability::Enabled),
             ("a2@example.test".to_owned(), Availability::Enabled),
             ("a3@example.test".to_owned(), Availability::Enabled),
         ]
     );
 }
 
-/// Add Account lives in the Space's menu › Accounts: the window itself with no provider that
-/// signs in in the browser, else a submenu of those and Other Account…. With no account yet it
-/// is all Accounts holds.
 #[test]
 fn add_account_ends_the_accounts_menu() {
     assert_eq!(
-        rows(&accounts_menu(&[], &[], anywhere, &[])),
+        rows(&accounts_menu(&[], &[], &[])),
         [add("Add Account\u{2026}")]
     );
     let google = (porter_provider::Issuer::Google, "Google".to_owned());
     assert_eq!(
-        rows(&accounts_menu(
-            &ids(&[1]),
-            &named(&[1]),
-            anywhere,
-            &[google]
-        )),
+        rows(&accounts_menu(&ids(&[1]), &named(&[1]), &[google])),
         [
             ("a1@example.test".to_owned(), Check::On, true),
             add("-"),
@@ -149,7 +128,7 @@ fn add_account_ends_the_accounts_menu() {
             add("Add Account > Other Account\u{2026}"),
         ]
     );
-    let menu = accounts_menu(&[], &[], anywhere, &[]);
+    let menu = accounts_menu(&[], &[], &[]);
     let [MenuItem::Submenu { children, .. }] = menu.as_slice() else {
         panic!("not one Accounts submenu");
     };

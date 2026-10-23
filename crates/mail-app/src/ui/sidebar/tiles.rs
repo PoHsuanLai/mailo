@@ -191,7 +191,7 @@ pub(super) fn AccountTiles(
                         .map(|row| (row.id.clone(), row.shown()))
                         .collect();
                     match join::plus(&shown, &all) {
-                        Plus::AddNew => crate::ui::add_account::add_from(|offered| {
+                        Plus::AddNew => crate::ui::add_account::add_from(crate::ui::add_account::Join::OnScreen, |offered| {
                             adding.set(Some(offered))
                         }),
                         Plus::Offer(outside) => joining.set(Some(outside)),
@@ -249,7 +249,7 @@ pub(super) fn AccountTiles(
                     joining.set(None);
                     match join::picked(&key, &outside) {
                         Some(account) => bring_in(handle, account),
-                        None => crate::ui::add_account::add_from(|offered| {
+                        None => crate::ui::add_account::add_from(crate::ui::add_account::Join::OnScreen, |offered| {
                             adding.set(Some(offered))
                         }),
                     }
@@ -261,6 +261,7 @@ pub(super) fn AccountTiles(
             crate::ui::add_account::AddMenu {
                 anchor: row_at(),
                 redirects,
+                join: crate::ui::add_account::Join::OnScreen,
                 on_close: move |()| adding.set(None),
             }
         }

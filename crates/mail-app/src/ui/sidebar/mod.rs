@@ -163,7 +163,7 @@ pub(super) fn Places(
             div { oncontextmenu: space_menu,
                 SpacesFoot {
                     handle,
-                    new_payload: move |()| Mail::new_in(&ProfileId::default(), crate::ui::space_menu::every_id()),
+                    new_payload: move |()| Mail::new_in(&ProfileId::default()),
                     new_space: NewSpace::Hidden,
                     leading: rsx! {
                         div { class: "foot-lead",

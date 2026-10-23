@@ -6,7 +6,7 @@ use super::direct::{
     offered_redirects, picked, redirects, told,
 };
 use super::provider::offered_specs;
-use super::{AddAccountWindows, Ask, OpenAddAccount};
+use super::{AddAccountWindows, Ask, Join, OpenAddAccount};
 use crate::ui::fixtures::settle_quiet_seen;
 use crate::ui::fixtures::{dispatching, empty, rebuild_into};
 use crate::ui::motion::Follow;
@@ -168,13 +168,14 @@ fn the_toast_says_how_it_ended_in_plain_words() {
                 "Mail has no sign-in set up for Google.",
                 Follow::SignIn(super::Retry::Window(Ask {
                     address: Some("you@example.test".to_owned()),
+                    join: Join::Nowhere,
                 })),
             )),
         ),
     ];
     for (name, mode, outcome, want) in cases {
         assert_eq!(
-            told(google, &mode, &outcome),
+            told(google, &mode, Join::OnScreen, &outcome),
             want.map(|(text, follow)| (text.to_owned(), follow)),
             "{name}"
         );
@@ -267,7 +268,7 @@ fn pick_add(dom: &VirtualDom, name: &str) {
         .find(|(title, _)| title == name)
         .map(|(_, pick)| *pick)
         .unwrap_or_else(|| panic!("no Add Account row is named {name:?}: {rows:?}"));
-    dom.in_scope(ScopeId::APP, || picked(pick));
+    dom.in_scope(ScopeId::APP, || picked(pick, Join::OnScreen));
 }
 
 fn names(rows: &[(String, AddPick)]) -> Vec<&str> {
@@ -310,7 +311,7 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
     // A second pick while it waits (the first page never came back) starts it afresh, and the
     // one it replaced ends without a word.
     dom.in_scope(ScopeId::APP, || {
-        super::direct::start(Issuer::Google, Mode::Add)
+        super::direct::start(Issuer::Google, Mode::Add, Join::OnScreen)
     });
     settle_quiet_seen(&mut dom).await;
     assert_eq!(
@@ -343,6 +344,50 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
     );
 }
 
+/// The page once a Google account added in the browser, joining the Space `join` names, is told.
+async fn added_joining(join: Join) -> String {
+    dispatching();
+    let (store, _dir) = empty();
+    let fake = Arc::new(Fake::with(mail_core::testing::fake_clients_for(&[
+        Issuer::Google,
+    ])));
+    let mut dom = VirtualDom::new(crate::ui::app::App)
+        .with_root_context(store.clone())
+        .with_root_context(crate::ui::revisions::Revisions::new())
+        .with_root_context(DirectSignIns(fake.clone()))
+        .with_root_context(AddAccountWindows(Arc::new(Windows::default())));
+    let _ = rebuild_into(&mut dom);
+    settle_quiet_seen(&mut dom).await;
+    dom.in_scope(ScopeId::APP, || {
+        super::direct::start(Issuer::Google, Mode::Add, join)
+    });
+    settle_quiet_seen(&mut dom).await;
+    keep_account(&store, "you@example.test").await;
+    let end = fake.end.lock().unwrap().take().expect("the sign-in waits");
+    end.send(Ok("you@example.test".to_owned())).unwrap();
+    let mut page = String::new();
+    for _ in 0..10 {
+        settle_quiet_seen(&mut dom).await;
+        page = dioxus_ssr::render(&dom);
+        if page.contains("Added you@example.test") {
+            break;
+        }
+    }
+    assert!(page.contains("Added you@example.test"), "no toast: {page}");
+    page
+}
+
+/// Accounts and Spaces are apart: an account added from a Space joins it, and one added from
+/// Settings › Accounts joins no Space, though it is added all the same.
+#[tokio::test]
+async fn an_account_added_joins_the_space_it_was_added_from_or_none() {
+    let tile = "aria-label=\"you@example.test\"";
+    let here = added_joining(Join::OnScreen).await;
+    assert!(here.contains(tile), "not in the Space on screen: {here}");
+    let nowhere = added_joining(Join::Nowhere).await;
+    assert!(!nowhere.contains(tile), "put in a Space: {nowhere}");
+}
+
 #[tokio::test]
 async fn other_account_and_a_provider_without_a_client_open_the_window() {
     dispatching();
@@ -367,7 +412,7 @@ async fn other_account_and_a_provider_without_a_client_open_the_window() {
 
     // Microsoft has no client here: no page, the window instead, which says why.
     dom.in_scope(ScopeId::APP, || {
-        super::direct::start(Issuer::Microsoft, Mode::Add);
+        super::direct::start(Issuer::Microsoft, Mode::Add, Join::OnScreen);
     });
     settle_quiet_seen(&mut dom).await;
     assert!(fake.asked.lock().unwrap().is_empty(), "a page was opened");
@@ -454,7 +499,7 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
         pick_add(&dom, "Other Account\u{2026}");
         settle_quiet_seen(&mut dom).await;
         dom.in_scope(ScopeId::APP, || {
-            super::direct::start(Issuer::Google, Mode::Add);
+            super::direct::start(Issuer::Google, Mode::Add, Join::OnScreen);
         });
         settle_quiet_seen(&mut dom).await;
         assert_eq!(

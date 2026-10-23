@@ -93,6 +93,8 @@ async fn a_refused_account_is_asked_about_once_and_signs_in_from_the_dialog_or_t
     assert!(!page.contains("again?"), "asked after Sign In: {page}");
     let ask = crate::ui::add_account::Ask {
         address: Some("me@nowhere.example".to_owned()),
+        // Signed in again, it stays in the Spaces it was in, and joins no other.
+        join: crate::ui::add_account::Join::Nowhere,
     };
     let asked_for = |dom: &VirtualDom| {
         dom.in_scope(ScopeId::APP, consume_context::<super::tests::Asked>)

@@ -14,6 +14,7 @@
 
 use super::account::{AccountPage, back, row_of};
 use super::rows::link_row;
+use crate::ui::add_account::Join;
 use crate::ui::common::tile;
 use crate::ui::copy;
 use crate::ui::data::{AccountRow, account_rows};
@@ -134,7 +135,9 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         ADD,
         copy::controls::ADD_ACCOUNT,
         tile(Icon::Plus, PlateFamily::Blue),
-        move |_| crate::ui::add_account::add_from(|offered| adding.set(Some(offered))),
+        move |_| {
+            crate::ui::add_account::add_from(Join::Nowhere, |offered| adding.set(Some(offered)))
+        },
         Common {
             aria_label: Some(copy::controls::ADD_ACCOUNT.to_owned()),
             mounted: Some(EventHandler::new(move |event: MountedEvent| {
@@ -166,6 +169,8 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
             crate::ui::add_account::AddMenu {
                 anchor: add_row(),
                 redirects,
+                // Settings › Accounts is every account, in no Space: one added here joins none.
+                join: Join::Nowhere,
                 on_close: move |()| adding.set(None),
             }
         }

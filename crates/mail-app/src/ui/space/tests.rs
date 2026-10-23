@@ -294,9 +294,9 @@ fn a_new_account_joins_the_space_it_is_put_in_and_only_one_of_its_profile() {
 }
 
 /// At boot, an account the store has and no Space holds (added from a terminal while no window
-/// was open) joins the Space on screen, and the Spaces are written so.
+/// was open) stays in no Space, and an empty Space stays empty: accounts and Spaces are apart.
 #[test]
-fn boot_puts_an_unplaced_account_in_the_space_on_screen() {
+fn boot_leaves_an_account_in_no_space_where_it_is() {
     let (_dir, stored) = dirs();
     write(
         &stored,
@@ -311,6 +311,5 @@ fn boot_puts_an_unplaced_account_in_the_space_on_screen() {
         .iter()
         .map(|space| space.payload.accounts.clone())
         .collect();
-    assert_eq!(accounts, vec![vec![account(1)], vec![account(2)]]);
-    assert_eq!(shown(&load(&stored)), shown(&read), "not written");
+    assert_eq!(accounts, vec![vec![account(1)], vec![]]);
 }
