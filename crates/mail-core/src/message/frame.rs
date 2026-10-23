@@ -165,7 +165,8 @@ const FRAME_LINK: &str = "#0066cc";
 /// defaults, as a mail client's are, with quotes, code and headings drawn as the composer draws
 /// them, so a message written here reads as it was written, with nothing wider than the frame where Blitz can say so
 /// (a table's own percentage `max-width` does not hold a fixed-width table nested in an
-/// auto-width one: a pane under 600 px still cuts a 600 px newsletter's right edge). Neither rule
+/// auto-width one: what such a newsletter lays out wider than the pane the reader then draws
+/// smaller, `mail-app`'s `reading/fit.rs`). Neither rule
 /// that does so makes a table cell narrower than a browser would: a long word wraps only where a
 /// line overflows (`break-word`, not `anywhere`, which lets a cell squeeze "iOS" to a letter a
 /// line), and an image shrinks to the frame but no icon to nothing (`max(100%, 64px)`: a bare

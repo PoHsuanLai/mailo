@@ -19,6 +19,10 @@ pub(super) fn Sandbox(
     fit: bool,
 ) -> Element {
     let height = use_signal(|| None::<f32>);
+    // A sender's page wider than the frame is drawn smaller to fit it (`super::fit::shrink`); a
+    // plain-text message wraps to the frame and is never wider.
+    let zoom = use_signal(|| 1.0_f32);
+    let html = super::fit::zoomed(&html, zoom());
     let style = match (fit, height()) {
         (true, Some(px)) => format!("height: {px}px;"),
         _ => String::new(),
@@ -32,6 +36,9 @@ pub(super) fn Sandbox(
             onmounted: move |event: MountedEvent| {
                 if fit {
                     super::fit::follow(event.data(), height);
+                }
+                if !plain {
+                    super::fit::shrink(event.data(), zoom);
                 }
             },
             "data-frame-tag": tag,
