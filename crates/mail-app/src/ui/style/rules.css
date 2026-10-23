@@ -1,15 +1,18 @@
 /* The Rules page of Settings is quire's groups of rows; what it sizes here is a control in a
-   row: the vacation reply's fields, and the bar a run on existing mail fills. The rule
-   editor's actions sit in a run of `.rules-action`. */
+   row: the vacation reply's fields, and the bar a run on existing mail fills. */
 .rules-field { width: 18rem; max-width: 100%; }
 .rules-progress { width: 10rem; }
-.rules-actions { display: flex; flex-wrap: wrap; gap: var(--s-6); align-items: center; }
-.rules-action { display: inline-flex; align-items: center; gap: var(--s-4); }
 /* The Keyboard page: an action's keys, side by side in its row. */
 .kb-keys, .kb-key { display: inline-flex; align-items: center; gap: var(--s-6); }
-/* A rule's conditions: a row each of menus and a value, stacked, then Add Condition. */
-.rules-conditions { display: grid; gap: var(--s-6); min-width: 0; }
-.rules-condition { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-6); min-width: 0; }
+/* A line of a rule's "When all of these match" or "Do" group: a condition's menus and value, an
+   action, or the line that adds one. As tall and inset as a row of the group, with the group's
+   hairline from its text above every line after the first. */
+.rules-line {
+  position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-6); box-sizing: border-box;
+  min-height: var(--row-settings-h); padding: var(--s-6) var(--s-14); min-width: 0;
+}
+.rules-line + .rules-line::before { content: ""; position: absolute; top: 0; left: var(--s-14); right: 0; height: var(--hair); background: var(--line); }
+/* What closes a line (a remove button, Edit as Text) stands at its end. */
+.rules-end { margin-inline-start: auto; }
 /* The value takes what the menus leave, and its own line under them when that is too little. */
 .rules-value { flex: 1 1 9rem; min-width: 9rem; }
-.rules-condition-acts { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); }

@@ -4,7 +4,6 @@
 
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
-use ds::components::fields::field_row::FieldRow;
 use ds::components::fields::text_field_model::Invalid;
 use ds::components::menus::item::item::MenuItem as Choice;
 use ds::components::menus::pop_up_button::PopUpButton;
@@ -41,7 +40,8 @@ pub(super) fn ready(writing: Writing, rows: &[Condition], readable: bool) -> boo
     readable && (writing == Writing::Text || when::complete(rows))
 }
 
-/// The condition's rows, or its text, with the switch between them. `query` is the text; every
+/// The condition's rows, a line each in the group the page puts them in, or its text, with the
+/// switch between them on the last line. `query` is the text; every
 /// change is handed to `on_query`.
 #[component]
 pub(super) fn ConditionRows(
@@ -63,20 +63,20 @@ pub(super) fn ConditionRows(
         };
         let back = when::rows_of(&query);
         return rsx! {
-            FieldRow {
-                label: copy::fields::WHEN_ALL_MATCH,
-                div { class: "rules-conditions",
+            div { class: "rules-line",
                 TextField {
                     label: copy::fields::CONDITION.to_owned(),
                     value: query.clone(),
                     placeholder: copy::fields::CONDITION_EXAMPLE.to_owned(),
                     validity,
-                    common: classed("rules-field"),
+                    common: classed("rules-value"),
                     oninput: move |value: String| on_query.call(value),
                 }
+            }
+            div { class: "rules-line",
                 Button {
                     label: copy::controls::EDIT_AS_CONDITIONS,
-                    common: Common { aria_label: Some(copy::controls::EDIT_AS_CONDITIONS.to_owned()), ..Common::default() },
+                    common: Common { aria_label: Some(copy::controls::EDIT_AS_CONDITIONS.to_owned()), ..classed("rules-end") },
                     bezel: Bezel::Inline,
                     availability: available(back.is_some()),
                     onclick: on_primary(move || {
@@ -85,16 +85,12 @@ pub(super) fn ConditionRows(
                         writing.set(Writing::Rows);
                     }),
                 }
-                }
             }
         };
     }
     let shown = rows();
     let several = shown.len() > 1;
     rsx! {
-        FieldRow {
-            label: copy::fields::WHEN_ALL_MATCH,
-            div { class: "rules-conditions",
                 for (at, row) in shown.iter().cloned().enumerate() {
                     ConditionRow {
                         key: "{at}",
@@ -115,7 +111,7 @@ pub(super) fn ConditionRows(
                         },
                     }
                 }
-                div { class: "rules-condition-acts",
+                div { class: "rules-line",
                     Button {
                         label: copy::controls::ADD_CONDITION,
                     common: Common { aria_label: Some(copy::controls::ADD_CONDITION.to_owned()), ..Common::default() },
@@ -128,13 +124,11 @@ pub(super) fn ConditionRows(
                     }
                     Button {
                         label: copy::controls::EDIT_AS_TEXT,
-                    common: Common { aria_label: Some(copy::controls::EDIT_AS_TEXT.to_owned()), ..Common::default() },
+                    common: Common { aria_label: Some(copy::controls::EDIT_AS_TEXT.to_owned()), ..classed("rules-end") },
                         bezel: Bezel::Inline,
                         onclick: on_primary(move || writing.set(Writing::Text)),
                     }
                 }
-            }
-        }
     }
 }
 
@@ -163,7 +157,7 @@ fn ConditionRow(
     let chosen = row.clone();
     let first_label = names.first().cloned();
     rsx! {
-        div { class: "rules-condition",
+        div { class: "rules-line",
             PopUpButton::<Field> {
                 items: fields,
                 value: Some(row.field),
@@ -231,7 +225,7 @@ fn ConditionRow(
                     image: ImagePosition::Only,
                     icon: Icon::Minus,
                     label: copy::aria::REMOVE_CONDITION,
-                    common: Common { aria_label: Some(copy::aria::REMOVE_CONDITION.to_owned()), ..Common::default() },
+                    common: Common { aria_label: Some(copy::aria::REMOVE_CONDITION.to_owned()), ..classed("rules-end") },
                     onclick: on_primary(move || on_change.call(None)),
                 }
             }
