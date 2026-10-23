@@ -28,8 +28,8 @@ mod size;
 mod window;
 
 pub(in crate::ui) use direct::{
-    AddMenu, AddPick, DirectSignInWatch, PendingSignIn, Retry, add_from, add_menu, again,
-    offered_redirects, picked, retry,
+    AddMenu, AddPick, DirectSignInWatch, Retry, add_from, add_menu, again, offered_redirects,
+    picked, retry,
 };
 pub use direct::{DirectSignIns, SignInDirectly};
 pub use provider::{AddError, AddFault, Request, Seams};
