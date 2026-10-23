@@ -74,6 +74,7 @@ mod native_server_search;
 mod native_spaces;
 mod native_spelling;
 mod native_views;
+mod native_wide_mail;
 mod native_window;
 mod pgp;
 mod printing;
