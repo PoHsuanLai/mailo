@@ -17,6 +17,7 @@
 //! it, and dropped with it. It is never in a signal, the [`Shell`](crate::ui::view::Shell), the
 //! store, a file or a log.
 
+mod actions;
 mod certs;
 mod key_row;
 pub(in crate::ui) mod keys;

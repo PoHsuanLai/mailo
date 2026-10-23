@@ -71,8 +71,8 @@ crates/mail-app/src/ui/invite/card.rs 25
 crates/mail-app/src/ui/invite/draw.rs 24
 crates/mail-app/src/ui/menus/mod.rs 9
 crates/mail-app/src/ui/motion/mod.rs 1
-crates/mail-app/src/ui/pgp/certs.rs 31
-crates/mail-app/src/ui/pgp/key_row.rs 33
+crates/mail-app/src/ui/pgp/certs.rs 23
+crates/mail-app/src/ui/pgp/key_row.rs 25
 crates/mail-app/src/ui/pgp/keys.rs 11
 crates/mail-app/src/ui/pgp/keys_page.rs 7
 crates/mail-app/src/ui/pgp/look.rs 3

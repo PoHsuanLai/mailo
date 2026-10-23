@@ -17,7 +17,7 @@ use mail_domain::*;
 use super::certs::ordered;
 use super::key_row::lifetime;
 use super::keys::{KeysPage, Whose};
-use super::keys_tests::{alert_button, asking, settle};
+use super::keys_tests::{alert_button, pick, settle};
 use super::smime_tests::{PASSWORD, identity_file, trust_root, with_identity};
 use super::tests::{own_key, seams_with};
 use super::{Seams, cert_short, short};
@@ -173,7 +173,7 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = cert_short(mine.fingerprint);
 
-    let asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
+    let asked = pick(&mut dom, &seen, &id, "Delete").await;
     assert!(markup(&dom).contains("private key is deleted too"));
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_some());
     assert!(holds(&secrets, &mine));
@@ -182,7 +182,7 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let _ = drain_seen(&mut dom);
     assert!(!markup(&dom).contains("private key is deleted too"));
 
-    let asked = asking(&mut dom, seen.one("aria-label", &format!("Delete {id}")));
+    let asked = pick(&mut dom, &seen, &id, "Delete").await;
     let mut done = click(&mut dom, alert_button(&asked, None));
     settle(&mut dom, &mut done).await;
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_none());
@@ -209,14 +209,11 @@ async fn a_certificate_is_trusted_and_the_trust_taken_back() {
     let id = cert_short(root);
     let trust = |store: &SqliteStore| store.smime_cert(root).unwrap().unwrap().trust;
 
-    let mut trusted = click(&mut dom, seen.one("aria-label", &format!("Trust {id}")));
+    let mut trusted = pick(&mut dom, &seen, &id, "Trust").await;
     settle(&mut dom, &mut trusted).await;
     assert_eq!(trust(&store), KeyTrust::Verified);
     assert!(markup(&dom).contains("trusted by you"));
-    let mut untrusted = click(
-        &mut dom,
-        trusted.one("aria-label", &format!("Stop trusting {id}")),
-    );
+    let mut untrusted = pick(&mut dom, &seen, &id, "Don’t Trust").await;
     settle(&mut dom, &mut untrusted).await;
     assert_eq!(trust(&store), KeyTrust::Unverified);
 }
@@ -309,21 +306,12 @@ async fn every_class_of_the_certificates_half_is_styled() {
     let mut page = markup(&dom);
     assert!(page.contains("keys-ask"), "{page}");
     let root = cert_short(pki().root.cert.fingerprint());
-    let mut untrusted = click(
-        &mut dom,
-        seen.one("aria-label", &format!("Stop trusting {root}")),
-    );
+    let mut untrusted = pick(&mut dom, &seen, &root, "Don’t Trust").await;
     settle(&mut dom, &mut untrusted).await;
     page += &markup(&dom);
     // What a change came to is said in quire's banner.
     assert!(page.contains("ds-inline-banner"), "{page}");
-    click(
-        &mut dom,
-        seen.one(
-            "aria-label",
-            &format!("Delete {}", cert_short(mine.fingerprint)),
-        ),
-    );
+    pick(&mut dom, &seen, &cert_short(mine.fingerprint), "Delete").await;
     // The question is quire's alert, drawn in the root's overlay the render after it asks.
     crate::ui::fixtures::drain(&mut dom);
     page += &markup(&dom);

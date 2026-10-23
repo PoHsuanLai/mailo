@@ -167,3 +167,15 @@ pub const COPY_LINK: &str = "Copy Link";
 pub const SIGN_IN_AGAIN: &str = "Sign In Again…";
 pub const REMOVE_FROM_SPACE: &str = "Remove from This Space";
 pub const ACCOUNT_SETTINGS: &str = "Account Settings…";
+
+/// A key's or certificate's menu in Settings (`pgp::actions`).
+pub const COPY_PUBLIC_KEY: &str = "Copy Public Key";
+pub const SAVE_PUBLIC_KEY: &str = "Save Public Key\u{2026}";
+pub const EXPORT_SECRET_KEY: &str = "Export Secret Key\u{2026}";
+pub const MARK_VERIFIED: &str = "Mark as Verified";
+/// What Mark as Verified and Trust ask first, as their tooltip.
+pub const CHECK_THE_FINGERPRINT: &str = "Check the fingerprint first";
+pub const COPY_CERTIFICATE: &str = "Copy Certificate";
+pub const SAVE_CERTIFICATE: &str = "Save Certificate\u{2026}";
+pub const TRUST: &str = "Trust";
+pub const DONT_TRUST: &str = "Don\u{2019}t Trust";
