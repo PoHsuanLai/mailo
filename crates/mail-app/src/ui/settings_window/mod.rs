@@ -45,7 +45,7 @@ pub use root::settings_root;
 use crate::ui::copy;
 use crate::ui::space::SpaceId;
 use crate::ui::view::{
-    AccountStep, AccountsPage, AccountsPane, RulesAt, SettingsPage, Shell, SpacesPage,
+    AccountStep, AccountsPage, AccountsPane, RulesAt, SettingsPage, Shell, SpacesPage, VacationAt,
 };
 use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
@@ -255,6 +255,7 @@ pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: SettingsPage) {
     }
     write.rules.path = PanePath::new(RulesAt::List);
     write.spaces_pane = PanePath::new(SpacesPage::List);
+    write.vacation_pane = PanePath::new(VacationAt::List);
 }
 
 /// Turn this Settings window to `at`: a page, an account's page over Accounts, or a Space's

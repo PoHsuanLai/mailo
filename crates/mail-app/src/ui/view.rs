@@ -324,6 +324,13 @@ pub enum RulesAt {
     Rule(Option<RuleId>),
 }
 
+/// A page of Settings' Vacation Reply pane: the accounts, or one account's reply pushed over them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VacationAt {
+    List,
+    Account(AccountId),
+}
+
 /// A page of Settings' Spaces pane: the list of Spaces, or one Space's own page pushed over it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SpacesPage {
@@ -572,6 +579,8 @@ pub struct Shell {
     pub accounts_pane: AccountsPane,
     /// Settings' Spaces pane: the list, or a Space's page over it.
     pub spaces_pane: PanePath<SpacesPage>,
+    /// Settings' Vacation Reply pane: the accounts, or one account's reply over them.
+    pub vacation_pane: PanePath<VacationAt>,
     /// Settings while it is open, on the page shown. `None` is closed.
     pub settings: Option<SettingsPage>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
@@ -704,6 +713,7 @@ impl Default for Shell {
             keyboard: KeyboardPage::default(),
             accounts_pane: AccountsPane::default(),
             spaces_pane: PanePath::new(SpacesPage::List),
+            vacation_pane: PanePath::new(VacationAt::List),
             settings: None,
             destroying: None,
             tidying: None,

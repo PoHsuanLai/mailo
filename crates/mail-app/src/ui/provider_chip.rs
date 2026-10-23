@@ -4,9 +4,13 @@
 use dioxus::prelude::*;
 use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
 use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::provider::Provider;
 use mail_core::provider::icon::Loaded;
+
+use crate::ui::data::AccountRow;
 
 /// Where a mark is drawn, which is how many CSS px across its picture is.
 ///
@@ -160,6 +164,28 @@ pub(crate) fn ProvChip(provider: Provider, marks: super::view::Marks) -> Element
     rsx! {
         ProviderMark { provider: mark_of(provider), size: ControlSize::Small, style }
     }
+}
+
+/// What leads an account's row in Settings (Accounts, Vacation Reply): its provider's mark, as the
+/// provider-marks setting draws it, or the mark of mail kept on this computer, a row's tile wide
+/// (`acct-mark`, `style/accounts.css`).
+pub(in crate::ui) fn account_mark(row: &AccountRow) -> RowLeading {
+    let provider = mail_core::provider::provider(&row.plan);
+    let marks = crate::ui::view::Marks::from(crate::ui::prefs::current().window.provider_marks);
+    let quire = if row.is_local() {
+        MarkProvider::Local
+    } else {
+        mark_of(provider)
+    };
+    let style = mark_style(provider, marks, MarkAt::List);
+    RowLeading::Element(rsx! {
+        ProviderMark {
+            provider: quire,
+            size: ControlSize::Regular,
+            style,
+            common: Common { extra_class: ExtraClass::parse("acct-mark").ok(), ..Common::default() },
+        }
+    })
 }
 
 #[cfg(test)]

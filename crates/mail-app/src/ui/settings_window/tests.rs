@@ -198,7 +198,7 @@ const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::Accounts, "Add Account\u{2026}"),
     (SettingsPage::Spaces, "New Space"),
     (SettingsPage::Rules, "New Rule\u{2026}"),
-    (SettingsPage::Vacation, "Vacation reply"),
+    (SettingsPage::Vacation, "id=\"vacation-pane\""),
     (SettingsPage::Keyboard, "Change the key for"),
 ];
 
@@ -239,6 +239,56 @@ async fn every_page_is_drawn_in_the_window_from_its_sidebar_row() {
         let offences = crate::ui::style::tests::markup_offences(&markup);
         assert!(offences.is_empty(), "{page:?}: {offences:#?}");
     }
+}
+
+/// Vacation Reply is a pane as Spaces is: its root lists the accounts, each saying whether its
+/// reply is on, and a row pushes that account's reply, switch and all, as a page of its own.
+#[tokio::test]
+async fn vacation_reply_lists_the_accounts_and_a_row_pushes_its_reply() {
+    let built = work();
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Vacation);
+    let list = dioxus_ssr::render(&dom);
+    let rows: Vec<_> = crate::ui::data::account_rows(&built.store)
+        .into_iter()
+        .filter(|row| !row.is_local())
+        .collect();
+    let first = rows
+        .first()
+        .expect("the fixture has an account with a server");
+    for row in &rows {
+        assert!(
+            list.contains(&format!("id=\"vacation-pane-open-{}\"", row.id)),
+            "{} has no row: {list}",
+            row.address
+        );
+    }
+    assert!(
+        !list.contains("role=\"switch\""),
+        "the root draws a reply: {list}"
+    );
+
+    let pushed = click(
+        &mut dom,
+        seen.one("id", &format!("vacation-pane-open-{}", first.id)),
+    )
+    .merge(drain_seen(&mut dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("role=\"switch\""),
+        "the reply's page has no switch: {page}"
+    );
+    assert!(
+        page.contains(&first.shown()),
+        "the page is not titled by its account: {page}"
+    );
+    let back = pushed.one("id", "vacation-pane-back-detail");
+    let _ = click(&mut dom, back);
+    // The page slides away before it is gone.
+    let _ = crate::ui::fixtures::later(&mut dom).await;
+    assert!(
+        !dioxus_ssr::render(&dom).contains("role=\"switch\""),
+        "back did not go back"
+    );
 }
 
 #[tokio::test]

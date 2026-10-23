@@ -125,6 +125,11 @@ fn SettingsShell() -> Element {
         if key == "Escape" && space_pushed && shell.read().settings == Some(SettingsPage::Spaces) {
             super::spaces::back(shell, handle);
         }
+        let reply_pushed = !shell.read().vacation_pane.is_root();
+        if key == "Escape" && reply_pushed && shell.read().settings == Some(SettingsPage::Vacation)
+        {
+            crate::ui::rules::vacation_back(shell);
+        }
     };
 
     rsx! {
