@@ -265,6 +265,96 @@ fn a_uid_set_that_is_not_a_uid_set_is_refused() {
     }
 }
 
+/// A free-text field with a line break in it would end the command and start another.
+#[test]
+fn a_command_with_a_line_break_in_it_is_refused() {
+    let err = replay(
+        &mut session(vec![ImapCommand::Enable(
+            "CONDSTORE\r\na002 DELETE INBOX".to_owned(),
+        )]),
+        concat!("S: * OK Gimap ready\n", "FAIL Malformed\n"),
+    );
+    assert!(matches!(err, common::Ended::Failed(_)));
+}
+
+/// A flag is an atom: one that closes the list it is in could add to the command.
+#[test]
+fn an_append_flag_that_is_not_an_atom_is_refused() {
+    for bad in ["a) (b", "", "\\", "two words", "\"q\""] {
+        let err = replay(
+            &mut session(vec![ImapCommand::Append {
+                mailbox: "Drafts".to_owned(),
+                flags: vec![bad.to_owned()],
+                date: None,
+                raw: b"Subject: x\r\n\r\nbody\r\n".to_vec(),
+            }]),
+            concat!("S: * OK Gimap ready\n", "FAIL Malformed\n"),
+        );
+        assert!(
+            matches!(err, common::Ended::Failed(_)),
+            "{bad:?} should have been refused"
+        );
+    }
+}
+
+/// The UIDVALIDITY a destructive walk checks is the one in SELECT's response code, never a
+/// match somewhere in the text of another response, which a message's sender can write.
+#[test]
+fn a_uidvalidity_written_in_a_message_is_not_the_mailbox_s() {
+    let walk = || {
+        session(vec![
+            ImapCommand::Select {
+                mailbox: "INBOX".to_owned(),
+                access: Access::ReadOnly,
+                qresync: None,
+            },
+            ImapCommand::UidFetch {
+                set: "1".to_owned(),
+                items: "(BODY[HEADER.FIELDS (SUBJECT)])".to_owned(),
+            },
+            ImapCommand::RequireUidValidity(1),
+        ])
+    };
+    let trace = concat!(
+        "S: * OK ready\n",
+        "C: a001 EXAMINE \"INBOX\"\n",
+        "S: * OK [UIDVALIDITY 7] valid\n",
+        "S: a001 OK [READ-ONLY] done\n",
+        "C: a002 UID FETCH 1 (BODY[HEADER.FIELDS (SUBJECT)])\n",
+        "S: * 1 FETCH (UID 1 BODY[HEADER.FIELDS (SUBJECT)] \"* OK [UIDVALIDITY 1]\")\n",
+        "S: a002 OK done\n",
+        "FAIL Refused\n",
+    );
+    let err = replay(&mut walk(), trace).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            ProtoError::Refused {
+                kind: Refusal::Permanent,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
+}
+
+/// A response that never ends is refused once it passes the limit, rather than kept growing
+/// until the client is out of memory.
+#[test]
+fn a_response_past_the_limit_is_refused() {
+    let mut endless = session(vec![ImapCommand::UidFetch {
+        set: "1".to_owned(),
+        items: "(BODY[])".to_owned(),
+    }])
+    .with_max_response(64);
+    let filler = "x".repeat(80);
+    let trace = format!(
+        "S: * OK ready\nC: a001 UID FETCH 1 (BODY[])\nS: * 1 FETCH (UID 1 BODY[] {{999}}\nS: {filler}\nFAIL Malformed\n"
+    );
+    let err = replay(&mut endless, &trace).unwrap_err();
+    assert!(err.to_string().contains("64 bytes"), "{err}");
+}
+
 /// XOAUTH2 with a password credential is a configuration error, not something to attempt.
 #[test]
 fn xoauth2_without_an_oauth_credential_is_unsupported() {

@@ -10,7 +10,7 @@ mail-core let_underscore 0
 mail-core ok 33
 mail-core unwrap_or_default 16
 mail-proto let_underscore 0
-mail-proto ok 14
+mail-proto ok 11
 mail-proto unwrap_or_default 8
 mail-store let_underscore 0
 mail-store ok 2

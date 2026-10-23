@@ -26,6 +26,11 @@ use std::fmt;
 /// One mebibyte still stops a missing CRLF from growing the buffer forever.
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 
+/// The most a dot-terminated reply may hold, every line together. Each line is bounded by
+/// [`MAX_LINE_BYTES`]; this stops a server that never sends the terminating `.` from growing the
+/// reply until the client is out of memory.
+const MAX_REPLY_BYTES: usize = 256 * 1024 * 1024;
+
 /// One command in a caller-chosen POP3 sequence.
 ///
 /// `USER`, `PASS`, and `AUTH PLAIN` take the username and password given to
@@ -147,10 +152,12 @@ enum Phase {
     Single(Pop3Command),
     /// Waiting for the status line of a dot-terminated reply.
     MultiStatus(Pop3Command),
-    /// Status was `+OK`. `lines` are body lines with dot-stuffing already removed.
+    /// Status was `+OK`. `lines` are body lines with dot-stuffing already removed, `held` their
+    /// bytes together.
     MultiBody {
         cmd: Pop3Command,
         lines: Vec<Vec<u8>>,
+        held: usize,
     },
     /// `step` has already returned [`Progress::Done`] or [`Progress::Failed`].
     Closed,
@@ -424,7 +431,7 @@ fn decide(phase: Phase, line: &[u8]) -> (Phase, Action) {
         Phase::Greeting => decide_greeting(line),
         Phase::Single(cmd) => decide_single(cmd, line),
         Phase::MultiStatus(cmd) => decide_multi_status(cmd, line),
-        Phase::MultiBody { cmd, lines } => decide_multi_body(cmd, lines, line),
+        Phase::MultiBody { cmd, lines, held } => decide_multi_body(cmd, lines, held, line),
         Phase::Closed => (
             Phase::Closed,
             Action::Fail(ProtoError::Malformed("session is already finished".into())),
@@ -463,6 +470,7 @@ fn decide_multi_status(cmd: Pop3Command, line: &[u8]) -> (Phase, Action) {
             Phase::MultiBody {
                 cmd,
                 lines: Vec::new(),
+                held: 0,
             },
             Action::Continue,
         ),
@@ -475,10 +483,24 @@ fn decide_multi_status(cmd: Pop3Command, line: &[u8]) -> (Phase, Action) {
     }
 }
 
-fn decide_multi_body(cmd: Pop3Command, mut lines: Vec<Vec<u8>>, line: &[u8]) -> (Phase, Action) {
+fn decide_multi_body(
+    cmd: Pop3Command,
+    mut lines: Vec<Vec<u8>>,
+    held: usize,
+    line: &[u8],
+) -> (Phase, Action) {
     if line != b"." {
+        let held = held + line.len();
+        if held > MAX_REPLY_BYTES {
+            return (
+                Phase::Closed,
+                Action::Fail(ProtoError::Malformed(format!(
+                    "a reply grew past {MAX_REPLY_BYTES} bytes without ending"
+                ))),
+            );
+        }
         lines.push(unstuff(line));
-        return (Phase::MultiBody { cmd, lines }, Action::Continue);
+        return (Phase::MultiBody { cmd, lines, held }, Action::Continue);
     }
     let action = match interpret_multi(&cmd, &lines) {
         Ok(reply) => Action::Next(reply),
@@ -791,8 +813,8 @@ fn clip(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        Action, Buffer, MAX_LINE_BYTES, Phase, Pop3Command, Pop3Reply, Pop3Session, base64_encode,
-        decide, interpret_stat, sasl_plain, unstuff,
+        Action, Buffer, MAX_LINE_BYTES, MAX_REPLY_BYTES, Phase, Pop3Command, Pop3Reply,
+        Pop3Session, base64_encode, decide, interpret_stat, sasl_plain, unstuff,
     };
     use crate::machine::Refusal;
     use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError};
@@ -963,6 +985,22 @@ mod tests {
             }
             other => panic!("CAPA -ERR must continue, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_reply_that_never_ends_is_refused_past_the_limit() {
+        let near = |held| Phase::MultiBody {
+            cmd: Pop3Command::Retr(1),
+            lines: Vec::new(),
+            held,
+        };
+        let (phase, action) = decide(near(MAX_REPLY_BYTES - 4), b"abcd");
+        assert!(matches!(action, Action::Continue), "{action:?}");
+        let (_, action) = decide(phase, b"e");
+        assert!(
+            matches!(action, Action::Fail(ProtoError::Malformed(_))),
+            "{action:?}"
+        );
     }
 
     #[test]
