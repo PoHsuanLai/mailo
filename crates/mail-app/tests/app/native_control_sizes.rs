@@ -216,8 +216,9 @@ fn every_control_in_settings_is_the_size_its_place_calls_for() {
     }
 }
 
-/// An account's row in Settings › Accounts leads with its provider's mark at a row's size: no
-/// wider than the row's leading tiles (Add Account…'s), so it never runs into the address.
+/// An account's row in Settings › Accounts leads with its provider's mark at a row's size: as
+/// large as the row's leading tiles (Add Account…'s), and no larger, so it never runs into the
+/// address.
 #[test]
 fn an_accounts_provider_mark_is_a_rows_size() {
     let dir = tempfile::tempdir().unwrap();
@@ -234,7 +235,8 @@ fn an_accounts_provider_mark_is_a_rows_size() {
         .rect(".settings-page[*|data-page=\"Accounts\"] .ds-row-leading .ds-icon-tile")
         .unwrap();
     assert!(
-        mark.size.width.0 <= tile.size.width.0 && mark.size.height.0 <= tile.size.height.0,
+        (mark.size.width.0 - tile.size.width.0).abs() < 0.5
+            && (mark.size.height.0 - tile.size.height.0).abs() < 0.5,
         "the account's mark is {mark:?}, a row's tile {tile:?}"
     );
 }
