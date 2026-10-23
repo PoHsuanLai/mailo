@@ -261,7 +261,7 @@ const ADDS: &[(SettingsPage, &str, &str)] = &[
 ];
 
 /// Accounts, Spaces and Rules set their add row alike: in a list of its own under the things it
-/// adds to, led by the plain dashed plus and not a coloured tile.
+/// adds to, led by the plain plus and not a coloured tile.
 #[tokio::test]
 async fn every_add_row_stands_in_a_list_of_its_own_led_by_the_plain_plus() {
     let built = work();
