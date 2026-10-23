@@ -26,7 +26,9 @@ fn drop_on(window: &mut Window, selector: &str, paths: Vec<PathBuf>) -> DropAcce
     harness.file_drag(FileDragInput::Entered { point: Some(at) });
     harness.file_drag(FileDragInput::Offered(Offer::Files(paths)));
     let told = harness.file_drag(FileDragInput::Moved { point: at });
-    harness.file_drag(FileDragInput::Dropped);
+    harness.file_drag(FileDragInput::Dropped {
+        modifiers: dioxus::prelude::Modifiers::empty(),
+    });
     told
 }
 

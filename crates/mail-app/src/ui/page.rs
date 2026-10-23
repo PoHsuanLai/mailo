@@ -290,6 +290,7 @@ mod tests {
                 } => format!("{title} ▸ [{}]", read(children).join(", ")),
                 MenuItem::Separator => "-".to_owned(),
                 MenuItem::Header(title) | MenuItem::Info { title, .. } => title.clone(),
+                MenuItem::Swatches(row) => row.title.clone(),
             })
             .collect()
     }
