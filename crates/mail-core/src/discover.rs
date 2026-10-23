@@ -137,6 +137,18 @@ const PERSONAL_MICROSOFT: &str = "this is a personal Microsoft mailbox. Those no
     passwords, and recent ones refuse client sending even with OAuth; this client supports work \
     and school Microsoft 365 mailboxes only";
 
+/// The provider whose own domain `address` is at (`gmail.com` is Google's), when a provider file
+/// names that domain. A domain no file names, someone's own, is nobody's here: only a lookup
+/// finds whose it is. Asks nothing of the network.
+pub fn claimed_by(address: &str) -> Option<&'static ProviderSpec> {
+    let domain = domain_of(address)?;
+    providers::set()
+        .claiming(&domain, &[])
+        .into_iter()
+        .find(|(_, via)| *via == DomainMatch::Domain)
+        .map(|(spec, _)| spec)
+}
+
 /// The address's domain, when it is one: what follows the last `@` (a quoted local part may
 /// contain one), with something before it.
 fn domain_of(address: &str) -> Option<DomainName> {

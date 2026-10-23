@@ -499,6 +499,31 @@ fn look(typed: &str, seams: &Seams, now: DateTime<Utc>) -> Looked {
     }
 }
 
+/// What to say when `address` is at another provider's own domain than `picked`'s, which names
+/// domains of its own (iCloud's icloud.com, me.com and mac.com); `None` when it may be
+/// `picked`'s: one of its domains, someone's own domain, or any address for a provider that names
+/// none (Other Account).
+fn elsewhere(picked: &ProviderSpec, address: &str) -> Option<String> {
+    let own: Vec<String> = picked
+        .matching
+        .domains
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    if own.is_empty() {
+        return None;
+    }
+    let other = mail_core::discover::claimed_by(&address.trim().to_lowercase())?;
+    (other.id != picked.id).then(|| {
+        crate::ui::copy::errors::address_at_other_provider(
+            address.trim(),
+            &other.label,
+            &picked.label,
+            &own,
+        )
+    })
+}
+
 /// The fields the first form asks for: the address, then a password where one is wanted.
 fn form(wants: Wants, prefill: Option<&str>) -> Vec<FieldSpec> {
     let address = FieldSpec {
@@ -639,6 +664,12 @@ impl MailSignIn {
         let Some(address) = text_of(&answers, FieldKind::Address) else {
             return self.failed(SignInFault::Refused);
         };
+        // iCloud picked with a Gmail address (an Apple ID often is one) is a mistake to say, not
+        // an address to follow to Google's sign-in.
+        if let Some(said) = elsewhere(&self.spec, &address) {
+            self.added.say(Some(said));
+            return self.failed(SignInFault::Refused);
+        }
         // An app password (iCloud, Fastmail, Yahoo) is the password the server takes.
         let password = secret_of(&answers, FieldKind::Password)
             .or_else(|| secret_of(&answers, FieldKind::AppPassword));
