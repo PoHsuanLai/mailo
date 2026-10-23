@@ -3,7 +3,7 @@
 
 use super::super::tests::opened_on;
 use crate::ui::copy;
-use crate::ui::fixtures::{Work, click, drain_seen, work};
+use crate::ui::fixtures::{Work, click, drain_seen, type_into, work};
 use crate::ui::space::{Spaces, stored};
 use crate::ui::view::SettingsPage;
 use dioxus::dioxus_core::VirtualDom;
@@ -85,22 +85,106 @@ fn a_colour_and_a_theme_picked_are_written() {
     );
 }
 
+/// The number of Spaces the list draws a row for.
+fn rows(dom: &VirtualDom) -> usize {
+    dioxus_ssr::render(dom).matches("spaces-pane-open-").count()
+}
+
+/// New Space opens a page for a Space that is not there yet: nothing is added until Create
+/// Space, and then it is, named and tinted as drafted, and the pane goes back to the list.
 #[test]
-fn a_new_space_opens_its_page_and_can_be_deleted_after_asking() {
+fn a_new_space_is_added_only_by_create_space() {
     let built = work();
     let (mut dom, seen) = opened_on(&built, SettingsPage::Spaces);
-    let before = dioxus_ssr::render(&dom)
-        .matches("spaces-pane-open-")
-        .count();
+    let before = rows(&dom);
     let seen = click(&mut dom, seen.one("aria-label", copy::controls::NEW_SPACE))
         .merge(drain_seen(&mut dom));
-    assert_eq!(on_disk(&built).count(), before + 1, "no Space was added");
     let page = dioxus_ssr::render(&dom);
     let name = format!("Space {}", before + 1);
     assert!(
         page.contains(&format!("value=\"{name}\"")),
         "its page: {page}"
     );
+    assert_eq!(
+        stored(&built.dirs).map_or(before, |spaces| spaces.count()),
+        before,
+        "a Space was added before Create Space"
+    );
+    let seen = type_into(
+        &mut dom,
+        seen.one("aria-label", copy::fields::SPACE_NAME),
+        "Travel",
+    )
+    .merge(seen);
+    click(
+        &mut dom,
+        seen.one("aria-label", copy::controls::CREATE_SPACE),
+    );
+    let after = on_disk(&built);
+    assert_eq!(after.count(), before + 1, "Create Space added nothing");
+    assert_eq!(
+        after.list().last().map(|space| space.name.as_str()),
+        Some("Travel")
+    );
+    assert_eq!(
+        rows(&dom),
+        before + 1,
+        "the pane did not go back to the list"
+    );
+}
+
+/// A new Space's page left with back, or with its name blank, adds nothing.
+#[test]
+fn a_new_space_left_or_unnamed_is_not_added() {
+    let built = work();
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Spaces);
+    let before = rows(&dom);
+    let seen = click(&mut dom, seen.one("aria-label", copy::controls::NEW_SPACE))
+        .merge(drain_seen(&mut dom));
+    let seen = type_into(
+        &mut dom,
+        seen.one("aria-label", copy::fields::SPACE_NAME),
+        " ",
+    )
+    .merge(seen);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains(copy::errors::SPACE_NEEDS_A_NAME),
+        "no error: {page}"
+    );
+    click(
+        &mut dom,
+        seen.one("aria-label", copy::controls::CREATE_SPACE),
+    );
+    let count = || stored(&built.dirs).map_or(before, |spaces| spaces.count());
+    assert_eq!(count(), before, "a Space with no name was added");
+    let back = seen.one("id", "spaces-pane-back-detail");
+    click(&mut dom, back);
+    assert_eq!(rows(&dom), before, "back added the Space");
+    assert_eq!(count(), before, "back added the Space");
+}
+
+/// A Space made with Create Space can be deleted from its page, after asking.
+#[test]
+fn a_new_space_can_be_deleted_after_asking() {
+    let built = work();
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Spaces);
+    let before = rows(&dom);
+    let seen = click(&mut dom, seen.one("aria-label", copy::controls::NEW_SPACE))
+        .merge(drain_seen(&mut dom));
+    let seen = click(
+        &mut dom,
+        seen.one("aria-label", copy::controls::CREATE_SPACE),
+    )
+    .merge(drain_seen(&mut dom))
+    .merge(seen);
+    let name = format!("Space {}", before + 1);
+    let seen = click(
+        &mut dom,
+        seen.one("aria-label", &copy::aria::details_for(&name)),
+    )
+    .merge(drain_seen(&mut dom))
+    .merge(seen);
     let delete = seen.one("aria-label", &copy::confirm::delete_space(&name));
     let seen = click(&mut dom, delete).merge(drain_seen(&mut dom));
     assert_eq!(on_disk(&built).count(), before + 1, "deleted before asking");

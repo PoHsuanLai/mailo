@@ -329,6 +329,8 @@ pub enum RulesAt {
 pub enum SpacesPage {
     List,
     Space(crate::ui::space::SpaceId),
+    /// A new Space, before there is one: it is added by its page's Create Space.
+    New,
 }
 
 /// A page of Settings' Accounts pane: the list of accounts, one account's own page pushed over

@@ -1,6 +1,7 @@
 //! Spaces: a pane of two levels, as Accounts is. Its root lists each Space by its colour and its
 //! name, with how many accounts it shows, a chevron row that pushes the Space's own page; then
-//! New Space. A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
+//! New Space, which pushes a page of the same fields for a Space that is not there yet: nothing is
+//! added until its Create Space, with a name, and going back drops it. A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
 //! Edit Space… opens: its name, its colour (quire's presets, and Custom, whose popover holds the
 //! colour field), its theme, the accounts it shows, and, last and alone, Delete Space…, which asks
 //! first and is there only while another Space is.
@@ -14,7 +15,7 @@
 //! closes, or at once for a preset.
 
 use crate::ui::copy;
-use crate::ui::space::{Handle, Mail, SpaceId};
+use crate::ui::space::{Handle, Mail, Space, SpaceId};
 use crate::ui::space_menu::{accounts, toggled};
 use crate::ui::view::{Shell, SpacesPage};
 use dioxus::prelude::*;
@@ -41,6 +42,9 @@ use porter_core::AccountId;
 
 /// The key of the New Space row, which no Space's id can be.
 const NEW: &str = " new";
+
+/// The element id of the New Space row, where the keyboard goes back to from a new Space's page.
+const NEW_ROW: &str = "spaces-pane-new";
 
 /// The stack's element id: its back buttons are `spaces-pane-back-root` and `-detail`.
 const STACK: &str = "spaces-pane";
@@ -77,14 +81,17 @@ pub(super) fn Spaces(shell: Signal<Shell>, handle: Handle) -> Element {
             .get(space)
             .map(|one| one.name.clone())
             .unwrap_or_default(),
+        SpacesPage::New => copy::controls::NEW_SPACE.to_owned(),
     });
     let page = use_callback(move |page: SpacesPage| match page {
         SpacesPage::List => rsx! { SpaceList { shell, handle } },
         SpacesPage::Space(space) => rsx! { SpacePage { shell, handle, space } },
+        SpacesPage::New => rsx! { NewSpacePage { shell, handle } },
     });
     let opener = use_callback(|page: SpacesPage| match page {
         SpacesPage::List => None,
         SpacesPage::Space(space) => Some(row_id(space)),
+        SpacesPage::New => Some(NEW_ROW.to_owned()),
     });
     rsx! {
         PaneStack::<SpacesPage> {
@@ -143,10 +150,11 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
                 title: copy::controls::NEW_SPACE,
                 size: RowSize::Settings,
                 onclick: move |_| {
-                    let id = handle.add(Mail::new_in(&ProfileId::default()));
-                    push(shell, id);
+                    let mut shell = shell;
+                    shell.write().spaces_pane = PanePath::new(SpacesPage::List).pushed(SpacesPage::New);
                 },
                 common: Common {
+                    id: Some(NEW_ROW.to_owned()),
                     aria_label: Some(copy::controls::NEW_SPACE.to_owned()),
                     ..Common::default()
                 },
@@ -181,7 +189,16 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
         .into_iter()
         .map(|(account, label)| {
             let on = shown.contains(&account);
-            account_row(handle, space, account, label, on)
+            let toggle = EventHandler::new({
+                let account = account.clone();
+                move |()| {
+                    let account = account.clone();
+                    handle.apply(space, |one| {
+                        one.payload.accounts = toggled(&one.payload.accounts, account);
+                    });
+                }
+            });
+            account_row(&account, label, on, toggle)
         })
         .collect();
     let theme = look.theme;
@@ -269,6 +286,117 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
     }
 }
 
+/// A new Space's page, before there is one: the name, colour, theme and accounts a Space's page
+/// has, drafted here, then Create Space, which adds it once it has a name. Back drops it.
+#[component]
+fn NewSpacePage(shell: Signal<Shell>, handle: Handle) -> Element {
+    let mut draft = use_signal(|| drafted(&handle.spaces().peek()));
+    let Some(made) = draft() else {
+        return rsx! {};
+    };
+    let named = if made.name.trim().is_empty() {
+        Named::Emptied
+    } else {
+        Named::Named
+    };
+    let shown = made.payload.accounts.clone();
+    let rows: Vec<ListItem<String>> = accounts()
+        .into_iter()
+        .map(|(account, label)| {
+            let on = shown.contains(&account);
+            let toggle = EventHandler::new({
+                let account = account.clone();
+                move |()| {
+                    if let Some(made) = draft.write().as_mut() {
+                        made.payload.accounts = toggled(&made.payload.accounts, account.clone());
+                    }
+                }
+            });
+            account_row(&account, label, on, toggle)
+        })
+        .collect();
+    let theme = made.look.theme;
+    rsx! {
+        Form {
+            FormSection {
+                FieldRow { label: copy::fields::NAME,
+                    TextField {
+                        label: copy::fields::SPACE_NAME,
+                        value: made.name.clone(),
+                        placeholder: copy::fields::SPACE_NAME,
+                        validity: name_validity(named),
+                        oninput: move |typed: String| {
+                            if let Some(made) = draft.write().as_mut() {
+                                made.name = typed;
+                            }
+                        },
+                        onsubmit: move |_| create(shell, handle, draft.peek().clone()),
+                    }
+                }
+                FieldRow { label: copy::fields::COLOUR,
+                    PresetSwatches {
+                        look: made.look.clone(),
+                        onchange: move |look: SpaceLook| {
+                            if let Some(made) = draft.write().as_mut() {
+                                made.look = look;
+                            }
+                        },
+                        oncommit: move |()| {},
+                        common: Common { aria_label: Some(copy::fields::COLOUR.to_owned()), ..Common::default() },
+                    }
+                }
+                FieldRow { label: copy::fields::APPEARANCE,
+                    SegmentedControl::<Theme> {
+                        label: copy::fields::APPEARANCE,
+                        choices: Choice::pairs(Theme::ALL.iter().copied().map(|theme| (theme, theme.label().to_string())).collect::<Vec<_>>()),
+                        tracking: Tracking::SelectOne(theme),
+                        onchange: move |theme: Theme| {
+                            if let Some(made) = draft.write().as_mut() {
+                                made.look.theme = theme;
+                            }
+                        },
+                    }
+                }
+            }
+            if !rows.is_empty() {
+                FormSection { title: Some(copy::titles::ACCOUNTS.to_owned()),
+                    List::<String> { label: copy::aria::ACCOUNTS_IN_SPACE, items: rows, style: ListStyle::Grouped }
+                }
+            }
+            div { class: "acct-actions",
+                Button {
+                    label: copy::controls::CREATE_SPACE,
+                    availability: if named == Named::Named { Availability::Enabled } else { Availability::Disabled },
+                    onclick: crate::ui::press::on_primary(move || create(shell, handle, draft.peek().clone())),
+                    common: Common { aria_label: Some(copy::controls::CREATE_SPACE.to_owned()), ..Common::default() },
+                }
+            }
+        }
+    }
+}
+
+/// The Space New Space would add now, "Space N" and tinted from the next preset as the kit
+/// makes one, over no account; in no list yet.
+fn drafted(spaces: &crate::ui::space::Spaces) -> Option<Space> {
+    let mut probe = spaces.clone();
+    let id = probe.add(Mail::new_in(&ProfileId::default()));
+    probe.get(id).cloned()
+}
+
+/// Add `draft` as it was drafted, when it has a name, turn the windows to it and go back to the
+/// list, which shows it.
+fn create(mut shell: Signal<Shell>, handle: Handle, draft: Option<Space>) {
+    let Some(draft) = draft.filter(|made| !made.name.trim().is_empty()) else {
+        return;
+    };
+    let id = handle.add(draft.payload);
+    handle.apply(id, |one| {
+        one.name = draft.name;
+        one.look = draft.look;
+    });
+    shell.write().spaces_pane = PanePath::new(SpacesPage::List);
+}
+
 /// The name field's error while it is empty.
 fn name_validity(named: Named) -> Validity {
     match named {
@@ -280,14 +408,13 @@ fn name_validity(named: Named) -> Validity {
     }
 }
 
-/// One account's row on a Space's page: a switch for whether the Space shows it. An account no
-/// other Space shows cannot be switched off, and says so.
+/// One account's row on a Space's page: a switch for whether the Space shows it, which
+/// `on_toggle` hears.
 fn account_row(
-    handle: Handle,
-    space: SpaceId,
-    account: AccountId,
+    account: &AccountId,
     label: String,
     on: bool,
+    on_toggle: EventHandler<()>,
 ) -> ListItem<String> {
     let value = if on { Check::On } else { Check::Off };
     let key = account.to_string();
@@ -300,12 +427,7 @@ fn account_row(
                 size: RowSize::Settings,
                 accessory: Accessory::Toggle {
                     value,
-                    on_toggle: EventHandler::new(move |_| {
-                        let account = account.clone();
-                        handle.apply(space, |one| {
-                            one.payload.accounts = toggled(&one.payload.accounts, account);
-                        });
-                    }),
+                    on_toggle: EventHandler::new(move |_| on_toggle.call(())),
                 },
             }
         },

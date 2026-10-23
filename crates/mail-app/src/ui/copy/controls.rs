@@ -6,8 +6,10 @@
 pub const ADD_ACCOUNT: &str = "Add Account…";
 /// The Folders header's action: a folder at the top.
 pub const NEW: &str = "New";
-/// Settings › Spaces: the row that adds a Space and turns the windows to it.
+/// Settings › Spaces: the row that opens a new Space's page, before there is one.
 pub const NEW_SPACE: &str = "New Space";
+/// A new Space's page: the button that adds it and turns the windows to it.
+pub const CREATE_SPACE: &str = "Create Space";
 /// A Space's page in Settings: the button that asks before deleting it.
 pub const DELETE_SPACE: &str = "Delete Space\u{2026}";
 /// The question's confirming button when a Space is deleted.
