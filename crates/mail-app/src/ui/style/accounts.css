@@ -8,7 +8,4 @@
 .acct-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-8); }
 /* An account's row in Settings › Accounts leads with its provider's mark at the size of a row's
    tile, as Add Account…'s is: quire's marks step from 14 to a 64 px avatar, with none between. */
-.settings-page[*|data-page="Accounts"] .ds-row-leading > .ds-provider {
-  width: var(--row-icon-tile); height: var(--row-icon-tile); border-radius: var(--r-icon-tile);
-  font-size: var(--fs-control);
-}
+.acct-mark { width: var(--row-icon-tile); height: var(--row-icon-tile); border-radius: var(--r-tiny); font-size: var(--fs-control); }

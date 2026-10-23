@@ -27,6 +27,7 @@ use ds::components::lists::row::size::RowSize;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
 use ds::style::icon::family::PlateFamily;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::SqliteStore;
@@ -206,6 +207,11 @@ fn mark_of(row: &AccountRow) -> RowLeading {
     };
     let style = provider_chip::mark_style(provider, marks, MarkAt::List);
     RowLeading::Element(rsx! {
-        ProviderMark { provider: quire, size: ControlSize::Regular, style }
+        ProviderMark {
+            provider: quire,
+            size: ControlSize::Regular,
+            style,
+            common: Common { extra_class: ExtraClass::parse("acct-mark").ok(), ..Common::default() },
+        }
     })
 }
