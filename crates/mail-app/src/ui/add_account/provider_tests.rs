@@ -257,6 +257,53 @@ async fn an_app_password_typed_signs_the_account_in() {
     );
 }
 
+/// iCloud picked with a Gmail address, as an Apple ID often is, says which address iCloud wants
+/// and looks nothing up: it is not followed to Google's sign-in. An address at no provider's own
+/// domain may be iCloud's (a custom domain), and Other Account takes any address.
+#[tokio::test]
+async fn a_provider_picked_with_another_providers_address_says_so_and_goes_nowhere() {
+    let log = Arc::new(Log::default());
+    let fakes = seams(&Script::default(), &log);
+    let added = Added::default();
+    let mut sign_in = start(&provider("icloud", &fakes, &added, None));
+    sign_in.next(SignInInput::Start).await;
+    let step = sign_in
+        .next(SignInInput::Fields(vec![
+            address("ada@gmail.com"),
+            answer(
+                FieldKind::AppPassword,
+                FieldValue::Secret(SecretText::new(PASSWORD)),
+            ),
+        ]))
+        .await;
+    assert!(matches!(step, SignInStep::Failed(_)), "{step:?}");
+    assert_eq!(
+        added.said().as_deref(),
+        Some(
+            "ada@gmail.com belongs to Google. iCloud needs your iCloud address, one ending in \
+             @icloud.com, @me.com or @mac.com."
+        )
+    );
+    assert!(log.lookups.lock().unwrap().is_empty(), "it was looked up");
+    assert!(log.adds.lock().unwrap().is_empty(), "it was added");
+
+    for (id, typed) in [
+        ("icloud", "ada@example.test"),
+        ("generic-imap", "ada@gmail.com"),
+    ] {
+        let added = Added::default();
+        let mut sign_in = start(&provider(id, &fakes, &added, None));
+        sign_in.next(SignInInput::Start).await;
+        sign_in
+            .next(SignInInput::Fields(vec![
+                address(typed),
+                password(PASSWORD),
+            ]))
+            .await;
+        assert_eq!(added.said(), None, "{id} refused {typed}");
+    }
+}
+
 #[tokio::test]
 async fn a_password_account_is_looked_up_once_reviewed_and_added_only_on_confirm() {
     let log = Arc::new(Log::default());

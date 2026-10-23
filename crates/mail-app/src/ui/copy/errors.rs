@@ -10,6 +10,25 @@ pub const POP3_NO_FOLDERS: &str = "POP3 has no folders.";
 pub const LOCAL_HAS_LABELS: &str = "Local mail has labels, not folders.";
 pub const ACCOUNT_GONE: &str = "That account isn’t here any more.";
 
+/// Add Account: a provider picked with an address at another provider's own domain (iCloud with
+/// a Gmail address, as an Apple ID often is).
+pub fn address_at_other_provider(
+    address: &str,
+    other: &str,
+    picked: &str,
+    own: &[String],
+) -> String {
+    let at: Vec<String> = own.iter().map(|domain| format!("@{domain}")).collect();
+    let at = match at.as_slice() {
+        [] => String::new(),
+        [one] => one.clone(),
+        [rest @ .., last] => format!("{} or {last}", rest.join(", ")),
+    };
+    format!(
+        "{address} belongs to {other}. {picked} needs your {picked} address, one ending in {at}."
+    )
+}
+
 pub fn special_folder(path: &str, special: &str) -> String {
     format!("“{path}” is the account’s {special} folder and can’t be changed.")
 }
