@@ -64,8 +64,7 @@ pub(in crate::ui) fn tile(icon: Icon, family: PlateFamily) -> RowLeading {
 }
 
 /// What leads a row that adds something (Add Account…, New Space, New Rule, a key to import): a
-/// plus in a dashed ring, plain where the rows above it lead with colour, as the "+" after the
-/// sidebar's account tiles is drawn (`style/settings.css`).
+/// bare plus, plain where the rows above it lead with colour (`style/settings.css`).
 pub(in crate::ui) fn add_mark() -> RowLeading {
     RowLeading::Element(rsx! {
         span { class: "add-mark",
