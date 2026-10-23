@@ -206,6 +206,6 @@ fn mark_of(row: &AccountRow) -> RowLeading {
     };
     let style = provider_chip::mark_style(provider, marks, MarkAt::List);
     RowLeading::Element(rsx! {
-        ProviderMark { provider: quire, size: ControlSize::Large, style }
+        ProviderMark { provider: quire, size: ControlSize::Regular, style }
     })
 }
