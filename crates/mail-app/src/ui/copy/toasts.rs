@@ -64,3 +64,8 @@ pub fn graph_waits(name: &str) -> String {
 pub fn graph_refused(name: &str, why: &str) -> String {
     format!("Couldn’t switch {name} to Microsoft Graph. {why}")
 }
+
+// A program or script asked to open: shown in its folder instead.
+pub fn shown_not_run(name: &str) -> String {
+    format!("“{name}” is a program, so it’s shown in its folder rather than opened")
+}

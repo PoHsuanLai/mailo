@@ -175,12 +175,20 @@ fn save(viewing: Viewing, toasts: Toasts) {
     }
 }
 
-/// Where Open writes a part before the system opens it: a folder of the message's own under the
-/// system's temporary one, so nothing lands among the person's downloads unasked.
-fn open_dir(message: MessageId) -> PathBuf {
-    std::env::temp_dir()
-        .join("mailo-open")
-        .join(message.to_string())
+/// Where Open writes a part before the system opens it, so nothing lands among the person's
+/// downloads unasked: a folder of the message's own, in one made for this run under the system's
+/// temporary folder with a name no one can guess and only its owner may enter. A shared, fixed
+/// name is one another user could make first, or leave a link in.
+fn open_dir(message: MessageId) -> std::io::Result<PathBuf> {
+    static OPENED: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
+    let root = match OPENED.get() {
+        Some(root) => root,
+        None => {
+            let made = tempfile::Builder::new().prefix("mailo-open-").tempdir()?;
+            OPENED.get_or_init(|| made)
+        }
+    };
+    Ok(root.path().join(message.to_string()))
 }
 
 /// Open the part in the app the system gives its kind. From a press or a key: the write and the
@@ -190,7 +198,7 @@ pub(super) fn open_in_app(viewing: Viewing) {
     let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
     spawn(async move {
         let opened = tokio::task::spawn_blocking(move || {
-            let dir = open_dir(viewing.message);
+            let dir = open_dir(viewing.message).map_err(|why| why.to_string())?;
             std::fs::create_dir_all(&dir).map_err(|why| why.to_string())?;
             let path = mail_core::attach::save(&store, viewing.message, viewing.index, &dir)
                 .map_err(|why| why.to_string())?;

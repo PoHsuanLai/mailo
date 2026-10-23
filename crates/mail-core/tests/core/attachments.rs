@@ -179,6 +179,17 @@ mod names {
         ("not latin", "架構圖.png", "架構圖.png"),
         ("dashes", "notes-2026-09-22.md", "notes-2026-09-22.md"),
         ("dotfile", ".gitignore", ".gitignore"),
+        ("ampersand", "R&D 100%.pdf", "R&D 100%.pdf"),
+        // What Windows refuses, or reads as something other than a file.
+        ("stream", "invoice.pdf:evil.exe", "invoice.pdf_evil.exe"),
+        ("refused", "a<b>c|d?e*f\"g.txt", "a_b_c_d_e_f_g.txt"),
+        ("trailing dot", "report.pdf.", "report.pdf"),
+        ("trailing dot and space", "report.exe . ", "report.exe"),
+        ("device", "CON", "_CON"),
+        ("device with extension", "nul.txt", "_nul.txt"),
+        ("numbered device", "com1.pdf", "_com1.pdf"),
+        ("not a device", "console.txt", "console.txt"),
+        ("not a numbered device", "com10.txt", "com10.txt"),
     ];
 
     #[test]
@@ -200,6 +211,30 @@ mod names {
         );
         assert!(!sneaky.contains('\u{0}'), "{sneaky:?}");
         assert!(sneaky.starts_with("report.pdf"), "{sneaky:?}");
+    }
+
+    #[test]
+    fn programs_and_scripts_are_told_from_documents() {
+        for name in [
+            "setup.exe",
+            "x.command",
+            "Run.SH",
+            "a.jar",
+            "invoice.pdf.js",
+            "x.app",
+        ] {
+            assert!(attach::runs_when_opened(name), "{name}");
+        }
+        for name in [
+            "report.pdf",
+            "photo.jpg",
+            "notes.txt",
+            "archive.zip",
+            "exe",
+            ".sh",
+        ] {
+            assert!(!attach::runs_when_opened(name), "{name}");
+        }
     }
 
     #[test]
@@ -469,6 +504,42 @@ mod where_it_goes {
         let two = attach::save(&store, message, 0, &into).unwrap();
         assert_ne!(one, two, "the second save replaced the first");
         assert!(one.exists() && two.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_where_the_name_would_go_is_not_written_through() {
+        // Another program, or another user in a shared folder, leaves a link under the name a
+        // save will choose. The save takes the next name and the link's target is untouched.
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        std::os::unix::fs::symlink(&target, dir.path().join("report.pdf")).unwrap();
+
+        let written = attach::write_new(dir.path(), "report.pdf", b"mail").unwrap();
+        assert_eq!(written, dir.path().join("report (2).pdf"));
+        assert!(!target.exists(), "the link was written through");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_saved_file_is_its_owner_s_alone() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = tempfile::tempdir().unwrap();
+        let written = attach::write_new(dir.path(), "report.pdf", b"mail").unwrap();
+        let mode = std::fs::metadata(&written).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "{mode:o}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_saved_file_carries_the_quarantine_mark() {
+        let dir = tempfile::tempdir().unwrap();
+        let written = attach::write_new(dir.path(), "x.command", b"echo hi").unwrap();
+        let mark = mail_runtime::quarantine::read(&written).expect("no quarantine mark");
+        assert!(
+            mark.starts_with("0081;") && mark.contains(";mailo;"),
+            "{mark}"
+        );
     }
 }
 

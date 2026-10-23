@@ -55,7 +55,7 @@ crates/mail-app/src/ui/compose/seal.rs 20
 crates/mail-app/src/ui/compose/surface.rs 1
 crates/mail-app/src/ui/compose/templates.rs 15
 crates/mail-app/src/ui/compose/wire.rs 1
-crates/mail-app/src/ui/downloads/open.rs 16
+crates/mail-app/src/ui/downloads/open.rs 15
 crates/mail-app/src/ui/downloads/panel.rs 14
 crates/mail-app/src/ui/emoji/mod.rs 9
 crates/mail-app/src/ui/fetching/face.rs 4
