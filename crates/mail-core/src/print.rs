@@ -283,36 +283,7 @@ pub fn write_file_into(
     extension: &str,
     bytes: &[u8],
 ) -> Result<PathBuf, CoreError> {
-    use std::io::Write as _;
-    let name = file_name_with(subject, extension);
-    let path = Path::new(&name);
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("message");
-    for n in 1..1000 {
-        let candidate = if n == 1 {
-            dir.join(&name)
-        } else {
-            dir.join(format!("{stem} ({n}).{extension}"))
-        };
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(mut file) => {
-                file.write_all(bytes).map_err(CoreError::at(&candidate))?;
-                return Ok(candidate);
-            }
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(CoreError::at(&candidate)(e)),
-        }
-    }
-    Err(CoreError::NamesTaken {
-        name,
-        dir: dir.to_owned(),
-    })
+    crate::attach::create_unique(dir, &file_name_with(subject, extension), bytes)
 }
 
 #[cfg(test)]

@@ -108,3 +108,8 @@ pub fn key_given_twice(action: &str) -> String {
 
 /// Send pressed with nobody to send to: To's error.
 pub const ADD_A_RECIPIENT: &str = "Add at least one person to send to.";
+
+/// A file the system would not open, and why.
+pub fn couldnt_open(why: &str) -> String {
+    format!("Couldn’t open it: {why}")
+}

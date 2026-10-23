@@ -87,6 +87,9 @@ quire-desktop = []
 anyview = ["dep:anyview-peek", "dep:anyview-core"]
 
 [dependencies]
+# The folder Open writes a part into before the system opens it (`reading/peek/part.rs`): made
+# fresh for each run, named so no one can guess it, and only its owner's.
+tempfile = "3"
 porter-core.workspace = true
 porter-provider.workspace = true
 porter-service.workspace = true
@@ -228,7 +231,6 @@ regex = "1"
 # The same version quire names, so the tree holds one pdfrum.
 # The print tests read printouts back with it too (`ui/print/pdf_tests.rs`).
 pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"] }
-tempfile = "3"
 # The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with
 # (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
 x509-cert = { version = "0.2", features = ["builder"] }

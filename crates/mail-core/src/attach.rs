@@ -42,13 +42,89 @@ pub fn safe_name(claimed: &str) -> String {
         // Control characters and NUL: a name containing a newline makes a terminal print
         // something other than what was written, and NUL truncates the name at the syscall.
         .filter(|c| !c.is_control())
+        // What Windows refuses in a name, `:` among them, which names a stream of another file.
+        .map(|c| if WINDOWS_REFUSES.contains(c) { '_' } else { c })
         .collect();
-    let cleaned = cleaned.trim_matches(|c: char| c.is_whitespace());
+    // Windows drops a trailing dot or space, so `report.pdf.` would be written as `report.pdf`.
+    let cleaned = cleaned
+        .trim_start_matches(char::is_whitespace)
+        .trim_end_matches(|c: char| c.is_whitespace() || c == '.');
 
     if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
         return FALLBACK.to_owned();
     }
+    if names_a_device(cleaned) {
+        return truncate_keeping_extension(&format!("_{cleaned}"));
+    }
     truncate_keeping_extension(cleaned)
+}
+
+/// The characters Windows refuses in a file name.
+const WINDOWS_REFUSES: &str = "<>:\"|?*";
+
+/// Whether Windows reads `name` as a device rather than a file: `CON`, `NUL`, `COM1` and the
+/// rest, whatever follows a dot.
+fn names_a_device(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    let stem = stem.to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ["COM", "LPT"].iter().any(|kind| {
+            stem.strip_prefix(kind)
+                .is_some_and(|n| n.len() == 1 && n.as_bytes()[0].is_ascii_digit() && n != "0")
+        })
+}
+
+/// Whether a file called `name` is a program or a script, which runs rather than shows when the
+/// system opens it: the window shows such a file in its folder instead of opening it.
+pub fn runs_when_opened(name: &str) -> bool {
+    const KINDS: &[&str] = &[
+        "app",
+        "action",
+        "applescript",
+        "bash",
+        "bat",
+        "bin",
+        "cmd",
+        "com",
+        "command",
+        "cpl",
+        "csh",
+        "desktop",
+        "exe",
+        "hta",
+        "jar",
+        "js",
+        "jse",
+        "ksh",
+        "lnk",
+        "msi",
+        "pif",
+        "pkg",
+        "mpkg",
+        "pl",
+        "ps1",
+        "py",
+        "rb",
+        "reg",
+        "run",
+        "scpt",
+        "scr",
+        "sh",
+        "terminal",
+        "tool",
+        "vb",
+        "vbe",
+        "vbs",
+        "workflow",
+        "wsf",
+        "wsh",
+        "zsh",
+        "appimage",
+    ];
+    Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| KINDS.contains(&e.to_ascii_lowercase().as_str()))
 }
 
 /// Shorten to [`MAX_NAME`] bytes, keeping the extension where there is one.
@@ -215,10 +291,53 @@ pub fn save_opened(attachment: &OpenedAttachment, dir: &Path) -> Result<PathBuf,
 /// Write `bytes` into `dir` under `name` made safe, never over a file already there, returning
 /// the path written. How every file the window saves reaches the disk.
 pub fn write_new(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, CoreError> {
+    create_unique(dir, &safe_name(name), bytes)
+}
+
+/// Write `bytes` into `dir` as `name`, or `name (2)` and so on, returning the path written.
+///
+/// A name is free only if claiming it succeeds (`create_new`), so neither a file written in the
+/// meantime nor a link left in its place is written through. Only its owner can read the file,
+/// and on macOS it is marked as come from elsewhere ([`mail_runtime::quarantine`]).
+pub(crate) fn create_unique(dir: &Path, name: &str, bytes: &[u8]) -> Result<PathBuf, CoreError> {
+    use std::io::Write as _;
     std::fs::create_dir_all(dir).map_err(CoreError::at(dir))?;
-    let path = free_path(dir, &safe_name(name));
-    std::fs::write(&path, bytes).map_err(CoreError::at(&path))?;
-    Ok(path)
+    for candidate in candidates(name).take(1000) {
+        let path = dir.join(&candidate);
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        match options.open(&path) {
+            Ok(mut file) => {
+                file.write_all(bytes).map_err(CoreError::at(&path))?;
+                // A file that could not be marked is still the file asked for.
+                let _ = mail_runtime::quarantine::mark_now(&path, AGENT);
+                return Ok(path);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(CoreError::at(&path)(e)),
+        }
+    }
+    Err(CoreError::NamesTaken {
+        name: name.to_owned(),
+        dir: dir.to_owned(),
+    })
+}
+
+/// Who wrote a marked file, as the quarantine mark names it.
+const AGENT: &str = "mailo";
+
+/// `name`, then `name (2)`, `name (3)` and on, the number before the extension.
+fn candidates(name: &str) -> impl Iterator<Item = String> + '_ {
+    let path = Path::new(name);
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
+    let extension = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| format!(".{e}"))
+        .unwrap_or_default();
+    std::iter::once(name.to_owned()).chain((2..).map(move |n| format!("{stem} ({n}){extension}")))
 }
 
 /// [`save`], downloading the attachment first if a sync left it on the server.
@@ -250,29 +369,15 @@ pub fn fetch_and_save(
     save(store, message, index, dir)
 }
 
-/// A path in `dir` that nothing is using yet: `name`, or `name (2)` and so on. A file and a
-/// directory are the same kind of obstacle, so an export directory is named by it too.
+/// A name in `dir` that nothing is using yet, to suggest: `name`, or `name (2)` and so on. A file
+/// and a directory are the same kind of obstacle, so an export directory is named by it too.
+/// Only a suggestion: whatever writes there claims it with `create_new`, as [`write_new`] does.
 pub fn free_path(dir: &Path, name: &str) -> PathBuf {
-    let first = dir.join(name);
-    if !first.exists() {
-        return first;
-    }
-    let path = Path::new(name);
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
-    let extension = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| format!(".{e}"))
-        .unwrap_or_default();
-    for n in 2..1000 {
-        let candidate = dir.join(format!("{stem} ({n}){extension}"));
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    // A thousand copies of one name. Writing over the first is still wrong, so this is the one
-    // case that lands on a name with the process id in it rather than giving up.
-    dir.join(format!("{stem} ({}){extension}", std::process::id()))
+    candidates(name)
+        .take(1000)
+        .map(|candidate| dir.join(candidate))
+        .find(|path| !path.exists())
+        .unwrap_or_else(|| dir.join(name))
 }
 
 pub use mail_domain::human_size;

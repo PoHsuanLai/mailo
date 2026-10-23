@@ -4,9 +4,13 @@
 //! open-a-file service hands it to the app the person chose for its kind; the system's opener
 //! program is the way when no such service runs.
 //!
+//! A program or a script is never opened from here: opening one runs it, so it is shown in its
+//! folder instead, and the person can open it from there knowing what it is.
+//!
 //! Both block until the system has taken the request, so the window calls them off the thread
 //! that draws. What they answer on failure is a sentence the window shows as it is.
 
+use crate::ui::copy::errors::couldnt_open;
 use std::path::Path;
 use std::process::Command;
 
@@ -14,6 +18,11 @@ use std::process::Command;
 pub(in crate::ui) fn open(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err(gone(path));
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    if let Some(name) = name.filter(|name| mail_core::attach::runs_when_opened(name)) {
+        reveal(path)?;
+        return Err(crate::ui::copy::toasts::shown_not_run(&name));
     }
     #[cfg(all(feature = "quire-desktop", not(any(target_os = "macos", windows))))]
     if in_anyview(path).is_ok() {
@@ -62,30 +71,34 @@ fn gone(path: &Path) -> String {
     format!("{name} was moved or deleted.")
 }
 
-/// The command that opens `path` in the app the system associates with it.
+/// The command that opens `path` in the app the system associates with it. Never a shell: on
+/// Windows `cmd /C start` would read a `&` in the file's name as the start of another command.
 fn opener(path: &Path) -> Command {
-    let (program, lead): (&str, &[&str]) = if cfg!(target_os = "macos") {
-        ("open", &[])
+    let program = if cfg!(target_os = "macos") {
+        "open"
     } else if cfg!(windows) {
-        ("cmd", &["/C", "start", ""])
+        "explorer"
     } else {
-        ("xdg-open", &[])
+        "xdg-open"
     };
     let mut command = Command::new(program);
-    command.args(lead).arg(path);
+    command.arg(path);
     command
 }
 
 fn run(mut command: Command) -> Result<(), String> {
-    let status = command
-        .status()
-        .map_err(|e| format!("Couldn\u{2019}t open it: {e}"))?;
+    // Explorer exits 1 whether or not it opened anything, so on Windows only starting it can fail.
+    if cfg!(windows) {
+        return command
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| couldnt_open(&e.to_string()));
+    }
+    let status = command.status().map_err(|e| couldnt_open(&e.to_string()))?;
     if status.success() {
         Ok(())
     } else {
-        Err(format!(
-            "Couldn\u{2019}t open it: the opener exited with {status}"
-        ))
+        Err(couldnt_open(&format!("the opener exited with {status}")))
     }
 }
 
@@ -148,4 +161,19 @@ fn show_items(path: &Path) -> Result<(), String> {
         )
         .map(|_| ())
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::opener;
+    use std::path::Path;
+
+    #[test]
+    fn the_opener_is_given_the_path_as_one_argument_and_no_shell() {
+        let path = Path::new("/tmp/R&D x&calc.exe");
+        let command = opener(path);
+        assert_ne!(command.get_program(), "cmd");
+        let args: Vec<_> = command.get_args().collect();
+        assert_eq!(args, [path.as_os_str()]);
+    }
 }

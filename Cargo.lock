@@ -5370,6 +5370,7 @@ dependencies = [
  "webpki-roots",
  "windows-native-keyring-store",
  "x509-cert",
+ "xattr",
  "zbus-secret-service-keyring-store",
  "zeroize",
 ]

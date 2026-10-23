@@ -89,6 +89,8 @@ apple-native-keyring-store = { version = "1", features = ["keychain"], optional 
 # The per-user directories macOS and Windows name (`places.rs`). Linux keeps the XDG rule it has
 # always followed, spelled out there, so the directories it already uses cannot move.
 dirs = "6"
+# The quarantine mark on files written out of a message (`quarantine.rs`). Already in the tree.
+xattr = "1"
 
 # Windows: the Credential Manager. Its entries hold at most 2560 bytes, which a Microsoft token
 # or a signing key outgrows; `signing_store/chunks.rs` is why that does not matter there.
