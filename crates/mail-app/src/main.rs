@@ -118,6 +118,13 @@ fn main() {
         );
         std::process::exit(1);
     };
+    // Every folder mailo keeps is its owner's alone, a folder an earlier version made included.
+    // One that cannot be narrowed is said, and the run goes on: the mail is still the person's.
+    for dir in places_kept(&roots) {
+        if let Err(e) = mail_core::config::make_private(&dir) {
+            eprintln!("cannot make {} private: {e}", dir.display());
+        }
+    }
     // Whose mail this run is over: the default Profile's, which is the store as it was before
     // Profiles, unless `--profile` names another. A registry that cannot be read stops the run,
     // since going on over the default would hide the others.
@@ -243,6 +250,24 @@ struct Paths {
 /// The directories Profiles' paths are under: mailo's data directory (`$XDG_DATA_HOME/mailo` on
 /// Linux, the local application data folder on macOS and Windows; `mail_runtime::places`) and its
 /// config directory.
+/// The folders mailo keeps: the data and config roots, and the state and cache folders where they
+/// are elsewhere (on Linux each place is its own folder).
+fn places_kept(roots: &mail_core::profile::Roots) -> Vec<std::path::PathBuf> {
+    let mut kept = vec![roots.data.clone(), roots.config.clone()];
+    for path in [
+        mail_core::config::state_dir(),
+        mail_core::config::cache_dir(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if !kept.contains(&path) {
+            kept.push(path);
+        }
+    }
+    kept
+}
+
 fn roots() -> Option<mail_core::profile::Roots> {
     Some(mail_core::profile::Roots {
         data: mail_runtime::places::dir(mail_runtime::places::Place::Data)?,
