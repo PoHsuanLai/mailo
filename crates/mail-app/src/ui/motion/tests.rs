@@ -3,14 +3,15 @@
 
 use super::drag::{drop_op, view_kind};
 use crate::ui::app::App;
-use crate::ui::fixtures::settle_quiet;
 use crate::ui::fixtures::{
     FakePointer, INSIDE_THE_SHELL, Seen, chord, click, dispatching, open_row_menu, pick_until,
     pointer, rebuild_into, work,
 };
+use crate::ui::fixtures::{settle_quiet, settle_until, step_clock, step_clock_until};
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus::prelude::*;
-use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
+use dioxus_core::{ElementId, VirtualDom};
+use ds::base::time::clock::VirtualClock;
 use ds::motion::settle::settle as anim_settle;
 use ds::prelude::*;
 use mail_core::{SqliteStore, Store};
@@ -400,8 +401,13 @@ async fn the_star_marks_only_starred_rows_and_a_press_unstars_that_one() {
 /// below it never close a gap that was never there. Before the stay, the old key finished
 /// leaving unseen and the rows under it healed for nothing. The exit it interrupted settles on
 /// its own clock, and the row must outlive it, drawn once and no longer leaving.
+///
+/// Quire's clock is the test's: the undo lands while the exit is under way however long the
+/// machine takes to get there, and only then do the exit's and the heal's timers run.
 #[tokio::test]
 async fn an_undo_mid_exit_keeps_the_row_once_and_heals_nothing() {
+    let clock = VirtualClock::new();
+    let _installed = clock.install();
     let Mounted {
         mut dom,
         seen,
@@ -409,33 +415,48 @@ async fn an_undo_mid_exit_keeps_the_row_once_and_heals_nothing() {
         dana,
         ..
     } = mounted();
-    archive_dana(&mut dom, &seen, &store, dana).await;
-    settle_quiet(&mut dom).await;
+    let opened = open_row_menu(&mut dom, &seen, DANA);
+    pick_until(&mut dom, &opened, "Archive", || true).await;
+    let archived = || !mailboxes(&store, dana).contains(MailboxRole::Inbox);
+    step_clock_until(&mut dom, &clock, std::time::Duration::from_secs(2), |_| {
+        archived()
+    })
+    .await;
+    let leaving = |dom: &VirtualDom| {
+        row_markup(&dioxus_ssr::render(dom), DANA)
+            .is_some_and(|row| row.contains("data-presence=\"leaving\""))
+    };
+    settle_until(
+        &mut dom,
+        &mut Seen::default(),
+        std::time::Duration::from_millis(80),
+        std::time::Duration::from_secs(10),
+        leaving,
+    )
+    .await;
     chord(
         &mut dom,
         "z",
         crate::ui::fixtures::PRIMARY,
         ElementId(INSIDE_THE_SHELL as usize),
     );
+    settle_until(
+        &mut dom,
+        &mut Seen::default(),
+        std::time::Duration::from_millis(80),
+        std::time::Duration::from_secs(10),
+        |dom| !archived() && !leaving(dom),
+    )
+    .await;
     let heal = anim_settle(Anim::Heal, MotionLevel::Standard);
-    let until = tokio::time::Instant::now() + exit_settles() + heal;
-    while tokio::time::Instant::now() < until {
-        let left = until - tokio::time::Instant::now();
-        let step = left.min(std::time::Duration::from_millis(20));
-        if tokio::time::timeout(step, dom.wait_for_work())
-            .await
-            .is_ok()
-        {
-            dom.render_immediate(&mut NoOpMutations);
-        }
-        let page = dioxus_ssr::render(&dom);
+    step_clock(&mut dom, &clock, exit_settles() + heal, |page| {
         assert!(
             !page.contains("data-presence=\"healing\""),
             "a row healed after an undo brought the row above it back mid-exit:\n{}",
-            row_markup(&page, RELEASE).unwrap_or_default()
+            row_markup(page, RELEASE).unwrap_or_default()
         );
-    }
-    settle_quiet(&mut dom).await;
+    })
+    .await;
     let page = dioxus_ssr::render(&dom);
     let row = row_markup(&page, DANA).expect("the row an undo brought back is not drawn");
     assert!(
