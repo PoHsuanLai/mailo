@@ -10,6 +10,8 @@ pub const SIDEBAR_MENU: &str = "Sidebar Menu";
 pub const SYNC_NOW: &str = "Sync Now";
 /// The row of account tiles at the sidebar's top.
 pub const ACCOUNTS_IN_SPACE: &str = "Accounts in This Space";
+/// Settings › Spaces' list under the Spaces, which holds New Space.
+pub const ADD_A_SPACE: &str = "Add a Space";
 /// The "+" after the account tiles.
 pub const ADD_ACCOUNT: &str = "Add Account";
 /// The sync mark while an account in view waits for its sign-in: a press asks about it again.

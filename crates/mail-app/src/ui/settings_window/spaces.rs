@@ -1,7 +1,9 @@
 //! Spaces: a pane of two levels, as Accounts is. Its root lists each Space by its colour and its
 //! name, with how many accounts it shows, a chevron row that pushes the Space's own page; then
-//! New Space, which pushes a page of the same fields for a Space that is not there yet: nothing is
-//! added until its Create Space, with a name, and going back drops it. A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
+//! New Space, in a list of its own, which pushes a page of the same fields for a Space that is not
+//! there yet: nothing is added until its Create Space, with a name, and going back drops it. A
+//! Space's row leads with its grip: dragged up or down by it, the Space takes its new place in the
+//! order, which is the sidebar's and ⌘1 to ⌘9's. A Space's page is what the Space's menu holds (Appearance, Accounts ▸), and where its
 //! Edit Space… opens: its name, its colour (quire's presets, and Custom, whose popover holds the
 //! colour field), its theme, the accounts it shows, and, last and alone, Delete Space…, which asks
 //! first and is there only while another Space is.
@@ -111,6 +113,8 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
     let scheme = use_scope().scheme;
     let held = handle.spaces();
     let spaces = held.read();
+    // A Space alone has nowhere to be dragged.
+    let several = spaces.count() > 1;
     let mut items: Vec<ListItem<String>> = Vec::new();
     for space in spaces.list() {
         let id = space.id;
@@ -141,7 +145,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
             },
         ));
     }
-    items.push(ListItem::row(
+    let new = vec![ListItem::row(
         NEW.to_owned(),
         copy::controls::NEW_SPACE.to_owned(),
         rsx! {
@@ -160,11 +164,20 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
                 },
             }
         },
-    ));
+    )];
+    let ids: Vec<SpaceId> = spaces.list().iter().map(|space| space.id).collect();
     rsx! {
         Form {
             FormSection {
-                List::<String> { label: copy::titles::SPACES, items, style: ListStyle::Grouped }
+                List::<String> {
+                    label: copy::titles::SPACES,
+                    items,
+                    style: ListStyle::Grouped,
+                    onreorder: several.then(|| EventHandler::new(move |keys: Vec<String>| reorder(handle, &ids, &keys))),
+                }
+            }
+            FormSection {
+                List::<String> { label: copy::aria::ADD_A_SPACE, items: new, style: ListStyle::Grouped }
             }
         }
     }
@@ -432,6 +445,22 @@ fn account_row(
             }
         },
     )
+}
+
+/// Put the Spaces in the order `keys` (their rows' ids) were dropped in, and write it. `ids` are
+/// the Spaces the list was drawn with; a key that names none of them is passed over.
+fn reorder(handle: Handle, ids: &[SpaceId], keys: &[String]) {
+    let order = keys
+        .iter()
+        .filter_map(|key| ids.iter().copied().find(|id| row_id(*id) == *key));
+    let mut spaces = handle.spaces();
+    {
+        let mut spaces = spaces.write();
+        for (index, id) in order.enumerate() {
+            spaces.move_to(id, index);
+        }
+    }
+    handle.commit();
 }
 
 /// Push `space`'s page over the list.

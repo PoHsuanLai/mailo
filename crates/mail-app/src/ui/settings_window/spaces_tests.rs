@@ -1,5 +1,6 @@
 //! Settings › Spaces over the reference fixture: the list of Spaces, a Space's page pushed from
-//! its row, and each of the page's edits written to the Spaces file the other windows read.
+//! its row, and each of the page's edits written to the Spaces file the other windows read. Dragging
+//! a Space into a new place is a lane (`tests/app/lanes/spaces.rs`): it takes a real pointer.
 
 use super::super::tests::opened_on;
 use crate::ui::copy;
