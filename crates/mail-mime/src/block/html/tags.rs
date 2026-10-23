@@ -93,6 +93,44 @@ pub(super) fn attr<'a>(tag: &'a Tag, name: &str) -> Option<&'a str> {
         .map(|attribute| &*attribute.value)
 }
 
+/// `kind` as the tag's inline `style` says it reads: a `span` set in bold is [`Kind::Strong`], one
+/// in italic [`Kind::Emphasis`], and a `b` set back to a normal weight is only [`Kind::Inline`],
+/// as a word processor's clipboard writes them. Bold wins a span that is both, since a frame is
+/// one kind. Anything else, and every other kind, is as its tag says.
+pub(super) fn styled(kind: Kind, tag: &Tag) -> Kind {
+    if !matches!(kind, Kind::Inline | Kind::Strong) {
+        return kind;
+    }
+    let Some(style) = attr(tag, "style") else {
+        return kind;
+    };
+    let mut bold = None;
+    let mut italic = false;
+    for declaration in style.split(';') {
+        let Some((property, value)) = declaration.split_once(':') else {
+            continue;
+        };
+        let value = value.trim().to_ascii_lowercase();
+        match property.trim().to_ascii_lowercase().as_str() {
+            "font-weight" => {
+                bold = match value.as_str() {
+                    "bold" | "bolder" => Some(true),
+                    "normal" | "lighter" => Some(false),
+                    number => number.parse::<u16>().ok().map(|weight| weight >= 600),
+                }
+            }
+            "font-style" => italic = matches!(value.as_str(), "italic" | "oblique"),
+            _ => {}
+        }
+    }
+    match (kind, bold, italic) {
+        (_, Some(true), _) => Kind::Strong,
+        (Kind::Strong, Some(false), true) | (Kind::Inline, _, true) => Kind::Emphasis,
+        (Kind::Strong, Some(false), false) => Kind::Inline,
+        _ => kind,
+    }
+}
+
 pub(super) fn presentational(tag: &Tag) -> bool {
     tag.attrs.iter().any(|attribute| {
         matches!(

@@ -307,8 +307,8 @@ fn rich_html_pasted_from_a_word_processor_keeps_its_structure_spaces_and_link() 
     );
     assert_eq!(
         window.harness.count(".c-body .m-b"),
-        0,
-        "the not-bold wrapper made something bold"
+        1,
+        "the not-bold wrapper made more than the bold span bold"
     );
     assert_eq!(
         window.harness.attr(".c-body .m-a", "href").as_deref(),
@@ -367,7 +367,6 @@ fn a_formatted_message_goes_out_as_html_and_as_text_that_reads_naturally() {
 }
 
 #[test]
-#[ignore = "gap: the paste sanitizer drops style, so a word processor's font-weight:700 and font-style:italic spans paste as plain text"]
 fn styled_spans_pasted_from_a_word_processor_keep_their_bold_and_italic() {
     let mut window = composing();
     window

@@ -1,6 +1,6 @@
 //! A paste: clipboard HTML or plain text, turned into edits at the selection.
 
-use mail_mime::{RemoteImages, SanitizePolicy, from_html, sanitize};
+use mail_mime::{RemoteImages, SanitizePolicy, Styles, from_html, sanitize};
 
 use crate::editor::convert::{nodes_from_blocks, nodes_from_plain};
 use crate::editor::doc::{Doc, Node, ParaKind, Pos, Range};
@@ -12,10 +12,17 @@ use crate::editor::text::{grapheme_len, node_len};
 
 /// Clipboard HTML goes through `sanitize`, then `from_html`, then nodes. Plain text is
 /// paragraphs. One plain paragraph is typed into the line; anything more is inserted as nodes.
+///
+/// The sanitizer keeps the clipboard's inline styles, since a word processor writes bold and
+/// italic as a span's `font-weight` and `font-style`; `from_html` reads those two and no more.
 pub(crate) fn paste(doc: &Doc, selection: Range, event: &InputEvent) -> Result<Edit, OpError> {
     let nodes = match &event.html {
         Some(html) => {
-            let safe = sanitize(html, SanitizePolicy::CURRENT);
+            let policy = SanitizePolicy {
+                styles: Styles::Kept,
+                ..SanitizePolicy::CURRENT
+            };
+            let safe = sanitize(html, policy);
             nodes_from_blocks(&from_html(&safe, &[], RemoteImages::Blocked).blocks)
         }
         None => nodes_from_plain(event.data.as_deref().unwrap_or("")),

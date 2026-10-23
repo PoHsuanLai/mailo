@@ -207,3 +207,36 @@ fn a_layout_table_flattens_and_a_data_table_does_not() {
         "the outer layout table was kept as a table: {got}"
     );
 }
+
+#[test]
+fn a_span_styled_bold_or_italic_reads_as_one() {
+    let kept = mail_mime::SanitizePolicy {
+        styles: mail_mime::Styles::Kept,
+        ..mail_mime::SanitizePolicy::CURRENT
+    };
+    let cases: &[(&str, &str)] = &[
+        (r#"<span style="font-weight:700">a</span>"#, "*a*"),
+        (r#"<span style="font-weight: bold">a</span>"#, "*a*"),
+        (
+            r#"<span style="font-style:italic;font-weight:400">a</span>"#,
+            "_a_",
+        ),
+        (r#"<span style="font-weight:400">a</span>"#, "a"),
+        (r#"<b style="font-weight:normal">a</b>"#, "a"),
+        (
+            r#"<b style="font-weight:normal;font-style:italic">a</b>"#,
+            "_a_",
+        ),
+        (r#"<b>a</b>"#, "*a*"),
+        (r#"<span style="font-weight:heavy">a</span>"#, "a"),
+    ];
+    for (raw, want) in cases {
+        let safe = mail_mime::sanitize(&format!("<p>{raw}</p>"), kept);
+        let doc = mail_mime::from_html(&safe, &[], RemoteImages::Blocked);
+        assert_eq!(
+            sketch(&doc),
+            format!("letter nothing -\np ltr {want}\n"),
+            "{raw}"
+        );
+    }
+}

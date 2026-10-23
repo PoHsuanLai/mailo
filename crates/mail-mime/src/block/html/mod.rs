@@ -15,7 +15,7 @@ mod tags;
 
 pub use tags::{is_mapped, mapped_tags};
 
-use self::tags::{Frame, Kind, flush_buf, frame_kind, is_void, presentational, push_chars};
+use self::tags::{Frame, Kind, flush_buf, frame_kind, is_void, presentational, push_chars, styled};
 use super::heaviness::Signals;
 use super::kind::{Block, first_strong, span_text, strip_overrides};
 use super::limits::{Limits, Reached};
@@ -195,7 +195,7 @@ impl<'a> Builder<'a> {
             self.void_tag(&tag);
             return;
         }
-        let Some(kind) = frame_kind(name) else {
+        let Some(kind) = frame_kind(name).map(|kind| styled(kind, &tag)) else {
             // Unknown: transparent. Children attach to the parent.
             return;
         };
