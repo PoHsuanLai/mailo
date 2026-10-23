@@ -70,7 +70,8 @@ fn an_image_past_the_largest_is_not_shown() {
 async fn an_image_is_fetched_only_from_a_public_https_address() {
     let fetcher = ImageFetcher::new(tokio::runtime::Handle::current()).unwrap();
     for url in [
-        "http://example.com/a.png",
+        "http://127.0.0.1/a.png",
+        "ftp://example.com/a.png",
         "https://127.0.0.1/a.png",
         "https://169.254.169.254/latest/meta-data/",
         "https://[::1]/a.png",
@@ -79,5 +80,35 @@ async fn an_image_is_fetched_only_from_a_public_https_address() {
         "not a url",
     ] {
         assert!(fetcher.get(url).await.is_none(), "{url}");
+    }
+}
+
+#[test]
+fn an_http_image_is_asked_for_over_https() {
+    for (url, fetched) in [
+        (
+            "http://example.com/a.png?w=2",
+            Some("https://example.com/a.png?w=2"),
+        ),
+        (
+            "http://example.com:80/a.png",
+            Some("https://example.com/a.png"),
+        ),
+        (
+            "http://example.com:8080/a.png",
+            Some("https://example.com:8080/a.png"),
+        ),
+        (
+            "https://example.com/a.png",
+            Some("https://example.com/a.png"),
+        ),
+        ("http://192.168.1.1/a.png", None),
+        ("data:image/png;base64,AA==", None),
+    ] {
+        assert_eq!(
+            upgraded(url).as_ref().map(reqwest::Url::as_str),
+            fetched,
+            "{url}"
+        );
     }
 }

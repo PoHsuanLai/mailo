@@ -5,9 +5,11 @@
 //! and shows what comes back only if it is a raster image of a kind `mail-mime` embeds
 //! ([`Image::data_uri`]).
 //!
+//! An image is fetched over `https` alone: an `http:` URL is asked for at the same address over
+//! `https`, which most image hosts also serve, and is missing where it is not.
+//!
 //! The client sends no cookies (reqwest's `cookies` feature is off) and no `Referer`; it follows
-//! at most three redirects, which reqwest keeps to `http` and `https`; it gives up after twenty
-//! seconds. A failed fetch leaves the image missing and says nothing to the person: it is logged.
+//! at most three redirects, each to a public `https` address; it gives up after twenty seconds. A failed fetch leaves the image missing and says nothing to the person: it is logged.
 //!
 //! [`ImageFetcher`] is owned state: one client, and the runtime handle it spawns its fetches on.
 //! Nothing is kept between fetches, so a front end holds as many as it has readers.
@@ -112,11 +114,27 @@ fn public_https(url: &reqwest::Url) -> bool {
     url.scheme() == "https" && crate::public::url_is_public(url)
 }
 
-async fn get(client: &reqwest::Client, url: &str) -> Option<Image> {
-    if !reqwest::Url::parse(url).is_ok_and(|url| public_https(&url)) {
-        log::debug!("an image is not on a public https address, and was not fetched");
-        return None;
+/// `url` as it is fetched: an `http:` one moved to `https:` at the same address, its port `80`
+/// dropped for `https`'s own. `None` when it is neither, or not on the public internet.
+fn upgraded(url: &str) -> Option<reqwest::Url> {
+    // What is not a URL names nothing to fetch.
+    let mut url = reqwest::Url::parse(url).ok()?;
+    if url.scheme() == "http" {
+        if url.port() == Some(80) {
+            // Refused only for a URL with no host, which an `http:` one never is.
+            url.set_port(None).ok()?;
+        }
+        // Refused only between a special scheme and another kind, and both are special.
+        url.set_scheme("https").ok()?;
     }
+    public_https(&url).then_some(url)
+}
+
+async fn get(client: &reqwest::Client, url: &str) -> Option<Image> {
+    let Some(url) = upgraded(url) else {
+        log::debug!("an image is not on a public web address, and was not fetched");
+        return None;
+    };
     let response = match client.get(url).send().await {
         Ok(response) => response,
         Err(e) => {
