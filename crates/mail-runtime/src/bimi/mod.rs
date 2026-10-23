@@ -63,12 +63,15 @@ impl Txt for SystemDns {
 ///
 /// A builder so a test can trust its own certificate and point names at a local listener.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::public::guarded(reqwest::Client::builder())
         .timeout(PER_REQUEST)
         .connect_timeout(PER_REQUEST)
         .https_only(true)
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= REDIRECTS || attempt.url().scheme() != "https" {
+            if attempt.previous().len() >= REDIRECTS
+                || attempt.url().scheme() != "https"
+                || !crate::public::url_is_public(attempt.url())
+            {
                 attempt.stop()
             } else {
                 attempt.follow()
@@ -235,6 +238,11 @@ fn answered(result: Result<Vec<String>, Miss>) -> Result<Vec<String>, NoLogo> {
 /// The body at `url`, at most `max` bytes. Anything but a 2xx is unreachable.
 async fn fetch(http: &reqwest::Client, url: &str, max: usize) -> Result<Vec<u8>, NoLogo> {
     let unreachable = |why: String| NoLogo::Unreachable(format!("{url}: {why}"));
+    if !reqwest::Url::parse(url).is_ok_and(|url| crate::public::url_is_public(&url)) {
+        return Err(NoLogo::Refused(format!(
+            "{url}: not on the public internet"
+        )));
+    }
     let mut response = http
         .get(url)
         .send()

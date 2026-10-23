@@ -65,3 +65,19 @@ fn an_image_past_the_largest_is_not_shown() {
     bytes.truncate(MAX_BYTES);
     assert!(image(Some("image/png"), &bytes).data_uri().is_some());
 }
+
+#[tokio::test]
+async fn an_image_is_fetched_only_from_a_public_https_address() {
+    let fetcher = ImageFetcher::new(tokio::runtime::Handle::current()).unwrap();
+    for url in [
+        "http://example.com/a.png",
+        "https://127.0.0.1/a.png",
+        "https://169.254.169.254/latest/meta-data/",
+        "https://[::1]/a.png",
+        "https://localhost/a.png",
+        "https://router.local/a.png",
+        "not a url",
+    ] {
+        assert!(fetcher.get(url).await.is_none(), "{url}");
+    }
+}

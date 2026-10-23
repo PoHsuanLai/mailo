@@ -21,6 +21,7 @@ pub mod lookup;
 pub mod no_keyring;
 pub mod pgp;
 pub mod places;
+pub mod public;
 pub mod remote_image;
 pub mod reparse;
 pub mod schedule;

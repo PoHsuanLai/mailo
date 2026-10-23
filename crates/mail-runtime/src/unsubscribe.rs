@@ -38,6 +38,9 @@ pub enum UnsubscribeFailure {
         "the list's server redirected to {to}, which is not https; the request was not sent there"
     )]
     InsecureRedirect { to: String },
+    /// The list's address, or a redirect, is not on the public internet (see `crate::public`).
+    #[error("the list's server is at {to}, which is not on the public internet; nothing was sent")]
+    NotPublic { to: String },
     /// No answer: the name did not resolve, the connection failed, TLS failed, or it timed out.
     #[error("could not reach the list's server: {0}")]
     Unreachable(String),
@@ -56,6 +59,9 @@ impl Retryable for UnsubscribeFailure {
             UnsubscribeFailure::InsecureRedirect { to } => {
                 Retry::Fatal(format!("redirected to {to}, which is not https"))
             }
+            UnsubscribeFailure::NotPublic { to } => {
+                Retry::Fatal(format!("{to} is not on the public internet"))
+            }
             UnsubscribeFailure::Unreachable(_) => Retry::After(Duration::from_secs(5)),
         }
     }
@@ -66,7 +72,7 @@ impl Retryable for UnsubscribeFailure {
 /// A builder rather than a client so a test can add a root it trusts and point a name at a
 /// local listener; everything that makes the request safe is already set.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::public::guarded(reqwest::Client::builder())
         .timeout(TIMEOUT)
         .connect_timeout(TIMEOUT)
         .https_only(true)
@@ -86,6 +92,10 @@ fn redirect(attempt: Attempt<'_>) -> reqwest::redirect::Action {
         let to = attempt.url().to_string();
         return attempt.error(UnsubscribeFailure::InsecureRedirect { to });
     }
+    if !crate::public::url_is_public(attempt.url()) {
+        let to = attempt.url().to_string();
+        return attempt.error(UnsubscribeFailure::NotPublic { to });
+    }
     let keeps_method = matches!(attempt.status().as_u16(), 307 | 308);
     if !keeps_method || attempt.previous().len() > REDIRECTS {
         // Stopping hands the redirect back as the answer, which is then a `Refused`.
@@ -96,6 +106,11 @@ fn redirect(attempt: Attempt<'_>) -> reqwest::redirect::Action {
 
 /// Unsubscribe with one `POST` to `url`, through a client from [`client_builder`].
 pub async fn one_click(http: &reqwest::Client, url: &HttpsUrl) -> Result<(), UnsubscribeFailure> {
+    if !reqwest::Url::parse(url.as_str()).is_ok_and(|at| crate::public::url_is_public(&at)) {
+        return Err(UnsubscribeFailure::NotPublic {
+            to: url.as_str().to_owned(),
+        });
+    }
     let response = http
         .post(url.as_str())
         .header(
