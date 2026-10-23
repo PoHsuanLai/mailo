@@ -330,7 +330,7 @@ fn a_formatted_message_goes_out_as_html_and_as_text_that_reads_naturally() {
     window.type_text("ada@example.test\n");
     window.click(".c-title input");
     window.type_text("Plan");
-    window.click(".c-foot [*|aria-label=\"Send\"]");
+    window.click(".c-send [*|aria-label=\"Send\"]");
     window.until("the send pill shows", |h| h.count(".ds-send-pill") == 1);
     let sent = queued(&window.store);
     assert_eq!(sent.len(), 1, "not one submission");

@@ -42,7 +42,7 @@ crates/mail-app/src/ui/compose/float.rs 2
 crates/mail-app/src/ui/compose/items.rs 6
 crates/mail-app/src/ui/compose/later.rs 6
 crates/mail-app/src/ui/compose/life.rs 1
-crates/mail-app/src/ui/compose/mod.rs 8
+crates/mail-app/src/ui/compose/mod.rs 7
 crates/mail-app/src/ui/compose/page.rs 3
 crates/mail-app/src/ui/compose/pill.rs 10
 crates/mail-app/src/ui/compose/props.rs 10
@@ -86,7 +86,6 @@ crates/mail-app/src/ui/print/tool.rs 3
 crates/mail-app/src/ui/reading/attachments.rs 4
 crates/mail-app/src/ui/reading/blocks.rs 1
 crates/mail-app/src/ui/reading/fetch.rs 15
-crates/mail-app/src/ui/reading/header.rs 2
 crates/mail-app/src/ui/reading/mod.rs 1
 crates/mail-app/src/ui/reading/tools.rs 7
 crates/mail-app/src/ui/rules/away.rs 30

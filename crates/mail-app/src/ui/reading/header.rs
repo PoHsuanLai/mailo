@@ -1,5 +1,7 @@
-//! A message's header in the reader: the sender's avatar, their name (their address its tooltip)
-//! with the date at the line's end, and under it whom it was sent to, unless that was only you.
+//! A message's header in the reader, set as the composer's is (`compose::props`): one label
+//! column, From, To and Cc, every value at one x, and one hairline under them. From is the
+//! sender's avatar and name (their address its tooltip) with the date at the row's end; To is
+//! drawn unless the message went only to you.
 //!
 //! A conversation of one message has one header. In a longer one every message keeps a compact
 //! header (a small avatar, the name, the date) and only the message the conversation opens on,
@@ -7,10 +9,11 @@
 //! (`ui::checks`), with one line under the head when the sender may not be who they say.
 
 use super::super::checks::{TrustMark, trust_of, use_checks};
+use super::super::compose::{Line, List, list_label};
 use super::super::text::{address, from_name};
 use super::sender_face;
 use dioxus::prelude::*;
-use ds::components::content::avatar::AvatarSize;
+use ds::components::content::avatar::{AvatarFace, AvatarSize};
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
@@ -37,9 +40,9 @@ pub(super) fn detail_at(at: usize, count: usize) -> Detail {
 /// How many names a line of recipients spells out before it counts the rest.
 const NAMED: usize = 2;
 
-/// A line of recipients: `prefix` and the first [`NAMED`] of `people` by name (their address
-/// when they gave none), the rest as a count; none for nobody.
-pub(super) fn recipients(prefix: &str, people: &[Address]) -> Option<String> {
+/// A row of recipients: the first [`NAMED`] of `people` by name (their address when they gave
+/// none), the rest as a count; none for nobody.
+pub(super) fn recipients(people: &[Address]) -> Option<String> {
     if people.is_empty() {
         return None;
     }
@@ -51,12 +54,12 @@ pub(super) fn recipients(prefix: &str, people: &[Address]) -> Option<String> {
     let more = people.len().saturating_sub(NAMED);
     let named = names.join(", ");
     Some(match more {
-        0 => format!("{prefix}: {named}"),
-        more => format!("{prefix}: {named} +{more}"),
+        0 => named,
+        more => format!("{named} +{more}"),
     })
 }
 
-/// The To line, unless the message went to nobody but `yours` (the person's own addresses,
+/// The To row, unless the message went to nobody but `yours` (the person's own addresses,
 /// lowercased), which is what a message in their inbox goes to and needs no saying.
 pub(super) fn to_line(message: &Message, yours: &[String]) -> Option<String> {
     let only_you = message.cc.is_empty()
@@ -65,7 +68,7 @@ pub(super) fn to_line(message: &Message, yours: &[String]) -> Option<String> {
     if only_you {
         return None;
     }
-    recipients("To", &message.to)
+    recipients(&message.to)
 }
 
 /// What the newest message's header is keyed by in the reader: the message and its body, which
@@ -134,7 +137,7 @@ fn FullHead(
     let trust = trust_of(look.as_ref(), results.as_ref().and_then(Option::as_ref));
     let (short, full) = when;
     let date = when_label(short, full);
-    let face = sender_face(&message);
+    let face = row_face(&message);
     let avatar = rsx! {
         super::super::brand::ReaderAvatar {
             key: "{message.id}-{message.body.raw():?}",
@@ -154,6 +157,14 @@ fn FullHead(
                 InlineBanner { severity: Severity::Warn, icon: Some(Icon::TriangleAlert), text: said }
             }
         }
+    }
+}
+
+/// The sender's face in the From row, at the size the composer's rows draw a person at.
+fn row_face(message: &Message) -> AvatarFace {
+    AvatarFace {
+        size: AvatarSize::Size22,
+        ..sender_face(message)
     }
 }
 
@@ -181,9 +192,9 @@ pub(super) fn when_label(short: String, full: String) -> Element {
     }
 }
 
-/// The full header's markup: the avatar (`avatar`, else the sender's initial), the name with the
-/// trust glyph beside it and the date at the line's end, then whom it went to. `data-standing`
-/// says the sender's checks once they are known.
+/// The full header's markup, the composer's rows: From, the avatar (`avatar`, else the sender's
+/// initial) and the name with the trust glyph beside it and the date at the row's end, then To
+/// and Cc. `data-standing` says the sender's checks once they are known.
 fn full_head(
     message: &Message,
     date: Element,
@@ -194,9 +205,9 @@ fn full_head(
     let (name, addr) = named(message);
     // What the right click's contact editor starts from: the name the mail gave, and whom.
     let (given, email) = (from_name(message), message.from.email.clone());
-    let face = sender_face(message);
+    let face = row_face(message);
     let to = to_line(message, yours);
-    let cc = recipients("Cc", &message.cc);
+    let cc = recipients(&message.cc);
     let avatar = avatar.unwrap_or_else(|| {
         rsx! {
             div { class: "reader-av",
@@ -211,26 +222,28 @@ fn full_head(
     let mark = trust.and_then(|trust| trust.mark.map(|mark| (mark, trust.lines)));
     rsx! {
         header { class: "msg-head reader-meta", "data-detail": "full", "data-standing": standing,
-            {avatar}
-            div { class: "reader-who",
-                div { class: "msg-line",
-                    if addr.is_empty() {
+            Line { label: crate::ui::copy::fields::FROM, row: "from",
+                {avatar}
+                if addr.is_empty() {
+                    super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
+                } else {
+                    Tooltip { text: addr,
                         super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
-                    } else {
-                        Tooltip { text: addr,
-                            super::super::contacts::SenderName { shown: name, in_mail: given, address: email }
-                        }
                     }
-                    if let Some((mark, lines)) = mark {
-                        TrustMark { mark, lines }
-                    }
-                    {date}
                 }
-                if let Some(to) = to {
-                    Label { text: to, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("truncate") }
+                if let Some((mark, lines)) = mark {
+                    TrustMark { mark, lines }
                 }
-                if let Some(cc) = cc {
-                    Label { text: cc, role: LabelRole::Secondary, style: LabelStyle::Footnote, common: crate::ui::common::classed("truncate") }
+                {date}
+            }
+            if let Some(to) = to {
+                Line { label: list_label(List::To), row: "to",
+                    Label { text: to, common: crate::ui::common::classed("truncate") }
+                }
+            }
+            if let Some(cc) = cc {
+                Line { label: list_label(List::Cc), row: "cc",
+                    Label { text: cc, common: crate::ui::common::classed("truncate") }
                 }
             }
         }
@@ -259,21 +272,21 @@ mod tests {
         let eve = person(" ", "eve@example.test");
         let cases: &[(&str, Vec<Address>, Option<&str>)] = &[
             ("nobody", vec![], None),
-            ("one", vec![ada.clone()], Some("To: Ada")),
-            ("two", vec![ada.clone(), bob.clone()], Some("To: Ada, Bob")),
+            ("one", vec![ada.clone()], Some("Ada")),
+            ("two", vec![ada.clone(), bob.clone()], Some("Ada, Bob")),
             (
                 "an address for a missing name",
                 vec![nameless.clone()],
-                Some("To: carol@example.test"),
+                Some("carol@example.test"),
             ),
             (
                 "the rest counted",
                 vec![ada.clone(), bob.clone(), nameless, dan, eve],
-                Some("To: Ada, Bob +3"),
+                Some("Ada, Bob +3"),
             ),
         ];
         for (name, people, want) in cases {
-            assert_eq!(recipients("To", people).as_deref(), *want, "{name}");
+            assert_eq!(recipients(people).as_deref(), *want, "{name}");
         }
     }
 
@@ -350,8 +363,25 @@ mod tests {
         assert!(!page.contains(">bob@example.test<"), "{page}");
         assert!(page.contains("aria-label=\"2023-11-15 07:13\""), "{page}");
         assert!(page.contains(">07:13<"), "{page}");
-        assert!(page.contains(">To: Ada, Grace +3<"), "{page}");
-        assert!(page.contains(">Cc: Edsger<"), "{page}");
+        // The composer's rows: a label, then its value.
+        for (row, label, value) in [
+            ("from", "From", "Bob"),
+            ("to", "To", "Ada, Grace +3"),
+            ("cc", "Cc", "Edsger"),
+        ] {
+            let at = page
+                .find(&format!("data-row=\"{row}\""))
+                .unwrap_or_else(|| panic!("no {row} row: {page}"));
+            let rest = &page[at..];
+            let (label_at, value_at) = (
+                rest.find(&format!(">{label}<")),
+                rest.find(&format!(">{value}<")),
+            );
+            assert!(
+                matches!((label_at, value_at), (Some(l), Some(v)) if l < v),
+                "{row}: {page}"
+            );
+        }
     }
 
     #[test]
@@ -366,15 +396,15 @@ mod tests {
                 "you and another",
                 vec![me.clone(), ada.clone()],
                 vec![],
-                Some("To: Me, Ada"),
+                Some("Me, Ada"),
             ),
             (
                 "you, copied to another",
                 vec![me.clone()],
                 vec![ada.clone()],
-                Some("To: Me"),
+                Some("Me"),
             ),
-            ("someone else", vec![ada.clone()], vec![], Some("To: Ada")),
+            ("someone else", vec![ada.clone()], vec![], Some("Ada")),
         ];
         for (name, to, cc, want) in cases {
             let got = to_line(&message(to.clone(), cc.clone()), &yours);
@@ -390,7 +420,7 @@ mod tests {
         );
         assert_eq!(page.matches("class=\"ds-avatar\"").count(), 1, "{page}");
         assert!(page.contains(">Bob<") && page.contains(">07:13<"), "{page}");
-        assert!(!page.contains("To: "), "{page}");
+        assert!(!page.contains("data-row=\""), "{page}");
         assert!(!page.contains(">bob@example.test<"), "{page}");
     }
 }

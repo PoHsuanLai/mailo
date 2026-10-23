@@ -17,7 +17,7 @@ const ATTACHED: &str = ".c-attached .ds-chip";
 /// The send pill's Undo.
 const UNDO: &str = ".send-at .ds-send-pill-undo";
 /// The composer's Send button.
-const SEND: &str = ".c-foot [*|aria-label=\"Send\"]";
+const SEND: &str = ".c-send [*|aria-label=\"Send\"]";
 
 /// Drag `paths` in from a file manager and let go over `selector`.
 fn drop_on(window: &mut Window, selector: &str, paths: Vec<PathBuf>) -> DropAcceptance {

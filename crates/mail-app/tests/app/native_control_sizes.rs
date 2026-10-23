@@ -170,17 +170,22 @@ fn every_control_in_the_window_is_the_size_its_place_calls_for() {
     settle_until(&mut harness, |h| h.count(".reader .msg-head") > 0);
     sizes_hold(&harness, "the reader");
 
-    // The composer, and its own bar.
+    // The composer, and its own bar, over the subject as the reader's is.
     harness.key(Key::Char('c'));
-    settle_until(&mut harness, |h| h.count(".cpage .c-foot") > 0);
+    settle_until(&mut harness, |h| h.count(".cpage .c-head .bar-tools") > 0);
     sizes_hold(&harness, "the composer");
-    // Attach and ⋯ stand in the foot; Send in its group, and Send's ▾ one level further in.
-    let foot = harness.count(".cpage .c-foot > button.ds-button")
-        + harness.count(".cpage .c-foot > * > button.ds-button")
-        + harness.count(".cpage .c-foot > * > * > button.ds-button");
-    let regular = harness.count(".cpage .c-foot > button.ds-button[*|data-size=\"regular\"]")
-        + harness.count(".cpage .c-foot > * > button.ds-button[*|data-size=\"regular\"]")
-        + harness.count(".cpage .c-foot > * > * > button.ds-button[*|data-size=\"regular\"]");
+    // Attach and ⋯ stand in the bar; Send in its group, and Send's ▾ one level further in.
+    let bar = ".cpage .c-head .bar-tools";
+    let foot = harness.count(&format!("{bar} > button.ds-button"))
+        + harness.count(&format!("{bar} > * > button.ds-button"))
+        + harness.count(&format!("{bar} > * > * > button.ds-button"));
+    let regular = harness.count(&format!(
+        "{bar} > button.ds-button[*|data-size=\"regular\"]"
+    )) + harness.count(&format!(
+        "{bar} > * > button.ds-button[*|data-size=\"regular\"]"
+    )) + harness.count(&format!(
+        "{bar} > * > * > button.ds-button[*|data-size=\"regular\"]"
+    ));
     assert!(
         foot >= 4,
         "the composer's bar has {foot} buttons:\n{}",
@@ -193,7 +198,7 @@ fn every_control_in_the_window_is_the_size_its_place_calls_for() {
         harness.html()
     );
     assert_eq!(
-        harness.count(".cpage .c-foot button.ds-button[*|data-answers=\"return\"]"),
+        harness.count(".cpage .c-head .bar-tools button.ds-button[*|data-answers=\"return\"]"),
         1,
         "the composer's bar fills one button, Send:\n{}",
         harness.html()

@@ -1,10 +1,11 @@
 //! The composer is set as the reader sets a message, on Blitz (`native`), in the real window: a
-//! new message's subject sits where a message's title does, at its size (20) and weight; its
-//! header lines start at the reader's left edge, as a message's header does, each label on that
-//! edge and every value at one x; its body starts where the reader's body
-//! does, at the reader's size; and every trailing control (the To row's Bcc, Send ▾) ends
-//! on one right edge. A reply under the thread lines up the same way, and its bar of buttons is
-//! drawn inside the window.
+//! new message's bar is where the reader's is, ending on its right edge; its subject sits where a
+//! message's title does, at its size (20) and weight; its header lines are the message's, From,
+//! To and Cc rows in one label column, as far under the subject as the message's are, each label
+//! on the reader's left edge and every value at one x; its body starts where the reader's body
+//! does, at the reader's size; and every trailing control (the To row's Bcc, Send ▾) ends on one
+//! right edge. A reply under the thread lines up the same way, and its bar of buttons is drawn
+//! inside the window.
 //!
 //! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`: nothing here
 //! touches the network, the real mail store or the real config.
@@ -124,29 +125,39 @@ fn reader_body(harness: &Harness) -> (f32, f32) {
         .unwrap_or_else(|| panic!("the reader's frame has no body:\n{}", harness.html()))
 }
 
-/// The reader's model: the left edge of its title and of its message header, the title's size,
-/// and where its body's text starts and at what size.
+/// The message's header in the reader.
+const HEAD: &str = ".reader-body article.frame:last-of-type header.msg-head";
+
+/// The reader's model: the left edge and top of its title and the left edge of its message
+/// header's lines, the title's size, how far under the title its header's first line starts,
+/// where its bar ends, and where its body's text starts and at what size.
 struct Reader {
     title_left: f32,
+    title_top: f32,
     title_font: f32,
     head_left: f32,
+    title_to_head: f32,
+    bar_right: f32,
     body_left: f32,
     body_font: f32,
 }
 
 fn reader(harness: &Harness) -> Reader {
     let (title_left, title_font) = text_box(harness, ".reader-head h2 .ds-label");
-    let head_left = harness
-        .rect(".reader-body article.frame:last-of-type header.msg-head")
-        .expect("the message's header is drawn")
-        .origin
-        .x
-        .0;
+    let line = harness
+        .rect(&format!("{HEAD} .c-line"))
+        .unwrap_or_else(|| panic!("the message's header has no lines:\n{}", harness.html()));
+    let title = harness
+        .rect(".reader-head h2")
+        .expect("the reader's title is drawn");
     let (body_left, body_font) = reader_body(harness);
     Reader {
         title_left,
+        title_top: title.origin.y.0,
         title_font,
-        head_left,
+        head_left: line.origin.x.0,
+        title_to_head: line.origin.y.0 - title.origin.y.0,
+        bar_right: right(harness, ".reader-head .bar-tools"),
         body_left,
         body_font,
     }
@@ -164,7 +175,7 @@ fn near(what: &str, got: f32, want: f32) {
 fn assert_lines(harness: &Harness, page: &str, rows: &[&str], model: &Reader) {
     let mut value_lefts = Vec::new();
     for name in rows {
-        let row = format!("{page} .c-props [*|data-row={name}]");
+        let row = format!("{page} [*|data-row={name}]");
         let line = harness
             .rect(&row)
             .unwrap_or_else(|| panic!("{row} is not drawn:\n{}", harness.html()));
@@ -223,9 +234,31 @@ fn a_new_message_is_set_as_the_reader_sets_a_message() {
     open_message(&mut harness);
     let model = reader(&harness);
     near("the reader's body", model.body_left, model.head_left);
+    // The message's header is the composer's lines; this one, to you alone, is From.
+    assert_lines(&harness, HEAD, &["from"], &model);
 
     harness.key(Key::Char('c'));
     wait_for(&mut harness, ".cpage .c-body");
+
+    // The bar is the reader's: over the subject, ending where the reader's does; and the header
+    // lines start as far under the subject as the message's do.
+    near(
+        "the bar's end",
+        right(&harness, ".cpage .c-head .bar-tools"),
+        model.bar_right,
+    );
+    let title = harness
+        .rect(".cpage .c-title")
+        .expect("the subject is drawn");
+    near("the subject's top", title.origin.y.0, model.title_top);
+    let line = harness
+        .rect(".cpage .c-props .c-line")
+        .expect("the To row is drawn");
+    near(
+        "the header under the subject",
+        line.origin.y.0 - title.origin.y.0,
+        model.title_to_head,
+    );
 
     let (subject_left, subject_font) = text_box(&harness, ".cpage .c-title input");
     near("the subject", subject_left, model.title_left);
@@ -252,7 +285,7 @@ fn a_new_message_is_set_as_the_reader_sets_a_message() {
 
     // Every trailing control ends on one right edge: the To row's Bcc and Send ▾.
     let edge = right(&harness, ".cpage [*|aria-label=\"Add Bcc\"]");
-    let send = right(&harness, ".cpage .c-foot .c-send");
+    let send = right(&harness, ".cpage .c-head .c-send");
     assert!(
         (send - edge).abs() <= SLACK,
         "Send ▾ ends at {send}, Bcc at the To row's end at {edge}"

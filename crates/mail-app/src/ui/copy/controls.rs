@@ -18,6 +18,8 @@ pub const DELETE: &str = "Delete";
 pub const DELETE_FOLDER_AND_MAIL: &str = "Delete Folder and Mail";
 /// The composer's one filled button.
 pub const SEND: &str = "Send";
+/// The composer's bar button that picks files to send.
+pub const ATTACH: &str = "Attach";
 /// A sheet's way out that does nothing.
 pub const CANCEL: &str = "Cancel";
 /// A dialog's one button, which closes it.

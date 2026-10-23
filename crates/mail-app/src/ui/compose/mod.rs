@@ -57,7 +57,8 @@ use attach::Attach;
 use body::Body;
 use foot::{MoreButton, SendButton};
 use life::{Anyway, Sent};
-use page::{Fold, Guard, List, Phase, Saved};
+pub(in crate::ui) use page::List;
+use page::{Fold, Guard, Phase, Saved};
 use props::{Attached, Props};
 use seal::{BarAct, SealBar, SealWarn, Sealed, seal_and_queue};
 
@@ -66,6 +67,7 @@ pub(in crate::ui) use later::{cancel_scheduled, scheduled, send_again};
 pub(in crate::ui) use page::Page;
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
+pub(in crate::ui) use props::{Line, list_label};
 pub use spell::Dictionaries;
 pub(in crate::ui) use spell::use_test_dictionaries;
 pub(in crate::ui) use templates::{every as every_template, template_rows};
@@ -290,13 +292,24 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     escape(page, shell, desk);
                 }
             },
-            // No bar: autosave is silent, keeping or deleting the draft is the foot's ⋯ (and
-            // Esc), and a window of its own is made larger by its frame, not by a mode.
             div { class: "c-scroll",
-                // The head reads as a message's (`reader.css`): the subject where its title is,
-                // at its size, and the header lines under it, one hairline under them all.
+                // The head is a message's in the reader (`reader.css`): the reader's bar, holding
+                // what a message can do (Attach, ⋯, Send ▾ at its end), the subject where its title
+                // is, at its size, and the header lines under it, one hairline under them all. A
+                // reply, under its thread, has the thread's bar above it and keeps its own foot.
                 if !reply {
                     div { class: "c-head",
+                        div { class: "head-row",
+                            div { class: "bar-tools",
+                                Attach { page, label: crate::ui::copy::controls::ATTACH, bezel: Bezel::Toolbar }
+                                MoreButton {
+                                    page,
+                                    on_keep: move |()| desk::park(desk, page, shell),
+                                    on_delete: move |()| delete_draft(page, shell, desk, revision),
+                                }
+                                SendButton { page, on_send: move |()| send(Anyway::No) }
+                            }
+                        }
                         TextField {
                             label: copy::fields::SUBJECT.to_owned(),
                             bezel: FieldBezel::Plain,
@@ -328,6 +341,9 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     Attached { page }
                 }
             }
+            // What stands between the page and its sending, said under it; a reply's foot is its
+            // bar as well.
+            if reply || warn || seal_bar != SealBar::Clear {
             div { class: "c-foot",
                 if warn {
                     InlineBanner {
@@ -345,14 +361,17 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     }
                 }
                 SealWarn { bar: seal_bar, on_act: on_seal }
-                Attach { page, label: "Attach", bezel: Bezel::Toolbar }
-                MoreButton {
-                    page,
-                    on_keep: move |()| desk::park(desk, page, shell),
-                    on_delete: move |()| delete_draft(page, shell, desk, revision),
+                if reply {
+                    Attach { page, label: crate::ui::copy::controls::ATTACH, bezel: Bezel::Toolbar }
+                    MoreButton {
+                        page,
+                        on_keep: move |()| desk::park(desk, page, shell),
+                        on_delete: move |()| delete_draft(page, shell, desk, revision),
+                    }
+                    span { class: "grow" }
+                    SendButton { page, on_send: move |()| send(Anyway::No) }
                 }
-                span { class: "grow" }
-                SendButton { page, on_send: move |()| send(Anyway::No) }
+            }
             }
         }
     }
