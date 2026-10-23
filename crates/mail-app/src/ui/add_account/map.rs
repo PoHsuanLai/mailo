@@ -319,6 +319,9 @@ fn part_of(kind: FieldKind) -> FormPart {
         | FieldKind::AppPassword
         | FieldKind::ApiKey
         | FieldKind::Token => FormPart::SignIn,
+        // A kind porter added after these (an AI server's address, `ServerUrl`) is asked where
+        // the account is found, with the incoming server's fields.
+        _ => FormPart::Incoming,
     }
 }
 
@@ -420,6 +423,10 @@ pub(super) fn role_of(kind: FieldKind) -> FieldRole {
         FieldKind::OutgoingPort => FieldRole::OutgoingPort,
         FieldKind::OutgoingSecurity => FieldRole::OutgoingSecurity,
         FieldKind::SessionUrl => FieldRole::SessionUrl,
+        // A kind porter added after these has no role of its own in quire's form: it is drawn as
+        // the server it names (an AI server's address, `ServerUrl`). mailo offers only its mail
+        // providers (`run_mail`), none of which asks for one, so `kind_of` never needs the way back.
+        _ => FieldRole::Server,
     }
 }
 

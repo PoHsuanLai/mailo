@@ -117,25 +117,25 @@ dioxus = { version = "0.7" }
 # display). quire re-exports only `StandardAction`; mailo names `Action`, `AppAction`, `Context` and
 # `Chord` as well. The rev quire pins (`docs/workspace-deps.toml`), so one chordkit is built.
 chordkit = { git = "https://github.com/PoHsuanLai/chordkit.git", rev = "99eec9ddd03ee345b669fcc7954ed44590724290" }
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "10ee7011a0b781876377a6a017362a066d0f10f1" }  # 10ee7011 (v0.3.44 pre; forks blitz 0be21979, blitz-kit 07f0272b)
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6" }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "10ee7011a0b781876377a6a017362a066d0f10f1", features = ["dioxus"] }  # 10ee7011 (v0.3.44 pre; forks blitz 0be21979, blitz-kit 07f0272b)
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6", features = ["dioxus"] }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
 # The account sheets' views (step E5): `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "10ee7011a0b781876377a6a017362a066d0f10f1" }  # 10ee7011 (v0.3.44 pre; forks blitz 0be21979, blitz-kit 07f0272b)
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6" }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
 # anyview, the viewer's light tier, at the rev of its main that names the quire rev above (the same
 # spelling as quire, so one quire is built). `anyview-core` is the vocabulary (`Input`, `ReadAt`:
 # how the store's bytes go in); `anyview-peek` the peek worker and, with `pane`, the card that draws
 # what was peeked. Headless otherwise: no media player, no D-Bus.
-anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "92e98449478ee3941999cf624a3e80d5484fdf98", optional = true }
-anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "92e98449478ee3941999cf624a3e80d5484fdf98", default-features = false, features = ["pane"], optional = true }
+anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "3f51bdd322ed23a34cc168ce4706965755fe239c", optional = true }
+anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "3f51bdd322ed23a34cc168ce4706965755fe239c", default-features = false, features = ["pane"], optional = true }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "10ee7011a0b781876377a6a017362a066d0f10f1", features = ["pdf", "print", "spell"] }  # 10ee7011 (v0.3.44 pre; forks blitz 0be21979, blitz-kit 07f0272b)
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6", features = ["pdf", "print", "spell"] }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
@@ -234,8 +234,8 @@ proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "10ee7011a0b781876377a6a017362a066d0f10f1" }  # 10ee7011 (v0.3.44 pre; forks blitz 0be21979, blitz-kit 07f0272b)
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "10ee7011a0b781876377a6a017362a066d0f10f1", features = ["pdf"] }  # 10ee7011 (v0.3.44 pre; forks blitz 0be21979, blitz-kit 07f0272b)
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6" }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "7fa27afc834e8365b356e7a0db94b269e62aaaf6", features = ["pdf"] }  # 7fa27afc (v0.3.45; forks blitz 0be21979, blitz-kit 07f0272b)
 
 [lints]
 workspace = true
