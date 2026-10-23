@@ -499,7 +499,8 @@ fn look(typed: &str, seams: &Seams, now: DateTime<Utc>) -> Looked {
     }
 }
 
-/// The fields the first form asks for: the address, then a password where one is wanted.
+/// The fields the first form asks for: the address, then a password where one is wanted, named
+/// for what the provider takes.
 fn form(wants: Wants, prefill: Option<&str>) -> Vec<FieldSpec> {
     let address = FieldSpec {
         kind: FieldKind::Address,
@@ -507,23 +508,27 @@ fn form(wants: Wants, prefill: Option<&str>) -> Vec<FieldSpec> {
         presence: Presence::Required,
         prefill: prefill.map(str::to_owned),
     };
-    let password = FieldSpec {
-        kind: FieldKind::Password,
+    let secret = |kind| FieldSpec {
+        kind,
         entry: Entry::Secret,
         presence: Presence::Required,
         prefill: None,
     };
     let mut fields = vec![address];
-    if wants == Wants::Password {
-        fields.push(password);
+    match wants {
+        Wants::Password => fields.push(secret(FieldKind::Password)),
+        Wants::AppPassword => fields.push(secret(FieldKind::AppPassword)),
+        Wants::NoPassword => {}
     }
     fields
 }
 
-/// Whether a form asks for a password.
+/// Whether a form asks for a password, and which: an app password is one the provider issues
+/// for other apps (iCloud, Fastmail), never the account's own password, and the field says so.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wants {
     Password,
+    AppPassword,
     NoPassword,
 }
 
@@ -619,6 +624,14 @@ impl MailSignIn {
     fn wants(&self) -> Wants {
         match self.spec.auth.kind {
             AuthKind::OAuthPkce => Wants::NoPassword,
+            _ => self.password(),
+        }
+    }
+
+    /// The password this provider takes, when it takes one: its app password, or the account's.
+    fn password(&self) -> Wants {
+        match self.spec.auth.kind {
+            AuthKind::AppPassword => Wants::AppPassword,
             _ => Wants::Password,
         }
     }
@@ -682,7 +695,7 @@ impl MailSignIn {
                     // The form that was asked for no password: ask for it, with the address as
                     // it was typed.
                     let address = offer.address.clone();
-                    self.ask(Wants::Password, Some(&address))
+                    self.ask(self.password(), Some(&address))
                 }
             },
             Auth::OAuth { issuer, scopes } => {

@@ -182,7 +182,12 @@ async fn a_password_form_asks_for_an_address_and_a_password_and_an_oauth_one_for
             "generic-imap",
             vec![FieldKind::Address, FieldKind::Password],
         ),
-        ("fastmail", vec![FieldKind::Address, FieldKind::Password]),
+        // Providers that take only an app password ask for one by that name, never for the
+        // account's own password.
+        ("fastmail", vec![FieldKind::Address, FieldKind::AppPassword]),
+        ("icloud", vec![FieldKind::Address, FieldKind::AppPassword]),
+        ("yahoo", vec![FieldKind::Address, FieldKind::AppPassword]),
+        ("gmx", vec![FieldKind::Address, FieldKind::Password]),
         ("google", vec![FieldKind::Address]),
         ("microsoft", vec![FieldKind::Address]),
     ] {
@@ -221,6 +226,34 @@ async fn a_password_form_asks_for_an_address_and_a_password_and_an_oauth_one_for
     assert!(
         log.lookups.lock().unwrap().is_empty(),
         "nothing is looked up before it is asked"
+    );
+}
+
+/// An iCloud account signs in with the app password typed in its App password field: it is
+/// looked up and added with that password, as an account's own password would be.
+#[tokio::test]
+async fn an_app_password_typed_signs_the_account_in() {
+    let log = Arc::new(Log::default());
+    let added = Added::default();
+    let fakes = seams(&Script::default(), &log);
+    let mut sign_in = start(&provider("icloud", &fakes, &added, None));
+    sign_in.next(SignInInput::Start).await;
+    let review = sign_in
+        .next(SignInInput::Fields(vec![
+            address("ada@icloud.com"),
+            answer(
+                FieldKind::AppPassword,
+                FieldValue::Secret(SecretText::new(PASSWORD)),
+            ),
+        ]))
+        .await;
+    assert!(matches!(review, SignInStep::Review { .. }), "{review:?}");
+    let done = sign_in.next(SignInInput::Confirm(vec![])).await;
+    assert!(matches!(done, SignInStep::Done(_)), "{done:?}");
+    assert_eq!(
+        log.adds.lock().unwrap().first().map(|add| add.1.clone()),
+        Some(Some(PASSWORD.to_owned())),
+        "added without the app password"
     );
 }
 
