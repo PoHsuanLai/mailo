@@ -5,7 +5,7 @@
 //! The picker is quire's popover at the caret (`body.rs`): a search field that keeps the keyboard, a tab
 //! per group with the recent emoji first, and quire's `EmojiGrid`, whose glyphs are drawn in
 //! colour through `.ds-emoji-text` where the system's Noto Color Emoji is the COLRv1 build (a
-//! CBDT one, Ubuntu's, is not drawn at all: FINDINGS). The arrows move through the grid from the field, Enter
+//! CBDT one, Ubuntu's, is not drawn at all). The arrows move through the grid from the field, Enter
 //! picks, and Escape closes; a pick goes in at the body's caret as one undo step
 //! ([`super::float::insert_emoji`]) and the body takes the keyboard back.
 

@@ -349,8 +349,8 @@ fn the_toast_hides_after_its_hold() {
         Some("leaving"),
         "the toast is already going"
     );
-    // Still up at half its hold (quire's CONVENTIONS §11: a "not yet" only at or under half the
-    // window), then gone within the settle bound, and never before the whole hold.
+    // Still up at half its hold (a "not yet" is checked only at or under half the window), then
+    // gone within the settle bound, and never before the whole hold.
     harness.advance(hold / 2 - ms(300));
     assert_eq!(
         harness.count(".ds-toast"),
@@ -585,8 +585,7 @@ fn when_the_focused_field_is_removed_the_keys_act_only_by_quire_s_fallback() {
 
 /// The third row archived from its menu: the menu hands the keyboard back as it closes, but
 /// the row is leaving, so the window takes it. Then `e` still archives the open conversation.
-/// Every wait is for a state, not a time: this is the test that failed on a loaded machine
-/// (F172), when the row's own strip button was pressed.
+/// Every wait is for a state, not a time, so a loaded machine cannot fail it.
 #[test]
 fn archiving_a_row_from_its_menu_leaves_the_keyboard_working() {
     let (mut harness, _dir) = open();
@@ -594,7 +593,7 @@ fn archiving_a_row_from_its_menu_leaves_the_keyboard_working() {
     row_menu::row_action(&mut harness, &thread(3), "Archive");
     // The keyboard must land on the window, never in the leaving row: from there it is lost
     // whenever the focus and the row's removal share a frame, which a loaded machine makes
-    // likely (F172).
+    // likely.
     settle_until(&mut harness, |harness| {
         harness.count(":focus") > 0 && !harness.is_focused("html")
     });
@@ -672,7 +671,7 @@ fn snapshot() {
     harness.render().unwrap().save(path).unwrap();
 }
 
-// The composer on quire's EditSurface (Phase B step 10): the editor core, driven through the
+// The composer on quire's EditSurface: the editor core, driven through the
 // adapter by real keys, IME events, pastes and clicks.
 
 /// A new message open, its body clicked into so the surface has the keyboard.

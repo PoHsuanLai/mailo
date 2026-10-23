@@ -2,7 +2,7 @@
 //! server, largest last, and an account not kept so leaves them there.
 //!
 //! One whole pass through `sync::drive`, against a scripted IMAP backend: two large messages
-//! arrive as headers, then as their text with their attachments left behind (`plan.md` 9.6),
+//! arrive as headers, then as their text with their attachments left behind,
 //! and then, only with the setting on, each attachment on its own. What is asserted is which
 //! parts the pass asked the server for, in what order, and what the store says is held after.
 
@@ -325,8 +325,8 @@ async fn kept_offline_every_part_is_fetched_largest_last() {
         (2, 2, 0),
         "both messages are here in full"
     );
-    // Only the parts are held: the stored message is still the one rebuilt from its parts
-    // (F165), which export and forward tell from the whole one by its bytes.
+    // Only the parts are held: the stored message is still the one rebuilt from its parts,
+    // which export and forward tell from the whole one by its bytes.
     for message in messages(&passed.store) {
         let raw = message.body.raw().expect("a body");
         let bytes = passed.store.blobs().get(raw).unwrap();

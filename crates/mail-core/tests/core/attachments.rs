@@ -279,10 +279,8 @@ mod saving {
 
     #[test]
     fn a_message_with_nothing_attached_says_so() {
-        // The shape of most mail. The first version of this test cleared the attachments on a
-        // *copy* of the message and asserted a disjunction that was true either way — the
-        // mistake CONVENTIONS §"An assertion that was already true proves nothing" is about,
-        // made while writing the rule's own neighbours.
+        // The shape of most mail, asked of the stored message itself rather than a copy, and
+        // asserted exactly: a disjunction would be true either way.
         let (store, _dir) = store();
         let id = plain_message(&store);
         let out = attach::list(&store, id).unwrap();
@@ -398,10 +396,7 @@ JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCg==\r\n\
     }
 }
 
-/// Where the window puts a file when the reader is asked to save one — `plan.md` phase 7c.
-///
-/// The pane listed what was attached and then printed a command for the user to run, which was
-/// honest while there was no way to save from the window and furniture once there was.
+/// Where the window puts a file when the reader is asked to save one.
 mod where_it_goes {
     use super::*;
 

@@ -2,7 +2,7 @@
 //!
 //! `accounts` holds a serialized `AccountPlan`, so a field added to that type breaks startup
 //! for every existing row unless it carries `#[serde(default)]` and a migration exists. Both
-//! are required by `CONVENTIONS.md` section 3.
+//! are required (`CONTRIBUTING.md`, "Serde and persisted types").
 
 use crate::StoreError;
 use rusqlite::Connection;

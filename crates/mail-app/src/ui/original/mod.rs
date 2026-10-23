@@ -11,7 +11,7 @@
 //! - [`ReaderNet`]: how mailo itself fetches the Reader view's consented images, which
 //!   the window's own document may not (`reading/remote.rs`).
 //!
-//! FINDINGS F157 has the design and why.
+//! On Blitz the Original view is a sealed document, and ammonia is still the boundary.
 
 mod consent;
 mod links;

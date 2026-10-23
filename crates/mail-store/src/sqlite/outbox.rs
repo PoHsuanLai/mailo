@@ -1,6 +1,6 @@
 //! The outbox: resolving remote intent, queueing it, and settling it.
 //!
-//! This module is where FINDINGS.md F12 lands. `Op::apply` states a [`RemoteIntent`] in local
+//! `Op::apply` states a [`RemoteIntent`] in local
 //! ids because it cannot do otherwise — `RemoteRef` needs `remote_map`'s many-to-one mapping,
 //! and `ProtoOp::SetLabels` needs server-side label names. Both tables exist here and nowhere
 //! else, so this is the only place the resolution can happen.
@@ -433,7 +433,7 @@ impl SqliteStore {
                     self.undo_entry(id, &[])?;
                 }
             },
-            // As a refusal, except for what the server did do (FINDINGS F159). What it did
+            // As a refusal, except for what the server did do. What it did
             // destroy it no longer lists, so no address needs keeping for that either.
             Settle::InPart { done } => {
                 self.settle_destroyed(id, Answered::Refused)?;

@@ -171,7 +171,7 @@ impl ImapBackend {
     ) -> Progress<ProtoOutcome> {
         // Already where it is going: nothing to do, and nothing sent. The retry of a move split
         // per mailbox, interrupted after its first part, finds that part's messages in the
-        // destination (FINDINGS F156). RFC 6851 and RFC 9051 say nothing of a `MOVE` whose
+        // destination. RFC 6851 and RFC 9051 say nothing of a `MOVE` whose
         // source is its destination, so what a server does with one is its own affair; `COPY`,
         // which stands in where `MOVE` is absent, puts a second copy of the message there.
         if same_folder(&source.path, &target) {
@@ -230,7 +230,7 @@ impl ImapBackend {
         let Some(&(path, uidvalidity, _)) = held.first() else {
             return Progress::Done(ProtoOutcome::Applied);
         };
-        // The engine splits per mailbox (FINDINGS F154); a set that still spans two would expunge
+        // The engine splits per mailbox; a set that still spans two would expunge
         // one mailbox's UIDs in the other.
         if held
             .iter()
@@ -301,7 +301,7 @@ impl Backend for ImapBackend {
                 self.job = Job::Caps;
                 // Ask, authenticate, ask again. Gmail's pre-auth list omits CONDSTORE, MOVE and
                 // SPECIAL-USE, so believing the first answer reports a far less capable server
-                // than it is — F14, measured against a real account.
+                // than it is.
                 self.queue(vec![ImapCommand::Capability, ImapCommand::Capability])
             }
             ProtoOp::ListFolders => {
@@ -345,15 +345,13 @@ impl Backend for ImapBackend {
                 // megabyte per walk, every five minutes, on a campus link.
                 //
                 // Asking for data is also asking a server to *produce* it, which is a second
-                // cost and a second risk: F112 is a server that crashes generating a
-                // BODYSTRUCTURE we would have discarded.
+                // cost and a second risk: a server can crash generating a BODYSTRUCTURE we
+                // would have discarded.
                 //
-                // When labels are implemented, `X-GM-LABELS` comes back — together with the code
-                // that reads it, which is the only condition under which asking for something is
-                // worth the bytes.
-                // `X-GM-LABELS` is back, with the code that reads it — which is the condition
-                // F113 set for asking a server for anything. `ENVELOPE`, `BODYSTRUCTURE`,
-                // `INTERNALDATE` and the other `X-GM-*` attributes stay gone: still unread.
+                // `X-GM-LABELS` is asked for because the code that reads it exists, which is the
+                // only condition under which asking for something is worth the bytes.
+                // `ENVELOPE`, `BODYSTRUCTURE`, `INTERNALDATE` and the other `X-GM-*` attributes
+                // stay out: nothing reads them.
                 let items = if matches!(self.caps.labels, ServerLabels::Supported) {
                     "(UID FLAGS RFC822.SIZE X-GM-LABELS)"
                 } else {
@@ -1349,7 +1347,7 @@ fn uid_set(remotes: &[RemoteRef]) -> Option<String> {
 /// The mailbox these references live in.
 ///
 /// One message may be in several, and a `UID STORE` addresses one selected mailbox, so the
-/// caller splits by mailbox first (the engine's `per_mailbox`, FINDINGS F154) — this takes the
+/// caller splits by mailbox first (the engine's `per_mailbox`) — this takes the
 /// first as the group's mailbox.
 fn mailbox_of(remotes: &[RemoteRef], account: AccountId) -> MailboxRef {
     let path = remotes
@@ -1488,8 +1486,8 @@ pub fn move_target(caps: &AccountCaps, op: &ProtoOp) -> Option<String> {
 
 /// The folder serving `role` on a server whose archive is the folder `archive`.
 ///
-/// Per role: it was the archive folder whatever the role, so trashing a message filed it in
-/// Archive and restoring one moved it from Archive to Archive (FINDINGS F152).
+/// Per role: the archive folder whatever the role would file a trashed message in Archive and
+/// move a restored one from Archive to Archive.
 fn role_folder(caps: &AccountCaps, archive: &str, role: MailboxRole) -> Option<String> {
     match role {
         MailboxRole::Archive => Some(archive.to_owned()),

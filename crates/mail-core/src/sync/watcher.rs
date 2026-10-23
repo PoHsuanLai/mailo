@@ -62,13 +62,13 @@ pub fn told(end: &PassEnd, announce: Announce<'_>, at: DateTime<Utc>, tell: &dyn
 }
 
 impl SyncOps<'_> {
-    /// Keep syncing until every account has stopped for a reason worth stopping for — `mailo
-    /// watch`, and `plan.md` phase 8g.
+    /// Keep syncing until every account has stopped for a reason worth stopping for: `mailo
+    /// watch`.
     ///
     /// IDLE is a connection held open for as long as the server allows, so it needs a process
     /// whose job is to stay open; the window is not that when it is closed, so this is.
     ///
-    /// `notifier` is where what each pass fetches is announced (`plan.md` 10.6): the desktop's
+    /// `notifier` is where what each pass fetches is announced: the desktop's
     /// service in the binary, `None` for a watch that says nothing aloud.
     ///
     /// A watch has no end to return a report at, so each thing it would say is handed to `tell`

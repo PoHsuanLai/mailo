@@ -7,7 +7,7 @@
 //! server could not be asked is said instead of searched for.
 //!
 //! It runs by itself only when "Search the server automatically" is on, from the effect that
-//! sees a search settle (F140: an effect's task is polled, a render's is not), and only once per
+//! sees a search settle (an effect's task is polled, a render's is not), and only once per
 //! line and account. What searches is a root context, [`ServerSearcher`], so a test can answer
 //! for a server.
 
@@ -142,7 +142,7 @@ pub(super) fn said(address: &str, answer: &Answer) -> Option<String> {
 
 /// Ask `account`'s server for `input`, off the drawing thread, and put its answer in `asked`.
 ///
-/// From a click, or from [`ServerSearch`]'s effect: never from a render (F140).
+/// From a click, or from [`ServerSearch`]'s effect: never from a render.
 pub(super) fn start(
     mut asked: Signal<Vec<Asked>>,
     mut revision: Signal<u64>,

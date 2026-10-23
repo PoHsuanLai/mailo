@@ -350,7 +350,7 @@ fn open(smtp_port: u16, pop_port: u16) -> Sending {
 }
 
 /// One queued message, one drain, and each thing worth checking about what the server got:
-/// the report, the envelope (F37), the bytes past a dotted line, and the draft marked sent.
+/// the report, the envelope, the bytes past a dotted line, and the draft marked sent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_queued_message_is_submitted_whole() {
     let seen: Shared = Arc::new(Mutex::new(Transcript::default()));
@@ -404,8 +404,8 @@ async fn a_queued_message_is_submitted_whole() {
             seen.commands
         );
 
-        // The envelope. FINDINGS F37, end to end. Both halves fail silently and in opposite
-        // directions, so both are asserted against what the server actually received.
+        // The envelope, end to end: the bytes carry no `Bcc:`. Both halves fail silently and in
+        // opposite directions, so both are asserted against what the server actually received.
         let mut rcpt = seen.rcpt_to();
         rcpt.sort();
         assert_eq!(

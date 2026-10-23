@@ -216,7 +216,7 @@ pub enum SaslMech {
     XOauth2,
 }
 
-// CRAM-MD5 is deliberately absent. The POP3 spike found `SASL PLAIN` only, Gmail and Microsoft
+// CRAM-MD5 is deliberately absent. Probing POP3 found `SASL PLAIN` only, Gmail and Microsoft
 // both want XOAUTH2, and a mechanism we cannot exercise against a real server is one we should
 // not claim to support. Add it back when an account needs it, with a trace.
 

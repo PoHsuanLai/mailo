@@ -1,4 +1,4 @@
-//! OpenPGP from the user's side (`plan.md` 10.15): keys made and moved, drafts sent signed and
+//! OpenPGP from the user's side: keys made and moved, drafts sent signed and
 //! encrypted, protected mail opened when it is read — against a real store, with the keyring a
 //! [`MapSigningStore`] so the user's own is never touched.
 

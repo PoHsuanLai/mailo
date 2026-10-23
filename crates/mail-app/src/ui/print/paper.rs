@@ -327,7 +327,7 @@ where
 }
 
 /// `printed` as a PDF on `paper`. Blocking, and slow next to a click (the layout, and the first
-/// time in a process a scan of the system's fonts): never on the render path (F140).
+/// time in a process a scan of the system's fonts): never on the render path.
 pub(in crate::ui) fn pdf(printed: &Printed, paper: &Paper) -> Result<Vec<u8>, String> {
     ds_blitz::pdf(&printed.html, paper.spec).map_err(|error| error.to_string())
 }

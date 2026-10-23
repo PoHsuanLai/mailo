@@ -167,7 +167,7 @@ impl ThreadSummary {
         mute: Mute,
         follow_up: FollowUp,
     ) -> ThreadSummary {
-        // Caller invariant, per CONVENTIONS.md section 5: an empty thread is programmer error,
+        // Caller invariant: an empty thread is programmer error,
         // not malformed mail. There is no honest summary for it -- subject, sender, date and
         // account would all have to be invented, and a fabricated row is worse in every list
         // than a loud failure at the call site that produced it.

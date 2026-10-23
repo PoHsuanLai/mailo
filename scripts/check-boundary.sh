@@ -202,14 +202,14 @@ done < scripts/app-lower-crate-uses.txt
 # method (`mail_domain::id::new_account_id` and `account_id_from_uuid` do it); and no key held
 # as a `SecretPurpose` or a `Credential`.
 #
-# E2 adds what went with account secrets: mailo's own `Secrets` trait, `KeyringSecrets` and
+# Then what went with account secrets: mailo's own `Secrets` trait, `KeyringSecrets` and
 # `MapSecrets` (an account's secrets are `porter_secrets::Secrets`, held as
 # `mail_runtime::AccountSecrets`; signing keys are `SigningStore`), the `secrets` module they
 # lived in, and the signing methods the one trait carried (`get_signing`, `put_signing`,
 # `forget_signing`). `mail_runtime::KeyringSecrets` is porter's `KeyringSecrets` under another
 # crate's name, so it is forbidden by that path and `porter_secrets::KeyringSecrets` is not.
 #
-# E3 adds what went with account discovery: the preset table's lookup by address
+# Then what went with account discovery: the preset table's lookup by address
 # (`presets::preset_for`, `preset_for_mail_exchanger`, which provider an address belongs to is
 # porter's provider files' `matching` now, and what is built-in is `mail_core::discover::known`),
 # the personal-Microsoft test (`is_personal_microsoft`; `issuer_named` stays in mailo: porter-discover
@@ -217,13 +217,13 @@ done < scripts/app-lower-crate-uses.txt
 # that held discovery: `mail_proto::discover` (what each answer meant) and `mail_runtime::discover` (the search, over reqwest and hickory), which are
 # `porter_discover`'s now, over `mail_runtime::lookup`'s two seams.
 #
-# E4 adds what went with OAuth: the four modules (`mail_runtime::oauth`, `signin`, `renewal`,
+# Then what went with OAuth: the four modules (`mail_runtime::oauth`, `signin`, `renewal`,
 # `loopback`, and inside the crate `crate::oauth` and the like) and the types they held
 # (`OAuthRegistry`, `Registration`, `Renewal`, `Loopback`, `Pending`, `Freshness`, the
 # `oauth2` crate). PKCE, the loopback listener, the exchanges and the client registry are
 # `porter_oauth`'s; keeping a token fresh is `mail_runtime::tokens`, behind `TokenSource`.
 #
-# E5 adds what went with the add-account sheet: its three modules (`add_account::flow`, `sheet` and
+# Then what went with the add-account sheet: its three modules (`add_account::flow`, `sheet` and
 # `copy`, the machine, the sheet drawn over it and the words for its refusals) and the sheet itself
 # (`AddAccountSheet`), with the `Shell::adding` it was open by. The machine is porter's
 # (`porter_core::sheet`), run by `porter_service`, and the window is `add_account::window`, drawn

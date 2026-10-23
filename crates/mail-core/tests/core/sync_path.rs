@@ -1127,12 +1127,11 @@ mod an_account_with_nothing_stored {
     }
 }
 
-/// What the window is told about the server — the loader behind F139.
+/// What the window is told about the server.
 ///
-/// `apply_op` built an `AccountCaps` out of safe defaults rather than reading the account's own,
-/// and `Op::remote_intent` is the only consumer of `caps`: under `ArchiveMeans::LocalOnly` it
-/// returns `None` for Archive and Trash. So every conversation archived in the window was
-/// archived on this machine and nowhere else.
+/// `apply_op` reads the account's own `AccountCaps`, and `Op::remote_intent` is the only
+/// consumer of `caps`: under `ArchiveMeans::LocalOnly` it returns `None` for Archive and Trash.
+/// Defaults in their place would archive every conversation on this machine and nowhere else.
 mod capabilities_the_window_reads {
     use super::*;
 
@@ -1165,7 +1164,7 @@ mod capabilities_the_window_reads {
     }
 }
 
-/// Two accounts, one pass, at the same time — `plan.md` phase 8f.
+/// Two accounts, one pass, at the same time.
 ///
 /// Accounts are independent by construction: `AccountId` partitions every table, and two accounts
 /// are two conversations with two servers that have never heard of each other. Run one after

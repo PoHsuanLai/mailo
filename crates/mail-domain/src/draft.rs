@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn reply_goes_to_reply_to_when_the_sender_set_one() {
         // The mailing-list case: List-Post redirects replies away from the individual who
-        // happened to post. Replying to `from` here is the bug F8 was about.
+        // happened to post, so replying to `from` here would be wrong.
         let mut msg = message("Lunch");
         msg.reply_to = vec![addr("list@example.test")];
         let me = identity();

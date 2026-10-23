@@ -50,7 +50,7 @@ pub(in crate::ui) use status::{StatusLine, Tone, status_line, thousandths};
 #[derive(Clone, Copy)]
 pub(in crate::ui) struct Fetching {
     links: Signal<BTreeMap<AccountId, Link>>,
-    /// What each account's pass is doing, for a spinner: read by the surfaces of the next wave.
+    /// What each account's pass is doing, for a spinner.
     ops: Signal<BTreeMap<AccountId, Operation>>,
     folders: Signal<BTreeMap<(AccountId, String), FolderFetch>>,
     /// What each account's last pass offered beside its failure.

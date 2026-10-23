@@ -6,7 +6,7 @@
 //! have no session bus, and a watch that fetches mail must not stop, or even complain on every
 //! pass, because there is nowhere to show a bubble.
 //!
-//! A click opens what the notification was about (`plan.md` 10.6b): `mailo open <thread>` for one
+//! A click opens what the notification was about: `mailo open <thread>` for one
 //! conversation, `mailo` for a summary's inbox, started with the activation token the server minted
 //! for the click so the compositor lets the window take focus. On Linux one listener for the whole
 //! process hears the server's `ActivationToken`, `ActionInvoked` and `NotificationClosed`

@@ -379,16 +379,15 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
     assert_eq!(messages, 3);
 }
 
-/// What a POP3 account does on its *second* pass, which nothing here had ever exercised.
+/// What a POP3 account does on its *second* pass.
 ///
 /// One sync hides a whole class of defect: everything idempotent is trivially idempotent when
 /// it runs once.
 ///
-/// These do **not** reproduce F52, and I checked rather than assumed — they pass with migration
-/// 0002 removed. The duplicate `remote_map` rows needed a repeated *ingest of the same message*,
-/// and a second POP3 pass does not do that: `unfetched` is empty once the bodies are stored, so
-/// no header ingest runs and nothing rewrites the mapping. F52 reached this protocol by a route
-/// these tests do not take, and `mail-store`'s `remote_map_identity` tests cover it directly.
+/// These do **not** exercise duplicate `remote_map` rows: those need a repeated *ingest of the
+/// same message*, and a second POP3 pass does not do that: `unfetched` is empty once the bodies
+/// are stored, so no header ingest runs and nothing rewrites the mapping. `mail-store`'s
+/// `remote_map_identity` tests cover it directly.
 mod repeated_passes {
     use super::*;
 

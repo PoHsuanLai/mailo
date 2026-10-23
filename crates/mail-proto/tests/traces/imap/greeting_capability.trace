@@ -1,4 +1,4 @@
-# DERIVED from spike/out/imap.trace, captured against a real Gmail account 2026-09-22.
+# DERIVED from a capture against a real Gmail account, 2026-09-22.
 # The greeting and the PRE-authentication capability list are verbatim except for the client
 # IP and connection id. Note what is NOT here: no CONDSTORE, no MOVE, no SPECIAL-USE, and
 # XLIST in their place. Gmail advertises a fuller list once authenticated, which is why

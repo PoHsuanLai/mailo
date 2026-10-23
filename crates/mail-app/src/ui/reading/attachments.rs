@@ -232,7 +232,7 @@ fn send(mut downloads: Downloads, index: usize, event: DownloadEvent) -> Option<
 
 type Toasts = Option<ds::stack::toast_hub::ToastHub>;
 
-/// Begin saving one row: from a press, which is where a task is polled (F140).
+/// Begin saving one row: from a press, which is where a task is polled.
 #[allow(clippy::too_many_arguments)]
 fn start(
     looks: &Arc<Looks>,

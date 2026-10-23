@@ -1,9 +1,8 @@
-//! What one frame of the window costs — `plan.md` phase 8a.
+//! What one frame of the window costs.
 //!
-//! Every lever in phase 8 is a guess about where the milliseconds are until this file exists.
-//! `CONVENTIONS.md` says scale is measured rather than assumed, and the measurement that matters
-//! here is not "how fast is the store" but "what does the shell do on the render thread", which
-//! is a different question with a different answer.
+//! Scale is measured rather than assumed, and the measurement that matters here is not "how fast is
+//! the store" but "what does the shell do on the render thread", which is a different question with
+//! a different answer.
 //!
 //! What the window actually does per render, from `ui::App`: one thread-list query, six badge
 //! counts, one label index, one draft list, and — when a conversation is open — a blob read plus
@@ -328,7 +327,7 @@ fn what_one_frame_of_the_window_costs() {
 /// The one thing here that is a check rather than a measurement.
 ///
 /// Not a budget in milliseconds — that would be flaky on a loaded machine and deleted the first
-/// time CI hiccuped. It is the *shape*: since phase 8d, rendering the same message twice does not
+/// time CI hiccuped. It is the *shape*: rendering the same message twice does not
 /// cost twice, because the second answer comes out of a cache whose key is the whole input.
 #[test]
 #[ignore = "a measurement, not a check; run with --ignored --nocapture"]

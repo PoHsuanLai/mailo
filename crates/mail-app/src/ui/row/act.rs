@@ -62,7 +62,7 @@ pub(in crate::ui) fn press(
         return;
     }
     // An op may take the row out of the list. Take the keyboard back before it can leave
-    // with the row (FINDINGS F172).
+    // with the row.
     if composes(kind).is_none() {
         crate::ui::host::Host::focus_app();
     }

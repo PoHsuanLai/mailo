@@ -1,4 +1,4 @@
-//! Templates and send later from the command line (`plan.md` 10.8).
+//! Templates and send later from the command line.
 //!
 //! `mailo send <draft> --at <when>` holds a send in the outbox until then; `mailo unsend` takes
 //! it back while it waits; `mailo template …` keeps drafts to start from. Driven through

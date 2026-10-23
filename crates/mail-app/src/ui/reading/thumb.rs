@@ -4,7 +4,7 @@
 //! has the keyboard. Drawn only for a part whose bytes are here (`Kept::Here`): a part still on the server shows
 //! its paperclip until it is downloaded, and nothing is fetched to draw it (`preview.rs`). The
 //! bytes are read and decoded on a blocking thread, from a resource: nothing is spawned from
-//! the render (F140), and what was drawn is remembered, so opening the conversation again draws
+//! the render, and what was drawn is remembered, so opening the conversation again draws
 //! at once.
 //!
 //! A picture mailo decodes and a PDF's first page are drawn as they always were. With the

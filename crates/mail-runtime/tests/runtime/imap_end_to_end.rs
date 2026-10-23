@@ -1,14 +1,12 @@
 //! IMAP over a real socket: engine, drive loop, transport, session, backend, assembly, store.
 //!
-//! `plan.md` phase 5 is done when "the same CLI works through the IMAP backend, and killing the
-//! app mid-sync and restarting produces no duplicates". Proving that against Gmail needs an
-//! OAuth client registration nobody can supply from a source tree. Proving it against *an* IMAP
-//! server does not — and the parts most likely to be wrong are not Google-specific. This is the
-//! first time the IMAP backend has spoken to anything but a transcript.
+//! The same CLI works through the IMAP backend, and killing the app mid-sync and restarting
+//! produces no duplicates. Proving that against Gmail needs an OAuth client registration nobody
+//! can supply from a source tree. Proving it against *an* IMAP server does not — and the parts
+//! most likely to be wrong are not Google-specific.
 //!
 //! The server authenticates with `LOGIN`, because that is what every IMAP server except Gmail
-//! does, and until the commit that added this file the backend could not use it: it named
-//! `AUTHENTICATE XOAUTH2` at eleven call sites of its own.
+//! does.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
@@ -289,9 +287,9 @@ async fn session(
                     if fault == Fault::DropDuringFetch
                         && faulted.fetch_add(1, Ordering::SeqCst) == 0
                     {
-                        // Half of one message, then the socket dies. This is the crash phase 5
-                        // asks about, from the side the client cannot distinguish from a train
-                        // going into a tunnel.
+                        // Half of one message, then the socket dies: a crash mid-sync, from
+                        // the side the client cannot distinguish from a train going into a
+                        // tunnel.
                         let _ = sock
                             .write_all(b"* 1 FETCH (UID 101 BODY[] {40}\r\nFrom: Ada Lovelace <ad")
                             .await;
@@ -614,7 +612,7 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
         .await
         .expect("a sync over IMAP");
     // The fixture holds exactly two, and `> 0` is true of a pass that fetched the same header
-    // eight times as well as of one that did its job — which is the shape F95 hid behind.
+    // eight times as well as of one that did its job.
     assert_eq!(report.headers_fetched, 2, "{report:?}");
 
     let bodies = it
@@ -749,7 +747,7 @@ async fn a_literal_body_survives_a_line_that_looks_like_a_tagged_response() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn killing_the_app_mid_sync_and_restarting_produces_no_duplicates() {
-    // `plan.md` phase 5's second clause, which needs no credentials to answer. The server drops
+    // Needs no credentials to answer. The server drops
     // the connection in the middle of a body literal, exactly as a lost network does; the engine
     // is rebuilt against the same database, and the mailbox must contain each message once.
     let seen: Shared = Arc::new(Mutex::new(Seen::default()));
@@ -885,9 +883,8 @@ async fn a_server_without_condstore_is_never_sent_changedsince() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_mailbox_recreated_on_the_server_invalidates_the_uids_we_stored() {
-    // `plan.md` phase 5 names "UIDVALIDITY reset handling". The store has implemented it since
-    // it was written — `UidValidity::Reset` drops every `remote_map` row for the mailbox — and
-    // the backend reported `Same` unconditionally, so it could never fire.
+    // UIDVALIDITY reset handling. The store's `UidValidity::Reset` drops every `remote_map` row
+    // for the mailbox, and fires only if the backend reports the change.
     //
     // A server that restores a mailbox from backup, migrates it, or has a folder deleted and
     // remade with the same name MUST change UIDVALIDITY. Every UID we hold then names a
@@ -1249,7 +1246,7 @@ mod round_trip {
 
 /// Archiving, and the two commands that must never appear while doing it.
 ///
-/// `CONVENTIONS.md` forbids `\Deleted` + `EXPUNGE`: Gmail routes expunging through a per-account
+/// Never `\Deleted` + `EXPUNGE`: Gmail routes expunging through a per-account
 /// setting that may be `deleteForever` and cannot be read over IMAP, so a client that completes
 /// a move that way can permanently destroy mail on an account whose owner never agreed to it.
 mod archiving {

@@ -199,7 +199,7 @@ UIDPLUS MOVE ID UNSELECT CHILDREN IDLE NAMESPACE LITERAL+\r\n";
 
     #[test]
     fn capabilities_match_as_whole_atoms_not_substrings() {
-        // The fourth appearance of one mistake (FINDINGS F67, F69). `imap-proto` renders atoms
+        // Substrings are not tokens. `imap-proto` renders atoms
         // with Debug, so an entry is `Atom("MOVE")` — and `contains("MOVE")` is also true of
         // `Atom("REMOVE")`, `contains("UID")` of `Atom("UIDPLUS")`.
         let caps: Vec<String> = [

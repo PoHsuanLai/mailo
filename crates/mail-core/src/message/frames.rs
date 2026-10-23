@@ -8,8 +8,8 @@
 //!
 //! Bounded by the size of the html it holds, least recently used out first. It is a `Mutex`, not
 //! a signal, so [`Frames::warm`] can fill it from an ordinary thread that nothing has to poll
-//! (F140). The cache is a value the front-end owns and hands to whoever renders, not a process
-//! global: two of them share nothing.
+//! (a future spawned from a render is never polled). The cache is a value the front-end owns
+//! and hands to whoever renders, not a process global: two of them share nothing.
 
 use super::frame::{FrameBody, Source, render};
 use crate::error::Logged;

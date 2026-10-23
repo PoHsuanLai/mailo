@@ -1,7 +1,7 @@
 # cargo-deny licence gate. Run: cargo deny check licenses
 #
-# The allow-list is the machine-readable half of docs/licensing-references.md. A dependency whose
-# licence is not listed fails CI rather than being noticed later by someone reading Cargo.lock.
+# A dependency whose licence is not on the allow-list fails CI rather than being noticed later by
+# someone reading Cargo.lock.
 
 [licenses]
 allow = [
@@ -22,8 +22,7 @@ confidence-threshold = 0.9
 
 # MPL-2.0 is allowed, and it is a decision rather than an oversight.
 #
-# `docs/licensing-references.md` puts MPL at tier **R**: file-level copyleft, fine to link or
-# depend on, never to paste source from. That position is about the *licence*, so encoding it
+# MPL is file-level copyleft: fine to link or depend on, never to paste source from. That position is about the *licence*, so encoding it
 # per-crate would be busywork — the crates arrive under it by several unrelated routes, and the
 # versions churn:
 #
@@ -38,7 +37,7 @@ confidence-threshold = 0.9
 # Depending on them obliges us to make *those files'* source available, which crates.io already
 # does, and obliges nothing of ours. The rule that actually constrains this repository — do not
 # copy MPL source into it — is not something a dependency gate can check, and lives in
-# CONVENTIONS.md and the licensing notes where it can be read by the person about to break it.
+# CONTRIBUTING.md where it can be read by the person about to break it.
 #
 # What stays out of that list is strong copyleft: GPL, AGPL, EUPL. Those would change what this
 # project may be distributed as, and a dependency arriving under one should stop the build.

@@ -1,6 +1,6 @@
 //! The one shape every protocol machine has.
 //!
-//! This module is part of the frozen interface (see `CONVENTIONS.md` §1). Sessions and
+//! This module is part of the frozen interface (see `CONTRIBUTING.md`). Sessions and
 //! backends share it, which is why a backend test is a byte transcript exactly like a session
 //! test, and why there is no separate adapter crate.
 

@@ -1,4 +1,4 @@
-//! The schema safety net (`CONVENTIONS.md` §3).
+//! The schema safety net.
 //!
 //! The serde form of a domain type is a **persisted schema**: `AccountPlan`, `RemoteRef`,
 //! `ProtoOp`, `SyncCursor`, `Patch`, `View` and the rest round-trip through SQLite. Changing
@@ -144,8 +144,8 @@ fn message() -> Message {
     }
 }
 
-/// Built literally, not via `ThreadSummary::derive` — that is another agent's wave-1 work and
-/// is still `todo!()`. A schema test must not depend on someone else's body.
+/// Built literally, not via `ThreadSummary::derive`: a schema test must not depend on the
+/// derivation's body.
 fn summary() -> ThreadSummary {
     ThreadSummary {
         id: ThreadId::from_uuid(uuid(6)),
@@ -1220,7 +1220,7 @@ fn adjacently_tagged_enums_keep_their_tag() {
 #[test]
 fn persisted_types_tolerate_unknown_fields() {
     // No `deny_unknown_fields` anywhere: a field added by a newer build must not turn a
-    // downgrade into a hard startup failure (`CONVENTIONS.md` §3).
+    // downgrade into a hard startup failure.
     let json = r#"{"account":"01010101-0101-0101-0101-010101010101",
                    "path":"INBOX","future_field":42}"#;
     let parsed: MailboxRef = serde_json::from_str(json).expect("unknown field must be ignored");
@@ -1430,7 +1430,7 @@ fixtures! {
     ],
     "mailbox_ref.json" => MailboxRef = mailbox_ref(),
     "sync_cursors.json" => Vec<SyncCursor> = vec![imap_cursor(), SyncCursor::Pop],
-    // JMAP (plan.md 10.17): an account read and sent over one session URL, its addresses, and
+    // JMAP: an account read and sent over one session URL, its addresses, and
     // its cursor. Additive variants; the files above are untouched.
     "account_plan_jmap.json" => AccountPlan =
         presets::jmap("me@example.test", "https://jmap.example.test/.well-known/jmap", HttpAuth::Bearer).plan,
@@ -1451,7 +1451,7 @@ fixtures! {
     // `ProtoOp` is `SqliteStore::queue`, fed by `resolve_intent`, which until that same commit
     // matched `SetFlags | SetMailbox | SetLabels` and nothing else. No `Submit` had ever been
     // written to any outbox, so no row of the old shape exists to be read back. The retired
-    // content remains in git history. See FINDINGS F37.
+    // content remains in git history.
     "proto_ops.json" => Vec<ProtoOp> = proto_ops(),
     "retries.json" => Vec<Retry> = vec![
         Retry::Now,
@@ -1514,7 +1514,7 @@ fixtures! {
         SendState::Sent { at: at(7), message: Some(MessageId::from_uuid(uuid(5))) },
         SendState::Sent { at: at(7), message: None },
     ],
-    // Send later (`plan.md` 10.8): a send held in the outbox until a time the user chose.
+    // Send later: a send held in the outbox until a time the user chose.
     "send_states_scheduled.json" => Vec<SendState> = vec![SendState::Scheduled { at: at(8) }],
     "template.json" => Template = template(),
     "mailbox_sets.json" => Vec<MailboxSet> = vec![
@@ -1535,7 +1535,7 @@ fixtures! {
     }],
     // The local-only account imported mail lands in.
     "account_plan_local.json" => AccountPlan = presets::local_folders(at(3)).plan,
-    // Rules and vacation replies (`plan.md` 10.11), and the op that files into a folder.
+    // Rules and vacation replies, and the op that files into a folder.
     "rules.json" => Vec<Rule> = rules(),
     "vacation.json" => Vacation = vacation(),
     "proto_ops_file.json" => Vec<ProtoOp> = vec![ProtoOp::File {
@@ -1547,7 +1547,7 @@ fixtures! {
         MessageKey::Gmail(1),
         MessageKey::Synthetic([7u8; 32]),
     ],
-    // Calendar invitations (`plan.md` 10.12): the answer the store keeps per message.
+    // Calendar invitations: the answer the store keeps per message.
     "attendances.json" => Vec<Attendance> = vec![
         Attendance::Accepted,
         Attendance::Tentative,
@@ -1560,11 +1560,11 @@ fixtures! {
         comment: Some("might be late".to_owned()),
         answered_at: at(9),
     },
-    // Microsoft Graph as an incoming protocol (`plan.md` 10.18).
+    // Microsoft Graph as an incoming protocol.
     "graph_incoming.json" => Vec<Incoming> = vec![Incoming::Graph],
     "graph_remote_refs.json" => Vec<RemoteRef> = vec![graph_ref()],
     "graph_sync_cursors.json" => Vec<SyncCursor> = vec![graph_cursor()],
-    // OpenPGP (`plan.md` 10.15). `draft.json` predates the draft's field and keeps loading as
+    // OpenPGP. `draft.json` predates the draft's field and keeps loading as
     // `OpenPgp::None`; this pins the field's own spelling.
     "draft_openpgp.json" => Draft = Draft { openpgp: OpenPgp::SignAndEncrypt, ..draft() },
     // Templates carry it too; `template.json` predates the field and loads as plain.
@@ -1602,7 +1602,7 @@ fixtures! {
         Encryption::Locked { key: fingerprint() },
         Encryption::Unreadable { why: "modification detected".to_owned() },
     ],
-    // S/MIME (`plan.md` 10.16). `draft_openpgp.json` predates the field and loads as plain.
+    // S/MIME. `draft_openpgp.json` predates the field and loads as plain.
     "draft_smime.json" => Draft = Draft { smime: Smime::SignAndEncrypt, ..draft() },
     "template_smime.json" => Template = Template { smime: Smime::Sign, ..template() },
     "smime_modes.json" => Vec<Smime> = vec![

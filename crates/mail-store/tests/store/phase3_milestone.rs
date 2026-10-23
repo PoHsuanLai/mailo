@@ -1,9 +1,8 @@
-//! `plan.md` phase 3: "a CLI or unit test can ingest 20 fixture messages, archive one, label
-//! one, search."
+//! The store end to end: ingest 20 fixture messages, archive one, label one, search.
 //!
-//! Written as the plan's own acceptance criterion rather than as unit tests of the pieces,
-//! because the pieces have passed individually for a while and that is not the same claim.
-//! Everything here goes through the public `Store` surface a UI would use.
+//! Written as one scenario rather than as unit tests of the pieces, because pieces that pass
+//! individually are not the same claim. Everything here goes through the public `Store`
+//! surface a UI would use.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
@@ -328,8 +327,8 @@ fn ingest_twenty_archive_one_label_one_and_search() {
         )
         .unwrap();
     // Not a range. "More than none and fewer than twenty" is satisfied by almost any wrong
-    // answer, and an assertion that a wrong answer satisfies is not one — CONVENTIONS §"An
-    // assertion that was already true proves nothing". Checked against the other path to the
+    // answer, and an assertion that a wrong answer satisfies is not one (`CONTRIBUTING.md`, "An
+    // assertion that was already true proves nothing"). Checked against the other path to the
     // same question instead: `count` and `threads` must agree about one filter, which is a
     // claim a wrong answer cannot accidentally meet.
     let listed = f

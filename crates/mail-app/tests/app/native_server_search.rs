@@ -250,7 +250,7 @@ fn subjects(harness: &Harness) -> Vec<String> {
 
 /// Advance, with time passing, until `done` holds: the list and the server's answer each land
 /// from a blocking thread, which wakes nothing while it runs, so this waits for the named state
-/// rather than for a quiet spell (FINDINGS F184). Bounded by the wall clock, not by frames.
+/// rather than for a quiet spell. Bounded by the wall clock, not by frames.
 fn until(harness: &mut Harness, what: &str, done: impl Fn(&Harness) -> bool) {
     let started = std::time::Instant::now();
     while started.elapsed() < Duration::from_secs(60) {

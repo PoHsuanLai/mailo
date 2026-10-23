@@ -876,9 +876,8 @@ impl ImapSession {
 ///
 /// `capabilities` holds `imap-proto`'s atoms rendered with `Debug`, so an entry looks like
 /// `Atom("LOGINDISABLED")`, `Auth("XOAUTH2")` or `Imap4rev1`. Matching that with `contains` is
-/// the substring mistake this codebase has now made three times in three disguises (FINDINGS
-/// F67): `contains("MOVE")` is also true of a hypothetical `REMOVE`, and `contains("UID")` of
-/// `UIDPLUS`.
+/// a substring standing in for a token: `contains("MOVE")` is also true of a hypothetical
+/// `REMOVE`, and `contains("UID")` of `UIDPLUS`.
 ///
 /// So the name is compared against the whole atom, with the `Debug` wrapper accounted for
 /// rather than matched through.

@@ -174,7 +174,7 @@ pub struct Patch {
 ///
 /// Not a [`ProtoOp`]. `Op::apply` cannot build one: every `ProtoOp` a user op could produce is
 /// addressed by [`crate::RemoteRef`], and the local-id-to-`RemoteRef` mapping is `remote_map`
-/// in `mail-store` — which `plan.md` is explicit is **many-to-one**, so it cannot be
+/// in `mail-store`, which is **many-to-one**, so it cannot be
 /// recomputed here even in principle. `SetLabels` has a second, independent blocker: it needs
 /// server-side label *names*, and this crate has no label table to resolve a [`LabelId`]
 /// against.
@@ -288,7 +288,7 @@ impl Op {
     /// `now` is unused. No op currently needs a timestamp: [`Snooze::Until`] and
     /// [`FollowUp::Until`] carry the instants the caller chose, and "has this snooze expired" is resolved against `now` at
     /// query time by [`crate::Filter::SnoozeDue`] rather than frozen in at apply time. The
-    /// parameter stays because it is the crate-wide convention (`CONVENTIONS.md` section 6)
+    /// parameter stays because `now` is an argument everywhere below `mail-runtime`
     /// and because an op that does need one -- a send-later, a reminder -- is a plausible
     /// addition.
     pub fn apply(

@@ -1,9 +1,8 @@
 //! Putting a conversation off, through the store rather than only through the predicate.
 //!
-//! `Op::SetSnooze` and `Filter::Snoozed`/`SnoozeDue` had been in the domain and answerable by
-//! SQLite since phase 1, and nothing could set one. What matters here is not that the op applies
-//! — it is that the conversation *leaves the inbox* and *comes back on its own*, which is the
-//! whole of what snoozing means and the part a pure predicate test cannot show.
+//! What matters here is not that `Op::SetSnooze` applies — it is that the conversation *leaves the
+//! inbox* and *comes back on its own*, which is the whole of what snoozing means and the part a
+//! pure predicate test cannot show.
 
 use crate::store::acct_account;
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};

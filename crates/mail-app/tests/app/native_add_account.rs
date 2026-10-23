@@ -923,7 +923,7 @@ fn render_the_typed_forms_and_the_resized_steps() {
             shot("sized", view);
             println!("{target} {name}: {}x{}", asked.width, asked.height);
             if target.starts_with("server") {
-                // The same form in the window as E5 opened it.
+                // The same form in the window as it first opens.
                 shot("fixed", VIEW);
             }
         }

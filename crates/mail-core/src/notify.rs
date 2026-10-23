@@ -1,4 +1,4 @@
-//! New mail, said out loud — `plan.md` 10.6.
+//! New mail, said out loud.
 //!
 //! Three questions, kept apart. *Which* of the messages a pass stored deserve a word is a pure
 //! function of each message and a few facts about the user ([`verdict`]). *How many* words a burst

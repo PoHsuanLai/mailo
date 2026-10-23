@@ -80,7 +80,7 @@ pub struct OutboxEntry {
 ///
 /// Its messages' server addresses are looked up then, not when it was queued: an earlier
 /// operation may have moved a message since, and the address it was queued with names where the
-/// message was (FINDINGS F153).
+/// message was.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Dispatch {
     /// Send this: the queued operation, pointed at where its messages are now.
@@ -95,7 +95,7 @@ pub enum Dispatch {
     /// [`Settle::Ok`], which drops it.
     Moot,
     /// Given up: a message it names has waited as [`Dispatch::Wait`] through the syncs that
-    /// should have found it ([`SYNCS_TO_FIND`], [`PASSES_TO_FIND`], FINDINGS F155). Settle it
+    /// should have found it ([`SYNCS_TO_FIND`], [`PASSES_TO_FIND`]). Settle it
     /// [`Settle::Failed`] with [`Retry::Fatal`] and this reason, in words for the user: its undo
     /// puts back what the server has, and the rest of the queue is no longer held behind it.
     Lost(String),
@@ -110,10 +110,10 @@ pub enum Settle {
     /// the entry, according to the [`Retry`].
     Failed { reason: String, retry: Retry },
     /// Refused for good after the server had already done it for some of its messages: an
-    /// operation split per mailbox (FINDINGS F154) whose first parts were carried out and whose
+    /// operation split per mailbox whose first parts were carried out and whose
     /// next was refused. Dropped as [`Retry::Fatal`] drops it, and its undo applied except where
     /// a change is about one of `done`, which the server has: undone, they would be shown back
-    /// where the server no longer has them (FINDINGS F159).
+    /// where the server no longer has them.
     InPart { done: Vec<MessageId> },
 }
 
@@ -121,7 +121,7 @@ pub enum Settle {
 ///
 /// What an undo is split by when only some of its messages are to be put back
 /// ([`Settle::InPart`]). Here rather than as a method on [`Change`]: `mail-domain` is the frozen
-/// interface (CONVENTIONS §1).
+/// interface (`CONTRIBUTING.md`, "The frozen interface").
 pub fn message_of(change: &Change) -> Option<MessageId> {
     match change {
         Change::MessageRead(m, _)
@@ -420,7 +420,7 @@ pub trait Store {
     /// not kept.
     ///
     /// What tells a refused move whether one of its messages is already where it was being moved
-    /// to, and so is not to be put back (FINDINGS F159).
+    /// to, and so is not to be put back.
     fn unplaced_into(
         &self,
         account: AccountId,

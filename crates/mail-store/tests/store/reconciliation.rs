@@ -1,6 +1,6 @@
 //! The rule that makes optimistic apply safe, and the sync edges around it.
 //!
-//! These are the tests the `sqlite` brief exists for. The failure they guard against is not a
+//! These are the store's most important tests. The failure they guard against is not a
 //! crash — it is a star that flips back under the user's cursor one poll after they set it,
 //! or a message that silently duplicates itself the first time Gmail is synced.
 

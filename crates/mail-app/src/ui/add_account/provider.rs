@@ -10,7 +10,7 @@
 //! kept here: look only when asked (the lookup sends the domain and nothing else), add only when
 //! told to (`Confirm`), the password goes to the add and nowhere else.
 //!
-//! When the person's own accounts are porter's (step E6), the provider is `porter-families`'
+//! When the person's own accounts are porter's, the provider is `porter-families`'
 //! and this file goes; the window and its mapping stay as they are.
 
 use std::future::Future;

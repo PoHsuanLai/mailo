@@ -3,7 +3,7 @@
 //! The message goes up as the exact bytes frozen when the user pressed send, is filed in Drafts
 //! by `Email/import`, and is submitted by `EmailSubmission/set` in the same request, naming the
 //! imported email by its creation id. The envelope is given explicitly — `mailFrom` and every
-//! `rcptTo` — because the bytes deliberately carry no `Bcc:` (FINDINGS F37), and a server that
+//! `rcptTo` — because the bytes deliberately carry no `Bcc:`, and a server that
 //! derived recipients from the headers would drop every blind copy. On success the server moves
 //! the email from Drafts to Sent and clears `$draft` itself (`onSuccessUpdateEmail`), so the
 //! sent copy is filed where every other client looks for it.

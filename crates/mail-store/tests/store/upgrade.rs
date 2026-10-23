@@ -1,12 +1,10 @@
 //! Upgrading a database that already has data in it.
 //!
-//! `plan.md` asks for this outright — "a test that opens a checked-in fixture DB from each prior
-//! version and migrates it" — under a heading that calls it required from day one. It did not
-//! exist. Every other test creates a fresh database, which runs each migration against an
-//! *empty* schema, and a migration whose job is to repair data has nothing to repair.
+//! Every other test creates a fresh database, which runs each migration against an *empty*
+//! schema, and a migration whose job is to repair data has nothing to repair there.
 //!
 //! That matters most for 0002. Its purpose is to collapse the duplicate `remote_map` rows that
-//! every version-1 database accumulated (FINDINGS F52) and then add a unique index. If the
+//! every version-1 database accumulated and then add a unique index. If the
 //! `DELETE` misses a single duplicate the `CREATE UNIQUE INDEX` fails, the transaction rolls
 //! back, and the application does not start — for exactly the users who have been running it
 //! longest.

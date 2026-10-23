@@ -1,6 +1,6 @@
 //! What mailo's own CSS and markup still may not do by quire's lint, and why. Each entry is
 //! one selector, compared whole; a reason names why the rule is right for mailo as it stands,
-//! and a gap in quire is reported to quire (coherence rule 3, FINDINGS "quire requests"), never
+//! and a gap in quire is reported to quire (coherence rule 3 in `CONTRIBUTING.md`), never
 //! patched here.
 //!
 //! There is none at present: quire v0.3.44 lints `text-overflow` as the Blitz mailo pins draws it,

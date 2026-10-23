@@ -1,4 +1,4 @@
-//! S/MIME (`plan.md` 10.16) on bytes: messages sealed and opened again, and messages built by
+//! S/MIME on bytes: messages sealed and opened again, and messages built by
 //! hand the way other clients write them — BER, opaque signed-data, triple DES, AES-GCM, SHA-1 —
 //! against a throwaway certificate authority made in `smime_support`.
 

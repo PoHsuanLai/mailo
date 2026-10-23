@@ -13,7 +13,7 @@
 //!
 //! The rows are data ([`groups`], [`rows`]) and pure, so what the menu lists is a table test;
 //! every pick goes back through the row's own `press`, so a pick on a picked row still acts on
-//! the whole selection, takes the keyboard back first (FINDINGS F172), asks before deleting
+//! the whole selection, takes the keyboard back first, asks before deleting
 //! forever, and lands on the undo stack like any other op.
 
 use super::act::{Pressed, op_icon};

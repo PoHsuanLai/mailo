@@ -5,7 +5,7 @@
 //! `co.uk`, which is why this reads the Public Suffix List (through `psl`) instead of taking
 //! the last two labels — the naive rule would call every British sender the same one.
 //!
-//! Domains are tokens, compared whole (CONVENTIONS, "Substrings are not tokens"): a brand's
+//! Domains are tokens, compared whole, never as substrings: a brand's
 //! domain matches only when the registered domains are equal, so `evil-paypal.com` and
 //! `paypal.com.evil.example` are both somebody else.
 

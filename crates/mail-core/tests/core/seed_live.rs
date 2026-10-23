@@ -5,10 +5,9 @@
 //!
 //! It seeds *mail*, and nothing else. A store in some other state — an account added but not yet
 //! signed in, say — is made by running `mailo account add` against the directory, not by writing
-//! the rows here. A hand-written one of those cost a false finding within five minutes: it left
-//! `account_caps` empty, which `account add` never does, and the window then reported "Something
-//! has gone wrong with setup" for what looked like the ordinary first-run state. The guard was
-//! right and the fixture was lying. See `CONVENTIONS.md`, "An assertion that was already true".
+//! the rows here. A hand-written one is a state the application cannot reach: it can leave
+//! `account_caps` empty, which `account add` never does, and the window then rightly reports a
+//! setup failure for what looks like the ordinary first-run state.
 
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;

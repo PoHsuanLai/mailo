@@ -1,6 +1,6 @@
 //! Conversions between SQLite rows and domain values.
 //!
-//! Several columns hold JSON in the serde form fixed by `CONVENTIONS.md` section 3. Decoding
+//! Several columns hold JSON in the domain types' persisted serde form. Decoding
 //! one that no longer matches its type is [`StoreError::Decode`] — almost always a missing
 //! migration or a `#[serde(default)]` that was not added when a field was.
 

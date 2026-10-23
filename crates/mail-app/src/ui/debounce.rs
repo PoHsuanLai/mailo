@@ -133,8 +133,8 @@ impl Debounced {
 /// Every change reaches the machine as it happens, through an effect, so a result is known to
 /// be stale from the keystroke on. The wait is the composer autosave's timer, reused: one
 /// `use_future` owned by the component, sleeping and then looking. Not a `spawn` from the
-/// render body and not a task per keystroke: F140 is a future spawned from a component body
-/// that is never polled, and this is the shape of timer the window is known to run.
+/// render body and not a task per keystroke: a future spawned from a component body is never
+/// polled, and this is the shape of timer the window is known to run.
 pub(super) fn use_debounced(shell: Signal<Shell>, pick: fn(&Shell) -> String) -> Debounced {
     let origin = use_hook(tokio::time::Instant::now);
     let mut machine = use_hook(|| CopyValue::new(Debounce::new(QUIET, &pick(&shell.peek()))));

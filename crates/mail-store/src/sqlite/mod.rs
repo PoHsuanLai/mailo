@@ -44,11 +44,11 @@ use std::path::{Path, PathBuf};
 /// repaints a second while mail is absorbing. Reads and writes take turns for the length of a
 /// batch, which is visible as a list that updates in steps during a sync rather than smoothly.
 ///
-/// Phase 8b changed that answer, and the worry above turned out to be the right one to have: a
-/// second connection reading a half-written thread summary *is* a wrong answer, so the readers
-/// are never used inside a write. What keeps that true is a signature rather than a rule —
-/// `summary_of`, `messages_of`, `labels_of` and `read_message` take the connection they should
-/// read from, so a write path physically cannot hand them a reader.
+/// Read-only connections beside it change that answer, and the worry above is the right one
+/// to have: a second connection reading a half-written thread summary *is* a wrong answer, so
+/// the readers are never used inside a write. What keeps that true is a signature rather than
+/// a rule — `summary_of`, `messages_of`, `labels_of` and `read_message` take the connection
+/// they should read from, so a write path physically cannot hand them a reader.
 #[derive(Debug)]
 pub struct SqliteStore {
     /// Behind a mutex because `rusqlite::Connection` is `Send` but **not `Sync`**, so an
@@ -63,7 +63,7 @@ pub struct SqliteStore {
     /// panic. A reentrant lock is sound here because `rusqlite` only ever needs `&Connection`,
     /// so recursion hands out a second shared reference rather than aliasing a mutable one.
     db: ReentrantMutex<Connection>,
-    /// Connections that only ever read — `plan.md` phase 8b.
+    /// Connections that only ever read.
     ///
     /// WAL gives concurrent readers, but concurrent *across connections*: with one handle every
     /// query in this process waits behind whatever is committing, and the comment above the
@@ -129,10 +129,10 @@ impl SqliteStore {
 
     fn from_connection(db: Connection, blob_root: impl AsRef<Path>) -> Result<Self, StoreError> {
         // WAL lets a reader run while a writer commits, which is what keeps the UI responsive
-        // during a sync — and that is true across *connections*, so until phase 8b opened the
-        // read-only ones beside this handle, the sentence described SQLite rather than this
-        // program. NORMAL trades a fsync per commit for the small risk of losing the
-        // last transaction on power loss — acceptable, because the server still has the mail.
+        // during a sync — and that is true across *connections*, which is why read-only ones
+        // are opened beside this handle. NORMAL trades a fsync per commit for the small risk of
+        // losing the last transaction on power loss — acceptable, because the server still has
+        // the mail.
         //
         // `busy_timeout` is what happens when two *writers* meet, which WAL does not help with:
         // SQLite serialises them, and the second either waits or is told "database is locked".

@@ -1,4 +1,4 @@
-//! New-mail notifications (`plan.md` 10.6) from the store and from a real watch loop.
+//! New-mail notifications from the store and from a real watch loop.
 //!
 //! Nothing here raises a desktop notification: every test hands the loop a recorder. The pure
 //! halves — which arrival is announced, how a burst is batched — are tables in `notify.rs`; this
@@ -199,7 +199,7 @@ fn raw(uid: u32, from: &str, subject: &str, date: DateTime<Utc>) -> String {
 /// Also returns how many times a client has begun to `IDLE`, so a test can add mail at a
 /// known point in the loop. Mail added between a pass's survey and the `EXAMINE` before its
 /// `IDLE` is counted in that `EXAMINE`, not announced by the `IDLE`; the client catches it by
-/// comparing `UIDNEXT` (F149), and `a_watch_…` waits for `IDLE` only to keep its ordering exact.
+/// comparing `UIDNEXT`, and `a_watch_…` waits for `IDLE` only to keep its ordering exact.
 async fn serve(drop: Maildrop) -> (u16, Idling) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

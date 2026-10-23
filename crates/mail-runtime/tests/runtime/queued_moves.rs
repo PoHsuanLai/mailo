@@ -1,4 +1,4 @@
-//! Operations queued behind a move reach the message where the move put it (FINDINGS F153).
+//! Operations queued behind a move reach the message where the move put it.
 //!
 //! Over a real socket, against a server with several mailboxes that really moves messages
 //! between them and numbers each arrival with the destination's next UID. A second move queued
@@ -68,7 +68,7 @@ struct Server {
     /// selected, without doing it: a connection lost partway through an operation.
     hang_up: Option<(String, String)>,
     /// Refuse for good, with a `NO`, every command starting with the second while the first is
-    /// selected, without doing it: a permanent refusal in that mailbox (FINDINGS F159).
+    /// selected, without doing it: a permanent refusal in that mailbox.
     refuse: Vec<(String, String)>,
 }
 
@@ -632,9 +632,9 @@ async fn a_move_made_before_the_sync_finds_where_the_last_one_went_is_sent_after
     assert_eq!(holds(&server, "Trash"), vec![1]);
 }
 
-/// F154: a message held at two addresses — its copy in the inbox and one in Archive — is
-/// starred at both, each UID in its own mailbox. Sent as one `UID STORE 10,7` in the inbox, the
-/// 7 named a different message there, which was starred instead.
+/// A message held at two addresses — its copy in the inbox and one in Archive — is starred at
+/// both, each UID in its own mailbox. Sent as one `UID STORE 10,7` in the inbox, the 7 would name
+/// a different message there, which would be starred instead.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_operation_on_a_message_in_two_mailboxes_names_each_uid_in_its_own() {
     let (port, server) = serve(Uidplus::Yes).await;
@@ -707,7 +707,7 @@ async fn an_operation_on_a_message_in_two_mailboxes_names_each_uid_in_its_own() 
     );
 }
 
-// ---- F155: the wait for a sync to find a message has an end ----
+// ---- the wait for a sync to find a message has an end ----
 
 /// One pass as `mailo sync` and a watch run it: each of `paths` synced, then the outbox drained.
 async fn pass(
@@ -921,7 +921,7 @@ async fn passes_that_do_not_sync_the_folder_a_message_was_moved_into_do_not_coun
     );
 }
 
-// ---- F156: a move split per mailbox and retried after its second part failed ----
+// ---- a move split per mailbox and retried after its second part failed ----
 
 /// A second message, in Work, of the same conversation as the one in the inbox.
 const WORK: &str = "From: Ada Lovelace <ada@example.test>\r\n\
@@ -1124,7 +1124,7 @@ async fn a_star_retried_after_its_second_mailbox_failed_is_set_again_harmlessly(
     assert_eq!(flagged("Work"), vec![3]);
 }
 
-// ---- F159: a split operation refused after its first part was done ----
+// ---- a split operation refused after its first part was done ----
 
 /// Queue `intent` as the window does: `forward` applied here at once, `undo` kept to put it back.
 fn queue_applied(
@@ -1343,7 +1343,7 @@ async fn a_trash_refused_in_every_mailbox_is_undone_whole() {
 }
 
 /// Without `COPYUID` the inbox's message waits to be found in Trash, and the retry of the rest
-/// waits with it until it is given up (F155). The message is in Trash on the server, and stays
+/// waits with it until it is given up. The message is in Trash on the server, and stays
 /// there here.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_split_trash_given_up_while_waiting_leaves_the_part_that_went_in_trash() {

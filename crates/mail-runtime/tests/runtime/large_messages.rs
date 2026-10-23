@@ -95,7 +95,7 @@ type Asked = Arc<Mutex<Vec<String>>>;
 struct Scripted {
     caps: AccountCaps,
     asked: Asked,
-    /// F112: a server that fails producing a structure.
+    /// A server that fails producing a structure.
     structure_fails: bool,
 }
 
@@ -308,7 +308,7 @@ async fn opening_the_attachment_downloads_and_decodes_it() {
     );
 }
 
-/// F112: a server that fails to produce a structure. The message still arrives, whole.
+/// A server that fails to produce a structure. The message still arrives, whole.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_server_that_cannot_describe_the_message_sends_it_whole() {
     let mut it = fixture(true);

@@ -151,7 +151,7 @@ fn open_with(
     working.set(Busy::Working);
     let store = consume_context::<Arc<SqliteStore>>();
     let secrets = seams().secrets;
-    // Spawned from a press, which is where a task is polled (F140).
+    // Spawned from a press, which is where a task is polled.
     spawn(async move {
         let found = tokio::task::spawn_blocking(move || {
             unlock(&looks, &store, secrets.as_ref(), message, body, passphrase)

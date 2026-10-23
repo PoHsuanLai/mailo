@@ -375,7 +375,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         return;
     }
     // An encrypted message to someone with no key yet: their domain is asked, once, as the
-    // draft is made — the other moment the brief names besides an explicit lookup.
+    // draft is made, the one moment besides an explicit lookup that asks.
     if let Command::Compose {
         to, cc, openpgp, ..
     } = &command

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 /// Render until `landed` holds for the page, doing the tree's pending work in between.
 ///
-/// Since phase 8c the list is computed on a blocking thread, and a search waits for the box to
+/// The list is computed on a blocking thread, and a search waits for the box to
 /// be still first, so one render after a keystroke shows what was on screen *before* it. That
 /// is the right behaviour in a window, where a blank pane between keystrokes is worse than a
 /// stale one, and the wrong thing to assert against. So the test waits for the condition it
@@ -123,7 +123,7 @@ mod searching_in_the_window {
     ///
     /// Read from the subject cells rather than searched for in the page: the stylesheet is
     /// in the markup, and `page.contains("hi")` is true of `white-space` and `this`. That is
-    /// the substring rule in `CONVENTIONS.md`, caught here by a test of its own making.
+    /// "Substrings are not tokens" (`CONTRIBUTING.md`), in a test of its own making.
     pub(super) fn listed(page: &str) -> Vec<String> {
         // A row that has left is still drawn until its exit settles, under
         // `data-presence="leaving"`: it is not one of the rows the list is showing.

@@ -209,7 +209,7 @@ mod tests {
     use mail_core::{SqliteStore, Store};
     use mail_domain::*;
 
-    /// What the server is told when the window acts — F139.
+    /// What the server is told when the window acts.
     ///
     /// `Op::apply` returns the local patch, its undo, *and* the remote work. `apply_op` used
     /// the first and dropped the third, and built the `AccountCaps` it passed out of safe

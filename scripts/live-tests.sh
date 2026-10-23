@@ -3,10 +3,9 @@
 #
 # They are `#[ignore]`d, so `cargo test` skips them; this is how you run them deliberately.
 #
-# It exists because of FINDINGS F88. Those tests need daemons, the daemons get started by hand
-# while their fixtures are being edited, and a result read off a server whose state you have not
-# pinned down is not a result — I reported a pass that way once and it did not reproduce. So the
-# setup is a script rather than a habit: it stops whatever is on the ports, starts both servers
+# Those tests need daemons, the daemons get started by hand while their fixtures are being
+# edited, and a result read off a server whose state you have not pinned down is not a result.
+# So the setup is a script rather than a habit: it stops whatever is on the ports, starts both servers
 # from the committed scripts, waits until they answer, and only then runs anything.
 #
 #   ./scripts/live-tests.sh            # local servers only

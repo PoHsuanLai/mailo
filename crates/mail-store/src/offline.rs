@@ -1,7 +1,7 @@
 //! How much of an account's mail is on this computer, and which parts of it are not.
 //!
 //! A large IMAP message is stored rebuilt from its parts, with its attachments left on the server
-//! until opened (`plan.md` 9.6). An account kept offline in full fetches those too, a few each
+//! until opened. An account kept offline in full fetches those too, a few each
 //! pass; these are the two questions that needs the store to answer, the same way in SQLite and
 //! in memory.
 
