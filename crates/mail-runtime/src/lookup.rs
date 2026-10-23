@@ -189,20 +189,19 @@ impl Http for ReqwestHttp {
         if !request.body.is_empty() {
             pending = pending.body(request.body);
         }
-        let mut response = pending.send().await.map_err(error)?;
+        let response = pending.send().await.map_err(error)?;
         let status = Status(response.status().as_u16());
         let headers = response
             .headers()
             .iter()
             .filter_map(|(name, value)| Some(Header::new(name.as_str(), value.to_str().ok()?)))
             .collect();
-        let mut body = Vec::new();
-        while let Some(chunk) = response.chunk().await.map_err(error)? {
-            if body.len() + chunk.len() > DOCUMENT_LIMIT {
-                return Err(HttpError::TooLarge);
-            }
-            body.extend_from_slice(&chunk);
-        }
+        let body = crate::http::body_up_to(response, DOCUMENT_LIMIT)
+            .await
+            .map_err(|e| match e {
+                crate::http::BodyError::TooLarge(_) => HttpError::TooLarge,
+                crate::http::BodyError::Read(e) => error(e),
+            })?;
         Ok(HttpResponse {
             status,
             headers,

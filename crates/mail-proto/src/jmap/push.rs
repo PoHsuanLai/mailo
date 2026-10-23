@@ -42,12 +42,18 @@ impl EventKind {
     }
 }
 
+/// The most an event may hold, its unfinished line or its `data:` lines together. A state change
+/// is a few hundred bytes; a stream that grows one past this without ending it is refused rather
+/// than kept in memory.
+pub const MAX_EVENT: usize = 1024 * 1024;
+
 /// An event stream being read.
 #[derive(Debug, Default)]
 pub struct EventStream {
     pending: Vec<u8>,
     kind: String,
     data: Vec<String>,
+    held: usize,
 }
 
 impl EventStream {
@@ -55,11 +61,12 @@ impl EventStream {
         Self::default()
     }
 
-    /// Feed the next bytes; returns every event they completed.
+    /// Feed the next bytes; returns every event they completed, or an error once an event grows
+    /// past [`MAX_EVENT`] without ending.
     ///
     /// A line split across two reads waits for the rest. A CR at the very end of what arrived
     /// waits too, since the LF that may follow it belongs to the same line ending.
-    pub fn feed(&mut self, bytes: &[u8]) -> Vec<Event> {
+    pub fn feed(&mut self, bytes: &[u8]) -> Result<Vec<Event>, ProtoError> {
         self.pending.extend_from_slice(bytes);
         let mut events = Vec::new();
         let mut start = 0;
@@ -84,7 +91,12 @@ impl EventStream {
             start = at;
         }
         self.pending.drain(..start);
-        events
+        if self.pending.len() > MAX_EVENT || self.held > MAX_EVENT {
+            return Err(malformed(format!(
+                "a pushed event grew past {MAX_EVENT} bytes without ending"
+            )));
+        }
+        Ok(events)
     }
 
     fn line(&mut self, line: &str) -> Option<Event> {
@@ -94,6 +106,7 @@ impl EventStream {
                 return None;
             }
             let kind = std::mem::take(&mut self.kind);
+            self.held = 0;
             return Some(Event {
                 kind: EventKind::named(&kind),
                 data: std::mem::take(&mut self.data).join("\n"),
@@ -108,7 +121,10 @@ impl EventStream {
         };
         match field {
             "event" => self.kind = value.to_owned(),
-            "data" => self.data.push(value.to_owned()),
+            "data" => {
+                self.held += value.len();
+                self.data.push(value.to_owned());
+            }
             // `id` and `retry` steer a browser's reconnection; a watch reconnects on its own
             // schedule and resynchronises by state, so neither is needed here.
             _ => {}
@@ -179,8 +195,8 @@ mod tests {
         // Every split point, so a CRLF broken across reads is exercised.
         for split in 0..stream.len() {
             let mut reader = EventStream::new();
-            let mut events = reader.feed(&stream[..split]);
-            events.extend(reader.feed(&stream[split..]));
+            let mut events = reader.feed(&stream[..split]).unwrap();
+            events.extend(reader.feed(&stream[split..]).unwrap());
             assert_eq!(
                 events,
                 vec![
@@ -195,6 +211,28 @@ mod tests {
                 ],
                 "split at {split}"
             );
+        }
+    }
+
+    #[test]
+    fn an_event_that_never_ends_is_refused_past_the_limit() {
+        let line = vec![b'x'; MAX_EVENT + 1];
+        assert!(EventStream::new().feed(&line).is_err(), "an unended line");
+
+        let mut reader = EventStream::new();
+        let data = format!("data: {}\n", "x".repeat(MAX_EVENT / 4));
+        for _ in 0..4 {
+            reader.feed(data.as_bytes()).unwrap();
+        }
+        assert!(
+            reader.feed(data.as_bytes()).is_err(),
+            "data lines never ended"
+        );
+
+        let mut reader = EventStream::new();
+        for _ in 0..8 {
+            let events = reader.feed(format!("{data}\n").as_bytes()).unwrap();
+            assert_eq!(events.len(), 1, "ended events do not add up");
         }
     }
 

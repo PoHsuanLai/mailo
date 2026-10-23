@@ -4,7 +4,7 @@
 # error, records it where the person sees it, logs it (`Logged::or_log`), or says why ignoring it
 # is right. Format: "<crate> <pattern> <lines>".
 mail-runtime let_underscore 4
-mail-runtime ok 23
+mail-runtime ok 22
 mail-runtime unwrap_or_default 13
 mail-core let_underscore 0
 mail-core ok 33

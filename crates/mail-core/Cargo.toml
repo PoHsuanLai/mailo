@@ -41,6 +41,8 @@ porter-discover.workspace = true
 # The HTTP seam porter-discover asks through (`discover.rs` names it); no client, no I/O.
 porter-http.workspace = true
 latchkey.workspace = true
+# The door's stream, for its receive timeout: the version latchkey's own `Stream` is.
+interprocess = "2"
 mail-domain.workspace = true
 mail-store.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.

@@ -255,8 +255,8 @@ pub async fn whoami(
         .await
         .map_err(|e| RuntimeError::Connect(Failure::new("reading who signed in", e)))?;
     let status = answer.status();
-    let body = answer
-        .bytes()
+    // Who signed in is a few hundred bytes of JSON.
+    let body = crate::http::body_up_to(answer, 1024 * 1024)
         .await
         .map_err(|e| RuntimeError::Connect(Failure::new("reading who signed in", e)))?;
     if !status.is_success() {

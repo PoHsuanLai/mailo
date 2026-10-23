@@ -10,7 +10,8 @@
 
 use super::wire::{self, Mismatch, Request, Response};
 use crate::error::CoreError;
-use std::io::{BufRead, BufReader, Write};
+use interprocess::local_socket::traits::Stream as _;
+use std::io::{BufRead, BufReader, Read, Write};
 use std::time::Duration;
 
 /// How long the door waits after it could not accept a client before it tries again.
@@ -20,6 +21,14 @@ use std::time::Duration;
 /// core and write the same line to the journal millions of times. A client waits this long more,
 /// once.
 const AFTER_A_FAILED_ACCEPT: Duration = Duration::from_secs(1);
+
+/// How long a client has to say its request. The door serves one client at a time, so one that
+/// connects and says nothing would otherwise hold it shut for everyone after.
+const REQUEST_WAIT: Duration = Duration::from_secs(5);
+
+/// The longest request line read. Every request is a few hundred bytes; a client sending more
+/// is not one this build wrote, and reading on would grow the daemon's memory for it.
+const MAX_REQUEST: usize = 64 * 1024;
 
 /// What a daemon does with a request it has read.
 pub(crate) enum Answer {
@@ -56,10 +65,11 @@ pub(crate) fn door(listening: &latchkey::Listening, mut on: impl FnMut(Request) 
                 continue;
             }
         };
-        let mut line = String::new();
-        if BufReader::new(&mut stream).read_line(&mut line).is_err() || line.is_empty() {
+        // Where the system has no receive timeout the read waits as it did; the cap still holds.
+        let _ = stream.set_recv_timeout(Some(REQUEST_WAIT));
+        let Some(line) = request_line(&mut stream) else {
             continue;
-        }
+        };
         let reply = match wire::parse::<Request>(&line) {
             Ok(request) => on(request),
             // Answered rather than dropped: a client from a different build needs to be told
@@ -86,6 +96,17 @@ pub(crate) fn door(listening: &latchkey::Listening, mut on: impl FnMut(Request) 
     }
 }
 
+/// The first line `stream` sends, ending in a newline and at most [`MAX_REQUEST`] bytes, or
+/// `None` for one that does not arrive, is longer, or stops short of its newline.
+fn request_line(stream: impl Read) -> Option<String> {
+    let mut line = String::new();
+    let mut reader = BufReader::new(stream.take(MAX_REQUEST as u64));
+    match reader.read_line(&mut line) {
+        Ok(_) if line.ends_with('\n') => Some(line),
+        _ => None,
+    }
+}
+
 /// The answer to [`Request::Ping`], the same from either daemon.
 pub(crate) fn pong() -> Response {
     Response::Pong {
@@ -99,4 +120,25 @@ pub(crate) fn say(stream: &mut latchkey::Stream, response: Response) -> Result<(
     let text = wire::line(response)?;
     stream.write_all(text.as_bytes())?;
     Ok(stream.flush()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MAX_REQUEST, request_line};
+    use std::io::Cursor;
+
+    #[test]
+    fn a_request_is_one_whole_line_no_longer_than_the_cap() {
+        let fits = format!("{}\n", "x".repeat(MAX_REQUEST - 1));
+        let over = format!("{}\n", "x".repeat(MAX_REQUEST));
+        let cases: [(&str, &[u8], bool); 4] = [
+            ("a line", b"{\"ping\":{}}\nmore", true),
+            ("at the cap", fits.as_bytes(), true),
+            ("past the cap", over.as_bytes(), false),
+            ("never ended", b"{\"ping\"", false),
+        ];
+        for (name, bytes, read) in cases {
+            assert_eq!(request_line(Cursor::new(bytes)).is_some(), read, "{name}");
+        }
+    }
 }

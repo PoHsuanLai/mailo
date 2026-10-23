@@ -258,8 +258,7 @@ async fn call(
         .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
     let status = response.status();
     if status.is_success() {
-        let text = response
-            .text()
+        let text = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
             .await
             .or_log_default("Microsoft Graph's answer could not be read");
         return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
@@ -349,8 +348,7 @@ async fn upload(
         match response.status().as_u16() {
             200 | 201 => return Ok(()),
             202 => {
-                let text = response
-                    .text()
+                let text = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
                     .await
                     .or_log_default("Microsoft Graph's answer to an upload could not be read");
                 let answer = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -534,8 +532,9 @@ fn refusal(status: u16, body: &str, after: Option<Duration>, asked: Asked) -> Ru
 /// The words of a refusal's body, for [`refusal`] to read. Ignoring a body that does not arrive
 /// is right: the status still speaks, and the refusal is never lost for want of its words.
 pub(crate) async fn refusal_text(response: reqwest::Response) -> String {
+    let text = crate::http::text_up_to(response, crate::http::MAX_REFUSAL).await;
     // Deliberately: see above.
-    response.text().await.unwrap_or_default()
+    text.unwrap_or_default()
 }
 
 /// What Graph's error body says, or the start of the body when it is not Graph's shape.

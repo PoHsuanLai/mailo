@@ -101,7 +101,7 @@ impl ImageFetcher {
 }
 
 async fn get(client: &reqwest::Client, url: &str) -> Option<Image> {
-    let mut response = match client.get(url).send().await {
+    let response = match client.get(url).send().await {
         Ok(response) => response,
         Err(e) => {
             log::debug!("an image could not be fetched: {e}");
@@ -112,35 +112,18 @@ async fn get(client: &reqwest::Client, url: &str) -> Option<Image> {
         log::debug!("an image was refused: {}", response.status());
         return None;
     }
-    if response
-        .content_length()
-        .is_some_and(|len| len > MAX_BYTES as u64)
-    {
-        log::debug!("an image is past the {MAX_BYTES} bytes a picture may be");
-        return None;
-    }
     let content_type = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .map(str::to_owned);
-    let mut bytes = Vec::new();
-    loop {
-        match response.chunk().await {
-            Ok(Some(chunk)) if bytes.len() + chunk.len() <= MAX_BYTES => {
-                bytes.extend_from_slice(&chunk);
-            }
-            Ok(Some(_)) => {
-                log::debug!("an image grew past the {MAX_BYTES} bytes a picture may be");
-                return None;
-            }
-            Err(e) => {
-                log::debug!("an image stopped arriving: {e}");
-                return None;
-            }
-            Ok(None) => break,
+    let bytes = match crate::http::body_up_to(response, MAX_BYTES).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            log::debug!("an image was not read: {e}");
+            return None;
         }
-    }
+    };
     Some(Image {
         content_type,
         bytes,
