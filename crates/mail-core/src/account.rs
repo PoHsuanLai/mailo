@@ -1281,6 +1281,7 @@ mod tests {
                 )),
                 refresh: SecretText::new("r".to_owned()),
                 expires_at: porter_core::UnixSeconds(0),
+                granted: Default::default(),
             }
         };
         let consumer = jwt(mail_domain::presets::MICROSOFT_CONSUMER_TENANT);

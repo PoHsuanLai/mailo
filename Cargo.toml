@@ -46,26 +46,26 @@ mail-store  = { path = "crates/mail-store" }
 # target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
 # enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
 # stay free of zbus and tokio (`scripts/check-boundary.sh`).
-porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "e91eb7a4bb44ac751ab1e3430915c746daad9a16" }
-porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "e91eb7a4bb44ac751ab1e3430915c746daad9a16" }
-porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "e91eb7a4bb44ac751ab1e3430915c746daad9a16", default-features = false }
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031" }
+porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031", default-features = false }
 # Discovery. porter-discover without its `io` feature is pure parsers and two seams (no
 # tokio, no hickory); mail-runtime implements `porter_discover::Dns` and `porter_http::Http` over
 # the resolver and the HTTP client mailo already has, so neither dependency is added for them.
-porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "e91eb7a4bb44ac751ab1e3430915c746daad9a16", default-features = false }
+porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031", default-features = false }
 # OAuth. Without its `io` feature porter-oauth is the rules, the registry and the exchanges
 # over `porter_http::Http` (no tokio); only mail-runtime, the I/O crate, turns `io` on, for the
 # loopback listener.
-porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "e91eb7a4bb44ac751ab1e3430915c746daad9a16", default-features = false }
-porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "e91eb7a4bb44ac751ab1e3430915c746daad9a16", default-features = false }
+porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031", default-features = false }
+porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031", default-features = false }
 # The add-account window hosts porter's account service in process and draws its sheet
 # (`porter-service`: the sheet's conversation, `Sheets`, `AccountService`; pure, no zbus). It enters
 # `mail-app`, the front-end that draws.
-porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "e91eb7a4bb44ac751ab1e3430915c746daad9a16" }
+porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031" }
 # porter-client is the app-facing API: the add-account window's in-process transport, and the
 # relay's byte stream `mail-runtime`'s transport can wrap. Its `dbus` feature stays off: mailo keeps
 # its own accounts and credentials, and no zbus comes in through it.
-porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "e91eb7a4bb44ac751ab1e3430915c746daad9a16", default-features = false }
+porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031", default-features = false }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }
@@ -76,8 +76,8 @@ log         = "0.4"
 # copied verbatim: only the lines mailo names itself. The window reaches the Blitz
 # document through these to focus, select or scroll an element found by selector
 # (`ui/host/native.rs`).
-blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "0be21979f445965db402ddb79766a549b7b848a9", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
-dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "0be21979f445965db402ddb79766a549b7b848a9", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
+blitz-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "41134ff385ef138ed573ee5685308056243de0cf", default-features = false, features = ["svg", "system-fonts", "custom-widget", "accessibility"] }
+dioxus-native-dom = { git = "https://github.com/PoHsuanLai/blitz", rev = "41134ff385ef138ed573ee5685308056243de0cf", default-features = false, features = ["svg", "system-fonts", "accessibility"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -169,16 +169,16 @@ opt-level = 2
 # only at a workspace root and mailo builds the renderer (`ds-blitz`). Change it only by pasting
 # that file again; `scripts/check-fork-patches.sh` fails CI when the two differ.
 [patch.crates-io]
-vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
-vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
-vello_hybrid = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
-vello_sparse_shaders = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
-glifo = { git = "https://github.com/PoHsuanLai/vello", rev = "84b2c9f7debed7d15f48d0ec9ea8575c16a56938" }
-anyrender = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
-anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
-anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
-wgpu_context = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
-pixels_window_renderer = { git = "https://github.com/PoHsuanLai/anyrender", rev = "d4ae3885f89a58351ff7e99cd75d9b7de5865337" }
+vello_common = { git = "https://github.com/PoHsuanLai/vello", rev = "5c986661c9e943d26dac8e8ea7812895947722b8" }
+vello_cpu = { git = "https://github.com/PoHsuanLai/vello", rev = "5c986661c9e943d26dac8e8ea7812895947722b8" }
+vello_hybrid = { git = "https://github.com/PoHsuanLai/vello", rev = "5c986661c9e943d26dac8e8ea7812895947722b8" }
+vello_sparse_shaders = { git = "https://github.com/PoHsuanLai/vello", rev = "5c986661c9e943d26dac8e8ea7812895947722b8" }
+glifo = { git = "https://github.com/PoHsuanLai/vello", rev = "5c986661c9e943d26dac8e8ea7812895947722b8" }
+anyrender = { git = "https://github.com/PoHsuanLai/anyrender", rev = "03fcbe4c746d2334d3fb91e63641741f3dacc826" }
+anyrender_vello_cpu = { git = "https://github.com/PoHsuanLai/anyrender", rev = "03fcbe4c746d2334d3fb91e63641741f3dacc826" }
+anyrender_vello_hybrid = { git = "https://github.com/PoHsuanLai/anyrender", rev = "03fcbe4c746d2334d3fb91e63641741f3dacc826" }
+wgpu_context = { git = "https://github.com/PoHsuanLai/anyrender", rev = "03fcbe4c746d2334d3fb91e63641741f3dacc826" }
+pixels_window_renderer = { git = "https://github.com/PoHsuanLai/anyrender", rev = "03fcbe4c746d2334d3fb91e63641741f3dacc826" }
 # dioxus-core 0.7.10 can spin forever in VirtualDom::wait_for_work: a task woken and then cancelled
 # before it is polled (a use_resource restart) leaves an empty entry in the dirty-task queue that
 # pop_task never removes. Fixed upstream in DioxusLabs/dioxus#5554 (0.8-alpha only); this fork

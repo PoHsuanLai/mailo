@@ -161,6 +161,7 @@ pub async fn sign_in_told(
         expires_at: tokens.expires_at(now),
         access: tokens.access_token,
         refresh,
+        granted: Default::default(),
     })
 }
 
