@@ -162,3 +162,18 @@ pub fn nothing_removed(why: &str) -> String {
         "Nothing was removed: {why}. The saved sign-in is already forgotten, so it will ask you to sign in again."
     )
 }
+
+/// Why "Check for mail when quit" is off again: the system's reason, and what to do.
+pub fn login_item_not_registered(why: &str) -> String {
+    let why = why.trim_end_matches('.');
+    format!("Mail won’t be checked while mailo is quit: {why}. Try again later.")
+}
+
+/// Why "Check for mail when quit" may still start at login: the system's reason.
+pub fn login_item_not_removed(why: &str) -> String {
+    let why = why.trim_end_matches('.');
+    format!("mailo may still check for mail when you log in: {why}.")
+}
+
+/// What macOS asks before a login item runs.
+pub const ALLOW_LOGIN_ITEM: &str = "To check for mail while mailo is quit, turn mailo on in System Settings › General › Login Items.";

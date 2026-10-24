@@ -35,7 +35,8 @@ pub(super) struct Opening {
 }
 
 /// Launch the shell, already wearing `look` and `spaces`, open where `start` says. Returns when
-/// the window closes, or at once when it could not open (no runtime, no event loop).
+/// the app ends: when the window closes, except on macOS, where mailo.app goes on until it is
+/// quit (`crate::background`); or at once when it could not open (no runtime, no event loop).
 pub fn run(
     store: Arc<SqliteStore>,
     look: Appearance,
@@ -142,6 +143,17 @@ pub(super) fn ShellRoot() -> Element {
     // file, and the window follows it.
     super::prefs::use_window_settings();
     rsx! { gate::Gate {} }
+}
+
+/// The main window opened again, after the last one closed while mailo.app ran on (the Dock icon
+/// clicked, a banner's conversation, a `mailto:` link: `crate::background`). [`ShellRoot`], but
+/// at the inbox, whatever the launch was opened on, and past the damaged settings' question, which
+/// the first window asked: what it carries in from outside comes through the hand-off's queue.
+#[component]
+pub(super) fn ReopenedRoot() -> Element {
+    use_context_provider(|| super::Start::Inbox);
+    use_context_provider(gate::Found::default);
+    rsx! { ShellRoot {} }
 }
 
 /// Holds the icon cache in a signal so a refresh can replace it, and names the window's host.

@@ -35,10 +35,28 @@ const PATIENCE: Duration = Duration::from_secs(1);
 const LONGEST_LINE: u64 = 512;
 
 /// What the window reads requests from, as a root context.
+///
+/// The queue outlives the window that reads it: mailo.app goes on with no window open
+/// (`crate::background`), and a request that comes then (the Dock icon clicked, a banner's
+/// `mailo open`, a `mailto:` link) must still be answered. The window that reads the queue gives
+/// it back when it closes ([`Reading`]); a request that finds it given back has the app open a
+/// window again ([`Requests::open_with`]), which takes the queue and reads what waited in it.
 #[derive(Clone)]
 pub struct Requests {
-    queue: Arc<Mutex<Option<UnboundedReceiver<Request>>>>,
+    slot: Arc<Mutex<Slot>>,
     sender: UnboundedSender<Request>,
+}
+
+/// The queue, while no window reads it, and how a window is opened to read it.
+struct Slot {
+    queue: Option<UnboundedReceiver<Request>>,
+    /// Opens a window that will read the queue; true when one is on its way.
+    open: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// A window is on its way and has not taken the queue yet: the launch's first, or one opened
+    /// for a request. Another request meanwhile waits for it rather than opening a second.
+    coming: bool,
+    /// Whether the Dock icon is heard already: AppKit takes one delegate, set once.
+    reopen_heard: bool,
 }
 
 impl std::fmt::Debug for Requests {
@@ -52,23 +70,101 @@ impl Requests {
     pub fn local() -> (Requests, UnboundedSender<Request>) {
         let (sender, queue) = unbounded_channel();
         let requests = Requests {
-            queue: Arc::new(Mutex::new(Some(queue))),
+            slot: Arc::new(Mutex::new(Slot {
+                queue: Some(queue),
+                open: None,
+                coming: true,
+                reopen_heard: false,
+            })),
             sender: sender.clone(),
         };
         (requests, sender)
     }
 
-    /// The queue, once: the window reads it on the thread that draws.
-    pub fn take(&self) -> Option<UnboundedReceiver<Request>> {
-        self.queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take()
+    fn slot(&self) -> std::sync::MutexGuard<'_, Slot> {
+        self.slot.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Another way in to the same queue, for the application delegate.
-    pub(crate) fn sender(&self) -> UnboundedSender<Request> {
-        self.sender.clone()
+    /// The queue, for the window that reads it on the thread that draws, until it closes: `None`
+    /// while another window reads it.
+    pub fn take(&self) -> Option<Reading> {
+        let mut slot = self.slot();
+        let queue = slot.queue.take()?;
+        slot.coming = false;
+        Some(Reading {
+            queue: Some(queue),
+            slot: Arc::clone(&self.slot),
+        })
+    }
+
+    /// Have `open` open a window to read the queue when a request comes while none does. It
+    /// answers whether a window is on its way. Set by the launched app; a test's queue has none,
+    /// and a request to it simply waits.
+    pub fn open_with(&self, open: impl Fn() -> bool + Send + Sync + 'static) {
+        self.slot().open = Some(Arc::new(open));
+    }
+
+    /// Queue `request`, and open a window for it when none reads the queue.
+    pub(crate) fn send(&self, request: Request) {
+        // The receiver lives in this queue's slot or in the window reading it, and goes back to
+        // the slot when that window closes: a send fails only once the app is ending.
+        let _ = self.sender.send(request);
+        self.wanted();
+    }
+
+    /// Open a window when the queue waits in the slot with nobody coming for it.
+    fn wanted(&self) {
+        let open = {
+            let mut slot = self.slot();
+            if slot.queue.is_none() || slot.coming {
+                return;
+            }
+            let Some(open) = slot.open.clone() else {
+                return;
+            };
+            slot.coming = true;
+            open
+        };
+        if !open() {
+            self.slot().coming = false;
+        }
+    }
+
+    /// Mark the Dock icon heard; false when it was already.
+    fn hear_reopen_once(&self) -> bool {
+        !std::mem::replace(&mut self.slot().reopen_heard, true)
+    }
+}
+
+/// The queue as the window that reads it holds it: given back to its [`Requests`] when the
+/// window closes, so the next request opens a window again.
+pub struct Reading {
+    queue: Option<UnboundedReceiver<Request>>,
+    slot: Arc<Mutex<Slot>>,
+}
+
+impl std::fmt::Debug for Reading {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Reading(..)")
+    }
+}
+
+impl Reading {
+    /// The next request, or `None` once the app is ending.
+    pub async fn recv(&mut self) -> Option<Request> {
+        self.queue.as_mut()?.recv().await
+    }
+
+    /// The next request already queued, if there is one.
+    pub fn try_recv(&mut self) -> Option<Request> {
+        self.queue.as_mut()?.try_recv().ok()
+    }
+}
+
+impl Drop for Reading {
+    fn drop(&mut self) {
+        let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
+        slot.queue = self.queue.take();
     }
 }
 
@@ -114,12 +210,13 @@ fn serve_at(path: &Path) -> Option<Requests> {
     let listener = bind(path)
         .map_err(|e| eprintln!("opening a conversation from outside is off: {e}"))
         .ok()??;
-    let (requests, sender) = Requests::local();
+    let (requests, _sender) = Requests::local();
+    let serving = requests.clone();
     std::thread::Builder::new()
         .name("mailo-handoff".into())
         .spawn(move || {
             for stream in listener.incoming().flatten() {
-                answer(stream, &sender);
+                answer(stream, &serving);
             }
         })
         .map_err(|e| eprintln!("opening a conversation from outside is off: {e}"))
@@ -146,7 +243,7 @@ fn bind(path: &Path) -> std::io::Result<Option<UnixListener>> {
 }
 
 /// Read one request line, queue what it asks, and say `ok`.
-fn answer(stream: UnixStream, sender: &UnboundedSender<Request>) {
+fn answer(stream: UnixStream, requests: &Requests) {
     let _ = stream.set_read_timeout(Some(PATIENCE));
     let _ = stream.set_write_timeout(Some(PATIENCE));
     let mut line = String::new();
@@ -161,7 +258,7 @@ fn answer(stream: UnixStream, sender: &UnboundedSender<Request>) {
     }
     let uri = line.trim_end().to_owned();
     for request in requests_of(&[uri], None) {
-        let _ = sender.send(request);
+        requests.send(request);
     }
     let _ = (&stream).write_all(b"ok\n");
 }
@@ -170,10 +267,10 @@ fn answer(stream: UnixStream, sender: &UnboundedSender<Request>) {
 /// contexts are made, before the event loop: the URL a cold launch carries is delivered when the
 /// loop first runs, and waits in the queue until the window reads it.
 fn hear_urls(requests: &Requests) {
-    let sender = requests.sender();
+    let requests = requests.clone();
     let heard = mail_appkit::hear_urls(move |url| {
         for request in requests_of(&[url], None) {
-            let _ = sender.send(request);
+            requests.send(request);
         }
     });
     if !heard {
@@ -181,13 +278,20 @@ fn hear_urls(requests: &Requests) {
     }
 }
 
-/// Have the Dock icon clicked again raise the window. Main thread only, and only once the event
-/// loop exists (`mail_appkit::hear_reopen`); false when it could not.
+/// Have the Dock icon clicked again raise the window, or open one when none is open. Main thread
+/// only, and only once the event loop exists (`mail_appkit::hear_reopen`); false when it could
+/// not. Each window that reads the queue asks; the first is heard, and the rest are told it is.
 pub fn hear_reopen(requests: &Requests) -> bool {
-    let sender = requests.sender();
-    mail_appkit::hear_reopen(move || {
-        let _ = sender.send(Request::Activate { token: None });
-    })
+    if !requests.hear_reopen_once() {
+        return true;
+    }
+    let heard = requests.clone();
+    let set = mail_appkit::hear_reopen(move || heard.send(Request::Activate { token: None }));
+    if !set {
+        // Not heard, so the next window to read the queue asks again.
+        requests.slot().reopen_heard = false;
+    }
+    set
 }
 
 /// Ask the running window to open `thread`. True when a window took it; false when none is
@@ -237,7 +341,7 @@ mod tests {
 
         assert!(send(&path, &uri_of(thread())));
         assert_eq!(
-            queue.try_recv().ok(),
+            queue.try_recv(),
             Some(Request::Thread {
                 thread: thread(),
                 token: None
@@ -254,7 +358,7 @@ mod tests {
 
         assert!(send(&path, "mailto:a@example.test?subject=hi"));
         assert!(matches!(
-            queue.try_recv().ok(),
+            queue.try_recv(),
             Some(Request::Mailto { link, .. }) if link.subject == "hi"
         ));
     }
@@ -267,10 +371,79 @@ mod tests {
         let mut queue = requests.take().expect("the queue, once");
 
         assert!(send(&path, ACTIVATE));
+        assert_eq!(queue.try_recv(), Some(Request::Activate { token: None }));
+    }
+
+    #[test]
+    fn a_request_with_no_window_reading_opens_one_and_only_one() {
+        let (requests, _sender) = Requests::local();
+        let opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        requests.open_with({
+            let opened = Arc::clone(&opened);
+            move || {
+                opened.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                true
+            }
+        });
+        let count = || opened.load(std::sync::atomic::Ordering::SeqCst);
+
+        // The launch's first window is on its way: a URL that came with the launch waits for it.
+        requests.send(Request::Activate { token: None });
+        assert_eq!(count(), 0, "the first window is coming");
+        let mut first = requests.take().expect("the first window takes the queue");
+        assert_eq!(first.try_recv(), Some(Request::Activate { token: None }));
+
+        // While a window reads, a request is its.
+        requests.send(Request::Thread {
+            thread: thread(),
+            token: None,
+        });
+        assert_eq!(count(), 0);
+        assert!(requests.take().is_none(), "one window reads it");
+
+        // The window closes and gives the queue back, with what it had not read.
+        drop(first);
+        requests.send(Request::Activate { token: None });
+        assert_eq!(count(), 1, "the Dock icon opens a window");
+        requests.send(Request::Activate { token: None });
+        assert_eq!(count(), 1, "a second click waits for the window on its way");
+
+        let mut again = requests.take().expect("the new window takes the queue");
         assert_eq!(
-            queue.try_recv().ok(),
-            Some(Request::Activate { token: None })
+            again.try_recv(),
+            Some(Request::Thread {
+                thread: thread(),
+                token: None
+            })
         );
+        assert_eq!(again.try_recv(), Some(Request::Activate { token: None }));
+        assert_eq!(again.try_recv(), Some(Request::Activate { token: None }));
+    }
+
+    #[test]
+    fn a_window_that_could_not_open_is_tried_again_at_the_next_request() {
+        let (requests, _sender) = Requests::local();
+        drop(requests.take());
+        let tries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        requests.open_with({
+            let tries = Arc::clone(&tries);
+            move || {
+                tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                false
+            }
+        });
+        requests.send(Request::Activate { token: None });
+        requests.send(Request::Activate { token: None });
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn a_queue_with_no_way_to_open_a_window_keeps_what_it_is_sent() {
+        let (requests, _sender) = Requests::local();
+        drop(requests.take());
+        requests.send(Request::Activate { token: None });
+        let mut later = requests.take().expect("given back");
+        assert_eq!(later.try_recv(), Some(Request::Activate { token: None }));
     }
 
     #[test]

@@ -201,3 +201,37 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
         });
     }
 }
+
+/// "Check for mail when quit" on General: off as mailo ships, and each turn of its switch is
+/// handed to the login item (a recorder here, never the system's) and kept in `settings.toml`.
+#[test]
+fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
+    let mut window = Window::open(|_| {});
+    let dirs = window.dirs();
+    let root = mail_app::settings::root_for(&dirs.config);
+    let while_quit = move || mail_app::settings::load(&root).sync.while_quit;
+    assert_eq!(while_quit(), mail_app::settings::WhileQuit::Off);
+    let switch = "[*|aria-label=\"Check for mail when quit\"][*|aria-checked]";
+    window.in_settings(copy::titles::GENERAL, |settings| {
+        until(settings, "the switch is drawn, off", |h| {
+            h.count(&format!("{switch}[*|aria-checked=\"false\"]")) == 1
+        });
+        click(settings, switch);
+        until(settings, "the switch is on", |h| {
+            h.count(&format!("{switch}[*|aria-checked=\"true\"]")) == 1
+        });
+    });
+    assert_eq!(while_quit(), mail_app::settings::WhileQuit::On);
+    assert_eq!(window.login_asked(), ["register"]);
+    window.in_settings(copy::titles::GENERAL, |settings| {
+        until(settings, "the switch is drawn, on", |h| {
+            h.count(&format!("{switch}[*|aria-checked=\"true\"]")) == 1
+        });
+        click(settings, switch);
+        until(settings, "the switch is off", |h| {
+            h.count(&format!("{switch}[*|aria-checked=\"false\"]")) == 1
+        });
+    });
+    assert_eq!(while_quit(), mail_app::settings::WhileQuit::Off);
+    assert_eq!(window.login_asked(), ["register", "unregister"]);
+}
