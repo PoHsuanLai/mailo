@@ -47,3 +47,6 @@ mod triage;
 mod preferences;
 mod search;
 mod sidebar;
+
+// 15: a notification's click, in the Space that holds its account.
+mod clicks;

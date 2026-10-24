@@ -313,3 +313,47 @@ fn boot_leaves_an_account_in_no_space_where_it_is() {
         .collect();
     assert_eq!(accounts, vec![vec![account(1)], vec![]]);
 }
+
+/// Three Spaces (A over accounts 1 and 2, B over 2 and 3, C over 3), the one at `current` on
+/// screen.
+fn three(current: usize) -> Spaces {
+    let space = |name: &str, accounts: &[u128]| {
+        (
+            name.to_owned(),
+            SpaceLook::default(),
+            Mail::of(accounts.iter().map(|n| account(*n)).collect()),
+        )
+    };
+    super::built(
+        vec![space("A", &[1, 2]), space("B", &[2, 3]), space("C", &[3])],
+        current,
+    )
+}
+
+/// Which Space a click shows an account's mail in, from where the window is: (the Space on
+/// screen, the account, the Space chosen by name, or `None` to stay put).
+type Holding = (usize, u128, Option<&'static str>);
+
+#[test]
+fn a_click_stays_in_a_space_that_holds_the_account_else_takes_the_first_that_does() {
+    let cases: &[Holding] = &[
+        // The Space on screen holds it: stay, even though an earlier one holds it too.
+        (0, 1, Some("A")),
+        (1, 2, Some("B")),
+        (2, 3, Some("C")),
+        // It does not: the first in order that does, not the nearest or the last.
+        (0, 3, Some("B")),
+        (2, 2, Some("A")),
+        (2, 1, Some("A")),
+        // None holds it.
+        (0, 9, None),
+        (1, 9, None),
+    ];
+    for (current, wanted, chosen) in cases {
+        let spaces = three(*current);
+        let got = super::holding(&spaces, &account(*wanted))
+            .and_then(|id| spaces.get(id))
+            .map(|space| space.name.clone());
+        assert_eq!(got.as_deref(), *chosen, "on {current}, account {wanted}");
+    }
+}

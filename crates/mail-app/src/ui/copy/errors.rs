@@ -162,3 +162,12 @@ pub fn nothing_removed(why: &str) -> String {
         "Nothing was removed: {why}. The saved sign-in is already forgotten, so it will ask you to sign in again."
     )
 }
+
+/// `mailo open --inbox` with no account after it.
+pub const OPEN_INBOX_NEEDS_ACCOUNT: &str =
+    "open --inbox needs an account id: mailo open --inbox <account>";
+
+/// `mailo open --inbox` with something after it that is not an account id.
+pub fn not_an_account_id(given: &str) -> String {
+    format!("{given:?} is not an account id")
+}
