@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, CopyMyself, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch,
+    Spelling,
 };
 
 use ds::prelude::Word;
@@ -76,6 +77,12 @@ pub struct ComposeSettings {
         section = "Mail"
     )]
     pub spelling: Spelling,
+    #[settings(
+        label = "Copy myself",
+        help = "Put your own address on the Cc or Bcc of each message you write.",
+        section = "Mail"
+    )]
+    pub copy_myself: CopyMyself,
 }
 
 /// `reading.*`: reading mail.

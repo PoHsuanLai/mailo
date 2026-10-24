@@ -118,8 +118,10 @@ fn each_kind_of_account_lists_its_servers_and_how_it_signs_in() {
     }
 }
 
+/// The addresses an account sends as are not among its servers: they are the Sending as group's,
+/// which edits them (`sends_as`), and the plan's copy of them changes nothing here.
 #[test]
-fn the_addresses_it_sends_as_follow_with_their_names() {
+fn the_addresses_it_sends_as_are_not_server_lines() {
     let identity = |name: Option<&str>, email: &str| Identity {
         from: Address {
             name: name.map(str::to_owned),
@@ -127,7 +129,7 @@ fn the_addresses_it_sends_as_follow_with_their_names() {
         },
         ..mail_domain::testing::identity()
     };
-    let mut plan = plan(
+    let bare = plan(
         Incoming::Graph,
         Outgoing::Graph,
         AuthPlan::OAuth {
@@ -135,15 +137,12 @@ fn the_addresses_it_sends_as_follow_with_their_names() {
             scopes: Vec::new(),
         },
     );
-    plan.identities = vec![
-        identity(Some(" Ada Lovelace "), ADDRESS),
-        identity(Some(""), "ada@work.example"),
-        identity(None, "a@example.org"),
+    let mut sending = bare.clone();
+    sending.identities = vec![
+        identity(Some("Ada Lovelace"), ADDRESS),
+        identity(None, "ada@work.example"),
     ];
-    assert_eq!(
-        said(&plan).last().map(String::as_str),
-        Some("Sends as: Ada Lovelace <ada@example.com>, ada@work.example, a@example.org")
-    );
+    assert_eq!(said(&sending), said(&bare));
 }
 
 #[test]

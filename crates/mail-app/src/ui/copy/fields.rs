@@ -108,6 +108,16 @@ pub const REPLY_BODY: &str = "The reply’s text";
 pub const REPLY_TEXT: &str = "Reply text";
 /// The addresses the reply answers mail for.
 pub const ANSWERS_MAIL_TO: &str = "Answers mail to";
+/// The name an account's own address goes out under, on its page in Settings.
+pub const FULL_NAME: &str = "Full name";
+/// Where replies to an alias go, when not to the alias itself.
+pub const REPLY_TO: &str = "Reply-To";
+/// What the name fields hold before anything is typed.
+pub const FULL_NAME_EXAMPLE: &str = "Ada Lovelace";
+/// What an alias's address field holds before anything is typed.
+pub const ALIAS_EXAMPLE: &str = "ada@example.com";
+/// What an alias's Reply-To field holds before anything is typed: the alias itself.
+pub const REPLY_TO_EXAMPLE: &str = "The alias itself";
 /// When it starts and stops; `FROM` is the start's.
 pub const UNTIL: &str = "Until";
 pub const FROM_EXAMPLE: &str = "now, or 2026-10-08";
@@ -120,5 +130,4 @@ pub mod account {
     pub const DOWNLOADED_MAIL: &str = "Downloaded mail";
     pub const SENDING: &str = "Sending";
     pub const SIGNS_IN: &str = "Signs in";
-    pub const SENDS_AS: &str = "Sends as";
 }

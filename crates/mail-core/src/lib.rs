@@ -32,6 +32,7 @@ pub mod export;
 pub mod folder;
 pub mod follow_up;
 pub mod history;
+pub mod identity;
 pub mod import;
 pub mod invite;
 pub mod ipc;

@@ -16,6 +16,8 @@ pub const ADD_A_SPACE: &str = "Add a Space";
 pub const ADD_A_KEY: &str = "Add a Key";
 /// Settings › Rules' list under the rules, which holds New Rule.
 pub const ADD_A_RULE: &str = "Add a Rule";
+/// An account's page in Settings: the list of the other addresses it sends as.
+pub const ALIASES: &str = "Aliases";
 /// The "+" after the account tiles.
 pub const ADD_ACCOUNT: &str = "Add Account";
 /// The sync mark while an account in view waits for its sign-in: a press asks about it again.

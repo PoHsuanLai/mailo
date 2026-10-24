@@ -44,6 +44,10 @@ pub const SAVE: &str = "Save";
 pub const DOWNLOAD: &str = "Download";
 /// Takes one entry out of a list in Settings.
 pub const REMOVE: &str = "Remove";
+/// An account's page in Settings: the row that opens a new alias's fields.
+pub const ADD_ALIAS: &str = "Add Alias\u{2026}";
+/// An alias's fields: the button that takes it off the account.
+pub const REMOVE_ALIAS: &str = "Remove Alias";
 /// The Rules page's row that makes a rule.
 pub const NEW_RULE: &str = "New Rule…";
 /// Settings › Keyboard: every key as it ships, shown only while one differs.
