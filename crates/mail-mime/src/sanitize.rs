@@ -46,7 +46,7 @@ impl SanitizePolicy {
     pub const CURRENT: SanitizePolicy = SanitizePolicy {
         remote_images: RemoteImages::Blocked,
         styles: Styles::Dropped,
-        version: 3,
+        version: 4,
     };
 
     /// The reader's frame: remote images blocked until the reader asks, the sender's CSS kept.
@@ -206,6 +206,9 @@ fn build(styles: Styles, remote: RemoteImages) -> ammonia::Builder<'static> {
             if attribute == "style" {
                 return Some(css::scrub(value, css::Context::Declarations));
             }
+            if attribute == "class" || attribute == "id" {
+                return not_own(value);
+            }
             if fetches_on_render(element, attribute) {
                 let kept = keep_fetched_url(value, remote);
                 if is_remote(value) {
@@ -223,6 +226,25 @@ fn build(styles: Styles, remote: RemoteImages) -> ammonia::Builder<'static> {
             }
         });
     builder
+}
+
+/// A sender's `class` or `id` without mailo's own names (those starting `mailo-`, in any case):
+/// the frame's document puts elements of the reader's own beside the sender's (the inset the
+/// words are read in, a folded quote), and its rules for them must reach only them. Nothing is
+/// left of an attribute that held only such names.
+fn not_own(value: &str) -> Option<Cow<'_, str>> {
+    let own = |name: &str| {
+        name.get(..6)
+            .is_some_and(|head| head.eq_ignore_ascii_case("mailo-"))
+    };
+    if !value.split_ascii_whitespace().any(own) {
+        return Some(Cow::Borrowed(value));
+    }
+    let kept: Vec<&str> = value
+        .split_ascii_whitespace()
+        .filter(|name| !own(name))
+        .collect();
+    (!kept.is_empty()).then(|| Cow::Owned(kept.join(" ")))
 }
 
 /// Elements whose content a browser never draws as text, removed with everything in them.

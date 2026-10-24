@@ -15,6 +15,12 @@
 //! - comments, bad tokens, `<!--`/`-->` and a bare `<`: CSS has no use for them, and a `<` is
 //!   the only way a sheet's text could read as markup. A `<` inside a string is written escaped.
 //!
+//! - mailo's own names: an identifier, an `#id` or a class that starts `mailo-` is written with
+//!   an `x-` before it, and an attribute selector that names `mailo` anywhere is written as one
+//!   no element has (`[x-mailo]`), so no rule of the sender's reaches an element of the reader's
+//!   own (the frame's inset, a folded quote) by its name; the sanitizer keeps the sender's
+//!   markup from carrying those names too (`sanitize.rs`).
+//!
 //! Strings and identifiers are written back with `cssparser`'s serializer, so `content: "\2022"`
 //! survives as the bullet it names.
 //!
@@ -73,6 +79,16 @@ fn plainly_safe(css: &str) -> bool {
     !css.bytes()
         .any(|b| matches!(b, b'\\' | b'<' | b'@' | b'(' | b'/'))
         && !RUNNING.iter().any(|name| contains_ci(css, name))
+        && !contains_ci(css, OWN)
+}
+
+/// What mailo's own names in a frame's document start with (`mailo-inset`, `mailo-quote`).
+const OWN: &str = "mailo";
+
+/// Whether `name` is one of mailo's own: it starts `mailo-`, in any case.
+fn is_own(name: &str) -> bool {
+    name.get(..OWN.len() + 1)
+        .is_some_and(|head| head.eq_ignore_ascii_case("mailo-"))
 }
 
 fn contains_ci(hay: &str, needle: &str) -> bool {
@@ -146,6 +162,13 @@ fn walk(parser: &mut Parser<'_>, context: Context, out: &mut Out) {
                     continue;
                 }
                 Token::AtKeyword(name) => at_rule = Some(name.to_ascii_lowercase()),
+                Token::SquareBracketBlock if names_own(parser) => {
+                    // An attribute selector reaching for mailo's names matches nothing instead.
+                    out.token(token.serialization_type(), "[");
+                    out.token(TokenSerializationType::Nothing, "x-mailo");
+                    out.token(Token::CloseSquareBracket.serialization_type(), "]");
+                    continue;
+                }
                 Token::Semicolon => at_rule = None,
                 Token::CurlyBracketBlock => {
                     let inner = match at_rule.take() {
@@ -181,9 +204,35 @@ fn walk(parser: &mut Parser<'_>, context: Context, out: &mut Out) {
     }
 }
 
+/// Whether the bracket block just opened names `mailo` anywhere inside it. The block is read
+/// through and the parser put back where it was, so the block is still the caller's to read.
+fn names_own(parser: &mut Parser<'_>) -> bool {
+    let state = parser.state();
+    let start = parser.position();
+    // Only read through: what is inside is judged by its text below, and a block that does not
+    // parse is still read to its end.
+    let _ = parser.parse_nested_block(|inner| {
+        while inner.next_including_whitespace_and_comments().is_ok() {}
+        Ok::<(), ParseError<()>>(())
+    });
+    let named = contains_ci(parser.slice_from(start), OWN);
+    parser.reset(&state);
+    named
+}
+
 /// Write one token that is not structure the walk itself reads.
 fn write(parser: &mut Parser<'_>, token: &Token<'_>, out: &mut Out) {
     match token {
+        Token::Ident(name) | Token::IDHash(name) | Token::Hash(name) if is_own(name) => {
+            let mut ident = String::with_capacity(name.len() + 3);
+            if !matches!(token, Token::Ident(_)) {
+                ident.push('#');
+            }
+            ident.push_str("x-");
+            // Writing to a `String` cannot fail.
+            let _ = serialize_identifier(name, &mut ident);
+            out.token(token.serialization_type(), &unmarked(&ident));
+        }
         Token::Function(name) if FETCHING.iter().any(|f| name.eq_ignore_ascii_case(f)) => {
             out.token(TokenSerializationType::Ident, "none");
             let _ = parser.parse_nested_block(|_| Ok::<(), ParseError<()>>(()));
