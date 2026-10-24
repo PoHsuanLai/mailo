@@ -66,8 +66,10 @@ pub(crate) fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)>
         RemoteIntent::AddKeyword { .. } => Vec::new(),
         // As SqliteStore: a destroyed message has nothing to re-layer.
         RemoteIntent::Destroy { .. } => Vec::new(),
-        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-            Vec::new()
-        }
+        RemoteIntent::Send { .. }
+        | RemoteIntent::Folder(_)
+        | RemoteIntent::Append { .. }
+        | RemoteIntent::KeepDraft { .. }
+        | RemoteIntent::DropDraft { .. } => Vec::new(),
     }
 }

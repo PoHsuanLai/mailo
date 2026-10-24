@@ -41,6 +41,102 @@ fn an_autosave_taken_before_a_discard_does_not_bring_the_draft_back() {
     assert!(store.draft(draft.id).is_err(), "the draft came back");
 }
 
+/// Autosave asks for a copy on the server at most once every [`life::KEEP_EVERY`]; closing or
+/// parking the page asks for one whenever.
+#[test]
+fn a_copy_for_the_server_is_due_at_most_every_thirty_seconds_unless_the_page_is_going() {
+    use super::super::life::{KEEP_EVERY, Keeping, Kept};
+    let mut kept = Kept::default();
+    let (draft, other) = (DraftId::generate(), DraftId::generate());
+    let start = Utc::now();
+    let soon = start + chrono::TimeDelta::seconds(5);
+    assert!(kept.due(draft, start, Keeping::WhenDue), "the first save");
+    assert!(!kept.due(draft, soon, Keeping::WhenDue), "five seconds on");
+    assert!(
+        kept.due(other, soon, Keeping::WhenDue),
+        "each draft keeps its own time"
+    );
+    assert!(kept.due(draft, soon, Keeping::Now), "the page is closing");
+    let after = soon + KEEP_EVERY;
+    assert!(
+        !kept.due(
+            draft,
+            after - chrono::TimeDelta::seconds(1),
+            Keeping::WhenDue
+        ),
+        "counted from the copy the closing page kept"
+    );
+    assert!(
+        kept.due(draft, after, Keeping::WhenDue),
+        "thirty seconds on"
+    );
+}
+
+/// An autosave on an account whose server names a Drafts folder queues the draft's copy for it,
+/// and one made a moment later does not queue another.
+#[test]
+fn an_autosave_queues_the_draft_s_copy_for_the_server_s_drafts_folder() {
+    use super::super::life::{self, Keeping};
+    let (store, _dir) = seeded();
+    let plan = AccountPlan {
+        address: "me@example.test".to_owned(),
+        incoming: Incoming::Imap {
+            host: "imap.example.test".to_owned(),
+            port: 993,
+            tls: Tls::Implicit,
+        },
+        outgoing: Outgoing::Smtp {
+            host: "smtp.example.test".to_owned(),
+            port: 465,
+            tls: Tls::Implicit,
+        },
+        auth: AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
+        },
+        identities: Vec::new(),
+    };
+    store.set_account_plan(acct_account(), &plan).unwrap();
+    let caps = AccountCaps {
+        folders: FolderRoles(vec![("Drafts".to_owned(), MailboxRole::Drafts)]),
+        ..crate::ui::fixtures::gmail_caps()
+    };
+    store.put_caps(acct_account(), &caps, Utc::now()).unwrap();
+    let draft = fresh_draft(&store);
+    let mut page = life::load(&store, draft.id, &mut Vec::new()).expect("the draft's page");
+    page.subject = "half a thought".to_owned();
+    let now = Utc::now();
+    life::save(&store, &mut page, now).unwrap();
+
+    let keeps = |store: &SqliteStore| {
+        store
+            .outbox_due(acct_account(), far())
+            .unwrap()
+            .into_iter()
+            .filter(
+                |entry| matches!(&entry.op, ProtoOp::KeepDraft { draft: d, .. } if *d == draft.id),
+            )
+            .count()
+    };
+    assert_eq!(
+        life::keep_on_server(&store, draft.id, now, Keeping::WhenDue),
+        Ok(true)
+    );
+    assert_eq!(keeps(&store), 1);
+    let soon = now + chrono::TimeDelta::seconds(5);
+    assert_eq!(
+        life::keep_on_server(&store, draft.id, soon, Keeping::WhenDue),
+        Ok(false),
+        "a second copy five seconds later"
+    );
+    // Closing the page keeps one now, in place of the one still waiting.
+    assert_eq!(
+        life::keep_on_server(&store, draft.id, soon, Keeping::Now),
+        Ok(true)
+    );
+    assert_eq!(keeps(&store), 1);
+}
+
 #[tokio::test]
 async fn send_with_nobody_to_send_to_queues_nothing_and_marks_the_to_field_invalid() {
     let (store, _dir) = seeded();

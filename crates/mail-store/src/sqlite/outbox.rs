@@ -115,38 +115,10 @@ impl SqliteStore {
     ) -> Result<Option<ProtoOp>, StoreError> {
         // A submission addresses no existing message — it *is* the new one — so it needs no
         // `remote_map` lookup and must not be dropped by the "no remote address" rule below.
-        if let RemoteIntent::Send {
-            draft,
-            raw,
-            mail_from,
-            rcpt_to,
-        } = intent
-        {
-            return Ok(Some(ProtoOp::Submit {
-                draft: *draft,
-                raw: *raw,
-                mail_from: mail_from.clone(),
-                rcpt_to: rcpt_to.clone(),
-            }));
-        }
-        // Nor does folder work, which names mailboxes rather than messages.
-        if let RemoteIntent::Folder(work) = intent {
-            return Ok(Some(ProtoOp::Folder(work.clone())));
-        }
-        // Nor an upload: the bytes are the new message.
-        if let RemoteIntent::Append {
-            mailbox,
-            flags,
-            date,
-            raw,
-        } = intent
-        {
-            return Ok(Some(ProtoOp::Append {
-                mailbox: mailbox.clone(),
-                flags: flags.clone(),
-                date: *date,
-                raw: *raw,
-            }));
+        // Nor does folder work, which names mailboxes rather than messages, nor an upload, whose
+        // bytes are the new message, nor a draft's copy, found on the server by its Message-ID.
+        if let Some(op) = crate::dispatch::unaddressed(intent) {
+            return Ok(Some(op));
         }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
@@ -155,9 +127,11 @@ impl SqliteStore {
             | RemoteIntent::File { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. }
             | RemoteIntent::Destroy { messages } => messages,
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                unreachable!("handled above")
-            }
+            RemoteIntent::Send { .. }
+            | RemoteIntent::Folder(_)
+            | RemoteIntent::Append { .. }
+            | RemoteIntent::KeepDraft { .. }
+            | RemoteIntent::DropDraft { .. } => unreachable!("handled above"),
         };
         let remotes = self.refs_for(account.clone(), messages)?;
         // Normal, not exceptional: a message composed locally and not yet sent has no server
@@ -194,9 +168,11 @@ impl SqliteStore {
                 }
             }
             RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                unreachable!("handled above")
-            }
+            RemoteIntent::Send { .. }
+            | RemoteIntent::Folder(_)
+            | RemoteIntent::Append { .. }
+            | RemoteIntent::KeepDraft { .. }
+            | RemoteIntent::DropDraft { .. } => unreachable!("handled above"),
         }))
     }
 
@@ -221,6 +197,18 @@ impl SqliteStore {
         };
         let db = self.connection();
         let tx = db.unchecked_transaction()?;
+        // A draft's copy on the server is only ever its latest: an upload still waiting is
+        // stale once another is queued, or once the draft is sent or discarded, and goes. One
+        // already under way when it goes runs to its end and settles into nothing (`settle`);
+        // what it put there is found and removed by the operation queued here.
+        if let Some(draft) = crate::dispatch::draft_copy_of(&intent) {
+            self.connection().execute(
+                "DELETE FROM outbox WHERE account = ?1
+                     AND json_extract(op, '$.kind') = 'keep_draft'
+                     AND json_extract(op, '$.v.draft') = ?2",
+                params![account.to_string(), draft.to_string()],
+            )?;
+        }
         self.connection().execute(
             "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at, messages)
              VALUES (?1, ?2, ?3, 0, ?4, ?4, ?5)",
@@ -368,6 +356,16 @@ impl SqliteStore {
     ) -> Result<(), StoreError> {
         let db = self.connection();
         let tx = db.unchecked_transaction()?;
+        // Taken out of the outbox while it ran: a draft's upload that a later one replaced
+        // (`queue`). Whatever it did is the later one's to correct, and there is no row to settle.
+        let held: bool = self.connection().query_row(
+            "SELECT EXISTS (SELECT 1 FROM outbox WHERE id = ?1)",
+            params![id.as_i64()],
+            |r| r.get(0),
+        )?;
+        if !held {
+            return Ok(());
+        }
         match settle {
             Settle::Ok => {
                 self.settle_destroyed(id, Answered::Done)?;

@@ -119,7 +119,79 @@ fn messages_of(intent: &RemoteIntent) -> &[MessageId] {
         | RemoteIntent::File { messages, .. }
         | RemoteIntent::AddKeyword { messages, .. }
         | RemoteIntent::Destroy { messages } => messages,
-        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => &[],
+        RemoteIntent::Send { .. }
+        | RemoteIntent::Folder(_)
+        | RemoteIntent::Append { .. }
+        | RemoteIntent::KeepDraft { .. }
+        | RemoteIntent::DropDraft { .. } => &[],
+    }
+}
+
+/// The wire operation of an intent that addresses no message this client holds, as it is: a
+/// submission, folder work, an upload, or a draft's copy on the server. `None` for one that
+/// names messages, which only `remote_map` can address.
+pub(crate) fn unaddressed(intent: &RemoteIntent) -> Option<ProtoOp> {
+    Some(match intent {
+        RemoteIntent::Send {
+            draft,
+            raw,
+            mail_from,
+            rcpt_to,
+        } => ProtoOp::Submit {
+            draft: *draft,
+            raw: *raw,
+            mail_from: mail_from.clone(),
+            rcpt_to: rcpt_to.clone(),
+        },
+        RemoteIntent::Folder(work) => ProtoOp::Folder(work.clone()),
+        RemoteIntent::Append {
+            mailbox,
+            flags,
+            date,
+            raw,
+        } => ProtoOp::Append {
+            mailbox: mailbox.clone(),
+            flags: flags.clone(),
+            date: *date,
+            raw: *raw,
+        },
+        RemoteIntent::KeepDraft {
+            draft,
+            mailbox,
+            message_id,
+            raw,
+        } => ProtoOp::KeepDraft {
+            draft: *draft,
+            mailbox: mailbox.clone(),
+            message_id: message_id.clone(),
+            raw: *raw,
+        },
+        RemoteIntent::DropDraft {
+            draft,
+            mailbox,
+            message_id,
+        } => ProtoOp::DropDraft {
+            draft: *draft,
+            mailbox: mailbox.clone(),
+            message_id: message_id.clone(),
+        },
+        RemoteIntent::SetFlags { .. }
+        | RemoteIntent::SetMailbox { .. }
+        | RemoteIntent::SetLabels { .. }
+        | RemoteIntent::File { .. }
+        | RemoteIntent::AddKeyword { .. }
+        | RemoteIntent::Destroy { .. } => return None,
+    })
+}
+
+/// The draft whose server copy an intent replaces or removes: what an upload of it still queued
+/// is taken out of the outbox for, since the bytes it would put there are already stale.
+pub(crate) fn draft_copy_of(intent: &RemoteIntent) -> Option<mail_domain::DraftId> {
+    match intent {
+        RemoteIntent::KeepDraft { draft, .. } | RemoteIntent::DropDraft { draft, .. } => {
+            Some(*draft)
+        }
+        _ => None,
     }
 }
 

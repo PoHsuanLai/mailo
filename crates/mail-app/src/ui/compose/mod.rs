@@ -205,7 +205,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             *current = None;
         }
     });
-    // Autosave: once the page has been still for a moment, through the draft save path.
+    // Autosave: once the page has been still for a moment, through the draft save path, with a
+    // copy kept on the server now and then.
     use_future(move || async move {
         let mut last = u64::MAX;
         loop {
@@ -225,7 +226,16 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 let (taken, stamp) = (page.peek().clone(), life::stamp());
                 let now = chrono::Utc::now();
                 let saved = tokio::task::spawn_blocking(move || {
-                    life::save_stamped(&store, &taken, stamp, now)
+                    let saved = life::save_stamped(&store, &taken, stamp, now)?;
+                    // And a copy for the server's Drafts, at most every `KEEP_EVERY`. The save
+                    // stands whatever becomes of it.
+                    if saved.is_some()
+                        && let Err(why) =
+                            life::keep_on_server(&store, taken.draft, now, life::Keeping::WhenDue)
+                    {
+                        log::warn!("the draft's copy on the server was not queued: {why}");
+                    }
+                    Ok(saved)
                 })
                 .await
                 .unwrap_or_else(|why| Err(why.to_string()));

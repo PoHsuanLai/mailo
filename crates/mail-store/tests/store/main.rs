@@ -32,6 +32,7 @@ mod remove_account;
 mod rules;
 mod search;
 mod send_later;
+mod server_drafts;
 mod smime_certs;
 mod sort_indexes;
 mod sqlite_capabilities;
