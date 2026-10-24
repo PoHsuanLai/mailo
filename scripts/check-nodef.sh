@@ -22,6 +22,9 @@ done
 echo "nodef: mail-mime"
 cargo check -p mail-mime --no-default-features --tests
 
-# The doubles at the runtime's seams build without the platform keyring and the bus.
-echo "nodef: mail-runtime --features testing"
-cargo check -p mail-runtime --no-default-features --features testing
+# Each crate's test doubles (`testing`) build with nothing else on: the runtime's without the
+# platform keyring and the bus, and the others' without whatever the workspace turns on for them.
+for crate in mail-domain mail-store mail-runtime mail-core; do
+  echo "nodef: $crate --features testing"
+  cargo check -p "$crate" --no-default-features --features testing
+done
