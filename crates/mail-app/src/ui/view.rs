@@ -55,6 +55,50 @@ impl From<crate::settings::ProviderMarks> for Marks {
     }
 }
 
+impl PageParts {
+    /// The parts `window` keeps shown.
+    pub fn of(window: &crate::settings::WindowSettings) -> Self {
+        let part = |on: bool| if on { RowPart::Shown } else { RowPart::Hidden };
+        Self {
+            snippet: part(window.snippets == crate::settings::Snippets::On),
+            chips: part(window.label_chips == crate::settings::LabelChips::On),
+        }
+    }
+
+    /// These parts kept in `window`.
+    pub fn keep(self, window: &mut crate::settings::WindowSettings) {
+        use crate::settings::{LabelChips, Snippets};
+        window.snippets = if self.snippet.shown() {
+            Snippets::On
+        } else {
+            Snippets::Off
+        };
+        window.label_chips = if self.chips.shown() {
+            LabelChips::On
+        } else {
+            LabelChips::Off
+        };
+    }
+}
+
+impl From<crate::settings::GroupByDate> for PageGroup {
+    fn from(group: crate::settings::GroupByDate) -> Self {
+        match group {
+            crate::settings::GroupByDate::On => PageGroup::Date,
+            crate::settings::GroupByDate::Off => PageGroup::None,
+        }
+    }
+}
+
+impl From<PageGroup> for crate::settings::GroupByDate {
+    fn from(group: PageGroup) -> Self {
+        match group {
+            PageGroup::Date => crate::settings::GroupByDate::On,
+            PageGroup::None => crate::settings::GroupByDate::Off,
+        }
+    }
+}
+
 impl From<Marks> for crate::settings::ProviderMarks {
     fn from(marks: Marks) -> Self {
         match marks {

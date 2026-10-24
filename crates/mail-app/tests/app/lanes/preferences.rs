@@ -201,3 +201,35 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
         });
     }
 }
+
+/// The list's ⋯ menu is kept: snippets hidden and grouping by date are written to
+/// `settings.toml`, and the next window opens with them.
+#[test]
+fn the_list_opens_the_way_it_was_left() {
+    use mail_app::settings::{GroupByDate, LabelChips, Snippets, load, root_for, store};
+    let options = format!("[aria-label=\"{}\"]", copy::aria::MORE);
+    let mut window = Window::open(|_| {});
+    window.click(&options);
+    super::hands::menu_item(&mut window.harness, copy::menus::HIDE_SNIPPETS);
+    super::hands::menu_item(&mut window.harness, copy::menus::GROUP_BY_DATE);
+    let kept = load(&root_for(&window.dirs().config));
+    assert_eq!(kept.window.snippets, Snippets::Off);
+    assert_eq!(kept.window.label_chips, LabelChips::On);
+    assert_eq!(kept.window.group_by_date, GroupByDate::On);
+
+    let mut next = Window::open_with(
+        chrono::Utc::now(),
+        |_| {},
+        |dir, contexts| {
+            store(root_for(&dir.join("config")))
+                .save(&kept)
+                .expect("settings written");
+            contexts
+        },
+    );
+    next.click(&options);
+    until(&mut next.harness, "the menu offers snippets back", |h| {
+        super::look::menu_item_of(h, copy::menus::SHOW_SNIPPETS).is_some()
+            && super::look::menu_item_of(h, copy::menus::HIDE_LABELS).is_some()
+    });
+}
