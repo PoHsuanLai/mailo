@@ -433,7 +433,7 @@ impl Store for SqliteStore {
         };
 
         let sql_text = format!(
-            "SELECT {} FROM thread_summary ts WHERE {} AND {} ORDER BY {column} {dir}, ts.thread {dir} LIMIT ?",
+            "SELECT {}, {column} AS sort_key FROM thread_summary ts WHERE {} AND {} ORDER BY {column} {dir}, ts.thread {dir} LIMIT ?",
             read::SUMMARY_COLUMNS.replace("thread,", "ts.thread,"),
             compiled.where_clause,
             keyset,
@@ -453,21 +453,20 @@ impl Store for SqliteStore {
             sql::SqlValue::Int(i) => rusqlite::types::Value::Integer(*i),
         })))?;
 
+        // Each row's sort value as the column holds it, so the next page resumes from the text
+        // the keyset compares against, whatever the sort.
         let mut items = Vec::new();
+        let mut keys = Vec::new();
         while let Some(row) = rows.next()? {
             items.push(self.read_summary(row)?);
+            keys.push(row.get::<_, String>("sort_key")?);
         }
 
         let next = if items.len() as i64 > limit {
             items.truncate(limit as usize);
-            items.last().map(|s| {
-                let value = match query.sort.property {
-                    Property::Subject => s.subject.clone(),
-                    Property::From | Property::Sender => s.from.email.clone(),
-                    _ => row::from_time(s.last_date),
-                };
-                encode_cursor(&value, s.id)
-            })
+            items
+                .last()
+                .map(|s| encode_cursor(&keys[items.len() - 1], s.id))
         } else {
             None
         };

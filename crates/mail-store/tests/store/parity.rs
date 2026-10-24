@@ -516,6 +516,55 @@ proptest! {
         }
     }
 
+    /// Paging through the list a few rows at a time, under every sort, reaches each thread once
+    /// and in the order one page of all of them has, in both stores.
+    #[test]
+    fn paging_under_every_sort_reaches_each_thread_once(
+        specs in prop::collection::vec(spec(), 1..8),
+        limit in 1u32..4,
+    ) {
+        let both = build(&specs);
+        let properties = [
+            Property::Date,
+            Property::Subject,
+            Property::From,
+            Property::Sender,
+            Property::Size,
+            Property::Attachments,
+            Property::Pin,
+        ];
+        for store in [&both.sqlite as &dyn Store, &both.memory] {
+            for property in properties {
+                for dir in [SortDir::Asc, SortDir::Desc] {
+                    let query = |after, limit| Query {
+                        filter: Filter::All,
+                        sort: Sort { property, dir },
+                        page: PageReq { after, limit },
+                    };
+                    let whole: Vec<ThreadId> = store
+                        .threads(&query(None, 1000), now())
+                        .expect("threads")
+                        .items
+                        .iter()
+                        .map(|s| s.id)
+                        .collect();
+                    let mut paged = Vec::new();
+                    let mut after = None;
+                    loop {
+                        let page = store.threads(&query(after, limit), now()).expect("threads");
+                        paged.extend(page.items.iter().map(|s| s.id));
+                        prop_assert!(paged.len() <= whole.len(), "{:?} {:?} repeats rows", property, dir);
+                        match page.next {
+                            Some(next) => after = Some(next),
+                            None => break,
+                        }
+                    }
+                    prop_assert_eq!(&paged, &whole, "{:?} {:?}", property, dir);
+                }
+            }
+        }
+    }
+
     /// Term sets for an ASCII prefix. Both stores fold with `search_tokens` and count a term
     /// once per message, so the texts agree. Order is not the question here.
     #[test]
