@@ -2,7 +2,7 @@
 //!
 //! Each `tests/*.rs` used to be a binary of its own, and each of them linked the whole
 //! dependency graph again. A file here is a module, so a test's name gains its file's name
-//! as a prefix: `cargo test -p mail-domain --test domain -- <file>::`.
+//! as a prefix: `cargo test -p mailo-domain --test domain -- <file>::`.
 
 mod filter;
 mod folder;

@@ -1293,7 +1293,7 @@ macro_rules! fixtures {
 
         /// Writes fixtures that do not exist yet, and **never** touches one that does.
         ///
-        /// Run with `cargo test -p mail-domain --test domain -- --ignored serde::write_fixtures`
+        /// Run with `cargo test -p mailo-domain --test domain -- --ignored serde::write_fixtures`
         /// after adding a new entry to `fixtures!`. Refusing to overwrite is what keeps the
         /// corpus append-only even when it is generated.
         #[test]
