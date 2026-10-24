@@ -158,11 +158,23 @@ impl Mailboxes {
     }
 
     /// The mailboxes whose mail is not synced: Drafts, which holds this and other clients'
-    /// unfinished mail, and Junk. The same two an IMAP account leaves alone.
+    /// unfinished mail, as an IMAP account leaves its Drafts alone. Junk is synced, filed as
+    /// Spam, so the Spam place shows what the server's filter caught, as an IMAP account's
+    /// followed Junk folder does.
     pub fn unfollowed(&self) -> Vec<JmapMailboxId> {
+        self.with_roles(|role| matches!(role, JmapRole::Drafts))
+    }
+
+    /// The mailboxes a server search leaves out: Drafts, and Junk, whose hits are noise in
+    /// an answer to what someone is looking for.
+    pub fn unsearched(&self) -> Vec<JmapMailboxId> {
+        self.with_roles(|role| matches!(role, JmapRole::Drafts | JmapRole::Junk))
+    }
+
+    fn with_roles(&self, wanted: impl Fn(&JmapRole) -> bool) -> Vec<JmapMailboxId> {
         self.list
             .iter()
-            .filter(|m| matches!(m.role, Some(JmapRole::Drafts | JmapRole::Junk)))
+            .filter(|m| m.role.as_ref().is_some_and(&wanted))
             .map(|m| m.id.clone())
             .collect()
     }

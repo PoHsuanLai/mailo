@@ -462,14 +462,26 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
     ] {
         // One rule both ways: where a role is sent is where a message held there is filed.
         assert_eq!(roles.folders.filed_as(folder), role, "{folder}");
+        // Into Junk, the filter is told first (`junk_marks_travel_with_a_move_into_and_out_of_junk`).
+        let (marks, tag) = match role {
+            MailboxRole::Spam => (
+                "C: a003 UID STORE 5 +FLAGS ($Junk)\n\
+                 S: a003 OK stored\n\
+                 C: a004 UID STORE 5 -FLAGS ($NotJunk)\n\
+                 S: a004 OK stored\n",
+                "a005",
+            ),
+            _ => ("", "a003"),
+        };
         let trace = format!(
             "S: * OK ready\n\
              C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
              S: a001 OK logged in\n\
              C: a002 SELECT \"Work\"\n\
              S: a002 OK [READ-WRITE] SELECT completed\n\
-             C: a003 UID MOVE 5 \"{folder}\"\n\
-             S: a003 OK moved\n\
+             {marks}\
+             C: {tag} UID MOVE 5 \"{folder}\"\n\
+             S: {tag} OK moved\n\
              DONE\n"
         );
         let mut driven = Driven::new(
@@ -1280,4 +1292,66 @@ fn a_resumed_operation_takes_no_news_of_the_mailbox_before_it() {
 fn without_unselect_a_connection_with_a_mailbox_selected_is_not_resumed() {
     let mut backend = flags_of_the_inbox(false);
     assert!(!backend.resume(&flags_of("Archive")));
+}
+
+/// A move into Junk sets `$Junk` and takes `$NotJunk` off before the move, so the keywords travel
+/// with the message; one out of Junk does the reverse; any other move sends neither.
+#[test]
+fn junk_marks_travel_with_a_move_into_and_out_of_junk() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.folders = FolderRoles(vec![("Junk".to_owned(), MailboxRole::Spam)]);
+    let cases: &[(&str, &str, MailboxRole, &str, &str)] = &[
+        (
+            "not junk",
+            "Junk",
+            MailboxRole::Inbox,
+            "INBOX",
+            "$NotJunk/$Junk",
+        ),
+        ("junk", "INBOX", MailboxRole::Spam, "Junk", "$Junk/$NotJunk"),
+        ("archived", "INBOX", MailboxRole::Archive, "Archive", ""),
+        (
+            "archived out of junk",
+            "Junk",
+            MailboxRole::Archive,
+            "Archive",
+            "$NotJunk/$Junk",
+        ),
+    ];
+    for (name, from, role, to, marks) in cases {
+        let mut trace = format!(
+            "S: * OK ready\n\
+             C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+             S: a001 OK logged in\n\
+             C: a002 SELECT \"{from}\"\n\
+             S: a002 OK [READ-WRITE] SELECT completed\n"
+        );
+        let mut tag = 3;
+        if let Some((on, off)) = marks.split_once('/') {
+            trace.push_str(&format!(
+                "C: a00{tag} UID STORE 5 +FLAGS ({on})\nS: a00{tag} OK stored\n\
+                 C: a00{} UID STORE 5 -FLAGS ({off})\nS: a00{} OK stored\n",
+                tag + 1,
+                tag + 1
+            ));
+            tag += 2;
+        }
+        trace.push_str(&format!(
+            "C: a00{tag} UID MOVE 5 \"{to}\"\nS: a00{tag} OK moved\nDONE\n"
+        ));
+        let mut driven = Driven::new(
+            password_backend(roles.clone()),
+            ProtoOp::SetMailbox {
+                remotes: vec![imap_ref(from, 5)],
+                role: *role,
+            },
+        );
+        assert!(
+            matches!(replay(&mut driven, &trace).unwrap(), ProtoOutcome::Moved(_)),
+            "{name}"
+        );
+    }
 }
