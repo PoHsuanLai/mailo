@@ -2,84 +2,41 @@
 //! sets it, a summary rebuilt around it, the waiting list in the order it comes due, and the
 //! reminder surviving a reopen.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn at(secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + secs, 0).unwrap()
-}
 
 fn thread(n: u128) -> ThreadId {
     ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n))
 }
 
-fn message(n: u128, thread: ThreadId, date: i64) -> Message {
+/// Message `n`, sent by the user in `thread`, `date` seconds in.
+fn sent(n: u128, thread: ThreadId, date: i64) -> Message {
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread,
-        account: acct_account(),
-        key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(date),
         from: Address {
             name: None,
             email: "me@example.test".to_owned(),
         },
-        reply_to: vec![],
         to: vec![Address {
             name: None,
             email: "ada@example.test".to_owned(),
         }],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("subject {n}"),
-        in_reply_to: None,
-        references: vec![],
         rfc_message_id: Some(format!("m{n}@example.test")),
         read: ReadState::Read,
-        star: Star::Unstarred,
         mailbox: MailboxRole::Sent,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
+        ..message(n)
     }
 }
 
-fn patch(changes: Vec<Change>) -> Patch {
-    Patch {
-        id: ChangeId::generate(),
-        changes,
-    }
-}
-
-/// Both stores over the same four conversations, one message each.
+/// Both stores over the same four conversations, one message each, ten seconds apart.
 fn both(dir: &std::path::Path) -> (SqliteStore, MemoryStore) {
-    let sqlite = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    sqlite
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-    let memory = MemoryStore::new();
-    for n in 1..=4 {
-        let upsert = patch(vec![Change::MessageUpsert(Box::new(message(
-            n,
-            thread(n),
-            i64::try_from(n).unwrap() * 10,
-        )))]);
-        sqlite.apply(acct_account(), &upsert).unwrap();
-        memory.apply(acct_account(), &upsert).unwrap();
-    }
-    (sqlite, memory)
+    both_on_disk(
+        dir,
+        (1..=4).map(|n| sent(n, thread(n), i64::try_from(n).unwrap() * 10)),
+    )
 }
 
 fn waiting(due: i64) -> FollowUp {
@@ -126,7 +83,7 @@ fn both_stores_keep_the_reminder_and_list_the_waiting_in_due_order() {
         ),
         (
             "a new message in a waiting conversation rebuilds its summary around the reminder",
-            vec![Change::MessageUpsert(Box::new(message(5, thread(1), 60)))],
+            vec![Change::MessageUpsert(Box::new(sent(5, thread(1), 60)))],
             vec![3, 1, 2],
         ),
         (

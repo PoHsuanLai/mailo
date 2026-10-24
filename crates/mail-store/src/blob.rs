@@ -270,74 +270,39 @@ mod tests {
         db
     }
 
+    /// Small blobs are kept in their row and large ones in a file, and each reads back whole with
+    /// its size answered from the row. The size column was in the schema since migration 0001
+    /// and nothing read it, so the one caller that wanted a size read the whole file to measure
+    /// it.
     #[test]
-    fn a_size_is_answered_without_reading_the_bytes() {
-        // The column has been in the schema since migration 0001 and nothing read it, so the
-        // one caller that wanted a size read the whole file to measure it. Both sides of the
-        // inline threshold, because they are stored differently and only one of them is a file.
-        let dir = tempfile::tempdir().unwrap();
-        let store = BlobStore::new(dir.path());
-        let db = db();
-
-        let small = store.put(&db, b"hello").unwrap();
-        assert_eq!(store.size(&db, small).unwrap(), 5);
-
-        let large = vec![9u8; INLINE_MAX + 100];
-        let id = store.put(&db, &large).unwrap();
-        assert_eq!(store.size(&db, id).unwrap(), large.len() as u64);
-    }
-
-    #[test]
-    fn the_size_of_a_blob_that_is_not_there_is_an_error() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = BlobStore::new(dir.path());
-        store
-            .size(&db(), BlobId::generate())
-            .expect_err("no such blob");
-    }
-
-    #[test]
-    fn small_blobs_round_trip_inline() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = BlobStore::new(dir.path());
-        let db = db();
-        let id = store.put(&db, b"hello").unwrap();
-        assert_eq!(store.get(&db, id).unwrap(), b"hello");
-        let path: Option<String> = db
-            .query_row(
-                "SELECT path FROM blobs WHERE id = ?1",
-                [id.to_string()],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert!(path.is_none(), "small blobs must not touch the filesystem");
-    }
-
-    #[test]
-    fn large_blobs_round_trip_on_disk() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = BlobStore::new(dir.path());
-        let db = db();
-        let big = vec![7u8; INLINE_MAX + 1];
-        let id = store.put(&db, &big).unwrap();
-        assert_eq!(store.get(&db, id).unwrap(), big);
-        let path: Option<String> = db
-            .query_row(
-                "SELECT path FROM blobs WHERE id = ?1",
-                [id.to_string()],
-                |r| r.get(0),
-            )
-            .unwrap();
-        assert!(path.is_some(), "large blobs must go to a file");
-        // No stray .part file survived the write-then-rename.
-        let parts: Vec<_> = walk(dir.path())
-            .into_iter()
-            .filter(|p| p.extension().is_some_and(|e| e == "part"))
-            .collect();
-        assert!(
-            parts.is_empty(),
-            "temporary files must be renamed away: {parts:?}"
-        );
+    fn blobs_round_trip_inline_when_small_and_on_disk_when_large() {
+        let small = b"hello".to_vec();
+        let large = vec![7u8; INLINE_MAX + 1];
+        for (bytes, on_disk) in [(small, false), (large, true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let store = BlobStore::new(dir.path());
+            let db = db();
+            let id = store.put(&db, &bytes).unwrap();
+            assert_eq!(store.get(&db, id).unwrap(), bytes);
+            assert_eq!(store.size(&db, id).unwrap(), bytes.len() as u64);
+            let path: Option<String> = db
+                .query_row(
+                    "SELECT path FROM blobs WHERE id = ?1",
+                    [id.to_string()],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(path.is_some(), on_disk, "{} bytes", bytes.len());
+            // No stray .part file survived the write-then-rename.
+            let parts: Vec<_> = walk(dir.path())
+                .into_iter()
+                .filter(|p| p.extension().is_some_and(|e| e == "part"))
+                .collect();
+            assert!(
+                parts.is_empty(),
+                "temporary files must be renamed away: {parts:?}"
+            );
+        }
     }
 
     #[test]
@@ -372,6 +337,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = BlobStore::new(dir.path());
         assert!(store.get(&db(), BlobId::generate()).is_err());
+        store
+            .size(&db(), BlobId::generate())
+            .expect_err("no such blob");
     }
 
     fn walk(root: &Path) -> Vec<PathBuf> {

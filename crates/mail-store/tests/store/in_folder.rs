@@ -4,98 +4,19 @@
 //! Every scenario runs against the SQLite store and the in-memory one and compares what each
 //! answers, the parity the rest of the store is held to.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::support::*;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_store::{MemoryStore, SqlValue, SqliteStore, Store, compile};
-use porter_core::AccountId;
+use mail_store::{SqlValue, Store, compile};
 use std::collections::BTreeSet;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 const PROJECTS: &str = "Projects/2026";
 
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-fn sqlite() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-    (store, dir)
-}
-
-/// Run `scenario` on both stores and hand back what each produced.
-fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
-    let (sqlite, _dir) = sqlite();
-    let memory = MemoryStore::new();
-    (scenario(&sqlite), scenario(&memory))
-}
-
-fn mailbox(path: &str) -> MailboxRef {
-    MailboxRef {
-        account: acct_account(),
-        path: path.to_owned(),
-    }
-}
-
-fn imap(mailbox: &str, uid: u32) -> RemoteRef {
-    RemoteRef::Imap {
-        mailbox: mailbox.to_owned(),
-        uidvalidity: 7,
-        uid,
-    }
-}
-
-/// A message as a header fetch from a folder filed as `role` builds it: no body yet.
+/// Message `n`, as a header fetch from a folder filed as `role` builds it.
 fn message(n: u128, role: MailboxRole) -> Message {
     Message {
-        id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
-        thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: acct_account(),
-        key: MessageKey::Rfc(format!("m{n}@example.test")),
-        date: at(n as i64),
-        from: Address {
-            name: None,
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("message {n}"),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
         mailbox: role,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
-    }
-}
-
-fn ingest(path: &str) -> Ingest {
-    Ingest {
-        mailbox: mailbox(path),
-        validity: UidValidity::Same,
-        cursor: None,
-        messages: vec![],
-        flags: vec![],
-        labels: vec![],
-        label_names: vec![],
-        gone: vec![],
+        ..crate::support::message(n)
     }
 }
 
@@ -126,20 +47,7 @@ fn gone(store: &dyn Store, remote: RemoteRef) {
 
 fn listed(store: &dyn Store, filter: Filter) -> BTreeSet<ThreadId> {
     store
-        .threads(
-            &Query {
-                filter,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
-                page: PageReq {
-                    after: None,
-                    limit: 100,
-                },
-            },
-            at(0),
-        )
+        .threads(&query(filter, 100), at(0))
         .unwrap()
         .items
         .into_iter()
@@ -210,7 +118,7 @@ fn the_folder_clause_is_answered_from_an_index() {
     // Thousands of threads each probing `remote_map` would be a folder that takes seconds to
     // open. The clause reads the identity index on its leading `(account, mailbox)` columns,
     // once, and each message by its key.
-    let (store, _dir) = sqlite();
+    let store = sqlite();
     for n in 1..50 {
         deliver(
             &store,
@@ -396,11 +304,8 @@ fn a_move_made_here_and_not_yet_sent_is_not_undone_by_the_server() {
     let (sqlite, memory) = both(|store| {
         let id = MessageId::from_uuid(uuid::Uuid::from_u128(1));
         deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
-        let patch = Patch {
-            id: ChangeId::generate(),
-            changes: vec![Change::MessageMailbox(id, MailboxRole::Archive)],
-        };
-        store.apply(acct_account(), &patch).unwrap();
+        let filed = patch(vec![Change::MessageMailbox(id, MailboxRole::Archive)]);
+        store.apply(acct_account(), &filed).unwrap();
         store
             .enqueue(
                 acct_account(),
@@ -408,10 +313,7 @@ fn a_move_made_here_and_not_yet_sent_is_not_undone_by_the_server() {
                     messages: vec![id],
                     role: MailboxRole::Archive,
                 },
-                &Patch {
-                    id: ChangeId::generate(),
-                    changes: vec![Change::MessageMailbox(id, MailboxRole::Inbox)],
-                },
+                &patch(vec![Change::MessageMailbox(id, MailboxRole::Inbox)]),
                 at(0),
             )
             .unwrap();
@@ -473,16 +375,13 @@ fn moved_out_and_back(store: &dyn Store) -> Views {
     store
         .apply(
             acct_account(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::LabelUpsert(Label {
-                    id: ELSEWHERE,
-                    account: acct_account(),
-                    name: "Elsewhere".to_owned(),
-                    color: None,
-                    origin: LabelOrigin::Provider,
-                })],
-            },
+            &patch(vec![Change::LabelUpsert(Label {
+                id: ELSEWHERE,
+                account: acct_account(),
+                name: "Elsewhere".to_owned(),
+                color: None,
+                origin: LabelOrigin::Provider,
+            })]),
         )
         .unwrap();
     deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
@@ -550,16 +449,13 @@ fn label_named(store: &dyn Store, path: &str) -> LabelId {
     store
         .apply(
             acct_account(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::LabelUpsert(Label {
-                    id,
-                    account: acct_account(),
-                    name: path.to_owned(),
-                    color: None,
-                    origin: LabelOrigin::Provider,
-                })],
-            },
+            &patch(vec![Change::LabelUpsert(Label {
+                id,
+                account: acct_account(),
+                name: path.to_owned(),
+                color: None,
+                origin: LabelOrigin::Provider,
+            })]),
         )
         .unwrap();
     id

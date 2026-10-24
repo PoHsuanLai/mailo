@@ -1,28 +1,30 @@
 //! Upgrading a database that already has data in it.
 //!
-//! `plan.md` asks for this outright — "a test that opens a checked-in fixture DB from each prior
-//! version and migrates it" — under a heading that calls it required from day one. It did not
-//! exist. Every other test creates a fresh database, which runs each migration against an
-//! *empty* schema, and a migration whose job is to repair data has nothing to repair.
-//!
-//! That matters most for 0002. Its purpose is to collapse the duplicate `remote_map` rows that
-//! every version-1 database accumulated (FINDINGS F52) and then add a unique index. If the
-//! `DELETE` misses a single duplicate the `CREATE UNIQUE INDEX` fails, the transaction rolls
-//! back, and the application does not start — for exactly the users who have been running it
-//! longest.
+//! Every other test creates a fresh database, which runs each migration against an *empty*
+//! schema, and a migration whose job is to repair or move data has nothing to repair. So each
+//! migration that rewrites, moves or deletes rows has a case here: a database built at the
+//! version before it, the smallest rows that show what it does, and what must be true once the
+//! store has opened it. A migration that only adds a table, a column or an index has none.
 //!
 //! Rather than check in a binary fixture, each version is built by applying the migrations up to
 //! it: the SQL is the fixture, and it cannot drift from the migration it describes.
 
 use mail_domain::id::account_id_from_uuid;
-use mail_store::{SqliteStore, migrate};
+use mail_store::migrate::{self, EXPECTED_VERSION, MIGRATIONS};
+use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 use rusqlite::Connection;
 
-/// A database at version `upto`, with nothing applied after it.
-fn database_at(upto: u32) -> Connection {
-    let db = Connection::open_in_memory().unwrap();
-    db.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-    for (version, sql) in migrate::MIGRATIONS.iter().take(upto as usize) {
+/// The account, thread and message [`seed`] writes.
+const ACCOUNT: &str = "00000000-0000-4000-8000-0000000000a1";
+const THREAD: &str = "00000000-0000-4000-8000-0000000000e1";
+const MESSAGE: &str = "00000000-0000-4000-8000-0000000000f1";
+/// A second message, for the cases that need one beside [`MESSAGE`].
+const OTHER: &str = "00000000-0000-4000-8000-0000000000f2";
+
+/// Apply every migration up to and including `upto`, and nothing after it.
+fn apply_upto(db: &Connection, upto: u32) {
+    for (version, sql) in MIGRATIONS.iter().filter(|(version, _)| *version <= upto) {
         db.execute_batch(sql).unwrap();
         if *version > 1 {
             db.execute(
@@ -32,7 +34,6 @@ fn database_at(upto: u32) -> Connection {
             .unwrap();
         }
     }
-    db
 }
 
 fn version_of(db: &Connection) -> u32 {
@@ -44,20 +45,28 @@ fn version_of(db: &Connection) -> u32 {
     .unwrap()
 }
 
-/// An account and a message, so `remote_map`'s foreign keys are satisfiable.
-fn seed(db: &Connection) -> (String, String) {
-    let account = uuid::Uuid::new_v4().to_string();
-    let thread = uuid::Uuid::new_v4().to_string();
-    let message = uuid::Uuid::new_v4().to_string();
+/// The single number `sql` selects.
+fn number(db: &Connection, sql: &str) -> i64 {
+    db.query_row(sql, [], |r| r.get(0)).unwrap()
+}
+
+fn account() -> AccountId {
+    account_id_from_uuid(ACCOUNT.parse().unwrap())
+}
+
+/// An account, a thread and a message in the columns version 1 has, so foreign keys are
+/// satisfiable. The key and thread state are not what any build wrote, so the message does not
+/// decode; a case that needs one that does writes real ones.
+fn seed(db: &Connection) {
     db.execute(
         "INSERT INTO accounts (id, address, plan, created_at)
          VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-        [&account],
+        [ACCOUNT],
     )
     .unwrap();
     db.execute(
         "INSERT INTO threads (id, account, snooze, pin) VALUES (?1, ?2, '\"none\"', '\"none\"')",
-        [&thread, &account],
+        [THREAD, ACCOUNT],
     )
     .unwrap();
     db.execute(
@@ -66,1640 +75,695 @@ fn seed(db: &Connection) -> (String, String) {
              body_text, body_raw, attachments)
          VALUES (?1, ?2, ?3, '\"k\"', '2023-01-01T00:00:00Z', NULL, 'a@b.test', '{}', 's',
              NULL, '[]', NULL, '\"read\"', '\"unstarred\"', '\"inbox\"', NULL, NULL, '[]')",
-        [&message, &thread, &account],
+        [MESSAGE, THREAD, ACCOUNT],
     )
     .unwrap();
-    (account, message)
 }
 
-#[test]
-fn a_version_one_database_with_duplicates_upgrades_and_keeps_one_of_each() {
-    // The case 0002 exists for, and the one no test had ever produced: a v1 database whose
-    // remote_map grew a row per message per sync.
-    let db = database_at(1);
-    assert_eq!(version_of(&db), 1, "the fixture should start at version 1");
-    let (account, message) = seed(&db);
-
-    // Five syncs' worth of the same mapping, which is what v1 produced.
-    for _ in 0..5 {
-        db.execute(
-            "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
-             VALUES (?1, 'INBOX', 1, 101, NULL, ?2)",
-            [&account, &message],
-        )
-        .unwrap();
-    }
-    // And a POP-shaped one, which had two NULLs in its key.
-    for _ in 0..3 {
-        db.execute(
-            "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
-             VALUES (?1, 'INBOX', NULL, NULL, 'UID-1', ?2)",
-            [&account, &message],
-        )
-        .unwrap();
-    }
-    let before: i64 = db
-        .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(before, 8, "the v1 schema really does allow duplicates");
-
-    migrate::migrate(&db).expect("a database with duplicates must still upgrade");
-
-    assert_eq!(version_of(&db), migrate::EXPECTED_VERSION);
-    let after: i64 = db
-        .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
-        .unwrap();
-    // One POP mapping. The IMAP one was collapsed to one by 0002 and then dropped by 0008,
-    // which removes every IMAP mapping for the header pass to rebuild.
-    assert_eq!(after, 1, "one POP mapping should remain");
-
-    // And the index now prevents what the DELETE just cleaned up.
-    db.execute(
-        "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
-         VALUES (?1, 'INBOX', 1, 101, NULL, ?2)",
-        [&account, &message],
-    )
-    .unwrap();
-    let again = db.execute(
-        "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
-         VALUES (?1, 'INBOX', 1, 101, NULL, ?2)",
-        [&account, &message],
-    );
-    assert!(
-        again.is_err(),
-        "after 0002 a duplicate mapping must be refused, not stored again"
-    );
-}
-
-#[test]
-fn every_prior_version_upgrades_to_the_current_one() {
-    // Not only v1: each released version must reach the present, because a user upgrades from
-    // wherever they happen to be.
-    for from in 1..=migrate::EXPECTED_VERSION {
-        let db = database_at(from);
-        assert_eq!(version_of(&db), from);
-        migrate::migrate(&db)
-            .unwrap_or_else(|e| panic!("upgrading from version {from} failed: {e}"));
-        assert_eq!(
-            version_of(&db),
-            migrate::EXPECTED_VERSION,
-            "version {from} did not reach the current schema"
-        );
-    }
-}
-
-#[test]
-fn upgrading_an_already_current_database_changes_nothing() {
-    let db = database_at(migrate::EXPECTED_VERSION);
-    let (account, message) = seed(&db);
-    db.execute(
-        "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
-         VALUES (?1, 'INBOX', 1, 101, NULL, ?2)",
-        [&account, &message],
-    )
-    .unwrap();
-
-    migrate::migrate(&db).expect("a current database migrates cleanly");
-    let rows: i64 = db
-        .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(rows, 1, "a no-op migration must not touch data");
-}
-
-/// Migration 0004 moved the full-text index off the message columns onto one Rust fills.
-///
-/// A database written by an older build has no `fts_text`, and SQL cannot compute one — the
-/// whole point of the migration is that segmenting a run of ideographs into bigrams is not
-/// something a tokenizer or a trigger can do. So `SqliteStore::from_connection` backfills it,
-/// and mail that was already on disk has to become findable rather than only new mail.
-#[test]
-fn mail_that_predates_the_segmented_index_is_findable_afterwards() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-
-    // A version-3 database with one English and one Chinese message in it.
-    {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(3) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let (account, _) = seed(&db);
-        let thread: String = db
-            .query_row("SELECT id FROM threads LIMIT 1", [], |r| r.get(0))
-            .unwrap();
-        db.execute(
-            "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
-                 recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                 body_text, body_raw, attachments)
-             VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test', '{}',
-                 '【重要】校園郵件信箱系統維護', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
-                 '\"inbox\"', 'lunch on friday', NULL, '[]')",
-            rusqlite::params![uuid::Uuid::new_v4().to_string(), thread, account],
-        )
-        .unwrap();
-    }
-
-    // Opening it upgrades and backfills.
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-
-    // Asked of the index directly rather than through `threads`, which also needs a
-    // `thread_summaries` row — this fixture is a hand-built version-3 database, and what the
-    // backfill is responsible for is the index.
-    let hits = |needle: &str| {
-        store
-            .raw_connection()
-            .query_row(
-                "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?1",
-                [needle],
-                |r| r.get::<_, i64>(0),
-            )
-            .unwrap_or(-1)
-    };
-
-    assert_eq!(
-        hits("lunch"),
-        1,
-        "English mail already on disk stopped being findable"
-    );
-    assert_eq!(hits("校園"), 1, "old Chinese mail was not reindexed");
-    assert_eq!(hits("維護"), 1);
-    assert_eq!(
-        hits("臺北"),
-        0,
-        "and the index did not become a substring match on everything"
-    );
-
-    // Idempotent: opening it again does no work and changes nothing.
-    drop(store);
-    let again = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        again
-            .raw_connection()
-            .query_row(
-                "SELECT count(*) FROM messages WHERE fts_text IS NULL",
-                [],
-                |r| r.get::<_, i64>(0)
-            )
-            .unwrap(),
-        0
-    );
-}
-
-/// Migration 0005 added `To` and `Cc` to the indexed text.
-///
-/// A version-4 database already has `fts_text`, built without them, so the backfill's `IS NULL`
-/// test would skip every row: the migration has to clear the text and the index together. Asked
-/// here of a row whose old text is still in the index, because that is the case where getting
-/// the order wrong corrupts it — hence the integrity check, and a write after the upgrade to
-/// prove the update triggers still agree with what is indexed.
-#[test]
-fn mail_indexed_before_recipients_were_is_findable_by_them_afterwards() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-
-    let message = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(4) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let (account, _) = seed(&db);
-        let thread: String = db
-            .query_row("SELECT id FROM threads LIMIT 1", [], |r| r.get(0))
-            .unwrap();
-        let message = uuid::Uuid::new_v4().to_string();
-        // Indexed the way version 4 did it: subject, sender and body, no recipients.
-        db.execute(
-            "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
-                 recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                 body_text, body_raw, attachments, fts_text)
-             VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test',
-                 '{\"to\":[{\"name\":\"Ada Lovelace\",\"email\":\"ada@engine.test\"}],
-                   \"cc\":[{\"name\":null,\"email\":\"grace@hopper.test\"}],
-                   \"bcc\":[{\"name\":null,\"email\":\"secret@hidden.test\"}]}',
-                 'minutes', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
-                 '\"inbox\"', 'lunch on friday', NULL, '[]', 'minutes c d test lunch on friday')",
-            rusqlite::params![message, thread, account],
-        )
-        .unwrap();
-        message
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let hits = |needle: &str| {
-        store
-            .raw_connection()
-            .query_row(
-                "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?1",
-                [needle],
-                |r| r.get::<_, i64>(0),
-            )
-            .unwrap_or(-1)
-    };
-    let intact = || {
-        store
-            .raw_connection()
-            .execute(
-                "INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')",
-                [],
-            )
-            .map(|_| ())
-    };
-
-    assert_eq!(hits("lovelace"), 1, "a To name was not indexed");
-    assert_eq!(hits("hopper"), 1, "a Cc address was not indexed");
-    assert_eq!(
-        hits("lunch"),
-        1,
-        "what was findable before stopped being findable"
-    );
-    assert_eq!(
-        hits("minutes"),
-        1,
-        "and the old entry was not left beside the new one"
-    );
-    assert_eq!(hits("hidden"), 0, "a blind copy must never be searchable");
-    intact().expect("the index disagrees with the table after the upgrade");
-
+/// How many messages the full-text index finds for `needle`.
+fn hits(store: &SqliteStore, needle: &str) -> i64 {
     store
         .raw_connection()
-        .execute(
-            "UPDATE messages SET read = '\"unread\"' WHERE id = ?1",
-            [&message],
-        )
-        .unwrap();
-    intact().expect("the index disagrees with the table after a write");
-    assert_eq!(hits("hopper"), 1);
-}
-
-/// Migration 0007: a summary written before embedded images stopped counting is re-derived.
-///
-/// The stored count is what the list's paperclip and `has:attachment` read, and a thread nobody
-/// writes to again would otherwise keep its old count for ever.
-#[test]
-fn a_summary_that_counted_embedded_images_is_corrected_on_open() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(6) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let (account, message) = seed(&db);
-        // `seed` writes a key and a thread state no build ever wrote; this test needs a thread
-        // that decodes, so it writes real ones.
-        db.execute(
-            r#"UPDATE messages SET msg_key = '{"kind":"rfc","v":"k@example.test"}' WHERE id = ?1"#,
-            [&message],
-        )
-        .unwrap();
-        db.execute(
-            "UPDATE threads SET snooze = ?1, pin = ?2",
-            [
-                serde_json::to_string(&mail_domain::Snooze::Inactive).unwrap(),
-                serde_json::to_string(&mail_domain::Pin::Unpinned).unwrap(),
-            ],
-        )
-        .unwrap();
-        db.execute(
-            r#"UPDATE messages SET attachments = '[{"name":"logo.png","mime":"image/png","size":3,
-                "blob":"04040404-0404-0404-0404-040404040404",
-                "inline":{"kind":"embedded","v":{"cid":"logo@x"}}}]' WHERE id = ?1"#,
-            [&message],
-        )
-        .unwrap();
-        let thread: String = db
-            .query_row(
-                "SELECT thread FROM messages WHERE id = ?1",
-                [&message],
-                |r| r.get(0),
-            )
-            .unwrap();
-        // What the old derivation wrote: one attachment, the embedded logo.
-        db.execute(
-            r#"INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
-                 from_email, participants, recipients, last_date, message_count, read, star,
-                 mailboxes, labels, attachments, snooze, pin)
-               VALUES (?1, ?2, 's', '', NULL, 'a@b.test', '[]', '[]',
-                 '2023-01-01T00:00:00.000000000Z', 1, '"read"', '"unstarred"', '["inbox"]',
-                 '[]', '{"kind":"present","v":{"count":1}}', '"none"', '"none"')"#,
-            rusqlite::params![thread, account],
-        )
-        .unwrap();
-    }
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let (stored, queued): (String, i64) = store
-        .raw_connection()
         .query_row(
-            "SELECT (SELECT attachments FROM thread_summary),
-                    (SELECT count(*) FROM summaries_to_refresh)",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap();
-    assert_eq!(
-        stored, r#"{"kind":"none"}"#,
-        "the embedded logo is still counted"
-    );
-    assert_eq!(queued, 0, "the queue is emptied once it has been worked");
-}
-
-/// One row that no longer decodes must not stop the database opening after an upgrade.
-///
-/// Both passes that run on open — the FTS backfill and the summary queue — read every message,
-/// so either could lock someone out of all their mail over one bad row. The row keeps what it
-/// had; everything else is upgraded.
-#[test]
-fn an_undecodable_row_does_not_stop_the_upgrade() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(6) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        // `seed`'s key and recipients are not what any build wrote, so this message decodes
-        // neither as a `Message` nor, once its recipients are garbage too, for the index.
-        let (account, message) = seed(&db);
-        db.execute(
-            "UPDATE messages SET recipients = 'not json', fts_text = NULL WHERE id = ?1",
-            [&message],
-        )
-        .unwrap();
-        let thread: String = db
-            .query_row(
-                "SELECT thread FROM messages WHERE id = ?1",
-                [&message],
-                |r| r.get(0),
-            )
-            .unwrap();
-        db.execute(
-            r#"INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
-                 from_email, participants, recipients, last_date, message_count, read, star,
-                 mailboxes, labels, attachments, snooze, pin)
-               VALUES (?1, ?2, 's', '', NULL, 'a@b.test', '[]', '[]',
-                 '2023-01-01T00:00:00.000000000Z', 1, '"read"', '"unstarred"', '["inbox"]',
-                 '[]', '{"kind":"none"}', '"none"', '"none"')"#,
-            rusqlite::params![thread, account],
-        )
-        .unwrap();
-    }
-
-    let store = SqliteStore::open(&path, dir.path()).expect("one bad row must not lock anyone out");
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-}
-
-/// 0008: every IMAP mapping goes, because any of them may name the wrong message; POP3's stay.
-#[test]
-fn imap_mappings_are_dropped_so_the_header_pass_can_rebuild_them() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let message = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(7) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let (account, message) = seed(&db);
-        db.execute(
-            "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
-             VALUES (?1, 'INBOX', 1, 42, NULL, ?2), (?1, 'INBOX', NULL, NULL, 'u1', ?2)",
-            [&account, &message],
-        )
-        .unwrap();
-        message
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let left: Vec<(Option<i64>, Option<String>)> = store
-        .raw_connection()
-        .prepare("SELECT uid, uidl FROM remote_map")
-        .unwrap()
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    assert_eq!(left, [(None, Some("u1".to_owned()))]);
-    let kept: i64 = store
-        .raw_connection()
-        .query_row(
-            "SELECT count(*) FROM messages WHERE id = ?1",
-            [&message],
+            "SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ?1",
+            [needle],
             |r| r.get(0),
         )
-        .unwrap();
-    assert_eq!(kept, 1, "the message itself stays");
+        .unwrap()
 }
 
-/// 0009: an account that predates folder listings upgrades with none, keeps its mail, and can
-/// be given a listing straight away.
-#[test]
-fn an_account_from_before_folders_upgrades_with_an_empty_listing() {
-    use mail_store::Store;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let (account, message) = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(8) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
+/// One migration that moves rows: the version before it, what is on disk there, and what must
+/// hold once the store has opened that database. `check` is handed the way to open it, so a case
+/// can open it twice.
+struct Case {
+    migration: &'static str,
+    from: u32,
+    seed: fn(&Connection),
+    check: fn(&dyn Fn() -> SqliteStore),
+}
+
+const CASES: &[Case] = &[
+    Case {
+        // Every version-1 database grew a remote_map row per message per sync. If the DELETE
+        // misses one duplicate the unique index fails, and the application does not start.
+        migration: "0002_remote_map_identity",
+        from: 1,
+        seed: |db| {
+            seed(db);
+            let map = |uidvalidity: Option<i64>, uid: Option<i64>, uidl: Option<&str>| {
                 db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
+                    "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
+                     VALUES (?1, 'INBOX', ?2, ?3, ?4, ?5)",
+                    rusqlite::params![ACCOUNT, uidvalidity, uid, uidl, MESSAGE],
                 )
                 .unwrap();
-            }
-        }
-        seed(&db)
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let account = mail_domain::id::account_id_from_uuid(account.parse().unwrap());
-    assert_eq!(store.folders(account.clone()).unwrap(), vec![]);
-    let inbox = mail_domain::Folder {
-        account: account.clone(),
-        path: "INBOX".to_owned(),
-        delimiter: Some('/'),
-        special: Some(mail_domain::SpecialUse::Inbox),
-        subscription: mail_domain::Subscription::Subscribed,
-        holds: mail_domain::Holds::Mail,
-    };
-    store
-        .put_folders(account.clone(), vec![inbox.clone()])
-        .unwrap();
-    assert_eq!(store.folders(account).unwrap(), vec![inbox]);
-    let kept: i64 = store
-        .raw_connection()
-        .query_row(
-            "SELECT count(*) FROM messages WHERE id = ?1",
-            [&message],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(kept, 1);
-}
-
-/// 0010: a database from before notifications has no account armed, so the first watched pass
-/// after the upgrade arms each one — and deleting an account takes its floor with it.
-#[test]
-fn accounts_from_before_notifications_start_unarmed() {
-    let db = database_at(9);
-    let (account, _message) = seed(&db);
-    migrate::migrate(&db).unwrap();
-    assert_eq!(version_of(&db), migrate::EXPECTED_VERSION);
-
-    let armed: i64 = db
-        .query_row("SELECT count(*) FROM notify_floor", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(armed, 0, "nothing is armed until something watches");
-
-    db.execute(
-        "INSERT INTO notify_floor (account, armed_at) VALUES (?1, '2026-09-24T00:00:00+00:00')",
-        [&account],
-    )
-    .unwrap();
-    db.execute("DELETE FROM accounts WHERE id = ?1", [&account])
-        .unwrap();
-    let left: i64 = db
-        .query_row("SELECT count(*) FROM notify_floor", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(left, 0, "a removed account's floor goes with it");
-}
-
-/// 0011: a draft saved before receipts existed opens as one that asks for none, and the answers
-/// table starts empty and goes with its message.
-#[test]
-fn drafts_from_before_receipts_load_without_asking_for_one() {
-    use mail_domain::{DraftId, ReceiptAnswer, ReceiptRequest};
-    use mail_store::Store;
-
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let (draft, message) = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(10) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
+            };
+            // Five syncs' worth of one IMAP mapping, and a POP-shaped one with two NULLs in its
+            // key.
+            (0..5).for_each(|_| map(Some(1), Some(101), None));
+            (0..3).for_each(|_| map(None, None, Some("UID-1")));
+            assert_eq!(number(db, "SELECT count(*) FROM remote_map"), 8);
+        },
+        check: |open| {
+            let store = open();
+            let db = store.raw_connection();
+            // One POP mapping. The IMAP one was collapsed to one by 0002 and then dropped by
+            // 0008, which removes every IMAP mapping for the header pass to rebuild.
+            assert_eq!(number(&db, "SELECT count(*) FROM remote_map"), 1);
+            let map = || {
                 db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
+                    "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
+                     VALUES (?1, 'INBOX', 1, 101, NULL, ?2)",
+                    [ACCOUNT, MESSAGE],
                 )
-                .unwrap();
-            }
-        }
-        let (account, message) = seed(&db);
-        let identity = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [&identity, &account],
-        )
-        .unwrap();
-        let draft = uuid::Uuid::new_v4();
-        db.execute(
-            r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
-                 forward_of, body_text, body_html, attachments, state, updated_at)
-               VALUES (?1, ?2, ?3, '{"reply_to":[],"to":[],"cc":[],"bcc":[]}', 'old', NULL,
-                 NULL, 'text', NULL, '[]', '{"kind":"editing"}',
-                 '2023-01-01T00:00:00.000000000Z')"#,
-            rusqlite::params![draft.to_string(), account, identity],
-        )
-        .unwrap();
-        (DraftId::from_uuid(draft), message)
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-    let loaded = store.draft(draft).expect("the old draft still loads");
-    assert_eq!(loaded.subject, "old");
-    assert_eq!(loaded.receipt, ReceiptRequest::Unrequested);
-
-    let message = mail_domain::MessageId::from_uuid(message.parse().unwrap());
-    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
-    assert_eq!(store.receipt_answer(message).unwrap(), None);
-    store
-        .answer_receipt(message, ReceiptAnswer::Declined, at)
-        .unwrap();
-    store
-        .raw_connection()
-        .execute("DELETE FROM messages", [])
-        .unwrap();
-    let left: i64 = store
-        .raw_connection()
-        .query_row("SELECT count(*) FROM receipt_answers", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(left, 0, "an answer does not outlive its message");
-}
-
-/// Mail held before the address book existed is read into it once, on the first open after the
-/// upgrade — a sent draft as written to, and the Sent-folder copy of it not counted again.
-#[test]
-fn mail_held_before_the_address_book_fills_it_on_open() {
-    use mail_store::Store;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(12) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        // `seed`'s message is from a@b.test, in the inbox. Add the user's identity, a copy in
-        // Sent, and the sent draft it is a copy of.
-        let (account, _inbox) = seed(&db);
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES ('00000000-0000-4000-8000-0000000000b1', ?1, 'Me', 'me@example.test',
-                     '\"default\"')",
-            [&account],
-        )
-        .unwrap();
-        let thread: String = db
-            .query_row("SELECT id FROM threads", [], |r| r.get(0))
-            .unwrap();
-        db.execute(
-            r#"INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
-                   recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                   body_text, body_raw, attachments)
-               VALUES ('00000000-0000-4000-8000-0000000000c1', ?1, ?2, '"k2"',
-                   '2023-01-02T00:00:00.000000000Z', 'Me', 'me@example.test',
-                   '{"to":[{"name":"Bob","email":"bob@example.test"}]}', 'Plans', NULL, '[]',
-                   NULL, '"read"', '"unstarred"', '"sent"', NULL, NULL, '[]')"#,
-            [&thread, &account],
-        )
-        .unwrap();
-        let state = serde_json::to_string(&mail_domain::SendState::Sent {
-            at: chrono::DateTime::parse_from_rfc3339("2023-01-02T00:00:00Z")
-                .unwrap()
-                .to_utc(),
-            message: None,
-        })
-        .unwrap();
-        db.execute(
-            r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
-                   forward_of, body_text, body_html, attachments, state, updated_at)
-               VALUES ('00000000-0000-4000-8000-0000000000d1', ?1,
-                   '00000000-0000-4000-8000-0000000000b1',
-                   '{"to":[{"name":"Bob Typed","email":"Bob@example.test"}],"cc":[],"bcc":[]}',
-                   'Plans', NULL, NULL, '', NULL, '[]', ?2, '2023-01-02T00:00:00.000000000Z')"#,
-            [&account, &state],
-        )
-        .unwrap();
-    }
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let book = store.contacts().unwrap();
-    let find = |address: &str| book.iter().find(|c| c.address == address).cloned();
-    assert_eq!(find("a@b.test").map(|c| c.received.count), Some(1));
-    let bob = find("bob@example.test").unwrap();
-    assert_eq!(
-        bob.written.count, 1,
-        "the draft and its Sent copy are one message"
-    );
-    assert_eq!(bob.name.as_deref(), Some("Bob Typed"));
-    assert_eq!(
-        find("me@example.test").map(|c| c.kind),
-        Some(mail_store::Kind::Own)
-    );
-    let pending: i64 = store
-        .raw_connection()
-        .query_row("SELECT count(*) FROM contacts_to_backfill", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    assert_eq!(pending, 0, "the backfill runs once");
-    drop(store);
-
-    let again = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        again.contacts().unwrap(),
-        book,
-        "a second open counts nothing twice"
-    );
-}
-
-/// 0014: a database from before templates upgrades with none, keeps its drafts, and can keep a
-/// template straight away.
-#[test]
-fn a_database_from_before_templates_upgrades_with_none_and_keeps_its_drafts() {
-    use mail_store::Store;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let (account, identity, draft) = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(13) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let (account, _) = seed(&db);
-        let identity = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [&identity, &account],
-        )
-        .unwrap();
-        // A draft row as every build before this one wrote it, with a state they knew.
-        let draft = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO drafts (id, account, identity, recipients, subject, body_text,
-                 attachments, state, updated_at)
-             VALUES (?1, ?2, ?3, '{\"to\":[{\"name\":null,\"email\":\"you@example.test\"}]}',
-                 'kept', 'hello', '[]', '{\"kind\":\"queued\"}', '2026-09-01T00:00:00Z')",
-            [&draft, &account, &identity],
-        )
-        .unwrap();
-        (account, identity, draft)
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let account = mail_domain::id::account_id_from_uuid(account.parse().unwrap());
-    assert_eq!(store.templates(account.clone()).unwrap(), vec![]);
-    let old = store
-        .draft(mail_domain::DraftId::from_uuid(draft.parse().unwrap()))
-        .unwrap();
-    assert_eq!(old.state, mail_domain::SendState::Queued);
-
-    let kept = mail_domain::Template::from_draft(&old, "", old.updated);
-    assert_eq!(kept.identity.to_string(), identity);
-    store.put_template(&kept).unwrap();
-    assert_eq!(store.templates(account).unwrap(), vec![kept]);
-}
-
-/// 0015: what body fetches drawn from two mailboxes at once left behind is undone, and nothing
-/// else is touched.
-#[test]
-fn addresses_and_bodies_a_mixed_body_batch_damaged_are_cleared_for_refetching() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(14) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let (account, _) = seed(&db);
-        let thread: String = db
-            .query_row("SELECT id FROM threads", [], |r| r.get(0))
-            .unwrap();
-        db.execute(
-            "INSERT INTO blobs (id, hash, size, path, inline, created_at)
-             VALUES ('b', 'h', 1, NULL, x'00', datetime('now'))",
-            [],
-        )
-        .unwrap();
-        let message = |id: &str, key: &str, subject: &str, body: Option<&str>| {
+            };
+            map().unwrap();
+            assert!(map().is_err(), "a duplicate mapping is refused");
+        },
+    },
+    Case {
+        // The index moved onto a `fts_text` Rust fills, which SQL cannot compute, so opening the
+        // store backfills it: mail already on disk becomes findable, not only new mail.
+        migration: "0004_fts_segmented",
+        from: 3,
+        seed: |db| {
+            seed(db);
             db.execute(
                 "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
                      recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
                      body_text, body_raw, attachments)
-                 VALUES (?1, ?2, ?3, ?4, '2023-01-02T00:00:00Z', NULL, 'a@b.test', '{}', ?5,
-                     NULL, '[]', NULL, '\"read\"', '\"unstarred\"', '\"inbox\"', ?6,
-                     CASE WHEN ?6 IS NULL THEN NULL ELSE 'b' END, '[]')",
-                rusqlite::params![id, thread, account, key, subject, body],
+                 VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test', '{}',
+                     '【重要】校園郵件信箱系統維護', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
+                     '\"inbox\"', 'lunch on friday', NULL, '[]')",
+                [OTHER, THREAD, ACCOUNT],
             )
             .unwrap();
-        };
-        let at = |mailbox: &str, uid: i64, message: &str| {
+        },
+        check: |open| {
+            let store = open();
+            assert_eq!(hits(&store, "lunch"), 1, "English mail on disk is findable");
+            assert_eq!(hits(&store, "校園"), 1, "old Chinese mail was reindexed");
+            assert_eq!(hits(&store, "維護"), 1);
+            assert_eq!(
+                hits(&store, "臺北"),
+                0,
+                "and not as a substring of everything"
+            );
+            drop(store);
+            let again = open();
+            let unfilled = "SELECT count(*) FROM messages WHERE fts_text IS NULL";
+            assert_eq!(number(&again.raw_connection(), unfilled), 0);
+        },
+    },
+    Case {
+        // `To` and `Cc` joined the indexed text. A version-4 row already has `fts_text`, built
+        // without them, so the migration clears the text and the index together; getting the
+        // order wrong corrupts the index, hence the integrity checks.
+        migration: "0005_fts_recipients",
+        from: 4,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                     recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                     body_text, body_raw, attachments, fts_text)
+                 VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test',
+                     '{\"to\":[{\"name\":\"Ada Lovelace\",\"email\":\"ada@engine.test\"}],
+                       \"cc\":[{\"name\":null,\"email\":\"grace@hopper.test\"}],
+                       \"bcc\":[{\"name\":null,\"email\":\"secret@hidden.test\"}]}',
+                     'minutes', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
+                     '\"inbox\"', 'lunch on friday', NULL, '[]', 'minutes c d test lunch on friday')",
+                [OTHER, THREAD, ACCOUNT],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            let intact = || {
+                store.raw_connection().execute(
+                    "INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')",
+                    [],
+                )
+            };
+            assert_eq!(hits(&store, "lovelace"), 1, "a To name is indexed");
+            assert_eq!(hits(&store, "hopper"), 1, "a Cc address is indexed");
+            assert_eq!(hits(&store, "lunch"), 1, "what was findable still is");
+            assert_eq!(
+                hits(&store, "minutes"),
+                1,
+                "and the old entry is not left beside it"
+            );
+            assert_eq!(
+                hits(&store, "hidden"),
+                0,
+                "a blind copy is never searchable"
+            );
+            intact().expect("the index agrees with the table after the upgrade");
+            store
+                .raw_connection()
+                .execute(
+                    "UPDATE messages SET read = '\"unread\"' WHERE id = ?1",
+                    [OTHER],
+                )
+                .unwrap();
+            intact().expect("the index agrees with the table after a write");
+            assert_eq!(hits(&store, "hopper"), 1);
+        },
+    },
+    Case {
+        // A summary written before embedded images stopped counting is re-derived: the stored
+        // count is what the paperclip and `has:attachment` read.
+        migration: "0007_resummarize",
+        from: 6,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                r#"UPDATE messages SET msg_key = '{"kind":"rfc","v":"k@example.test"}',
+                     attachments = '[{"name":"logo.png","mime":"image/png","size":3,
+                       "blob":"04040404-0404-0404-0404-040404040404",
+                       "inline":{"kind":"embedded","v":{"cid":"logo@x"}}}]'"#,
+                [],
+            )
+            .unwrap();
+            db.execute(
+                "UPDATE threads SET snooze = ?1, pin = ?2",
+                [
+                    serde_json::to_string(&mail_domain::Snooze::Inactive).unwrap(),
+                    serde_json::to_string(&mail_domain::Pin::Unpinned).unwrap(),
+                ],
+            )
+            .unwrap();
+            // What the old derivation wrote: one attachment, the embedded logo.
+            db.execute(
+                r#"INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
+                     from_email, participants, recipients, last_date, message_count, read, star,
+                     mailboxes, labels, attachments, snooze, pin)
+                   VALUES (?1, ?2, 's', '', NULL, 'a@b.test', '[]', '[]',
+                     '2023-01-01T00:00:00.000000000Z', 1, '"read"', '"unstarred"', '["inbox"]',
+                     '[]', '{"kind":"present","v":{"count":1}}', '"none"', '"none"')"#,
+                [THREAD, ACCOUNT],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            let db = store.raw_connection();
+            let stored: String = db
+                .query_row("SELECT attachments FROM thread_summary", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(
+                stored, r#"{"kind":"none"}"#,
+                "the embedded logo is not counted"
+            );
+            let queued = "SELECT count(*) FROM summaries_to_refresh";
+            assert_eq!(number(&db, queued), 0, "the queue is emptied once worked");
+        },
+    },
+    Case {
+        // Both passes that run on open, the index backfill and the summary queue, read every
+        // message, so either could lock someone out of all their mail over one bad row.
+        migration: "0007_resummarize, a row that does not decode",
+        from: 6,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "UPDATE messages SET recipients = 'not json', fts_text = NULL",
+                [],
+            )
+            .unwrap();
+            db.execute(
+                r#"INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
+                     from_email, participants, recipients, last_date, message_count, read, star,
+                     mailboxes, labels, attachments, snooze, pin)
+                   VALUES (?1, ?2, 's', '', NULL, 'a@b.test', '[]', '[]',
+                     '2023-01-01T00:00:00.000000000Z', 1, '"read"', '"unstarred"', '["inbox"]',
+                     '[]', '{"kind":"none"}', '"none"', '"none"')"#,
+                [THREAD, ACCOUNT],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            open();
+        },
+    },
+    Case {
+        // Every IMAP mapping goes, because any of them may name the wrong message; POP3's stay,
+        // and so does the message.
+        migration: "0008_remap_imap",
+        from: 7,
+        seed: |db| {
+            seed(db);
             db.execute(
                 "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
-                 VALUES (?1, ?2, 1, ?3, NULL, ?4)",
-                rusqlite::params![account, mailbox, uid, message],
+                 VALUES (?1, 'INBOX', 1, 42, NULL, ?2), (?1, 'INBOX', NULL, NULL, 'u1', ?2)",
+                [ACCOUNT, MESSAGE],
             )
             .unwrap();
-        };
-        let rfc = |id: &str| format!("{{\"kind\":\"rfc\",\"v\":\"{id}@b.test\"}}");
-        // Y answered for Sent UID 5 while INBOX was selected: X lost its address to it.
-        message("x", &rfc("x"), "sent by me", None);
-        message("y", &rfc("y"), "to me", Some("hello"));
-        at("INBOX", 5, "y");
-        at("Sent", 5, "y");
-        // A message with no Message-ID, answered for Sent UID 6: stored again as a copy.
-        message(
-            "n",
-            "{\"kind\":\"synthetic\",\"v\":[1]}",
-            "no id",
-            Some("hi"),
-        );
-        message(
-            "copy",
-            "{\"kind\":\"synthetic\",\"v\":[9]}",
-            "no id",
-            Some("hi"),
-        );
-        at("INBOX", 6, "n");
-        at("Sent", 6, "copy");
-        // A large message rebuilt around another's structure.
-        message(
-            "big",
-            &rfc("big"),
-            "large",
-            Some("--other\r\nContent-Type: application/pdf\r\nX-Mailo-Remote-Section: 2\r\n"),
-        );
-        at("Sent", 9, "big");
-        // One held in two mailboxes under two UIDs, as a server keeps copies: untouched.
-        message("both", &rfc("both"), "copied", Some("-- \r\nsignature"));
-        at("INBOX", 7, "both");
-        at("Projects", 8, "both");
-    }
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let db = store.raw_connection();
-    let rows: Vec<(String, i64, String)> = db
-        .prepare("SELECT mailbox, uid, message FROM remote_map ORDER BY mailbox, uid")
-        .unwrap()
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    let row = |m: &str, u: i64, id: &str| (m.to_owned(), u, id.to_owned());
-    assert_eq!(
-        rows,
-        vec![
-            row("INBOX", 7, "both"),
-            row("Projects", 8, "both"),
-            row("Sent", 9, "big"),
-        ],
-        "both addresses of one UID in two mailboxes go, and both copies with theirs"
-    );
-    let ids: Vec<String> = db
-        .prepare("SELECT id FROM messages WHERE length(id) < 10 ORDER BY id")
-        .unwrap()
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect();
-    // Which of two identical digest-keyed messages is the copy cannot be told from here, so
-    // both go; the header pass stores the one the server really holds again.
-    assert_eq!(ids, ["big", "both", "x", "y"]);
-    let body = |id: &str| -> (Option<String>, Option<String>) {
-        db.query_row(
-            "SELECT body_text, body_raw FROM messages WHERE id = ?1",
-            [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap()
-    };
-    assert_eq!(
-        body("big"),
-        (None, None),
-        "the rebuilt body is fetched again"
-    );
-    assert_eq!(body("y"), (Some("hello".to_owned()), Some("b".to_owned())));
-    assert_eq!(
-        body("both"),
-        (Some("-- \r\nsignature".to_owned()), Some("b".to_owned()))
-    );
-}
-
-/// 0016: a database from before invitation answers upgrades with none; an answer can be kept
-/// straight away, replaced, and goes with its message.
-#[test]
-fn a_database_from_before_invitation_answers_upgrades_and_keeps_them_per_message() {
-    use mail_domain::{Attendance, InviteAnswer, MessageId};
-    use mail_store::Store;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let message = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(15) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
+        },
+        check: |open| {
+            let store = open();
+            let db = store.raw_connection();
+            let left: Vec<(Option<i64>, Option<String>)> = db
+                .prepare("SELECT uid, uidl FROM remote_map")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            assert_eq!(left, [(None, Some("u1".to_owned()))]);
+            assert_eq!(number(&db, "SELECT count(*) FROM messages"), 1);
+        },
+    },
+    Case {
+        // Mail held before the address book is read into it once, on the first open: a sent
+        // draft as written to, and its Sent-folder copy not counted again.
+        migration: "0013_contacts",
+        from: 12,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO identities (id, account, from_name, from_email, is_default)
+                 VALUES ('00000000-0000-4000-8000-0000000000b1', ?1, 'Me', 'me@example.test',
+                         '\"default\"')",
+                [ACCOUNT],
+            )
+            .unwrap();
+            db.execute(
+                r#"INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                       recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                       body_text, body_raw, attachments)
+                   VALUES (?1, ?2, ?3, '"k2"', '2023-01-02T00:00:00.000000000Z', 'Me',
+                       'me@example.test', '{"to":[{"name":"Bob","email":"bob@example.test"}]}',
+                       'Plans', NULL, '[]', NULL, '"read"', '"unstarred"', '"sent"', NULL, NULL,
+                       '[]')"#,
+                [OTHER, THREAD, ACCOUNT],
+            )
+            .unwrap();
+            let state = serde_json::to_string(&mail_domain::SendState::Sent {
+                at: chrono::DateTime::parse_from_rfc3339("2023-01-02T00:00:00Z")
+                    .unwrap()
+                    .to_utc(),
+                message: None,
+            })
+            .unwrap();
+            db.execute(
+                r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
+                       forward_of, body_text, body_html, attachments, state, updated_at)
+                   VALUES ('00000000-0000-4000-8000-0000000000d1', ?1,
+                       '00000000-0000-4000-8000-0000000000b1',
+                       '{"to":[{"name":"Bob Typed","email":"Bob@example.test"}],"cc":[],"bcc":[]}',
+                       'Plans', NULL, NULL, '', NULL, '[]', ?2, '2023-01-02T00:00:00.000000000Z')"#,
+                [ACCOUNT, &state],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            let book = store.contacts().unwrap();
+            let find = |address: &str| book.iter().find(|c| c.address == address).cloned();
+            assert_eq!(find("a@b.test").map(|c| c.received.count), Some(1));
+            let bob = find("bob@example.test").unwrap();
+            assert_eq!(bob.written.count, 1, "the draft and its Sent copy are one");
+            assert_eq!(bob.name.as_deref(), Some("Bob Typed"));
+            assert_eq!(
+                find("me@example.test").map(|c| c.kind),
+                Some(mail_store::Kind::Own)
+            );
+            let pending = "SELECT count(*) FROM contacts_to_backfill";
+            assert_eq!(number(&store.raw_connection(), pending), 0, "it runs once");
+            drop(store);
+            assert_eq!(
+                open().contacts().unwrap(),
+                book,
+                "a second open counts nothing twice"
+            );
+        },
+    },
+    Case {
+        // What body fetches drawn from two mailboxes at once left behind is undone, and nothing
+        // else is touched.
+        migration: "0015_unmix_body_batches",
+        from: 14,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO blobs (id, hash, size, path, inline, created_at)
+                 VALUES ('b', 'h', 1, NULL, x'00', datetime('now'))",
+                [],
+            )
+            .unwrap();
+            let message = |id: &str, key: &str, subject: &str, body: Option<&str>| {
                 db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
+                    "INSERT INTO messages (id, thread, account, msg_key, date, from_name,
+                         from_email, recipients, subject, in_reply_to, refs, rfc_message_id, read,
+                         star, mailbox, body_text, body_raw, attachments)
+                     VALUES (?1, ?2, ?3, ?4, '2023-01-02T00:00:00Z', NULL, 'a@b.test', '{}', ?5,
+                         NULL, '[]', NULL, '\"read\"', '\"unstarred\"', '\"inbox\"', ?6,
+                         CASE WHEN ?6 IS NULL THEN NULL ELSE 'b' END, '[]')",
+                    rusqlite::params![id, THREAD, ACCOUNT, key, subject, body],
                 )
                 .unwrap();
-            }
-        }
-        let (_, message) = seed(&db);
-        message
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-    let message = MessageId::from_uuid(message.parse().unwrap());
-    assert_eq!(store.invite_answer(message).unwrap(), None);
-    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
-    let answer = InviteAnswer {
-        message,
-        attendance: Attendance::Accepted,
-        sequence: 0,
-        comment: None,
-        answered_at: at,
-    };
-    store.answer_invite(&answer).unwrap();
-    let changed = InviteAnswer {
-        attendance: Attendance::Declined,
-        comment: Some("clash".to_owned()),
-        ..answer
-    };
-    store.answer_invite(&changed).unwrap();
-    assert_eq!(store.invite_answer(message).unwrap(), Some(changed));
-    store
-        .raw_connection()
-        .execute("DELETE FROM messages", [])
-        .unwrap();
-    let left: i64 = store
-        .raw_connection()
-        .query_row("SELECT count(*) FROM invite_answers", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(left, 0, "an answer does not outlive its message");
-}
-
-/// 0017: a database from before rules upgrades with none and no vacation reply, keeps its mail,
-/// and can keep a rule straight away.
-#[test]
-fn a_database_from_before_rules_upgrades_with_none_and_keeps_its_mail() {
-    use mail_store::Store;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let (account, message) = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(16) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
+            };
+            let at = |mailbox: &str, uid: i64, message: &str| {
                 db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
+                    "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
+                     VALUES (?1, ?2, 1, ?3, NULL, ?4)",
+                    rusqlite::params![ACCOUNT, mailbox, uid, message],
                 )
                 .unwrap();
-            }
-        }
-        seed(&db)
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    let account = mail_domain::id::account_id_from_uuid(account.parse().unwrap());
-    assert_eq!(store.rules(account.clone()).unwrap(), vec![]);
-    assert_eq!(store.vacation(account.clone()).unwrap(), None);
-    let kept: i64 = store
-        .raw_connection()
-        .query_row(
-            "SELECT count(*) FROM messages WHERE id = ?1",
-            [&message],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(kept, 1, "the mail is still there");
-
-    let rule = mail_domain::Rule {
-        id: mail_domain::RuleId::generate(),
-        account: account.clone(),
-        name: "Bills".to_owned(),
-        position: 1,
-        state: mail_domain::RuleState::Enabled,
-        filter: mail_domain::Filter::All,
-        actions: vec![mail_domain::RuleAction::Archive],
-        after: mail_domain::AfterMatch::Continue,
-    };
-    store.put_rule(&rule).unwrap();
-    assert_eq!(store.rules(account).unwrap(), vec![rule]);
-}
-
-/// 0018: a draft saved before OpenPGP opens as plain, and the key and Autocrypt tables start
-/// empty and take a key straight away.
-#[test]
-fn a_database_from_before_openpgp_upgrades_with_plain_drafts_and_no_keys() {
-    use mail_domain::{DraftId, Fingerprint, KeySource, KeyTrust, OpenPgp, PgpKey, SecretHeld};
-    use mail_store::Store;
-
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let draft = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(17) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
+            };
+            let rfc = |id: &str| format!("{{\"kind\":\"rfc\",\"v\":\"{id}@b.test\"}}");
+            // Y answered for Sent UID 5 while INBOX was selected: X lost its address to it.
+            message("x", &rfc("x"), "sent by me", None);
+            message("y", &rfc("y"), "to me", Some("hello"));
+            at("INBOX", 5, "y");
+            at("Sent", 5, "y");
+            // A message with no Message-ID, answered for Sent UID 6: stored again as a copy.
+            let synthetic = |n: u8| format!("{{\"kind\":\"synthetic\",\"v\":[{n}]}}");
+            message("n", &synthetic(1), "no id", Some("hi"));
+            message("copy", &synthetic(9), "no id", Some("hi"));
+            at("INBOX", 6, "n");
+            at("Sent", 6, "copy");
+            // A large message rebuilt around another's structure.
+            let rebuilt =
+                "--other\r\nContent-Type: application/pdf\r\nX-Mailo-Remote-Section: 2\r\n";
+            message("big", &rfc("big"), "large", Some(rebuilt));
+            at("Sent", 9, "big");
+            // One held in two mailboxes under two UIDs, as a server keeps copies: untouched.
+            message("both", &rfc("both"), "copied", Some("-- \r\nsignature"));
+            at("INBOX", 7, "both");
+            at("Projects", 8, "both");
+        },
+        check: |open| {
+            let store = open();
+            let db = store.raw_connection();
+            let rows: Vec<(String, i64, String)> = db
+                .prepare("SELECT mailbox, uid, message FROM remote_map ORDER BY mailbox, uid")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            let row = |m: &str, u: i64, id: &str| (m.to_owned(), u, id.to_owned());
+            assert_eq!(
+                rows,
+                vec![
+                    row("INBOX", 7, "both"),
+                    row("Projects", 8, "both"),
+                    row("Sent", 9, "big"),
+                ],
+                "both addresses of one UID in two mailboxes go, and both copies with theirs"
+            );
+            let ids: Vec<String> = db
+                .prepare("SELECT id FROM messages WHERE length(id) < 10 ORDER BY id")
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            // Which of two identical digest-keyed messages is the copy cannot be told from
+            // here, so both go; the header pass stores the one the server really holds again.
+            assert_eq!(ids, ["big", "both", "x", "y"]);
+            let body = |id: &str| -> (Option<String>, Option<String>) {
+                db.query_row(
+                    "SELECT body_text, body_raw FROM messages WHERE id = ?1",
+                    [id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .unwrap()
+            };
+            assert_eq!(
+                body("big"),
+                (None, None),
+                "the rebuilt body is fetched again"
+            );
+            assert_eq!(body("y"), (Some("hello".to_owned()), Some("b".to_owned())));
+            assert_eq!(
+                body("both"),
+                (Some("-- \r\nsignature".to_owned()), Some("b".to_owned()))
+            );
+        },
+    },
+    Case {
+        // An operation queued before the outbox kept its messages learns them from its pending
+        // changes, and is sent to where the message is by then.
+        migration: "0020_outbox_messages",
+        from: 19,
+        seed: |db| {
+            use mail_domain::{ChangeId, Keyword, MailboxRole, Patch, ProtoOp};
+            seed(db);
+            db.execute(
+                "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
+                 VALUES (?1, 'INBOX', 7, 10, NULL, ?2)",
+                [ACCOUNT, MESSAGE],
+            )
+            .unwrap();
+            let undo = serde_json::to_string(&Patch {
+                id: ChangeId::generate(),
+                changes: Vec::new(),
+            })
+            .unwrap();
+            let queue = |op: &ProtoOp| {
                 db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
+                    "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at)
+                     VALUES (?1, ?2, ?3, 0, '2023-01-01T00:00:00.000000000Z',
+                         '2023-01-01T00:00:00.000000000Z')",
+                    rusqlite::params![ACCOUNT, serde_json::to_string(op).unwrap(), undo],
                 )
                 .unwrap();
-            }
-        }
-        let (account, _) = seed(&db);
-        let identity = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [&identity, &account],
-        )
-        .unwrap();
-        let draft = uuid::Uuid::new_v4();
-        db.execute(
-            r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
-                 forward_of, body_text, body_html, attachments, state, updated_at, receipt)
-               VALUES (?1, ?2, ?3, '{"reply_to":[],"to":[],"cc":[],"bcc":[]}', 'old', NULL,
-                 NULL, 'text', NULL, '[]', '{"kind":"editing"}',
-                 '2023-01-01T00:00:00.000000000Z', '"unrequested"')"#,
-            rusqlite::params![draft.to_string(), account, identity],
-        )
-        .unwrap();
-        DraftId::from_uuid(draft)
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-    assert_eq!(store.draft(draft).unwrap().openpgp, OpenPgp::None);
-    assert!(store.pgp_keys().unwrap().is_empty());
-    assert_eq!(store.autocrypt_peer("me@example.test").unwrap(), None);
-    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
-    let key = PgpKey {
-        fingerprint: Fingerprint::V4([3; 20]),
-        key_ids: vec![Fingerprint::V4([3; 20]).key_id()],
-        user_ids: vec!["Me <me@example.test>".to_owned()],
-        emails: vec!["me@example.test".to_owned()],
-        key: vec![0x98, 0x33],
-        source: KeySource::Imported,
-        first_seen: at,
-        last_seen: at,
-        trust: KeyTrust::Unverified,
-        secret: SecretHeld::Absent,
-        created: None,
-        expires: None,
-    };
-    store.put_pgp_key(key.clone()).unwrap();
-    assert_eq!(store.pgp_keys_for("me@example.test").unwrap(), vec![key]);
-}
-
-/// 0019: a draft saved before S/MIME opens as plain, keeping what it asked OpenPGP to do, and
-/// the certificate table starts empty and takes a certificate straight away.
-#[test]
-fn a_database_from_before_smime_upgrades_with_plain_drafts_and_no_certificates() {
-    use mail_domain::{
-        CertFingerprint, CertSource, DraftId, Fingerprint, KeyTrust, OpenPgp, SecretHeld, Smime,
-        SmimeCert,
-    };
-    use mail_store::Store;
-
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let draft = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(18) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
+                db.last_insert_rowid()
+            };
+            // A move, whose pending change names its message.
+            let moved = queue(&ProtoOp::SetMailbox {
+                remotes: vec![imap("INBOX", 10)],
+                role: MailboxRole::Archive,
+            });
+            db.execute(
+                "INSERT INTO pending_changes (message, outbox, changes) VALUES (?1, ?2, '[]')",
+                rusqlite::params![MESSAGE, moved],
+            )
+            .unwrap();
+            // A keyword, which has none.
+            queue(&ProtoOp::AddKeyword {
+                remotes: vec![imap("INBOX", 10)],
+                keyword: Keyword::MdnSent,
+            });
+        },
+        check: |open| {
+            use mail_domain::{Keyword, MailboxRole, OutboxId, ProtoOp};
+            use mail_store::Dispatch;
+            let store = open();
+            store
+                .remap(account(), &imap("INBOX", 10), &imap("Archive", 77))
                 .unwrap();
+            assert_eq!(
+                store.outbox_dispatch(OutboxId::from_i64(1)).unwrap(),
+                Dispatch::Send(ProtoOp::SetMailbox {
+                    remotes: vec![imap("Archive", 77)],
+                    role: MailboxRole::Archive,
+                }),
+                "the move goes where the message is now"
+            );
+            assert_eq!(
+                store.outbox_dispatch(OutboxId::from_i64(2)).unwrap(),
+                Dispatch::Send(ProtoOp::AddKeyword {
+                    remotes: vec![imap("INBOX", 10)],
+                    keyword: Keyword::MdnSent,
+                }),
+                "the keyword is sent as it was queued"
+            );
+        },
+    },
+    Case {
+        // A message waiting to be found before its wait was counted has no folder to be found
+        // in, so only passes end the wait. The migration adds columns, but this row's wait would
+        // otherwise never end.
+        migration: "0021_unplaced_bound",
+        from: 20,
+        seed: |db| {
+            use mail_domain::{ChangeId, MailboxRole, Patch, ProtoOp};
+            seed(db);
+            db.execute(
+                "INSERT INTO unplaced (account, message) VALUES (?1, ?2)",
+                [ACCOUNT, MESSAGE],
+            )
+            .unwrap();
+            let op = ProtoOp::SetMailbox {
+                remotes: vec![imap("INBOX", 10)],
+                role: MailboxRole::Trash,
+            };
+            let undo = Patch {
+                id: ChangeId::generate(),
+                changes: Vec::new(),
+            };
+            db.execute(
+                "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at,
+                     messages)
+                 VALUES (?1, ?2, ?3, 0, '2023-01-01T00:00:00.000000000Z',
+                     '2023-01-01T00:00:00.000000000Z', ?4)",
+                rusqlite::params![
+                    ACCOUNT,
+                    serde_json::to_string(&op).unwrap(),
+                    serde_json::to_string(&undo).unwrap(),
+                    format!("[\"{MESSAGE}\"]"),
+                ],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            use mail_domain::OutboxId;
+            use mail_store::{Dispatch, PASSES_TO_FIND, SYNCS_TO_FIND};
+            let store = open();
+            let counted: (Option<String>, u32, u32) = store
+                .raw_connection()
+                .query_row("SELECT mailbox, syncs, passes FROM unplaced", [], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })
+                .unwrap();
+            assert_eq!(counted, (None, 0, 0), "where it went was never kept");
+            let entry = OutboxId::from_i64(1);
+            assert_eq!(store.outbox_dispatch(entry).unwrap(), Dispatch::Wait);
+            let synced = vec!["INBOX".to_owned(), "Archive".to_owned()];
+            for _ in 0..SYNCS_TO_FIND.max(PASSES_TO_FIND - 1) {
+                store.unplaced_pass(account(), &synced).unwrap();
             }
-        }
-        let (account, _) = seed(&db);
-        let identity = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
-            [&identity, &account],
-        )
-        .unwrap();
-        let draft = uuid::Uuid::new_v4();
-        db.execute(
-            r#"INSERT INTO drafts (id, account, identity, recipients, subject, in_reply_to,
-                 forward_of, body_text, body_html, attachments, state, updated_at, receipt,
-                 openpgp)
-               VALUES (?1, ?2, ?3, '{"reply_to":[],"to":[],"cc":[],"bcc":[]}', 'old', NULL,
-                 NULL, 'text', NULL, '[]', '{"kind":"editing"}',
-                 '2023-01-01T00:00:00.000000000Z', '"unrequested"', '"sign"')"#,
-            rusqlite::params![draft.to_string(), account, identity],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO pgp_keys (fingerprint, key_ids, user_ids, emails, key, source,
-                 first_seen, last_seen, trust, secret)
-             VALUES (?1, '[]', '[]', '[\"me@example.test\"]', x'9833', '\"imported\"',
-                 '2023-01-01T00:00:00.000000000Z', '2023-01-01T00:00:00.000000000Z',
-                 '\"unverified\"', '\"absent\"')",
-            [Fingerprint::V4([4; 20]).to_string()],
-        )
-        .unwrap();
-        DraftId::from_uuid(draft)
-    };
+            assert_eq!(store.outbox_dispatch(entry).unwrap(), Dispatch::Wait);
+            store.unplaced_pass(account(), &synced).unwrap();
+            assert!(matches!(
+                store.outbox_dispatch(entry).unwrap(),
+                Dispatch::Lost(_)
+            ));
+        },
+    },
+    Case {
+        // An account of the desktop's accountd (auth `granted`) goes with everything that named
+        // it, and one of mailo's own beside it stays. Its plan would no longer read otherwise.
+        migration: "0031_drop_granted_accounts",
+        from: 30,
+        seed: |db| {
+            const GRANTED: &str = "00000000-0000-4000-8000-0000000000a2";
+            seed(db);
+            db.execute(
+                "UPDATE accounts SET plan = ?1",
+                [serde_json::to_string(&own_plan()).unwrap()],
+            )
+            .unwrap();
+            // What a linked build wrote for an account of accountd's.
+            let granted_plan = r#"{"address":"them@example.test",
+                "incoming":{"kind":"imap","v":{"host":"imap.example.test","port":993,"tls":"implicit"}},
+                "outgoing":{"kind":"smtp","v":{"host":"smtp.example.test","port":465,"tls":"implicit"}},
+                "auth":{"kind":"granted","v":{"account":"provider-them-example-test","grant":"grant-1",
+                    "endpoints":[]}},
+                "identities":[]}"#;
+            db.execute(
+                "INSERT INTO accounts (id, address, plan, created_at)
+                 VALUES (?1, 'them@example.test', ?2, datetime('now'))",
+                [GRANTED, granted_plan],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO threads (id, account, snooze, pin)
+                 VALUES ('00000000-0000-4000-8000-0000000000e2', ?1, '\"none\"', '\"none\"')",
+                [GRANTED],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO account_passes (account, finished_at)
+                 VALUES (?1, '2026-10-01T00:00:00Z')",
+                [GRANTED],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            let listed = store.list_accounts().unwrap();
+            let ids: Vec<String> = listed.iter().map(|a| a.id.to_string()).collect();
+            assert_eq!(ids, [ACCOUNT], "only mailo's own account is left");
+            assert_eq!(listed[0].plan.as_ref().unwrap(), &own_plan());
+            let db = store.raw_connection();
+            assert_eq!(
+                number(&db, "SELECT count(*) FROM threads"),
+                1,
+                "its threads went"
+            );
+            assert_eq!(number(&db, "SELECT count(*) FROM account_passes"), 0);
+            assert_eq!(
+                number(&db, "SELECT count(*) FROM messages"),
+                1,
+                "the other's mail stays"
+            );
+        },
+    },
+];
 
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-    // A key kept before its dates were recorded reads back without them, for the application
-    // to fill from the key's bytes.
-    let old_key = store.pgp_key(Fingerprint::V4([4; 20])).unwrap().unwrap();
-    assert_eq!((old_key.created, old_key.expires), (None, None));
-    let loaded = store.draft(draft).unwrap();
-    assert_eq!(loaded.smime, Smime::None);
-    assert_eq!(loaded.openpgp, OpenPgp::Sign);
-    assert!(store.smime_certs().unwrap().is_empty());
-    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
-    let cert = SmimeCert {
-        fingerprint: CertFingerprint([3; 32]),
-        subject: "CN=Me".to_owned(),
-        issuer: "CN=CA".to_owned(),
-        serial: "01".to_owned(),
-        emails: vec!["me@example.test".to_owned()],
-        not_before: at,
-        not_after: at,
-        der: vec![0x30, 0x00],
-        chain: Vec::new(),
-        source: CertSource::Imported,
-        first_seen: at,
-        last_seen: at,
-        trust: KeyTrust::Unverified,
-        secret: SecretHeld::Absent,
-    };
-    store.put_smime_cert(cert.clone()).unwrap();
-    assert_eq!(
-        store.smime_certs_for("me@example.test").unwrap(),
-        vec![cert]
-    );
-}
-
-#[test]
-fn operations_queued_before_the_outbox_kept_their_messages_are_addressed_when_sent() {
-    use mail_domain::{ChangeId, Keyword, MailboxRole, OutboxId, Patch, ProtoOp, RemoteRef};
-    use mail_store::{Dispatch, Store};
-
-    let imap = |mailbox: &str, uid| RemoteRef::Imap {
+fn imap(mailbox: &str, uid: u32) -> mail_domain::RemoteRef {
+    mail_domain::RemoteRef::Imap {
         mailbox: mailbox.to_owned(),
         uidvalidity: 7,
         uid,
+    }
+}
+
+/// A plan of mailo's own, as `presets::manual` writes one.
+fn own_plan() -> mail_domain::AccountPlan {
+    let manual = mail_domain::presets::Manual {
+        imap_host: "imap.example.test".to_owned(),
+        imap_port: 993,
+        smtp_host: "smtp.example.test".to_owned(),
+        smtp_port: 465,
+        login: None,
     };
+    let at = chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap();
+    mail_domain::presets::manual("me@example.test", &manual, at).plan
+}
+
+#[test]
+fn each_migration_that_moves_rows_keeps_them() {
+    for case in CASES {
+        // Printed so a failing assertion says which case it was.
+        eprintln!("{} (from version {})", case.migration, case.from);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mail.db");
+        {
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+            apply_upto(&db, case.from);
+            (case.seed)(&db);
+        }
+        let open = || SqliteStore::open(&path, dir.path()).unwrap();
+        (case.check)(&open);
+        assert_eq!(version_of(&open().raw_connection()), EXPECTED_VERSION);
+    }
+}
+
+#[test]
+fn an_empty_database_migrates_to_the_current_version() {
+    let db = Connection::open_in_memory().unwrap();
+    migrate::migrate(&db).unwrap();
+    assert_eq!(version_of(&db), EXPECTED_VERSION);
+}
+
+#[test]
+fn a_database_at_the_current_version_opens_unchanged() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mail.db");
-    let account = {
+    {
         let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(19) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let (account, message) = seed(&db);
+        apply_upto(&db, EXPECTED_VERSION);
+        seed(&db);
         db.execute(
             "INSERT INTO remote_map (account, mailbox, uidvalidity, uid, uidl, message)
-             VALUES (?1, 'INBOX', 7, 10, NULL, ?2)",
-            [&account, &message],
+             VALUES (?1, 'INBOX', 1, 101, NULL, ?2)",
+            [ACCOUNT, MESSAGE],
         )
         .unwrap();
-        let undo = serde_json::to_string(&Patch {
-            id: ChangeId::generate(),
-            changes: Vec::new(),
-        })
-        .unwrap();
-        let queue = |op: &ProtoOp| {
-            db.execute(
-                "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at)
-                 VALUES (?1, ?2, ?3, 0, '2023-01-01T00:00:00.000000000Z',
-                     '2023-01-01T00:00:00.000000000Z')",
-                rusqlite::params![account, serde_json::to_string(op).unwrap(), undo],
-            )
-            .unwrap();
-            db.last_insert_rowid()
-        };
-        // A move, whose pending change names its message.
-        let moved = queue(&ProtoOp::SetMailbox {
-            remotes: vec![imap("INBOX", 10)],
-            role: MailboxRole::Archive,
-        });
-        db.execute(
-            "INSERT INTO pending_changes (message, outbox, changes) VALUES (?1, ?2, '[]')",
-            rusqlite::params![message, moved],
-        )
-        .unwrap();
-        // A keyword, which has none.
-        queue(&ProtoOp::AddKeyword {
-            remotes: vec![imap("INBOX", 10)],
-            keyword: Keyword::MdnSent,
-        });
-        account_id_from_uuid(account.parse().unwrap())
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-    store
-        .remap(account, &imap("INBOX", 10), &imap("Archive", 77))
-        .unwrap();
-    // The move learnt its message from its pending change, and goes where the message is now.
-    assert_eq!(
-        store.outbox_dispatch(OutboxId::from_i64(1)).unwrap(),
-        Dispatch::Send(ProtoOp::SetMailbox {
-            remotes: vec![imap("Archive", 77)],
-            role: MailboxRole::Archive,
-        })
-    );
-    // The keyword could not, and is sent as it was queued, as before.
-    assert_eq!(
-        store.outbox_dispatch(OutboxId::from_i64(2)).unwrap(),
-        Dispatch::Send(ProtoOp::AddKeyword {
-            remotes: vec![imap("INBOX", 10)],
-            keyword: Keyword::MdnSent,
-        })
-    );
-}
-
-#[test]
-fn a_message_waiting_to_be_found_before_its_wait_was_counted_is_given_up_after_enough_passes() {
-    use mail_domain::{ChangeId, MailboxRole, OutboxId, Patch, ProtoOp, RemoteRef};
-    use mail_store::{Dispatch, PASSES_TO_FIND, SYNCS_TO_FIND, Store};
-
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let (account, message) = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(20) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let (account, message) = seed(&db);
-        // Moved by a server that did not say where, and a move queued behind it, waiting.
-        db.execute(
-            "INSERT INTO unplaced (account, message) VALUES (?1, ?2)",
-            [&account, &message],
-        )
-        .unwrap();
-        let op = ProtoOp::SetMailbox {
-            remotes: vec![RemoteRef::Imap {
-                mailbox: "INBOX".to_owned(),
-                uidvalidity: 7,
-                uid: 10,
-            }],
-            role: MailboxRole::Trash,
-        };
-        let undo = Patch {
-            id: ChangeId::generate(),
-            changes: Vec::new(),
-        };
-        db.execute(
-            "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at, messages)
-             VALUES (?1, ?2, ?3, 0, '2023-01-01T00:00:00.000000000Z',
-                 '2023-01-01T00:00:00.000000000Z', ?4)",
-            rusqlite::params![
-                account,
-                serde_json::to_string(&op).unwrap(),
-                serde_json::to_string(&undo).unwrap(),
-                format!("[\"{message}\"]"),
-            ],
-        )
-        .unwrap();
-        (account_id_from_uuid(account.parse().unwrap()), message)
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-    let counted: (Option<String>, u32, u32) = store
-        .raw_connection()
-        .query_row(
-            "SELECT mailbox, syncs, passes FROM unplaced WHERE message = ?1",
-            [&message],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(counted, (None, 0, 0), "where it went was never kept");
-    let entry = OutboxId::from_i64(1);
-    assert_eq!(store.outbox_dispatch(entry).unwrap(), Dispatch::Wait);
-    // No folder's syncs can be the ones that should find it, so only passes end the wait.
-    let synced = vec!["INBOX".to_owned(), "Archive".to_owned()];
-    for _ in 0..SYNCS_TO_FIND.max(PASSES_TO_FIND - 1) {
-        store.unplaced_pass(account.clone(), &synced).unwrap();
     }
-    assert_eq!(store.outbox_dispatch(entry).unwrap(), Dispatch::Wait);
-    store.unplaced_pass(account, &synced).unwrap();
-    assert!(matches!(
-        store.outbox_dispatch(entry).unwrap(),
-        Dispatch::Lost(_)
-    ));
-}
-
-/// 0022: a conversation from before muting opens unmuted, from its thread row and from its
-/// cached summary alike, and can then be muted and read back muted after a reopen.
-#[test]
-fn a_conversation_from_before_mute_opens_unmuted_and_keeps_a_mute_across_a_reopen() {
-    use mail_domain::{Change, ChangeId, Mute, Patch, ThreadId};
-    use mail_store::Store;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let (account, thread) = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS.iter().take(21) {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let account = uuid::Uuid::new_v4().to_string();
-        let thread = uuid::Uuid::new_v4().to_string();
-        let message = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [&account],
-        )
-        .unwrap();
-        // Exactly what `upsert_message` wrote into a thread row at version 21.
-        db.execute(
-            "INSERT INTO threads (id, account, snooze, pin)
-             VALUES (?1, ?2, '{\"kind\":\"inactive\"}', '{\"kind\":\"unpinned\"}')",
-            [&thread, &account],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
-                 recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                 body_text, body_raw, attachments)
-             VALUES (?1, ?2, ?3, '{\"kind\":\"rfc\",\"v\":\"k@example.test\"}',
-                 '2023-01-01T00:00:00.000000000Z', NULL, 'a@example.test', '{}', 's', NULL, '[]',
-                 NULL, '\"unread\"', '\"unstarred\"', '\"inbox\"', NULL, NULL, '[]')",
-            [&message, &thread, &account],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
-                 from_email, participants, recipients, last_date, message_count, read, star,
-                 mailboxes, labels, attachments, snooze, pin)
-             VALUES (?1, ?2, 's', '', NULL, 'a@example.test', '[]', '[]',
-                 '2023-01-01T00:00:00.000000000Z', 1, '\"unread\"', '\"unstarred\"',
-                 '[\"inbox\"]', '[]', '{\"kind\":\"none\"}', '{\"kind\":\"inactive\"}',
-                 '{\"kind\":\"unpinned\"}')",
-            [&thread, &account],
-        )
-        .unwrap();
-        (
-            mail_domain::id::account_id_from_uuid(account.parse().unwrap()),
-            ThreadId::from_uuid(thread.parse().unwrap()),
-        )
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    let store = SqliteStore::open(&path, dir.path()).expect("a current database opens");
+    let db = store.raw_connection();
+    assert_eq!(version_of(&db), EXPECTED_VERSION);
     assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
+        number(&db, "SELECT count(*) FROM remote_map"),
+        1,
+        "and keeps its rows"
     );
-    assert_eq!(store.thread(thread).unwrap().summary.mute, Mute::Unmuted);
-    let row: String = store
-        .raw_connection()
-        .query_row(
-            "SELECT mute FROM threads WHERE id = ?1",
-            [thread.to_string()],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(row, "\"unmuted\"", "the column holds serde(Mute)");
-
-    store
-        .apply(
-            account,
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::ThreadMute(thread, Mute::Muted)],
-            },
-        )
-        .unwrap();
-    drop(store);
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(store.thread(thread).unwrap().summary.mute, Mute::Muted);
-}
-
-/// 0027: a conversation from before follow-up reminders opens with none, from its thread row and
-/// from its cached summary alike, and a reminder set afterwards is kept across a reopen. A
-/// database from before it also gains the table a composer's reminder waits in.
-#[test]
-fn a_conversation_from_before_follow_ups_opens_with_no_reminder_and_keeps_one_across_a_reopen() {
-    use mail_domain::{Change, ChangeId, FollowUp, Mute, Patch, ThreadId};
-    use mail_store::Store;
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let (account, thread) = {
-        let db = Connection::open(&path).unwrap();
-        for (version, sql) in migrate::MIGRATIONS
-            .iter()
-            .filter(|&&(version, _)| version < 27)
-        {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let account = uuid::Uuid::new_v4().to_string();
-        let thread = uuid::Uuid::new_v4().to_string();
-        let message = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [&account],
-        )
-        .unwrap();
-        // Exactly what `upsert_message` wrote into a thread row before version 27.
-        db.execute(
-            "INSERT INTO threads (id, account, snooze, pin, mute)
-             VALUES (?1, ?2, '{\"kind\":\"inactive\"}', '{\"kind\":\"unpinned\"}', '\"muted\"')",
-            [&thread, &account],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
-                 recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                 body_text, body_raw, attachments)
-             VALUES (?1, ?2, ?3, '{\"kind\":\"rfc\",\"v\":\"k@example.test\"}',
-                 '2023-01-01T00:00:00.000000000Z', NULL, 'me@example.test', '{}', 's', NULL, '[]',
-                 NULL, '\"read\"', '\"unstarred\"', '\"sent\"', NULL, NULL, '[]')",
-            [&message, &thread, &account],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
-                 from_email, participants, recipients, last_date, message_count, read, star,
-                 mailboxes, labels, attachments, snooze, pin, mute)
-             VALUES (?1, ?2, 's', '', NULL, 'me@example.test', '[]', '[]',
-                 '2023-01-01T00:00:00.000000000Z', 1, '\"read\"', '\"unstarred\"',
-                 '[\"sent\"]', '[]', '{\"kind\":\"none\"}', '{\"kind\":\"inactive\"}',
-                 '{\"kind\":\"unpinned\"}', '\"muted\"')",
-            [&thread, &account],
-        )
-        .unwrap();
-        (
-            mail_domain::id::account_id_from_uuid(account.parse().unwrap()),
-            ThreadId::from_uuid(thread.parse().unwrap()),
-        )
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-    let summary = store.thread(thread).unwrap().summary;
-    assert_eq!(summary.follow_up, FollowUp::Inactive);
-    assert_eq!(
-        summary.mute,
-        Mute::Muted,
-        "the rest of the row is as it was"
-    );
-    assert!(store.follow_ups().unwrap().is_empty());
-    let held: i64 = store
-        .raw_connection()
-        .query_row("SELECT count(*) FROM follow_up_held", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(held, 0, "the composer's table exists, empty");
-
-    let instant = |text: &str| {
-        chrono::DateTime::parse_from_rfc3339(text)
-            .unwrap()
-            .with_timezone(&chrono::Utc)
-    };
-    let due = FollowUp::Until {
-        at: instant("2023-01-04T09:00:00Z"),
-        set: instant("2023-01-01T00:00:00Z"),
-    };
-    store
-        .apply(
-            account,
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::ThreadFollowUp(thread, due)],
-            },
-        )
-        .unwrap();
-    drop(store);
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(store.thread(thread).unwrap().summary.follow_up, due);
-    let listed: Vec<ThreadId> = store
-        .follow_ups()
-        .unwrap()
-        .into_iter()
-        .map(|s| s.id)
-        .collect();
-    assert_eq!(listed, vec![thread]);
-}
-
-/// An account of the desktop's accountd, kept by a build that could link to it (auth `granted`),
-/// goes on open with everything that named it, and an account of mailo's own beside it stays as it
-/// was. Without this the stored plan would no longer read, and the account could never sign in.
-#[test]
-fn an_account_granted_by_the_desktop_is_removed_and_one_of_mailos_own_is_kept() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("mail.db");
-    let manual = mail_domain::presets::manual(
-        "me@example.test",
-        &mail_domain::presets::Manual {
-            imap_host: "imap.example.test".to_owned(),
-            imap_port: 993,
-            smtp_host: "smtp.example.test".to_owned(),
-            smtp_port: 465,
-            login: None,
-        },
-        chrono::Utc::now(),
-    );
-    let own_plan = serde_json::to_string(&manual.plan).unwrap();
-    // What a linked build wrote for an account of accountd's: the grant and the servers listed.
-    let granted_plan = r#"{"address":"them@example.test",
-        "incoming":{"kind":"imap","v":{"host":"imap.example.test","port":993,"tls":"implicit"}},
-        "outgoing":{"kind":"smtp","v":{"host":"smtp.example.test","port":465,"tls":"implicit"}},
-        "auth":{"kind":"granted","v":{"account":"provider-them-example-test","grant":"grant-1",
-            "endpoints":[]}},
-        "identities":[]}"#;
-    let (own, granted) = {
-        let db = Connection::open(&path).unwrap();
-        db.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
-        for (version, sql) in migrate::MIGRATIONS
-            .iter()
-            .filter(|&&(version, _)| version < 31)
-        {
-            db.execute_batch(sql).unwrap();
-            if *version > 1 {
-                db.execute(
-                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                    [version],
-                )
-                .unwrap();
-            }
-        }
-        let own = seed(&db).0;
-        db.execute(
-            "UPDATE accounts SET plan = ?1 WHERE id = ?2",
-            [&own_plan, &own],
-        )
-        .unwrap();
-        let granted = uuid::Uuid::new_v4().to_string();
-        let thread = uuid::Uuid::new_v4().to_string();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'them@example.test', ?2, datetime('now'))",
-            [&granted, granted_plan],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO threads (id, account, snooze, pin) VALUES (?1, ?2, '\"none\"', '\"none\"')",
-            [&thread, &granted],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO account_passes (account, finished_at) VALUES (?1, '2026-10-01T00:00:00Z')",
-            [&granted],
-        )
-        .unwrap();
-        (own, granted)
-    };
-
-    let store = SqliteStore::open(&path, dir.path()).unwrap();
-    assert_eq!(
-        version_of(&store.raw_connection()),
-        migrate::EXPECTED_VERSION
-    );
-    let listed = store.list_accounts().unwrap();
-    assert_eq!(
-        listed.iter().map(|a| a.id.to_string()).collect::<Vec<_>>(),
-        vec![own.clone()],
-        "only mailo's own account is left"
-    );
-    assert_eq!(listed[0].plan.as_ref().unwrap(), &manual.plan);
-    let named = |table: &str| -> i64 {
-        store
-            .raw_connection()
-            .query_row(
-                &format!("SELECT count(*) FROM {table} WHERE account = ?1"),
-                [&granted],
-                |r| r.get(0),
-            )
-            .unwrap()
-    };
-    assert_eq!(named("threads"), 0, "its threads went with it");
-    assert_eq!(named("account_passes"), 0, "and the rows beside it");
-    let kept: i64 = store
-        .raw_connection()
-        .query_row(
-            "SELECT count(*) FROM messages WHERE account = ?1",
-            [&own],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(kept, 1, "the other account's mail is untouched");
 }

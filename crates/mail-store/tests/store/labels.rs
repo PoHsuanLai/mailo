@@ -4,19 +4,9 @@
 //! message carried which. The half added here is `Ingest.label_names`: the server's complete
 //! list per message, by name, which the store resolves to ids and applies as a difference.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 fn gmail_ref(uid: u32) -> RemoteRef {
     RemoteRef::Imap {
@@ -26,94 +16,34 @@ fn gmail_ref(uid: u32) -> RemoteRef {
     }
 }
 
-fn store() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-    (store, dir)
-}
-
 /// One message, already stored and mapped, as a survey would find it.
 fn message(store: &SqliteStore, uid: u32) -> MessageId {
     let raw = store.blobs().put(b"raw").unwrap();
-    let id = MessageId::generate();
     let message = Message {
-        id,
+        id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: acct_account(),
-        key: MessageKey::Rfc(format!("m{uid}@example.test")),
-        date: now(),
-        from: Address {
-            name: None,
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("message {uid}"),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
+        date: at(0),
+        ..crate::support::message(u128::from(uid))
     };
-    store
-        .ingest(
-            acct_account(),
-            Ingest {
-                mailbox: MailboxRef {
-                    account: acct_account(),
-                    path: "INBOX".to_owned(),
-                },
-                validity: UidValidity::Same,
-                cursor: None,
-                messages: vec![Fetched {
-                    remote: gmail_ref(uid),
-                    key: message.key.clone(),
-                    raw,
-                    message,
-                }],
-                flags: vec![],
-                labels: vec![],
-                label_names: vec![],
-                gone: vec![],
-            },
-        )
-        .unwrap();
+    let id = message.id;
+    let mut batch = ingest("INBOX");
+    batch.messages.push(Fetched {
+        remote: gmail_ref(uid),
+        key: message.key.clone(),
+        raw,
+        message,
+    });
+    store.ingest(acct_account(), batch).unwrap();
     id
 }
 
-fn label_sweep(store: &SqliteStore, rows: Vec<(RemoteRef, Vec<String>)>) {
-    store
-        .ingest(
-            acct_account(),
-            Ingest {
-                mailbox: MailboxRef {
-                    account: acct_account(),
-                    path: "INBOX".to_owned(),
-                },
-                validity: UidValidity::Same,
-                cursor: None,
-                messages: vec![],
-                flags: vec![],
-                labels: vec![],
-                label_names: rows,
-                gone: vec![],
-            },
-        )
-        .unwrap();
+/// A survey of the inbox reporting each message's complete list of labels.
+fn label_sweep(store: &SqliteStore, rows: Vec<(RemoteRef, Vec<String>)>) -> Patch {
+    let batch = Ingest {
+        label_names: rows,
+        ..ingest("INBOX")
+    };
+    store.ingest(acct_account(), batch).unwrap()
 }
 
 fn names_on(store: &SqliteStore, message: MessageId) -> Vec<String> {
@@ -130,8 +60,8 @@ fn names_on(store: &SqliteStore, message: MessageId) -> Vec<String> {
 }
 
 #[test]
-fn a_label_the_server_reports_is_created_and_attached() {
-    let (store, _dir) = store();
+fn a_label_the_server_reports_is_created_attached_and_found() {
+    let store = sqlite();
     let id = message(&store, 42);
 
     label_sweep(
@@ -152,13 +82,20 @@ fn a_label_the_server_reports_is_created_and_attached() {
         .find(|l| l.name == "travel")
         .expect("the label exists");
     assert_eq!(travel.origin, LabelOrigin::Provider);
+
+    // And the point of all of it: the message is findable by that label.
+    let found = store
+        .threads(&query(Filter::HasLabel(travel.id), 10), at(0))
+        .unwrap();
+    assert_eq!(found.items.len(), 1);
+    assert_eq!(found.items[0].id, store.message(id).unwrap().thread);
 }
 
 #[test]
 fn the_same_name_twice_is_the_same_label() {
     // Two messages, one label. `UNIQUE (account, name)` is what makes that safe, and a client
     // that made a new row per message would show the same label several times in a sidebar.
-    let (store, _dir) = store();
+    let store = sqlite();
     let first = message(&store, 42);
     let second = message(&store, 43);
 
@@ -179,7 +116,7 @@ fn the_same_name_twice_is_the_same_label() {
 fn a_label_the_server_no_longer_lists_is_removed() {
     // The list is complete, not additive. A client that only ever adds accumulates labels the
     // user deleted years ago, and no later sync ever takes them off.
-    let (store, _dir) = store();
+    let store = sqlite();
     let id = message(&store, 42);
     label_sweep(
         &store,
@@ -205,9 +142,9 @@ fn a_label_the_server_no_longer_lists_is_removed() {
 fn an_unchanged_list_writes_nothing() {
     // Only the difference is applied. Writing every membership on every pass would fill the
     // change log with nothing, which is the same waste F95 and F113 were about.
-    let (store, _dir) = store();
+    let store = sqlite();
     let id = message(&store, 42);
-    let first = label_patch(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);
+    let first = label_sweep(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);
     assert!(
         first
             .changes
@@ -216,7 +153,7 @@ fn an_unchanged_list_writes_nothing() {
         "the first pass attached it"
     );
 
-    let again = label_patch(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);
+    let again = label_sweep(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);
     assert!(
         !again
             .changes
@@ -232,64 +169,10 @@ fn an_unchanged_list_writes_nothing() {
 fn a_message_the_survey_does_not_know_is_skipped_rather_than_failing() {
     // A label row for a message this client has never fetched. Normal: the survey sees every
     // uid, and the bodies arrive later.
-    let (store, _dir) = store();
+    let store = sqlite();
     label_sweep(&store, vec![(gmail_ref(999), vec!["travel".to_owned()])]);
     assert!(
         store.labels(acct_account()).unwrap().is_empty(),
         "no label invented"
     );
-}
-
-#[test]
-fn a_labelled_message_is_findable_by_that_label() {
-    // The point of all of it.
-    let (store, _dir) = store();
-    let id = message(&store, 42);
-    label_sweep(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);
-
-    let travel = store
-        .labels(acct_account())
-        .unwrap()
-        .into_iter()
-        .find(|l| l.name == "travel")
-        .unwrap();
-    let found = store
-        .threads(
-            &Query {
-                filter: Filter::HasLabel(travel.id),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
-                page: PageReq {
-                    after: None,
-                    limit: 10,
-                },
-            },
-            now(),
-        )
-        .unwrap();
-    assert_eq!(found.items.len(), 1);
-    assert_eq!(found.items[0].id, store.message(id).unwrap().thread);
-}
-
-fn label_patch(store: &SqliteStore, rows: Vec<(RemoteRef, Vec<String>)>) -> Patch {
-    store
-        .ingest(
-            acct_account(),
-            Ingest {
-                mailbox: MailboxRef {
-                    account: acct_account(),
-                    path: "INBOX".to_owned(),
-                },
-                validity: UidValidity::Same,
-                cursor: None,
-                messages: vec![],
-                flags: vec![],
-                labels: vec![],
-                label_names: rows,
-                gone: vec![],
-            },
-        )
-        .unwrap()
 }

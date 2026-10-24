@@ -1,15 +1,12 @@
 //! `Store::import`: mail no server holds, kept once, with labels that only grow, and never a
 //! `remote_map` row — on both stores, with the same answers.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::support::*;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_store::testing::{in_memory, seed_account};
 use mail_store::{MemoryStore, SqliteStore, Store};
 use porter_core::AccountId;
-
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"))
@@ -20,18 +17,11 @@ fn raw(store: &SqliteStore, n: i64) -> BlobId {
     store.blobs().put(format!("raw {n}").as_bytes()).unwrap()
 }
 
-fn sqlite() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+/// A store holding the account mail is imported into, and nothing else.
+fn sqlite() -> SqliteStore {
+    let store = in_memory();
+    seed_account(&store, acct_account(), "local folders");
     store
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'local folders', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-    (store, dir)
 }
 
 fn kept(key: &str, n: i64, raw: BlobId, labels: &[&str]) -> Kept {
@@ -44,27 +34,15 @@ fn kept(key: &str, n: i64, raw: BlobId, labels: &[&str]) -> Kept {
             account: acct_account(),
             key: MessageKey::Rfc(key.to_owned()),
             date: at(n),
-            from: Address {
-                name: None,
-                email: "ada@example.test".into(),
-            },
-            reply_to: vec![],
-            to: vec![],
-            cc: vec![],
-            bcc: vec![],
             subject: format!("Subject {n}"),
-            in_reply_to: None,
-            references: vec![],
             rfc_message_id: Some(key.to_owned()),
             read: ReadState::Read,
-            star: Star::Unstarred,
             mailbox: MailboxRole::Archive,
-            labels: vec![],
             body: Body::Present {
                 text: Some(format!("body {n}")),
                 raw,
             },
-            attachments: vec![],
+            ..message(0)
         },
         labels: labels.iter().map(|l| (*l).to_owned()).collect(),
     }
@@ -149,8 +127,8 @@ fn run(store: &dyn Store, raws: [BlobId; 2]) -> Vec<(String, usize, usize)> {
 }
 
 #[test]
-fn importing_twice_keeps_each_message_once_and_labels_only_grow() {
-    let (sqlite, _dir) = sqlite();
+fn importing_twice_keeps_each_message_once_and_labels_only_grow_in_both_stores() {
+    let sqlite = sqlite();
     let raws = [raw(&sqlite, 1), raw(&sqlite, 2)];
     let out = run(&sqlite, raws);
     assert_eq!(
@@ -161,19 +139,12 @@ fn importing_twice_keeps_each_message_once_and_labels_only_grow() {
         ],
         "two labels on a, none on b, and no server address on either"
     );
-}
-
-#[test]
-fn the_memory_store_imports_as_sqlite_does() {
-    let (sqlite, _dir) = sqlite();
-    let memory = MemoryStore::new();
-    let raws = [raw(&sqlite, 1), raw(&sqlite, 2)];
-    assert_eq!(run(&memory, raws), run(&sqlite, raws));
+    assert_eq!(run(&MemoryStore::new(), raws), out);
 }
 
 #[test]
 fn an_imported_label_is_the_users_own() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     sqlite
         .import(
             acct_account(),
@@ -190,8 +161,8 @@ fn an_imported_label_is_the_users_own() {
 
 #[test]
 fn nothing_done_to_imported_mail_is_queued_for_a_server() {
-    let (sqlite, _dir) = sqlite();
-    let patch = sqlite
+    let sqlite = sqlite();
+    let imported = sqlite
         .import(
             acct_account(),
             Import {
@@ -199,8 +170,8 @@ fn nothing_done_to_imported_mail_is_queued_for_a_server() {
             },
         )
         .unwrap();
-    let Some(Change::MessageUpsert(message)) = patch.changes.first() else {
-        panic!("{patch:?}");
+    let Some(Change::MessageUpsert(message)) = imported.changes.first() else {
+        panic!("{imported:?}");
     };
     let queued = sqlite
         .enqueue(
@@ -210,10 +181,7 @@ fn nothing_done_to_imported_mail_is_queued_for_a_server() {
                 read: Some(ReadState::Unread),
                 star: None,
             },
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![],
-            },
+            &patch(vec![]),
             at(5),
         )
         .unwrap();
@@ -222,7 +190,7 @@ fn nothing_done_to_imported_mail_is_queued_for_a_server() {
 
 #[test]
 fn an_upload_resolves_to_the_same_append_on_both_stores() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let memory = MemoryStore::new();
     memory
         .import(acct_account(), Import { messages: vec![] })
@@ -236,10 +204,7 @@ fn an_upload_resolves_to_the_same_append_on_both_stores() {
         date: Some(at(3)),
         raw: BlobId::generate(),
     };
-    let undo = Patch {
-        id: ChangeId::generate(),
-        changes: vec![],
-    };
+    let undo = patch(vec![]);
     for store in [&sqlite as &dyn Store, &memory] {
         store
             .enqueue(acct_account(), intent.clone(), &undo, at(4))

@@ -5,42 +5,11 @@
 //! `mail_store::rules` is written over the trait and a divergence between the stores would show
 //! up as a rule that files mail on one and not the other.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
+use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_store::rules::{self, Ran};
-use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
-use porter_core::AccountId;
-
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-fn acct_other() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
-}
-
-fn sqlite() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    for (account, address) in [
-        (acct_account(), "me@example.test"),
-        (acct_other(), "also@example.test"),
-    ] {
-        store
-            .raw_connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, '{}', datetime('now'))",
-                [account.to_string(), address.to_owned()],
-            )
-            .unwrap();
-    }
-    (store, dir)
-}
+use mail_store::{MemoryStore, Store, StoreError};
 
 fn caps(labels: ServerLabels, archive: ArchiveMeans) -> AccountCaps {
     AccountCaps {
@@ -93,33 +62,24 @@ fn arriving(n: u32, sender: &str, mailbox: MailboxRole, raw: BlobId) -> Fetched 
     let message = Message {
         id: MessageId::generate(),
         thread: ThreadId::generate(),
-        account: acct_account(),
         key: MessageKey::Rfc(key.clone()),
         date: at(i64::from(n)),
         from: Address {
             name: None,
             email: sender.to_owned(),
         },
-        reply_to: vec![],
         to: vec![Address {
             name: None,
             email: "me@example.test".to_owned(),
         }],
-        cc: vec![],
-        bcc: vec![],
         subject: format!("Message {n}"),
-        in_reply_to: None,
-        references: vec![],
         rfc_message_id: Some(key.clone()),
-        read: ReadState::Unread,
-        star: Star::Unstarred,
         mailbox,
-        labels: vec![],
         body: Body::Present {
             text: Some(format!("body of message {n}")),
             raw,
         },
-        attachments: vec![],
+        ..message(0)
     };
     Fetched {
         remote: RemoteRef::Imap {
@@ -192,7 +152,7 @@ fn state<S: Store>(store: &S, id: MessageId) -> State {
 
 #[test]
 fn rules_are_kept_in_order_with_one_name_each_per_account() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let memory = MemoryStore::new();
     let stores: [&dyn Store; 2] = [&sqlite, &memory];
     for store in stores {
@@ -245,7 +205,7 @@ fn rules_are_kept_in_order_with_one_name_each_per_account() {
 
 #[test]
 fn a_vacation_reply_is_kept_replaced_and_cleared() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let memory = MemoryStore::new();
     let stores: [&dyn Store; 2] = [&sqlite, &memory];
     for store in stores {
@@ -337,7 +297,7 @@ fn arrival<S: Store>(store: &S, raw: BlobId) -> Seen {
 
 #[test]
 fn a_rule_acts_once_on_arriving_mail_and_the_server_is_told_as_the_user_would_tell_it() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let raw = sqlite.blobs().put(b"raw").unwrap();
     let seen = arrival(&sqlite, raw);
 
@@ -429,7 +389,7 @@ fn backlog<S: Store>(store: &S, raw: BlobId) -> (Vec<Vec<String>>, Vec<usize>, R
 
 #[test]
 fn run_now_reaches_mail_that_was_already_here_in_batches() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let raw = sqlite.blobs().put(b"raw").unwrap();
     let (at_arrival, batches, ran, ops) = backlog(&sqlite, raw);
 
@@ -487,7 +447,7 @@ fn chain<S: Store>(store: &S, raw: BlobId) -> (Vec<Vec<String>>, State) {
 
 #[test]
 fn a_later_rule_sees_what_an_earlier_one_did_and_stop_means_stop() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let raw = sqlite.blobs().put(b"raw").unwrap();
     let seen = chain(&sqlite, raw);
     assert_eq!(
@@ -507,7 +467,7 @@ fn a_later_rule_sees_what_an_earlier_one_did_and_stop_means_stop() {
 
 #[test]
 fn filing_on_a_server_with_folders_queues_one_move_into_the_folder() {
-    let (store, _dir) = sqlite();
+    let store = sqlite();
     let raw = store.blobs().put(b"raw").unwrap();
     store
         .put_rule(&rule(
@@ -591,7 +551,7 @@ fn at_now() -> DateTime<Utc> {
 
 #[test]
 fn a_rule_about_a_folder_asks_the_messages_own_addresses() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let raw = sqlite.blobs().put(b"raw").unwrap();
     let seen = by_folder(&sqlite, raw);
     assert_eq!(seen, vec![vec!["from the inbox".to_owned()]]);
@@ -664,20 +624,7 @@ fn muting<S: Store>(store: &S, raw: BlobId) -> Muting {
     let muted = store.thread(thread).unwrap().summary.mute;
     // The list reads it too, newest first: the other conversation, then the muted one.
     let listed = store
-        .threads(
-            &Query {
-                filter: Filter::Account(acct_account()),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
-                page: PageReq {
-                    after: None,
-                    limit: 10,
-                },
-            },
-            at(6),
-        )
+        .threads(&query(Filter::Account(acct_account()), 10), at(6))
         .unwrap()
         .items
         .into_iter()
@@ -720,7 +667,7 @@ fn muting<S: Store>(store: &S, raw: BlobId) -> Muting {
 
 #[test]
 fn a_muted_conversations_reply_arrives_read_and_archived_and_an_unmuted_ones_does_not() {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let raw = sqlite.blobs().put(b"raw").unwrap();
     let seen = muting(&sqlite, raw);
 

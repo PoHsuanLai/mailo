@@ -5,6 +5,7 @@
 //! load-bearing for search, and an assumption here fails at first run instead of at build.
 
 use mail_domain::id::new_account_id;
+use mail_store::testing::seed_account;
 
 #[test]
 fn bundled_sqlite_has_fts5_and_wal() {
@@ -100,19 +101,11 @@ fn the_reported_parity_hazards_are_actually_closed() {
 fn fts5vocab_row_accepts_the_external_content_index() {
     use chrono::{TimeZone, Utc};
     use mail_domain::*;
-    use mail_store::{SqliteStore, Store};
+    use mail_store::Store;
 
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     let account = new_account_id();
-    store
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [account.to_string()],
-        )
-        .unwrap();
+    seed_account(&store, account.clone(), "me@example.test");
 
     // The exact statement the store runs per connection. `main` because the index lives in
     // the main schema and this table lives in temp, which is not a migration.
@@ -135,23 +128,12 @@ fn fts5vocab_row_accepts_the_external_content_index() {
             name: None,
             email: "a@b.test".into(),
         },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
         subject: "Résumé widgets".into(),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
         body: Body::Present {
             text: Some("widgets widgets in the body".into()),
             raw,
         },
-        attachments: vec![],
+        ..crate::support::message(0)
     };
     store
         .apply(
@@ -195,19 +177,11 @@ fn fts5vocab_row_accepts_the_external_content_index() {
 #[test]
 fn nested_connection_access_does_not_deadlock() {
     use mail_domain::*;
-    use mail_store::{SqliteStore, Store};
+    use mail_store::Store;
 
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     let account = new_account_id();
-    store
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [account.to_string()],
-        )
-        .unwrap();
+    seed_account(&store, account.clone(), "me@example.test");
 
     let raw = store.blobs().put(b"raw").unwrap();
     let thread = ThreadId::generate();
@@ -221,23 +195,12 @@ fn nested_connection_access_does_not_deadlock() {
             name: None,
             email: "a@b.test".into(),
         },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
         subject: "nested".into(),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
         body: Body::Present {
             text: Some("body".into()),
             raw,
         },
-        attachments: vec![],
+        ..crate::support::message(0)
     };
 
     // write_patch -> transaction -> write_change -> connection again.

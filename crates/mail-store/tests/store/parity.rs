@@ -9,17 +9,14 @@
 //! below are the cases that proof is about — folds across scripts, marks that join a word and
 //! marks that end one — exercised end to end through both implementations.
 
+use crate::support::*;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_store::testing::seed_account;
 use mail_store::{MemoryStore, SqliteStore, Store};
-use porter_core::AccountId;
 use proptest::prelude::*;
 use std::collections::BTreeSet;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const LABEL_A: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const LABEL_B: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
 
@@ -126,11 +123,6 @@ fn caps() -> AccountCaps {
 /// one, and one whose name needs modified UTF-7 on the wire and is stored decoded.
 const FOLDERS: &[&str] = &["INBOX", "Projects/2026", "收件匣/報告"];
 
-/// Another account, so `InFolder` is seen to scope by account as well as by path.
-fn acct_other() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
-}
-
 fn spec() -> impl Strategy<Value = Spec> {
     (
         0u8..4,
@@ -215,6 +207,7 @@ fn filter() -> impl Strategy<Value = Filter> {
             Star::Unstarred
         })),
         any::<bool>().prop_map(|b| Filter::HasLabel(if b { LABEL_A } else { LABEL_B })),
+        // The other account too, so `InFolder` is seen to scope by account as well as by path.
         (0..FOLDERS.len(), any::<bool>()).prop_map(|(i, mine)| Filter::InFolder(MailboxRef {
             account: if mine { acct_account() } else { acct_other() },
             path: FOLDERS[i].to_owned(),
@@ -246,14 +239,7 @@ struct Both {
 fn build(specs: &[Spec]) -> Both {
     let dir = tempfile::tempdir().unwrap();
     let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    sqlite
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
+    seed_account(&sqlite, acct_account(), "me@example.test");
     let memory = MemoryStore::new();
     sqlite.put_caps(acct_account(), &caps(), at(0)).unwrap();
     memory.put_caps(acct_account(), &caps(), at(0)).unwrap();
@@ -269,10 +255,7 @@ fn build(specs: &[Spec]) -> Both {
             color: None,
             origin: LabelOrigin::User,
         };
-        let patch = Patch {
-            id: ChangeId::generate(),
-            changes: vec![Change::LabelUpsert(label)],
-        };
+        let patch = patch(vec![Change::LabelUpsert(label)]);
         sqlite.apply(acct_account(), &patch).unwrap();
         memory.apply(acct_account(), &patch).unwrap();
     }
@@ -295,7 +278,6 @@ fn build(specs: &[Spec]) -> Both {
         let message = Message {
             id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + i as u128)),
             thread,
-            account: acct_account(),
             key: MessageKey::Rfc(format!("m{i}@example.test")),
             date: at(s.date),
             from: Address {
@@ -305,16 +287,11 @@ fn build(specs: &[Spec]) -> Both {
                     WORDS[s.from_local].replace(['%', ' '], "")
                 ),
             },
-            reply_to: vec![],
             to: vec![Address {
                 name: None,
                 email: format!("{}@example.test", WORDS[s.to_local].replace(['%', ' '], "")),
             }],
-            cc: vec![],
-            bcc: vec![],
             subject: words(&s.subject),
-            in_reply_to: None,
-            references: vec![],
             rfc_message_id: Some(format!("m{i}@example.test")),
             read: if s.read {
                 ReadState::Read
@@ -332,12 +309,9 @@ fn build(specs: &[Spec]) -> Both {
                 text: Some(body),
                 raw,
             },
-            attachments: vec![],
+            ..message(0)
         };
-        let patch = Patch {
-            id: ChangeId::generate(),
-            changes: vec![Change::MessageUpsert(Box::new(message.clone()))],
-        };
+        let patch = patch(vec![Change::MessageUpsert(Box::new(message.clone()))]);
         sqlite.apply(acct_account(), &patch).unwrap();
         memory.apply(acct_account(), &patch).unwrap();
         held.push((message, s));

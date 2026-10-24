@@ -5,7 +5,9 @@
 //! pass; these are the two questions that needs the store to answer, the same way in SQLite and
 //! in memory.
 
-use mail_domain::{Attachment, Body, Message, MessageId, PartContent};
+use mail_domain::MessageId;
+#[cfg(any(test, feature = "testing"))]
+use mail_domain::{Attachment, Body, Message, PartContent};
 
 /// One attachment a sync left on the server, with what fetching it needs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +35,7 @@ pub struct Offline {
 
 impl Offline {
     /// Count one message in.
+    #[cfg(any(test, feature = "testing"))]
     pub(crate) fn add(&mut self, message: &Message) {
         self.messages += 1;
         let remote: Vec<&Attachment> = message
@@ -52,6 +55,7 @@ impl Offline {
 ///
 /// A stored row with neither a blob nor a section reads back as a remote part with an empty
 /// section (`mail_domain::content`); nothing can fetch that, so it is not counted as waiting.
+#[cfg(any(test, feature = "testing"))]
 pub(crate) fn is_remote(attachment: &Attachment) -> bool {
     matches!(&attachment.content, PartContent::Remote { section } if !section.is_root())
 }

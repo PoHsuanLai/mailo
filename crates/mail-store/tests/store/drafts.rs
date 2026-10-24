@@ -8,58 +8,27 @@
 //!
 //! So these tests ask the question directly, of both, and compare.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
-use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
-use porter_core::AccountId;
+use mail_store::testing::seed_identity_for;
+use mail_store::{MemoryStore, Store, StoreError};
 
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
-struct Both {
-    sqlite: SqliteStore,
-    memory: MemoryStore,
-    _dir: tempfile::TempDir,
-}
-
 /// Both stores, with the account and identity rows the foreign keys require.
 fn both() -> Both {
-    let dir = tempfile::tempdir().unwrap();
-    let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    {
-        let db = sqlite.raw_connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [IDENTITY.to_string(), acct_account().to_string()],
-        )
-        .unwrap();
-    }
+    let sqlite = sqlite();
+    seed_identity_for(
+        &sqlite,
+        IDENTITY,
+        acct_account(),
+        "me@example.test",
+        Some("Me"),
+    );
     Both {
         sqlite,
         memory: MemoryStore::new(),
-        _dir: dir,
-    }
-}
-
-impl Both {
-    /// Each store, named for a failure message.
-    fn each(&self) -> [(&'static str, &dyn Store); 2] {
-        [("sqlite", &self.sqlite), ("memory", &self.memory)]
     }
 }
 
@@ -94,16 +63,13 @@ fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
 }
 
 fn upsert(b: &Both, draft: &Draft) {
-    let patch = Patch {
-        id: ChangeId::generate(),
-        changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
-    };
+    let patch = patch(vec![Change::DraftUpsert(Box::new(draft.clone()))]);
     b.sqlite.apply(acct_account(), &patch).unwrap();
     b.memory.apply(acct_account(), &patch).unwrap();
 }
 
 #[test]
-fn a_saved_draft_can_be_read_back_from_both_stores() {
+fn a_saved_draft_reads_back_whole_from_both_stores() {
     let b = both();
     let draft = full_draft(None);
     upsert(&b, &draft);
@@ -111,16 +77,10 @@ fn a_saved_draft_can_be_read_back_from_both_stores() {
     // The regression: this was `Err(NoDraft)` from SQLite and `Ok` from memory.
     assert_eq!(b.sqlite.draft(draft.id).unwrap(), draft);
     assert_eq!(b.memory.draft(draft.id).unwrap(), draft);
-}
 
-#[test]
-fn every_field_survives_sqlite_unchanged() {
-    // Spelled out rather than left to the `assert_eq!` above, because a `Vec<Address>` that
-    // round-trips as `[]` would still compare equal to a draft that was *built* with none —
-    // and the recipients column is exactly the one a JSON shape change would silently empty.
-    let b = both();
-    let draft = full_draft(None);
-    upsert(&b, &draft);
+    // Spelled out as well, because a `Vec<Address>` that round-trips as `[]` would still compare
+    // equal to a draft that was *built* with none, and the recipients column is exactly the one
+    // a JSON shape change would silently empty.
     let read = b.sqlite.draft(draft.id).unwrap();
 
     assert_eq!(read.to.len(), 2, "both recipients");
@@ -198,10 +158,7 @@ fn drafts_in_both_stores_list_newest_first_resave_in_place_and_delete() {
         );
     }
 
-    let patch = Patch {
-        id: ChangeId::generate(),
-        changes: vec![Change::DraftDelete(newer.id)],
-    };
+    let patch = patch(vec![Change::DraftDelete(newer.id)]);
     for (label, store) in b.each() {
         store.apply(acct_account(), &patch).unwrap();
         assert!(
@@ -260,27 +217,17 @@ fn ingest_one(b: &Both) -> MessageId {
     let message = Message {
         id: MessageId::generate(),
         thread,
-        account: acct_account(),
         key: MessageKey::Rfc("original@example.test".to_owned()),
         date: at(0),
         from: addr("sender@example.test"),
-        reply_to: vec![],
         to: vec![addr("me@example.test")],
-        cc: vec![],
-        bcc: vec![],
         subject: "the thing".to_owned(),
-        in_reply_to: None,
-        references: vec![],
         rfc_message_id: Some("original@example.test".to_owned()),
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
         body: Body::Present {
             text: Some("hello".to_owned()),
             raw,
         },
-        attachments: vec![],
+        ..message(0)
     };
     let id = message.id;
     let ingest = Ingest {
@@ -309,24 +256,8 @@ fn ingest_one(b: &Both) -> MessageId {
 }
 
 // ---------------------------------------------------------------------------------------
-// Read receipts: the draft that asks, and the answer to a message that asked.
+// Read receipts: the answer to a message that asked.
 // ---------------------------------------------------------------------------------------
-
-#[test]
-fn a_draft_asking_for_a_receipt_still_asks_when_read_back() {
-    let b = both();
-    let mut draft = full_draft(None);
-    draft.receipt = ReceiptRequest::Requested;
-    upsert(&b, &draft);
-    assert_eq!(
-        b.sqlite.draft(draft.id).unwrap().receipt,
-        ReceiptRequest::Requested
-    );
-    assert_eq!(
-        b.memory.draft(draft.id).unwrap().receipt,
-        ReceiptRequest::Requested
-    );
-}
 
 #[test]
 fn a_receipt_answer_is_kept_and_the_first_one_stands_in_both_stores() {
@@ -351,19 +282,6 @@ fn a_receipt_answer_is_kept_and_the_first_one_stands_in_both_stores() {
             store.receipt_answer(message).unwrap(),
             Some(ReceiptAnswer::Declined)
         );
-    }
-}
-
-#[test]
-fn answering_for_a_message_that_is_not_there_is_an_error_in_both_stores() {
-    let b = both();
-    let ghost = MessageId::generate();
-    for store in [&b.sqlite as &dyn Store, &b.memory] {
-        assert!(matches!(
-            store.answer_receipt(ghost, ReceiptAnswer::Sent, at(1)),
-            Err(StoreError::NoMessage(id)) if id == ghost
-        ));
-        assert_eq!(store.receipt_answer(ghost).unwrap(), None);
     }
 }
 
@@ -401,10 +319,15 @@ fn an_invitation_answer_is_kept_and_a_later_one_replaces_it_in_both_stores() {
 }
 
 #[test]
-fn answering_an_invitation_that_is_not_there_is_an_error_in_both_stores() {
+fn answering_for_a_message_that_is_not_there_is_an_error_in_both_stores() {
     let b = both();
     let ghost = MessageId::generate();
     for store in [&b.sqlite as &dyn Store, &b.memory] {
+        assert!(matches!(
+            store.answer_receipt(ghost, ReceiptAnswer::Sent, at(1)),
+            Err(StoreError::NoMessage(id)) if id == ghost
+        ));
+        assert_eq!(store.receipt_answer(ghost).unwrap(), None);
         assert!(matches!(
             store.answer_invite(&invite_answer(ghost, Attendance::Accepted, 1)),
             Err(StoreError::NoMessage(id)) if id == ghost
@@ -421,10 +344,7 @@ fn a_keyword_intent_resolves_to_the_same_operation_in_both_stores() {
         messages: vec![message],
         keyword: Keyword::MdnSent,
     };
-    let nothing = Patch {
-        id: ChangeId::generate(),
-        changes: vec![],
-    };
+    let nothing = patch(vec![]);
     let mut ops = Vec::new();
     for store in [&b.sqlite as &dyn Store, &b.memory] {
         assert!(

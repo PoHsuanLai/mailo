@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::filter::search_tokens;
 use mail_domain::{Address, MailboxRole};
 use porter_core::AccountId;
+#[cfg(any(test, feature = "testing"))]
 use std::cmp::Ordering;
 
 /// How much writing to someone counts against receiving from them.
@@ -336,6 +337,7 @@ pub fn bump(score: Option<f64>, weight: f64, at: DateTime<Utc>) -> f64 {
 }
 
 /// Best first: higher score, entries never heard from last, then by address.
+#[cfg(any(test, feature = "testing"))]
 pub fn rank(a: &Row, b: &Row) -> Ordering {
     match (a.score, b.score) {
         (Some(x), Some(y)) => y.total_cmp(&x),

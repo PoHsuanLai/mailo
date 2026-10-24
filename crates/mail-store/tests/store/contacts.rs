@@ -5,18 +5,15 @@
 //! answers, as `tests/store/folders.rs` does for folders. The one SQLite-only test is the list header,
 //! which needs the raw bytes the in-memory store does not keep.
 
+use crate::support::*;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_store::testing::seed_identity_for;
 use mail_store::{
     AddressBook, BookCard, Contact, Kind, MemoryStore, Origin, Settle, SqliteStore, Store,
 };
-use porter_core::AccountId;
 use proptest::prelude::*;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ME: &str = "me@example.test";
@@ -25,34 +22,16 @@ fn at(day: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000 + day * 86_400, 0).unwrap()
 }
 
-fn sqlite() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    {
-        let db = store.raw_connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, ?2, '{}', datetime('now'))",
-            [acct_account().to_string(), ME.to_owned()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-            [
-                IDENTITY.to_string(),
-                acct_account().to_string(),
-                ME.to_owned(),
-            ],
-        )
-        .unwrap();
-    }
-    (store, dir)
+/// The shared store, with the identity the user sends as.
+fn sqlite() -> SqliteStore {
+    let store = crate::support::sqlite();
+    seed_identity_for(&store, IDENTITY, acct_account(), ME, Some("Me"));
+    store
 }
 
 /// Run `scenario` on both stores and hand back what each produced.
 fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
-    let (sqlite, _dir) = sqlite();
+    let sqlite = sqlite();
     let memory = MemoryStore::new();
     (scenario(&sqlite), scenario(&memory))
 }
@@ -69,24 +48,13 @@ fn message(n: u128, day: i64, mailbox: MailboxRole, from: Address, to: Vec<Addre
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1_000_000)),
-        account: acct_account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(day),
         from,
-        reply_to: vec![],
         to,
-        cc: vec![],
-        bcc: vec![],
         subject: format!("message {n}"),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
         mailbox,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
+        ..crate::support::message(0)
     }
 }
 
@@ -406,10 +374,7 @@ fn send(store: &dyn Store, draft: &Draft, now: DateTime<Utc>) {
     store
         .apply(
             acct_account(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
-            },
+            &patch(vec![Change::DraftUpsert(Box::new(draft.clone()))]),
         )
         .unwrap();
     let rcpt_to = draft
@@ -428,10 +393,7 @@ fn send(store: &dyn Store, draft: &Draft, now: DateTime<Utc>) {
                 mail_from: ME.to_owned(),
                 rcpt_to,
             },
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![],
-            },
+            &patch(vec![]),
             now,
         )
         .unwrap()
@@ -548,7 +510,7 @@ fn an_address_books_sync_state_round_trips() {
 #[test]
 fn a_sender_whose_mail_came_through_a_list_is_not_offered_until_written_to() {
     // SQLite only: the header is in the raw bytes, which the in-memory store does not keep.
-    let (store, _dir) = sqlite();
+    let store = sqlite();
     let raw = store
         .blobs()
         .put(b"From: Poster <poster@example.test>\r\nList-Id: Talk <talk.example.test>\r\n\r\nhi")

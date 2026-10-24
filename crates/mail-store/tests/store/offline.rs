@@ -4,24 +4,12 @@
 //! The parity proptest cannot see this: no filter asks about an attachment's bytes. So every
 //! scenario runs against SQLite and memory, compares, and names the numbers it must produce.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
-use mail_store::{MemoryStore, Offline, RemotePart, SqliteStore, Store};
+use mail_store::{MemoryStore, Offline, RemotePart, Store};
 use porter_core::AccountId;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-fn acct_other() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
-}
-
 const MB: u64 = 1024 * 1024;
-
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
 
 /// Raw blobs every scenario may name, stored in the SQLite store so its foreign key holds; the
 /// in-memory store never looks one up.
@@ -31,21 +19,7 @@ struct Blobs {
 
 /// Run `scenario` on both stores and hand back what each produced.
 fn both<T>(scenario: impl Fn(&dyn Store, &Blobs) -> T) -> (T, T) {
-    let dir = tempfile::tempdir().unwrap();
-    let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    for (account, address) in [
-        (acct_account(), "me@example.test"),
-        (acct_other(), "also@example.test"),
-    ] {
-        sqlite
-            .raw_connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, '{}', datetime('now'))",
-                [account.to_string(), address.to_owned()],
-            )
-            .unwrap();
-    }
+    let sqlite = sqlite();
     let blobs = Blobs {
         raw: (0..8)
             .map(|n| sqlite.blobs().put(format!("raw {n}").as_bytes()).unwrap())
@@ -53,14 +27,6 @@ fn both<T>(scenario: impl Fn(&dyn Store, &Blobs) -> T) -> (T, T) {
     };
     let memory = MemoryStore::new();
     (scenario(&sqlite, &blobs), scenario(&memory, &blobs))
-}
-
-fn imap(mailbox: &str, uid: u32) -> RemoteRef {
-    RemoteRef::Imap {
-        mailbox: mailbox.to_owned(),
-        uidvalidity: 7,
-        uid,
-    }
 }
 
 fn remote(name: &str, section: &str, size: u64) -> Attachment {
@@ -92,27 +58,7 @@ fn message(
     attachments: Vec<Attachment>,
 ) -> Message {
     Message {
-        id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
-        thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
         account,
-        key: MessageKey::Rfc(format!("m{n}@example.test")),
-        date: at(n as i64),
-        from: Address {
-            name: None,
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("message {n}"),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
         body: match body {
             Some(raw) => Body::Present {
                 text: Some(format!("body {n}")),
@@ -121,6 +67,7 @@ fn message(
             None => Body::Absent,
         },
         attachments,
+        ..crate::support::message(n)
     }
 }
 
