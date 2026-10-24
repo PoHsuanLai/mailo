@@ -20,6 +20,12 @@ pub const APPEARANCE: &str = "Appearance";
 // Settings › General's footnotes, each said only where a choice is unclear without it.
 /// An account's switch: keep every message and attachment on this computer.
 pub const DOWNLOAD_ALL_MAIL: &str = "Download all mail";
+/// An account's page: how often a timed pass checks it.
+pub const CHECK_FOR_NEW_MAIL: &str = "Check for new mail";
+/// An account's page: how far back its mail is downloaded.
+pub const DOWNLOAD_MAIL_FROM: &str = "Download mail from";
+/// A POP3 account's page: when the server's copy of a message goes.
+pub const REMOVE_FROM_SERVER: &str = "Remove from server";
 /// Settings › Rules: whose rules the page shows, when there are several accounts.
 pub const ACCOUNT: &str = "Account";
 /// The keys Settings lists: the row that imports an OpenPGP key.
@@ -116,8 +122,6 @@ pub const UNTIL_EXAMPLE: &str = "turned off, or monday";
 /// An account's page in Settings: the rows of its servers and sign-in, by what each is.
 pub mod account {
     pub const RECEIVING: &str = "Receiving";
-    /// What POP3 does with what it downloads.
-    pub const DOWNLOADED_MAIL: &str = "Downloaded mail";
     pub const SENDING: &str = "Sending";
     pub const SIGNS_IN: &str = "Signs in";
     pub const SENDS_AS: &str = "Sends as";

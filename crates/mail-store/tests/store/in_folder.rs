@@ -173,10 +173,10 @@ fn a_body_pass_over_one_mailbox_is_given_only_that_mailboxs_addresses() {
         deliver(store, &message(3, MailboxRole::Archive), imap(PROJECTS, 2));
         deliver(store, &message(4, MailboxRole::Archive), imap(PROJECTS, 3));
         (
-            store.unfetched_in(&mailbox("INBOX"), 10).unwrap(),
-            store.unfetched_in(&mailbox(PROJECTS), 10).unwrap(),
-            store.unfetched_in(&mailbox(PROJECTS), 2).unwrap(),
-            store.unfetched_in(&mailbox("Elsewhere"), 10).unwrap(),
+            store.unfetched_in(&mailbox("INBOX"), None, 10).unwrap(),
+            store.unfetched_in(&mailbox(PROJECTS), None, 10).unwrap(),
+            store.unfetched_in(&mailbox(PROJECTS), None, 2).unwrap(),
+            store.unfetched_in(&mailbox("Elsewhere"), None, 10).unwrap(),
         )
     });
     assert_eq!(sqlite, memory);
@@ -191,6 +191,32 @@ fn a_body_pass_over_one_mailbox_is_given_only_that_mailboxs_addresses() {
     assert!(elsewhere.is_empty());
 }
 
+/// An account downloaded only so far back: what is older than the window is left out before the
+/// limit cuts, so the newest of the window are never pushed out by mail it would not fetch.
+#[test]
+fn a_body_pass_reaches_back_only_as_far_as_it_is_told() {
+    let (sqlite, memory) = both(|store| {
+        for n in 1..=4 {
+            deliver(
+                store,
+                &message(n, MailboxRole::Inbox),
+                imap("INBOX", n as u32),
+            );
+        }
+        let inbox = mailbox("INBOX");
+        (
+            store.unfetched_in(&inbox, Some(at(3)), 10).unwrap(),
+            store.unfetched_in(&inbox, Some(at(2)), 1).unwrap(),
+            store.unfetched_in(&inbox, Some(at(5)), 10).unwrap(),
+        )
+    });
+    assert_eq!(sqlite, memory);
+    let (since_third, cut, none) = sqlite;
+    assert_eq!(since_third, vec![imap("INBOX", 4), imap("INBOX", 3)]);
+    assert_eq!(cut, vec![imap("INBOX", 4)]);
+    assert!(none.is_empty(), "everything is older than the window");
+}
+
 #[test]
 fn the_backlog_of_named_threads_reaches_below_any_cut_of_the_whole() {
     // Each `message(n)` is its own thread, `n + 1000`.
@@ -202,7 +228,7 @@ fn the_backlog_of_named_threads_reaches_below_any_cut_of_the_whole() {
         deliver(store, &message(4, MailboxRole::Archive), imap(PROJECTS, 4));
         (
             // The oldest is the one the whole backlog cut at one leaves out.
-            store.unfetched_in(&mailbox("INBOX"), 1).unwrap(),
+            store.unfetched_in(&mailbox("INBOX"), None, 1).unwrap(),
             store
                 .unfetched_in_threads(&mailbox("INBOX"), &[thread(1), thread(3)], 10)
                 .unwrap(),

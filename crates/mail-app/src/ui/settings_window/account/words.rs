@@ -57,20 +57,12 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
             lines.push(line(row::RECEIVING, server("IMAP", host, *port, *tls)));
             false
         }
+        // What becomes of the server's copies is the page's Remove from Server, which a pass
+        // reads; the plan's `leave` never decided it.
         Incoming::Pop3 {
-            host,
-            port,
-            tls,
-            leave,
+            host, port, tls, ..
         } => {
             lines.push(line(row::RECEIVING, server("POP3", host, *port, *tls)));
-            lines.push(line(
-                row::DOWNLOADED_MAIL,
-                match leave {
-                    LeaveOnServer::Keep => said::LEFT_ON_SERVER,
-                    LeaveOnServer::DeleteAfterFetch => said::DELETED_FROM_SERVER,
-                },
-            ));
             false
         }
         Incoming::Graph => {

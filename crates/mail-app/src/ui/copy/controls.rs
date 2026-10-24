@@ -39,6 +39,36 @@ pub const ONE_WEEK: &str = "1 Week";
 pub const TWO_WEEKS: &str = "2 Weeks";
 pub const ONE_MONTH: &str = "1 Month";
 pub const THREE_MONTHS: &str = "3 Months";
+/// An account's Check for New Mail, as its choices name them.
+pub const AUTOMATICALLY: &str = "Automatically";
+pub const MANUALLY: &str = "Manually";
+/// "Every minute", "Every 15 minutes", "Every hour": a fixed interval, in whole minutes.
+pub fn every_minutes(minutes: u16) -> String {
+    match minutes {
+        1 => "Every minute".to_owned(),
+        60 => "Every hour".to_owned(),
+        n => format!("Every {n} minutes"),
+    }
+}
+/// An account's Download Mail From: all of it, or the last so many days.
+pub const ALL_MAIL: &str = "All mail";
+pub fn last_days(days: u16) -> String {
+    match days {
+        365 => "The last year".to_owned(),
+        n => format!("The last {n} days"),
+    }
+}
+/// A POP3 account's Remove from Server.
+pub const NEVER: &str = "Never";
+pub const WHEN_DELETED_HERE: &str = "When deleted here";
+pub fn after_days(days: u16) -> String {
+    match days {
+        1 => "After one day".to_owned(),
+        7 => "After one week".to_owned(),
+        30 => "After one month".to_owned(),
+        n => format!("After {n} days"),
+    }
+}
 /// Keeps what a form or a field holds.
 pub const SAVE: &str = "Save";
 pub const DOWNLOAD: &str = "Download";

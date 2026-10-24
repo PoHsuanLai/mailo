@@ -46,6 +46,15 @@ pub struct Configured {
     ///
     /// [`Keep::Bodies`]: crate::offline::Keep::Bodies
     pub keep: crate::offline::Keep,
+    /// How often a timed pass checks it, from the same setting: [`Every::Automatic`] until
+    /// something reads it.
+    ///
+    /// [`Every::Automatic`]: crate::offline::Every::Automatic
+    pub every: crate::offline::Every,
+    /// How far back a pass downloads its bodies, from the same setting.
+    pub window: crate::offline::Window,
+    /// When a POP3 pass removes the server's copies, from the same setting.
+    pub remove: crate::offline::Remove,
 }
 
 /// What the server was last observed to support, for one account.
@@ -84,6 +93,9 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, CoreErr
             plan,
             caps,
             keep: crate::offline::Keep::default(),
+            every: crate::offline::Every::default(),
+            window: crate::offline::Window::default(),
+            remove: crate::offline::Remove::default(),
         });
     }
     Ok(out)
@@ -291,7 +303,7 @@ pub async fn run_with(
 struct Scope<'a> {
     /// Whether an account is due a pass ([`due`]).
     due: &'a dyn Fn(AccountId) -> bool,
-    /// Which accounts keep everything offline ([`crate::offline`]).
+    /// How each account is synced ([`crate::offline`]).
     kept: &'a crate::offline::Kept,
 }
 
@@ -319,11 +331,19 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, CoreE
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
         .filter(|a| (scope.due)(a.id.clone()))
-        .map(|a| Configured {
-            keep: scope.kept.of(a.id.clone()),
-            ..a
-        })
+        .map(|a| kept_as(a, scope.kept))
         .collect())
+}
+
+/// `account`, synced as `kept` says.
+pub(crate) fn kept_as(account: Configured, kept: &crate::offline::Kept) -> Configured {
+    Configured {
+        keep: kept.of(account.id.clone()),
+        every: kept.every_of(&account.id),
+        window: kept.window_of(&account.id),
+        remove: kept.remove_of(&account.id),
+        ..account
+    }
 }
 
 /// One pass over `accounts`, concurrently, each ended as a [`PassEnd`].
@@ -591,11 +611,12 @@ async fn one(
         // arrives here anyway.
         Incoming::Local => Ok(Done::default()),
         Incoming::Pop3 { .. } => {
-            let mut engine = pop3_engine(store, account, &held, secrets)?;
+            let mut engine = pop3_engine(store, account, &held, secrets)?
+                .downloading_since(account.window.since(now));
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            pass(
+            let passed = pass(
                 &mut engine,
                 &mailboxes,
                 account.keep,
@@ -603,10 +624,23 @@ async fn one(
                 now,
                 emit,
             )
-            .await
+            .await;
+            match passed {
+                Ok(mut done) => {
+                    let removing = Removing {
+                        store,
+                        account,
+                        now,
+                    };
+                    remove_copies(&mut engine, &removing, &mut cancel, &mut done).await;
+                    Ok(done)
+                }
+                failed => failed,
+            }
         }
         Incoming::Imap { .. } => {
-            let mut engine = imap_engine(store, account, held, secrets);
+            let mut engine = imap_engine(store, account, held, secrets)
+                .downloading_since(account.window.since(now));
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
@@ -621,8 +655,9 @@ async fn one(
             .await
         }
         Incoming::Graph => {
-            let mut engine =
-                graph_engine(store, account, secrets).map_err(|e| Failure::fatal(e.to_string()))?;
+            let mut engine = graph_engine(store, account, secrets)
+                .map_err(|e| Failure::fatal(e.to_string()))?
+                .downloading_since(account.window.since(now));
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
@@ -654,6 +689,59 @@ async fn one(
         }
         done
     })
+}
+
+/// Most server copies one POP3 pass removes. The rest wait for the next pass.
+const REMOVED_PER_PASS: u32 = 100;
+
+/// Whose copies [`remove_copies`] removes, from what store, and when.
+#[derive(Clone, Copy)]
+struct Removing<'a> {
+    store: &'a SqliteStore,
+    account: &'a Configured,
+    now: chrono::DateTime<chrono::Utc>,
+}
+
+/// After a POP3 pass, remove the server's copies the account no longer wants there
+/// ([`crate::offline::Remove`]): those held here in full and old enough, or those deleted here.
+/// A failure is the pass's to say, beside what it fetched; the copies stay on the server, and the
+/// next pass asks again.
+async fn remove_copies(
+    engine: &mut AccountEngine<Pop3Backend>,
+    removing: &Removing<'_>,
+    cancel: &mut mail_runtime::Cancel,
+    done: &mut Done,
+) {
+    use crate::offline::Remove;
+    let Removing {
+        store,
+        account,
+        now,
+    } = *removing;
+    let inbox = MailboxRef {
+        account: account.id.clone(),
+        path: "INBOX".to_owned(),
+    };
+    let chosen = match account.remove {
+        Remove::Never => return,
+        Remove::AfterDays(days) => store.copies_held_before(
+            &inbox,
+            now - chrono::TimeDelta::days(i64::from(days)),
+            REMOVED_PER_PASS,
+        ),
+        Remove::WhenDeleted => store.copies_deleted_here(&inbox, REMOVED_PER_PASS),
+    };
+    let removed = match chosen {
+        Ok(remotes) => engine.remove_copies(remotes, cancel).await,
+        Err(e) => Err(e.into()),
+    };
+    if let Err(e) = removed {
+        done.trouble(
+            Some("INBOX"),
+            e.retry(),
+            format!("removing mail from the server: {e}"),
+        );
+    }
 }
 
 /// Tell the sink, if there is one, where the pass has got to.
@@ -777,6 +865,12 @@ fn pop3_engine(
         return Err(Failure::fatal("POP3 needs a password credential"));
     };
     let sasl = sasl_for(&account.plan);
+    let copies = match account.remove {
+        crate::offline::Remove::Never => mail_proto::backend::ServerCopies::Kept,
+        crate::offline::Remove::AfterDays(_) | crate::offline::Remove::WhenDeleted => {
+            mail_proto::backend::ServerCopies::Removable
+        }
+    };
     let backend = Pop3Backend::new(
         account.id.clone(),
         account.caps.clone(),
@@ -790,7 +884,8 @@ fn pop3_engine(
             all.extend(commands);
             Pop3Session::new(username.clone(), password.expose().to_owned(), all)
         }),
-    );
+    )
+    .with_copies(copies);
     Ok(AccountEngine::new(
         account.id.clone(),
         account.plan.clone(),

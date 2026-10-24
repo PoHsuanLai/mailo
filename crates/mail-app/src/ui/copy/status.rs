@@ -241,8 +241,6 @@ pub mod account {
         format!("{protocol}, {host}:{port}, {security}")
     }
 
-    pub const LEFT_ON_SERVER: &str = "Left on the server";
-    pub const DELETED_FROM_SERVER: &str = "Deleted from the server";
     pub const GRAPH: &str = "Microsoft Graph";
     pub fn jmap(session: &str) -> String {
         format!("JMAP, {session}")

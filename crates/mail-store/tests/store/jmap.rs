@@ -71,7 +71,7 @@ fn a_jmap_address_reads_back_as_one_and_the_cursor_with_it() {
             store
                 .remotes_of(MessageId::from_uuid(uuid::Uuid::from_u128(1)))
                 .unwrap(),
-            store.unfetched_in(&all(), 10).unwrap(),
+            store.unfetched_in(&all(), None, 10).unwrap(),
             store.cursor(&all()).unwrap(),
         )
     });

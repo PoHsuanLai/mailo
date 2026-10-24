@@ -341,9 +341,15 @@ pub trait Store {
     /// it, so a batch drawn from the whole account — as [`Store::unfetched`] returns it — asked
     /// the inbox for UIDs that belonged to Sent, and the answers were paired with the wrong
     /// addresses. Newest first, like `unfetched`, ties broken by message id.
+    ///
+    /// Only messages dated at `since` or later, where it is given: an account downloaded only so
+    /// far back (`mail_core::offline::Window`) leaves an older message's body on the server
+    /// until it is opened. The cut is here rather than after `limit`, or a pass would stop short
+    /// of the window's newest messages behind the old ones it then threw away.
     fn unfetched_in(
         &self,
         mailbox: &MailboxRef,
+        since: Option<DateTime<Utc>>,
         limit: u32,
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
 

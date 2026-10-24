@@ -1,6 +1,6 @@
 //! An account's own page in Settings' Accounts pane, pushed over the list as System Settings
-//! pushes an Internet Account: whether all its mail is downloaded ([`super::offline`]), its
-//! servers and sign-in, its own keys and certificates (`pgp::keys`), and, last and alone,
+//! pushes an Internet Account: whether all its mail is downloaded ([`super::offline`]), how often
+//! it is checked and how far back ([`super::syncing`]), its servers and sign-in, its own keys and certificates (`pgp::keys`), and, last and alone,
 //! Remove Account….
 //!
 //! The servers are read, not edited: changing them is the Add account sheet's. Remove asks first
@@ -141,12 +141,13 @@ fn confirm(mut shell: Signal<Shell>, mut revision: Signal<u64>, account: Account
     });
 }
 
-/// What the window kept of a removed account that the Spaces do not hold: the offline setting.
+/// What the window kept of a removed account that the Spaces do not hold: how it was synced.
 /// The Spaces and the pressed tile follow the revision (`app`'s effect), as they do for an
 /// account removed from a terminal.
 fn forgotten(dirs: Option<&WindowDirs>, account: AccountId) {
     if let Some(dirs) = dirs {
-        let _ = mail_core::offline::save(&dirs.config, account, mail_core::offline::Keep::Bodies);
+        // The account is gone either way; a setting left behind is never asked about.
+        let _ = mail_core::offline::change(&dirs.config, |kept| kept.without(account));
     }
 }
 
@@ -231,6 +232,7 @@ pub(super) fn AccountPage(
             if !row.is_local() {
                 FormSection {
                     super::offline::DownloadAll { row: row.clone() }
+                    super::syncing::Syncing { row: row.clone(), revision }
                 }
             }
             FormSection { title: Some(copy::headers::SERVERS.to_owned()),
