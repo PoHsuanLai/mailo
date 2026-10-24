@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, GroupByDate, LabelChips, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts,
+    ServerSearch, Snippets, Spelling,
 };
 
 use ds::prelude::Word;
@@ -50,6 +51,24 @@ pub struct WindowSettings {
         section = "Mail"
     )]
     pub provider_marks: ProviderMarks,
+    #[settings(
+        label = "Message preview",
+        help = "Show a line of each conversation's latest message in the list.",
+        section = "Mail"
+    )]
+    pub snippets: Snippets,
+    #[settings(
+        label = "Labels in the list",
+        help = "Show each conversation's labels on its row.",
+        section = "Mail"
+    )]
+    pub label_chips: LabelChips,
+    #[settings(
+        label = "Group by date",
+        help = "Group the list under Today, Yesterday, This week and Older.",
+        section = "Mail"
+    )]
+    pub group_by_date: GroupByDate,
 }
 
 /// `notifications.*`: what is said on the desktop.

@@ -27,9 +27,10 @@ pub const TOP_RESULTS: &str = "Top results";
 /// chip on each of its rows.
 pub const FROM_SERVER: &str = "Server";
 
-// Settings › General's two groups.
+// Settings › General's groups.
 pub const READING: &str = "Reading";
 pub const MAIL: &str = "Mail";
+pub const MESSAGE_LIST: &str = "Message list";
 /// An account's keys and certificates, on its page in Settings.
 pub const ENCRYPTION: &str = "Encryption";
 /// An account's servers and sign-in, on its page in Settings: the one place a protocol is named.

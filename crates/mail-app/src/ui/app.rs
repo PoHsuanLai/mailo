@@ -298,6 +298,19 @@ pub(super) fn App() -> Element {
         }
     });
 
+    // How the list is drawn is kept (`window.snippets`, `window.label_chips`,
+    // `window.group_by_date`): the list's ⋯ menu writes it, and detent or another window may.
+    use_effect(move || {
+        let window = prefs.read().window.clone();
+        let parts = super::view::PageParts::of(&window);
+        let group = super::view::PageGroup::from(window.group_by_date);
+        if shell.peek().parts != parts || shell.peek().group != group {
+            let mut write = shell.write();
+            write.parts = parts;
+            write.group = group;
+        }
+    });
+
     // Provider marks are a setting (`window.provider_marks`), which detent may change while the
     // window is open.
     use_effect(move || {

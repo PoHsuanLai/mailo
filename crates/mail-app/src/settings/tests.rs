@@ -36,6 +36,9 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
     // (path, its kind: the words it is stored as, or a list of text)
     let want: Vec<(String, KeyKind)> = [
         ("window.provider_marks", pair("icons", "letters")),
+        ("window.snippets", pair("on", "off")),
+        ("window.label_chips", pair("on", "off")),
+        ("window.group_by_date", pair("on", "off")),
         ("notifications.new_mail", pair("on", "off")),
         ("compose.spelling", pair("on", "off")),
         ("reading.brand_logos", pair("on", "off")),
