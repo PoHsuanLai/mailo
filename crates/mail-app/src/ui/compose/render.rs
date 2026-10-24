@@ -271,22 +271,31 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
         Object::Signature => rsx! {
             div { class: "obj o-sig", ..obj_attrs(n) }
         },
-        Object::Image { src, alt } => rsx! {
-            figure { class: "obj o-img", ..obj_attrs(n),
-                {grip(n, menu, page, handle)}
-                if src.as_str().is_empty() {
-                    div { class: "pick",
-                        Glyph { icon: Icon::Paperclip, size: IconSize::Base }
-                        span { "Add an image" }
-                    }
-                } else {
-                    div { class: "imgbox", img { src: "{src.as_str()}", alt: "{alt}" } }
-                    if !alt.is_empty() {
-                        figcaption { "{alt}" }
+        Object::Image { src, alt } => {
+            // The draft's own picture is drawn from the page's copy; any other source as written.
+            // Peeked: a picture is in `images` before an image names it, and never leaves, so a
+            // keystroke elsewhere need not draw the picture again.
+            let drawn = match src.cid() {
+                Some(cid) => page.peek().images.get(cid).unwrap_or("").to_owned(),
+                None => src.as_str().to_owned(),
+            };
+            rsx! {
+                figure { class: "obj o-img", ..obj_attrs(n),
+                    {grip(n, menu, page, handle)}
+                    if drawn.is_empty() {
+                        div { class: "pick",
+                            Glyph { icon: Icon::Paperclip, size: IconSize::Base }
+                            span { "Add an image" }
+                        }
+                    } else {
+                        div { class: "imgbox", img { src: "{drawn}", alt: "{alt}" } }
+                        if !alt.is_empty() {
+                            figcaption { "{alt}" }
+                        }
                     }
                 }
             }
-        },
+        }
         Object::Table(table) => rsx! {
             div { class: "obj o-table", ..obj_attrs(n),
                 {grip(n, menu, page, handle)}

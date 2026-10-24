@@ -25,6 +25,8 @@ pub enum Ask {
     Attachments,
     /// Any number of vCard files, to import into Contacts.
     Cards,
+    /// Any number of pictures, to show in a draft's body: `/` › Image.
+    Images,
 }
 
 /// The dialog: what was asked and where it starts, to what was chosen. Nothing, when it is
@@ -67,6 +69,14 @@ impl Dialogs {
                 Ask::Attachments => dialog.pick_files().unwrap_or_default(),
                 Ask::Cards => dialog
                     .add_filter("vCard", &["vcf", "vcard"])
+                    .pick_files()
+                    .unwrap_or_default(),
+                // What `mail_core::compose::shows_inline` takes.
+                Ask::Images => dialog
+                    .add_filter(
+                        crate::ui::copy::fields::PICTURES,
+                        &["png", "jpg", "jpeg", "gif", "webp"],
+                    )
                     .pick_files()
                     .unwrap_or_default(),
             }

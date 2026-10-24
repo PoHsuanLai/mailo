@@ -268,6 +268,7 @@ fn draft() -> Draft {
             name: "map.png".to_owned(),
             mime: "image/png".to_owned(),
             blob: BlobId::from_uuid(uuid(10)),
+            cid: None,
         }],
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
@@ -298,6 +299,7 @@ fn template() -> Template {
             name: "plan.pdf".to_owned(),
             mime: "application/pdf".to_owned(),
             blob: BlobId::from_uuid(uuid(10)),
+            cid: None,
         }],
         receipt: ReceiptRequest::Requested,
         openpgp: OpenPgp::None,
@@ -1054,13 +1056,22 @@ fn content_and_message_types_round_trip() {
 
 #[test]
 fn draft_types_round_trip() {
-    round_trip(
+    round_trip_each(
         "PendingAttachment",
-        PendingAttachment {
-            name: "map.png".to_owned(),
-            mime: "image/png".to_owned(),
-            blob: BlobId::from_uuid(uuid(10)),
-        },
+        vec![
+            PendingAttachment {
+                name: "map.png".to_owned(),
+                mime: "image/png".to_owned(),
+                blob: BlobId::from_uuid(uuid(10)),
+                cid: None,
+            },
+            PendingAttachment {
+                name: "photo.png".to_owned(),
+                mime: "image/png".to_owned(),
+                blob: BlobId::from_uuid(uuid(10)),
+                cid: Some("img1@mailo".to_owned()),
+            },
+        ],
     );
     round_trip_each(
         "SendState",
@@ -1691,6 +1702,18 @@ fixtures! {
         rcpt_to: vec!["to@example.test".to_owned()],
         delivery: DeliveryReport::Requested,
     }],
+    // An image shown in the body, by its `Content-ID`. `draft.json` predates the field and its
+    // attachment loads as a file.
+    "draft_inline_image.json" => Draft = Draft {
+        html: Some("<p>yes</p><img alt=\"\" src=\"cid:img1@mailo\">".to_owned()),
+        attachments: vec![PendingAttachment {
+            name: "photo.png".to_owned(),
+            mime: "image/png".to_owned(),
+            blob: BlobId::from_uuid(uuid(10)),
+            cid: Some("img1@mailo".to_owned()),
+        }],
+        ..draft()
+    },
 }
 
 fn cert_fingerprint() -> CertFingerprint {
@@ -2042,6 +2065,18 @@ fn a_follow_up_is_spelled_with_its_two_instants() {
     round_trip_each("FollowUp", follow_ups());
     round_trip_each("Action/follow_up", follow_up_actions());
     round_trip("Patch/follow_up", follow_up_patch());
+}
+
+/// A draft written before inline images existed carries files only, and a file on it is still
+/// written without a `cid`, so rows on disk keep the shape they had.
+#[test]
+fn a_draft_from_before_inline_images_carries_files() {
+    let text = std::fs::read_to_string(fixture_dir().join("draft.json")).expect("fixture");
+    assert!(!text.contains("cid"), "the fixture must predate the field");
+    let draft: Draft = serde_json::from_str(&text).expect("still deserializes");
+    assert!(draft.attachments.iter().all(|a| a.cid.is_none()));
+    let written = serde_json::to_string(&draft.attachments).expect("serializes");
+    assert!(!written.contains("cid"), "{written}");
 }
 
 /// A draft written before receipts existed did not ask for one, and still loads saying so.

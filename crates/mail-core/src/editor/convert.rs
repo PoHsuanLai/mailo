@@ -90,13 +90,14 @@ fn push_blocks(blocks: &[Block], out: &mut Vec<Node>) {
                 out.push(Node::Object(Object::Table(Table { rows: table_rows })));
             }
             Block::Image { src, alt, .. } => {
-                let id = match src {
-                    mail_mime::ImgSrc::Remote(url) => url.as_str().to_owned(),
-                    mail_mime::ImgSrc::Inline(uri) => uri.as_str().to_owned(),
-                    mail_mime::ImgSrc::Blocked { host } => host.clone(),
+                let src = match src {
+                    mail_mime::ImgSrc::Remote(url) => ImageRef::new(url.as_str()),
+                    // A draft's own image, reopened: named by its part, as the HTML wrote it.
+                    mail_mime::ImgSrc::Inline(uri) => ImageRef::of_cid(uri.cid()),
+                    mail_mime::ImgSrc::Blocked { host } => ImageRef::new(host.clone()),
                 };
                 out.push(Node::Object(Object::Image {
-                    src: ImageRef::new(id),
+                    src,
                     alt: alt.clone(),
                 }));
             }

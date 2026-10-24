@@ -163,6 +163,9 @@ pub(super) fn Surface(
     // Set while the surface hands over a key the menus or a chord took, so the key goes no
     // further (Escape closes the menu, it does not also park the draft).
     let taken = use_hook(|| Rc::new(Cell::new(false)));
+    // Set while the surface hands over a paste, so the paste chord that brought one does not
+    // also read a picture off the clipboard.
+    let pasted = use_hook(|| Rc::new(Cell::new(false)));
     // The selection's layer: its corner is the one every mark and float is placed from.
     let mut corner = use_signal(|| None::<Rc<MountedData>>);
     // The caret and the selection, from the surface's corner, as the frame being drawn lays the
@@ -201,12 +204,22 @@ pub(super) fn Surface(
         .caret
         .filter(|_| focus() == EditFocus::In && shown.selection.is_empty() && showing.is_none());
     let keys = Rc::clone(&taken);
+    let handed = Rc::clone(&pasted);
     rsx! {
         div {
             onkeydown: move |event: KeyboardEvent| {
                 if keys.replace(false) {
                     event.prevent_default();
                     event.stop_propagation();
+                } else if !handed.replace(false)
+                    && actions::heard_key(window_keys, &event.key(), event.modifiers(), true)
+                        == Some(actions::Heard::Standard(StandardAction::Paste))
+                {
+                    // The paste chord, and the surface had nothing to paste: the clipboard holds
+                    // no text, and may hold a picture (`crate::ui::pasted_image`).
+                    crate::ui::pasted_image::read(move |png| {
+                        super::attach::paste_image(page, png);
+                    });
                 }
             },
             // Under the text: the selection, before the surface, neither with a z-index.
@@ -225,6 +238,9 @@ pub(super) fn Surface(
                 handle,
                 ime_area: shown.at,
                 on_input: move |input: EditInput| {
+                    if matches!(input, EditInput::Paste(_)) {
+                        pasted.set(true);
+                    }
                     heard(page, shell, window_keys, on_attach, handle, preedit, &taken, input);
                 },
                 on_pointer: move |pointer: EditPointer| pointed(page, &pointer),

@@ -612,3 +612,50 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
         "the page is not back:\n{markup}"
     );
 }
+
+/// A draft with a picture in its body reopens with the picture drawn in place, and is written
+/// back naming it by its part, which stays on the draft.
+#[tokio::test]
+async fn a_picture_in_the_body_reopens_drawn_and_is_saved_by_its_name() {
+    use super::super::life;
+    use mail_core::editor::{Node, Object};
+    let (store, _dir) = seeded();
+    let draft = fresh_draft(&store);
+    let png = b"\x89PNG\r\n\x1a\nnot really a picture";
+    let (mut stored, cid) =
+        mail_core::compose::attach_inline(&store, draft.id, "photo.png", png, Utc::now())
+            .unwrap_or_else(|why| panic!("the picture: {why}"));
+    stored.html = Some(format!("<p>Look</p><img alt=\"\" src=\"cid:{cid}\">"));
+    mail_core::compose::save(&store, &stored).unwrap_or_else(|why| panic!("save: {why}"));
+
+    let page = life::load(&store, draft.id, &mut Vec::new()).expect("the draft's page");
+    let shown = page.session.doc.nodes.iter().any(|node| {
+        matches!(node, Node::Object(Object::Image { src, .. }) if src.cid() == Some(cid.as_str()))
+    });
+    assert!(shown, "{:?}", page.session.doc.nodes);
+    assert!(
+        page.images
+            .get(&cid)
+            .is_some_and(|uri| uri.starts_with("data:image/png;base64,")),
+        "{:?}",
+        page.images
+    );
+    assert!(page.attached.is_empty(), "the picture is listed as a file");
+    let written = page.apply_to(&stored, Utc::now());
+    assert!(
+        written
+            .html
+            .as_deref()
+            .is_some_and(|html| html.contains(&format!("src=\"cid:{cid}\""))),
+        "{:?}",
+        written.html
+    );
+    assert_eq!(written.attachments, stored.attachments);
+
+    let (mut window, _seen) = Window::open(store.clone(), stored, None);
+    let markup = window.render();
+    assert!(
+        markup.contains("<img src=\"data:image/png;base64,"),
+        "the picture is not drawn:\n{markup}"
+    );
+}

@@ -1838,3 +1838,90 @@ mod carrying_a_file {
         assert_eq!(shown, vec![("report.txt".to_owned(), "10 B".to_owned())]);
     }
 }
+
+/// An image put in the body: stored on the draft as one of its parts, kept out of the list of
+/// files, read back when the draft reopens, and sent inside the HTML's `multipart/related`.
+mod inline_images {
+    use super::*;
+    use mail_core::CoreError;
+
+    /// A PNG's signature and a little more: stored and sent, never drawn.
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot really a picture";
+
+    #[test]
+    fn only_a_picture_a_reader_draws_inline_goes_in_the_body() {
+        let cases: [(&str, Option<&str>); 6] = [
+            ("photo.png", Some("image/png")),
+            ("Cat.JPG", Some("image/jpeg")),
+            ("loop.gif", Some("image/gif")),
+            ("small.webp", Some("image/webp")),
+            // An SVG is a document that can carry script.
+            ("drawing.svg", None),
+            ("notes.txt", None),
+        ];
+        for (name, expect) in cases {
+            let (store, _dir) = seeded();
+            let draft =
+                compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+            let put = compose::attach_inline(&store, draft.id, name, PNG, at(11));
+            match (put, expect) {
+                (Ok((stored, cid)), Some(mime)) => {
+                    let part = stored.attachments.last().expect("a part");
+                    assert_eq!(part.mime, mime, "{name}");
+                    assert_eq!(part.cid.as_deref(), Some(cid.as_str()), "{name}");
+                    assert!(compose::attached_to(&store, &stored).is_empty(), "{name}");
+                }
+                (Err(CoreError::NotAnInlineImage { .. }), None) => {}
+                (other, _) => panic!("{name}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn two_pictures_get_two_names() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let (_, first) = compose::attach_inline(&store, draft.id, "a.png", PNG, at(11)).unwrap();
+        let (_, second) = compose::attach_inline(&store, draft.id, "a.png", PNG, at(12)).unwrap();
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn an_image_in_the_body_reopens_and_is_sent_inline() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let (mut stored, cid) =
+            compose::attach_inline(&store, draft.id, "photo.png", PNG, at(11)).unwrap();
+        stored.text = "Look\r\n[image]\r\n".to_owned();
+        stored.html = Some(format!("<p>Look</p><img alt=\"\" src=\"cid:{cid}\">"));
+        compose::save(&store, &stored).unwrap();
+
+        // Reopened, the part is there for the body to draw.
+        let reopened = store.draft(draft.id).unwrap();
+        let parts = compose::inline_parts(&store, &reopened);
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].bytes, PNG);
+        assert_eq!(parts[0].inline, Inline::Embedded { cid: cid.clone() });
+
+        compose::send(&store, draft.id, at(20)).expect("send queues");
+        let due = store.outbox_due(acct_account(), at(30)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let bytes = store.blobs().get(*raw).unwrap();
+        let text = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+        assert!(text.contains("multipart/related"), "{text}");
+        assert!(
+            text.contains(&format!("content-id: <{}>", cid.to_ascii_lowercase())),
+            "{text}"
+        );
+        let sent = mail_mime::parse(&bytes).unwrap();
+        assert!(
+            sent.attachments
+                .iter()
+                .any(|part| part.inline == Inline::Embedded { cid: cid.clone() }
+                    && part.bytes == PNG),
+            "the image went out as the message's own part"
+        );
+    }
+}

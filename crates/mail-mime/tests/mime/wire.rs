@@ -20,6 +20,7 @@ fn attached(name: &str, mime: &str) -> (PendingAttachment, (BlobId, Vec<u8>)) {
             name: name.to_owned(),
             mime: mime.to_owned(),
             blob,
+            cid: None,
         },
         (blob, (0..=255u8).cycle().take(5000).collect()),
     )

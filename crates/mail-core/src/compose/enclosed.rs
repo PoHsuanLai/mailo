@@ -73,6 +73,7 @@ pub fn draft_forward_attached(
         name: eml_name(&original.subject),
         mime: ENCLOSED.to_owned(),
         blob: raw,
+        cid: None,
     });
     save(store, &draft)?;
     Ok(draft)

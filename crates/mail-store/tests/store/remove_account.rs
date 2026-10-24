@@ -230,6 +230,7 @@ fn a_blob_a_kept_draft_attaches_stays() {
             name: "report.pdf".to_owned(),
             mime: "application/pdf".to_owned(),
             blob: shared,
+            cid: None,
         }],
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,

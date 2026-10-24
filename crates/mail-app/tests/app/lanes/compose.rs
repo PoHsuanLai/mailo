@@ -175,6 +175,106 @@ fn a_person_found_in_search_is_written_to_with_two_files_and_sent() {
     assert_eq!(draft.account, account());
 }
 
+/// A picture in the composer's body.
+const PICTURE: &str = ".c-body figure.o-img img";
+
+/// Pictures go in the body every way: `/` › Image's dialog, dropped from a file manager, and
+/// pasted from the clipboard. Each is drawn where the caret was and kept out of the strip of
+/// files, and the message carries them inside the HTML's `multipart/related`, each under the
+/// `Content-ID` the HTML shows it by.
+#[test]
+fn pictures_go_in_the_body_by_dialog_drop_and_paste_and_are_sent_inline() {
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\nthe garden";
+    const GIF: &[u8] = b"GIF89a the cat";
+    const PASTED: &[u8] = b"\x89PNG\r\n\x1a\na screenshot";
+    let mut window = Window::open_with(
+        chrono::Utc::now(),
+        |_| {},
+        |_, contexts| {
+            contexts.with(mail_app::ui::native::ClipboardImage::with_answer(|| {
+                Some(PASTED.to_vec())
+            }))
+        },
+    );
+    window.press(&[], Key::Char('c'), 1);
+    window.until("c opens a composer", |h| h.count(".cpage .c-body") == 1);
+    window.click(TO);
+    window.type_text("lovel");
+    window.until("To offers Ada", |h| h.count(".ds-menu .ds-menu-item") > 0);
+    window.press(&[], Key::Enter, 1);
+    window.until("Ada is in To", |h| {
+        h.count(".c-props [*|data-row=to] .ds-chip") == 1
+    });
+    window.click(".c-title input");
+    window.type_text("The garden");
+    window.click(".c-body");
+    window.type_text("Look:\n");
+
+    // `/` › Image asks the dialog for pictures, and the one picked is drawn in the body.
+    let garden = window.file("garden.png", PNG);
+    window.answer(vec![garden]);
+    window.type_text("/image");
+    window.until("/ offers Image", |h| h.count(".ds-menu .ds-menu-item") > 0);
+    window.press(&[], Key::Enter, 1);
+    window.until("the picked picture is drawn", |h| h.count(PICTURE) == 1);
+    assert_eq!(window.asked(), [mail_app::ui::native::DialogAsk::Images]);
+    assert!(
+        window
+            .harness
+            .attr(PICTURE, "src")
+            .is_some_and(|src| src.starts_with("data:image/png;base64,")),
+        "{:?}",
+        window.harness.attr(PICTURE, "src")
+    );
+
+    // A picture dropped on the composer goes in the body too, not in the strip of files.
+    let cat = window.file("cat.gif", GIF);
+    let body = window.centre(".c-body");
+    let told = drop_at(&mut window.harness, body, vec![cat]);
+    assert_eq!(told, DropAcceptance::Copy, "the composer took the drop");
+    window.until("the dropped picture is drawn", |h| h.count(PICTURE) == 2);
+
+    // The paste chord with only a picture on the clipboard pastes the picture.
+    window.press(&[PRIMARY], Key::Char('v'), 1);
+    window.until("the pasted picture is drawn", |h| h.count(PICTURE) == 3);
+    assert_eq!(
+        window.harness.count(ATTACHED),
+        0,
+        "a picture is listed as a file"
+    );
+
+    window.click(&send());
+    window.until("the pill offers Undo", |h| h.count(UNDO) == 1);
+    let sent = queued(&window.store);
+    assert_eq!(sent.len(), 1, "not one submission");
+    assert!(
+        sent[0].raw.contains("multipart/related"),
+        "the pictures are not in a related part:\n{}",
+        sent[0].raw
+    );
+    let mail = parsed(&sent[0].raw);
+    let html = mail.html.as_deref().unwrap_or_default();
+    let mut inline = Vec::new();
+    for part in &mail.attachments {
+        let mail_domain::Inline::Embedded { cid } = &part.inline else {
+            panic!("{} went as a file", part.name);
+        };
+        assert!(
+            html.contains(&format!("cid:{cid}")),
+            "{cid} is not in {html}"
+        );
+        inline.push((part.name.as_str(), part.bytes.as_slice()));
+    }
+    assert_eq!(
+        inline,
+        [
+            ("garden.png", PNG),
+            ("cat.gif", GIF),
+            (copy::fields::PASTED_IMAGE, PASTED)
+        ]
+    );
+}
+
 /// The composer is drawn in the reader column, and Esc, nothing typed, closes it.
 fn composes_here_then_closes(window: &mut Window, what: &str) {
     window.until(what, |h| h.count(".cpage .c-body") == 1);

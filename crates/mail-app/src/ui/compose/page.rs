@@ -2,6 +2,7 @@
 //! the page around them. Pure: nothing here reads the store or a clock.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use crate::settings::MessageFormat;
 use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
@@ -245,6 +246,49 @@ pub(in crate::ui) struct Misread {
     pub count: u32,
 }
 
+/// The pictures the body shows, by the `Content-ID` its images name them with (`cid:…`), each
+/// as the `data:` URI it is drawn from. Apart from the document, which holds only the names, and
+/// never emptied while the page is open, so an undo that brings an image back finds it here.
+#[derive(Clone, PartialEq, Eq, Default)]
+pub(in crate::ui) struct Images(BTreeMap<String, Arc<str>>);
+
+impl Images {
+    /// The draft's images, from its parts as `mail_core::compose::inline_parts` reads them: those
+    /// a reader draws inline (`mail_mime::embeddable`); any other is not drawn.
+    pub(in crate::ui) fn of(parts: &[mail_mime::ParsedPart]) -> Self {
+        let mut images = Images::default();
+        for part in parts {
+            if let mail_domain::Inline::Embedded { cid } = &part.inline {
+                images.insert(cid, &part.mime, &part.bytes);
+            }
+        }
+        images
+    }
+
+    /// Draw the image `cid` from `bytes` of type `mime`, when it is a type drawn inline.
+    pub(in crate::ui) fn insert(&mut self, cid: &str, mime: &str, bytes: &[u8]) {
+        use base64::Engine as _;
+        let Some(mime) = mail_mime::embeddable(mime) else {
+            return;
+        };
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+        let uri = format!("data:{mime};base64,{encoded}");
+        self.0.insert(cid.to_owned(), Arc::from(uri));
+    }
+
+    /// The `data:` URI the image `cid` is drawn from.
+    pub(in crate::ui) fn get(&self, cid: &str) -> Option<&str> {
+        self.0.get(cid).map(|uri| &**uri)
+    }
+}
+
+/// The names alone: a `data:` URI is the size of its picture.
+impl std::fmt::Debug for Images {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_set().entries(self.0.keys()).finish()
+    }
+}
+
 /// The composer page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Page {
@@ -285,6 +329,8 @@ pub(in crate::ui) struct Page {
     pub seal_bar: super::seal::SealBar,
     /// What the draft carries, as `(name, size)`.
     pub attached: Vec<(String, String)>,
+    /// The pictures the body's images are drawn from.
+    pub images: Images,
     pub session: Session,
     /// A selection that is not collapsed. The bubble shows while it is set.
     pub selection: Option<Range>,
@@ -312,11 +358,24 @@ pub(in crate::ui) struct Page {
 }
 
 impl Page {
-    /// The page for `draft`, with `people` to suggest and `attached` to list.
+    /// The page for `draft`, with `people` to suggest and `attached` to list, and no pictures
+    /// to draw its images from.
+    #[cfg(test)]
     pub(in crate::ui) fn of(
         draft: &Draft,
         people: Vec<Person>,
         attached: Vec<(String, String)>,
+    ) -> Self {
+        Self::opened(draft, people, attached, &[])
+    }
+
+    /// [`Page::of`], the body's images drawn from `inline`, the draft's own pictures
+    /// (`mail_core::compose::inline_parts`).
+    pub(in crate::ui) fn opened(
+        draft: &Draft,
+        people: Vec<Person>,
+        attached: Vec<(String, String)>,
+        inline: &[mail_mime::ParsedPart],
     ) -> Self {
         let kind = if draft.in_reply_to.is_some() {
             PageKind::Reply
@@ -358,7 +417,8 @@ impl Page {
             protection: super::protection::Protection::of(draft),
             seal_bar: super::seal::SealBar::Clear,
             attached,
-            session: Session::with(doc_of(draft)),
+            images: Images::of(inline),
+            session: Session::with(doc_of(draft, inline)),
             selection: None,
             wire: Wire {
                 seq: 0,

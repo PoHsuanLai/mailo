@@ -155,16 +155,29 @@ pub enum ImgSrc {
 /// The string is private so a caller cannot assemble `data:text/html` and hand
 /// it to the renderer as if this crate had checked it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Inlined(String);
+pub struct Inlined {
+    uri: String,
+    cid: String,
+}
 
 impl Inlined {
-    pub(crate) fn new(uri: String) -> Self {
-        Self(uri)
+    pub(crate) fn new(uri: String, cid: &str) -> Self {
+        Self {
+            uri,
+            cid: cid.to_owned(),
+        }
     }
 
     /// The `data:` URI.
     pub fn as_str(&self) -> &str {
-        &self.0
+        &self.uri
+    }
+
+    /// The `Content-ID` of the part the bytes came from, without angle brackets: untrusted, and
+    /// only ever matched against the same message's parts. The composer reopens a draft's image
+    /// by it, so the image goes out again under the name its HTML gives it.
+    pub fn cid(&self) -> &str {
+        &self.cid
     }
 }
 

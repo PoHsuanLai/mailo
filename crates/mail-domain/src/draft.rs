@@ -24,6 +24,12 @@ pub struct PendingAttachment {
     pub name: String,
     pub mime: String,
     pub blob: BlobId,
+    /// The `Content-ID` of an image shown in the body (`<img src="cid:…">`), without angle
+    /// brackets; `None` for a file on the message. Such a part goes out inline, in the HTML's
+    /// `multipart/related`. Defaulted, and left out when absent, so drafts persisted before
+    /// inline images still load and are written as they were.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cid: Option<String>,
 }
 
 /// Where a draft is in its lifecycle. Visible in the UI: "Sending…", "Failed — retry".

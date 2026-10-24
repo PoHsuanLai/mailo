@@ -139,7 +139,12 @@ fn write_object(out: &mut String, object: &Object) {
             out.push_str("<img alt=\"");
             push_text(out, alt, Breaks::Keep);
             out.push('"');
-            if let Ok(url) = src.as_str().parse::<SafeUrl>() {
+            if let Some(cid) = src.cid() {
+                // The draft's own part, which the message carries beside the HTML.
+                out.push_str(" src=\"cid:");
+                push_text(out, cid, Breaks::Keep);
+                out.push('"');
+            } else if let Ok(url) = src.as_str().parse::<SafeUrl>() {
                 out.push_str(" src=\"");
                 push_text(out, url.as_str(), Breaks::Keep);
                 out.push('"');

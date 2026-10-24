@@ -155,6 +155,7 @@ mod tests {
                 name: "plan.pdf".to_owned(),
                 mime: "application/pdf".to_owned(),
                 blob: BlobId::generate(),
+                cid: None,
             }],
             receipt: ReceiptRequest::Requested,
             openpgp: OpenPgp::SignAndEncrypt,

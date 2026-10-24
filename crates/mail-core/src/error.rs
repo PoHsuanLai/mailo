@@ -310,6 +310,12 @@ pub enum CoreError {
          link instead, or split the message"
     )]
     AttachmentsTooBig { total: String, limit: String },
+    #[error(
+        "{name} is not a picture the body can show. PNG, JPEG, GIF and WebP can; attach it instead"
+    )]
+    NotAnInlineImage { name: String },
+    #[error("the pictures in the body would come to more than {limit}. Attach this one instead")]
+    InlineImagesTooBig { limit: String },
     #[error("{} is {size}, and most servers refuse above {limit}", .path.display())]
     FileTooBig {
         path: PathBuf,
