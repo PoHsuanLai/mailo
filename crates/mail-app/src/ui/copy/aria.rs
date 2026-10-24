@@ -120,3 +120,5 @@ pub fn open_row(subject: &str) -> String {
 pub fn try_again_to_download(name: &str) -> String {
     format!("Try again to download {name}")
 }
+/// The composer's menu of how large pictures are sent.
+pub const PICTURE_SIZE: &str = "Picture Size";

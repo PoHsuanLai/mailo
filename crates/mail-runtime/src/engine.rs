@@ -5,7 +5,7 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait (`CONTRIBUTING.md`, "Time").
 
-use crate::error::Failure;
+use crate::error::{Failure, Logged};
 use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive, drive_within};
 use chrono::{DateTime, Utc};
@@ -875,11 +875,30 @@ impl<B: Backend> AccountEngine<B> {
             backend: &mut backend,
             op: Some(op),
         };
-        let outcome = drive(&mut step, &mut transport, cancel).await?;
+        let outcome = drive(&mut step, &mut transport, cancel).await;
+        // Before the outcome is looked at, so a message the server refused for its size still
+        // leaves the size it takes written down for the next one composed.
+        self.heard_size(backend.size_limit());
+        let outcome = outcome?;
         if let Some(on) = backend.left_open().filter(|_| !*cancel.borrow()) {
             self.sending = Some((Kept::now(transport, true), on));
         }
         Ok(outcome)
+    }
+
+    /// Write down the largest message the submission server said it takes, for the composer to
+    /// measure the next message against. `SIZE` with no number, or zero, states no limit (RFC
+    /// 1870 §4); a server that said nothing of it, or was never heard, leaves what was known.
+    fn heard_size(&self, size: &mail_proto::SizeLimit) {
+        let octets = match size {
+            mail_proto::SizeLimit::Absent => return,
+            mail_proto::SizeLimit::Limited(octets) if *octets > 0 => Some(*octets),
+            mail_proto::SizeLimit::Limited(_) | mail_proto::SizeLimit::Unlimited => None,
+        };
+        // Only a measure for the composer: a store that cannot keep it costs the send nothing.
+        self.store
+            .put_send_limit(self.account.clone(), octets)
+            .or_log("the submission server's size limit could not be kept");
     }
 
     /// Say `QUIT` on the submission connection a drain kept, and close it.

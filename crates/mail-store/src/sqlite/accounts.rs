@@ -176,6 +176,37 @@ impl SqliteStore {
         stored.map(|text| json("AccountCaps", &text)).transpose()
     }
 
+    /// The largest message, in octets on the wire, that `id`'s sending server said it takes.
+    /// `None` when it stated none, or nothing has asked it yet.
+    pub fn send_limit(&self, id: AccountId) -> Result<Option<u64>, StoreError> {
+        let stored: Option<Option<i64>> = self
+            .reader()
+            .query_row(
+                "SELECT send_limit FROM account_caps WHERE account = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(stored
+            .flatten()
+            // `put_send_limit` writes no negative number; one is read as no limit stated.
+            .and_then(|octets| u64::try_from(octets).ok()))
+    }
+
+    /// Write down what `id`'s sending server said of its largest message: `None` when it stated
+    /// none. Kept beside the capabilities, which a sync replaces without touching this.
+    ///
+    /// An account whose capabilities were never written has nowhere to keep it, and nothing is
+    /// written: the next submission hears it again.
+    pub fn put_send_limit(&self, id: AccountId, octets: Option<u64>) -> Result<(), StoreError> {
+        let octets = octets.map(|octets| i64::try_from(octets).unwrap_or(i64::MAX));
+        self.connection().execute(
+            "UPDATE account_caps SET send_limit = ?2 WHERE account = ?1",
+            params![id.to_string(), octets],
+        )?;
+        Ok(())
+    }
+
     /// When the last pass of `account` finished, as the store recorded it: the newest of its
     /// mailboxes' stamps, which every ingest that knows where a mailbox got to writes.
     pub fn last_synced(&self, account: AccountId) -> Result<Option<DateTime<Utc>>, StoreError> {

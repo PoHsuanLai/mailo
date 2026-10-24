@@ -266,3 +266,26 @@ pub mod account {
         format!("With a password, as {username}")
     }
 }
+
+/// The composer's attachment strip: what the message comes to, as it would be sent.
+pub fn message_size(size: &str) -> String {
+    format!("About {size} in all")
+}
+
+/// Under Picture Size, while pictures are sent smaller.
+pub const PICTURES_WITHOUT_LOCATION: &str = "Smaller pictures leave out where they were taken.";
+
+/// The composer's warning, before Send, of a message larger than its server takes: its size, the
+/// limit, and who set it.
+pub fn too_large(size: &str, limit: &str, said: mail_core::compose::Said) -> String {
+    use mail_core::compose::Said;
+    match said {
+        Said::Server => {
+            format!("This message is {size}, and its mail server takes at most {limit}.")
+        }
+        Said::Graph => format!("This message is {size}, and Microsoft 365 sends at most {limit}."),
+        Said::Usual => {
+            format!("This message is {size}, and many mail servers refuse messages over {limit}.")
+        }
+    }
+}

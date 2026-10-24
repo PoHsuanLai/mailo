@@ -490,6 +490,7 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              DROP TABLE secrets_adopted;
              DROP TABLE opened;
              DROP TABLE account_passes;
+             ALTER TABLE account_caps DROP COLUMN send_limit;
              DROP INDEX messages_thread_order;
              CREATE INDEX messages_thread ON messages(thread);
              DROP INDEX thread_summary_subject;

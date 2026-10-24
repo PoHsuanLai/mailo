@@ -280,6 +280,33 @@ fn a_label_the_user_names_twice_on_one_account_is_a_conflict() {
 }
 
 #[test]
+fn the_send_limit_is_kept_beside_the_caps_and_survives_their_rewrite() {
+    use mail_store::Store;
+    let (store, id) = with_ada();
+    assert_eq!(
+        store.send_limit(id.clone()).unwrap(),
+        None,
+        "stated before asked"
+    );
+
+    store.put_send_limit(id.clone(), Some(35_882_577)).unwrap();
+    assert_eq!(store.send_limit(id.clone()).unwrap(), Some(35_882_577));
+
+    // A sync writes the whole capabilities row again; what the submission heard stays.
+    let caps = preset("ada@example.test", "example.test").expected_caps;
+    store.put_caps(id.clone(), &caps, at(2)).unwrap();
+    assert_eq!(store.send_limit(id.clone()).unwrap(), Some(35_882_577));
+
+    store.put_send_limit(id.clone(), None).unwrap();
+    assert_eq!(store.send_limit(id.clone()).unwrap(), None, "cleared");
+
+    // An account with nowhere to keep it is not an error, and keeps nothing.
+    let stranger = new_account_id();
+    store.put_send_limit(stranger.clone(), Some(1)).unwrap();
+    assert_eq!(store.send_limit(stranger).unwrap(), None);
+}
+
+#[test]
 fn the_notify_floor_is_armed_once_and_then_read_back() {
     let (store, id) = with_ada();
 

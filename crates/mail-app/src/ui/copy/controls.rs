@@ -88,3 +88,13 @@ pub const KEEP_REPLY: &str = "Keep Reply";
 pub const DELETE_VIEW: &str = "Delete View";
 /// Asks again for what did not work: a download, a sign-in.
 pub const TRY_AGAIN: &str = "Try Again";
+/// The composer's attachment strip: the button that opens Picture Size, saying the choice.
+pub fn picture_size(choice: &str) -> String {
+    format!("Picture Size: {choice}")
+}
+/// The size warning's way to the largest picture size that fits: "Use Medium Pictures".
+pub fn use_pictures(choice: &str) -> String {
+    format!("Use {choice} Pictures")
+}
+/// The size warning, once Send was pressed: send it as it is.
+pub const SEND_ANYWAY: &str = "Send Anyway";

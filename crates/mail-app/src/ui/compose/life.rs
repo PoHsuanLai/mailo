@@ -5,7 +5,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::SigningStore;
-use mail_core::compose::Leaves;
+use mail_core::compose::{Leaves, PictureSize};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::collections::BTreeMap;
@@ -165,9 +165,10 @@ pub(in crate::ui) enum Sent {
         due: DateTime<Utc>,
         when: When,
     },
-    /// Saved and cleared to go, and to be signed or encrypted first. That reads the keyring and
-    /// may ask for a passphrase, so the caller does it off the thread that draws, with
-    /// [`queue_reminding`]. `remind` is the reminder's time, if one was asked for.
+    /// Saved and cleared to go, and to be signed or encrypted, or have its pictures made smaller,
+    /// first. That reads the keyring and may ask for a passphrase, or decodes every picture, so
+    /// the caller does it off the thread that draws, with [`queue_reminding`]. `remind` is the
+    /// reminder's time, if one was asked for.
     Sealing {
         leaves: Leaves,
         remind: Option<DateTime<Utc>>,
@@ -208,6 +209,12 @@ where
         page.guard = Guard::Warn;
         return Ok(Sent::Stopped);
     }
+    // Larger than its server takes: said before Send, and held once, for Send Anyway or a
+    // smaller picture size.
+    if anyway == Anyway::No && super::sizing::over(page).is_some() {
+        page.guard = Guard::TooLarge;
+        return Ok(Sent::Stopped);
+    }
     page.guard = Guard::Clear;
     // A time that has gone is refused before anything is written, in the page's words.
     let leaves = super::later::leaves(page.when, now, zone, clock)?;
@@ -227,12 +234,17 @@ where
         return Ok(Sent::Sealing { leaves, remind });
     }
     page.seal_bar = SealBar::Clear;
+    // Pictures made smaller are decoded and encoded again, which is no work for the thread that
+    // draws: queued the way a sealed send is, with nothing to say while it is done.
+    if page.pictures != PictureSize::Actual {
+        return Ok(Sent::Sealing { leaves, remind });
+    }
     let due = queue_reminding(
         store,
         secrets,
         &mail_core::pgp::no_passphrase,
         page.draft,
-        leaves,
+        (leaves, PictureSize::Actual),
         remind,
         now,
     )
@@ -250,7 +262,15 @@ pub(in crate::ui) fn queue(
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, mail_core::compose::SendError> {
-    queue_reminding(store, secrets, ask, draft, leaves, None, now)
+    queue_reminding(
+        store,
+        secrets,
+        ask,
+        draft,
+        (leaves, PictureSize::Actual),
+        None,
+        now,
+    )
 }
 
 /// Queue the saved draft to leave as `leaves` says, signed and encrypted as it asks, with `ask`
@@ -259,27 +279,29 @@ pub(in crate::ui) fn queue(
 /// the keyring, and the window calls it on a blocking thread.
 ///
 /// `remind` is held as the message's follow-up reminder until it has left (`mail_core::follow_up`);
-/// with none, a reminder an earlier send of the draft held goes.
+/// with none, a reminder an earlier send of the draft held goes. Its pictures go at `pictures`,
+/// made smaller as the bytes are frozen unless that is [`PictureSize::Actual`].
 pub(in crate::ui) fn queue_reminding(
     store: &SqliteStore,
     secrets: &dyn SigningStore,
     ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
-    leaves: Leaves,
+    (leaves, pictures): (Leaves, PictureSize),
     remind: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, mail_core::compose::SendError> {
+    let queue = |leaves, now| {
+        mail_core::compose::queue_sized(store, secrets, ask, draft, leaves, pictures, now)
+    };
     let (queued, post, due) = match leaves {
         // Right away is the grace period and Undo, as it always was.
         Leaves::Now => {
             let due = now + GRACE;
-            let (queued, post) =
-                mail_core::compose::queue_with(store, secrets, ask, draft, Leaves::Now, due)?;
+            let (queued, post) = queue(Leaves::Now, due)?;
             (queued, post, due)
         }
         Leaves::At(at) => {
-            let (queued, post) =
-                mail_core::compose::queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
+            let (queued, post) = queue(Leaves::At(at), now)?;
             (queued, post, at)
         }
     };

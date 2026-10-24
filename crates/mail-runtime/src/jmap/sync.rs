@@ -94,6 +94,8 @@ impl JmapEngine {
         )?;
         self.store
             .put_caps(self.account.clone(), &self.caps(&mailboxes, now), now)?;
+        self.store
+            .put_send_limit(self.account.clone(), send_limit(&client.session.limits))?;
         self.mailboxes = Some(mailboxes.clone());
         Ok(mailboxes)
     }
@@ -452,5 +454,45 @@ impl JmapEngine {
         )?;
         self.store.refile(self.account.clone(), &filed)?;
         Ok(())
+    }
+}
+
+/// The largest message a JMAP server takes, in octets on the wire: the message is uploaded whole,
+/// so no more than `maxSizeUpload`, and its attachments, base64 as they go, no more than
+/// `maxSizeAttachmentsPerEmail`. `None` when the server states neither.
+pub(crate) fn send_limit(limits: &mail_proto::jmap::Limits) -> Option<u64> {
+    let upload = (limits.max_size_upload > 0).then_some(limits.max_size_upload);
+    let attachments = (limits.max_size_attachments > 0)
+        .then(|| mail_mime::base64_len(limits.max_size_attachments));
+    upload.into_iter().chain(attachments).min()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::send_limit;
+    use mail_proto::jmap::Limits;
+
+    #[test]
+    fn the_send_limit_is_the_lower_of_what_the_session_states() {
+        let limits = |upload, attachments| Limits {
+            max_objects_in_get: 256,
+            max_calls_in_request: 16,
+            max_size_upload: upload,
+            max_size_attachments: attachments,
+        };
+        let cases = [
+            ("neither stated", limits(0, 0), None),
+            ("upload alone", limits(50_000_000, 0), Some(50_000_000)),
+            (
+                "attachments alone, as they go in base64",
+                limits(0, 57_000),
+                Some(78_000),
+            ),
+            ("the upload is lower", limits(10_000, 57_000), Some(10_000)),
+            ("the attachments are lower", limits(1_000_000, 57), Some(78)),
+        ];
+        for (case, limits, expected) in cases {
+            assert_eq!(send_limit(&limits), expected, "{case}");
+        }
     }
 }

@@ -134,8 +134,8 @@
 /* a message held to leave at a time: read, not written (`compose/held.rs`) */
 .held-text { white-space: pre-wrap; }
 
-/* the files on the draft: one strip at the body's end */
-.c-attached { display: flex; flex-wrap: wrap; gap: var(--s-6); margin-top: var(--s-14); }
+/* the files on the draft: one strip at the body's end, then Picture Size and what it all comes to */
+.c-attached { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-6); margin-top: var(--s-14); }
 
 /* the foot: a banner when it matters, then Attach, ⋯, and Send ▾ at the right edge */
 .c-foot {

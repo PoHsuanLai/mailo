@@ -16,7 +16,13 @@ use porter_core::AccountId;
 
 pub mod addresses;
 mod enclosed;
+mod pictures;
+mod weight;
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
+pub use pictures::{PictureSize, sized};
+pub use weight::{
+    Fit, Measure, Picture, Said, SendLimit, USUAL_LIMIT, Weight, fit, send_limit, weigh,
+};
 
 /// Read one identity, or the account's default, out of the `identities` table.
 ///
@@ -1063,7 +1069,7 @@ pub fn queue(
         store,
         &NoKeys,
         &crate::pgp::no_passphrase,
-        draft,
+        (draft, PictureSize::Actual),
         leaves,
         now,
     )
@@ -1082,14 +1088,30 @@ pub fn queue_with(
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<(Draft, mail_mime::Posting), SendError> {
-    queue_inner(store, secrets, ask, draft, leaves, now).map_err(SendError::from)
+    queue_sized(store, secrets, ask, draft, leaves, PictureSize::Actual, now)
+}
+
+/// [`queue_with`], its pictures sent at `pictures`: each JPEG or PNG it carries made smaller as
+/// the bytes are frozen (`pictures::sized`). The draft keeps the originals, so the choice can be
+/// made again; only what goes is smaller. Decodes every picture, so it is for a thread that does
+/// not draw, unless `pictures` is [`PictureSize::Actual`].
+pub fn queue_sized(
+    store: &SqliteStore,
+    secrets: &dyn mail_runtime::SigningStore,
+    ask: crate::pgp::Ask<'_>,
+    draft: DraftId,
+    leaves: Leaves,
+    pictures: PictureSize,
+    now: DateTime<Utc>,
+) -> Result<(Draft, mail_mime::Posting), SendError> {
+    queue_inner(store, secrets, ask, (draft, pictures), leaves, now).map_err(SendError::from)
 }
 
 fn queue_inner(
     store: &SqliteStore,
     secrets: &dyn mail_runtime::SigningStore,
     ask: crate::pgp::Ask<'_>,
-    draft: DraftId,
+    (draft, pictures): (DraftId, PictureSize),
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<(Draft, mail_mime::Posting), CoreError> {
@@ -1137,6 +1159,10 @@ fn queue_inner(
             .blobs()
             .get(attachment.blob)
             .map_err(|e| CoreError::context(format!("attachment {}", attachment.name), e))?;
+        let bytes = match pictures::sized(&bytes, pictures) {
+            std::borrow::Cow::Owned(smaller) => smaller,
+            std::borrow::Cow::Borrowed(_) => bytes,
+        };
         parts.push((attachment.blob, bytes));
     }
 

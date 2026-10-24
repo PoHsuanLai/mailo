@@ -431,6 +431,7 @@ pub(super) fn Attached(page: Signal<Page>) -> Element {
                     text: format!("{} · {name} · {size}", kind_of(&name)),
                 }
             }
+            super::sizing::Sizing { page }
         }
     }
 }

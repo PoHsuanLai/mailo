@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
+use mail_core::compose::PictureSize;
 use mail_core::when::Clock;
 use mail_domain::{Address, Draft, DraftId, ReceiptRequest};
 use porter_core::AccountId;
@@ -166,6 +167,8 @@ pub(in crate::ui) enum Float {
     More,
     /// The emoji picker, opened from the `/` menu at the caret.
     EmojiPicker,
+    /// Picture Size, at the attachment strip: how large the pictures are sent.
+    Pictures,
     /// "Save as template…", with the name typed so far.
     SaveTemplate(String),
     /// "Start from a template": the templates, at the caret.
@@ -188,6 +191,8 @@ pub(in crate::ui) enum Guard {
     NoRecipient(u32),
     /// An attachment is mentioned and none is attached.
     Warn,
+    /// The message is larger than its server takes.
+    TooLarge,
 }
 
 /// Whether the page's changes are in the store. Never drawn: autosave is silent, and a save that
@@ -266,6 +271,12 @@ pub(in crate::ui) struct Page {
     pub seal_bar: super::seal::SealBar,
     /// What the draft carries, as `(name, size)`.
     pub attached: Vec<(String, String)>,
+    /// How large the pictures it carries are sent. The draft keeps them as attached; this is
+    /// applied as the message is frozen at Send.
+    pub pictures: PictureSize,
+    /// How large the message is at each picture size, and the most its account sends, once its
+    /// files have been weighed: `None` until then, and the page says nothing of its size.
+    pub weight: Option<super::sizing::Measured>,
     pub session: Session,
     /// A selection that is not collapsed. The bubble shows while it is set.
     pub selection: Option<Range>,
@@ -332,6 +343,8 @@ impl Page {
             protection: super::protection::Protection::of(draft),
             seal_bar: super::seal::SealBar::Clear,
             attached,
+            pictures: PictureSize::Actual,
+            weight: None,
             session: Session::with(doc_of(draft)),
             selection: None,
             wire: Wire {

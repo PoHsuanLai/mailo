@@ -33,6 +33,7 @@ mod recipients;
 mod remind;
 mod render;
 mod seal;
+mod sizing;
 mod spell;
 mod surface;
 mod templates;
@@ -248,6 +249,8 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     });
     // Files dropped on the page from a file manager are attached as picked ones are.
     let target = attach::use_drop_target(page);
+    // What the files come to, against what the account sends.
+    sizing::use_weight(page);
     // Opening another conversation would redraw the reader: park first.
     if shell.read().open != opened_on && page.peek().phase == Phase::Writing {
         desk::park(desk, page, shell);
@@ -265,6 +268,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let subject = read.subject.clone();
     let notice = read.notice.clone();
     let warn = read.guard == Guard::Warn;
+    let over = sizing::over(&read).is_some();
     let seal_bar = read.seal_bar.clone();
     let anyway_label = "Send anyway";
     // The plain text is written out only while it is shown: not on every key.
@@ -357,7 +361,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             }
             // What stands between the page and its sending, said under it; a reply's foot is its
             // bar as well.
-            if reply || warn || seal_bar != SealBar::Clear {
+            if reply || warn || over || seal_bar != SealBar::Clear {
             div { class: "c-foot",
                 if warn {
                     InlineBanner {
@@ -374,6 +378,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                         },
                     }
                 }
+                sizing::TooLarge { page, on_anyway: move |()| send(Anyway::Yes) }
                 SealWarn { bar: seal_bar, on_act: on_seal }
                 if reply {
                     Attach { page, label: crate::ui::copy::controls::ATTACH, bezel: Bezel::Toolbar }
@@ -416,10 +421,10 @@ fn send_page(
     );
     match sent {
         Ok(Sent::Sealing { leaves, remind }) => {
-            let draft = page.peek().draft;
+            let (draft, pictures) = (page.peek().draft, page.peek().pictures);
             // Spawned from a press, which is where a task is polled.
             spawn(async move {
-                match seal_and_queue(store, draft, leaves, remind, passphrase).await {
+                match seal_and_queue(store, draft, (leaves, pictures), remind, passphrase).await {
                     Ok(due) => {
                         let sent = life::folded(&mut page.write(), due);
                         queued(page, desk, revision, folding, sent);

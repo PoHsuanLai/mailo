@@ -42,6 +42,12 @@ pub struct Posting {
     pub message: Vec<u8>,
 }
 
+/// The octets a part of `octets` becomes in base64 as [`build`] writes it: four for every three,
+/// in lines of 76 each ended by CRLF (RFC 2045 §6.8). What an attachment costs on the wire.
+pub fn base64_len(octets: u64) -> u64 {
+    octets.div_ceil(3) * 4 + octets.div_ceil(57) * 2
+}
+
 /// Everything needed to submit `draft`: the envelope and the bytes, consistent by construction.
 ///
 /// Recipients are deduplicated case-insensitively on the domain, keeping the first spelling of

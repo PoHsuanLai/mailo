@@ -243,7 +243,11 @@ pub(in crate::ui) fn send_again(store: &SqliteStore, resend: Resend) -> bool {
         secrets.as_ref(),
         &mail_core::pgp::no_passphrase,
         resend.draft,
-        Leaves::At(resend.at),
+        // The page that chose a picture size is gone by now: its pictures go as attached.
+        (
+            Leaves::At(resend.at),
+            mail_core::compose::PictureSize::Actual,
+        ),
         None,
         Utc::now(),
     )

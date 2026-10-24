@@ -47,6 +47,9 @@ pub struct Limits {
     pub max_calls_in_request: usize,
     /// Largest blob one upload may carry, in octets.
     pub max_size_upload: u64,
+    /// The mail capability's `maxSizeAttachmentsPerEmail` (RFC 8621 §1.3.1): the most one
+    /// message's attachments may come to, decoded, in octets. Zero when the server does not say.
+    pub max_size_attachments: u64,
 }
 
 impl Session {
@@ -87,6 +90,13 @@ impl Session {
             max_objects_in_get: clamp(unsigned(core, "maxObjectsInGet", 256)?),
             max_calls_in_request: clamp(unsigned(core, "maxCallsInRequest", 16)?),
             max_size_upload: unsigned(core, "maxSizeUpload", 0)?,
+            // Only a measure for the composer, so one that does not read is no reason to refuse
+            // the session: it is taken as unstated.
+            max_size_attachments: account_caps
+                .and_then(|c| c.get(MAIL))
+                .and_then(|mail| mail.get("maxSizeAttachmentsPerEmail"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
         };
         Ok(Session {
             api_url: string(&value, "apiUrl")?.to_owned(),

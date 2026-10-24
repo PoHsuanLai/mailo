@@ -243,7 +243,7 @@ pub fn picture(bytes: &[u8], kind: Kind, fit: Fit) -> Result<Picture, Refusal> {
     })
 }
 
-fn limits() -> Limits {
+pub(crate) fn limits() -> Limits {
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_SIDE);
     limits.max_image_height = Some(MAX_SIDE);

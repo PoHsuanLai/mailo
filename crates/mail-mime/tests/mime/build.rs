@@ -4,7 +4,9 @@ use crate::support::{self, addr, at, emails, sender};
 use mail_domain::{
     BlobId, Draft, Identity, Inline, Message, MessageId, PendingAttachment, ReceiptRequest,
 };
-use mail_mime::{Disclosure, MimeError, ReturnPath, build, parse, posting, receipt_asked};
+use mail_mime::{
+    Disclosure, MimeError, ReturnPath, base64_len, build, parse, posting, receipt_asked,
+};
 
 struct ThreadCase {
     name: &'static str,
@@ -509,5 +511,38 @@ mod enclosed_message {
                 assert!(line.len() <= 999, "a line of {} octets", line.len());
             }
         }
+    }
+}
+
+/// What [`base64_len`] says an attachment costs is what it adds to the built message: measured
+/// against an empty one, at a line's edge and either side of it.
+#[test]
+fn an_attachment_costs_what_base64_len_says() {
+    let me = identity();
+    let blob = BlobId::generate();
+    let built = |len: usize| {
+        // High bytes, so the part is base64 and not text.
+        let bytes = vec![0xFF_u8; len];
+        build(
+            &draft(None, Some(blob)),
+            &me,
+            None,
+            &[(blob, bytes)],
+            Disclosure::Full,
+        )
+        .unwrap_or_else(|err| panic!("{len}: {err}"))
+        .len() as u64
+    };
+    let empty = built(0);
+    for len in [1_usize, 2, 3, 56, 57, 58, 114, 1000, 70_000] {
+        assert_eq!(
+            built(len) - empty,
+            base64_len(len as u64),
+            "an attachment of {len} octets"
+        );
+    }
+    let table: &[(u64, u64)] = &[(0, 0), (1, 6), (57, 78), (58, 84), (114, 156)];
+    for (octets, expected) in table {
+        assert_eq!(base64_len(*octets), *expected, "{octets} octets");
     }
 }

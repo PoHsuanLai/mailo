@@ -1831,4 +1831,69 @@ mod carrying_a_file {
         let shown = compose::attached_to(&store, &store.draft(draft).unwrap());
         assert_eq!(shown, vec![("report.txt".to_owned(), "10 B".to_owned())]);
     }
+
+    /// A photo of soft gradients, `width` × `height`, as a JPEG.
+    fn photo(width: u32, height: u32) -> Vec<u8> {
+        let picture = image::RgbImage::from_fn(width, height, |x, y| {
+            image::Rgb([(x * 255 / width) as u8, (y * 255 / height) as u8, 90])
+        });
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgb8(picture)
+            .write_to(
+                &mut std::io::Cursor::new(&mut out),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn pictures_sent_smaller_go_smaller_and_the_draft_keeps_the_originals() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let original = photo(1600, 1200);
+        compose::attach_bytes(&store, draft, "beach.jpg", &original, at(20)).unwrap();
+        compose::attach_bytes(&store, draft, "notes.bin", &[0xff; 300], at(21)).unwrap();
+
+        // Weighed before it goes: smaller at Small than as it is, and one picture to change.
+        let weight = compose::weigh(&store, &store.draft(draft).unwrap());
+        let limit = compose::SendLimit::USUAL;
+        assert_eq!(weight.pictures(), 1);
+        assert!(
+            weight.against(compose::PictureSize::Small, limit)
+                < weight.against(compose::PictureSize::Actual, limit)
+        );
+
+        compose::queue_sized(
+            &store,
+            &mail_core::testing::MapSigningStore::default(),
+            &mail_core::pgp::no_passphrase,
+            draft,
+            compose::Leaves::Now,
+            compose::PictureSize::Small,
+            at(30),
+        )
+        .expect("send queues");
+
+        let due = store.outbox_due(acct_account(), at(40)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let sent = mail_mime::parse(&store.blobs().get(*raw).unwrap()).unwrap();
+        let names: Vec<&str> = sent.attachments.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["beach.jpg", "notes.bin"]);
+        let beach = image::load_from_memory(&sent.attachments[0].bytes).unwrap();
+        assert_eq!((beach.width(), beach.height()), (640, 480), "sent at Small");
+        assert_eq!(
+            sent.attachments[1].bytes, [0xff; 300],
+            "a file that is not a picture"
+        );
+
+        // The draft still holds the photo as it was attached.
+        let kept = store.draft(draft).unwrap();
+        assert_eq!(
+            store.blobs().get(kept.attachments[0].blob).unwrap(),
+            original
+        );
+    }
 }

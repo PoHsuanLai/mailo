@@ -254,7 +254,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
 pub(in crate::ui) async fn seal_and_queue(
     store: Arc<SqliteStore>,
     draft: mail_domain::DraftId,
-    leaves: mail_core::compose::Leaves,
+    going: (mail_core::compose::Leaves, mail_core::compose::PictureSize),
     remind: Option<DateTime<Utc>>,
     passphrase: Option<Password>,
 ) -> Result<DateTime<Utc>, Sealed> {
@@ -275,7 +275,7 @@ pub(in crate::ui) async fn seal_and_queue(
             secrets.as_ref(),
             &ask,
             draft,
-            leaves,
+            going,
             remind,
             Utc::now(),
         );

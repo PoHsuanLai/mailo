@@ -87,10 +87,35 @@ fn the_rfc_session_names_the_mail_account_and_every_url() {
     assert_eq!(session.limits.max_objects_in_get, 256);
     assert_eq!(session.limits.max_calls_in_request, 32);
     assert_eq!(session.limits.max_size_upload, 50_000_000);
+    // The example's mail capability does not say how large a message's attachments may be.
+    assert_eq!(session.limits.max_size_attachments, 0);
     assert_eq!(session.username, "john@example.com");
     assert_eq!(session.state, "75128aab4b1b");
     // The example's mail account lists no submission capability: it cannot send.
     assert_eq!(session.submission, Submission::Absent);
+}
+
+#[test]
+fn the_mail_accounts_attachment_limit_is_read_and_one_that_does_not_read_is_unstated() {
+    let stated = r#""maxMailboxDepth": 10
+        },
+        "urn:ietf:params:jmap:contacts""#;
+    let cases = [
+        ("stated", "20000000", 20_000_000),
+        ("not a number", "\"lots\"", 0),
+        ("null", "null", 0),
+    ];
+    for (case, value, expected) in cases {
+        let with = stated.replacen(
+            "10\n",
+            &format!("10, \"maxSizeAttachmentsPerEmail\": {value}\n"),
+            1,
+        );
+        let session = RFC_SESSION.replacen(stated, &with, 1);
+        assert_ne!(session, RFC_SESSION, "{case}: the field was not put in");
+        let parsed = Session::parse(session.as_bytes()).unwrap();
+        assert_eq!(parsed.limits.max_size_attachments, expected, "{case}");
+    }
 }
 
 #[test]
