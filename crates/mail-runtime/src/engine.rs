@@ -334,7 +334,8 @@ pub struct AccountEngine<B: Backend> {
 /// socket that only [`RuntimeError::Stalled`] would end, minutes later; a minute is not that.
 const KEPT_FOR: Duration = Duration::from_secs(60);
 
-/// How long the submission server has to answer the `QUIT` that ends a drain.
+/// How long a server has to answer the `QUIT` that ends a drain or the `LOGOUT` that ends a
+/// pass.
 const SAYING_GOODBYE: Duration = Duration::from_secs(5);
 
 /// A connection kept from one operation for the next.
@@ -892,6 +893,27 @@ impl<B: Backend> AccountEngine<B> {
         let goodbye = async {
             kept.transport
                 .satisfy(&mail_proto::IoNeed::Write(b"QUIT\r\n".to_vec()))
+                .await?;
+            kept.transport.satisfy(&mail_proto::IoNeed::Read).await
+        };
+        // The answer is not needed: the connection closes when `kept` goes, said or not.
+        let _ = crate::error::within(SAYING_GOODBYE, "saying goodbye", goodbye).await;
+    }
+
+    /// Close the connection to the incoming server the last operation finished on, saying
+    /// `LOGOUT` where the backend has words for it, and keep none: for the end of a pass, so a
+    /// connection is not held open with nothing to do until the next pass finds it stale.
+    pub async fn let_go(&mut self) {
+        let farewell = self.backend.farewell();
+        let Some(mut kept) = self.kept.take() else {
+            return;
+        };
+        let Some(bytes) = farewell.filter(|_| kept.greeted) else {
+            return;
+        };
+        let goodbye = async {
+            kept.transport
+                .satisfy(&mail_proto::IoNeed::Write(bytes))
                 .await?;
             kept.transport.satisfy(&mail_proto::IoNeed::Read).await
         };

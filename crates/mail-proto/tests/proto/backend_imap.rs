@@ -1205,3 +1205,79 @@ mod parts {
         }
     }
 }
+
+fn flags_of(path: &str) -> ProtoOp {
+    ProtoOp::FetchFlags {
+        mailbox: MailboxRef {
+            account: account(),
+            path: path.to_owned(),
+        },
+        since_modseq: None,
+    }
+}
+
+/// The inbox's flags, on a server that offers `UNSELECT` when `unselect`, saying so in its
+/// sign-in's completion as Dovecot does; the tagged `OK` that ends it arrives with news of the
+/// inbox after it, the last line cut short.
+fn flags_of_the_inbox(unselect: bool) -> ImapBackend {
+    let offered = if unselect { " UNSELECT" } else { "" };
+    let ending = "a003 OK done\r\n* 1 FETCH (UID 2 FLAGS (\\Flagged))\r\n* 1 EXPUN";
+    let trace = format!(
+        "S: * OK ready\n\
+         C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+         S: a001 OK [CAPABILITY IMAP4rev1{offered}] logged in\n\
+         C: a002 EXAMINE \"INBOX\"\n\
+         S: * 1 EXISTS\n\
+         S: * OK [UIDVALIDITY 1] valid\n\
+         S: a002 OK [READ-ONLY] done\n\
+         C: a003 UID FETCH 1:* (UID FLAGS)\n\
+         S: * 1 FETCH (UID 1 FLAGS (\\Seen))\n\
+         S64: {}\n\
+         DONE\n",
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, ending)
+    );
+    let mut driven = Driven::new(password_backend(common::caps()), flags_of("INBOX"));
+    replay(&mut driven, &trace).unwrap();
+    driven.backend
+}
+
+/// An operation resumed on the connection an earlier one finished on leaves that one's mailbox
+/// first. What the server says of it until `UNSELECT` completes (a `FETCH` read with the
+/// earlier operation's last answer, an `EXPUNGE` cut in two across the reads, another `FETCH`
+/// after) is the old mailbox's, and none of it is taken for the one selected next.
+#[test]
+fn a_resumed_operation_takes_no_news_of_the_mailbox_before_it() {
+    let mut backend = flags_of_the_inbox(true);
+    let op = flags_of("Archive");
+    assert!(backend.resume(&op));
+    let trace = "C: a004 UNSELECT\n\
+                 S: GE\n\
+                 S: * 2 FETCH (UID 9 FLAGS (\\Deleted))\n\
+                 S: a004 OK unselected\n\
+                 C: a005 EXAMINE \"Archive\"\n\
+                 S: * 1 EXISTS\n\
+                 S: * OK [UIDVALIDITY 1] valid\n\
+                 S: a005 OK [READ-ONLY] done\n\
+                 C: a006 UID FETCH 1:* (UID FLAGS)\n\
+                 S: * 1 FETCH (UID 1 FLAGS ())\n\
+                 S: a006 OK done\n\
+                 DONE\n";
+    let mut driven = Driven::new(backend, op);
+    let outcome = replay(&mut driven, trace).unwrap();
+    let ProtoOutcome::Ingested(ingest) = outcome else {
+        panic!("{outcome:?}");
+    };
+    let flagged: Vec<RemoteRef> = ingest.flags.iter().map(|(at, ..)| at.clone()).collect();
+    assert_eq!(flagged, vec![imap_ref("Archive", 1)]);
+    // And the pass that ends says goodbye on it, tagged after its last command.
+    assert_eq!(driven.backend.farewell(), Some(b"a007 LOGOUT\r\n".to_vec()));
+    assert_eq!(driven.backend.farewell(), None);
+}
+
+/// A server with no `UNSELECT` cannot leave a mailbox without `CLOSE`, which expunges a selected
+/// one, so the next operation has a connection of its own.
+#[test]
+fn without_unselect_a_connection_with_a_mailbox_selected_is_not_resumed() {
+    let mut backend = flags_of_the_inbox(false);
+    assert!(!backend.resume(&flags_of("Archive")));
+}

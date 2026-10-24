@@ -337,6 +337,12 @@ enum Phase {
         tag: String,
         rest: Vec<Vec<u8>>,
     },
+    /// Resumed on a connection with a mailbox still selected: `UNSELECT` was sent, and until its
+    /// tagged completion whatever arrives is about that mailbox, not this session's
+    /// ([`ImapSession::resuming`]).
+    Deselecting {
+        tag: String,
+    },
     Finished,
 }
 
@@ -384,6 +390,9 @@ pub struct ImapSession {
     max_response: usize,
     /// On a connection an earlier session finished on, so there is no greeting to wait for.
     resumed: bool,
+    /// The mailbox the connection has selected, and how: from the last `SELECT` or `EXAMINE`
+    /// that completed, this session's or the one it resumed from.
+    selected: Option<Access>,
 }
 
 /// What a session that finished leaves for the next one on its connection.
@@ -397,6 +406,33 @@ pub struct Resume {
     pub capabilities: Vec<String>,
     /// How many tags the connection has used.
     pub tags: u32,
+    /// Whether a mailbox is still selected, and how ([`ImapSession::selected`]).
+    pub selected: Option<Access>,
+    /// What the server sent after the earlier session's last tagged response, read already:
+    /// the next session reads it first, so it neither starts in the middle of a response nor
+    /// loses one ([`ImapSession::take_unread`]).
+    pub unread: Vec<u8>,
+}
+
+impl Resume {
+    /// Whether the next session can go on this connection: no mailbox is selected, or the
+    /// server has `UNSELECT` (RFC 3691, and in IMAP4rev2) to leave it with. Without it the
+    /// connection is not resumed, and the next operation has a new one: `CLOSE` would leave an
+    /// examined mailbox as cleanly, but costs the same round trip to keep one connection on the
+    /// rare server without `UNSELECT`, and on a selected one it expunges.
+    pub fn can_go_on(&self) -> bool {
+        self.selected.is_none() || unselects(&self.capabilities)
+    }
+
+    /// `LOGOUT`, tagged after the connection's last command: what ends it politely.
+    pub fn logout(&self) -> Vec<u8> {
+        format!("a{:03} LOGOUT\r\n", self.tags + 1).into_bytes()
+    }
+}
+
+/// Whether `capabilities` include `UNSELECT`, alone or as part of IMAP4rev2 (RFC 9051 §6.4.2).
+fn unselects(capabilities: &[String]) -> bool {
+    has_capability(capabilities, "UNSELECT") || has_capability(capabilities, "IMAP4rev2")
 }
 
 impl ImapSession {
@@ -419,6 +455,7 @@ impl ImapSession {
             counter: 0,
             max_response: MAX_RESPONSE,
             resumed: false,
+            selected: None,
         })
     }
 
@@ -431,12 +468,49 @@ impl ImapSession {
     }
 
     /// This session, on a connection an earlier one finished on: greeted and signed in already,
-    /// so it begins with its first command, tagged after the earlier session's last.
+    /// so it begins with its first command, tagged after the earlier session's last, reading
+    /// first what the earlier one left unread.
+    ///
+    /// When the earlier session left a mailbox selected, this one leaves it before its first
+    /// command, with `UNSELECT`, and keeps nothing that arrives until that completes. Until then
+    /// the server may still send news of that mailbox (`FETCH`, `EXPUNGE`, `EXISTS`), and without
+    /// the break it would read as this session's, about the mailbox it selects next. `UNSELECT`
+    /// is the one break every server that has it gives: QRESYNC's `[CLOSED]` (RFC 7162 §3.2.11)
+    /// marks it only where QRESYNC is enabled, and a bare `SELECT` leaves the old mailbox's news
+    /// and the new one's indistinguishable.
     pub fn resuming(mut self, from: Resume) -> Self {
         self.transcript.capabilities = from.capabilities;
         self.counter = from.tags;
+        self.selected = from.selected;
+        self.buf = from.unread;
         self.resumed = true;
         self
+    }
+
+    /// The mailbox this session left selected, if any, and how.
+    pub fn selected(&self) -> Option<Access> {
+        self.selected
+    }
+
+    /// What the server sent after the last response this session read, which the next session
+    /// on the connection is to read first ([`Resume::unread`]).
+    pub fn take_unread(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.buf)
+    }
+
+    /// Leave the mailbox an earlier session selected, before this session's first command.
+    fn deselect(&mut self) -> Progress<ImapTranscript> {
+        if !unselects(&self.transcript.capabilities) {
+            return self.fail(ProtoError::Unsupported(
+                "the server has no UNSELECT, so a connection with a mailbox selected is not \
+                 reused"
+                    .to_owned(),
+            ));
+        }
+        let tag = self.next_tag();
+        let line = format!("{tag} UNSELECT\r\n").into_bytes();
+        self.phase = Phase::Deselecting { tag };
+        Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
     }
 
     /// How many tags the connection has used, this session's and any it resumed from.
@@ -777,6 +851,9 @@ impl ImapSession {
                     return self.read_more();
                 };
                 let raw: Vec<u8> = self.buf.drain(..end).collect();
+                if matches!(self.phase, Phase::Deselecting { .. }) {
+                    continue;
+                }
                 let during = match &self.phase {
                     Phase::Running { index, .. } => *index,
                     _ => 0,
@@ -844,10 +921,10 @@ impl ImapSession {
         let text = String::from_utf8_lossy(raw).trim_end().to_owned();
         let bytes = raw.to_vec();
 
-        if let Response::Capabilities(atoms) = response {
+        if let Some(atoms) = capabilities_in(response) {
             // Replace rather than extend: a later CAPABILITY describes the session we have now,
             // and Gmail's pre-auth list is a strict subset of its post-auth one.
-            self.transcript.capabilities = atoms.iter().map(|c| format!("{c:?}")).collect();
+            self.transcript.capabilities = atoms;
         }
 
         match response {
@@ -864,13 +941,25 @@ impl ImapSession {
                     // connection.
                     | Phase::AppendPending { tag, .. }
                     // The same for a search refused before its literal: a bad charset, say.
-                    | Phase::LiteralPending { tag, .. } => tag.clone(),
+                    | Phase::LiteralPending { tag, .. }
+                    | Phase::Deselecting { tag } => tag.clone(),
                     _ => String::new(),
                 };
                 if tag != expected {
                     return Some(self.fail(ProtoError::Malformed(format!(
                         "tagged {tag} while waiting for {expected}"
                     ))));
+                }
+                if matches!(self.phase, Phase::Deselecting { .. }) {
+                    return Some(match status {
+                        imap_proto::Status::Ok => {
+                            self.selected = None;
+                            self.issue(0)
+                        }
+                        _ => self.fail(ProtoError::Malformed(format!(
+                            "the mailbox could not be left: {text}"
+                        ))),
+                    });
                 }
                 let index = match &self.phase {
                     Phase::Running { index, .. }
@@ -883,6 +972,9 @@ impl ImapSession {
                 };
                 match status {
                     imap_proto::Status::Ok => {
+                        if let Some(ImapCommand::Select { access, .. }) = self.commands.get(index) {
+                            self.selected = Some(*access);
+                        }
                         self.transcript.completed.push(Completed {
                             index,
                             text: text.clone(),
@@ -903,6 +995,8 @@ impl ImapSession {
                     _ => Some(self.fail(ProtoError::Malformed(format!("BAD: {text}")))),
                 }
             }
+            // News of the mailbox being left, not of this session's.
+            _ if matches!(self.phase, Phase::Deselecting { .. }) => None,
             _ => {
                 // Everything else is untagged and may arrive at any moment, solicited or not.
                 let during = match &self.phase {
@@ -937,6 +1031,25 @@ impl ImapSession {
             }
         }
     }
+}
+
+/// The capabilities `response` lists: a `CAPABILITY` response, or a `[CAPABILITY ...]` code on a
+/// greeting or a completion (RFC 9051 §7.1), which is how Dovecot and others say them without
+/// being asked. Rendered as [`ImapTranscript::capabilities`] holds them.
+fn capabilities_in(response: &Response<'_>) -> Option<Vec<String>> {
+    let atoms = match response {
+        Response::Capabilities(atoms)
+        | Response::Data {
+            code: Some(imap_proto::ResponseCode::Capabilities(atoms)),
+            ..
+        }
+        | Response::Done {
+            code: Some(imap_proto::ResponseCode::Capabilities(atoms)),
+            ..
+        } => atoms,
+        _ => return None,
+    };
+    Some(atoms.iter().map(|c| format!("{c:?}")).collect())
 }
 
 /// Whether the server advertised a capability, matched as a whole atom.
@@ -994,7 +1107,10 @@ impl Machine for ImapSession {
     fn start(&mut self) -> Progress<ImapTranscript> {
         // Resumed, the greeting was an earlier session's to read.
         if self.resumed {
-            return self.issue(0);
+            return match self.selected {
+                Some(_) => self.deselect(),
+                None => self.issue(0),
+            };
         }
         // The server speaks first. Reading rather than writing is the whole difference between
         // this and a protocol where the client opens.
@@ -1029,9 +1145,8 @@ impl Machine for ImapSession {
                             let text = String::from_utf8_lossy(&self.buf[..used])
                                 .trim_end()
                                 .to_owned();
-                            if let Response::Capabilities(atoms) = &response {
-                                self.transcript.capabilities =
-                                    atoms.iter().map(|c| format!("{c:?}")).collect();
+                            if let Some(atoms) = capabilities_in(&response) {
+                                self.transcript.capabilities = atoms;
                             }
                             self.transcript.untagged.push(Untagged {
                                 during: 0,

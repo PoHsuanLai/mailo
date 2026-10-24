@@ -986,7 +986,24 @@ fn poll_floor(watch: &WatchMode) -> std::time::Duration {
 /// Shared rather than written once per backend, so POP3 and IMAP cannot drift: both fetch
 /// headers, then bodies, then drain the outbox. The surest way to make two paths the same is for
 /// there to be one.
+///
+/// The pass's connection is closed as it ends, however it ends ([`AccountEngine::let_go`]): the
+/// next pass is minutes away, and the connection would only sit open until then.
 async fn pass<B: mail_proto::Backend>(
+    engine: &mut AccountEngine<B>,
+    mailboxes: &[MailboxRef],
+    keep: crate::offline::Keep,
+    cancel: &mut mail_runtime::Cancel,
+    now: chrono::DateTime<chrono::Utc>,
+    emit: Emit<'_>,
+) -> Result<Done, Failure> {
+    let passed = pass_on(engine, mailboxes, keep, cancel, now, emit).await;
+    engine.let_go().await;
+    passed
+}
+
+/// [`pass`], on whatever connection it is given.
+async fn pass_on<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailboxes: &[MailboxRef],
     keep: crate::offline::Keep,

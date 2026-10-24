@@ -176,7 +176,7 @@ async fn session(
     } = state;
     seen.lock().unwrap().connections += 1;
     if sock
-        .write_all(b"* OK [CAPABILITY IMAP4rev1] server ready\r\n")
+        .write_all(b"* OK [CAPABILITY IMAP4rev1 UNSELECT] server ready\r\n")
         .await
         .is_err()
     {
@@ -215,7 +215,7 @@ async fn session(
                 });
 
             let reply = if upper.starts_with("CAPABILITY") {
-                format!("* CAPABILITY IMAP4rev1 UIDPLUS MOVE\r\n{tag} OK done\r\n")
+                format!("* CAPABILITY IMAP4rev1 UIDPLUS MOVE UNSELECT\r\n{tag} OK done\r\n")
             } else if upper.starts_with("LOGIN") {
                 format!("{tag} OK logged in\r\n")
             } else if upper.starts_with("LIST") {
@@ -359,7 +359,7 @@ async fn session(
                     Some(idle) => format!("{idle} OK idle done\r\n"),
                     None => "* BAD DONE without IDLE\r\n".to_owned(),
                 }
-            } else if upper.starts_with("NOOP") {
+            } else if upper.starts_with("NOOP") || upper.starts_with("UNSELECT") {
                 format!("{tag} OK done\r\n")
             } else {
                 format!("{tag} BAD unknown command\r\n")
@@ -677,6 +677,58 @@ async fn a_pass_over_two_mailboxes_signs_in_once_on_one_connection() {
         .filter(|c| c.contains("\"Sent\""))
         .count();
     assert!(selects > 0, "Sent was never selected: {:?}", seen.commands);
+}
+
+/// Between operations on one connection the mailbox the last one selected is left with
+/// `UNSELECT`, and letting the connection go says `LOGOUT` on it: the next operation opens
+/// another rather than finding one held open since.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn mailboxes_are_left_between_operations_and_the_connection_logs_out_when_let_go() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity) = serve(seen.clone(), Fault::None).await;
+    let mut it = engine(port, tempfile::tempdir().unwrap());
+    let (_tx, mut cancel) = watch::channel(false);
+
+    it.engine.reachable().await.unwrap();
+    it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    it.engine.let_go().await;
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.connections, 2, "{:?}", seen.commands);
+    let mut selected = false;
+    for command in &seen.commands {
+        let upper = command.to_uppercase();
+        if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
+            assert!(
+                !selected,
+                "selected again with no UNSELECT: {:?}",
+                seen.commands
+            );
+            selected = true;
+        } else if upper.starts_with("UNSELECT") || upper.starts_with("LOGOUT") || command == "LOGIN"
+        {
+            selected = false;
+        }
+    }
+    assert!(
+        seen.commands.iter().any(|c| c == "UNSELECT"),
+        "{:?}",
+        seen.commands
+    );
+    assert_eq!(
+        seen.commands.iter().filter(|c| *c == "LOGOUT").count(),
+        1,
+        "{:?}",
+        seen.commands
+    );
 }
 
 /// A connection the server drops partway through an operation is not kept: the next operation

@@ -321,8 +321,19 @@ impl Backend for ImapBackend {
             op,
             ProtoOp::ListRemote { since: Some(_), .. } if self.caps.condstore == Condstore::Qresync
         );
-        self.resuming = (self.left.is_some() || self.going_on.is_some()) && !enables;
+        let can = self
+            .left
+            .as_ref()
+            .or(self.going_on.as_ref())
+            .is_some_and(Resume::can_go_on);
+        self.resuming = can && !enables;
         self.resuming
+    }
+
+    fn farewell(&mut self) -> Option<Vec<u8>> {
+        self.resuming = false;
+        let left = self.left.take().or_else(|| self.going_on.take())?;
+        Some(left.logout())
     }
 
     fn begin(&mut self, op: ProtoOp) -> Progress<ProtoOutcome> {
@@ -719,6 +730,8 @@ impl Backend for ImapBackend {
                 self.left = Some(Resume {
                     capabilities: transcript.capabilities.clone(),
                     tags: session.tags(),
+                    selected: session.selected(),
+                    unread: session.take_unread(),
                 });
                 transcript
             }

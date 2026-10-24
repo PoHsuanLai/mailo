@@ -172,6 +172,13 @@ pub trait Backend {
         false
     }
 
+    /// The bytes that end, politely, the connection the last operation finished on (IMAP's
+    /// `LOGOUT`), and the backend forgets it: the next operation has a new one. `None` when
+    /// there is nothing to say, as by default.
+    fn farewell(&mut self) -> Option<Vec<u8>> {
+        None
+    }
+
     /// Begin work on `op`. Called once per operation.
     fn begin(&mut self, op: ProtoOp) -> Progress<ProtoOutcome>;
 
