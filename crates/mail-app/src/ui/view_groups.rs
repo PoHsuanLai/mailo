@@ -163,13 +163,19 @@ mod tests {
                 "by star",
                 starred_and_read(),
                 Grouping::Saved(GroupKey::Star),
-                &[("Starred", &["a", "c"]), ("Not starred", &["b"])],
+                &[
+                    (crate::ui::copy::fields::STARRED, &["a", "c"]),
+                    (crate::ui::copy::fields::NOT_STARRED, &["b"]),
+                ],
             ),
             (
                 "by read",
                 starred_and_read(),
                 Grouping::Saved(GroupKey::Read),
-                &[("Unread", &["b", "c"]), ("Read", &["a"])],
+                &[
+                    (crate::ui::copy::headers::UNREAD, &["b", "c"]),
+                    (crate::ui::copy::headers::READ, &["a"]),
+                ],
             ),
             (
                 "by a label",
@@ -184,7 +190,7 @@ mod tests {
                 "an empty band",
                 vec![thread("a", Read, Unstarred, vec![])],
                 Grouping::Saved(GroupKey::Read),
-                &[("Read", &["a"])],
+                &[(crate::ui::copy::headers::READ, &["a"])],
             ),
             (
                 "by where it is",
@@ -196,7 +202,7 @@ mod tests {
                 "the page menu's",
                 vec![thread("a", Unread, Unstarred, vec![])],
                 Grouping::Page(PageGroup::Date),
-                &[("Today", &["a"])],
+                &[(crate::ui::copy::headers::TODAY, &["a"])],
             ),
         ];
         for (name, threads, grouping, want) in cases {

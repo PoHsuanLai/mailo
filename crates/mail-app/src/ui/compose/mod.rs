@@ -39,7 +39,7 @@ mod templates;
 mod wire;
 
 #[cfg(test)]
-mod tests;
+pub(in crate::ui) mod tests;
 
 use crate::ui::actions::{self, Heard, Own};
 use ds::components::controls::button_model::Bezel;

@@ -140,7 +140,7 @@ async fn the_readers_move_menu_holds_the_keys_and_opens_once() {
     let opened = click(&mut dom, crate::ui::fixtures::row_named(&seen, &subject));
     let opened = settle(&mut dom, opened);
     let more = *opened
-        .all("aria-label", "More")
+        .all("aria-label", crate::ui::copy::aria::MORE)
         .last()
         .unwrap_or_else(|| panic!("the reader has no ⋯"));
     let pressed = click(&mut dom, more);

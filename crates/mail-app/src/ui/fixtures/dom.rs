@@ -1,6 +1,5 @@
 use super::super::app::App;
 use super::super::reading::Reader;
-use super::super::style::STYLE;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
@@ -19,59 +18,6 @@ pub(in crate::ui) fn markup(store: Arc<SqliteStore>) -> String {
     dioxus_ssr::render(&dom)
 }
 
-/// The settings a window in `scheme` would read: `appearance.toml` choosing that theme.
-///
-/// Provided to `App` as a plain context, so a render in either scheme never touches the real
-/// config directory.
-pub(in crate::ui) fn in_scheme(scheme: Scheme) -> ds_settings::Environment {
-    let mut environment = ds_settings::Environment::default();
-    environment.settings.appearance.theme = match scheme {
-        Scheme::Light => Theme::Light,
-        Scheme::Dark => Theme::Dark,
-    };
-    environment
-}
-
-/// An empty quire root in `scheme`, wearing `look`: what a component rendered on its own is
-/// placed inside, since a `.ds` root is where every token it reads is declared.
-#[component]
-fn EmptyRoot(scheme: Scheme, look: SpaceLook) -> Element {
-    let appearance = in_scheme(scheme).settings.appearance.appearance();
-    rsx! {
-        Ds {
-            appearance,
-            look,
-            material: Material::Window,
-            stylesheet: ds::assembly::ds::Inject::Host,
-        }
-    }
-}
-
-/// `body` inside a quire root in `scheme`, as the window holds it.
-///
-/// A body that is an `App` render has its own root, drawn in whatever scheme it was rendered
-/// in; a dark copy of it only flips `data-theme`, so its frame keeps the light Space's tint.
-/// Render `App` with [`in_scheme`] for a frame that is right in both.
-pub(in crate::ui) fn framed(body: &str, scheme: Scheme, look: &SpaceLook) -> String {
-    if body.contains("class=\"ds\"") {
-        return match scheme {
-            Scheme::Light => body.to_owned(),
-            Scheme::Dark => body.replace("data-theme=\"light\"", "data-theme=\"dark\""),
-        };
-    }
-    let mut dom = VirtualDom::new_with_props(
-        EmptyRoot,
-        EmptyRootProps {
-            scheme,
-            look: look.clone(),
-        },
-    );
-    dom.rebuild_in_place();
-    let root = dioxus_ssr::render(&dom);
-    let at = root.rfind("</div>").unwrap_or(root.len());
-    format!("{}{body}{}", &root[..at], &root[at..])
-}
-
 /// The value of `name` on the window's quire root (`div.ds`), as the first frame or a later
 /// render has it: what the frame is painted as, read the way a browser would.
 pub(in crate::ui) fn root_attr(page: &str, name: &str) -> Option<String> {
@@ -81,17 +27,6 @@ pub(in crate::ui) fn root_attr(page: &str, name: &str) -> Option<String> {
     let from = tag.find(&needle)? + needle.len();
     let value = &tag[from..];
     Some(value[..value.find('"')?].to_owned())
-}
-
-/// A self-contained page a browser can photograph: quire's stylesheet, mailo's stylesheet,
-/// `head` and `body`. The faces are the system's, as they are in the window.
-pub(in crate::ui) fn page(body: &str, head: &str) -> String {
-    format!(
-        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\n\
-         <title>mailo</title>\n<style>{}</style>\n<style>{STYLE}</style>\n\
-         {head}</head>\n<body>{body}</body></html>\n",
-        ds::stylesheet(),
-    )
 }
 
 /// Run what a render left queued (effects, woken tasks) and draw again, until nothing is left
@@ -113,33 +48,6 @@ pub(in crate::ui) fn drain_seen(dom: &mut VirtualDom) -> Seen {
         dom.render_immediate(&mut seen);
     }
     seen
-}
-
-/// Write `page` to `target/<name>.html`.
-pub(in crate::ui) fn write_page(name: &str, page: &str) {
-    let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target")
-        .join(format!("{name}.html"));
-    if let Some(dir) = out.parent() {
-        std::fs::create_dir_all(dir).unwrap();
-    }
-    std::fs::write(&out, page).unwrap();
-    println!("wrote {}", out.display());
-}
-
-/// Wrap rendered markup in a self-contained page and write it to `target/`.
-///
-/// Two files: `<name>.html` in the light scheme and `<name>-dark.html` in the dark. The scheme
-/// is the `.ds` root's `data-theme`, which quire always writes; a component rendered on its
-/// own is placed in a root of each ([`framed`]).
-pub(in crate::ui) fn dump(name: &str, body: &str) {
-    let look = ds::prelude::SpaceLook::default();
-    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
-        write_page(
-            &format!("{name}{suffix}"),
-            &page(&framed(body, scheme, &look), ""),
-        );
-    }
 }
 
 /// Renders the reader pane on the first thread in the store.
@@ -722,123 +630,4 @@ pub(in crate::ui) async fn later(dom: &mut VirtualDom) -> Seen {
         }
     }
     seen
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::store::{empty, realistic, seeded};
-    use super::{dump, markup, reader_markup, thread_like};
-
-    #[tokio::test]
-    #[ignore = "writes target/first-run.html for a human or a headless browser to look at"]
-    async fn render_the_first_run_to_a_file() {
-        let (store, _dir) = empty();
-        dump("first-run", &markup(store));
-    }
-
-    #[tokio::test]
-    #[ignore = "writes target/shell.html for a human or a headless browser to look at"]
-    async fn render_the_shell_to_a_file() {
-        let (store, _dir) = seeded();
-        dump("shell", &markup(store));
-    }
-
-    #[tokio::test]
-    #[ignore = "writes target/reader.html for a human or a headless browser to look at"]
-    async fn render_the_reader_to_a_file() {
-        let (store, _dir) = realistic();
-        let thread = thread_like(&store, "rust-lang");
-        dump("reader", &reader_markup(store, thread));
-    }
-
-    /// The same, with a mailbox shaped like a real one. See [`render_the_shell_to_a_file`].
-    #[tokio::test]
-    #[ignore = "writes target/shell-real.html for a human or a headless browser to look at"]
-    async fn render_the_shell_with_real_mail() {
-        let (store, _dir) = realistic();
-        dump("shell-real", &markup(store));
-    }
-
-    /// The sidebar with a cached icon on each provider tile.
-    ///
-    /// Uses the PNGs `fetch_the_provider_icons` wrote, when that probe has been run.
-    /// Without them the tiles draw letters, which is the same fallback the window uses.
-    #[tokio::test]
-    #[ignore = "writes target/shell-icons.html from target/provider-icons, when the real fetch has run"]
-    async fn render_the_shell_with_provider_icons() {
-        let icons =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/provider-icons");
-        let (store, _dir) = empty();
-        let rows = [
-            ("ada@gmail.com", "imap.gmail.com"),
-            ("ada@outlook.com", "imap.outlook.com"),
-            ("ada@fastmail.com", "imap.fastmail.com"),
-            ("ada@icloud.com", "imap.mail.me.com"),
-            ("ada@yahoo.com", "imap.mail.yahoo.com"),
-        ];
-        for (n, (address, host)) in rows.into_iter().enumerate() {
-            let plan = mail_domain::AccountPlan {
-                address: address.to_owned(),
-                incoming: mail_domain::Incoming::Imap {
-                    host: host.to_owned(),
-                    port: 993,
-                    tls: mail_domain::Tls::Implicit,
-                },
-                outgoing: mail_domain::Outgoing::Smtp {
-                    host: host.to_owned(),
-                    port: 465,
-                    tls: mail_domain::Tls::Implicit,
-                },
-                auth: mail_domain::AuthPlan::Password {
-                    username: mail_domain::Username::SameAsAddress,
-                    sasl: vec![mail_domain::SaslMech::Plain],
-                },
-                identities: Vec::new(),
-            };
-            mail_store::testing::seed_account_plan(
-                &store,
-                mail_domain::id::new_account_id(),
-                address,
-                &plan,
-                Some(
-                    chrono::TimeZone::with_ymd_and_hms(
-                        &chrono::Utc,
-                        2026,
-                        1,
-                        n as u32 + 1,
-                        0,
-                        0,
-                        0,
-                    )
-                    .unwrap(),
-                ),
-            );
-        }
-        let loaded = crate::ui::provider_chip::read(&icons);
-        if !icons.join("google.png").is_file() {
-            println!(
-                "no cached icons in {}; tiles will show letters",
-                icons.display()
-            );
-        }
-        // One Space, which every account joins as the window opens. The first-run layout is
-        // one Space per account, which would hide four of the five tiles.
-        let spaces = crate::ui::space::built(
-            vec![(
-                "Mail".to_owned(),
-                ds::prelude::SpaceLook::default(),
-                crate::ui::space::Mail::default(),
-            )],
-            0,
-        );
-        let mut dom = dioxus::prelude::VirtualDom::new(crate::ui::app::App)
-            .with_root_context(store)
-            .with_root_context(loaded)
-            .with_root_context(spaces)
-            .with_root_context(crate::ui::view::Appearance {
-                marks: crate::ui::view::Marks::Icons,
-            });
-        dom.rebuild_in_place();
-        dump("shell-icons", &dioxus_ssr::render(&dom));
-    }
 }

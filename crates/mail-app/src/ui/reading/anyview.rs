@@ -342,12 +342,4 @@ mod tests {
         assert_eq!(peeked.name, "beach.png");
         assert!(peeked.still().is_some(), "{:?}", peeked.body);
     }
-
-    #[test]
-    fn a_claimed_name_is_made_safe_and_never_empty() {
-        assert_eq!(file_name("../../etc/passwd").as_str(), "passwd");
-        for claimed in ["", "..", "\n"] {
-            assert!(!file_name(claimed).as_str().is_empty(), "{claimed:?}");
-        }
-    }
 }

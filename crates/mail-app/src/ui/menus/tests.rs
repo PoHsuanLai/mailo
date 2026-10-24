@@ -105,7 +105,8 @@ mod naming_a_conversation {
             .into_iter()
             .next()
             .expect("a row");
-        crate::ui::fixtures::row_action(&mut dom, &seen, &first, "Label…").await;
+        crate::ui::fixtures::row_action(&mut dom, &seen, &first, crate::ui::copy::menus::LABEL)
+            .await;
         let page = dioxus_ssr::render(&dom);
         assert!(
             page.contains("aria-label=\"Labels\"") && page.contains("travel"),
@@ -244,35 +245,4 @@ fn create_appears_only_for_a_new_name_and_checks_follow_the_thread() {
             == 1,
         "more than one Create row"
     );
-}
-
-/// The Labels menu open on a row, with two labels, one of them worn.
-#[tokio::test]
-#[ignore = "writes target/labels-menu.html and its -dark twin to look at"]
-async fn render_the_labels_menu_to_a_file() {
-    dispatching();
-    let built = crate::ui::fixtures::work();
-    let account = built.store.thread(built.dana).unwrap().summary.account;
-    for (name, worn) in [("travel", true), ("receipts", false)] {
-        let id = LabelId::generate();
-        mail_store::testing::seed_label(
-            &built.store,
-            id,
-            account.clone(),
-            name,
-            mail_domain::LabelOrigin::User,
-        );
-        if worn {
-            apply_label(&built.store, built.dana, id, Membership::In);
-        }
-    }
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone());
-    let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-    let subject = built.store.thread(built.dana).unwrap().summary.subject;
-    crate::ui::fixtures::row_action(&mut dom, &seen, &subject, "Label…").await;
-    let body = dioxus_ssr::render(&dom);
-    assert!(body.contains("Labels"), "the Labels menu did not open");
-    crate::ui::fixtures::dump("labels-menu", &body);
 }

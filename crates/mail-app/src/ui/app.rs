@@ -869,7 +869,7 @@ mod tests {
 
         assert!(markup.contains("No account"), "{markup}");
         assert!(
-            markup.contains("Add Account\u{2026}"),
+            markup.contains(crate::ui::copy::controls::ADD_ACCOUNT),
             "no way to add an account:\n{markup}"
         );
         assert!(
@@ -1273,11 +1273,14 @@ mod tests {
         label: &str,
     ) -> crate::ui::fixtures::Seen {
         use crate::ui::fixtures::{click, drain_seen, pick_named};
-        let more = *seen.all("aria-label", "More").last().expect("no reader ⋯");
+        let more = *seen
+            .all("aria-label", crate::ui::copy::aria::MORE)
+            .last()
+            .expect("no reader ⋯");
         click(dom, more);
         // Only the rows this menu drew: what was seen before may hold an earlier menu's.
         let drawn = drain_seen(dom);
-        let viewing = pick_named(dom, &drawn, "View").await;
+        let viewing = pick_named(dom, &drawn, crate::ui::copy::menus::VIEW).await;
         let viewing = viewing.merge(drain_seen(dom));
         let after = pick_named(dom, &viewing, label).await;
         seen.merge(drawn).merge(viewing).merge(after)
@@ -1328,7 +1331,7 @@ mod tests {
                 ));
             }
             if *action == "start" {
-                if !page.contains("No message selected") {
+                if !page.contains(crate::ui::copy::empty::NO_MESSAGE_SELECTED) {
                     failures.push(format!(
                         "the empty reader does not say what is open:\n{page}"
                     ));

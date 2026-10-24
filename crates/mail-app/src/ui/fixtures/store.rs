@@ -270,21 +270,6 @@ pub(in crate::ui) fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
     (store, dir)
 }
 
-/// Write the shell to `target/shell.html`, stylesheet and all, so it can be looked at.
-///
-/// `#[ignore]`d because it is a tool, not an assertion. It exists because the shell's layout
-/// had never been seen: the desktop window is a WebView surface owned by the compositor, and
-/// under rootless XWayland an X11 grab of it returns `BadMatch`, so there was no way from
-/// here to a picture of it. This produces the same markup and the same stylesheet as a
-/// static page, which any browser will render and screenshot headlessly:
-///
-/// ```text
-/// cargo test -p mail-app --bins -- --ignored render_the_shell_to_a_file
-/// google-chrome --headless --screenshot=shell.png --window-size=1200,800 target/shell.html
-/// ```
-///
-/// It is the markup and the CSS, not the running application: nothing here clicks, and a
-/// WebView is not a browser. It is still the difference between looking and guessing.
 /// A database with nothing in it: no account, no mail, no drafts.
 ///
 /// The first thing anyone sees, and the one state the fixtures never covered because every

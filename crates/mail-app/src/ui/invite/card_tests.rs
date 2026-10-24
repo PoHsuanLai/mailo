@@ -262,8 +262,9 @@ fn a_long_description_is_folded_with_more() {
     assert!(!page.contains("aria-label=\"More\""), "{page}");
 }
 
-#[tokio::test]
-async fn every_class_the_card_draws_is_styled() {
+/// The card in each of its faces, and with the note row open, for the style lint in
+/// `style::tests`.
+pub(in crate::ui) fn drawn_states() -> String {
     let update = request(2);
     let cancelled = ics("CANCEL", 1, "CANCELLED", "ada@example.test", &[], "");
     let reply = ics(
@@ -311,9 +312,7 @@ async fn every_class_the_card_draws_is_styled() {
     );
     let noting = dioxus_ssr::render(&dom);
     assert!(noting.contains("inv-noting"), "{noting}");
-    page += &noting;
-    let offences = crate::ui::style::tests::markup_offences(&page);
-    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
+    page + &noting
 }
 
 #[test]

@@ -156,7 +156,10 @@ async fn security_is_chosen_from_the_more_menu_and_drawn_only_while_set() {
     let mut page = window.page();
     window.dom.in_runtime(|| page.write().float = Float::More);
     let markup = window.render();
-    assert!(markup.contains("Security"), "⋯ has no Security:\n{markup}");
+    assert!(
+        markup.contains(crate::ui::copy::menus::SECURITY),
+        "⋯ has no Security:\n{markup}"
+    );
     window.dom.in_runtime(|| {
         let act = super::super::foot::pick_more(&mut page.write(), "security:pgp-sign");
         assert_eq!(act, super::super::foot::More::Done);
@@ -182,7 +185,10 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     let draft = asking(&store, OpenPgp::Encrypt);
     let (mut window, seen) = window(store.clone(), draft.clone(), secrets);
 
-    let mut after = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let mut after = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let markup = window.render();
     assert!(
         markup.contains("No OpenPGP key for dana@example.test"),
@@ -193,7 +199,10 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     assert!(queued(&store).is_empty(), "sent without a key");
 
     // Send again: still held.
-    after = after.merge(click(&mut window.dom, seen.one("aria-label", "Send")));
+    after = after.merge(click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    ));
     assert!(queued(&store).is_empty(), "the second press sent it");
     assert!(
         window
@@ -258,7 +267,10 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
     };
     let draft = asking(&store, OpenPgp::Encrypt);
     let (mut window, seen) = window_with(store.clone(), draft, seams);
-    let after = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let after = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let mut looked = click(&mut window.dom, last(&after, "aria-label", "Look up keys"));
     let markup = until(&mut window, &mut looked, |page| page.contains("Found dana")).await;
     assert_eq!(*asked.lock().unwrap(), ["dana@example.test"]);
@@ -268,7 +280,10 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
     );
     assert!(queued(&store).is_empty(), "a lookup sent it");
 
-    let mut sent = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let mut sent = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let give_up = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
     while queued(&store).is_empty() && tokio::time::Instant::now() < give_up {
         let _ = tokio::time::timeout(
@@ -288,7 +303,10 @@ async fn no_key_of_ones_own_offers_to_make_one() {
     let (store, _dir) = seeded();
     let draft = asking(&store, OpenPgp::Sign);
     let (mut window, seen) = window(store.clone(), draft, Arc::default());
-    let after = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let after = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let markup = window.render();
     assert!(
         markup.contains("No OpenPGP key for me@example.test"),
@@ -328,7 +346,10 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
     let draft = asking(&store, OpenPgp::Sign);
     let (mut window, seen) = window(store.clone(), draft, secrets);
 
-    let mut after = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let mut after = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let prompt = format!(
         "Passphrase for key {}",
         crate::ui::pgp::short(key.fingerprint())
@@ -386,15 +407,18 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
     assert!(text.contains("multipart/signed"), "{text}");
 }
 
-#[tokio::test]
-async fn every_class_of_the_bar_and_row_is_styled() {
+/// The bar asking for a missing key, then for a locked one, for the style lint in `style::tests`.
+pub(in crate::ui) async fn drawn_states() -> String {
     let (store, _dir) = seeded();
     let draft = asking(&store, OpenPgp::Encrypt);
     let secrets = Arc::new(MapSigningStore::default());
     mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
         .unwrap();
     let (mut window, seen) = window(store, draft, secrets);
-    click(&mut window.dom, seen.one("aria-label", "Send"));
+    click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let mut markup = window.render();
     assert!(markup.contains("ds-inline-banner"), "{markup}");
     let mut page = window.page();
@@ -406,43 +430,5 @@ async fn every_class_of_the_bar_and_row_is_styled() {
     });
     markup += &window.render();
     assert!(markup.contains("unlock-field"), "{markup}");
-    let offences = crate::ui::style::tests::markup_offences(&markup);
-    assert!(offences.is_empty(), "markup offences: {offences:#?}");
-}
-
-#[tokio::test]
-#[ignore = "writes target/shots/openpgp-composer.html for a person or a headless browser to look at"]
-async fn render_the_composer_bar_to_a_file() {
-    let (store, _dir) = seeded();
-    let secrets = Arc::new(MapSigningStore::default());
-    mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
-        .unwrap();
-    let mut body = String::new();
-    let bars = [
-        None,
-        Some(SealBar::Locked {
-            key: Fingerprint::V4([0x5C; 20]),
-            tried: crate::ui::pgp::Tried::Wrong,
-        }),
-        Some(SealBar::Blind(
-            crate::ui::pgp::Scheme::OpenPgp,
-            vec!["cara@example.test".to_owned()],
-        )),
-    ];
-    for bar in bars {
-        let draft = asking(&store, OpenPgp::SignAndEncrypt);
-        let (mut window, seen) = window(store.clone(), draft, secrets.clone());
-        click(&mut window.dom, seen.one("aria-label", "Send"));
-        if let Some(bar) = bar {
-            let mut page = window.page();
-            window.dom.in_runtime(|| page.write().seal_bar = bar);
-        }
-        body.push_str(&format!(
-            "<section class=\"reader\" style=\"width:720px;height:520px;margin:16px\">{}</section>",
-            window.render()
-        ));
-    }
-    let shots = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/shots");
-    std::fs::create_dir_all(shots).unwrap();
-    crate::ui::fixtures::dump("shots/openpgp-composer", &body);
+    markup
 }

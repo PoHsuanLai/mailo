@@ -77,7 +77,10 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
     let (dom, _) = opened_on(&built, SettingsPage::Accounts);
     let page = dioxus_ssr::render(&dom);
     assert!(!on_account_page(&page), "pushed before a click: {page}");
-    assert!(page.contains("Add Account\u{2026}"), "{page}");
+    assert!(
+        page.contains(crate::ui::copy::controls::ADD_ACCOUNT),
+        "{page}"
+    );
     // The list names each account by its address and its provider's mark, never its protocol.
     // The page's words: its text, not its stylesheets or attributes.
     let words: String = page

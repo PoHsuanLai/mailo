@@ -61,20 +61,12 @@ fn the_sends_choice_is_when_the_outbox_lets_it_leave() {
 #[test]
 fn a_typed_phrase_is_read_the_way_snooze_reads_it_and_a_past_one_is_refused() {
     let now = wednesday(10, 0);
+    // The phrases themselves are core's `snooze` tests; here is what the field adds to them.
     let cases: &[(&str, Result<DateTime<Utc>, &str>)] = &[
         ("tomorrow 9", Ok(day(24, 9, 0))),
-        ("fri 17:00", Ok(day(25, 17, 0))),
-        ("today 17:30", Ok(day(23, 17, 30))),
-        ("+2h", Ok(wednesday(12, 0))),
-        ("tomorrow", Ok(day(24, 9, 0))),
         ("2026-09-01 10:00", Err("Tue 1 Sep 10:00 has passed")),
         ("today 8", Err("Today 08:00 has passed")),
         ("", Err("Type a time")),
-        ("soonish", Err("\"soonish\" is not a time I know")),
-        (
-            "tomorrow 25:00",
-            Err("\"tomorrow 25:00\" is not a time I know"),
-        ),
     ];
     for (typed, want) in cases {
         let got = pick_time(typed, now, &Utc, mail_core::when::Clock::H24);
@@ -173,7 +165,10 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
     );
 
     // The button still says Send: the Sends row says when. It is the same element it was.
-    let painted = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let painted = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let markup = window.render();
     assert_eq!(
         store.draft(draft.id).map(|d| d.state).ok(),
@@ -259,7 +254,10 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     let at = a_day_from_now();
     let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
     scheduled_page(&mut window, at);
-    let sent = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let sent = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let far = at + chrono::TimeDelta::days(1);
     let queued = outbox(&store, far);
     let early = outbox(&store, at - chrono::TimeDelta::seconds(1));
@@ -334,7 +332,10 @@ async fn a_scheduled_message_opens_held_and_cancel_writes_it() {
     let at = a_day_from_now();
     let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
     scheduled_page(&mut window, at);
-    let sent = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let sent = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     // The fold, settled: the page is gone, as its timer takes it away.
     let shell = window.shell;
     window.dom.in_runtime(|| {
@@ -421,7 +422,10 @@ async fn cancel_of_a_send_already_on_the_wire_says_so_and_changes_nothing() {
     let at = a_day_from_now();
     let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
     scheduled_page(&mut window, at);
-    let painted = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let painted = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let far = at + chrono::TimeDelta::days(1);
     let queued = outbox(&store, far);
     // The outbox took it between the pill being drawn and the press.

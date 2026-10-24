@@ -310,21 +310,23 @@ fn start(
 mod tests {
     use super::split_name;
 
+    /// A name keeps its extension apart, and one with no extension is all stem.
     #[test]
-    fn a_name_keeps_its_extension_apart() {
-        assert_eq!(split_name("minutes.pdf"), ("minutes", ".pdf"));
-        assert_eq!(split_name("photos.tar.gz"), ("photos.tar", ".gz"));
-        assert_eq!(split_name("Report v2.docx"), ("Report v2", ".docx"));
-    }
-
-    #[test]
-    fn a_name_with_no_extension_is_all_stem() {
-        assert_eq!(split_name("README"), ("README", ""));
-        assert_eq!(split_name(".profile"), (".profile", ""));
-        assert_eq!(split_name("ends with a dot."), ("ends with a dot.", ""));
-        assert_eq!(
-            split_name("v1.0 notes for the meeting"),
-            ("v1.0 notes for the meeting", "")
-        );
+    fn a_name_is_split_at_its_extension() {
+        const CASES: &[(&str, (&str, &str))] = &[
+            ("minutes.pdf", ("minutes", ".pdf")),
+            ("photos.tar.gz", ("photos.tar", ".gz")),
+            ("Report v2.docx", ("Report v2", ".docx")),
+            ("README", ("README", "")),
+            (".profile", (".profile", "")),
+            ("ends with a dot.", ("ends with a dot.", "")),
+            (
+                "v1.0 notes for the meeting",
+                ("v1.0 notes for the meeting", ""),
+            ),
+        ];
+        for (name, parts) in CASES {
+            assert_eq!(split_name(name), *parts, "{name:?}");
+        }
     }
 }

@@ -201,28 +201,6 @@ mod tests {
     }
 
     #[test]
-    fn a_first_fetch_is_not_an_empty_folder() {
-        assert_eq!(face(&[Link::Fresh]), ListFace::FirstSync);
-        assert_eq!(face(&[syncing(First::Yes)]), ListFace::FirstSync);
-        assert_eq!(face(&[current(), Link::Fresh]), ListFace::FirstSync);
-        assert_eq!(face(&[syncing(First::No)]), ListFace::Empty);
-    }
-
-    #[test]
-    fn every_account_stuck_is_a_cannot_load_with_the_worst_reason() {
-        let cases = [
-            (vec![signin()], Problem::SignIn),
-            (vec![broken()], Problem::Broken),
-            (vec![offline()], Problem::Unreachable),
-            (vec![offline(), broken()], Problem::Broken),
-            (vec![offline(), broken(), signin()], Problem::SignIn),
-        ];
-        for (links, want) in cases {
-            assert_eq!(face(&links), ListFace::CannotLoad(want), "{links:?}");
-        }
-    }
-
-    #[test]
     fn only_a_sign_in_is_the_persons_to_give_and_it_names_the_account() {
         let cases = [
             (
@@ -252,17 +230,39 @@ mod tests {
         }
     }
 
+    /// A first fetch is not an empty folder, every account stuck is a cannot-load with the worst
+    /// reason, and one healthy account (or one only throttled) makes it an empty folder.
     #[test]
-    fn one_healthy_account_makes_it_an_empty_folder() {
-        assert_eq!(face(&[current(), signin()]), ListFace::Empty);
-        assert_eq!(face(&[current()]), ListFace::Empty);
-        assert_eq!(face(&[]), ListFace::Empty);
+    fn the_list_is_what_the_accounts_are_doing() {
         let throttled = Link::Waiting {
             until: t(),
             why: Pause::Throttled,
             failures: 1,
             first: First::No,
         };
-        assert_eq!(face(&[throttled]), ListFace::Empty);
+        let cases = [
+            (vec![Link::Fresh], ListFace::FirstSync),
+            (vec![syncing(First::Yes)], ListFace::FirstSync),
+            (vec![current(), Link::Fresh], ListFace::FirstSync),
+            (vec![syncing(First::No)], ListFace::Empty),
+            (vec![signin()], ListFace::CannotLoad(Problem::SignIn)),
+            (vec![broken()], ListFace::CannotLoad(Problem::Broken)),
+            (vec![offline()], ListFace::CannotLoad(Problem::Unreachable)),
+            (
+                vec![offline(), broken()],
+                ListFace::CannotLoad(Problem::Broken),
+            ),
+            (
+                vec![offline(), broken(), signin()],
+                ListFace::CannotLoad(Problem::SignIn),
+            ),
+            (vec![current(), signin()], ListFace::Empty),
+            (vec![current()], ListFace::Empty),
+            (vec![], ListFace::Empty),
+            (vec![throttled], ListFace::Empty),
+        ];
+        for (links, want) in cases {
+            assert_eq!(face(&links), want, "{links:?}");
+        }
     }
 }

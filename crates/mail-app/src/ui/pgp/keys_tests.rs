@@ -232,13 +232,20 @@ async fn a_keys_acts_are_one_menu_under_its_more_button_or_a_right_click() {
     );
     let _ = later(&mut dom).await;
     let own = menu_titles(&dom);
-    assert!(own.contains(&"Export Secret Key…".to_owned()), "{own:?}");
-    assert_eq!(
-        own.first().map(String::as_str),
-        Some("Copy Public Key"),
+    assert!(
+        own.contains(&crate::ui::copy::menus::EXPORT_SECRET_KEY.to_owned()),
         "{own:?}"
     );
-    assert_eq!(own.last().map(String::as_str), Some("Delete"), "{own:?}");
+    assert_eq!(
+        own.first().map(String::as_str),
+        Some(crate::ui::copy::menus::COPY_PUBLIC_KEY),
+        "{own:?}"
+    );
+    assert_eq!(
+        own.last().map(String::as_str),
+        Some(crate::ui::copy::menus::DELETE),
+        "{own:?}"
+    );
 
     // Another key's, by a right click on its row, in a window of its own.
     let (mut dom, seen) = sheet(&store, seams_with(secrets));
@@ -246,10 +253,13 @@ async fn a_keys_acts_are_one_menu_under_its_more_button_or_a_right_click() {
     let _ = later(&mut dom).await;
     let other = menu_titles(&dom);
     assert!(
-        !other.contains(&"Export Secret Key…".to_owned()),
+        !other.contains(&crate::ui::copy::menus::EXPORT_SECRET_KEY.to_owned()),
         "{other:?}"
     );
-    assert!(other.contains(&"Mark as Verified".to_owned()), "{other:?}");
+    assert!(
+        other.contains(&crate::ui::copy::menus::MARK_VERIFIED.to_owned()),
+        "{other:?}"
+    );
 }
 
 #[tokio::test]
@@ -258,7 +268,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = short(mine.fingerprint);
 
-    let mut asked = pick(&mut dom, &seen, &id, "Delete").await;
+    let mut asked = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DELETE).await;
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("can’t be undone"), "{page}");
     assert!(
@@ -273,7 +283,7 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
     assert!(!dioxus_ssr::render(&dom).contains("can’t be undone"));
     assert!(held(&secrets, &mine));
 
-    asked = pick(&mut dom, &seen, &id, "Delete").await;
+    asked = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DELETE).await;
     let mut done = click(&mut dom, alert_button(&asked, None));
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(mine.fingerprint).unwrap().is_none());
@@ -290,7 +300,13 @@ async fn deleting_a_key_with_its_secret_is_asked_again_first() {
 async fn a_key_without_a_secret_is_deleted_at_once() {
     let (store, _dir, secrets, _, theirs) = two_keys();
     let (mut dom, seen) = sheet(&store, seams_with(secrets));
-    let mut done = pick(&mut dom, &seen, &short(theirs.fingerprint), "Delete").await;
+    let mut done = pick(
+        &mut dom,
+        &seen,
+        &short(theirs.fingerprint),
+        crate::ui::copy::menus::DELETE,
+    )
+    .await;
     settle(&mut dom, &mut done).await;
     assert!(store.pgp_key(theirs.fingerprint).unwrap().is_none());
     // The toast's Undo puts the key back whole.
@@ -317,7 +333,13 @@ async fn exporting_the_secret_key_is_asked_again_and_only_then_written() {
     let (mut dom, seen) = sheet(&store, seams);
     let id = short(mine.fingerprint);
 
-    let asked = pick(&mut dom, &seen, &id, "Export Secret Key…").await;
+    let asked = pick(
+        &mut dom,
+        &seen,
+        &id,
+        crate::ui::copy::menus::EXPORT_SECRET_KEY,
+    )
+    .await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains("Anyone with this file can read your mail"),
@@ -374,7 +396,7 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
         &mut dom,
         &all,
         &short(theirs.fingerprint),
-        "Mark as Verified",
+        crate::ui::copy::menus::MARK_VERIFIED,
     )
     .await;
     settle(&mut dom, &mut verified).await;
@@ -384,13 +406,18 @@ async fn generate_verify_and_import_go_through_the_keyring_handed_in() {
     );
 }
 
-#[tokio::test]
-async fn every_class_on_the_page_is_styled() {
+/// The keys page asking whether to delete a key, for the style lint in `style::tests`.
+pub(in crate::ui) async fn drawn_states() -> String {
     let (store, _dir, secrets, mine, _) = two_keys();
     let (mut dom, seen) = sheet(&store, seams_with(secrets));
-    pick(&mut dom, &seen, &short(mine.fingerprint), "Delete").await;
+    pick(
+        &mut dom,
+        &seen,
+        &short(mine.fingerprint),
+        crate::ui::copy::menus::DELETE,
+    )
+    .await;
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("ds-alert"), "{page}");
-    let offences = crate::ui::style::tests::markup_offences(&page);
-    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
+    page
 }

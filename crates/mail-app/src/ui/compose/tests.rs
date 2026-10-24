@@ -4,14 +4,14 @@
 mod emoji;
 mod faces;
 mod later;
-mod later_render;
+pub(in crate::ui) mod later_render;
 mod life;
 mod local_from;
-mod openpgp;
-mod people;
+pub(in crate::ui) mod openpgp;
+pub(in crate::ui) mod people;
 mod people_groups;
 mod receipt;
-mod render;
+pub(in crate::ui) mod render;
 mod rows;
 mod smime;
 mod templates;

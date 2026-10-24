@@ -12,7 +12,6 @@ use crate::ui::ops::take_back;
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::ElementId;
-use ds::prelude::*;
 use mail_core::folder::Refusal;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
@@ -354,7 +353,7 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     let first = seen.fixed("class", "ds-menu-item")[0];
     let picked = click(&mut dom, first);
     let seen = picked.merge(later(&mut dom).await);
-    let field = seen.one("aria-placeholder", "New folder");
+    let field = seen.one("aria-placeholder", crate::ui::copy::fields::NEW_FOLDER);
     type_into(&mut dom, field, "a/b");
     chord(&mut dom, "Enter", Modifiers::empty(), field);
     let naming = dioxus_ssr::render(&dom);
@@ -388,7 +387,7 @@ async fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfi
     let picked = click(&mut dom, rename);
     let field = picked
         .merge(later(&mut dom).await)
-        .one("aria-placeholder", "Folder name");
+        .one("aria-placeholder", crate::ui::copy::fields::FOLDER_NAME);
     (dom, field, store, dir)
 }
 
@@ -450,58 +449,4 @@ async fn several_accounts_are_each_named_over_their_folders() {
     assert!(page.contains("me@elsewhere.example"), "{page}");
     let offences = crate::ui::style::tests::markup_offences(&page);
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
-}
-
-/// Writes `target/folders.html` and `folders-menu.html`, each with a `-dark` twin: the Work
-/// Space's frame with a Folders section, and the same with a folder's menu open.
-#[tokio::test]
-#[ignore = "writes target/folders*.html for a human or a headless browser to look at"]
-async fn render_the_folders_to_a_file() {
-    dispatching();
-    let built = crate::ui::fixtures::work();
-    let account = crate::ui::data::account_rows(&built.store)[0].id.clone();
-    let listed = |path: &str| Folder {
-        account: account.clone(),
-        path: path.to_owned(),
-        delimiter: Some('/'),
-        special: None,
-        subscription: Subscription::Subscribed,
-        holds: Holds::Mail,
-    };
-    let mut holder = listed("[Gmail]");
-    holder.holds = Holds::FoldersOnly;
-    let mut sent = listed("[Gmail]/Sent Mail");
-    sent.special = Some(SpecialUse::Sent);
-    let mut old = listed("Old newsletters");
-    old.subscription = Subscription::Unsubscribed;
-    let folders = vec![
-        listed("INBOX"),
-        holder,
-        sent,
-        listed("Projects"),
-        listed("Projects/2026"),
-        listed("Projects/2026/Q3"),
-        listed("Projects/Archive 2019"),
-        listed("收據"),
-        listed("旅行/京都"),
-        old,
-    ];
-    built.store.put_folders(account, folders).unwrap();
-    let space = crate::ui::space::load(&built.dirs).current().clone();
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs);
-    let seen = rebuild_into(&mut dom);
-    let closed = dioxus_ssr::render(&dom);
-    right_click(&mut dom, seen.folder("Projects/2026"));
-    let open = dioxus_ssr::render(&dom);
-    for (name, body) in [("folders", &closed), ("folders-menu", &open)] {
-        for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
-            let framed = crate::ui::fixtures::framed(body, scheme, &space.look);
-            crate::ui::fixtures::write_page(
-                &format!("{name}{suffix}"),
-                &crate::ui::fixtures::page(&framed, ""),
-            );
-        }
-    }
 }

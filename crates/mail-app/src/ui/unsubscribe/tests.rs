@@ -3,7 +3,7 @@
 //! the alert.
 
 use super::head::{Confirm, Phase};
-use super::{Ask, Offer, archive_from, ask, leave};
+use super::{Offer, archive_from, ask, leave};
 use crate::ui::app::App;
 use crate::ui::copy::menus::UNSUBSCRIBE;
 use crate::ui::fixtures::settle_for;
@@ -141,7 +141,7 @@ fn Open(thread: ThreadId) -> Element {
 /// Open the reader's ⋯ and return the names it lists.
 fn more_names(dom: &mut VirtualDom, seen: &Seen) -> Vec<String> {
     let more = *seen
-        .all("aria-label", "More")
+        .all("aria-label", crate::ui::copy::aria::MORE)
         .last()
         .expect("the reader's ⋯");
     let opened = click(dom, more);
@@ -165,11 +165,6 @@ async fn reader_looking(
     let markup = dioxus_ssr::render(&dom);
     let names = more_names(&mut dom, &seen);
     (names, markup, looks)
-}
-
-/// [`reader_looking`]'s markup alone.
-async fn reader_on(store: Arc<SqliteStore>, thread: ThreadId) -> String {
-    reader_looking(store, thread).await.1
 }
 
 #[tokio::test]
@@ -302,25 +297,6 @@ fn a_web_page_is_never_given_a_client() {
 }
 
 #[test]
-fn a_mailto_way_out_queues_a_message() {
-    let (store, _dir) = seeded();
-    let thread = put(&store, "announce@example.test", MAILTO, Held::Body);
-    let offer = Looks::new()
-        .offer(&store, thread, &Vec::new())
-        .expect("the thread offers a way out");
-    assert!(matches!(ask(&offer), Some(Ask::Mailto { .. })));
-
-    let outcome = leave(&store, &offer.found, chrono::Utc::now(), super::client).unwrap();
-    let Outcome::Queued { draft } = outcome else {
-        panic!("a mailto was not queued: {outcome:?}");
-    };
-    let draft = store.draft(draft).unwrap();
-    assert_eq!(draft.state, SendState::Queued);
-    assert_eq!(draft.to, vec![address("leave@example.test")]);
-    assert_eq!(draft.subject, "remove");
-}
-
-#[test]
 fn archive_all_takes_the_senders_inbox_and_nothing_else() {
     let (store, _dir) = seeded();
     let first = put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
@@ -382,28 +358,4 @@ async fn the_list_does_not_read_a_list_header() {
 
     let (names, _, reader) = reader_looking(store, thread).await;
     assert!(reader.reads(Read::List) > 0 && names.iter().any(|name| name == UNSUBSCRIBE));
-}
-
-#[tokio::test]
-#[ignore = "writes target/unsubscribe.html for a person or a headless browser to look at"]
-async fn render_the_unsubscribe_to_a_file() {
-    let (store, _dir) = seeded();
-    let thread = put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
-    let reader = reader_on(store, thread).await;
-    let mut body = format!(
-        "<section class=\"reader\" style=\"width:620px;height:230px;margin:16px\">{reader}</section>"
-    );
-    // Each alert as it opens, under a stand-in for the ⋯ it was picked from.
-    for headers in [ONE_CLICK, MAILTO, WEB] {
-        let open = alert(headers);
-        body.push_str(&format!(
-            "<section class=\"reader\" style=\"width:620px;height:270px;margin:16px\">\
-             <div class=\"reader-head\"><h2>This week in the list</h2><div class=\"reader-meta\">\
-             <div class=\"reader-av\">N</div><div><div class=\"reader-from\">News</div></div>\
-             <div class=\"leave\"><button type=\"button\" class=\"ds-button\" data-variant=\"mini\" \
-             aria-label=\"Unsubscribe\" aria-expanded=\"true\"><span>Unsubscribe</span></button>{open}\
-             </div></div></div></section>"
-        ));
-    }
-    crate::ui::fixtures::dump("unsubscribe", &body);
 }

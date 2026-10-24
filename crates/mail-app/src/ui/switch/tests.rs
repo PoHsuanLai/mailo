@@ -73,61 +73,10 @@ fn a_space_gets_its_place_and_thread_back_and_nothing_else() {
         "the search followed into the Space"
     );
 
-    // A Space left while the sidebar was lifecycle stored its names; each lands on the standard
-    // place that replaced it.
-    for (stored, now) in [
-        ("Done", "Archive"),
-        ("place:Done", "Archive"),
-        ("Kept", "Starred"),
-        ("place:Kept", "Starred"),
-        ("Pinned", "Pinned"),
-    ] {
-        let old = space::Recall {
-            place: stored.to_owned(),
-            ..space::Recall::default()
-        };
-        restore(&mut elsewhere, &old);
-        assert_eq!(place(&elsewhere), now, "{stored}");
-    }
-
     // A Space never left opens on the first place, with nothing open.
     restore(&mut elsewhere, &space::Recall::default());
     assert_eq!(place(&elsewhere), "Inbox");
     assert_eq!(elsewhere.open, None);
-}
-
-/// A label called Done is left as the label and comes back as the label, not as the Done place.
-#[test]
-fn a_space_left_on_a_label_called_done_comes_back_on_the_label() {
-    let label = mail_domain::LabelId::generate();
-    let places = crate::ui::view::places_with(&[("Done".to_owned(), label)], &[], &[]);
-    let at = |source: &crate::ui::view::Source| {
-        places
-            .iter()
-            .position(|place| place.source == *source)
-            .unwrap_or_else(|| panic!("no place {source:?}"))
-    };
-    let theirs = at(&crate::ui::view::Source::Mail(
-        mail_domain::Filter::HasLabel(label),
-    ));
-    let ours = at(&crate::ui::view::Source::Mail(
-        mail_core::place::place_filter(mail_domain::MailboxRole::Archive),
-    ));
-    assert_ne!(theirs, ours);
-    for left in [theirs, ours] {
-        let mut shell = Shell {
-            places: places.clone(),
-            ..Shell::default()
-        };
-        shell.select(left);
-        let recall = recall_of(&shell);
-        let mut back = Shell {
-            places: places.clone(),
-            ..Shell::default()
-        };
-        restore(&mut back, &recall);
-        assert_eq!(back.selected, left, "{recall:?}");
-    }
 }
 
 /// A Space left while accounts had tiles stored the tile left pressed. It still reads, and

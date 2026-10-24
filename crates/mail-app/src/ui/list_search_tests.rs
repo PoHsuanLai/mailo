@@ -9,7 +9,7 @@
 use super::row_hit;
 use crate::ui::app::App;
 use crate::ui::debounce::QUIET;
-use crate::ui::fixtures::{Work, dispatching, dump, rebuild_into, type_into, work};
+use crate::ui::fixtures::{Work, dispatching, rebuild_into, type_into, work};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
@@ -165,7 +165,10 @@ async fn a_word_lists_newest_first_under_its_top_results() {
     let page = window
         .typed("cursors", |page| page.contains(TOP_RESULTS))
         .await;
-    assert!(!page.contains("Newest first"), "the list is headed");
+    assert!(
+        !page.contains(crate::ui::copy::headers::NEWEST_FIRST),
+        "the list is headed"
+    );
     let (_, rows) = page
         .split_once(TOP_RESULTS)
         .expect("the strip has its heading");
@@ -334,19 +337,4 @@ fn row_marks_sit_on_char_boundaries_after_cjk_and_emoji() {
         None,
         "no search, no marks"
     );
-}
-
-/// The list mid-search, for a screenshot in both themes.
-///
-/// ```text
-/// cargo test -p mail-app -- --ignored render_a_search_to_a_file
-/// ```
-#[tokio::test(start_paused = true)]
-#[ignore = "writes target/search.html for a screenshot; run with --ignored"]
-async fn render_a_search_to_a_file() {
-    let mut window = window();
-    let page = window
-        .typed("cursor", |page| page.contains(TOP_RESULTS))
-        .await;
-    dump("search", &page);
 }

@@ -60,13 +60,51 @@ pub(in crate::ui) mod tests {
     /// controls, raw vectors and literal colours in a `style`, beside unstyled classes.
     pub(in crate::ui) fn markup_offences(html: &str) -> Vec<Offence> {
         markup(
-            html,
+            &distinct_tags(html),
             &full_css(),
             &LintConfig {
                 exceptions: super::exceptions::MARKUP,
                 ..LintConfig::new(&ds::kits())
             },
         )
+    }
+
+    /// Each tag `html` draws, once and a line apiece, read as the lint reads them: a quoted value
+    /// may hold a `>`, and closing tags and comments are passed over. The lint finds a tag's line
+    /// by counting from the top, so a whole window costs the square of its length; its distinct
+    /// tags, without the text between them, hold the same offences.
+    fn distinct_tags(html: &str) -> String {
+        let mut seen = std::collections::HashSet::new();
+        let mut tags = String::new();
+        let mut rest = html;
+        while let Some(start) = rest.find('<') {
+            let tail = &rest[start..];
+            let mut quote = None;
+            let end = tail
+                .char_indices()
+                .skip(1)
+                .find(|&(_, c)| match quote {
+                    Some(q) => {
+                        if c == q {
+                            quote = None;
+                        }
+                        false
+                    }
+                    None if c == '"' || c == '\'' => {
+                        quote = Some(c);
+                        false
+                    }
+                    None => c == '>',
+                })
+                .map_or(tail.len(), |(at, _)| at + 1);
+            let tag = &tail[..end];
+            if !tag.starts_with("</") && !tag.starts_with("<!") && seen.insert(tag) {
+                tags.push_str(tag);
+                tags.push('\n');
+            }
+            rest = &tail[end..];
+        }
+        tags
     }
 
     /// The window's first frame with a conversation open in the reader, and the command menu's
@@ -97,12 +135,42 @@ pub(in crate::ui) mod tests {
         assert_clean(STYLE, &config());
     }
 
-    /// Coherence rule 2: no class nothing styles, no raw control, no raw vector, no literal
-    /// colour in a `style`, except those `exceptions::MARKUP` names with their reasons.
+    /// Coherence rule 2, surface by surface: no class nothing styles, no raw control, no raw
+    /// vector, no literal colour in a `style`, except those `exceptions::MARKUP` names with their
+    /// reasons. Each surface is drawn once in the states that show its classes, and an offence is
+    /// named with its surface.
     #[tokio::test]
-    async fn the_frame_draws_no_raw_markup_and_no_unstyled_class() {
-        let page = frame_markup().await;
-        let offences = markup_offences(&page);
+    async fn every_class_each_surface_draws_is_styled() {
+        use crate::ui::{compose, files, invite, pgp, rules};
+        let surfaces = [
+            ("the frame", frame_markup().await),
+            ("the composer", compose::tests::render::drawn_states()),
+            ("the people menu", compose::tests::people::drawn_states()),
+            (
+                "send later and templates",
+                compose::tests::later_render::drawn_states(),
+            ),
+            (
+                "the composer's seal bar",
+                compose::tests::openpgp::drawn_states().await,
+            ),
+            ("the invitation card", invite::card_tests::drawn_states()),
+            ("the rules page", rules::page_tests::drawn_states().await),
+            (
+                "the mail file sheets",
+                files::sheet_tests::drawn_states().await,
+            ),
+            ("the keys page", pgp::keys_tests::drawn_states().await),
+            ("the certificates", pgp::certs_tests::drawn_states().await),
+        ];
+        let offences: Vec<String> = surfaces
+            .iter()
+            .flat_map(|(surface, html)| {
+                markup_offences(html).into_iter().map(move |offence| {
+                    format!("{surface}: {}: {}", offence.selector, offence.text)
+                })
+            })
+            .collect();
         assert!(offences.is_empty(), "{offences:#?}");
     }
 

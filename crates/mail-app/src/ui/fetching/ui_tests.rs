@@ -145,7 +145,10 @@ async fn a_warning_is_said_by_the_sync_mark_and_not_over_the_list() {
         &page,
         &format!("aria-label=\"{}\"", crate::ui::copy::aria::SIGN_IN_AGAIN),
     );
-    assert!(mark.contains("Sign In Again"), "{mark}");
+    assert!(
+        mark.contains(crate::ui::copy::aria::SIGN_IN_AGAIN),
+        "{mark}"
+    );
     assert!(
         page.contains(r#"class="sync-dot""#),
         "no warning dot on the sync mark: {page}"

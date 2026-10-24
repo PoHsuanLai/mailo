@@ -1157,30 +1157,3 @@ fn one_print_at_a_time() {
     assert!(BUSY.ends_with('.'));
     assert_eq!(said(Ok(PrintOutcome::Cancelled)), "Printing cancelled");
 }
-
-/// A sample printout, for looking at: a CJK-and-English thread with an inline image.
-///
-/// ```text
-/// MAILO_SAMPLE_PDF=/path/sample-print.pdf cargo test -p mail-app -- --ignored \
-///     write_a_sample_printout
-/// ```
-#[test]
-#[ignore = "writes the file MAILO_SAMPLE_PDF names; run with --ignored"]
-fn write_a_sample_printout() {
-    let (store, _dir) = seeded();
-    let thread = conversation(&store);
-    let bytes = printout(
-        &store,
-        Job {
-            thread,
-            pages: Pages::PerMessage,
-        },
-    );
-    let path = std::env::var("MAILO_SAMPLE_PDF").expect("MAILO_SAMPLE_PDF names the file");
-    std::fs::write(&path, &bytes).unwrap();
-    eprintln!(
-        "{path}: {} pages, {} bytes",
-        open(&bytes).page_count(),
-        bytes.len()
-    );
-}

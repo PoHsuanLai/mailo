@@ -17,7 +17,6 @@ use super::work::{
 };
 use crate::ui::view::Shell;
 use mail_core::import::Source;
-use mail_core::transfer::expand;
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -282,25 +281,8 @@ fn what_cannot_be_read_is_said_in_words() {
 }
 
 #[test]
-fn a_typed_path_starts_at_home_with_a_tilde() {
+fn a_path_at_home_is_shown_with_a_tilde() {
     let home = Some(std::ffi::OsStr::new("/home/ann"));
-    const CASES: &[(&str, &str)] = &[
-        ("~", "/home/ann"),
-        (
-            "~/Downloads/All mail.mbox",
-            "/home/ann/Downloads/All mail.mbox",
-        ),
-        ("  ~/Mail  ", "/home/ann/Mail"),
-        ("/srv/mail", "/srv/mail"),
-        ("~bob/Mail", "~bob/Mail"),
-    ];
-    for (typed, wanted) in CASES {
-        assert_eq!(expand(typed, home), PathBuf::from(wanted), "{typed:?}");
-    }
-    assert_eq!(expand("~/Mail", None), PathBuf::from("~/Mail"));
-    // Windows takes either slash as a separator, so a typed `~\` is home there too.
-    #[cfg(windows)]
-    assert_eq!(expand("~\\Mail", home), PathBuf::from("/home/ann/Mail"));
     const SHOWN: &[(&str, &str)] = &[
         (
             "/home/ann/Downloads",

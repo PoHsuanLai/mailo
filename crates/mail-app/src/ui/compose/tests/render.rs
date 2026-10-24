@@ -1,4 +1,5 @@
-//! The page drawn in the real window's layout: every class styled, and a file to look at.
+//! The page drawn in the real window's layout: every kind of node, and the states the style lint
+//! reads.
 
 use base64::Engine as _;
 
@@ -108,8 +109,8 @@ pub(super) fn with_identities(built: &crate::ui::fixtures::Work) {
     }
 }
 
-#[tokio::test]
-async fn every_class_the_composer_draws_is_styled() {
+/// Every state the composer draws, each in the window, for the style lint in `style::tests`.
+pub(in crate::ui) fn drawn_states() -> String {
     let states: Vec<Dress> = vec![
         Box::new(composed),
         Box::new(|page: &mut Page| {
@@ -164,11 +165,10 @@ async fn every_class_the_composer_draws_is_styled() {
         Box::new(|page: &mut Page| page.float = Float::SaveTemplate("Weekly".to_owned())),
         Box::new(|page: &mut Page| page.float = Float::Templates { active: 0 }),
     ];
-    for dress in states {
-        let (markup, _root) = window_with_page(dress);
-        let offences = crate::ui::style::tests::markup_offences(&markup);
-        assert!(offences.is_empty(), "markup offences: {offences:#?}");
-    }
+    states
+        .into_iter()
+        .map(|dress| window_with_page(dress).0)
+        .collect()
 }
 
 /// Every kind of node, marked for quire's `EditSurface`: `data-edit-node` on each, every object
@@ -197,18 +197,4 @@ async fn the_composed_message_draws_every_kind_of_node_on_the_surface() {
     ] {
         assert!(!markup.contains(gone), "{gone} in:\n{markup}");
     }
-}
-
-#[tokio::test]
-#[ignore = "writes target/composer.html and target/composer-dark.html for a person to look at"]
-async fn render_the_composer_to_a_file() {
-    let (markup, _root) = window_with_page(composed);
-    // The surface puts the menu at the caret in the window. A file has no surface, so it is
-    // placed by hand under the line where the "/" is.
-    let placed = markup.replacen(
-        r#"class="c-float" data-anchor="below""#,
-        r#"class="c-float" data-anchor="below" style="left:0;top:246px""#,
-        1,
-    );
-    crate::ui::fixtures::dump("composer", &placed);
 }

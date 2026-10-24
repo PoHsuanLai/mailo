@@ -12,7 +12,6 @@ use crate::ui::view::{Shell, folder_of, places_with};
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
-use ds::prelude::*;
 use mail_core::fetch::FolderFetch;
 use mail_core::sync::report::{AccountReport, Counts, PassEnd};
 use mail_core::{SqliteStore, Store};
@@ -396,70 +395,4 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
 
     // Another folder's thread was never this place's.
     assert!(!belongs(&store, &shell, threads[2], Utc::now()));
-}
-
-/// Writes `target/folder-place.html` and its `-dark` twin: the Work Space with one account's
-/// own folders in the sidebar, a folder chosen, and its mail in the list.
-#[tokio::test]
-#[ignore = "writes target/folder-place*.html for a human or a headless browser to look at"]
-async fn render_a_folder_place_to_a_file() {
-    dispatching();
-    let built = crate::ui::fixtures::work();
-    let rows = crate::ui::data::account_rows(&built.store);
-    let account = rows.last().unwrap().id.clone();
-    let caps = AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        ..crate::ui::fixtures::gmail_caps()
-    };
-    built
-        .store
-        .put_caps(account.clone(), &caps, Utc::now())
-        .unwrap();
-    let listed = |path: &str| Folder {
-        account: account.clone(),
-        ..folder(path, Some('/'))
-    };
-    let mut old = listed("Old newsletters");
-    old.subscription = Subscription::Unsubscribed;
-    let folders = vec![
-        listed("INBOX"),
-        listed("Projects"),
-        listed(PROJECTS),
-        listed("Projects/2026/Q3"),
-        listed(RECEIPTS),
-        listed("旅行/京都"),
-        old,
-    ];
-    built.store.put_folders(account.clone(), folders).unwrap();
-    for (uid, subject) in [
-        (41, "Q3 plan draft, with the open questions"),
-        (42, "Budget for the Q3 plan"),
-        (43, "Offsite venue: two options"),
-    ] {
-        deliver(&built.store, account.clone(), PROJECTS, uid, subject);
-    }
-    deliver(
-        &built.store,
-        account,
-        RECEIPTS,
-        44,
-        "Your receipt for September",
-    );
-    let space = crate::ui::space::load(&built.dirs).current().clone();
-    let (fetcher, _) = counting(Ok(()));
-    let mut dom = VirtualDom::new(App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs)
-        .with_root_context(fetcher);
-    let seen = rebuild_into(&mut dom);
-    click(&mut dom, seen.folder(PROJECTS));
-    settle_quiet(&mut dom).await;
-    let body = dioxus_ssr::render(&dom);
-    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
-        let framed = crate::ui::fixtures::framed(&body, scheme, &space.look);
-        crate::ui::fixtures::write_page(
-            &format!("folder-place{suffix}"),
-            &crate::ui::fixtures::page(&framed, ""),
-        );
-    }
 }

@@ -75,7 +75,12 @@ async fn the_foot_holds_the_dots_and_one_menu_button_and_no_settings_or_sidebar_
         Some(crate::ui::copy::aria::SIDEBAR_MENU),
         "{page}"
     );
-    for gone in ["Settings", "Sidebar", "Hide Sidebar", "Show Sidebar"] {
+    for gone in [
+        crate::ui::copy::titles::SETTINGS,
+        crate::ui::copy::aria::SIDEBAR,
+        crate::ui::copy::menus::HIDE_SIDEBAR,
+        crate::ui::copy::menus::SHOW_SIDEBAR,
+    ] {
         assert!(
             !labels.contains(&gone),
             "{gone} is still on the foot: {labels:?}"

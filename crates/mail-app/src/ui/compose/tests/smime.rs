@@ -183,7 +183,10 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     let (mut window, seen) = window(store.clone(), draft.clone(), secrets.clone());
 
     // No certificate of my own.
-    let after = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let after = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let markup = window.render();
     assert!(
         markup.contains("No S/MIME certificate for me@example.test"),
@@ -215,7 +218,10 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
         Utc::now(),
     )
     .unwrap();
-    let after = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let after = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let markup = window.render();
     assert!(
         markup.contains("No S/MIME certificate for dana@example.test"),

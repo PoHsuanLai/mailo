@@ -305,33 +305,43 @@ mod tests {
             (
                 PageGroup::None,
                 None,
-                &["Group by Date", "-", "Hide Snippets", "Hide Labels"],
+                &[
+                    crate::ui::copy::menus::GROUP_BY_DATE,
+                    "-",
+                    crate::ui::copy::menus::HIDE_SNIPPETS,
+                    crate::ui::copy::menus::HIDE_LABELS,
+                ],
             ),
             (
                 PageGroup::Date,
                 None,
-                &["✓Group by Date", "-", "Hide Snippets", "Hide Labels"],
+                &[
+                    "✓Group by Date",
+                    "-",
+                    crate::ui::copy::menus::HIDE_SNIPPETS,
+                    crate::ui::copy::menus::HIDE_LABELS,
+                ],
             ),
             (
                 PageGroup::None,
                 Some(""),
                 &[
-                    "Group by Date",
+                    crate::ui::copy::menus::GROUP_BY_DATE,
                     "-",
-                    "Hide Snippets",
-                    "Hide Labels",
+                    crate::ui::copy::menus::HIDE_SNIPPETS,
+                    crate::ui::copy::menus::HIDE_LABELS,
                     "-",
-                    "Sync Now",
+                    crate::ui::copy::menus::SYNC_NOW,
                 ],
             ),
             (
                 PageGroup::None,
                 Some("Not updated since 14:05"),
                 &[
-                    "Group by Date",
+                    crate::ui::copy::menus::GROUP_BY_DATE,
                     "-",
-                    "Hide Snippets",
-                    "Hide Labels",
+                    crate::ui::copy::menus::HIDE_SNIPPETS,
+                    crate::ui::copy::menus::HIDE_LABELS,
                     "-",
                     "Sync Now / Not updated since 14:05",
                 ],
@@ -347,7 +357,13 @@ mod tests {
             chips: RowPart::Hidden,
         };
         let rows = more_items(PageGroup::None, hidden, None);
-        assert_eq!(read(&rows)[2..], ["Show Snippets", "Show Labels"]);
+        assert_eq!(
+            read(&rows)[2..],
+            [
+                crate::ui::copy::menus::SHOW_SNIPPETS,
+                crate::ui::copy::menus::SHOW_LABELS
+            ]
+        );
         assert!(rows[2..].iter().all(|row| matches!(
             row,
             MenuItem::Item {
@@ -379,10 +395,10 @@ mod tests {
                 ],
                 PageGroup::Date,
                 &[
-                    Some("Today"),
-                    Some("Yesterday"),
-                    Some("This week"),
-                    Some("Older"),
+                    Some(crate::ui::copy::headers::TODAY),
+                    Some(crate::ui::copy::headers::YESTERDAY),
+                    Some(crate::ui::copy::headers::THIS_WEEK),
+                    Some(crate::ui::copy::headers::OLDER),
                 ],
             ),
             (

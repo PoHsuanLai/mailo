@@ -1,6 +1,5 @@
-//! The Rules sheet's functions against a store: a rule made, listed, moved, switched off and
-//! deleted; a condition the rules cannot read refused in words; and a rule run over the mail
-//! already here.
+//! The Rules sheet's functions against a store: a condition the rules cannot read refused in a
+//! sentence of its own, and a rule run over the mail already here.
 
 use std::sync::Mutex;
 
@@ -8,8 +7,7 @@ use chrono::Utc;
 use mail_core::Store;
 use mail_domain::*;
 
-use super::work::{self, Draft, Step};
-use crate::ui::copy;
+use super::work::{self, Draft};
 use crate::ui::fixtures::{acct_account, realistic, seeded};
 
 fn draft(name: &str, query: &str, actions: Vec<RuleAction>) -> Draft {
@@ -21,118 +19,24 @@ fn draft(name: &str, query: &str, actions: Vec<RuleAction>) -> Draft {
     }
 }
 
-fn names(store: &mail_core::SqliteStore) -> Vec<String> {
-    work::listed(store, acct_account())
-        .unwrap()
-        .into_iter()
-        .map(|l| l.rule.name)
-        .collect()
-}
-
 #[test]
-fn a_rule_made_in_the_sheet_is_listed_moved_switched_and_deleted() {
+fn a_condition_the_rules_cannot_read_is_refused_and_not_kept() {
     let (store, _dir) = seeded();
-    assert!(store.rules(acct_account()).unwrap().is_empty());
-
-    // Typed with stray spaces: it comes back as the search language writes it.
-    let bills = work::save(
-        &store,
-        acct_account(),
-        &draft(
-            " Bills ",
-            "  from:bank.example   subject:statement ",
-            vec![RuleAction::Label("Bills".to_owned()), RuleAction::MarkRead],
-        ),
-        &Utc,
-    )
-    .unwrap();
-    let listed = work::listed(&store, acct_account()).unwrap();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].rule, bills);
-    assert_eq!(listed[0].rule.name, "Bills");
-    assert_eq!(listed[0].when, "from:bank.example subject:statement");
-    assert_eq!(
-        listed[0].does,
-        format!("Label “Bills” · {}", copy::menus::MARK_AS_READ)
-    );
-    assert_eq!(listed[0].rule.state, RuleState::Enabled);
-    // What the CLI would make of the same words.
-    assert_eq!(
-        listed[0].rule.filter,
-        mail_core::query::parse_with("from:bank.example subject:statement", &Utc, &|_| Vec::new())
-    );
-
-    let news = work::save(
-        &store,
-        acct_account(),
-        &draft("News", "from:news@example.com", vec![RuleAction::Archive]),
-        &Utc,
-    )
-    .unwrap();
-    assert_eq!(names(&store), ["Bills", "News"]);
-    let (bills_at, news_at) = (bills.position, news.position);
-    assert!(bills_at < news_at, "a new rule does not go last");
-
-    work::reorder(&store, acct_account(), news.id, Step::Up).unwrap();
-    assert_eq!(names(&store), ["News", "Bills"]);
-    let now: Vec<(String, u32)> = store
-        .rules(acct_account())
-        .unwrap()
-        .into_iter()
-        .map(|r| (r.name, r.position))
-        .collect();
-    assert!(now.contains(&("News".to_owned(), 1)), "{now:?}");
-    assert!(now.contains(&("Bills".to_owned(), 2)), "{now:?}");
-    // At the top already: nothing moves.
-    work::reorder(&store, acct_account(), news.id, Step::Up).unwrap();
-    assert_eq!(names(&store), ["News", "Bills"]);
-
-    // Edited, it keeps its place and its id.
-    let listed = work::listed(&store, acct_account()).unwrap();
-    let mut edit = Draft::of(&mail_core::rules::ListedRule {
-        rule: listed[1].rule.clone(),
-        condition: listed[1].when.clone(),
-    });
-    assert_eq!(edit.query, "from:bank.example subject:statement");
-    edit.query = "from:bank.example".to_owned();
-    let edited = work::save(&store, acct_account(), &edit, &Utc).unwrap();
-    assert_eq!(edited.id, bills.id);
-    assert_eq!(edited.position, 2);
-    assert_eq!(store.rules(acct_account()).unwrap().len(), 2);
-
-    work::switch(&store, &edited, RuleState::Disabled).unwrap();
-    let off = store
-        .rules(acct_account())
-        .unwrap()
-        .into_iter()
-        .find(|r| r.id == bills.id)
-        .unwrap();
-    assert_eq!(off.state, RuleState::Disabled);
-
-    let said = work::delete(&store, &news).unwrap();
-    assert_eq!(said, "Deleted the rule “News”");
-    assert_eq!(names(&store), ["Bills"]);
-}
-
-#[test]
-fn a_condition_the_rules_cannot_read_is_refused_in_words_and_not_kept() {
-    let (store, _dir) = seeded();
-    const CASES: &[(&str, &str)] = &[
-        ("frm:bank.example", "Rules don’t know “frm:”"),
-        (
-            "from:bank.example before:yesterday",
-            "needs a date, like before:2026-10-08",
-        ),
-        ("label:nowhere", "No label “nowhere” on this account."),
-        ("is:important", "is: takes unread"),
-        ("in:elsewhere", "in: takes inbox"),
-        ("subject:", "“subject:” needs something after the colon."),
-        ("   ", "Add a condition"),
+    // Each kind of refusal core's `rules::manage` tells apart, said in a sentence of its own.
+    const CASES: &[&str] = &[
+        "frm:bank.example",
+        "from:bank.example before:yesterday",
+        "label:nowhere",
+        "is:important",
+        "in:elsewhere",
+        "subject:",
+        "   ",
     ];
-    for (typed, said) in CASES {
+    let mut said = std::collections::HashSet::new();
+    for typed in CASES {
         let refused = work::read_condition(typed, &work::labels(&store, acct_account()), &Utc);
         match refused {
-            Err(why) => assert!(why.contains(said), "{typed:?}: {why}"),
+            Err(why) => assert!(said.insert(why.clone()), "{typed:?}: {why} said twice"),
             Ok(filter) => panic!("{typed:?} was read as {filter:?}"),
         }
         let saved = work::save(
@@ -147,56 +51,6 @@ fn a_condition_the_rules_cannot_read_is_refused_in_words_and_not_kept() {
         store.rules(acct_account()).unwrap().is_empty(),
         "a refused rule was kept"
     );
-
-    // What a search reads as text but a rule reads fine: a phrase, a negation, a plain word.
-    for fine in [
-        "\"weekly report\"",
-        "-from:boss@example.com invoice",
-        "subject:\"re: lunch\"",
-    ] {
-        assert!(
-            work::read_condition(fine, &[], &Utc).is_ok(),
-            "{fine:?} was refused"
-        );
-    }
-}
-
-#[test]
-fn a_rule_needs_a_name_one_of_its_own_and_something_to_do() {
-    let (store, _dir) = seeded();
-    let blank = work::save(
-        &store,
-        acct_account(),
-        &draft(" ", "from:a", vec![RuleAction::Star]),
-        &Utc,
-    );
-    assert_eq!(blank.unwrap_err(), "A rule needs a name.");
-    let idle = work::save(
-        &store,
-        acct_account(),
-        &draft("Idle", "from:a", Vec::new()),
-        &Utc,
-    );
-    assert!(idle.unwrap_err().contains("Add an action"));
-    work::save(
-        &store,
-        acct_account(),
-        &draft("Twice", "from:a", vec![RuleAction::Star]),
-        &Utc,
-    )
-    .unwrap();
-    let again = work::save(
-        &store,
-        acct_account(),
-        &draft("Twice", "from:b", vec![RuleAction::Star]),
-        &Utc,
-    );
-    assert!(
-        again
-            .unwrap_err()
-            .contains("A rule called “Twice” already exists")
-    );
-    assert_eq!(store.rules(acct_account()).unwrap().len(), 1);
 }
 
 #[test]

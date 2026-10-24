@@ -3,7 +3,6 @@
 use super::app::App;
 use super::fixtures::{dispatching, rebuild_into, seeded, work};
 use dioxus::prelude::*;
-use ds::prelude::*;
 use mail_core::SqliteStore;
 use std::sync::Arc;
 
@@ -265,29 +264,6 @@ async fn follow(
             return (was, all);
         }
         latest = paint(dom);
-    }
-}
-
-#[tokio::test]
-#[ignore = "writes target/frame.html and target/frame-dark.html for a person to look at"]
-async fn render_the_frame_to_a_file() {
-    // Rendered once per scheme, from `appearance.toml`'s theme, so the frame's Space tint is
-    // the one each scheme derives, not a relabelled copy of the light one.
-    dispatching();
-    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
-        let built = work();
-        let mut dom = VirtualDom::new(App)
-            .with_root_context(built.store.clone())
-            .with_root_context(built.dirs)
-            .with_root_context(super::fixtures::in_scheme(scheme));
-        let seen = rebuild_into(&mut dom);
-        let dana = seen.one(
-            "aria-label",
-            "Open Re: UIDL stability across a UIDVALIDITY change",
-        );
-        super::fixtures::click(&mut dom, dana);
-        let body = dioxus_ssr::render(&dom);
-        super::fixtures::write_page(&format!("frame{suffix}"), &super::fixtures::page(&body, ""));
     }
 }
 

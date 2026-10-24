@@ -1,5 +1,4 @@
-//! Send later and templates in the real window's layout: every class they draw is styled, and
-//! files to look at.
+//! Send later and templates in the real window's layout, drawn for the style lint.
 
 use super::super::desk::Outgoing;
 use super::super::life::{self, Anyway, Sent};
@@ -13,7 +12,6 @@ use crate::ui::fixtures::{Work, key, work};
 /// What happens in the window before the page is dressed.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Before {
-    Nothing,
     /// The page is sent for tomorrow 08:00, so the pill and the Scheduled place show it.
     Schedule,
     /// Two templates are kept on the page's account, and the page is left empty.
@@ -107,73 +105,21 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
     (dioxus_ssr::render(&dom), built)
 }
 
-fn styled(markup: &str) {
-    let offences = crate::ui::style::tests::markup_offences(markup);
-    assert!(offences.is_empty(), "markup offences: {offences:#?}");
-}
-
-#[tokio::test]
-async fn every_class_send_later_and_templates_draw_is_styled() {
-    let (markup, _built) = window(|_| {}, Before::Schedule);
-    assert!(markup.contains("Scheduled for tomorrow 08:00"), "{markup}");
+/// Send-later's place and pill, and the templates menu, each in the window, for the style lint
+/// in `style::tests`.
+pub(in crate::ui) fn drawn_states() -> String {
+    let (scheduled, _built) = window(|_| {}, Before::Schedule);
     assert!(
-        markup.contains(r#"data-place="Scheduled""#),
-        "no Scheduled place: {markup}"
+        scheduled.contains(r#"data-place="Scheduled""#),
+        "no Scheduled place: {scheduled}"
     );
-    styled(&markup);
-
-    let (markup, _built) = window(
+    let (templates, _built) = window(
         |page| {
             type_text(page, "/");
             assert!(pick(page, super::super::templates::START_KEY));
         },
         Before::KeepTemplates,
     );
-    assert!(markup.contains("Weekly update"), "{markup}");
-    // Each row's × is quire's trailing row action.
-    assert!(
-        markup.contains(r#"aria-label="Delete template “Weekly update”""#),
-        "no delete on the rows:\n{markup}"
-    );
-    styled(&markup);
-}
-
-#[tokio::test]
-#[ignore = "writes target/later-*.html and their -dark twins for a person to look at"]
-async fn render_send_later_and_templates_to_files() {
-    let place = |markup: String| {
-        // The surface puts a caret menu at the caret in the window; a file has none.
-        markup.replacen(
-            r#"class="c-float" data-anchor="below""#,
-            r#"class="c-float" data-anchor="below" style="left:0;top:40px""#,
-            1,
-        )
-    };
-    let (sends, _a) = window(|page| page.float = Float::SendMenu, Before::Nothing);
-    crate::ui::fixtures::dump("later-sends", &sends);
-    let (pick_time, _b) = window(
-        |page| page.float = Float::PickTime("fri 17:00".to_owned()),
-        Before::Nothing,
-    );
-    crate::ui::fixtures::dump("later-pick", &pick_time);
-    let (refused, _c) = window(
-        |page| page.float = Float::PickTime("2026-01-05 09:00".to_owned()),
-        Before::Nothing,
-    );
-    crate::ui::fixtures::dump("later-pick-refused", &refused);
-    let (scheduled, _d) = window(|_| {}, Before::Schedule);
-    crate::ui::fixtures::dump("later-scheduled", &scheduled);
-    let (list, _e) = window(
-        |page| {
-            type_text(page, "/");
-            pick(page, super::super::templates::START_KEY);
-        },
-        Before::KeepTemplates,
-    );
-    crate::ui::fixtures::dump("later-templates", &place(list));
-    let (save, _f) = window(
-        |page| page.float = Float::SaveTemplate("Weekly".to_owned()),
-        Before::Nothing,
-    );
-    crate::ui::fixtures::dump("later-save", &place(save));
+    assert!(templates.contains("Weekly update"), "{templates}");
+    scheduled + &templates
 }

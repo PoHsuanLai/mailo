@@ -179,8 +179,14 @@ mod tests {
     #[test]
     fn the_mark_says_sign_in_again_while_a_press_would_ask() {
         let failing = line("Can\u{2019}t fetch mail", Tone::Danger, None);
-        assert_eq!(mark_tip(Some(&failing), true), "Sign In Again");
-        assert_eq!(mark_tip(None, true), "Sign In Again");
+        assert_eq!(
+            mark_tip(Some(&failing), true),
+            crate::ui::copy::tooltips::SIGN_IN_AGAIN
+        );
+        assert_eq!(
+            mark_tip(None, true),
+            crate::ui::copy::tooltips::SIGN_IN_AGAIN
+        );
         assert_eq!(mark_tip(None, false), "Sync");
     }
 }

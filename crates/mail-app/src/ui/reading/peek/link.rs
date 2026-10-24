@@ -122,38 +122,53 @@ mod tests {
         }
     }
 
+    /// What a card says for its text and its address. Whether a site is the one the text names
+    /// is core's `trust::destination`; here is the title, the site and the warning drawn.
     #[test]
-    fn a_link_says_its_text_and_the_site_it_goes_to() {
-        let honest = said(&card("the agenda", "https://docs.example.test/agenda"));
-        assert_eq!(honest.title, "the agenda");
-        assert_eq!(honest.site, "example.test");
-        assert_eq!(honest.warning, None);
-
-        // A bare address is titled by its site, not repeated.
-        let bare = said(&card(
-            "https://docs.example.test/agenda",
-            "https://docs.example.test/agenda",
-        ));
-        assert_eq!(bare.title, "example.test");
-    }
-
-    #[test]
-    fn a_link_whose_text_names_another_site_warns() {
-        let lying = said(&card(
-            "https://bank.com",
-            "https://bank-com.attacker.test/login",
-        ));
-        assert_eq!(lying.site, "attacker.test");
-        assert_eq!(
-            lying.warning.as_deref(),
-            Some(copy::errors::link_goes_elsewhere("attacker.test", "bank.com").as_str())
-        );
-    }
-
-    #[test]
-    fn a_mail_link_is_its_address() {
-        let mail = said(&card("", "mailto:ada@example.test"));
-        assert_eq!(mail.site, "ada@example.test");
-        assert_eq!(mail.title, "ada@example.test");
+    fn a_link_says_its_text_the_site_it_goes_to_and_whether_they_differ() {
+        let elsewhere = copy::errors::link_goes_elsewhere("attacker.test", "bank.com");
+        let cases: &[(&str, &str, &str, &str, Option<&str>)] = &[
+            (
+                "the agenda",
+                "https://docs.example.test/agenda",
+                "the agenda",
+                "example.test",
+                None,
+            ),
+            // A bare address is titled by its site, not repeated.
+            (
+                "https://docs.example.test/agenda",
+                "https://docs.example.test/agenda",
+                "example.test",
+                "example.test",
+                None,
+            ),
+            (
+                "https://bank.com",
+                "https://bank-com.attacker.test/login",
+                "https://bank.com",
+                "attacker.test",
+                Some(&elsewhere),
+            ),
+            (
+                "",
+                "mailto:ada@example.test",
+                "ada@example.test",
+                "ada@example.test",
+                None,
+            ),
+        ];
+        for (text, href, title, site, warning) in cases {
+            let shown = said(&card(text, href));
+            assert_eq!(
+                (
+                    shown.title.as_str(),
+                    shown.site.as_str(),
+                    shown.warning.as_deref()
+                ),
+                (*title, *site, *warning),
+                "{text:?} {href:?}"
+            );
+        }
     }
 }
