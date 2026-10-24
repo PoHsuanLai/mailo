@@ -33,11 +33,12 @@
 //! Email (`Destroy`, a `permanentDelete` of each message). `Expunge` is refused, and so is
 //! deleting a folder.
 //!
-//! There is no push. Graph's change notifications are delivered to a public HTTPS webhook,
-//! which a desktop client does not have, so an account that reads through Graph polls — every
-//! fifteen seconds, or slower for a mailbox of many folders ([`mail_domain::presets::graph_poll_every`]).
-//! That is cheap because a pass that resumes asks each folder's stored delta link and nothing
-//! else, and a delta with nothing to report returns nothing.
+//! Graph's change notifications are delivered to a public HTTPS webhook, which a desktop client
+//! does not have, so an account that reads through Graph polls — every fifteen seconds, or slower
+//! for a mailbox of many folders ([`mail_domain::presets::graph_poll_every`]). That is cheap
+//! because a pass that resumes asks each folder's stored delta link and nothing else, and a delta
+//! with nothing to report returns nothing. With a relay set, one that receives them and passes
+//! them on ([`super::push`]), new mail is heard as it arrives as well.
 
 mod search;
 

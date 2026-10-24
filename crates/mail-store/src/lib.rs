@@ -10,6 +10,7 @@ pub mod error;
 mod file;
 mod filing;
 mod follow_up;
+mod graph_push;
 mod history;
 #[cfg(any(test, feature = "testing"))]
 pub mod memory;
@@ -43,6 +44,7 @@ pub use contact::{
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use file::write_atomic;
 pub use follow_up::FollowUpHold;
+pub use graph_push::{GraphPush, Registered, Subscribed};
 pub use history::SenderRecord;
 #[cfg(any(test, feature = "testing"))]
 pub use memory::MemoryStore;

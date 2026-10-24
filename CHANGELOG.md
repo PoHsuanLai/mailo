@@ -19,6 +19,10 @@ First public release.
 - Profiles, each with its own store, accounts, keys and agent, and Spaces over them in the sidebar.
 - Offline use through an outbox that replays queued actions.
 - `mailo watch` for continuous fetching without a window.
+- Push for Microsoft 365 accounts that read through Graph, through a relay you deploy on a
+  Cloudflare account of your own (`relay/`): set its address as the account's Push relay in
+  Settings, and new mail arrives at once. Without one, or with it unreachable, the account polls
+  as before.
 
 ### Reading
 

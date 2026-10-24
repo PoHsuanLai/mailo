@@ -127,6 +127,10 @@ tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 uuid = { workspace = true }
 proptest = "1"
+# The push relay's side of a Graph account's push, played on loopback (`tests/core/graph_push.rs`):
+# the WebSocket the runtime already speaks, at its version.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 
 [lints]
 workspace = true

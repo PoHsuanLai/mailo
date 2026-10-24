@@ -181,7 +181,10 @@ impl Transport {
         }
     }
 
-    async fn wrap(tcp: TcpStream, host: &str) -> Result<TlsStream<TcpStream>, RuntimeError> {
+    pub(crate) async fn wrap(
+        tcp: TcpStream,
+        host: &str,
+    ) -> Result<TlsStream<TcpStream>, RuntimeError> {
         // Here rather than in `connect`, because `upgrade` builds a session too and this is
         // the one place that touches rustls at all.
         install_crypto_provider();

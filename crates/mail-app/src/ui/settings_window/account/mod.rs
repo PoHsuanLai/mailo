@@ -244,6 +244,11 @@ pub(super) fn AccountPage(
                     }
                 }
             }
+            if matches!(row.plan.incoming, mail_domain::Incoming::Graph) {
+                FormSection {
+                    super::push_relay::PushRelay { row: row.clone(), revision }
+                }
+            }
             if !row.is_local() {
                 crate::ui::pgp::keys::KeysPage { whose: Whose::Account(row.address.clone()), revision }
             }
