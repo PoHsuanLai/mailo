@@ -223,3 +223,10 @@ fn hostile_shapes_do_not_panic() {
         assert!(!out.as_str().to_ascii_lowercase().contains("alert("));
     }
 }
+
+#[test]
+fn what_a_removed_element_leaves_reads_back_as_itself() {
+    let once = sanitize("<p><object><table>", blocked());
+    assert_eq!(once.as_str(), "<p></p><table></table><p></p>");
+    assert_eq!(sanitize(once.as_str(), blocked()).as_str(), once.as_str());
+}

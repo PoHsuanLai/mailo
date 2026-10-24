@@ -157,7 +157,7 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
             .add_tags(&["style", "font", "center"])
             .add_generic_attributes(&PRESENTATIONAL);
     }
-    let cleaned = builder
+    builder
         .url_schemes(HashSet::from(["http", "https", "mailto", "cid"]))
         .url_relative(ammonia::UrlRelative::Deny)
         .link_rel(Some("noopener noreferrer"))
@@ -190,9 +190,11 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
             } else {
                 Some(Cow::Borrowed(value))
             }
-        })
-        .clean(html)
-        .to_string();
+        });
+    // Twice: a removed element's children stay where it stood, which can leave markup a parser
+    // reads back as another tree (a `<table>` a dropped `<object>` left inside a `<p>`). The
+    // second pass cleans the tree that markup is, so what is returned reads back as itself.
+    let cleaned = builder.clean(&builder.clean(html).to_string()).to_string();
     let (cleaned, body_style) = match policy.styles {
         Styles::Kept => (css::scrub_style_elements(&cleaned), body::body_style(html)),
         Styles::Dropped => (cleaned, None),

@@ -166,14 +166,26 @@ fn write(parser: &mut Parser<'_>, token: &Token<'_>, out: &mut String) {
             out.push_str(&quoted.replace('<', "\\3c "));
         }
         Token::Function(name) => {
-            let _ = serialize_identifier(name, out);
+            let mut ident = String::with_capacity(name.len());
+            let _ = serialize_identifier(name, &mut ident);
+            out.push_str(&unmarked(&ident));
             block(parser, '(', ')', Context::Value, out);
         }
         Token::ParenthesisBlock => block(parser, '(', ')', Context::Value, out),
         Token::SquareBracketBlock => block(parser, '[', ']', Context::Value, out),
         Token::CurlyBracketBlock => block(parser, '{', '}', Context::Value, out),
-        other => out.push_str(&other.to_css_string()),
+        other => out.push_str(&unmarked(&other.to_css_string())),
     }
+}
+
+/// `css` with each `<` written as the escape `\3c `. An identifier spelling `<` is serialized
+/// `\<`, and in a sheet's raw text that `<` still opens a tag: `\3c/style>` would come back out
+/// as `\</style>`, ending the sheet and leaving what follows it as markup.
+fn unmarked(css: &str) -> Cow<'_, str> {
+    if !css.contains('<') {
+        return Cow::Borrowed(css);
+    }
+    Cow::Owned(css.replace("\\<", "\\3c ").replace('<', "\\3c "))
 }
 
 /// The block just opened, between `open` and `close`, its inside read as `context`.
