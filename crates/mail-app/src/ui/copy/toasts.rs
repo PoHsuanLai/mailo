@@ -76,3 +76,13 @@ pub const VACATION_OFF: &str = "Vacation reply off.";
 pub fn vacation_saved(subject: &str, runs: &str) -> String {
     format!("Saved: “{subject}”, {runs}.")
 }
+
+/// Block Sender, done: what happens to the sender's mail from now on.
+pub fn blocked(email: &str) -> String {
+    format!("Mail from {email} now goes to Spam")
+}
+
+/// Block Sender, refused.
+pub fn not_blocked(email: &str, why: &str) -> String {
+    format!("{email} was not blocked: {why}")
+}
