@@ -54,3 +54,8 @@ pub use stamp::{restamp, with_blind};
 pub use unsubscribe::{
     HttpsUrl, ListHeaders, ListId, Mailto, ONE_CLICK, Unsubscribe, list_headers,
 };
+
+/// The README's examples, compiled and run as doctests.
+#[doc = include_str!("../README.md")]
+#[cfg(doctest)]
+pub struct ReadmeDoctests;

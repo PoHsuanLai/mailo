@@ -34,3 +34,8 @@ pub use smtp::{
 mod tests {
     // The replay harness lives in tests/common/mod.rs; see tests/traces/FORMAT.md.
 }
+
+/// The README's examples, compiled and run as doctests.
+#[doc = include_str!("../README.md")]
+#[cfg(doctest)]
+pub struct ReadmeDoctests;
