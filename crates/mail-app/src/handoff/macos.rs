@@ -14,6 +14,7 @@
 //! Linux.
 
 use super::{Request, requests_of, uri_of};
+use mail_core::profile::ProfileId;
 use mail_domain::ThreadId;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::ffi::OsStrExt;
@@ -75,13 +76,22 @@ impl Requests {
 /// named by this user's state directory. A socket path is limited to about a hundred bytes, which
 /// `~/Library/Application Support/mailo/` plus a name can pass (a long account name, a test's
 /// scratch home), and `$TMPDIR` on macOS is already the user's own. Hashing the state directory
-/// keeps two different homes, a test's and the person's, from sharing one window.
-fn socket_path() -> Option<PathBuf> {
+/// keeps two different homes, a test's and the person's, from sharing one window; and the
+/// Profile is hashed in after it, so each Profile's window has a socket of its own. The default
+/// Profile's is the one it had before Profiles.
+fn socket_path(profile: &ProfileId) -> Option<PathBuf> {
     let state = mail_core::config::state_dir()?;
-    Some(std::env::temp_dir().join(format!(
-        "mailo-{:016x}.sock",
-        fnv1a(state.as_os_str().as_bytes())
-    )))
+    Some(std::env::temp_dir().join(socket_name(state.as_os_str().as_bytes(), profile)))
+}
+
+/// The socket's file name for the state directory `state` and `profile`.
+fn socket_name(state: &[u8], profile: &ProfileId) -> String {
+    let mut named = state.to_vec();
+    if !profile.is_default() {
+        named.push(0);
+        named.extend_from_slice(profile.as_str().as_bytes());
+    }
+    format!("mailo-{:016x}.sock", fnv1a(&named))
 }
 
 /// FNV-1a: a hash that never changes between releases, since an old window and a new `mailo open`
@@ -94,8 +104,8 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 
 /// Start answering on the socket, or `None` when there is no place for one or another window
 /// already holds it (this one then simply is not handed to).
-pub fn serve() -> Option<Requests> {
-    let requests = serve_at(&socket_path()?)?;
+pub fn serve(profile: &ProfileId) -> Option<Requests> {
+    let requests = serve_at(&socket_path(profile)?)?;
     hear_urls(&requests);
     Some(requests)
 }
@@ -183,18 +193,18 @@ pub fn hear_reopen(requests: &Requests) -> bool {
 /// Ask the running window to open `thread`. True when a window took it; false when none is
 /// running, and then the caller opens a window of its own. macOS has no activation token to hand
 /// over, so there is none to take.
-pub fn deliver(thread: ThreadId, _token: Option<&str>) -> bool {
-    socket_path().is_some_and(|path| send(&path, &uri_of(thread)))
+pub fn deliver(profile: &ProfileId, thread: ThreadId, _token: Option<&str>) -> bool {
+    socket_path(profile).is_some_and(|path| send(&path, &uri_of(thread)))
 }
 
 /// Ask the running window to open a composer on the `mailto:` link `uri`. True when one took it.
-pub fn deliver_mailto(uri: &str, _token: Option<&str>) -> bool {
-    socket_path().is_some_and(|path| send(&path, uri))
+pub fn deliver_mailto(profile: &ProfileId, uri: &str, _token: Option<&str>) -> bool {
+    socket_path(profile).is_some_and(|path| send(&path, uri))
 }
 
 /// Ask the running window to raise itself. True when one did; false when none is running.
-pub fn deliver_activate(_token: Option<&str>) -> bool {
-    socket_path().is_some_and(|path| send(&path, ACTIVATE))
+pub fn deliver_activate(profile: &ProfileId, _token: Option<&str>) -> bool {
+    socket_path(profile).is_some_and(|path| send(&path, ACTIVATE))
 }
 
 fn send(path: &Path, uri: &str) -> bool {
@@ -269,8 +279,17 @@ mod tests {
         assert_ne!(fnv1a(b"/a"), fnv1a(b"/b"));
         // The hash is part of a name two releases must agree on.
         assert_eq!(fnv1a(b""), 0xcbf2_9ce4_8422_2325);
-        let path = socket_path().expect("a state directory");
+        let path = socket_path(&ProfileId::default()).expect("a state directory");
         assert!(path.as_os_str().len() < 100, "{path:?}");
+    }
+
+    /// The default Profile keeps the socket it had before Profiles; each other has its own.
+    #[test]
+    fn each_profile_has_a_socket_of_its_own() {
+        let work = ProfileId::try_from("1a2b3c4d".to_owned()).expect("a profile id");
+        let default = socket_name(b"/state", &ProfileId::default());
+        assert_eq!(default, format!("mailo-{:016x}.sock", fnv1a(b"/state")));
+        assert_ne!(socket_name(b"/state", &work), default);
     }
 
     #[test]

@@ -1,7 +1,8 @@
 //! The session-bus half of [`super`]: serving `org.freedesktop.Application` from the window, and
 //! calling it from `mailo open`.
 
-use super::{ActivationToken, NAME, PATH, Request, requests_of, uri_of};
+use super::{ActivationToken, Request, name_of, path_of, requests_of, uri_of};
+use mail_core::profile::ProfileId;
 use mail_domain::ThreadId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -79,17 +80,18 @@ impl Application {
     }
 }
 
-/// Claim the name and start answering, or `None` when the bus is out of reach or another window
-/// already owns the name (this one then simply is not handed to).
-pub fn serve() -> Option<Requests> {
+/// Claim `profile`'s name and start answering, or `None` when the bus is out of reach or another
+/// window already owns the name (this one then simply is not handed to).
+pub fn serve(profile: &ProfileId) -> Option<Requests> {
     let (requests, sender) = Requests::local();
+    let (name, path) = (name_of(profile), path_of(profile));
     let connection = Builder::session()
-        .and_then(|builder| builder.name(NAME))
+        .and_then(|builder| builder.name(name))
         .and_then(|builder| {
             builder
                 .allow_name_replacements(false)
                 .replace_existing_names(false)
-                .serve_at(PATH, Application(sender))
+                .serve_at(path, Application(sender))
         })
         .and_then(Builder::build)
         .map_err(|e| eprintln!("opening a conversation from outside is off: {e}"))
@@ -100,26 +102,27 @@ pub fn serve() -> Option<Requests> {
     })
 }
 
-/// Ask the running window to open `thread`, handing it the activation `token` of the click. True
-/// when a window took it; false when none is running (or there is no bus), and then the caller
-/// opens a window of its own.
-pub fn deliver(thread: ThreadId, token: Option<&str>) -> bool {
-    open(&uri_of(thread), token)
+/// Ask `profile`'s running window to open `thread`, handing it the activation `token` of the
+/// click. True when a window took it; false when none is running (or there is no bus), and then
+/// the caller opens a window of its own.
+pub fn deliver(profile: &ProfileId, thread: ThreadId, token: Option<&str>) -> bool {
+    open(profile, &uri_of(thread), token)
 }
 
-/// Ask the running window to open a composer on the `mailto:` link `uri`. True when one took it.
-pub fn deliver_mailto(uri: &str, token: Option<&str>) -> bool {
-    open(uri, token)
+/// Ask `profile`'s running window to open a composer on the `mailto:` link `uri`. True when one
+/// took it.
+pub fn deliver_mailto(profile: &ProfileId, uri: &str, token: Option<&str>) -> bool {
+    open(profile, uri, token)
 }
 
-/// Ask the running window to raise itself. True when one did; false when none is running.
-pub fn deliver_activate(token: Option<&str>) -> bool {
-    call("Activate", &(platform_data(token),))
+/// Ask `profile`'s running window to raise itself. True when one did; false when none is running.
+pub fn deliver_activate(profile: &ProfileId, token: Option<&str>) -> bool {
+    call(profile, "Activate", &(platform_data(token),))
 }
 
 /// `Open` of the one `uri` on the window's object.
-fn open(uri: &str, token: Option<&str>) -> bool {
-    call("Open", &(vec![uri], platform_data(token)))
+fn open(profile: &ProfileId, uri: &str, token: Option<&str>) -> bool {
+    call(profile, "Open", &(vec![uri], platform_data(token)))
 }
 
 /// The `platform_data` a call carries: the activation `token`, when there is one.
@@ -131,9 +134,9 @@ fn platform_data(token: Option<&str>) -> HashMap<&str, Value<'_>> {
     data
 }
 
-/// Call `method` of `org.freedesktop.Application` on the running window. False when there is no
-/// bus or no window owns the name.
-fn call<B>(method: &str, body: &B) -> bool
+/// Call `method` of `org.freedesktop.Application` on `profile`'s running window. False when there
+/// is no bus or no window owns the name.
+fn call<B>(profile: &ProfileId, method: &str, body: &B) -> bool
 where
     B: serde::Serialize + zbus::zvariant::DynamicType,
 {
@@ -142,8 +145,8 @@ where
     };
     connection
         .call_method(
-            Some(NAME),
-            PATH,
+            Some(name_of(profile).as_str()),
+            path_of(profile).as_str(),
             Some("org.freedesktop.Application"),
             method,
             body,
@@ -155,6 +158,24 @@ where
 mod tests {
     use super::*;
     use zbus::zvariant::Value;
+
+    /// Every Profile's name and path are ones the bus takes.
+    #[test]
+    fn every_profiles_name_and_path_are_valid_on_the_bus() {
+        let work = ProfileId::try_from("1a2b3c4d".to_owned()).expect("a profile id");
+        for profile in [ProfileId::default(), work] {
+            let name = name_of(&profile);
+            assert!(
+                zbus::names::WellKnownName::try_from(name.as_str()).is_ok(),
+                "{name}"
+            );
+            let path = path_of(&profile);
+            assert!(
+                zbus::zvariant::ObjectPath::try_from(path.as_str()).is_ok(),
+                "{path}"
+            );
+        }
+    }
 
     #[test]
     fn the_token_is_the_activation_token_string_and_nothing_empty() {

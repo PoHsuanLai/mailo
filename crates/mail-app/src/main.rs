@@ -60,26 +60,12 @@ fn main() {
         }
         None => None,
     };
-    // A second `mailo` hands what it was asked to the window that is running and ends, with the
-    // click's activation token: `mailo open <thread>` (a banner's click, or the person at a
-    // terminal) opens the conversation there, `mailo mailto:…` composes there, and a bare `mailo`
-    // raises it, as macOS's launcher does for the app bundle. No window running (or no bus) is the
-    // ordinary start below.
-    let token = std::env::var("XDG_ACTIVATION_TOKEN").ok();
-    let token = token.as_deref();
-    let handed = match (&start, &mailto) {
-        (_, Some(_)) => args
-            .first()
-            .is_some_and(|uri| mail_app::handoff::deliver_mailto(uri, token)),
-        (Some(mail_app::ui::Start::Thread(thread)), None) => {
-            mail_app::handoff::deliver(*thread, token)
-        }
-        (Some(mail_app::ui::Start::Inbox), None) => mail_app::handoff::deliver_activate(token),
-        _ => false,
-    };
-    if handed {
-        return;
-    }
+    // What a second `mailo` would hand the window of its Profile that is running, once the
+    // Profile is known (below).
+    let handoff = mail_app::handoff::Handoff::of(
+        start.as_ref(),
+        mailto.as_ref().and(args.first()).map(String::as_str),
+    );
     let command = if start.is_some() {
         None
     } else {
@@ -135,6 +121,17 @@ fn main() {
         db: chosen.db(&roots),
         blobs: chosen.blobs(&roots),
     };
+    // A second `mailo` hands what it was asked to its Profile's window that is running and ends,
+    // with the click's activation token: `mailo open <thread>` (a banner's click, or the person at
+    // a terminal) opens the conversation there, `mailo mailto:…` composes there, and a bare
+    // `mailo` raises it, as macOS's launcher does for the app bundle. A window of another Profile
+    // is never handed to. No window running (or no bus) is the ordinary start below.
+    let token = std::env::var("XDG_ACTIVATION_TOKEN").ok();
+    if let Some(handoff) = &handoff
+        && handoff.deliver(chosen.id(), token.as_deref())
+    {
+        return;
+    }
     mail_app::edge::install_profile(chosen, roots);
     if let Err(e) = std::fs::create_dir_all(&dirs.blobs) {
         eprintln!("cannot create {}: {e}", dirs.blobs.display());

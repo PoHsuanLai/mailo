@@ -116,7 +116,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         None => config,
     };
     // Another program's ask to open a conversation here (a banner's click, `mailo open`).
-    let config = match crate::handoff::serve() {
+    let config = match crate::handoff::serve(crate::edge::profile().id()) {
         Some(requests) => config.with_context(requests),
         None => config,
     };

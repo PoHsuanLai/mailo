@@ -1,23 +1,24 @@
 //! Where there is no session bus: nothing is served and nothing is delivered.
 
+use mail_core::profile::ProfileId;
 use mail_domain::ThreadId;
 
 /// Never constructed.
 #[derive(Debug, Clone)]
 pub struct Requests;
 
-pub fn serve() -> Option<Requests> {
+pub fn serve(_profile: &ProfileId) -> Option<Requests> {
     None
 }
 
-pub fn deliver(_thread: ThreadId, _token: Option<&str>) -> bool {
+pub fn deliver(_profile: &ProfileId, _thread: ThreadId, _token: Option<&str>) -> bool {
     false
 }
 
-pub fn deliver_mailto(_uri: &str, _token: Option<&str>) -> bool {
+pub fn deliver_mailto(_profile: &ProfileId, _uri: &str, _token: Option<&str>) -> bool {
     false
 }
 
-pub fn deliver_activate(_token: Option<&str>) -> bool {
+pub fn deliver_activate(_profile: &ProfileId, _token: Option<&str>) -> bool {
     false
 }
