@@ -17,8 +17,20 @@ pub(super) fn Sandbox(
     /// takes the room left instead.
     #[props(default)]
     fit: bool,
+    /// The message the frame shows, which a reply asks for its selection (`super::selection`).
+    #[props(default)]
+    message: Option<MessageId>,
 ) -> Element {
     let height = use_signal(|| None::<f32>);
+    let selections = use_hook(try_consume_context::<super::selection::Selections>);
+    {
+        let selections = selections.clone();
+        use_drop(move || {
+            if let (Some(selections), Some(message)) = (selections, message) {
+                selections.let_go(message);
+            }
+        });
+    }
     // A sender's page wider than the frame is drawn smaller to fit it (`super::fit::shrink`); a
     // plain-text message wraps to the frame and is never wider.
     let zoom = use_signal(|| 1.0_f32);
@@ -34,6 +46,9 @@ pub(super) fn Sandbox(
             "data-fit": fit,
             style,
             onmounted: move |event: MountedEvent| {
+                if let (Some(selections), Some(message)) = (&selections, message) {
+                    selections.hold(message, &event.data());
+                }
                 if fit {
                     super::fit::follow(event.data(), height);
                 }
@@ -63,6 +78,7 @@ pub(super) fn MessageView(
             html,
             plain,
             fit,
+            message: Some(message_id),
             tag: holder.map(|holder| holder.tag(message_id)),
         }
     }

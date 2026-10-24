@@ -34,7 +34,9 @@ pub use block::{
     Action, Block, Delsp, Dir, Document, Flowed, ImgSrc, Inlined, LINK_REL, LINK_TARGET, Limits,
     ListKind, Reached, SafeUrl, Shape, Span, from_html, from_text, is_mapped, mapped_tags, unflow,
 };
-pub use build::{Disclosure, Posting, build, draft_copy, draft_message_id, posting};
+pub use build::{
+    Disclosure, Posting, Resending, build, draft_copy, draft_message_id, posting, resent,
+};
 pub use error::{MboxError, MimeError, NotHttpsUrl, NotMailto, RecordError, UnsafeUrl};
 pub use graph::{GraphBody, GraphDraft, GraphImportance, graph_draft};
 pub use imip::{CalendarPart, CalendarReply, calendar_part, calendar_reply};
@@ -50,7 +52,7 @@ pub use print::{Labels, Options, Pages, Remote, Sheet, escape_html, print_with, 
 pub use reconstruct::{decode_part, left_on_server, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, Styles, sanitize};
 pub use script::{Script, script_of};
-pub use stamp::{restamp, with_blind};
+pub use stamp::{is_resent, restamp, with_blind};
 pub use unsubscribe::{
     HttpsUrl, ListHeaders, ListId, Mailto, ONE_CLICK, Unsubscribe, list_headers,
 };

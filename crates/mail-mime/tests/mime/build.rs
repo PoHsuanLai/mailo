@@ -636,3 +636,87 @@ fn the_text_part_is_labelled_flowed() {
         }
     );
 }
+
+/// A redirect is the original, every byte as it came, beneath a `Resent-` block; its envelope is
+/// the new recipients alone, and what the original's journey left on it (`Return-Path`, a sent
+/// copy's `Bcc`) stays behind.
+#[test]
+fn a_redirect_is_the_original_beneath_its_resent_block() {
+    let original = b"Return-Path: <ada@example.test>\r\n\
+                     From: Ada <ada@example.test>\r\n\
+                     To: me@example.test\r\n\
+                     Bcc: secret@example.test\r\n\
+                     Date: Sat, 14 Mar 2026 09:00:00 +0000\r\n\
+                     Message-ID: <first@example.test>\r\n\
+                     Subject: Plans\r\n\
+                     \r\n\
+                     The plan is on.\r\n";
+    let me = addr(Some("Zoë Me"), "me@example.test");
+    let id = mail_domain::DraftId::generate();
+    let to = [
+        addr(Some("Bea"), "bea@example.test"),
+        addr(None, "BEA@example.test"),
+        addr(None, "cy@example.test"),
+    ];
+    let post = mail_mime::resent(
+        original,
+        &mail_mime::Resending {
+            from: &me,
+            to: &to,
+            at: at(),
+            id,
+        },
+    )
+    .expect("a redirect");
+    assert_eq!(post.mail_from, "me@example.test");
+    assert_eq!(post.rcpt_to, ["bea@example.test", "cy@example.test"]);
+
+    let text = String::from_utf8(post.message.clone()).unwrap();
+    let head: Vec<&str> = text.lines().take(4).collect();
+    assert!(
+        head[0].starts_with("Resent-Date: Sun, 15 Mar 2026 12:00:00"),
+        "{text}"
+    );
+    assert!(head[1].starts_with("Resent-From: ") && head[1].contains("<me@example.test>"));
+    assert!(
+        head[1].contains("=?utf-8?"),
+        "a name outside ASCII is encoded: {}",
+        head[1]
+    );
+    assert!(
+        head[2].starts_with("Resent-To: \"Bea\" <bea@example.test>"),
+        "{}",
+        head[2]
+    );
+    assert_eq!(head[3], format!("Resent-Message-ID: <{id}@example.test>"));
+    assert!(mail_mime::is_resent(&post.message));
+    for gone in ["Return-Path", "Bcc", "secret@example.test"] {
+        assert!(!text.contains(gone), "{gone} left behind: {text}");
+    }
+    // The rest is the original's own: its author, date, id and body read back unchanged.
+    assert!(text.ends_with(
+        "From: Ada <ada@example.test>\r\nTo: me@example.test\r\n\
+         Date: Sat, 14 Mar 2026 09:00:00 +0000\r\nMessage-ID: <first@example.test>\r\n\
+         Subject: Plans\r\n\r\nThe plan is on.\r\n"
+    ));
+    let parsed = parse(&post.message).expect("still a message");
+    assert_eq!(parsed.from, Some(addr(Some("Ada"), "ada@example.test")));
+    assert_eq!(parsed.rfc_message_id.as_deref(), Some("first@example.test"));
+
+    // Leaving later moves the redirect's own date and never its author's.
+    let left = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 3, 16, 8, 0, 0).unwrap();
+    let stamped = String::from_utf8(mail_mime::restamp(&post.message, left)).unwrap();
+    assert!(stamped.starts_with("Resent-Date: Mon, 16 Mar 2026 08:00:00 +0000\r\n"));
+    assert!(stamped.contains("Date: Sat, 14 Mar 2026 09:00:00 +0000\r\n"));
+
+    let nobody = mail_mime::resent(
+        original,
+        &mail_mime::Resending {
+            from: &me,
+            to: &[addr(None, " ")],
+            at: at(),
+            id,
+        },
+    );
+    assert!(matches!(nobody, Err(MimeError::NoRecipients)));
+}

@@ -83,10 +83,7 @@ fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, CoreErro
     let Body::Present { raw, .. } = message.body else {
         return Err(CoreError::NotDownloaded);
     };
-    let bytes = store.blobs().get(raw)?;
-    if rebuilt(message, &bytes) {
-        return Err(CoreError::RebuiltFromParts);
-    }
+    let bytes = sent_bytes_of(store, message)?;
     let size = bytes.len() as u64;
     if size > ATTACHMENT_BUDGET {
         return Err(CoreError::MessageTooBig {
@@ -95,6 +92,19 @@ fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, CoreErro
         });
     }
     Ok(raw)
+}
+
+/// `message` as it was sent, byte for byte: refused as [`CoreError::NotDownloaded`] when only
+/// its headers are here, and as [`CoreError::RebuiltFromParts`] when what is here was rebuilt.
+pub(super) fn sent_bytes_of(store: &SqliteStore, message: &Message) -> Result<Vec<u8>, CoreError> {
+    let Body::Present { raw, .. } = message.body else {
+        return Err(CoreError::NotDownloaded);
+    };
+    let bytes = store.blobs().get(raw)?;
+    if rebuilt(message, &bytes) {
+        return Err(CoreError::RebuiltFromParts);
+    }
+    Ok(bytes)
 }
 
 /// A message's file name: its subject, with `.eml`. An attached one goes by it, and so does one

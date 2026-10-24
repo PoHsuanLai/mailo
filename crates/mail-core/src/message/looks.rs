@@ -1,8 +1,8 @@
 //! What the reader finds out about one message beyond its body, and keeps so that opening it
 //! again costs a lookup: the checks the receiving server made of the sender, the invitation it
 //! carries, whether it asks for a read receipt, the one-time code in it ([`crate::otp`]), the
-//! thread's way out of its mailing list, and what OpenPGP or S/MIME made of it
-//! ([`seal`](super::seal)).
+//! thread's way out of its mailing list and the list's address to write to, and what OpenPGP or
+//! S/MIME made of it ([`seal`](super::seal)).
 //!
 //! Each of these is in the stored raw message, so finding it out reads a blob, and sometimes
 //! decrypts. They run on a blocking thread, for a message the reader has open and nowhere else,
@@ -38,6 +38,8 @@ const RECEIPTS: usize = 256;
 const LISTS: usize = 64;
 /// How many messages' one-time codes to keep. Each is a few characters.
 const CODES: usize = 128;
+/// How many threads' list addresses to keep. Each is one id.
+const POSTS: usize = 64;
 
 /// What a thread's answers are a function of: its messages and the bytes each one has. A body
 /// that arrives, or a message that joins the thread, is a new key; nothing else changes it,
@@ -59,9 +61,11 @@ pub enum Read {
     Seal,
     /// A message's one-time code.
     Code,
+    /// Whether a thread's newest message names its list's address (`List-Post`).
+    Post,
 }
 
-const READS: usize = 6;
+const READS: usize = 7;
 
 /// An invitation a message carries, with what the user last answered it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -89,6 +93,7 @@ pub struct Looks {
     receipts: Found<Receipt>,
     lists: Mutex<Recent<ThreadId, (Bodies, Option<Offer>)>>,
     codes: Found<String>,
+    posts: Mutex<Recent<ThreadId, (Bodies, Option<MessageId>)>>,
     pub(super) seals: Mutex<Recent<MessageId, Kept>>,
     reads: [AtomicUsize; READS],
 }
@@ -120,6 +125,7 @@ impl Looks {
             receipts: Mutex::new(Recent::new(RECEIPTS)),
             lists: Mutex::new(Recent::new(LISTS)),
             codes: Mutex::new(Recent::new(CODES)),
+            posts: Mutex::new(Recent::new(POSTS)),
             seals: Mutex::new(Recent::new(seal::KEPT)),
             reads: Default::default(),
         }
@@ -329,6 +335,43 @@ impl Looks {
         offer
     }
 
+    /// The message of `thread` a reply to its list answers, if it is already known at `key`.
+    /// `Some(None)` is a thread that was looked at and names no list address.
+    pub fn post_cached(&self, thread: ThreadId, key: &Bodies) -> Option<Option<MessageId>> {
+        held(&self.posts)
+            .get(&thread)
+            .filter(|(at, _)| at == key)
+            .map(|(_, post)| *post)
+    }
+
+    /// [`post_cached`](Self::post_cached), else read and remembered: the thread's newest message
+    /// ([`crate::view::reply_target`], the one Reply answers), when its stored bytes name an
+    /// address to write to its list (`List-Post`). This reads a blob: run it on a blocking
+    /// thread, for the thread the reader has open.
+    pub fn post(&self, store: &SqliteStore, thread: ThreadId, key: &Bodies) -> Option<MessageId> {
+        if let Some(had) = self.post_cached(thread, key) {
+            return had;
+        }
+        self.count(Read::Post);
+        let post = store
+            .thread(thread)
+            .or_log("a conversation could not be read")
+            .and_then(|loaded| {
+                let messages: Vec<Message> = loaded
+                    .messages
+                    .iter()
+                    .filter_map(|id| store.message(*id).or_log("a message could not be read"))
+                    .collect();
+                let target = crate::view::reply_target(&messages)?;
+                // Only stored bytes are read: a message whose body is not here names nothing.
+                crate::compose::list_post(store, target)
+                    .is_ok()
+                    .then_some(target.id)
+            });
+        held(&self.posts).put(thread, (key.clone(), post));
+        post
+    }
+
     fn read_offer(&self, store: &SqliteStore, thread: ThreadId) -> Option<Offer> {
         self.count(Read::List);
         // Only stored bytes are read: a message whose body is not here is skipped, never fetched.
@@ -366,6 +409,27 @@ mod tests {
         assert_eq!(looks.checks(&store, message, raw), None);
         assert_eq!(looks.reads(Read::Checks), 1);
         assert_eq!(looks.reads(Read::Invite), 0);
+    }
+
+    #[test]
+    fn a_threads_list_address_is_read_once_per_key() {
+        let store = mail_store::testing::in_memory();
+        let looks = Looks::new();
+        let thread = ThreadId::from_uuid(uuid::Uuid::from_u128(9));
+        let key: Bodies = vec![unknown()]
+            .into_iter()
+            .map(|(m, b)| (m, Some(b)))
+            .collect();
+        assert_eq!(looks.post_cached(thread, &key), None);
+        assert_eq!(looks.post(&store, thread, &key), None);
+        assert_eq!(looks.post_cached(thread, &key), Some(None));
+        assert_eq!(looks.post(&store, thread, &key), None);
+        assert_eq!(looks.reads(Read::Post), 1);
+        assert_eq!(
+            looks.post_cached(thread, &Vec::new()),
+            None,
+            "another key asks again"
+        );
     }
 
     #[test]

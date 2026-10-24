@@ -7,7 +7,8 @@ use mail_builder::headers::content_type::ContentType;
 use mail_builder::headers::raw::Raw;
 use mail_builder::mime::{BodyPart, MimePart};
 use mail_domain::{
-    Address, BlobId, DeliveryReport, Draft, Identity, Message, ReceiptRequest, normalize_id,
+    Address, BlobId, DeliveryReport, Draft, DraftId, Identity, Message, ReceiptRequest,
+    normalize_id,
 };
 use std::collections::HashSet;
 
@@ -60,8 +61,20 @@ pub fn posting(
     in_reply_to: Option<&Message>,
     parts: &[(BlobId, Vec<u8>)],
 ) -> Result<Posting, MimeError> {
+    let rcpt_to = envelope(draft.to.iter().chain(&draft.cc).chain(&draft.bcc))?;
+    Ok(Posting {
+        mail_from: identity.from.email.trim().to_owned(),
+        rcpt_to,
+        message: build(draft, identity, in_reply_to, parts, Disclosure::HideBlind)?,
+        delivery: draft.delivery,
+    })
+}
+
+/// `RCPT TO` for `addresses`: each mailbox once, the first spelling kept, blanks dropped. Never
+/// empty: a message to nobody is [`MimeError::NoRecipients`].
+fn envelope<'a>(addresses: impl Iterator<Item = &'a Address>) -> Result<Vec<String>, MimeError> {
     let mut rcpt_to: Vec<String> = Vec::new();
-    for addr in draft.to.iter().chain(&draft.cc).chain(&draft.bcc) {
+    for addr in addresses {
         let email = addr.email.trim();
         if email.is_empty() {
             continue;
@@ -73,11 +86,88 @@ pub fn posting(
     if rcpt_to.is_empty() {
         return Err(MimeError::NoRecipients);
     }
+    Ok(rcpt_to)
+}
+
+/// Whether a field of the original stays behind when it is redirected ([`resent`]).
+fn left_behind(field: &[u8]) -> bool {
+    let Some(colon) = field.iter().position(|&b| b == b':') else {
+        return false;
+    };
+    let name = field[..colon].trim_ascii_end();
+    name.eq_ignore_ascii_case(b"Bcc") || name.eq_ignore_ascii_case(b"Return-Path")
+}
+
+/// Who a message is redirected by and to, when, and the id the redirect goes by.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Resending<'a> {
+    /// The person redirecting it: `Resent-From`, and the envelope's `MAIL FROM`.
+    pub from: &'a Address,
+    /// Whom it goes to now: `Resent-To`, and the whole of `RCPT TO`.
+    pub to: &'a [Address],
+    /// `Resent-Date`. Set again as the message leaves, as a composed one's `Date` is
+    /// ([`crate::restamp`]).
+    pub at: chrono::DateTime<chrono::Utc>,
+    /// What `Resent-Message-ID` is made from, with the sender's domain, as a composed
+    /// message's `Message-ID` is made from its draft's: the outbox's entry goes by it too.
+    pub id: DraftId,
+}
+
+/// `original` redirected (RFC 5322 §3.6.6): every byte of it as it came, beneath a `Resent-`
+/// block that says who passed it on, to whom, when, and under what id.
+///
+/// Not a forward. Nothing of the original is rewritten, quoted or wrapped: its `From`, `To`,
+/// `Date`, `Message-ID` and body are its author's, so a reply from the new recipient goes to the
+/// author and threads under the original. The block goes first because the standard prepends
+/// each redirect's block, newest on top, and because that is how [`crate::restamp`] knows the
+/// message for one. The envelope is the new recipients alone: the original's `To` and `Cc` were
+/// delivered to once already.
+///
+/// Two fields are the exception, and both are about what the original's journey left on it
+/// rather than what its author wrote. `Bcc`, which only the sender's own copy carries: redirecting
+/// a message from Sent would otherwise tell the new recipients whom its author blind-copied.
+/// And `Return-Path`, which the last server put on at delivery and which RFC 5321 §4.4 says a
+/// message being submitted must not already carry: the next server writes its own.
+pub fn resent(original: &[u8], resending: &Resending<'_>) -> Result<Posting, MimeError> {
+    use mail_builder::headers::Header;
+    use mail_builder::headers::date::Date;
+    use mail_builder::headers::message_id::MessageId;
+    let rcpt_to = envelope(resending.to.iter())?;
+    let mut block: Vec<u8> = Vec::with_capacity(256);
+    let mut field = |name: &str, value: &dyn Fn(&mut Vec<u8>, usize)| {
+        block.extend_from_slice(name.as_bytes());
+        block.extend_from_slice(b": ");
+        value(&mut block, name.len() + 2);
+    };
+    field("Resent-Date", &|out, column| {
+        Date::new(resending.at.timestamp()).write_header(out, column)
+    });
+    field("Resent-From", &|out, column| {
+        mail_addr(resending.from).write_header(out, column)
+    });
+    field("Resent-To", &|out, column| {
+        mail_list(resending.to).write_header(out, column)
+    });
+    let id = id_at(resending.id, resending.from);
+    field("Resent-Message-ID", &|out, column| {
+        MessageId::new(id.as_str()).write_header(out, column)
+    });
+    let mut message = block;
+    let (head, body) = crate::stamp::split_head(original);
+    for kept in crate::stamp::fields(head)
+        .into_iter()
+        .filter(|field| !left_behind(field))
+    {
+        message.extend_from_slice(kept);
+    }
+    message.extend_from_slice(body);
     Ok(Posting {
-        mail_from: identity.from.email.trim().to_owned(),
+        mail_from: mailbox(&resending.from.email),
         rcpt_to,
-        message: build(draft, identity, in_reply_to, parts, Disclosure::HideBlind)?,
-        delivery: draft.delivery,
+        message,
+        // A redirect asks for no delivery report: it is the original passed on, not a message
+        // of the sender's own.
+        delivery: DeliveryReport::Unrequested,
     })
 }
 
@@ -262,14 +352,18 @@ fn usable_id(raw: &str) -> Option<String> {
 /// Stable id from the draft, so the bytes do not depend on the clock. The domain half is
 /// the sender's domain when that string is safe to put in a header unquoted.
 fn message_id(draft: &Draft, identity: &Identity) -> String {
-    let domain = identity
-        .from
+    id_at(draft.id, &identity.from)
+}
+
+/// `{id}@{domain}`, the domain `from`'s when it is safe to put in a header unquoted.
+fn id_at(id: DraftId, from: &Address) -> String {
+    let domain = from
         .email
         .rsplit_once('@')
         .map(|(_, domain)| domain)
         .filter(|domain| is_domain(domain))
         .unwrap_or("localhost");
-    format!("{}@{domain}", draft.id).to_ascii_lowercase()
+    format!("{id}@{domain}").to_ascii_lowercase()
 }
 
 pub(crate) fn is_domain(domain: &str) -> bool {

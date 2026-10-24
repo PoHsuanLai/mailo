@@ -10,8 +10,10 @@ mod fit;
 mod fold;
 mod header;
 mod images;
+mod list_post;
 mod peek;
 mod route;
+pub(in crate::ui) mod selection;
 mod thumb;
 mod tools;
 
@@ -36,6 +38,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
+pub(in crate::ui) use tools::compose_on;
 
 /// The first character of `name`, uppercased.
 ///
@@ -158,6 +161,9 @@ pub(super) fn Reader(
     // The conversation's way out of its list, as the lookout found it, under the key it was
     // found for (`leave_key`): the ⋯ offers it only under this conversation's key.
     let way_out = use_signal(|| None::<(String, super::unsubscribe::Offer)>);
+    // Whether the newest message names its list's address, as the key it was found under: the ⋯
+    // offers Reply to List only under this conversation's key.
+    let list_post = use_signal(|| None::<String>);
     // The window's consent to remote images, and this reader's claim on it; closing the reader
     // takes back what it granted.
     let consent = use_hook(|| {
@@ -333,6 +339,7 @@ pub(super) fn Reader(
         .as_ref()
         .filter(|(found, _)| *found == leave_key)
         .map(|(_, offer)| offer.clone());
+    let list = list_post.read().as_deref() == Some(leave_key.as_str());
     // An encrypted message's subject travels inside it; the outside says `...`. A message shown
     // alone is titled with its own.
     let titled = match only {
@@ -437,6 +444,7 @@ pub(super) fn Reader(
                             shell,
                             revision,
                             leave,
+                            list,
                         }
                     }
                 }
@@ -444,6 +452,7 @@ pub(super) fn Reader(
             h2 { Label { text: subject, style: LabelStyle::Title, common: crate::ui::common::classed("reader-subject") } }
             super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone() }
             super::unsubscribe::Lookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: way_out }
+            list_post::PostLookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: list_post }
         }
         div { class: "reader-body",
             for (at, (((message, body, ..), attached), fold)) in shown.into_iter().zip(attached).zip(folds).enumerate() {

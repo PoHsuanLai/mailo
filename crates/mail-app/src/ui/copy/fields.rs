@@ -34,6 +34,11 @@ pub const OPENPGP_KEY: &str = "OpenPGP Key";
 pub const SMIME_CERTIFICATE: &str = "S/MIME Certificate";
 
 // Choose Time…, under Snooze…: a time typed in the words `mailo snooze` takes.
+/// Redirect…'s one field: whom the message goes to, as the To row takes them.
+pub const REDIRECT_TO: &str = "Redirect to";
+pub const SOMEONE: &str = "name@example.com";
+/// Under Redirect…'s field, before anything is typed.
+pub const REDIRECT_HELP: &str = "The message goes unchanged, from you. Return sends it.";
 pub const SNOOZE_UNTIL: &str = "Snooze until";
 pub const A_TIME: &str = "tomorrow 9";
 /// Under the field while nothing is typed.

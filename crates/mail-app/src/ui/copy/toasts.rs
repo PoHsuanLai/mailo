@@ -89,3 +89,21 @@ pub fn blocked(email: &str) -> String {
 pub fn not_blocked(email: &str, why: &str) -> String {
     format!("{email} was not blocked: {why}")
 }
+
+/// A redirect queued: whom it goes to, as the envelope names them.
+pub fn redirected(to: &[String]) -> String {
+    format!("Redirected to {}", to.join(", "))
+}
+
+/// A redirect, a reply to the list, or Edit as New that did not start: `why` is the core's
+/// sentence.
+pub fn not_redirected(why: &str) -> String {
+    format!("Not redirected: {why}.")
+}
+
+pub fn not_opened(why: &str) -> String {
+    format!("Couldn\u{2019}t start that message: {why}.")
+}
+
+/// ⌘K's Redirect…, Reply to List or Edit as New with no conversation open behind it.
+pub const OPEN_ONE_FIRST: &str = "Open a conversation first.";

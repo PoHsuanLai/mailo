@@ -6,7 +6,9 @@
 //! their own menus where the ⋯ hangs.
 //!
 //! While the conversation's list offers a way out, the ⋯ has Unsubscribe…, which opens the
-//! alert that says what leaving will do (`unsubscribe::Confirm`).
+//! alert that says what leaving will do (`unsubscribe::Confirm`); while its newest message names
+//! the list's address, Reply to List. Redirect… asks whom in a field where the ⋯ hangs
+//! (`menus::redirect`), and Edit as New opens the composer on a copy of the newest message.
 //!
 //! The ⋯ ends with Download: each of the conversation's messages as the server sent it, an
 //! `.eml` apiece, into the downloads directory, the way an attachment's Save writes there. What
@@ -22,8 +24,10 @@ use crate::ui::copy::menus::offered;
 use crate::ui::downloads::{Origin, Saving};
 use crate::ui::menu::{Floating, MenuItem, Right, anchor_at};
 use crate::ui::menus::FurtherMenus;
+use crate::ui::motion::{Follow, tell};
+use crate::ui::ops::{Composes, Writes, open_composer};
 use crate::ui::unsubscribe::{Confirm, Offer, Phase, ask};
-use crate::ui::view::{Opened, Peek, Shell};
+use crate::ui::view::{FurtherMenu, Opened, Peek, Shell};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
@@ -153,7 +157,8 @@ enum Further {
 /// The ⋯: the conversation's quieter actions, through the row's own press, so a pick lands on
 /// the undo stack and asks first where the row's would. `peek` is the pane's mode, and `None` in
 /// a window of its own, which has no View. `leave` is the conversation's way out of its list,
-/// once the reader has found one.
+/// once the reader has found one; `list` is whether its newest message names the list's address,
+/// once the reader has found that.
 #[component]
 pub(super) fn ReaderMore(
     summary: ThreadSummary,
@@ -162,6 +167,7 @@ pub(super) fn ReaderMore(
     shell: Signal<Shell>,
     revision: Signal<u64>,
     #[props(default)] leave: Option<Offer>,
+    #[props(default)] list: bool,
 ) -> Element {
     let mut open = use_signal(|| false);
     let mut further = use_signal(|| Further::None);
@@ -171,7 +177,7 @@ pub(super) fn ReaderMore(
     // Asked through the alert's own phase, so Unsubscribe's sending state is the alert's.
     let mut leaving = use_signal(|| Phase::Closed);
     let items = rows(
-        &reader_groups(&summary, &toolbar, peek.is_some(), leave.is_some()),
+        &reader_groups(&summary, &toolbar, peek.is_some(), (leave.is_some(), list)),
         &summary,
         chrono::Utc::now(),
     );
@@ -212,6 +218,13 @@ pub(super) fn ReaderMore(
                             let (account, email) = sender.clone();
                             block_sender(shell, revision, id, account, &email);
                         }
+                        Pick::ReplyList => compose_on(shell, revision, id, Composes::ReplyList),
+                        Pick::Again => compose_on(shell, revision, id, Composes::Again),
+                        Pick::Redirect => shell.write().toggle_further(FurtherMenu {
+                            thread: id,
+                            further: crate::ui::view::Further::Redirect,
+                            opened: Opened::Reader,
+                        }),
                         // A draft's, never offered here.
                         Pick::DeleteDraft | Pick::CancelSending => {}
                     }
@@ -266,6 +279,21 @@ fn block_sender(
     };
     if let Some(toasts) = toasts {
         toasts.push(said, None);
+    }
+}
+
+/// Open the composer on `what` for `thread`, from the ⋯ or ⌘K; a refusal (no list address, no
+/// body yet) is said in a toast.
+pub(in crate::ui) fn compose_on(
+    shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    thread: ThreadId,
+    what: Composes,
+) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    match open_composer(&store, shell, Writes::On(thread, what)) {
+        Ok(()) => revision += 1,
+        Err(why) => tell(copy::toasts::not_opened(&why), Follow::Nothing),
     }
 }
 

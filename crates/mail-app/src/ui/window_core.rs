@@ -29,6 +29,7 @@ pub(super) fn use_window_core() -> WindowCore {
     revisions::use_shared_revision(revision);
     hover::use_hover();
     motion::use_motion();
+    super::reading::selection::use_selections();
     WindowCore { keys, revision }
 }
 

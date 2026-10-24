@@ -27,6 +27,7 @@ pub(in crate::ui) use spotlight::{FIELD, LABEL};
 pub(in crate::ui) use spotlight::{Spotlight, summon};
 
 use super::ops::{Composes, Writes, open_composer};
+use crate::ui::copy;
 use crate::ui::view::{Bar, BarListing, PageMenu, Shell, Source};
 use dioxus::prelude::*;
 use items::{Cards, Pick};
@@ -115,7 +116,7 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
 
 /// Run the command `id`. What it does is decided by the id alone; its words are not read.
 fn run_action(
-    shell: Signal<Shell>,
+    mut shell: Signal<Shell>,
     pages: Signal<u32>,
     revision: &mut Signal<u64>,
     side_hidden: &mut Signal<bool>,
@@ -168,6 +169,29 @@ fn run_action(
                     format!("Not forwarded as an attachment: {why}."),
                     super::motion::Follow::Nothing,
                 ),
+            }
+        }
+        CommandId::ReplyList | CommandId::Redirect | CommandId::Again => {
+            close(shell);
+            // The conversation open behind the menu, as Reply's `r` takes it.
+            let Some(open) = shell.peek().open else {
+                super::motion::tell(
+                    copy::toasts::OPEN_ONE_FIRST.to_owned(),
+                    super::motion::Follow::Nothing,
+                );
+                return;
+            };
+            match id {
+                // Its field hangs from the reader's ⋯, as the ⋯'s own Redirect… does.
+                CommandId::Redirect => shell.write().toggle_further(crate::ui::view::FurtherMenu {
+                    thread: open,
+                    further: crate::ui::view::Further::Redirect,
+                    opened: crate::ui::view::Opened::Reader,
+                }),
+                CommandId::ReplyList => {
+                    super::reading::compose_on(shell, *revision, open, Composes::ReplyList);
+                }
+                _ => super::reading::compose_on(shell, *revision, open, Composes::Again),
             }
         }
         CommandId::Print => {
