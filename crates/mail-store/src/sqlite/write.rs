@@ -16,6 +16,9 @@ use porter_core::AccountId;
 use rusqlite::{OptionalExtension, params};
 use std::collections::BTreeSet;
 
+/// A message joining a label. Written both when a message arrives and when a label is added.
+const ADD_LABEL: &str = "INSERT OR IGNORE INTO message_labels (message, label) VALUES (?1, ?2)";
+
 /// A `RemoteRef` flattened into the four columns `remote_map` is keyed by.
 fn remote_key(
     account: AccountId,
@@ -30,69 +33,62 @@ impl SqliteStore {
     pub(super) fn write_change(&self, change: &Change) -> Result<Option<ThreadId>, StoreError> {
         let thread = match change {
             Change::MessageRead(id, state) => {
-                self.connection().execute(
-                    "UPDATE messages SET read = ?2 WHERE id = ?1",
-                    params![id.to_string(), to_json("ReadState", state)?],
-                )?;
+                self.connection()
+                    .prepare_cached("UPDATE messages SET read = ?2 WHERE id = ?1")?
+                    .execute(params![id.to_string(), to_json("ReadState", state)?])?;
                 self.thread_of(*id)?
             }
             Change::MessageStar(id, star) => {
-                self.connection().execute(
-                    "UPDATE messages SET star = ?2 WHERE id = ?1",
-                    params![id.to_string(), to_json("Star", star)?],
-                )?;
+                self.connection()
+                    .prepare_cached("UPDATE messages SET star = ?2 WHERE id = ?1")?
+                    .execute(params![id.to_string(), to_json("Star", star)?])?;
                 self.thread_of(*id)?
             }
             Change::MessageMailbox(id, role) => {
-                self.connection().execute(
-                    "UPDATE messages SET mailbox = ?2 WHERE id = ?1",
-                    params![id.to_string(), to_json("MailboxRole", role)?],
-                )?;
+                self.connection()
+                    .prepare_cached("UPDATE messages SET mailbox = ?2 WHERE id = ?1")?
+                    .execute(params![id.to_string(), to_json("MailboxRole", role)?])?;
                 self.thread_of(*id)?
             }
             Change::MessageLabel(id, label, membership) => {
                 match membership {
                     Membership::In => {
-                        self.connection().execute(
-                            "INSERT OR IGNORE INTO message_labels (message, label) VALUES (?1, ?2)",
-                            params![id.to_string(), label.to_string()],
-                        )?;
+                        self.connection()
+                            .prepare_cached(ADD_LABEL)?
+                            .execute(params![id.to_string(), label.to_string()])?;
                     }
                     Membership::Out => {
-                        self.connection().execute(
-                            "DELETE FROM message_labels WHERE message = ?1 AND label = ?2",
-                            params![id.to_string(), label.to_string()],
-                        )?;
+                        self.connection()
+                            .prepare_cached(
+                                "DELETE FROM message_labels WHERE message = ?1 AND label = ?2",
+                            )?
+                            .execute(params![id.to_string(), label.to_string()])?;
                     }
                 }
                 self.thread_of(*id)?
             }
             Change::ThreadSnooze(id, snooze) => {
-                self.connection().execute(
-                    "UPDATE threads SET snooze = ?2 WHERE id = ?1",
-                    params![id.to_string(), to_json("Snooze", snooze)?],
-                )?;
+                self.connection()
+                    .prepare_cached("UPDATE threads SET snooze = ?2 WHERE id = ?1")?
+                    .execute(params![id.to_string(), to_json("Snooze", snooze)?])?;
                 Some(*id)
             }
             Change::ThreadPin(id, pin) => {
-                self.connection().execute(
-                    "UPDATE threads SET pin = ?2 WHERE id = ?1",
-                    params![id.to_string(), to_json("Pin", pin)?],
-                )?;
+                self.connection()
+                    .prepare_cached("UPDATE threads SET pin = ?2 WHERE id = ?1")?
+                    .execute(params![id.to_string(), to_json("Pin", pin)?])?;
                 Some(*id)
             }
             Change::ThreadMute(id, mute) => {
-                self.connection().execute(
-                    "UPDATE threads SET mute = ?2 WHERE id = ?1",
-                    params![id.to_string(), to_json("Mute", mute)?],
-                )?;
+                self.connection()
+                    .prepare_cached("UPDATE threads SET mute = ?2 WHERE id = ?1")?
+                    .execute(params![id.to_string(), to_json("Mute", mute)?])?;
                 Some(*id)
             }
             Change::ThreadFollowUp(id, follow_up) => {
-                self.connection().execute(
-                    "UPDATE threads SET follow_up = ?2 WHERE id = ?1",
-                    params![id.to_string(), to_json("FollowUp", follow_up)?],
-                )?;
+                self.connection()
+                    .prepare_cached("UPDATE threads SET follow_up = ?2 WHERE id = ?1")?
+                    .execute(params![id.to_string(), to_json("FollowUp", follow_up)?])?;
                 Some(*id)
             }
             Change::MessageUpsert(msg) => {
@@ -101,25 +97,25 @@ impl SqliteStore {
             }
             Change::MessageDelete(id) => {
                 let thread = self.thread_of(*id)?;
-                self.connection().execute(
-                    "DELETE FROM messages WHERE id = ?1",
-                    params![id.to_string()],
-                )?;
+                self.connection()
+                    .prepare_cached("DELETE FROM messages WHERE id = ?1")?
+                    .execute(params![id.to_string()])?;
                 thread
             }
             Change::LabelUpsert(label) => {
-                self.connection().execute(
-                    "INSERT INTO labels (id, account, name, color, origin) VALUES (?1,?2,?3,?4,?5)
-                     ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color,
-                                                   origin=excluded.origin",
-                    params![
+                self.connection()
+                    .prepare_cached(
+                        "INSERT INTO labels (id, account, name, color, origin) VALUES (?1,?2,?3,?4,?5)
+                         ON CONFLICT(id) DO UPDATE SET name=excluded.name, color=excluded.color,
+                                                       origin=excluded.origin",
+                    )?
+                    .execute(params![
                         label.id.to_string(),
                         label.account.to_string(),
                         label.name,
                         label.color,
                         to_json("LabelOrigin", &label.origin)?,
-                    ],
-                )?;
+                    ])?;
                 None
             }
             // A draft belongs to no thread, so there is no summary to refresh: `None`
@@ -162,11 +158,8 @@ impl SqliteStore {
     fn role_of(&self, message: MessageId) -> Result<Option<MailboxRole>, StoreError> {
         let found: Option<String> = self
             .connection()
-            .query_row(
-                "SELECT mailbox FROM messages WHERE id = ?1",
-                params![message.to_string()],
-                |r| r.get(0),
-            )
+            .prepare_cached("SELECT mailbox FROM messages WHERE id = ?1")?
+            .query_row(params![message.to_string()], |r| r.get(0))
             .optional()?;
         found.map(|text| json("MailboxRole", &text)).transpose()
     }
@@ -184,11 +177,8 @@ impl SqliteStore {
     pub(super) fn folder_roles(&self, account: AccountId) -> Result<FolderRoles, StoreError> {
         let stored: Option<String> = self
             .connection()
-            .query_row(
-                "SELECT caps FROM account_caps WHERE account = ?1",
-                params![account.to_string()],
-                |r| r.get(0),
-            )
+            .prepare_cached("SELECT caps FROM account_caps WHERE account = ?1")?
+            .query_row(params![account.to_string()], |r| r.get(0))
             .optional()?;
         Ok(match stored {
             Some(text) => json::<AccountCaps>("AccountCaps", &text)?.folders,
@@ -199,11 +189,8 @@ impl SqliteStore {
     fn thread_of(&self, message: MessageId) -> Result<Option<ThreadId>, StoreError> {
         let found: Option<String> = self
             .connection()
-            .query_row(
-                "SELECT thread FROM messages WHERE id = ?1",
-                params![message.to_string()],
-                |r| r.get(0),
-            )
+            .prepare_cached("SELECT thread FROM messages WHERE id = ?1")?
+            .query_row(params![message.to_string()], |r| r.get(0))
             .optional()?;
         found
             .map(|t| uuid("ThreadId", &t).map(ThreadId::from_uuid))
@@ -211,29 +198,32 @@ impl SqliteStore {
     }
 
     pub(super) fn upsert_message(&self, m: &Message) -> Result<(), StoreError> {
-        self.connection().execute(
-            "INSERT OR IGNORE INTO threads (id, account, snooze, pin)
-             VALUES (?1, ?2, '{\"kind\":\"inactive\"}', '{\"kind\":\"unpinned\"}')",
-            params![m.thread.to_string(), m.account.to_string()],
-        )?;
+        self.connection()
+            .prepare_cached(
+                "INSERT OR IGNORE INTO threads (id, account, snooze, pin)
+                 VALUES (?1, ?2, '{\"kind\":\"inactive\"}', '{\"kind\":\"unpinned\"}')",
+            )?
+            .execute(params![m.thread.to_string(), m.account.to_string()])?;
         let recipients = Recipients {
             reply_to: m.reply_to.clone(),
             to: m.to.clone(),
             cc: m.cc.clone(),
             bcc: m.bcc.clone(),
         };
-        self.connection().execute(
-            "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
-                 recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                 body_text, body_raw, attachments, fts_text)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
-             ON CONFLICT(id) DO UPDATE SET
-                 thread=excluded.thread, subject=excluded.subject, from_name=excluded.from_name,
-                 from_email=excluded.from_email, read=excluded.read,
-                 star=excluded.star, mailbox=excluded.mailbox, body_text=excluded.body_text,
-                 attachments=excluded.attachments, recipients=excluded.recipients,
-                 fts_text=excluded.fts_text",
-            params![
+        self.connection()
+            .prepare_cached(
+                "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                     recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                     body_text, body_raw, attachments, fts_text)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
+                 ON CONFLICT(id) DO UPDATE SET
+                     thread=excluded.thread, subject=excluded.subject, from_name=excluded.from_name,
+                     from_email=excluded.from_email, read=excluded.read,
+                     star=excluded.star, mailbox=excluded.mailbox, body_text=excluded.body_text,
+                     attachments=excluded.attachments, recipients=excluded.recipients,
+                     fts_text=excluded.fts_text",
+            )?
+            .execute(params![
                 m.id.to_string(),
                 m.thread.to_string(),
                 m.account.to_string(),
@@ -255,13 +245,11 @@ impl SqliteStore {
                 // What the index will hold: the tokens the query side will ask for, and nothing
                 // else. See `crate::sql::message_index`.
                 crate::sql::message_index(&m.subject, &m.from, &m.to, &m.cc, m.body.text()),
-            ],
-        )?;
+            ])?;
         for label in &m.labels {
-            self.connection().execute(
-                "INSERT OR IGNORE INTO message_labels (message, label) VALUES (?1, ?2)",
-                params![m.id.to_string(), label.to_string()],
-            )?;
+            self.connection()
+                .prepare_cached(ADD_LABEL)?
+                .execute(params![m.id.to_string(), label.to_string()])?;
         }
         Ok(())
     }
@@ -272,18 +260,17 @@ impl SqliteStore {
         // see the rows it has just written.
         let messages = self.messages_of(&self.connection(), thread)?;
         if messages.is_empty() {
-            self.connection().execute(
-                "DELETE FROM threads WHERE id = ?1",
-                params![thread.to_string()],
-            )?;
+            self.connection()
+                .prepare_cached("DELETE FROM threads WHERE id = ?1")?
+                .execute(params![thread.to_string()])?;
             return Ok(());
         }
-        let (snooze, pin, mute, follow_up): (String, String, String, String) =
-            self.connection().query_row(
-                "SELECT snooze, pin, mute, follow_up FROM threads WHERE id = ?1",
-                params![thread.to_string()],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-            )?;
+        let (snooze, pin, mute, follow_up): (String, String, String, String) = self
+            .connection()
+            .prepare_cached("SELECT snooze, pin, mute, follow_up FROM threads WHERE id = ?1")?
+            .query_row(params![thread.to_string()], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?;
         let s = ThreadSummary::derive(
             thread,
             &messages,
@@ -292,20 +279,22 @@ impl SqliteStore {
             json("Mute", &mute)?,
             json("FollowUp", &follow_up)?,
         );
-        self.connection().execute(
-            "INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
-                 participants, recipients, last_date, message_count, read, star, mailboxes,
-                 labels, attachments, snooze, pin, mute, follow_up)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
-             ON CONFLICT(thread) DO UPDATE SET
-                 subject=excluded.subject, snippet=excluded.snippet, from_name=excluded.from_name,
-                 from_email=excluded.from_email, participants=excluded.participants,
-                 recipients=excluded.recipients, last_date=excluded.last_date,
-                 message_count=excluded.message_count, read=excluded.read, star=excluded.star,
-                 mailboxes=excluded.mailboxes, labels=excluded.labels,
-                 attachments=excluded.attachments, snooze=excluded.snooze, pin=excluded.pin,
-                 mute=excluded.mute, follow_up=excluded.follow_up",
-            params![
+        self.connection()
+            .prepare_cached(
+                "INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
+                     participants, recipients, last_date, message_count, read, star, mailboxes,
+                     labels, attachments, snooze, pin, mute, follow_up)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
+                 ON CONFLICT(thread) DO UPDATE SET
+                     subject=excluded.subject, snippet=excluded.snippet, from_name=excluded.from_name,
+                     from_email=excluded.from_email, participants=excluded.participants,
+                     recipients=excluded.recipients, last_date=excluded.last_date,
+                     message_count=excluded.message_count, read=excluded.read, star=excluded.star,
+                     mailboxes=excluded.mailboxes, labels=excluded.labels,
+                     attachments=excluded.attachments, snooze=excluded.snooze, pin=excluded.pin,
+                     mute=excluded.mute, follow_up=excluded.follow_up",
+            )?
+            .execute(params![
                 s.id.to_string(),
                 s.account.to_string(),
                 s.subject,
@@ -325,8 +314,7 @@ impl SqliteStore {
                 to_json("Pin", &s.pin)?,
                 to_json("Mute", &s.mute)?,
                 to_json("FollowUp", &s.follow_up)?,
-            ],
-        )?;
+            ])?;
         Ok(())
     }
 
@@ -478,16 +466,16 @@ impl SqliteStore {
             self.forget_destroyed(account.clone(), remote)?;
             if let Some(id) = self.message_by_remote(account.clone(), remote)? {
                 let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account.clone(), remote);
-                self.connection().execute(
-                    "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
-                     AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
-                    params![acct, mailbox, uidvalidity, uid, uidl],
-                )?;
-                let remaining: i64 = self.connection().query_row(
-                    "SELECT count(*) FROM remote_map WHERE message = ?1",
-                    params![id.to_string()],
-                    |r| r.get(0),
-                )?;
+                self.connection()
+                    .prepare_cached(
+                        "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
+                         AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
+                    )?
+                    .execute(params![acct, mailbox, uidvalidity, uid, uidl])?;
+                let remaining: i64 = self
+                    .connection()
+                    .prepare_cached("SELECT count(*) FROM remote_map WHERE message = ?1")?
+                    .query_row(params![id.to_string()], |r| r.get(0))?;
                 if remaining == 0 {
                     if let Some(t) = self.thread_of(id)? {
                         touched.insert(t);
@@ -650,11 +638,8 @@ impl SqliteStore {
     fn body_of(&self, message: MessageId) -> Result<Option<Body>, StoreError> {
         let held: Option<Option<String>> = self
             .connection()
-            .query_row(
-                "SELECT body_raw FROM messages WHERE id = ?1",
-                params![message.to_string()],
-                |r| r.get(0),
-            )
+            .prepare_cached("SELECT body_raw FROM messages WHERE id = ?1")?
+            .query_row(params![message.to_string()], |r| r.get(0))
             .optional()?;
         Ok(held.map(|raw| match raw {
             Some(_) => Body::Present {
@@ -676,10 +661,12 @@ impl SqliteStore {
         // `fts_text` too, or the body never reaches the index: a message fetched headers-first
         // was indexed with a subject and a sender, and this is the moment its text arrives. An
         // end-to-end test caught that the day the index stopped reading `body_text` directly.
-        self.connection().execute(
-            "UPDATE messages SET body_text = ?2, body_raw = ?3, attachments = ?4,
+        self.connection()
+            .prepare_cached(
+                "UPDATE messages SET body_text = ?2, body_raw = ?3, attachments = ?4,
                  fts_text = ?5 WHERE id = ?1",
-            params![
+            )?
+            .execute(params![
                 message.to_string(),
                 text,
                 raw.to_string(),
@@ -691,8 +678,7 @@ impl SqliteStore {
                     &filled.cc,
                     text.as_deref(),
                 ),
-            ],
-        )?;
+            ])?;
         Ok(())
     }
 
@@ -703,8 +689,8 @@ impl SqliteStore {
     ) -> Result<Option<MessageId>, StoreError> {
         let found: Option<String> = self
             .connection()
+            .prepare_cached("SELECT id FROM messages WHERE account = ?1 AND msg_key = ?2")?
             .query_row(
-                "SELECT id FROM messages WHERE account = ?1 AND msg_key = ?2",
                 params![account.to_string(), to_json("MessageKey", key)?],
                 |r| r.get(0),
             )
@@ -722,12 +708,11 @@ impl SqliteStore {
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
         let found: Option<String> = self
             .connection()
-            .query_row(
+            .prepare_cached(
                 "SELECT message FROM remote_map WHERE account=?1 AND mailbox=?2
                  AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
-                params![acct, mailbox, uidvalidity, uid, uidl],
-                |r| r.get(0),
-            )
+            )?
+            .query_row(params![acct, mailbox, uidvalidity, uid, uidl], |r| r.get(0))
             .optional()?;
         found
             .map(|t| uuid("MessageId", &t).map(MessageId::from_uuid))
@@ -756,11 +741,8 @@ impl SqliteStore {
     ) -> Result<mail_domain::LabelId, StoreError> {
         let existing: Option<String> = self
             .connection()
-            .query_row(
-                "SELECT id FROM labels WHERE account = ?1 AND name = ?2",
-                params![account.to_string(), name],
-                |r| r.get(0),
-            )
+            .prepare_cached("SELECT id FROM labels WHERE account = ?1 AND name = ?2")?
+            .query_row(params![account.to_string(), name], |r| r.get(0))
             .optional()?;
         if let Some(id) = existing {
             return uuid("LabelId", &id).map(mail_domain::LabelId::from_uuid);
@@ -787,15 +769,23 @@ impl SqliteStore {
         // `ON CONFLICT` naming the expression index, not `INSERT OR REPLACE` on the primary
         // key: every row has a NULL in that key (exactly one of uid/uidl is set), SQLite treats
         // NULLs as distinct there, and so nothing ever conflicted. See migration 0002.
-        self.connection().execute(
-            "INSERT INTO remote_map
-                 (account, mailbox, uidvalidity, uid, uidl, message)
-             VALUES (?1,?2,?3,?4,?5,?6)
-             ON CONFLICT (account, mailbox, COALESCE(uidvalidity, -1),
-                          COALESCE(uid, -1), COALESCE(uidl, ''))
-             DO UPDATE SET message = excluded.message",
-            params![acct, mailbox, uidvalidity, uid, uidl, message.to_string()],
-        )?;
+        self.connection()
+            .prepare_cached(
+                "INSERT INTO remote_map
+                     (account, mailbox, uidvalidity, uid, uidl, message)
+                 VALUES (?1,?2,?3,?4,?5,?6)
+                 ON CONFLICT (account, mailbox, COALESCE(uidvalidity, -1),
+                              COALESCE(uid, -1), COALESCE(uidl, ''))
+                 DO UPDATE SET message = excluded.message",
+            )?
+            .execute(params![
+                acct,
+                mailbox,
+                uidvalidity,
+                uid,
+                uidl,
+                message.to_string()
+            ])?;
         Ok(())
     }
 
@@ -813,11 +803,12 @@ impl SqliteStore {
         let db = self.connection();
         let tx = db.unchecked_transaction()?;
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account.clone(), from);
-        self.connection().execute(
-            "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
-             AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
-            params![acct, mailbox, uidvalidity, uid, uidl],
-        )?;
+        self.connection()
+            .prepare_cached(
+                "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
+                 AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
+            )?
+            .execute(params![acct, mailbox, uidvalidity, uid, uidl])?;
         // Onto the row a sync may already have written for the new address, if it got there
         // first; the message it names is the one moved either way.
         self.map_remote(account, to, message)?;
@@ -841,20 +832,22 @@ impl SqliteStore {
         let db = self.connection();
         let tx = db.unchecked_transaction()?;
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
-        self.connection().execute(
-            "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
-             AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
-            params![acct, mailbox, uidvalidity, uid, uidl],
-        )?;
+        self.connection()
+            .prepare_cached(
+                "DELETE FROM remote_map WHERE account=?1 AND mailbox=?2
+                 AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
+            )?
+            .execute(params![acct, mailbox, uidvalidity, uid, uidl])?;
         // With no address left it is still mail the server holds, not mail it never had: an
         // operation queued on it before the sync finds it waits for that sync. Moved again while
         // it waited, it is looked for afresh, in the folder this move put it in.
-        self.connection().execute(
-            "INSERT OR REPLACE INTO unplaced (account, message, mailbox, syncs, passes)
-             SELECT ?1, ?2, ?3, 0, 0 WHERE NOT EXISTS
-                 (SELECT 1 FROM remote_map WHERE account = ?1 AND message = ?2)",
-            params![acct, message.to_string(), into],
-        )?;
+        self.connection()
+            .prepare_cached(
+                "INSERT OR REPLACE INTO unplaced (account, message, mailbox, syncs, passes)
+                 SELECT ?1, ?2, ?3, 0, 0 WHERE NOT EXISTS
+                     (SELECT 1 FROM remote_map WHERE account = ?1 AND message = ?2)",
+            )?
+            .execute(params![acct, message.to_string(), into])?;
         tx.commit()?;
         Ok(())
     }
@@ -868,17 +861,16 @@ impl SqliteStore {
     ) -> Result<Option<crate::dispatch::Unplaced>, StoreError> {
         Ok(self
             .connection()
-            .query_row(
+            .prepare_cached(
                 "SELECT mailbox, syncs, passes FROM unplaced WHERE account = ?1 AND message = ?2",
-                params![account.to_string(), message.to_string()],
-                |r| {
-                    Ok(crate::dispatch::Unplaced {
-                        mailbox: r.get(0)?,
-                        syncs: r.get(1)?,
-                        passes: r.get(2)?,
-                    })
-                },
-            )
+            )?
+            .query_row(params![account.to_string(), message.to_string()], |r| {
+                Ok(crate::dispatch::Unplaced {
+                    mailbox: r.get(0)?,
+                    syncs: r.get(1)?,
+                    passes: r.get(2)?,
+                })
+            })
             .optional()?)
     }
 
@@ -917,15 +909,15 @@ impl SqliteStore {
         };
         for (message, mut unplaced) in rows {
             unplaced.after_pass(synced);
-            db.execute(
+            db.prepare_cached(
                 "UPDATE unplaced SET syncs = ?3, passes = ?4 WHERE account = ?1 AND message = ?2",
-                params![
-                    account.to_string(),
-                    message,
-                    unplaced.syncs,
-                    unplaced.passes
-                ],
-            )?;
+            )?
+            .execute(params![
+                account.to_string(),
+                message,
+                unplaced.syncs,
+                unplaced.passes
+            ])?;
         }
         tx.commit()?;
         Ok(())

@@ -90,6 +90,13 @@ pub struct SqliteStore {
 /// already holds. More would be file handles against a mailbox that belongs to one person.
 const READERS: usize = 3;
 
+/// How many prepared statements each connection keeps.
+///
+/// One ingest runs some thirty distinct statements per message and per thread, and `rusqlite`
+/// keeps sixteen by default; past that the least recent is finalized and the next message parses
+/// it again, so the cache would cost a lookup and save nothing.
+const STATEMENT_CACHE: usize = 64;
+
 impl SqliteStore {
     /// Open or create the database at `db_path`, with blobs under `blob_root`.
     pub fn open(
@@ -110,6 +117,7 @@ impl SqliteStore {
                      PRAGMA busy_timeout = 5000;",
                 )
                 .map_err(StoreError::db)?;
+            reader.set_prepared_statement_cache_capacity(STATEMENT_CACHE);
             // Before `query_only`: a TEMP vocab table is per connection, and a query-only
             // connection is not allowed to create one.
             search::ensure_vocab(&reader)?;
@@ -149,6 +157,7 @@ impl SqliteStore {
              PRAGMA busy_timeout = 5000;",
         )
         .map_err(StoreError::db)?;
+        db.set_prepared_statement_cache_capacity(STATEMENT_CACHE);
         migrate::migrate(&db)?;
         backfill_fts(&db)?;
         search::ensure_vocab(&db)?;
@@ -447,7 +456,9 @@ impl Store for SqliteStore {
 
         let db = self.reader();
 
-        let mut stmt = db.prepare(&sql_text)?;
+        // Cached: a list asks the same page again on every repaint, and the text differs only
+        // with the filter and the sort.
+        let mut stmt = db.prepare_cached(&sql_text)?;
         let mut rows = stmt.query(rusqlite::params_from_iter(bound.iter().map(|v| match v {
             sql::SqlValue::Text(t) => rusqlite::types::Value::Text(t.clone()),
             sql::SqlValue::Int(i) => rusqlite::types::Value::Integer(*i),
@@ -497,8 +508,7 @@ impl Store for SqliteStore {
             "SELECT count(*) FROM thread_summary ts WHERE {}",
             compiled.where_clause
         );
-        let n: i64 = self.reader().query_row(
-            &sql_text,
+        let n: i64 = self.reader().prepare_cached(&sql_text)?.query_row(
             rusqlite::params_from_iter(compiled.params.iter().map(|v| match v {
                 sql::SqlValue::Text(t) => rusqlite::types::Value::Text(t.clone()),
                 sql::SqlValue::Int(i) => rusqlite::types::Value::Integer(*i),

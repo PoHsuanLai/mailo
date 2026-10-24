@@ -32,6 +32,7 @@ mod rules;
 mod search;
 mod send_later;
 mod smime_certs;
+mod sort_indexes;
 mod sqlite_capabilities;
 mod templates;
 mod two_writers;

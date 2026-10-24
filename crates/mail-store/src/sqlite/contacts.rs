@@ -315,10 +315,10 @@ struct Rows<'a> {
 
 impl Ledger for Rows<'_> {
     fn first_count(&mut self, id: MessageId) -> Result<bool, StoreError> {
-        let first = self.db.execute(
-            "INSERT OR IGNORE INTO contacts_counted (message) VALUES (?1)",
-            params![id.to_string()],
-        )?;
+        let first = self
+            .db
+            .prepare_cached("INSERT OR IGNORE INTO contacts_counted (message) VALUES (?1)")?
+            .execute(params![id.to_string()])?;
         Ok(first > 0)
     }
 
@@ -328,19 +328,20 @@ impl Ledger for Rows<'_> {
     }
 
     fn take_print(&mut self, print: &str) -> Result<bool, StoreError> {
-        let counted = self.db.execute(
-            "DELETE FROM contacts_sent WHERE rowid =
+        let counted = self
+            .db
+            .prepare_cached(
+                "DELETE FROM contacts_sent WHERE rowid =
                  (SELECT min(rowid) FROM contacts_sent WHERE fingerprint = ?1)",
-            params![print],
-        )?;
+            )?
+            .execute(params![print])?;
         Ok(counted > 0)
     }
 
     fn keep_print(&mut self, print: &str, at: DateTime<Utc>) -> Result<(), StoreError> {
-        self.db.execute(
-            "INSERT INTO contacts_sent (fingerprint, at) VALUES (?1, ?2)",
-            params![print, from_time(at)],
-        )?;
+        self.db
+            .prepare_cached("INSERT INTO contacts_sent (fingerprint, at) VALUES (?1, ?2)")?
+            .execute(params![print, from_time(at)])?;
         Ok(())
     }
 

@@ -83,11 +83,12 @@ impl BlobStore {
         let size = bytes.len() as i64;
 
         if bytes.len() <= INLINE_MAX {
-            db.execute(
+            db.prepare_cached(
                 "INSERT INTO blobs (id, hash, size, path, inline, created_at)
                  VALUES (?1, ?2, ?3, NULL, ?4, datetime('now'))",
-                params![id.to_string(), hash, size, bytes],
             )
+            .map_err(StoreError::db)?
+            .execute(params![id.to_string(), hash, size, bytes])
             .map_err(StoreError::db)?;
         } else {
             // Two-character fan-out: a flat directory with 100k attachments is slow to list
@@ -101,11 +102,12 @@ impl BlobStore {
             crate::file::write_atomic(&full, bytes, None)
                 .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
 
-            db.execute(
+            db.prepare_cached(
                 "INSERT INTO blobs (id, hash, size, path, inline, created_at)
                  VALUES (?1, ?2, ?3, ?4, NULL, datetime('now'))",
-                params![id.to_string(), hash, size, rel],
             )
+            .map_err(StoreError::db)?
+            .execute(params![id.to_string(), hash, size, rel])
             .map_err(StoreError::db)?;
         }
         Ok(id)
@@ -146,11 +148,11 @@ impl BlobStore {
         limit: usize,
     ) -> Result<Vec<u8>, StoreError> {
         let row: Option<(Option<String>, Option<Vec<u8>>)> = db
-            .query_row(
-                "SELECT path, substr(inline, 1, ?2) FROM blobs WHERE id = ?1",
-                params![id.to_string(), limit as i64],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .prepare_cached("SELECT path, substr(inline, 1, ?2) FROM blobs WHERE id = ?1")
+            .map_err(StoreError::db)?
+            .query_row(params![id.to_string(), limit as i64], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .optional()
             .map_err(StoreError::db)?;
         match row {
@@ -193,9 +195,9 @@ impl BlobStore {
 
     fn lookup(&self, db: &Connection, hash: &str) -> Result<Option<BlobId>, StoreError> {
         let found: Option<String> = db
-            .query_row("SELECT id FROM blobs WHERE hash = ?1", params![hash], |r| {
-                r.get(0)
-            })
+            .prepare_cached("SELECT id FROM blobs WHERE hash = ?1")
+            .map_err(StoreError::db)?
+            .query_row(params![hash], |r| r.get(0))
             .optional()
             .map_err(StoreError::db)?;
         found

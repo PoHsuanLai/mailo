@@ -253,11 +253,10 @@ impl SqliteStore {
         )?;
         self.forget_destroyed_in(account, path)?;
         for message in held.mapped {
-            let remaining: i64 = self.connection().query_row(
-                "SELECT count(*) FROM remote_map WHERE message = ?1",
-                params![message.to_string()],
-                |r| r.get(0),
-            )?;
+            let remaining: i64 = self
+                .connection()
+                .prepare_cached("SELECT count(*) FROM remote_map WHERE message = ?1")?
+                .query_row(params![message.to_string()], |r| r.get(0))?;
             if remaining == 0
                 && let Some(thread) = self.write_change(&Change::MessageDelete(message))?
             {
