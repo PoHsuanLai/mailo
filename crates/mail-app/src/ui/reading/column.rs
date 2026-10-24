@@ -24,14 +24,20 @@ pub(in crate::ui) fn reading_column(
     place: ReaderIn,
 ) -> Element {
     let composing = compose::composing(&shell.read());
+    // The one message opened from a list of single messages, in the window's reader only: a
+    // conversation's own window shows it whole.
+    let only = match place {
+        ReaderIn::Pane => shell.read().focus,
+        ReaderIn::Window => None,
+    };
     match (composing, open) {
         (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
-            Reader { thread, shell, revision, place,
+            Reader { thread, shell, revision, place, only,
                 ComposerPage { key: "{draft}", draft, shell, revision }
             }
         },
         (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
-        (None, Some(thread)) => rsx! { Reader { thread, shell, revision, place } },
+        (None, Some(thread)) => rsx! { Reader { thread, shell, revision, place, only } },
         (None, None) => rsx! {
             EmptyState { form: EmptyForm::Empty, title: crate::ui::copy::empty::NO_MESSAGE_SELECTED }
         },

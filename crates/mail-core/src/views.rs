@@ -26,6 +26,9 @@ pub struct Draft {
     pub kept: Option<Filter>,
     pub group: Option<GroupKey>,
     pub dir: SortDir,
+    /// Conversations, or a message to a row. Not a field of the sheet: the list's Organise by
+    /// Conversation sets it, and an edit keeps what it was.
+    pub threading: Threading,
 }
 
 /// Why a draft is not a view yet.
@@ -49,6 +52,7 @@ impl Draft {
             kept: None,
             group: None,
             dir: SortDir::Desc,
+            threading: Threading::Threaded,
         }
     }
 
@@ -62,6 +66,7 @@ impl Draft {
             query: words.unwrap_or_default(),
             group: view.group_by.clone(),
             dir: view.sort.dir,
+            threading: view.threading,
         }
     }
 
@@ -93,8 +98,7 @@ impl Draft {
                 dir: self.dir,
             },
             group_by: self.group.clone(),
-            threading: Threading::Threaded,
-            shown: Vec::new(),
+            threading: self.threading,
             hover: Vec::new(),
         })
     }
@@ -157,6 +161,11 @@ mod tests {
         assert_eq!(view.kind, ViewKind::Query, "a saved search takes no drop");
         assert_eq!(view.sort.property, Property::Date);
         assert_eq!(view.sort.dir, SortDir::Desc);
+        assert_eq!(
+            view.threading,
+            Threading::Threaded,
+            "conversations at first"
+        );
     }
 
     #[test]
@@ -181,6 +190,16 @@ mod tests {
             view,
             "saving it again changes nothing"
         );
+    }
+
+    #[test]
+    fn an_edited_view_keeps_a_message_to_a_row() {
+        let mut view = saved("Trips", "label:travel");
+        view.threading = Threading::Single;
+        let mut draft = Draft::of(&view, &labels(), &Utc);
+        draft.name = "Travel".to_owned();
+        let again = draft.build(&labels(), &Utc).unwrap();
+        assert_eq!(again.threading, Threading::Single, "a rename keeps it");
     }
 
     #[test]

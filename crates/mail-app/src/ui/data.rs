@@ -23,6 +23,10 @@ pub(super) fn list_for(
     };
     match listing {
         Listing::Threads(query) => rows(&query),
+        Listing::Messages(query) => singles_for(store, &query, now)
+            .into_iter()
+            .map(|single| single.summary)
+            .collect(),
         Listing::Inbox { query, scope } => mail_core::follow_up::on_top(
             mail_core::follow_up::returned(store, scope.as_ref(), now),
             rows(&query),
@@ -30,6 +34,23 @@ pub(super) fn list_for(
         Listing::Waiting { scope } => mail_core::follow_up::waiting(store, scope.as_ref(), now),
         Listing::History { scope } => mail_core::history::listed(store, scope.as_ref(), now),
         Listing::Drafts | Listing::Scheduled => Vec::new(),
+    }
+}
+
+/// The messages a place kept a message to a row lists ([`mail_core::single::listed`]), each
+/// with the conversation it is a row of. A store that cannot answer is an empty list, said in
+/// the log, as a conversation list's failure is an empty one.
+pub(super) fn singles_for(
+    store: &SqliteStore,
+    query: &Query,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<mail_core::single::Single> {
+    match mail_core::single::listed(store, query, now) {
+        Ok(page) => page.items,
+        Err(why) => {
+            log::warn!("the list of single messages could not be read: {why}");
+            Vec::new()
+        }
     }
 }
 

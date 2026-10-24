@@ -40,6 +40,9 @@ pub const ADD_ACCOUNT_SUBMENU: &str = "Add Account";
 
 // The list toolbar's ⋯.
 pub const GROUP_BY_DATE: &str = "Group by Date";
+/// Checked while the list shows conversations; off, each message is a row of its own. Apple
+/// Mail's words, from its View menu. Also a command in the search bar's panel.
+pub const ORGANISE_BY_CONVERSATION: &str = "Organise by Conversation";
 pub const SHOW_SNIPPETS: &str = "Show Snippets";
 pub const HIDE_SNIPPETS: &str = "Hide Snippets";
 pub const SHOW_LABELS: &str = "Show Labels";

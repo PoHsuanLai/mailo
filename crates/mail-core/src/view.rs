@@ -9,7 +9,7 @@ use crate::place::{pending_snooze, place_filter};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     Filter, FollowUp, LabelId, MailboxRef, MailboxRole, MailboxSet, Membership, Message, Mute, Op,
-    OpKind, Pin, ReadState, Snooze, Star, ThreadId, ThreadSummary, View,
+    OpKind, Pin, ReadState, Snooze, Star, ThreadSummary, Threading, View,
 };
 
 /// What Mute does to a conversation, given what it is now: mute it, or unmute it if it is muted.
@@ -290,12 +290,12 @@ pub fn offers(summary: &ThreadSummary, kind: OpKind) -> bool {
     hover_actions(summary).contains(&kind)
 }
 
-/// The conversation `Next` or `Previous` moves to.
+/// The conversation `Next` or `Previous` moves to, or the message, in a list of single messages.
 ///
 /// Does not wrap. A list that jumps from the bottom back to the top loses the user's place in a
 /// way that is hard to notice and easy to act on — the next keystroke archives the wrong thing.
 /// Nothing open means the end you are coming from: the first row going down, the last going up.
-pub fn step(current: Option<ThreadId>, ids: &[ThreadId], forward: bool) -> Option<ThreadId> {
+pub fn step<T: Copy + PartialEq>(current: Option<T>, ids: &[T], forward: bool) -> Option<T> {
     if ids.is_empty() {
         return None;
     }
@@ -484,6 +484,42 @@ pub fn place_key(place: &Place) -> String {
         Source::Mail(Filter::HasLabel(label)) => format!("label:{label}"),
         _ => format!("place:{}", place.name),
     }
+}
+
+/// Whether `place` offers Organise by Conversation at all: it lists mail by a filter, as a
+/// mailbox, label, folder or saved view does. Drafts, Waiting, History and Scheduled list what
+/// they list, and a draft or a reminder has no messages to set apart.
+pub fn organises(place: &Place) -> bool {
+    matches!(place.source, Source::Mail(_) | Source::Saved(_))
+}
+
+/// Whether `place` lists conversations or a message to a row.
+///
+/// A saved view keeps its own ([`View::threading`]), in its row in the store, as it keeps its
+/// grouping. Any other place that [`organises`] is a message to a row when its [`place_key`] is
+/// among `single`, the places the window keeps that way: Organise by Conversation is on until it
+/// is turned off for a place, so only the exceptions are kept, and a place nobody has touched
+/// needs no entry.
+pub fn threading_of(place: &Place, single: &[String]) -> Threading {
+    if let Some(view) = saved_of(place) {
+        return view.threading;
+    }
+    if organises(place) && single.contains(&place_key(place)) {
+        Threading::Single
+    } else {
+        Threading::Threaded
+    }
+}
+
+/// `single` with `place`'s key in it when it is to list a message to a row, and out of it when
+/// it is to list conversations. Each key once, in the order they were added.
+pub fn kept_single(single: &[String], place: &Place, threading: Threading) -> Vec<String> {
+    let key = place_key(place);
+    let mut kept: Vec<String> = single.iter().filter(|k| **k != key).cloned().collect();
+    if threading == Threading::Single {
+        kept.push(key);
+    }
+    kept
 }
 
 /// The names mailo's own places had while a Space stored a place by its name alone. A stored
@@ -1127,6 +1163,45 @@ mod tests {
         // Without the label, an old "Done" has only mailo's place to land on.
         assert_eq!(find_place(&default_places(), "Done"), Some(3));
         assert_eq!(find_place(&places, "place:Gone"), None);
+    }
+
+    /// Organise by Conversation is kept per place: a saved view's in the view, any other mail
+    /// place's by its key among the window's exceptions; a place that lists no mail by a filter
+    /// is never offered it.
+    #[test]
+    fn threading_is_kept_per_place() {
+        let places = default_places();
+        let named = |name: &str| places.iter().find(|p| p.name == name).unwrap().clone();
+        let (inbox, sent, waiting) = (named("Inbox"), named("Sent"), named("Waiting"));
+        let single = kept_single(&[], &inbox, Threading::Single);
+        assert_eq!(single, ["place:Inbox"]);
+        assert_eq!(threading_of(&inbox, &single), Threading::Single);
+        assert_eq!(
+            threading_of(&sent, &single),
+            Threading::Threaded,
+            "another place keeps conversations"
+        );
+        assert_eq!(
+            kept_single(&single, &inbox, Threading::Single),
+            single,
+            "kept once"
+        );
+        assert!(kept_single(&single, &inbox, Threading::Threaded).is_empty());
+
+        assert!(!organises(&waiting));
+        let all = kept_single(&[], &waiting, Threading::Single);
+        assert_eq!(threading_of(&waiting, &all), Threading::Threaded);
+
+        let mut view = crate::views::Draft::from_search("is:unread");
+        view.threading = Threading::Single;
+        let view = view.build(&[], &Utc).unwrap();
+        let place = saved_place(&view);
+        assert!(organises(&place));
+        assert_eq!(
+            threading_of(&place, &[]),
+            Threading::Single,
+            "a view's own, not the window's"
+        );
     }
 }
 

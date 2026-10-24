@@ -10,12 +10,12 @@
 //! place already has loaded ("pattern over this page") rather than over a ranked sample of all
 //! mail that would look like a search and not be one.
 
-use super::data::list_for;
+use super::data::{list_for, singles_for};
 use crate::ui::view::{Listing, Shell};
 use chrono::{DateTime, Utc};
 use mail_core::search::{self, Highlight, Source, Term};
 use mail_core::{SqliteStore, Store};
-use mail_domain::{Filter, LabelId, PageReq, Query, ThreadId, ThreadSummary};
+use mail_domain::{Filter, LabelId, MessageId, PageReq, Query, ThreadId, ThreadSummary};
 use std::ops::Range;
 
 /// What the list pane was asked for, taken out of the shell so a blocking thread can run it.
@@ -51,7 +51,9 @@ impl Request {
             return Self::Place(place.listing(limit));
         }
         let page = match place.listing(limit) {
-            Listing::Threads(query) | Listing::Inbox { query, .. } => Some(query),
+            Listing::Threads(query) | Listing::Messages(query) | Listing::Inbox { query, .. } => {
+                Some(query)
+            }
             Listing::Drafts
             | Listing::Scheduled
             | Listing::Waiting { .. }
@@ -106,6 +108,9 @@ impl Marking {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct Listed {
     pub threads: Vec<ThreadSummary>,
+    /// Which message each row of [`Self::threads`] is, in the same order, when the place lists
+    /// a message to a row (`Listing::Messages`). Empty when it lists conversations.
+    pub messages: Vec<MessageId>,
     /// The "Top results" strip. Empty when nothing is searched for, when only operators were
     /// typed, and when it would repeat the first rows.
     pub top: Vec<ThreadSummary>,
@@ -115,8 +120,21 @@ pub(super) struct Listed {
 /// Run `request`. Pure apart from the store reads.
 pub(super) fn listed(store: &SqliteStore, request: Request, now: DateTime<Utc>) -> Listed {
     match request {
+        Request::Place(Listing::Messages(query)) => {
+            let (threads, messages) = singles_for(store, &query, now)
+                .into_iter()
+                .map(|single| (single.summary, single.message))
+                .unzip();
+            Listed {
+                threads,
+                messages,
+                top: Vec::new(),
+                marking: Marking::default(),
+            }
+        }
         Request::Place(listing) => Listed {
             threads: list_for(store, listing, now),
+            messages: Vec::new(),
             top: Vec::new(),
             marking: Marking::default(),
         },
@@ -155,6 +173,7 @@ fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed 
     Listed {
         top: searched.strip(),
         threads: searched.rows,
+        messages: Vec::new(),
         marking: Marking {
             highlight,
             scope: Scope::Searched,
@@ -182,6 +201,7 @@ fn over_page(
     };
     Listed {
         threads,
+        messages: Vec::new(),
         top: Vec::new(),
         marking: Marking {
             highlight,
@@ -194,6 +214,7 @@ fn over_page(
 fn invalid(why: String) -> Listed {
     Listed {
         threads: Vec::new(),
+        messages: Vec::new(),
         top: Vec::new(),
         marking: Marking {
             highlight: Highlight::default(),

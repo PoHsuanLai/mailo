@@ -211,6 +211,18 @@ pub fn perform(
     op: Op,
     clock: crate::when::Clock,
 ) -> Option<Undo> {
+    perform_on(store, thread, Target::Threads(vec![thread]), op, clock)
+}
+
+/// [`perform`], on `target` within `thread`: the conversation whole, or some of its messages,
+/// as opening one message of a list of single messages reads that message and not the rest.
+pub fn perform_on(
+    store: &SqliteStore,
+    thread: ThreadId,
+    target: Target,
+    op: Op,
+    clock: crate::when::Clock,
+) -> Option<Undo> {
     let loaded = store
         .thread(thread)
         .or_log("the conversation to act on could not be read")?;
@@ -222,13 +234,7 @@ pub fn perform(
     // Defaults in place of the stored capabilities would change nothing on the server, and the
     // conversation would come back on the next full sync.
     let caps = caps_here(store, account.clone(), chrono::Utc::now());
-    let applied = op.apply(
-        &Target::Threads(vec![thread]),
-        &loaded,
-        &messages,
-        &caps,
-        chrono::Utc::now(),
-    );
+    let applied = op.apply(&target, &loaded, &messages, &caps, chrono::Utc::now());
     store
         .apply(account.clone(), &applied.forward)
         .or_log("an operation could not be applied")?;

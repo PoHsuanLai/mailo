@@ -54,6 +54,7 @@ pub mod rules;
 pub mod scope;
 pub mod search;
 pub mod server_search;
+pub mod single;
 pub mod smime;
 pub mod snooze;
 pub mod sync;

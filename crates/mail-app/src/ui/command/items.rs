@@ -35,6 +35,8 @@ pub(in crate::ui) enum CommandId {
     Empty(Bin),
     TidyUp,
     Sidebar,
+    /// Organise by Conversation, turned for the place shown: a menu bar's View menu has it.
+    Conversations,
     AddAccount,
     Import,
     Export,
@@ -142,6 +144,13 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         menus::HIDE_SIDEBAR,
         Icon::PanelLeft,
         Some(StandardAction::ToggleSidebar),
+    ),
+    entry(
+        CommandId::Conversations,
+        "conversations",
+        menus::ORGANISE_BY_CONVERSATION,
+        Icon::Group,
+        None,
     ),
     entry(
         CommandId::AddAccount,

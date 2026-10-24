@@ -52,12 +52,16 @@ impl Picked {
         Self::default()
     }
 
-    /// What is picked and still listed, in list order. Empty when nothing is.
+    /// What is picked and still listed, in list order, each once: a conversation listed a
+    /// message to a row has several rows, and an action reaches it once. Empty when nothing is.
     pub fn chosen(&self, ids: &[ThreadId]) -> Vec<ThreadId> {
-        ids.iter()
-            .copied()
-            .filter(|id| self.threads.contains(id))
-            .collect()
+        let mut chosen: Vec<ThreadId> = Vec::new();
+        for id in ids {
+            if self.threads.contains(id) && !chosen.contains(id) {
+                chosen.push(*id);
+            }
+        }
+        chosen
     }
 
     /// Whether `thread` is picked and listed.
