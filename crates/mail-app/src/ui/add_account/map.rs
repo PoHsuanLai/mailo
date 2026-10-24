@@ -423,9 +423,10 @@ pub(super) fn role_of(kind: FieldKind) -> FieldRole {
         FieldKind::OutgoingPort => FieldRole::OutgoingPort,
         FieldKind::OutgoingSecurity => FieldRole::OutgoingSecurity,
         FieldKind::SessionUrl => FieldRole::SessionUrl,
-        // A kind porter added after these has no role of its own in quire's form: it is drawn as
-        // the server it names (an AI server's address, `ServerUrl`). mailo offers only its mail
-        // providers (`run_mail`), none of which asks for one, so `kind_of` never needs the way back.
+        FieldKind::ServerUrl => FieldRole::ServerUrl,
+        // A kind porter adds after these has no role of its own in quire's form yet: it is drawn
+        // as a server. mailo offers only its mail providers (`run_mail`), none of which asks for
+        // one, so `kind_of` never needs the way back.
         _ => FieldRole::Server,
     }
 }
@@ -447,6 +448,7 @@ pub(super) fn kind_of(role: FieldRole) -> FieldKind {
         FieldRole::OutgoingPort => FieldKind::OutgoingPort,
         FieldRole::OutgoingSecurity => FieldKind::OutgoingSecurity,
         FieldRole::SessionUrl => FieldKind::SessionUrl,
+        FieldRole::ServerUrl => FieldKind::ServerUrl,
     }
 }
 
