@@ -25,6 +25,7 @@ mod opened;
 mod parity;
 mod passes;
 mod pgp_keys;
+mod private_files;
 mod queued_moves;
 mod reconciliation;
 mod remove_account;

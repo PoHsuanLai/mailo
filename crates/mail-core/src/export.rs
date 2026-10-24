@@ -264,11 +264,10 @@ impl Sink {
             Target::Mbox(path) => {
                 // Never over an existing file: an export that replaced someone's archive with a
                 // search that matched three messages would be the worst kind of success.
-                let file =
-                    std::fs::File::create_new(path).map_err(|source| CoreError::NotCreated {
-                        path: path.clone(),
-                        source,
-                    })?;
+                let file = create_private(path).map_err(|source| CoreError::NotCreated {
+                    path: path.clone(),
+                    source,
+                })?;
                 Ok(Sink::Mbox(std::io::BufWriter::new(file)))
             }
             Target::Maildir(root) => {
@@ -307,7 +306,7 @@ impl Sink {
                         // Maildir++ marks a folder with this empty file.
                         let marker = dir.join("maildirfolder");
                         if !marker.exists() {
-                            std::fs::write(&marker, b"").map_err(CoreError::at(&marker))?;
+                            create_private(&marker).map_err(CoreError::at(&marker))?;
                         }
                         dir
                     }
@@ -324,7 +323,9 @@ impl Sink {
                 // Written in `tmp` and renamed into `cur`, as the spec says: a reader never sees
                 // half a message under a finished name.
                 let tmp = dir.join("tmp").join(&unique);
-                std::fs::write(&tmp, mail_mime::archive::lf(raw)).map_err(CoreError::at(&tmp))?;
+                create_private(&tmp)
+                    .and_then(|mut out| out.write_all(&mail_mime::archive::lf(raw)))
+                    .map_err(CoreError::at(&tmp))?;
                 let cur = dir.join("cur").join(&name);
                 std::fs::rename(&tmp, &cur).map_err(CoreError::at(&cur))
             }
@@ -335,7 +336,7 @@ impl Sink {
                     message.date.format("%Y%m%d-%H%M%S"),
                     &id[..8.min(id.len())]
                 ));
-                let mut out = std::fs::File::create_new(&file).map_err(CoreError::at(&file))?;
+                let mut out = create_private(&file).map_err(CoreError::at(&file))?;
                 out.write_all(raw).map_err(CoreError::at(&file))
             }
         }
@@ -347,6 +348,17 @@ impl Sink {
             Sink::Maildir { .. } | Sink::Eml(_) => Ok(()),
         }
     }
+}
+
+/// A new file at `path` that only its owner can read (0600), as an attachment saved to disk is:
+/// an export is someone's mail, and the umask would leave it readable by everyone on the machine.
+/// Never over an existing file.
+fn create_private(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)
 }
 
 /// The folder a message is written to: its role's, or for archived mail its first label, so

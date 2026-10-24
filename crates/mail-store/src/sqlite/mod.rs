@@ -84,6 +84,39 @@ pub struct SqliteStore {
     pub(crate) scratch: Option<tempfile::TempDir>,
 }
 
+/// Make the database at `path` its owner's alone (0600), before SQLite opens it: created so if it
+/// is new, narrowed if an earlier version made it under the umask, and its `-wal` and `-shm` with
+/// it. SQLite gives the `-wal` and `-shm` it makes the database file's own mode, so once the
+/// database is 0600 they are too.
+fn private_files(path: &Path) -> Result<(), StoreError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt as _, PermissionsExt as _};
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .mode(0o600)
+            .open(path)
+            .map_err(StoreError::db)?;
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.as_os_str().to_owned();
+            file.push(suffix);
+            let file = std::path::PathBuf::from(file);
+            match std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(StoreError::db(e));
+                }
+                _ => {}
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    // Nothing to narrow where there are no unix modes: the path is not an error to discard.
+    let _ = path;
+    Ok(())
+}
+
 /// How many read-only connections to open beside the writer.
 ///
 /// Three: the window's list, whatever the reader pane is showing, and a sync pass asking what it
@@ -104,6 +137,7 @@ impl SqliteStore {
         blob_root: impl AsRef<Path>,
     ) -> Result<Self, StoreError> {
         let path = db_path.as_ref().to_path_buf();
+        private_files(&path)?;
         let db = Connection::open(&path).map_err(StoreError::db)?;
         let mut store = Self::from_connection(db, blob_root)?;
         store.file = Some(path.clone());

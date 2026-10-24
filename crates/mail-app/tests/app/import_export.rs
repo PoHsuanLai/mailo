@@ -331,6 +331,55 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
     assert_eq!(std::fs::read_dir(emls).unwrap().count(), 2);
 }
 
+/// An export is someone's mail: every file it writes, in each format, is its owner's alone
+/// whatever the umask, as an attachment saved to disk is.
+#[cfg(unix)]
+#[test]
+fn every_file_an_export_writes_is_its_owner_s_alone() {
+    use std::os::unix::fs::PermissionsExt as _;
+    fn files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                files(&path, out);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    let (store, dir) = fresh_store();
+    let path = write(dir.path(), "in.mbox", TAKEOUT.as_bytes());
+    import::into_local(&store, &import::detect(&path).unwrap(), now(), &mut quiet).unwrap();
+    let all = export::select(&store, "all", now()).unwrap();
+    let out = dir.path().join("out");
+    let targets = [
+        export::Target::Mbox(out.join("all.mbox")),
+        export::Target::Maildir(out.join("Maildir")),
+        export::Target::Eml(out.join("emls")),
+    ];
+    std::fs::create_dir(&out).unwrap();
+    for target in &targets {
+        let done = export::export(
+            &store,
+            &Environment::default(),
+            &all,
+            target,
+            now(),
+            &mut |_| {},
+        )
+        .unwrap();
+        assert_eq!(done.written, 2);
+    }
+    let mut written = Vec::new();
+    files(&out, &mut written);
+    // The mbox, two messages in the Maildir, its folder's marker, and two .eml files.
+    assert!(written.len() >= 5, "{written:?}");
+    for file in written {
+        let mode = std::fs::metadata(&file).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600, "{} is {mode:o}", file.display());
+    }
+}
+
 #[test]
 fn a_message_with_no_body_yet_is_skipped_and_counted() {
     let (store, _dir) = fresh_store();
