@@ -255,8 +255,9 @@ jobs:
         # installs it where it is not.
         os: [ubuntu-latest, macos-latest, windows-2022]
     runs-on: ${{ matrix.os }}
-    # One release build (thin LTO) and the packaging tools, cold.
-    timeout-minutes: 60
+    # One release build (fat LTO over one codegen unit, about two and a half times a thin build)
+    # and the packaging tools, cold.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

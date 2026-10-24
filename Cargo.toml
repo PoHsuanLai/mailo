@@ -87,30 +87,30 @@ missing_debug_implementations = "warn"
 todo = "allow"
 
 # The release `mailo` carries Blitz, stylo, wgpu and parley, and at cargo's defaults it is ~107 MB.
-# Measured on one machine with a clean target dir (sizes of `target/release/mailo`):
+# Measured on one machine (Apple M-series, `--no-default-features` as the packages build it,
+# stripped; sizes of `target/release/mailo`, times of a clean release build):
 #
-#   defaults                                   107 MB   ~105 s
-#   strip = "symbols"                           81 MB   ~110 s
-#   + lto = "thin"                              83 MB   ~117 s
-#   + lto = "thin", opt-level = "s"             65 MB   ~104 s   <- this
-#   + lto = "thin", codegen-units = 1           69 MB   ~261 s
-#   + lto = "fat", codegen-units = 1            60 MB   ~509 s
-#   + lto = "fat", codegen-units = 1, "z"       44 MB   ~301 s
+#   lto = "thin", opt-level = "s"                         86 MB   ~194 s
+#   + codegen-units = 1                                   75 MB   ~174 s
+#   lto = "fat", codegen-units = 1, opt-level = "s"       54 MB   ~478 s   <- this
+#   lto = "fat", codegen-units = 1, opt-level = "z"       40 MB   ~357 s
 #
-# Size-optimised code with thin LTO costs no build time and takes off ~40%; single-unit and fat
-# LTO take off more but double to quintuple the build. Symbols go, so a release panic's backtrace
-# has addresses but no names: build with `--config profile.release.strip=false` to read one.
-# `panic` stays `unwind`: a panicking Tokio task or `spawn_blocking` must fail alone, not take the
-# window with it (`panic = "abort"` would save another ~11 MB).
+# Fat LTO over one unit lets the linker see the whole program and drop what no caller reaches,
+# which thin LTO across sixteen units cannot; what it costs is build time. "z" was measured
+# against "s" with `native_latency` and `frame_budget` (fat, one unit, alternating runs): "z"
+# triples the CPU paint (3 ms to 10.5 ms a frame), takes `j` from 12.7 to 18.6 ms and the launch
+# to the first list from 26 to 56 ms, and doubles the composer's work per key. 14 MB is not worth
+# that. For a quick local release build, pass
+# `--config 'profile.release.lto="thin"' --config profile.release.codegen-units=16`.
 #
-# opt-level 3 on the hot crates (mail-mime/-store/-core/-app, rusqlite, html5ever, ammonia, blitz,
-# stylo, parley, taffy, vello, dioxus-core) was measured against this with `native_latency` and
-# `frame_budget`, alternating the two on a loaded machine: 124 MB against 76 MB, and j, k, e,
-# opening and search within the run-to-run noise of each other (j p50 21-32 ms against 24 ms).
-# Not worth 48 MB until a measurement on a quiet machine says otherwise.
+# Symbols go, so a release panic's backtrace has addresses but no names: build with
+# `--config profile.release.strip=false` to read one. `panic` stays `unwind`: a panicking Tokio
+# task or `spawn_blocking` must fail alone, not take the window with it, and the preview of an
+# attachment catches a decoder's panic on hostile bytes (`mail_core::preview`).
 [profile.release]
 strip = "symbols"
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 opt-level = "s"
 
 # Dependencies keep line tables (a backtrace still names file and line) but not full debuginfo;
