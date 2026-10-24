@@ -187,3 +187,12 @@ pub const NO_USER_NAME: &str = "Enter the name the server knows you by.";
 /// The check of new server settings ended without an answer, so nothing was changed.
 pub const CHECK_STOPPED: &str =
     "The check stopped before the server answered. Nothing was changed.";
+
+/// `mailo open --inbox` with no account after it.
+pub const OPEN_INBOX_NEEDS_ACCOUNT: &str =
+    "open --inbox needs an account id: mailo open --inbox <account>";
+
+/// `mailo open --inbox` with something after it that is not an account id.
+pub fn not_an_account_id(given: &str) -> String {
+    format!("{given:?} is not an account id")
+}

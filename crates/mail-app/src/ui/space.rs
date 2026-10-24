@@ -140,6 +140,22 @@ where
     })
 }
 
+/// The Space to show `account`'s mail in, as a notification's click asks: the one on screen when
+/// it shows the account, so a click never moves someone who is already where the mail is; else
+/// the first, in the Spaces' own order (the sidebar's dots, ⌘1 onward), that shows it. `None`
+/// when no Space shows it: an account may be in none, and the window then stays where it is.
+pub fn holding(spaces: &Spaces, account: &AccountId) -> Option<SpaceId> {
+    let current = spaces.current();
+    if current.payload.shows(account) {
+        return Some(current.id);
+    }
+    spaces
+        .list()
+        .iter()
+        .find(|space| space.payload.shows(account))
+        .map(|space| space.id)
+}
+
 /// One Space per account, named "Space 1" onward and tinted from quire's presets in order; no
 /// accounts is one Space of none, so the window has somewhere to put the first one added.
 /// Nothing is pinned.

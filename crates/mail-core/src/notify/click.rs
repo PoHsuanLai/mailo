@@ -107,7 +107,7 @@ impl Held {
                 None
             }
             Signal::Invoked { id, action } => {
-                let opens = *self.opens.get(&id)?;
+                let opens = self.opens.get(&id)?.clone();
                 match action.as_str() {
                     "default" => Some(Heard::Open(Clicked {
                         opens,
@@ -230,6 +230,10 @@ mod tests {
         Opens::Thread(ThreadId::from_uuid(uuid::Uuid::from_u128(n)))
     }
 
+    fn account() -> porter_core::AccountId {
+        mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc))
+    }
+
     fn token(id: u32, token: &str) -> Signal {
         Signal::Token {
             id,
@@ -265,20 +269,20 @@ mod tests {
     #[test]
     fn a_server_that_sends_no_token_still_opens_the_message() {
         let mut held = Held::default();
-        held.show(1, Opens::Inbox, None);
+        held.show(1, Opens::Inbox(account()), None);
         assert_eq!(
             held.hear(invoked(1, "default")),
             Some(Heard::Open(Clicked {
-                opens: Opens::Inbox,
+                opens: Opens::Inbox(account()),
                 token: None
             }))
         );
-        held.show(2, Opens::Inbox, None);
+        held.show(2, Opens::Inbox(account()), None);
         held.hear(token(2, ""));
         assert_eq!(
             held.hear(invoked(2, "default")),
             Some(Heard::Open(Clicked {
-                opens: Opens::Inbox,
+                opens: Opens::Inbox(account()),
                 token: None
             }))
         );

@@ -29,6 +29,24 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::sync::Arc;
 
+/// The Spaces the window opens on, `first` as stored: a window started from a click (`mailo
+/// open`, its conversation already in the shell) opens on the Space [`super::start::space_for`]
+/// chooses for it, written so that is where the window is. Shown without a switch: nothing was
+/// on screen to remember.
+fn arrived_at(mut first: Spaces) -> Spaces {
+    let Some(start) = try_consume_context::<super::Start>() else {
+        return first;
+    };
+    let store = consume_context::<Arc<SqliteStore>>();
+    if let Some(id) = super::start::space_for(&first, &store, &start)
+        && id != first.current().id
+    {
+        first.select(id);
+        frame::keep(&first);
+    }
+    first
+}
+
 #[component]
 pub(super) fn App() -> Element {
     // No store handle in the component body. Every read this component makes goes through a
@@ -49,7 +67,10 @@ pub(super) fn App() -> Element {
             ..Shell::default()
         };
         match try_consume_context::<super::Start>() {
-            Some(super::Start::Thread(thread)) => super::open_thread(&mut shell, thread),
+            // A click's conversation or inbox. Its Space is chosen with the Spaces, below.
+            Some(start @ (super::Start::Thread(_) | super::Start::InboxOf(_))) => {
+                super::start::show(&mut shell, &start);
+            }
             // Started from a `mailto:` link: its draft was saved before the window opened, and
             // one read here, once, puts it in the composer.
             Some(super::Start::Compose(id)) => {
@@ -69,10 +90,6 @@ pub(super) fn App() -> Element {
     // The conversations opened in windows of their own, to raise one asked for again.
     super::window::use_opened();
     super::settings_window::use_settings_opened();
-    // What a running window is asked from outside: a notification's click, `mailo open`. A
-    // conversation opens here, where the person reads, and the window is raised with the click's
-    // token.
-    super::handoff::use_handoff(shell);
     let boot = use_hook(frame::load_boot);
     // quire's Spaces: the list, switching, the look and the menu. Where a Space was left is the
     // shell's place and open thread; arriving shows where the Space was left.
@@ -82,7 +99,7 @@ pub(super) fn App() -> Element {
     let handle = {
         let first = boot.spaces.clone();
         use_spaces(
-            move || first,
+            move || arrived_at(first),
             |spaces: &crate::ui::space::Spaces| frame::keep(spaces),
             move || super::switch::recall_of(&shell.peek()),
             move |arrived: Switched<crate::ui::space::Recall>| {
@@ -93,6 +110,10 @@ pub(super) fn App() -> Element {
     };
     // For what switches Space from elsewhere: ⌘K's Spaces.
     use_context_provider(|| handle);
+    // What a running window is asked from outside: a notification's click, `mailo open`. A
+    // conversation opens here, where the person reads, in a Space that shows its account, and
+    // the window is raised with the click's token.
+    super::handoff::use_handoff(shell, handle);
     let spaces = handle.spaces();
     let mut today_list = use_signal(|| boot.today.clone());
     // ⌘K's Recent reads it: what was opened and put aside in each Space.

@@ -61,3 +61,6 @@ mod signatures;
 
 // 18: how an account is synced.
 mod syncing;
+
+// 19: a notification's click, in the Space that holds its account.
+mod clicks;

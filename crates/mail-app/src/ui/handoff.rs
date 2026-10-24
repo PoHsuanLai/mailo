@@ -7,15 +7,17 @@
 
 use super::view::Shell;
 use crate::handoff::Request;
+use crate::ui::space::Handle;
 use dioxus::prelude::*;
 
 /// Read what the running window is asked, on the thread that draws: open each conversation in
-/// this window (`shell`, as a click on its row would) and raise the window with the request's
-/// activation token. Called once, from `App`; a window with no [`Requests`] reads nothing.
+/// this window (`shell`, as a click on its row would), in a Space that shows its account
+/// (`spaces` switches to it), and raise the window with the request's activation token. Called
+/// once, from `App`; a window with no [`Requests`] reads nothing.
 ///
 /// [`Requests`]: crate::handoff::Requests
 #[cfg(not(windows))]
-pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
+pub(in crate::ui) fn use_handoff(shell: Signal<Shell>, spaces: Handle) {
     use crate::handoff::{ActivationToken, Requests};
 
     let Some(requests) = try_consume_context::<Requests>() else {
@@ -48,7 +50,12 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
                         // Logged: the one trace of what a click did to a window with no other way
                         // to ask it.
                         log::info!(target: crate::edge::TRACE, "opened conversation {thread}");
-                        super::open_thread(&mut shell.write(), thread);
+                        arrive(spaces, shell, &super::Start::Thread(thread));
+                        token
+                    }
+                    Request::Inbox { account, token } => {
+                        log::info!(target: crate::edge::TRACE, "opened the inbox of {account}");
+                        arrive(spaces, shell, &super::Start::InboxOf(account));
                         token
                     }
                     Request::Mailto { link, token } => {
@@ -80,8 +87,31 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
     });
 }
 
+/// Show what a click asked for (`start`): first in the Space [`super::start::space_for`] chooses,
+/// switched to as ⌘1-9 would (where the window was is remembered for the Space it leaves), then
+/// the conversation or the inbox there. No switch when the window is already in a Space that
+/// shows the account, when none does, or while a Space's part is open (quire refuses one then);
+/// it is then shown in the Space on screen.
+#[cfg(not(windows))]
+fn arrive(spaces: Handle, mut shell: Signal<Shell>, start: &super::Start) {
+    let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+    let (chosen, current) = {
+        let list = spaces.spaces();
+        let list = list.peek();
+        (
+            super::start::space_for(&list, &store, start),
+            list.current().id,
+        )
+    };
+    if let Some(id) = chosen.filter(|id| *id != current) {
+        // `None` while a Space's part is open: the click is then shown where the window is.
+        let _ = spaces.switch(id);
+    }
+    super::start::show(&mut shell.write(), start);
+}
+
 /// Where there is no bus and no socket nothing is served, so there is nothing to read.
 #[cfg(windows)]
-pub(in crate::ui) fn use_handoff(_shell: Signal<Shell>) {
+pub(in crate::ui) fn use_handoff(_shell: Signal<Shell>, _spaces: Handle) {
     let _: Option<Request> = None;
 }
