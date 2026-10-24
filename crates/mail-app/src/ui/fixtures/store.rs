@@ -130,6 +130,8 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
                     receipt: ReceiptRequest::Unrequested,
                     openpgp: OpenPgp::None,
                     smime: mail_domain::Smime::None,
+                    priority: mail_domain::Priority::Normal,
+                    delivery: mail_domain::DeliveryReport::Unrequested,
                     state: SendState::Editing,
                     updated: chrono::Utc::now(),
                 }))],

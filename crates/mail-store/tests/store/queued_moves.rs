@@ -299,6 +299,7 @@ fn a_send_is_dispatched_exactly_as_it_was_queued() {
             raw: BlobId::generate(),
             mail_from: "me@example.test".to_owned(),
             rcpt_to: vec!["ada@example.test".to_owned()],
+            delivery: mail_domain::DeliveryReport::Unrequested,
         };
         let id = queue(store, intent);
         let queued = store

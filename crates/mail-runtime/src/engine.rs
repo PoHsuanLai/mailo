@@ -364,6 +364,26 @@ impl Kept {
     }
 }
 
+/// The RFC 3461 parameters a draft's request for delivery reports puts on the envelope: a report
+/// when the message is delivered and when it fails, never one for a delay, which says only that a
+/// server is still trying. Headers rather than the whole message come back, as a report needs
+/// only enough to say which message it is about. `mail_proto::smtp` leaves them off, and still
+/// submits, when the server does not offer `DSN`.
+fn delivery_receipt(delivery: mail_domain::DeliveryReport) -> Option<mail_proto::smtp::Receipt> {
+    match delivery {
+        mail_domain::DeliveryReport::Unrequested => None,
+        mail_domain::DeliveryReport::Requested => Some(mail_proto::smtp::Receipt {
+            notify: mail_proto::smtp::Notify::On {
+                success: true,
+                failure: true,
+                delay: false,
+            },
+            ret: mail_proto::smtp::Return::Headers,
+            envid: None,
+        }),
+    }
+}
+
 /// Whether `e` is a submission connection that went away, or that the server closed with a 421
 /// (RFC 5321 §3.8): what a kept one answers when the server has had enough of it.
 fn let_go(e: &RuntimeError) -> bool {
@@ -760,7 +780,7 @@ impl<B: Backend> AccountEngine<B> {
                     // would lose the `Bcc` recipients, which its headers deliberately omit.
                     mail_from: posting.mail_from,
                     recipients: posting.rcpt_to,
-                    receipt: None,
+                    receipt: delivery_receipt(posting.delivery),
                     message: posting.message,
                 })
             }),
@@ -808,6 +828,7 @@ impl<B: Backend> AccountEngine<B> {
             raw,
             ref mail_from,
             ref rcpt_to,
+            delivery,
             ..
         } = op
         else {
@@ -834,6 +855,7 @@ impl<B: Backend> AccountEngine<B> {
             mail_from: mail_from.clone(),
             rcpt_to: rcpt_to.clone(),
             message,
+            delivery,
         };
         let kept = self.sending.take().filter(|(kept, _)| kept.fresh());
         // Once more on a new connection, where the kept one was let go: by the server, or with

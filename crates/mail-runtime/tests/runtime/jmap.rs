@@ -300,6 +300,7 @@ async fn a_send_is_imported_submitted_with_every_recipient_and_filed_in_sent() {
                     "ada@example.test".to_owned(),
                     "blind@example.test".to_owned(),
                 ],
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &Patch {
                 id: ChangeId::generate(),

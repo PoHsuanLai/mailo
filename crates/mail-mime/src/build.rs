@@ -3,8 +3,11 @@
 use crate::MimeError;
 use mail_builder::MessageBuilder;
 use mail_builder::headers::address::Address as MailAddress;
+use mail_builder::headers::raw::Raw;
 use mail_builder::mime::{BodyPart, MimePart};
-use mail_domain::{Address, BlobId, Draft, Identity, Message, ReceiptRequest, normalize_id};
+use mail_domain::{
+    Address, BlobId, DeliveryReport, Draft, Identity, Message, ReceiptRequest, normalize_id,
+};
 use std::collections::HashSet;
 
 /// Whether the built bytes may name blind recipients.
@@ -40,6 +43,9 @@ pub struct Posting {
     pub rcpt_to: Vec<String>,
     /// The message, built with [`Disclosure::HideBlind`].
     pub message: Vec<u8>,
+    /// Whether the envelope asks for delivery reports. Beside the envelope it belongs to, not in
+    /// the bytes: RFC 3461's request is made of `RCPT TO`, and no header can make it.
+    pub delivery: DeliveryReport,
 }
 
 /// Everything needed to submit `draft`: the envelope and the bytes, consistent by construction.
@@ -70,6 +76,7 @@ pub fn posting(
         mail_from: identity.from.email.trim().to_owned(),
         rcpt_to,
         message: build(draft, identity, in_reply_to, parts, Disclosure::HideBlind)?,
+        delivery: draft.delivery,
     })
 }
 
@@ -135,6 +142,14 @@ pub fn build(
     if draft.receipt == ReceiptRequest::Requested {
         builder = builder.header("Disposition-Notification-To", mail_addr(&identity.from));
     }
+    // Both spellings of urgency, and neither for Normal (`Priority::headers`). Written raw: the
+    // values are this crate's own constants, never text from the draft.
+    if let Some((x_priority, importance)) = draft.priority.headers() {
+        builder = builder
+            .header("X-Priority", Raw::new(x_priority))
+            .header("Importance", Raw::new(importance));
+    }
+    // No HTML part is a plain-text message: `text/plain` alone, not `multipart/alternative`.
     if let Some(html) = draft.html.as_deref() {
         builder = builder.html_body(html);
     }

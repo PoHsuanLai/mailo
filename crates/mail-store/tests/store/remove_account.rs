@@ -234,6 +234,8 @@ fn a_blob_a_kept_draft_attaches_stays() {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
         state: SendState::Editing,
         updated: at(2),
     };

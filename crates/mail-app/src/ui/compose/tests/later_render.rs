@@ -81,11 +81,18 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
                 &mail_core::testing::MapSigningStore::default(),
                 &mut write,
                 Anyway::Yes,
+                chrono::TimeDelta::seconds(5),
                 Utc::now(),
                 &chrono::Local,
                 mail_core::when::Clock::H24,
             );
-            let Ok(Sent::Queued { draft, due, when }) = sent else {
+            let Ok(Sent::Queued {
+                draft,
+                due,
+                when,
+                grace,
+            }) = sent
+            else {
                 panic!("not scheduled: {sent:?}");
             };
             let back = write.clone();
@@ -94,6 +101,7 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
                 draft,
                 due,
                 when,
+                grace,
                 page: back,
                 refused: None,
             }));

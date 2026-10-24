@@ -25,6 +25,8 @@ pub(in crate::ui) struct Outgoing {
     /// When it may leave the outbox.
     pub due: DateTime<Utc>,
     pub when: When,
+    /// How long Undo was given when it was sent: what the pill's ring counts down from.
+    pub grace: chrono::TimeDelta,
     /// The page as it was sent, so Undo brings back exactly this.
     pub page: Page,
     /// Why the last Undo or Cancel was refused, said on the pill.
@@ -139,13 +141,16 @@ pub(in crate::ui) fn show_queued(
     draft: DraftId,
     now: DateTime<Utc>,
 ) {
-    let Some(page) = life::load(store, draft, &mut Vec::new()) else {
+    let compose = crate::ui::prefs::current().compose;
+    let Some(page) = life::load(store, draft, &mut Vec::new(), &compose) else {
         return;
     };
     desk.outbox.set(Some(Outgoing {
         draft,
         due: now,
         when: When::Now,
+        // Queued to leave at once: there is nothing to count down.
+        grace: chrono::TimeDelta::zero(),
         page,
         refused: None,
     }));
@@ -194,8 +199,13 @@ pub(in crate::ui) fn take_back(
             desk.outbox.set(None);
             out.page
         }
-        None => life::load(&store, draft.id, &mut desk.parked.write())
-            .ok_or_else(|| "that draft is gone".to_owned())?,
+        None => life::load(
+            &store,
+            draft.id,
+            &mut desk.parked.write(),
+            &crate::ui::prefs::current().compose,
+        )
+        .ok_or_else(|| "that draft is gone".to_owned())?,
     };
     page.phase = Phase::Writing;
     // Still folding on screen: it unfolds where it is.

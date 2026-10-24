@@ -1,4 +1,4 @@
-//! General: two groups of mailo's settings, Reading and Mail, and the trusted senders' page
+//! General: three groups of mailo's settings, Reading, Mail and Composing, and the trusted senders' page
 //! pushed over them.
 //!
 //! Each group is a list of [`Line`]s ([`SECTIONS`]): a key of the schema, drawn by its kind
@@ -40,7 +40,7 @@ pub(super) struct Section {
 }
 
 /// General, group by group.
-pub(super) const SECTIONS: [Section; 2] = [
+pub(super) const SECTIONS: [Section; 3] = [
     Section {
         title: copy::headers::READING,
         lines: &[
@@ -55,8 +55,16 @@ pub(super) const SECTIONS: [Section; 2] = [
             Line::DefaultMail,
             Line::Key("notifications.new_mail"),
             Line::Key("reading.read_receipts"),
-            Line::Key("compose.spelling"),
             Line::Key("search.server_automatically"),
+        ],
+    },
+    Section {
+        title: copy::headers::COMPOSING,
+        lines: &[
+            Line::Key("compose.format"),
+            Line::Key("compose.reply_same_format"),
+            Line::Key("compose.undo_send"),
+            Line::Key("compose.spelling"),
         ],
     },
 ];

@@ -60,6 +60,8 @@ pub fn draft() -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: mail_domain::OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
         state: SendState::Editing,
         updated: at(),
     }

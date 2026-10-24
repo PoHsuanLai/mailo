@@ -160,6 +160,7 @@ pub fn answer(
             raw: frozen,
             mail_from: post.mail_from.clone(),
             rcpt_to: post.rcpt_to.clone(),
+            delivery: post.delivery,
         },
         // A reply that left cannot be taken back by a patch; answering again is how.
         &Patch {

@@ -194,6 +194,8 @@ fn PageHarness(draft: Draft) -> Element {
     let today = use_signal(crate::ui::today::Today::default);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     let dirs = try_consume_context::<WindowDirs>();
+    // The settings, as the window provides them: from the config directory, when one was handed.
+    crate::ui::prefs::use_prefs(dirs.as_ref());
     let desk = use_desk(today, spaces, dirs.clone());
     use_hook(|| shell.write().compose(&draft));
     DESK.with(|slot| slot.set(Some(desk)));

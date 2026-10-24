@@ -392,6 +392,7 @@ fn send(store: &dyn Store, draft: &Draft, now: DateTime<Utc>) {
                 raw: BlobId::generate(),
                 mail_from: ME.to_owned(),
                 rcpt_to,
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &patch(vec![]),
             now,
@@ -420,6 +421,8 @@ fn draft(to: Vec<Address>, subject: &str) -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        delivery: mail_domain::DeliveryReport::Unrequested,
+        priority: mail_domain::Priority::Normal,
     }
 }
 

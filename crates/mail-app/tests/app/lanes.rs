@@ -28,6 +28,7 @@ mod reading;
 // 1–2: writing, attaching and sending; formatting.
 mod compose;
 mod format;
+mod plain;
 
 // 3–6: a reply's round trip, an invitation, links, forwarding.
 mod downloads;

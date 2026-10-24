@@ -243,7 +243,8 @@ pub(in crate::ui) fn send_again(store: &SqliteStore, resend: Resend) -> bool {
         secrets.as_ref(),
         &mail_core::pgp::no_passphrase,
         resend.draft,
-        Leaves::At(resend.at),
+        // A time of its own: no grace is counted before it.
+        (Leaves::At(resend.at), chrono::TimeDelta::zero()),
         None,
         Utc::now(),
     )

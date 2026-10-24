@@ -717,6 +717,7 @@ fn submission_is_refused_here() {
             raw: BlobId::generate(),
             mail_from: "ada@example.com".to_owned(),
             rcpt_to: vec!["bob@example.com".to_owned()],
+            delivery: mail_domain::DeliveryReport::Unrequested,
         }),
         Progress::Failed(_)
     ));

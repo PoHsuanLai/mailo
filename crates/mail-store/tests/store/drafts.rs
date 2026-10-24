@@ -57,6 +57,9 @@ fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
         receipt: ReceiptRequest::Requested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        // Not the defaults, so a column the store forgot reads back as a difference.
+        priority: mail_domain::Priority::High,
+        delivery: mail_domain::DeliveryReport::Requested,
         state: SendState::Editing,
         updated: at(10),
     }
