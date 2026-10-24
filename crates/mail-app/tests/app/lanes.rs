@@ -29,7 +29,8 @@ mod reading;
 mod compose;
 mod format;
 
-// 3–6: a reply's round trip, an invitation, links, forwarding.
+// 3–6: a reply's round trip, an invitation, links and copying a message's words, forwarding.
+mod copying;
 mod downloads;
 mod forward;
 mod invite;

@@ -13,6 +13,7 @@ mod peek;
 mod route;
 mod thumb;
 mod tools;
+mod words;
 
 use super::press::on_primary;
 use super::text::{attachment_rows, stamp};
@@ -120,6 +121,10 @@ pub(super) fn Reader(
     // menu it opens.
     let frame_menus = use_signal(try_consume_context::<super::original::FrameMenus>);
     let mut link_menu = use_signal(|| None::<super::original::LinkAsked>);
+    // The words selected in a message a right click was on (`blocks::Sandbox`), and the Copy menu
+    // they open where no link was.
+    let mut words_asked = use_signal(|| None::<String>);
+    let mut copy_menu = use_signal(|| None::<WordsAsked>);
     // The earlier messages a press opened, and those that were unread when the conversation was
     // opened (`fold`): an earlier message is one line unless it is in either.
     let unfolded = use_signal(HashSet::<MessageId>::new);
@@ -415,10 +420,19 @@ pub(super) fn Reader(
                 article { key: "{message.id}", class: "frame",
                     oncontextmenu: move |event: MouseEvent| {
                         let asked = frame_menus.peek().as_ref().and_then(|menus| menus.take());
+                        let words = words_asked.take();
                         if let Some(asked) = asked {
                             event.prevent_default();
                             event.stop_propagation();
                             link_menu.set(Some(asked));
+                        } else if let Some(text) = words {
+                            event.prevent_default();
+                            event.stop_propagation();
+                            let at = event.client_coordinates();
+                            copy_menu.set(Some(WordsAsked {
+                                text,
+                                at: Point { x: Px(at.x as f32), y: Px(at.y as f32) },
+                            }));
                         }
                     },
                     if fold == fold::Fold::Folded {
@@ -480,6 +494,7 @@ pub(super) fn Reader(
                                     html: html.clone(),
                                     plain: *plain,
                                     fit: at + 1 < count,
+                                    asked: words_asked,
                                 }
                             },
                         }
@@ -499,6 +514,9 @@ pub(super) fn Reader(
             }
             if let Some(asked) = link_menu() {
                 LinkMenu { asked, menus: frame_menus, open: link_menu, shell }
+            }
+            if let Some(asked) = copy_menu() {
+                CopyMenu { asked, open: copy_menu }
             }
             {children}
         }
@@ -640,6 +658,45 @@ fn LinkMenu(
     }
 }
 
+/// Words selected in a message that a right click was on, and where the pointer is, in the
+/// window's coordinates.
+#[derive(Debug, Clone, PartialEq)]
+struct WordsAsked {
+    text: String,
+    at: Point,
+}
+
+/// Copy, at the pointer, for the words selected in a message that a right click was on: they go
+/// on the clipboard as ⌘C would put them.
+#[component]
+fn CopyMenu(asked: WordsAsked, open: Signal<Option<WordsAsked>>) -> Element {
+    let mut open = open;
+    let at = Rect {
+        origin: asked.at,
+        size: Size {
+            width: Px(0.0),
+            height: Px(0.0),
+        },
+    };
+    let text = asked.text.clone();
+    rsx! {
+        super::menu::Floating {
+            anchor: None,
+            placed: Some(at),
+            title: String::new(),
+            items: vec![super::menu::MenuItem::icon(COPY, Icon::Copy, super::copy::menus::COPY)],
+            on_pick: move |key: String| {
+                open.set(None);
+                if key == COPY {
+                    super::host::Host::copy(&text);
+                }
+            },
+            on_close: move |_| open.set(None),
+        }
+    }
+}
+
+const COPY: &str = "copy";
 const OPEN_LINK: &str = "open-link";
 const PREVIEW_LINK: &str = "preview-link";
 const COPY_LINK: &str = "copy-link";
