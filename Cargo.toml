@@ -30,10 +30,10 @@ rust-version = "1.92"
 latchkey    = { git = "https://github.com/PoHsuanLai/latchkey", rev = "b10ae1b8c49c55cce2c5affde8f5db76edb66ab4" }
 mail-appkit = { path = "crates/mail-appkit" }
 mail-core   = { path = "crates/mail-core", default-features = false }
-mail-domain = { path = "crates/mail-domain", version = "0.1.0" }
-mail-mime   = { path = "crates/mail-mime", version = "0.1.0", default-features = false }
-mail-pim    = { path = "crates/mail-pim", version = "0.1.0" }
-mail-proto  = { path = "crates/mail-proto", version = "0.1.0" }
+mail-domain = { package = "mailo-domain", path = "crates/mail-domain", version = "0.1.0" }
+mail-mime   = { package = "mailo-mime", path = "crates/mail-mime", version = "0.1.0", default-features = false }
+mail-pim    = { package = "mailo-pim", path = "crates/mail-pim", version = "0.1.0" }
+mail-proto  = { package = "mailo-proto", path = "crates/mail-proto", version = "0.1.0" }
 mail-runtime = { path = "crates/mail-runtime", default-features = false }
 mail-store  = { path = "crates/mail-store" }
 # The accounts system's vocabulary, pinned by git rev like quire (porter is public). mailo names its
@@ -139,7 +139,7 @@ opt-level = 2
 [profile.dev.package.ammonia]
 opt-level = 2
 
-[profile.dev.package.mail-mime]
+[profile.dev.package.mailo-mime]
 opt-level = 2
 
 # S/MIME (`mail-mime::smime`) generates RSA keys in its tests and derives PKCS#12 keys with

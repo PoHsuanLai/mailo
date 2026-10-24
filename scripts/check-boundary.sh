@@ -6,7 +6,8 @@
 # check for OUTPUT instead: any line naming the dependency is a leak.
 set -uo pipefail
 
-PURE=(mail-domain mail-mime mail-proto mail-pim)
+# Package names, as `cargo tree -p` takes them: the pure crates are published as `mailo-*`.
+PURE=(mailo-domain mailo-mime mailo-proto mailo-pim)
 # Nor porter's client, its bus vocabulary or quire's capability probe: the sans-I/O crates know
 # nothing of the desktop's accountd. Nor anyview (the attachment peek and its card): only
 # `mail-app` draws, behind its `anyview` feature.
@@ -18,6 +19,14 @@ FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus 
 CORE=(mail-core)
 FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek)
 fail=0
+
+# A name `cargo tree` does not know prints nothing, which would read as a boundary that holds.
+for crate in "${PURE[@]}" "${CORE[@]}" mail-store mail-runtime; do
+  if ! cargo tree -p "$crate" --depth 0 >/dev/null 2>&1; then
+    echo "no package named $crate: update the names in this script"
+    exit 1
+  fi
+done
 
 for crate in "${PURE[@]}"; do
   for dep in "${FORBIDDEN[@]}"; do
