@@ -1,218 +1,193 @@
 # mailo
 
-A mail client in Rust: IMAP, POP3 and SMTP, a SQLite store, and a Dioxus desktop window over the
-top. Built against two real accounts — a Gmail one and a university POP3 one — because most of
-what it got wrong was invisible until it met a real mailbox.
+mailo is a desktop mail client written in Rust. It keeps your mail in a local SQLite database,
+talks to servers over IMAP, POP3, JMAP and Microsoft Graph, sends over SMTP, JMAP or Graph, and
+draws its window with [quire](https://github.com/PoHsuanLai/quire) (Blitz and wgpu; there is no
+webview). One binary, `mailo`, is both the window (no arguments) and a command line (anything
+else), over the same store.
 
-```
-mail-app      → mail-core                                the `mailo` binary: the window (ui) and the command line (cli)
-mail-core     → mail-runtime, mail-store, mail-domain    the logic: sync, fetching, accounts, compose, rules, search…
-mail-runtime  → mail-proto, mail-store, mail-mime        tokio; owns the I/O loop
-mail-store    → mail-domain                              SQLite, FTS5, the outbox
-mail-proto    → mail-mime, mail-domain                   sans-I/O protocol machines
-mail-mime     → mail-domain                              parse, build, sanitize
-mail-domain   → serde, uuid, chrono, thiserror           the vocabulary
+This is the 0.1.0 line. It is developed and tested mostly on macOS and Linux; the Windows build is
+the least exercised.
 
-latchkey      → interprocess                             find this user's agent, or start one
-```
+## Features
 
-[latchkey](https://github.com/PoHsuanLai/latchkey) is not about mail and now lives in its own repository: it is
-the per-user daemon lifecycle — where the socket goes on each platform, who is allowed to be
-behind it, and how a client starts one — with no mail in it at all. It was written here because
-this project needed it and nothing on crates.io does it; mailo pins it by git rev.
+**Accounts and protocols**
 
-## How it is put together
+- IMAP, POP3 (with a leave-on-server choice), JMAP, Microsoft Graph, and local-only accounts that
+  have no server.
+- Sending over SMTP, JMAP `EmailSubmission` or Graph `sendMail`.
+- OAuth sign-in for Google and Microsoft accounts; passwords and PLAIN/LOGIN-style SASL for the
+  rest. Server settings are discovered from the address where possible.
+- Offline use: actions are queued in an outbox and replayed when the server is reachable.
+- `mailo watch` fetches continuously without a window, waiting on IMAP IDLE or JMAP's event stream where the server offers one and polling otherwise.
 
-Obviously the thing does I/O: `mail-runtime` opens sockets and owns a tokio loop, `mail-store`
-writes SQLite, `mail-core` is everything the application does with them, and `mail-app` draws a
-window and a terminal over that. What the layout buys is *where* it happens.
+**Reading and writing**
 
-**The bottom three crates do none of it.** `mail-domain`, `mail-mime` and `mail-proto` never open
-a socket, read a clock or spawn a task — that is the sans-I/O pattern, which has never meant "does
-no I/O" but "the protocol layer does not perform it". `ImapSession` takes bytes and returns
-`Progress::Need(..)` or `Progress::Done(..)`; something above it does the reading. IDLE is
-interruptible because the machine is a value someone else drives, and a recorded transcript
-replays because nothing in it wanted a socket. It is enforced mechanically rather than by
-intention: `scripts/check-boundary.sh` fails if any of those three can reach tokio, rusqlite,
-dioxus, reqwest or keyring.
+- HTML mail is sanitised; remote images are blocked until you allow them (per message or per
+  trusted sender). Read receipts are never sent automatically.
+- Threaded conversations, labels and folders, stars, archive, undo for most actions.
+- Compose with signatures, templates, reply and forward, attachments, spell check, and
+  `mailto:` links (RFC 6068).
+- Send later (`mailo send --at`, taken back with `mailo unsend`), snooze, and follow-up reminders.
+- One-click and mailto `List-Unsubscribe`.
+- Import from mbox, Maildir and `.eml`; export; printing (PDF through the system print dialog);
+  BIMI sender logos.
 
-**Two front-ends over one core.** `mail-core` has no window and no terminal in it: it never
-depends on dioxus, quire (`ds`, `ds-settings`, `ds-blitz`) or anything else that draws, and the
-same script fails if it does. `mail-app` holds the two front-ends side by side — `src/ui` is the
-window, `src/cli` the command line, `src/main.rs` the router between them — and neither names the
-other, so what they share has to live in `mail-core`. A few core modules still return terminal
-prose; `scripts/core-prose-allowlist.txt` and `scripts/core-result-string-allowlist.txt` list
-them, to be converted to typed outcomes.
+**Search and rules**
 
-**Enums for mail vocabulary, traits only for real seams.** An account is a value — incoming
-protocol, outgoing protocol, auth — not a type. Adding Microsoft meant an enum variant, an
-endpoints row and a preset function, and the compiler found every site that had to change.
+- Full-text search over the local store (SQLite FTS5), plus server-side search where the protocol
+  has it.
+- Rules that run in mailo. Where the server offers ManageSieve, rules can be pushed to it, and an
+  away reply (`mailo vacation`) is set there. Gmail and Microsoft offer no ManageSieve, so those
+  accounts have local rules only and no vacation reply.
 
-## Running it
+**Encryption**
 
-```sh
-cargo build --release
+- OpenPGP (RFC 4880/9580 via rPGP): generate and import keys, sign, encrypt, verify, Autocrypt,
+  and key lookup through WKD.
+- S/MIME: import PKCS#12 certificates, sign, encrypt, decrypt, verify, and a trust list.
 
-./target/release/mailo account add you@gmail.com      # see the help for OAuth and manual hosts
-./target/release/mailo watch                          # fetch continuously
-./target/release/mailo                                # no arguments opens the window
+**Contacts and calendar**
 
-./target/release/mailo ping                           # reach the daemon, starting one if needed
-./target/release/mailo daemon --stop
-```
+- Contacts: a local address book, vCard import and export, and CardDAV sync.
+- Calendar invitations in mail: shown in the reader, answered on request with an iTIP `REPLY`,
+  and saved as `.ics`. There is no CalDAV sync and no calendar view; mailo is not a calendar.
 
-`mailo` with no arguments opens the desktop window; anything else is the command line. One binary,
-one store — a separate CLI would drift from what the window does.
+## Install
 
-Run `./target/release/mailo --help` to print the full list.
+CI builds the packages (the `package` job of `.github/workflows/ci.yml`) on every push to master.
+There is no tagged release yet, so take them from a run's artifacts.
 
-Clicking a new-mail notification from `mailo watch` opens that conversation in the window that is
-running and raises it with the click's activation token (or starts the window, if none is running).
-For the desktop to name and group the notifications, install the desktop entry (below).
-
-`mailo mailto:someone@example.org?subject=Hello` opens the window on a composer holding what the
-link asks for (RFC 6068: `to`, `cc`, `bcc`, `subject` and `body`; every other field is ignored).
-Nothing is sent until you send it. With the desktop entry installed, mailo can be chosen as the
-system's mail handler, and a `mailto:` link clicked anywhere opens it this way.
-
-On a desktop that runs quire's intent router, `mailo intents` answers it for the session: an
-agent or `quire-do mail` can search, read, archive, star, label and snooze conversations, write a
-draft and send a message, each undoable and none needing the window (`docs/desktop-member.md`). The
-router starts it on demand; `dist/install.sh` and the packages install what it needs.
-
-## Installing
-
-**From a package.** `./scripts/package.sh` builds a `.deb`, an `.rpm` and a Flatpak, each with
-its own external tool (`cargo install cargo-deb`, `cargo install cargo-generate-rpm`,
-`flatpak-builder`); a format whose tool is missing is skipped with a note saying which one.
-`./scripts/package.sh deb` builds one. Then:
+| OS | Package |
+| --- | --- |
+| macOS | `mailo-<version>.dmg` holding `mailo.app` |
+| Debian, Ubuntu | `.deb` |
+| Fedora | `.rpm` |
+| Windows | `mailo-x86_64.msi` |
 
 ```sh
-sudo apt install ./target/debian/mailo_*.deb                    # Debian, Ubuntu
-sudo dnf install ./target/generate-rpm/mailo-*.rpm              # Fedora
-flatpak install --user ./target/flatpak/mailo.flatpak           # anywhere
+sudo apt install ./mailo_*.deb          # Debian, Ubuntu
+sudo dnf install ./mailo-*.rpm          # Fedora
 ```
 
-The Flatpak (`packaging/flatpak/`) has the network, the display, the GPU, the keyring and
-notifications, and no files outside its own: attachments, import and export go through the
-desktop's file chooser.
+The macOS and Windows packages are unsigned. macOS says the developer cannot be verified: open
+mailo once from Finder with Control-click, Open. Windows SmartScreen warns about an unrecognised
+app: More info, Run anyway.
 
-**On a desktop that runs the session (sill's, or any with a systemd user session),** from a checkout:
+`./scripts/package.sh` also builds a Flatpak (`packaging/flatpak/`) if `flatpak-builder` is
+installed; CI does not publish one. `dist/install.sh` installs from a checkout into `/usr/local`
+along with a systemd user unit, `mailo-watch.service`, that runs `mailo watch` from login
+(`dist/install.sh --dry-run` prints every step; `dist/uninstall.sh` removes it again, and leaves
+your mail and settings).
+
+Passwords and tokens are kept in the OS keychain: the login keychain on macOS, the Credential
+Manager on Windows, and on Linux the Secret Service (GNOME Keyring, KWallet, KeePassXC), which
+must be running.
+
+## Build from source
+
+The minimum supported Rust is 1.92 (`rust-version` in `Cargo.toml`). The repository has no
+`rust-toolchain.toml`; CI uses current stable. There is no `.cargo/config.toml`: a plain clone
+builds, with quire, porter, anyview and latchkey fetched from GitHub at the revisions `Cargo.toml`
+pins.
 
 ```sh
-dist/install.sh --dry-run      # prints every step and changes nothing, not even the build
-dist/install.sh                # builds in release, installs to /usr/local and /etc/systemd/user
-dist/uninstall.sh              # takes it all out again; your mail and settings stay
+cargo build --release -p mail-app      # produces target/release/mailo
 ```
 
-That puts `mailo`, its desktop entry (`mailo.desktop`, whose id is the window's `app_id`) and icon
-under `/usr/local`, and `mailo-watch.service` into `/etc/systemd/user`, enabled for
-`graphical-session.target`. The unit runs `mailo watch` from login in any session, window or no
-window: it fetches mail for every account, raises a freedesktop notification for each arrival
-(app name `mailo`, icon `mailo`; a click opens that message, handing the window the activation
-token the notification server minted), and keeps the unread count on the launcher entry
-(`com.canonical.Unity.LauncherEntry`). Do Not Disturb is the notification server's: mailo posts
-ordinary notifications and the server withholds the banner and keeps the record. The look of the
-window is the desktop's, `quire/appearance.toml`, followed live; mailo keeps no appearance file.
-`docs/desktop-member.md` says how the pieces fit.
+- **Linux:** a C compiler and fontconfig headers (`libfontconfig1-dev` on Debian and Ubuntu,
+  `fontconfig-devel` on Fedora). Wayland, X11, xkbcommon and the GPU drivers are opened at run
+  time. `cargo test` also wants Noto CJK fonts (`fonts-noto-cjk`), as print tests check which
+  regional face CJK mail is set in.
+- **macOS:** Xcode's command line tools. `./packaging/macos/bundle.sh` makes `mailo.app` and the
+  `.dmg` in `target/macos/`.
+- **Windows:** Visual Studio's build tools. CI builds the release with
+  `--no-default-features`, then `cargo wix --package mail-app` with `packaging/windows/main.wxs`
+  makes the MSI (WiX Toolset v3).
 
-**By hand**, into your home directory:
+The default features (`quire-desktop`, `anyview`) add links to the quire desktop's own services;
+the macOS and Windows packages are built without them.
 
-```sh
-cargo build --release -p mail-app
-install -Dm755 target/release/mailo ~/.local/bin/mailo
-install -Dm644 packaging/mailo.desktop ~/.local/share/applications/mailo.desktop
-for size in 16 32 48 64 128 256 512; do
-    install -Dm644 packaging/icons/hicolor/${size}x${size}/apps/mailo.png \
-        ~/.local/share/icons/hicolor/${size}x${size}/apps/mailo.png
-done
-update-desktop-database ~/.local/share/applications    # so the mailto: handler is found
-xdg-mime default mailo.desktop x-scheme-handler/mailto  # optional: make mailo the mail handler
-```
-
-`~/.local/bin` has to be on your `PATH`, since the entry runs `mailo`. Passwords and tokens are
-kept in the desktop's keyring (the Secret Service: GNOME Keyring, KWallet, KeePassXC), so one has
-to be running.
-
-### The daemon is a prototype
-
-`mailo ping` starts a background daemon on demand and talks to it — the `ssh-agent` pattern, so
-nothing has to be installed or enabled first. What is finished is the *transport*: `latchkey`
-decides where it lives and who is allowed to be it, and `ipc::wire` is a versioned line protocol
-on top. What is not finished is the point of having one — holding IDLE connections in the daemon
-rather than in `mailo watch`.
-
-One agent per user is enforced by an advisory file lock rather than by looking at the socket,
-which is not a detail: the first version asked the socket, and asking the socket cannot be done
-without a race in either direction. `latchkey`'s README has the two of them written out.
-
-## Building on Linux
-
-The window is drawn with Blitz and wgpu through quire's `ds-blitz`; there is no webview and no
-script engine in it. The one system library it links at build time is fontconfig
-(`fontconfig-devel` on Fedora, `libfontconfig1-dev` on Debian/Ubuntu). Wayland, X11, xkbcommon
-and the GPU drivers are opened at run time.
+The checks CI runs:
 
 ```sh
-cargo build --release -p mail-app
-```
-
-Print hands a PDF, made by quire, to the system's print dialog (the desktop portal).
-
-`cargo test` needs Noto's CJK faces too (`fonts-noto-cjk` on Debian/Ubuntu, which is what CI
-installs): the print tests check which regional face Chinese, Japanese and Korean mail is set in.
-
-The window draws with [quire](https://github.com/PoHsuanLai/quire), the shared design system,
-at tag v0.2.3 (and builds against quire master with a local `[patch]`, see `.cargo/config.toml` in
-`docs/desktop-member.md`). `crates/mail-app` depends on that tagged release from GitHub, so a plain clone of
-mailo builds on its own.
-
-## macOS and Windows
-
-mailo builds and is tested on both (`portable` in `.github/workflows/ci.yml`) with a plain
-`cargo build --release -p mail-app`, needing only the C compiler Rust already needs there (Xcode's
-command line tools, Visual Studio's build tools). Passwords and tokens go to the login keychain on
-macOS and to the Credential Manager on Windows. Mail and settings go to
-`~/Library/Application Support/mailo` on macOS; on Windows mail goes to `%LOCALAPPDATA%\mailo` and
-settings to `%APPDATA%\mailo`.
-
-**Installing.** Every push to master builds packages for all three platforms (the `package` job;
-download them from the run's artifacts): a `.deb` and an `.rpm`, `mailo-<version>.dmg` holding
-`mailo.app`, and `mailo-x86_64.msi`. **The macOS and Windows packages are unsigned.** macOS says the
-developer cannot be verified: open it once from Finder with Control-click, Open. Windows SmartScreen
-warns about an unrecognised app: More info, Run anyway. Both register mailo for `mailto:` links, to
-be chosen as the mail handler in Mail's settings or in Windows' Default apps. On macOS mailo also
-asks once, at a launch with an account, whether to become the default mail app, and Settings ›
-General says which app it is and offers Make Default; the system confirms either way. To build them
-yourself: `packaging/macos/bundle.sh`, or `cargo wix` with `packaging/windows/main.wxs` as the CI
-job does.
-
-What is not the same yet: on macOS a click on a notification opens nothing, and a `mailto:` link
-starts mailo without handing it the link; on Windows the window is started with a console beside
-it, and notifications are shown under Windows PowerShell's name.
-
-## The gates
-
-```sh
-cargo test --workspace            # ~2200 tests, no network
-cargo clippy --all-targets
 cargo fmt --all --check
-./scripts/check-boundary.sh       # the sans-I/O boundary
-./scripts/check-copy.sh           # the window's words live in crates/mail-app/src/ui/copy
-./scripts/live-tests.sh           # real sockets against local servers
+cargo clippy --workspace --all-targets -- -D warnings
+cargo nextest run --workspace          # or cargo test --workspace; no network needed
+./scripts/check-boundary.sh            # the sans-I/O boundary
+./scripts/check-copy.sh                # the window's words live in crates/mail-app/src/ui/copy
 cargo deny check licenses
 ```
 
-`cargo test` never touches the network. Everything that does is `#[ignore]`d and run deliberately
-by the scripts above.
+Tests that need sockets are `#[ignore]`d and run by `./scripts/live-tests.sh` against local
+servers.
 
-## The documents
+## Using it
 
-- **`CONTRIBUTING.md`** — the rules the code is written to, and the checks that hold them.
-- **`docs/design-language.md`** — what the window shows, and what it keeps one step away.
-- **`docs/desktop-member.md`** — how mailo fits the desktop it belongs to.
-- **`docs/protocol-compliance.md`** — a protocol-by-protocol audit of what mailo does against the RFCs, with the test for each.
+```sh
+mailo account add you@example.org     # `mailo account` and the help list OAuth and manual hosts
+mailo watch                           # fetch continuously, with notifications
+mailo                                 # open the window
+```
+
+Run `mailo` with an unknown command to print the full command list.
+
+### Default mail app (`mailto:`)
+
+`mailo mailto:someone@example.org?subject=Hello` opens a composer holding what the link asks for
+(`to`, `cc`, `bcc`, `subject`, `body`; other fields are ignored). Nothing is sent until you send it.
+
+- **macOS:** the installed `mailo.app` is registered for `mailto:`. At a launch with an account,
+  mailo asks once whether to become the default mail app, and Settings > General shows the current
+  handler with a Make Default button; the system confirms the change. A link opened while mailo is
+  running is handed to that window. A copy run from a terminal is not a bundle and cannot be chosen.
+- **Linux:** the desktop entry (`packaging/mailo.desktop`, installed by the packages) registers the
+  handler. Choose it in your desktop's settings, or with
+  `xdg-mime default mailo.desktop x-scheme-handler/mailto`. A running window is reached over D-Bus.
+- **Windows:** the MSI registers mailo for `mailto:`; choose it in Default apps. There is no
+  hand-off to a running window, so a link starts a new mailo.
+
+### Notifications
+
+`mailo watch` and the window raise a notification for new mail in the inbox that is still unread.
+Do Not Disturb is the system's.
+
+- **Linux:** freedesktop notifications. Clicking one opens that conversation in the running window
+  (or starts it), passing the click's activation token so a Wayland compositor lets it take focus.
+- **macOS:** the notification centre. A click opens its conversation only for notifications the
+  window itself shows; a banner from `mailo watch` run in a terminal opens nothing.
+- **Windows:** toasts are shown under Windows PowerShell's name, since an unregistered app id
+  shows nothing at all.
+
+On a desktop running quire's intent router, `mailo intents` lets an agent or `quire-do mail`
+search, read, archive, star, label and snooze conversations and write or send mail, without the
+window (`docs/desktop-member.md`).
+
+## Crates
+
+The workspace is nine crates under `crates/`. The sans-I/O crates never open a socket, read a
+clock or spawn a task, and `scripts/check-boundary.sh` fails CI if one of them reaches tokio,
+rusqlite, dioxus, reqwest or keyring.
+
+Published libraries (the folders are still `crates/mail-*`; they are being renamed to match):
+
+| Crate | For |
+| --- | --- |
+| `mailo-domain` (`crates/mail-domain`) | The vocabulary: accounts, messages, folders, rules, drafts, identifiers. Pure data and functions. |
+| `mailo-mime` (`crates/mail-mime`) | Parsing and building MIME, HTML sanitising, OpenPGP and S/MIME (behind features), iMIP, `mailto:`. |
+| `mailo-proto` (`crates/mail-proto`) | Sans-I/O protocol machines for IMAP, POP3, SMTP, ManageSieve, and JMAP's requests and responses: bytes in, "what I need next" out. |
+| `mailo-pim` (`crates/mail-pim`) | vCard, iCalendar invitations and the WebDAV/CardDAV conversation, as text in and values out. |
+
+Not published, app-side: `mail-store` (SQLite, FTS5, the outbox), `mail-runtime` (tokio and
+sockets), `mail-core` (everything the application does, with no window or terminal), `mail-appkit`
+(macOS only: the one place that needs `unsafe`, for the AppKit delegate) and `mail-app` (the
+`mailo` binary: window and command line).
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md), the rules the code is written to. A contribution should
+pass the checks above.
 
 ## Licence
 
-MIT or Apache-2.0, at your option.
+MIT or Apache-2.0, at your option. See `LICENSE-MIT` and `LICENSE-APACHE`.
