@@ -25,7 +25,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::view::{offers, says};
-use mail_domain::{OpKind, ReadState, Star, ThreadSummary};
+use mail_domain::{MailboxRole, OpKind, ReadState, Star, ThreadSummary};
 
 /// A row of the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +47,15 @@ pub(in crate::ui) enum Pick {
     DeleteDraft,
     /// Cancel Sending: a message held for its time goes back to being a draft. Its row only.
     CancelSending,
+    /// Reply to List: an answer at the list's own address. The reader's ⋯ only, and only while
+    /// the newest message names one (`List-Post`).
+    ReplyList,
+    /// Redirect…: the newest message, unchanged, to someone else, asked for in a field. The
+    /// reader's ⋯ only.
+    Redirect,
+    /// Edit as New (Send Again, for a conversation only in Sent): a new message filled in from
+    /// the newest. The reader's ⋯ only.
+    Again,
 }
 
 fn op(kind: OpKind) -> Pick {
@@ -91,16 +100,21 @@ pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
 
 /// The open conversation's ⋯ in the reader: the row's menu without what the reader's toolbar
 /// already holds (`toolbar`, its Reply, Archive and Delete), with the quieter actions that are
-/// the reader's alone (Mute beside Pin, Mark as Spam where the conversation can be), View first
-/// where the reader is a pane (`view`), Unsubscribe… with what takes the conversation away while
-/// its list offers a way out (`leave`), and Print and Download last.
+/// the reader's alone (Reply to List after Reply All where the list names its address (`list`),
+/// Redirect… and Edit as New after Forward, Mute beside Pin, Mark as Spam where the conversation
+/// can be), View first where the reader is a pane (`view`), Unsubscribe… with what takes the
+/// conversation away while its list offers a way out (`leave`), and Print and Download last.
 pub(in crate::ui) fn reader_groups(
     summary: &ThreadSummary,
     toolbar: &[OpKind],
     view: bool,
-    leave: bool,
+    (leave, list): (bool, bool),
 ) -> Vec<Vec<Pick>> {
     let mut picks = groups(summary);
+    if list {
+        picks[0].insert(2, Pick::ReplyList);
+    }
+    picks[0].extend([Pick::Redirect, Pick::Again]);
     picks[1].push(op(OpKind::Mute));
     if offers(summary, OpKind::Spam) {
         picks[3].push(op(OpKind::Spam));
@@ -135,13 +149,29 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::Unsubscribe => menus::UNSUBSCRIBE,
         Pick::DeleteDraft => menus::DELETE_DRAFT,
         Pick::CancelSending => menus::CANCEL_SENDING,
+        Pick::ReplyList => menus::REPLY_TO_LIST,
+        Pick::Redirect => menus::REDIRECT,
+        Pick::Again => again(summary),
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
         Pick::Press(Pressed::Op(kind)) => menus::offered(says(kind, summary, now)),
     }
 }
 
+/// Edit as New, or Send Again for a conversation that is only in Sent: there the new message is
+/// the old one going out again.
+pub(in crate::ui) fn again(summary: &ThreadSummary) -> &'static str {
+    if summary.mailboxes == mail_domain::MailboxSet::only(MailboxRole::Sent) {
+        menus::SEND_AGAIN
+    } else {
+        menus::EDIT_AS_NEW
+    }
+}
+
 fn icon(pick: Pick) -> Icon {
     match pick {
+        Pick::ReplyList => Icon::Group,
+        Pick::Redirect => Icon::ArrowUpRight,
+        Pick::Again => Icon::FilePen,
         Pick::Download => Icon::Download,
         Pick::Print => Icon::Printer,
         Pick::View => Icon::Panel,
@@ -425,12 +455,14 @@ mod tests {
         let read = summary(|s| s.read = ReadState::Read);
         let toolbar = [OpKind::Reply, OpKind::Archive, OpKind::Trash];
         assert_eq!(
-            named(&reader_groups(&read, &toolbar, true, false), &read),
+            named(&reader_groups(&read, &toolbar, true, (false, false)), &read),
             [
                 m::VIEW,
                 "-",
                 m::REPLY_ALL,
                 m::FORWARD,
+                m::REDIRECT,
+                m::EDIT_AS_NEW,
                 "-",
                 m::MARK_AS_UNREAD,
                 m::STAR,
@@ -477,7 +509,7 @@ mod tests {
             ),
         ];
         for (case, toolbar, leave, want) in cases {
-            let groups = reader_groups(&read, toolbar, true, *leave);
+            let groups = reader_groups(&read, toolbar, true, (*leave, false));
             let found = groups
                 .iter()
                 .find(|group| group.contains(&Pick::Unsubscribe))
@@ -493,10 +525,46 @@ mod tests {
         assert!(!row.iter().flatten().any(|pick| *pick == Pick::Unsubscribe));
     }
 
+    /// Reply to List follows Reply All only where the list names its address, and Redirect… and
+    /// Edit as New follow Forward always; none is on a row's menu. A conversation only in Sent
+    /// calls Edit as New Send Again.
+    #[test]
+    fn the_readers_more_menu_answers_a_list_and_passes_a_message_on() {
+        let inbox = summary(|_| {});
+        let toolbar = [OpKind::Reply];
+        let reply_all = Pick::Press(Pressed::Op(OpKind::ReplyAll));
+        let forward = Pick::Press(Pressed::Op(OpKind::Forward));
+        let first = |list: bool| reader_groups(&inbox, &toolbar, false, (false, list))[0].clone();
+        assert_eq!(
+            first(true),
+            [
+                reply_all,
+                Pick::ReplyList,
+                forward,
+                Pick::Redirect,
+                Pick::Again
+            ]
+        );
+        assert_eq!(
+            first(false),
+            [reply_all, forward, Pick::Redirect, Pick::Again]
+        );
+        let row = groups(&inbox);
+        for pick in [Pick::ReplyList, Pick::Redirect, Pick::Again] {
+            assert!(
+                !row.iter().flatten().any(|p| *p == pick),
+                "{pick:?} on a row"
+            );
+        }
+        let sent = summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Sent));
+        assert_eq!(name(Pick::Again, &sent, now()), m::SEND_AGAIN);
+        assert_eq!(name(Pick::Again, &inbox, now()), m::EDIT_AS_NEW);
+    }
+
     #[test]
     fn print_and_download_are_the_reader_s_last_group_and_not_the_row_s() {
         let inbox = summary(|_| {});
-        let reader = reader_groups(&inbox, &[], false, false);
+        let reader = reader_groups(&inbox, &[], false, (false, false));
         assert_eq!(
             reader.last().map(Vec::as_slice),
             Some(&[Pick::Print, Pick::Download][..])
@@ -515,7 +583,7 @@ mod tests {
             summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Trash)),
         ] {
             let listed = named(
-                &reader_groups(&conversation, &[], true, false),
+                &reader_groups(&conversation, &[], true, (true, true)),
                 &conversation,
             );
             let rows: Vec<&String> = listed.iter().filter(|name| *name != "-").collect();

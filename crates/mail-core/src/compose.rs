@@ -16,7 +16,9 @@ use porter_core::AccountId;
 
 pub mod addresses;
 mod enclosed;
+mod modes;
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
+pub use modes::{Answer, Quote, draft_again, draft_answer, draft_answer_in, list_post, redirect};
 
 /// Read one identity, or the account's default, out of the `identities` table.
 ///
@@ -81,15 +83,15 @@ pub fn draft_reply_in<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let original = store.message(message)?;
-    let identity = identity_of(store, original.account.clone(), None)?;
-
-    let mut draft = Draft::reply_to(&original, &identity, scope, now);
-    // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
-    // a property of the draft — so the quoting happens here, where the renderer is.
-    draft.text = quoted(&signed(body, &identity), &original, zone);
-    save(store, &draft)?;
-    Ok(draft)
+    draft_answer_in(
+        store,
+        message,
+        Answer::Scope(scope),
+        Quote::Whole,
+        body,
+        now,
+        zone,
+    )
 }
 
 /// Create and persist a forward of `message`, addressed to `to`.
@@ -824,6 +826,28 @@ fn quoted<Tz: chrono::TimeZone>(body: &str, original: &Message, zone: &Tz) -> St
 where
     Tz::Offset: std::fmt::Display,
 {
+    // The text part, when there is one. A message whose body was never fetched quotes nothing
+    // rather than quoting the word "None".
+    let text = match &original.body {
+        Body::Present {
+            text: Some(text), ..
+        } => Some(text.as_str()),
+        _ => None,
+    };
+    quoting(body, original, text, zone)
+}
+
+/// [`quoted`], quoting `text` beneath the attribution line rather than the whole of the
+/// original's: what a reply to a selection quotes.
+fn quoting<Tz: chrono::TimeZone>(
+    body: &str,
+    original: &Message,
+    text: Option<&str>,
+    zone: &Tz,
+) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
     let who = original
         .from
         .name
@@ -848,15 +872,8 @@ where
     }
     out.push_str("\r\n");
     out.push_str(&format!("On {when}, {who} wrote:\r\n"));
-    // The text part, when there is one. A message whose body was never fetched quotes nothing
-    // rather than quoting the word "None".
-    if let Body::Present {
-        text: Some(text), ..
-    } = &original.body
-    {
-        for line in text.lines() {
-            out.push_str(&format!("> {line}\r\n"));
-        }
+    for line in text.into_iter().flat_map(str::lines) {
+        out.push_str(&format!("> {line}\r\n"));
     }
     out
 }

@@ -201,6 +201,21 @@ pub enum CoreError {
     ThreadNotFetchedInFull,
     #[error("that message offers no way to unsubscribe (it has no usable List-Unsubscribe header)")]
     NothingOffered,
+    #[error("that message names no address to write to its list (it has no List-Post header)")]
+    NoListPost,
+    #[error("that message has not been downloaded yet, so there is nothing to redirect")]
+    NothingToRedirect,
+    #[error(
+        "that message is large, so it was downloaded in parts and its attachments were left on \
+         the server. What is here is rebuilt from those parts, and redirecting it would send that \
+         rather than the message as it came. Forward it instead"
+    )]
+    RebuiltNotRedirected,
+    #[error(
+        "{address} sends through Microsoft Graph, which delivers a message to the people its own \
+         headers name, so a redirect would go back to whoever it first went to. Forward it instead"
+    )]
+    RedirectThroughGraph { address: String },
 
     // ---- the daemon
     #[error("the daemon closed the connection without answering")]
@@ -380,7 +395,8 @@ impl CoreError {
             CoreError::HeadersOnly
             | CoreError::NotFetchedInFull
             | CoreError::ThreadNotFetchedInFull
-            | CoreError::NotDownloaded => Remedy::Sync,
+            | CoreError::NotDownloaded
+            | CoreError::NothingToRedirect => Remedy::Sync,
             CoreError::PublishedEvent => Remedy::SaveInvitation,
             CoreError::NoAccountFor { .. } => Remedy::ListAccounts,
             CoreError::NoFolder { address, folder } => Remedy::Folders {

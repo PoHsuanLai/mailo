@@ -76,3 +76,21 @@ pub const VACATION_OFF: &str = "Vacation reply off.";
 pub fn vacation_saved(subject: &str, runs: &str) -> String {
     format!("Saved: “{subject}”, {runs}.")
 }
+
+/// A redirect queued: whom it goes to, as the envelope names them.
+pub fn redirected(to: &[String]) -> String {
+    format!("Redirected to {}", to.join(", "))
+}
+
+/// A redirect, a reply to the list, or Edit as New that did not start: `why` is the core's
+/// sentence.
+pub fn not_redirected(why: &str) -> String {
+    format!("Not redirected: {why}.")
+}
+
+pub fn not_opened(why: &str) -> String {
+    format!("Couldn\u{2019}t start that message: {why}.")
+}
+
+/// ⌘K's Redirect…, Reply to List or Edit as New with no conversation open behind it.
+pub const OPEN_ONE_FIRST: &str = "Open a conversation first.";
