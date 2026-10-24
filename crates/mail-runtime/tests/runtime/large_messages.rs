@@ -8,24 +8,14 @@
 //! The backend is scripted rather than a server: what is asserted is the engine's decisions, and
 //! every wire format involved is tested where it is parsed.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{acct_account, inbox, now};
 use mail_domain::*;
 use mail_proto::{Backend, IoReady, Progress, ProtoError, ProtoOutcome};
 use mail_runtime::{AccountEngine, Arrival};
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
 use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::sync::watch;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 const HEADER: &str = "From: Ada <ada@example.test>\r\nTo: me@example.test\r\nSubject: The report\r\nMessage-ID: <report@example.test>\r\nDate: Tue, 14 Nov 2023 22:13:20 +0000\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"mix\"\r\n\r\n";
 const TEXT_MIME: &str = "Content-Type: text/plain; charset=utf-8\r\n\r\n";
@@ -39,13 +29,6 @@ fn remote() -> RemoteRef {
         mailbox: "INBOX".to_owned(),
         uidvalidity: 1,
         uid: 7,
-    }
-}
-
-fn inbox() -> MailboxRef {
-    MailboxRef {
-        account: acct_account(),
-        path: "INBOX".to_owned(),
     }
 }
 

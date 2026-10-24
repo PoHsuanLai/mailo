@@ -10,15 +10,15 @@
 //! does, and until the commit that added this file the backend could not use it: it named
 //! `AUTHENTICATE XOAUTH2` at eleven call sites of its own.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{acct_account, inbox, now};
+use chrono::{TimeZone, Utc};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -26,14 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const PASSWORD: &str = "s3cr3t";
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 /// Two messages, with the awkwardness that matters on this protocol: a literal in the body, and
 /// a subject that needs encoded-word decoding.
@@ -590,13 +583,6 @@ fn engine_with(port: u16, dir: tempfile::TempDir, caps: AccountCaps) -> Fixture 
     }
 }
 
-fn inbox() -> MailboxRef {
-    MailboxRef {
-        account: acct_account(),
-        path: "INBOX".to_owned(),
-    }
-}
-
 fn count(store: &SqliteStore) -> u64 {
     store.count(&Filter::All, now()).unwrap()
 }
@@ -794,93 +780,70 @@ async fn killing_the_app_mid_sync_and_restarting_produces_no_duplicates() {
     );
 }
 
+/// A CONDSTORE server gets a `CHANGEDSINCE` sweep after the first pass, and any other server
+/// never does.
+///
+/// The whole chain, which had three links and was missing two: the SELECT response carries
+/// HIGHESTMODSEQ, the ingest records it in the cursor, `sync_state` keeps it, and the next flags
+/// sweep reads it back and asks only for what changed. Until this test the cursor was written by
+/// every sync and read by nothing, so the sweep refetched every flag for ever.
+///
+/// CHANGEDSINCE to a server that does not advertise CONDSTORE is a protocol error, not a graceful
+/// degradation — so the capability gate has to hold even though the cursor is there.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_condstore_server_gets_a_changedsince_sweep_after_the_first_pass() {
-    // The whole chain, which had three links and was missing two: the SELECT response carries
-    // HIGHESTMODSEQ, the ingest records it in the cursor, `sync_state` keeps it, and the next
-    // flags sweep reads it back and asks only for what changed. Until this test the cursor was
-    // written by every sync and read by nothing, so the sweep refetched every flag for ever.
-    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let (port, _validity) = serve(seen.clone(), Fault::None).await;
-    let mut it = engine_with(
-        port,
-        tempfile::tempdir().unwrap(),
-        caps_with(Condstore::Supported),
-    );
-    let (_tx, mut cancel) = watch::channel(false);
+async fn only_a_condstore_server_gets_a_changedsince_sweep_after_the_first_pass() {
+    for (condstore, asks_what_changed) in [(Condstore::Supported, true), (Condstore::Absent, false)]
+    {
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _validity) = serve(seen.clone(), Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_with(condstore));
+        let (_tx, mut cancel) = watch::channel(false);
 
-    // First pass: nothing is known, so this must be a full sweep.
-    it.engine
-        .sync(&inbox(), &mut cancel, now(), 200)
-        .await
-        .unwrap();
+        // First pass: nothing is known, so this must be a full sweep.
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
 
-    // The cursor should now carry what the server said.
-    match it.store.cursor(&inbox()).unwrap() {
-        Some(SyncCursor::Imap {
-            modseq,
-            uidvalidity,
-            ..
-        }) => {
-            assert_eq!(modseq, Some(7788), "HIGHESTMODSEQ was not recorded");
-            assert_eq!(uidvalidity, 42);
+        // The cursor carries what the server said, whether or not the capability lets it be used.
+        match it.store.cursor(&inbox()).unwrap() {
+            Some(SyncCursor::Imap {
+                modseq,
+                uidvalidity,
+                ..
+            }) => {
+                assert_eq!(modseq, Some(7788), "HIGHESTMODSEQ was not recorded");
+                assert_eq!(uidvalidity, 42);
+            }
+            other => panic!("no usable cursor after a sync: {other:?}"),
         }
-        other => panic!("no usable cursor after a sync: {other:?}"),
+
+        seen.lock().unwrap().commands.clear();
+        it.engine
+            .sweep(&inbox(), &mut cancel, now())
+            .await
+            .expect("a sweep");
+
+        let seen = seen.lock().unwrap();
+        let sent = |what: &str| {
+            seen.commands
+                .iter()
+                .any(|c| c.to_uppercase().contains(what))
+        };
+        if asks_what_changed {
+            assert!(
+                sent("CHANGEDSINCE 7788"),
+                "the sweep refetched every flag instead of asking what changed: {:?}",
+                seen.commands
+            );
+        } else {
+            assert!(
+                !sent("CHANGEDSINCE"),
+                "CHANGEDSINCE sent to a server that never offered CONDSTORE: {:?}",
+                seen.commands
+            );
+        }
     }
-
-    seen.lock().unwrap().commands.clear();
-    it.engine
-        .sweep(&inbox(), &mut cancel, now())
-        .await
-        .expect("a sweep");
-
-    let seen = seen.lock().unwrap();
-    assert!(
-        seen.commands
-            .iter()
-            .any(|c| c.to_uppercase().contains("CHANGEDSINCE 7788")),
-        "the sweep refetched every flag instead of asking what changed: {:?}",
-        seen.commands
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_server_without_condstore_is_never_sent_changedsince() {
-    // CHANGEDSINCE to a server that does not advertise CONDSTORE is a protocol error, not a
-    // graceful degradation — so the capability gate has to hold even though the cursor is there.
-    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let (port, _validity) = serve(seen.clone(), Fault::None).await;
-    let mut it = engine(port, tempfile::tempdir().unwrap());
-    let (_tx, mut cancel) = watch::channel(false);
-
-    it.engine
-        .sync(&inbox(), &mut cancel, now(), 200)
-        .await
-        .unwrap();
-    // The modseq really is on record; only the capability says not to use it.
-    assert!(matches!(
-        it.store.cursor(&inbox()).unwrap(),
-        Some(SyncCursor::Imap {
-            modseq: Some(7788),
-            ..
-        })
-    ));
-
-    seen.lock().unwrap().commands.clear();
-    it.engine
-        .sweep(&inbox(), &mut cancel, now())
-        .await
-        .expect("a sweep");
-
-    let seen = seen.lock().unwrap();
-    assert!(
-        !seen
-            .commands
-            .iter()
-            .any(|c| c.to_uppercase().contains("CHANGEDSINCE")),
-        "CHANGEDSINCE sent to a server that never offered CONDSTORE: {:?}",
-        seen.commands
-    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -966,127 +929,73 @@ fn remote_rows(store: &SqliteStore) -> i64 {
     mail_store::testing::count(store, "remote_map")
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_message_deleted_elsewhere_disappears_here_too() {
-    // The third of the three sync intervals. Gmail has no QRESYNC and IDLE reports new mail
-    // only, so the full listing diffed against `remote_map` is the only way to learn that
-    // something was deleted on another device — RFC 7162 says as much outright.
-    //
-    // `Job::Listing` used to share the envelope arm, which parses FETCH responses. `UID SEARCH`
-    // answers `* SEARCH 101 102`, so nothing parsed, `gone` was always empty, and every sweep
-    // concluded that nothing had disappeared.
-    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let (port, _validity, present) = serve_full(seen, Fault::None).await;
-    let mut it = engine(port, tempfile::tempdir().unwrap());
-    let (_tx, mut cancel) = watch::channel(false);
-
-    it.engine
-        .sync(&inbox(), &mut cancel, now(), 200)
-        .await
-        .unwrap();
-    assert_eq!(count(&it.store), 2, "both messages arrived");
-
-    // One is deleted on another device.
-    present.store(1, Ordering::SeqCst);
-
-    // The expunge interval is the longest of the three, so a sweep at `now()` would not be due.
-    let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
-    it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
-
-    assert_eq!(
-        count(&it.store),
-        1,
-        "a message deleted on the server is still here"
-    );
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_sweep_that_finds_everything_still_there_deletes_nothing() {
-    // The dangerous direction. `gone` drives deletion, so a listing this code fails to parse
-    // must never read as "the mailbox is empty".
-    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let (port, _validity, _present) = serve_full(seen, Fault::None).await;
-    let mut it = engine(port, tempfile::tempdir().unwrap());
-    let (_tx, mut cancel) = watch::channel(false);
-
-    it.engine
-        .sync(&inbox(), &mut cancel, now(), 200)
-        .await
-        .unwrap();
-    let before = count(&it.store);
-
-    let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
-    it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
-
-    assert_eq!(count(&it.store), before, "a sweep deleted live mail");
-}
-
+/// A sweep removes what was deleted on another device, and nothing that is still there.
+///
+/// Without QRESYNC it is the third of the three sync intervals: Gmail has no QRESYNC and IDLE
+/// reports new mail only, so the full listing diffed against `remote_map` is the only way to
+/// learn that something was deleted elsewhere — RFC 7162 says as much outright. `Job::Listing`
+/// used to share the envelope arm, which parses FETCH responses. `UID SEARCH` answers
+/// `* SEARCH 101 102`, so nothing parsed, `gone` was always empty, and every sweep concluded that
+/// nothing had disappeared.
+///
 /// With QRESYNC the server names what was expunged: one `SELECT`, and no listing to diff.
+///
+/// The dangerous direction is the other one. `gone` drives deletion, so a listing this code fails
+/// to parse must never read as "the mailbox is empty", and a resync that lists nothing, or a
+/// vanished range covering UIDs never held, removes nothing.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_qresync_server_says_what_was_deleted_elsewhere() {
-    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let (port, _validity, present) = serve_full(seen.clone(), Fault::None).await;
-    let mut it = engine_with(
-        port,
-        tempfile::tempdir().unwrap(),
-        caps_with(Condstore::Qresync),
-    );
-    let (_tx, mut cancel) = watch::channel(false);
+async fn a_sweep_removes_what_was_deleted_elsewhere_and_nothing_else() {
+    for (condstore, deleted) in [
+        (Condstore::Absent, true),
+        (Condstore::Absent, false),
+        (Condstore::Qresync, true),
+        (Condstore::Qresync, false),
+    ] {
+        let case = format!("{condstore:?}, deleted: {deleted}");
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _validity, present) = serve_full(seen.clone(), Fault::None).await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_with(condstore));
+        let (_tx, mut cancel) = watch::channel(false);
 
-    it.engine
-        .sync(&inbox(), &mut cancel, now(), 200)
-        .await
-        .unwrap();
-    assert_eq!(count(&it.store), 2);
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        assert_eq!(count(&it.store), 2, "both messages arrived: {case}");
 
-    present.store(1, Ordering::SeqCst);
-    seen.lock().unwrap().commands.clear();
-    let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
-    it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+        if deleted {
+            // One is deleted on another device.
+            present.store(1, Ordering::SeqCst);
+        }
+        seen.lock().unwrap().commands.clear();
+        // The expunge interval is the longest of the three, so a sweep at `now()` would not be
+        // due.
+        let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+        it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
 
-    assert_eq!(
-        count(&it.store),
-        1,
-        "the message the server named is still here"
-    );
-    let commands = seen.lock().unwrap().commands.clone();
-    assert!(
-        commands.iter().any(|c| c == "ENABLE QRESYNC"),
-        "{commands:?}"
-    );
-    assert!(
-        commands
-            .iter()
-            .any(|c| c == "EXAMINE \"INBOX\" (QRESYNC (42 7788))"),
-        "{commands:?}"
-    );
-    assert!(
-        !commands.iter().any(|c| c.starts_with("UID SEARCH")),
-        "a QRESYNC server was still asked to list every UID: {commands:?}"
-    );
-}
-
-/// The dangerous direction again, for QRESYNC: a resync that lists nothing is not an empty
-/// mailbox, and a vanished range covering UIDs never held removes nothing.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_qresync_sweep_that_names_nothing_held_deletes_nothing() {
-    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-    let (port, _validity, _present) = serve_full(seen, Fault::None).await;
-    let mut it = engine_with(
-        port,
-        tempfile::tempdir().unwrap(),
-        caps_with(Condstore::Qresync),
-    );
-    let (_tx, mut cancel) = watch::channel(false);
-
-    it.engine
-        .sync(&inbox(), &mut cancel, now(), 200)
-        .await
-        .unwrap();
-    let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
-    it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
-
-    assert_eq!(count(&it.store), 2, "a resync deleted live mail");
+        assert_eq!(
+            count(&it.store),
+            if deleted { 1 } else { 2 },
+            "a sweep kept deleted mail or deleted live mail: {case}"
+        );
+        if condstore == Condstore::Qresync && deleted {
+            let commands = seen.lock().unwrap().commands.clone();
+            assert!(
+                commands.iter().any(|c| c == "ENABLE QRESYNC"),
+                "{commands:?}"
+            );
+            assert!(
+                commands
+                    .iter()
+                    .any(|c| c == "EXAMINE \"INBOX\" (QRESYNC (42 7788))"),
+                "{commands:?}"
+            );
+            assert!(
+                !commands.iter().any(|c| c.starts_with("UID SEARCH")),
+                "a QRESYNC server was still asked to list every UID: {commands:?}"
+            );
+        }
+    }
 }
 
 /// A user's action, all the way to the server and back.
@@ -1304,64 +1213,41 @@ mod archiving {
         seen.lock().unwrap().commands.clone()
     }
 
+    /// A server with MOVE gets `UID MOVE`; one without it gets `UID COPY` and never a MOVE.
+    ///
+    /// The capability existed, was checked, and led to an empty block — so this path copied and
+    /// left the original where it was, whatever the server supported.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_server_with_move_gets_uid_move() {
-        // The capability existed, was checked, and led to an empty block — so this path copied
-        // and left the original where it was, whatever the server supported.
-        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-        let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
-        let mut it = engine_with(
-            port,
-            tempfile::tempdir().unwrap(),
-            caps_archiving(MoveExt::Supported),
-        );
-        let (_tx, mut cancel) = watch::channel(false);
+    async fn archiving_moves_where_the_server_can_and_copies_where_it_cannot() {
+        for (move_ext, sent_as) in [
+            (MoveExt::Supported, "UID MOVE"),
+            (MoveExt::Absent, "UID COPY"),
+        ] {
+            let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+            let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
+            let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_archiving(move_ext));
+            let (_tx, mut cancel) = watch::channel(false);
 
-        it.engine
-            .sync(&inbox(), &mut cancel, now(), 200)
-            .await
-            .unwrap();
-        seen.lock().unwrap().commands.clear();
-        archive(&mut it, &caps_archiving(MoveExt::Supported), &mut cancel).await;
+            it.engine
+                .sync(&inbox(), &mut cancel, now(), 200)
+                .await
+                .unwrap();
+            seen.lock().unwrap().commands.clear();
+            archive(&mut it, &caps_archiving(move_ext), &mut cancel).await;
 
-        let sent = commands(&seen);
-        assert!(
-            sent.iter()
-                .any(|c| c.to_uppercase().starts_with("UID MOVE")),
-            "a MOVE-capable server was not sent UID MOVE: {sent:?}"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_server_without_move_copies_and_stops() {
-        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-        let (port, _v, _p, _f) = serve_flags(seen.clone(), Fault::None).await;
-        let mut it = engine_with(
-            port,
-            tempfile::tempdir().unwrap(),
-            caps_archiving(MoveExt::Absent),
-        );
-        let (_tx, mut cancel) = watch::channel(false);
-
-        it.engine
-            .sync(&inbox(), &mut cancel, now(), 200)
-            .await
-            .unwrap();
-        seen.lock().unwrap().commands.clear();
-        archive(&mut it, &caps_archiving(MoveExt::Absent), &mut cancel).await;
-
-        let sent = commands(&seen);
-        assert!(
-            sent.iter()
-                .any(|c| c.to_uppercase().starts_with("UID COPY")),
-            "{sent:?}"
-        );
-        assert!(
-            !sent
-                .iter()
-                .any(|c| c.to_uppercase().starts_with("UID MOVE")),
-            "MOVE was sent to a server that never offered it: {sent:?}"
-        );
+            let sent = commands(&seen);
+            let any = |what: &str| sent.iter().any(|c| c.to_uppercase().starts_with(what));
+            assert!(
+                any(sent_as),
+                "{move_ext:?} was not sent {sent_as}: {sent:?}"
+            );
+            if move_ext == MoveExt::Absent {
+                assert!(
+                    !any("UID MOVE"),
+                    "MOVE was sent to a server that never offered it: {sent:?}"
+                );
+            }
+        }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

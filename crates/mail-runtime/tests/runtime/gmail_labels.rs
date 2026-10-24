@@ -4,22 +4,14 @@
 //! rows; neither can prove they meet, because the boundary forbids `mail-proto` from knowing
 //! what a store is. This is the only crate that may hold both.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{acct_account, now, store};
+use chrono::{TimeZone, Utc};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Progress, ProtoOutcome};
-use mail_store::{SqliteStore, Store};
-use porter_core::{AccountId, Credential};
+use mail_store::Store;
+use porter_core::Credential;
 use porter_core::{SecretText, UnixSeconds};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 fn gmail_caps() -> AccountCaps {
     AccountCaps {
@@ -92,13 +84,6 @@ fn survey(responses: &[&str]) -> Ingest {
             other => panic!("{other:?}"),
         }
     }
-}
-
-fn store() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-    (store, dir)
 }
 
 #[test]

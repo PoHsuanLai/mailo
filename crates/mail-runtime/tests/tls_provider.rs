@@ -7,6 +7,7 @@
 
 use mail_domain::Tls;
 use mail_runtime::Transport;
+use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 
 /// A TLS handshake must not abort the process.
@@ -26,14 +27,14 @@ async fn a_tls_connection_reports_an_error_rather_than_aborting() {
     // first version of this test connected to a closed port, failed at TCP, and passed happily
     // with the provider install removed.
     //
-    // It accepts and then says nothing, so the handshake fails on its own terms. What is being
-    // asserted is that the failure arrives as a `Result`.
+    // It accepts, waits for the client's hello, and hangs up, so the handshake fails on its own
+    // terms. What is being asserted is that the failure arrives as a `Result`.
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        while let Ok((sock, _)) = listener.accept().await {
-            // Held so the peer sees an open connection rather than a reset.
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+        while let Ok((mut sock, _)) = listener.accept().await {
+            // Held until the client's hello arrives, so the handshake has begun before it ends.
+            let _ = sock.read(&mut [0u8; 1]).await;
             drop(sock);
         }
     });

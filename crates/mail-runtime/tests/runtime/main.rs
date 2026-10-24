@@ -7,8 +7,10 @@
 // The helpers the tests share, declared once.
 #[path = "../../../mail-mime/tests/bimi_support/mod.rs"]
 mod bimi_support;
+mod fixture;
 #[path = "../jmap_fake/mod.rs"]
 mod jmap_fake;
+mod tls_fixture;
 
 mod assemble;
 mod bimi;

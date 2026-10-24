@@ -1,26 +1,20 @@
 //! Brand logo lookup against DNS answered from a table and a web server in this process.
 //!
 //! No network. DNS is a [`Table`] that counts what it is asked. The web server is a
-//! `TcpListener` behind TLS with the self-signed certificate `tests/runtime/wkd.rs` uses (it names
-//! `wkd.test`), and the client is told to trust it and to resolve `wkd.test` to the listener. The
+//! `TcpListener` behind TLS with the certificate `tls_fixture` serves (it names `wkd.test`),
+//! and the client is told to trust it and to resolve `wkd.test` to the listener. The
 //! records point at `https://wkd.test:<port>/…`. The mark certificates come from a throwaway
 //! authority (`mail-mime/tests/bimi_support`).
 
 use crate::bimi_support;
+use crate::tls_fixture::{NOT_FOUND, ok, read_request, reply, root, serve_tls};
 
 use bimi_support::{LOGO, Mark, authority, now, pem};
 use mail_runtime::bimi::{Cached, Lookup, NoLogo, Txt, cached, find, logo};
 use mail_runtime::lookup::Miss;
-use rustls_pki_types::pem::PemObject;
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
-const CERT: &[u8] = include_bytes!("../fixtures/wkd-tls/cert.pem");
-const KEY: &[u8] = include_bytes!("../fixtures/wkd-tls/key.pem");
 
 /// TXT answers by name, and every name asked, in order.
 #[derive(Default)]
@@ -55,60 +49,31 @@ type Seen = Arc<Mutex<Vec<String>>>;
 
 /// A TLS server answering `path` from `files`, else 404.
 async fn server(files: HashMap<String, Vec<u8>>) -> (SocketAddr, Seen) {
-    let certs = vec![CertificateDer::from_pem_slice(CERT).unwrap()];
-    let key = PrivateKeyDer::from_pem_slice(KEY).unwrap();
-    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_no_client_auth()
-    .with_single_cert(certs, key)
-    .unwrap();
-    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
     let seen: Seen = Arc::default();
     let recording = seen.clone();
-    tokio::spawn(async move {
-        while let Ok((sock, _)) = listener.accept().await {
-            let Ok(mut stream) = acceptor.accept(sock).await else {
-                continue;
+    let files = Arc::new(files);
+    let addr = serve_tls(move |mut stream| {
+        let (recording, files) = (recording.clone(), files.clone());
+        async move {
+            let Some(text) = read_request(&mut stream).await else {
+                return;
             };
-            let mut buf = Vec::new();
-            let mut chunk = [0u8; 4096];
-            while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                match stream.read(&mut chunk).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => buf.extend_from_slice(&chunk[..n]),
-                }
-            }
-            let text = String::from_utf8_lossy(&buf).to_string();
             let path = text.split_whitespace().nth(1).unwrap_or("").to_owned();
             recording.lock().unwrap().push(path.clone());
             let response = match files.get(&path) {
-                Some(body) => {
-                    let mut out = format!(
-                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                        body.len()
-                    )
-                    .into_bytes();
-                    out.extend_from_slice(body);
-                    out
-                }
-                None => b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                    .to_vec(),
+                Some(body) => ok(None, body),
+                None => NOT_FOUND.to_vec(),
             };
-            let _ = stream.write_all(&response).await;
-            let _ = stream.shutdown().await;
+            reply(&mut stream, &response).await;
         }
-    });
+    })
+    .await;
     (addr, seen)
 }
 
 fn client(to: SocketAddr) -> reqwest::Client {
     mail_runtime::bimi::client_builder()
-        .add_root_certificate(reqwest::Certificate::from_pem(CERT).unwrap())
+        .add_root_certificate(root())
         .resolve("wkd.test", to)
         .build()
         .unwrap()

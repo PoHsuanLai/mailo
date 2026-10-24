@@ -3,15 +3,10 @@
 //! The database is built at the current version, then 0012 is un-applied and the store opened
 //! again, so the migration runs over rows exactly as an upgrade would find them.
 
+use crate::fixture::acct_account;
 use chrono::{TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 /// A message whose subject and sender's name are raw GBK, as an old server stores them.
 const GBK_RAW: &[u8] = b"From: \xcd\xf5\xd0\xa1\xc3\xf7 <wang@example.test>\r\n\

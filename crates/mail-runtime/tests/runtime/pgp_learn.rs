@@ -3,29 +3,18 @@
 //! Autocrypt headers are read as mail is assembled, from the header alone: a sync never
 //! decrypts. The keyring here is [`MapSigningStore`], never the user's.
 
+use crate::fixture::{acct_account, store};
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::{account_id_from_uuid, new_account_id};
+use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_mime::openpgp::{self, SecretCert};
 use mail_runtime::testing::MapSigningStore;
 use mail_runtime::{Arrival, assemble, pgp};
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
 use rand::SeedableRng;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 fn day(n: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, n, 12, 0, 0).unwrap()
-}
-
-fn store() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-    (store, dir)
 }
 
 fn key_for(address: &str, seed: u64) -> SecretCert {

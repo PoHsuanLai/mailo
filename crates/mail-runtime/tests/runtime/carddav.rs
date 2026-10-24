@@ -1,30 +1,24 @@
 //! CardDAV against a server in this process.
 //!
-//! No network. The "server" is a `TcpListener` behind TLS with the self-signed certificate in
-//! `tests/fixtures/tls/` (its names are `unsubscribe.test` and `plain.test`, which is why a
-//! CardDAV server answers at the first), and the client is told to trust it and to resolve that
-//! name to the listener. It keeps an address book in memory and answers the requests RFC 6352,
+//! No network. The "server" is a `TcpListener` behind TLS with the certificate `tls_fixture`
+//! serves, at `dav.test`, and the client is told to trust it and to resolve that name to the
+//! listener. It keeps an address book in memory and answers the requests RFC 6352,
 //! RFC 6578 and RFC 6764 describe — well-known redirect, principal, home set, `sync-collection`
 //! with tokens, `addressbook-multiget` and an etag `PROPFIND` — from that book, so a test can
 //! change a card between syncs and watch the change arrive.
 
+use crate::tls_fixture::{header, read_request, reply, root, serve_tls};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Retry, Retryable};
 use mail_runtime::RuntimeError;
 use mail_runtime::carddav::{self, CardDavFailure, Dav, DavAuth, How};
 use mail_store::{AddressBook, Edit, GroupHome, GroupId, MemoryStore, Origin, Store};
-use rustls_pki_types::pem::PemObject;
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
 use url::Url;
 
-const CERT: &[u8] = include_bytes!("../fixtures/tls/cert.pem");
-const KEY: &[u8] = include_bytes!("../fixtures/tls/key.pem");
-const HOST: &str = "unsubscribe.test";
+const HOST: &str = "dav.test";
 /// `Basic` for `ada:secret`.
 const GOOD: &str = "Basic YWRhOnNlY3JldA==";
 
@@ -258,93 +252,31 @@ type Shared = Arc<Mutex<Server>>;
 
 /// Start the server; every connection is one request, answered from `server`.
 async fn serve(server: Shared) -> SocketAddr {
-    let certs = vec![CertificateDer::from_pem_slice(CERT).unwrap()];
-    let key = PrivateKeyDer::from_pem_slice(KEY).unwrap();
-    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_no_client_auth()
-    .with_single_cert(certs, key)
-    .unwrap();
-    let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(config));
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    tokio::spawn(async move {
-        while let Ok((sock, _)) = listener.accept().await {
-            let Ok(mut stream) = acceptor.accept(sock).await else {
-                continue;
+    serve_tls(move |mut stream| {
+        let server = server.clone();
+        async move {
+            let Some(text) = read_request(&mut stream).await else {
+                return;
             };
-            reply_to(&mut stream, &server).await;
+            let (head, body) = text.split_once("\r\n\r\n").unwrap();
+            let mut words = head.split_whitespace();
+            let (Some(method), Some(path)) = (words.next(), words.next()) else {
+                return;
+            };
+            let answer = {
+                let mut server = server.lock().unwrap();
+                server.if_match = header(head, "if-match");
+                server.answer(method, path, header(head, "authorization").as_deref(), body)
+            };
+            reply(&mut stream, answer.as_bytes()).await;
         }
-    });
-    addr
-}
-
-/// Read one request from `stream`, answer it from `server`, and close.
-async fn reply_to<S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
-    stream: &mut S,
-    server: &Shared,
-) {
-    let Some((method, path, auth, if_match, body)) = read_request(stream).await else {
-        return;
-    };
-    let reply = {
-        let mut server = server.lock().unwrap();
-        server.if_match = if_match;
-        server.answer(&method, &path, auth.as_deref(), &body)
-    };
-    let _ = stream.write_all(reply.as_bytes()).await;
-    let _ = stream.flush().await;
-    let _ = stream.shutdown().await;
-}
-
-async fn read_request<S: tokio::io::AsyncRead + Unpin>(
-    stream: &mut S,
-) -> Option<(String, String, Option<String>, Option<String>, String)> {
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 4096];
-    loop {
-        let read = stream.read(&mut chunk).await.ok()?;
-        if read == 0 {
-            return None;
-        }
-        buf.extend_from_slice(&chunk[..read]);
-        let text = String::from_utf8_lossy(&buf).to_string();
-        let Some(end) = text.find("\r\n\r\n") else {
-            continue;
-        };
-        let head = &text[..end];
-        let header = |name: &str| {
-            head.lines().skip(1).find_map(|line| {
-                let (n, v) = line.split_once(':')?;
-                n.eq_ignore_ascii_case(name).then(|| v.trim().to_owned())
-            })
-        };
-        let length: usize = header("content-length")
-            .and_then(|l| l.parse().ok())
-            .unwrap_or(0);
-        if buf.len() < end + 4 + length {
-            continue;
-        }
-        let mut words = head.lines().next()?.split_whitespace();
-        let method = words.next()?.to_owned();
-        let path = words.next()?.to_owned();
-        let body = String::from_utf8_lossy(&buf[end + 4..end + 4 + length]).to_string();
-        return Some((
-            method,
-            path,
-            header("authorization"),
-            header("if-match"),
-            body,
-        ));
-    }
+    })
+    .await
 }
 
 fn dav(addr: SocketAddr, auth: DavAuth) -> Dav {
     let http = carddav::client_builder()
-        .add_root_certificate(reqwest::Certificate::from_pem(CERT).unwrap())
+        .add_root_certificate(root())
         .resolve(HOST, addr)
         .build()
         .unwrap();

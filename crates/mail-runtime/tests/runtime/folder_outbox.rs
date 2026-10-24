@@ -4,29 +4,20 @@
 //! The server is a few lines of loopback IMAP that records what it was asked and refuses the
 //! folder names it is told to. Its replies are written from RFC 3501 §6.3, not recorded.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::fixture::{acct_account, now};
 use mail_domain::folder::{FolderContents, FolderCtx, plan};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 type Heard = Arc<Mutex<Vec<String>>>;
 

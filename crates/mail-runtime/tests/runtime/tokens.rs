@@ -10,9 +10,9 @@
 //! direction is a watch that stops an hour in, and in the other a watch that asks the issuer
 //! for a new token on every operation of every pass.
 
+use crate::fixture::{IDENTITY, acct_account};
 use base64::Engine as _;
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
@@ -23,7 +23,7 @@ use mail_runtime::{
 };
 use mail_store::{SqliteStore, Store};
 use porter_core::EndpointUrl;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
+use porter_core::{Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
 use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use porter_secrets::MemorySecrets;
 use std::collections::BTreeSet;
@@ -33,11 +33,6 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-const IDENTITY: IdentityId =
-    IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const ADDRESS: &str = "me@example.test";
 const IMAP_SCOPE: &str = "https://outlook.office.com/IMAP.AccessAsUser.All";
 

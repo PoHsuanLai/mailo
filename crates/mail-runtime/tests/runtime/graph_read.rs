@@ -5,14 +5,14 @@
 //! Nothing here reaches the network. What matters is visible from both sides: what the listener
 //! was asked, with which token, and what the store holds afterwards.
 
-use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{acct_account, inbox, now};
+use chrono::TimeDelta;
 use mail_domain::*;
 use mail_runtime::graph::read::{OverHttp, Reader};
 use mail_runtime::{AccountEngine, AccountSecrets, Held, OAuthTokens, Searched};
 use mail_store::{SqliteStore, Store};
 use porter_core::EndpointUrl;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_core::{SecretText, UnixSeconds};
 use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use porter_secrets::MemorySecrets;
@@ -21,14 +21,6 @@ use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 // ---------------------------------------------------------------------------------------------
 // A listener that answers as a script says.
@@ -345,13 +337,6 @@ fn account(port: u16) -> Account {
         store,
         secrets,
         _dir: dir,
-    }
-}
-
-fn inbox() -> MailboxRef {
-    MailboxRef {
-        account: acct_account(),
-        path: "INBOX".to_owned(),
     }
 }
 

@@ -630,7 +630,7 @@ impl Host for Scripted {
     }
 }
 
-/// Poll `holds` until it does, or fail after a few seconds.
+/// Poll `holds` until it does, or fail after a few seconds on the test's clock.
 async fn eventually(what: &str, holds: impl Fn() -> bool) {
     for _ in 0..500 {
         if holds() {
@@ -645,7 +645,7 @@ fn one_account(link: Link) -> BTreeMap<AccountId, Link> {
     BTreeMap::from([(acct_account(), link)])
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_press_runs_one_pass_that_reports_and_ends() {
     let host = Scripted::ending(finished());
     let (_dir, store) = {
@@ -681,7 +681,7 @@ async fn a_press_runs_one_pass_that_reports_and_ends() {
     assert!(began.is_some(), "the pass was never seen running: {seen:?}");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_start_while_a_pass_runs_is_not_a_second_pass() {
     let host = Scripted::ending(finished());
     let (store, _dir) = empty_store();
@@ -713,7 +713,7 @@ async fn a_start_while_a_pass_runs_is_not_a_second_pass() {
     assert_eq!(host.runs(), 1);
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn beside_a_watch_only_a_person_starts_a_pass() {
     let mut host = Scripted::ending(finished());
     host.schedule = Schedule::Watch;
@@ -743,7 +743,7 @@ async fn beside_a_watch_only_a_person_starts_a_pass() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
     let host = Scripted::ending(finished());
     let (store, _dir) = empty_store();
