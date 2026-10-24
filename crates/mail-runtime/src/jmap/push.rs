@@ -86,7 +86,7 @@ impl JmapEngine {
         let synced = self.cursor()?;
         // Its own client: the shared one times a request out after thirty seconds, and a stream
         // is one request that lasts as long as it is useful.
-        let http = reqwest::Client::builder()
+        let http = crate::roots::trusting_system(reqwest::Client::builder())
             .connect_timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))?;
