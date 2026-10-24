@@ -17,7 +17,9 @@ use ds::style::icon::render::Glyph;
 use super::super::menu::Floating;
 use super::float::{object_items, pick_object};
 use super::page::{Float, Fold, Page};
-use mail_core::editor::{Check, Mark, Node, Object, Op, ParaKind, Pos, Range, Run};
+use mail_core::editor::{
+    Align, Check, Layout, Mark, Node, Object, Op, ParaKind, Pos, Range, Run, TextSize,
+};
 
 #[cfg(test)]
 thread_local! {
@@ -75,26 +77,79 @@ fn list_tag(kind: ParaKind) -> Option<ListTag> {
     }
 }
 
-/// A top-level piece of the body: one node, or a run of list items that share a list.
+/// A top-level piece of the body: one node, or a run of list items that share a list: one tag
+/// at one depth.
 enum Group {
     One(usize),
-    List(ListTag, Vec<usize>),
+    List(ListTag, u8, Vec<usize>),
 }
 
 fn groups(nodes: &[Node]) -> Vec<Group> {
     let mut out: Vec<Group> = Vec::new();
     for (index, node) in nodes.iter().enumerate() {
         let tag = match node {
-            Node::Para { kind, .. } => list_tag(*kind),
+            Node::Para { kind, layout, .. } => list_tag(*kind).map(|tag| (tag, layout.depth)),
             Node::Object(_) => None,
         };
         match (tag, out.last_mut()) {
-            (Some(tag), Some(Group::List(open, items))) if *open == tag => items.push(index),
-            (Some(tag), _) => out.push(Group::List(tag, vec![index])),
+            (Some(tag), Some(Group::List(open, depth, items))) if (*open, *depth) == tag => {
+                items.push(index);
+            }
+            (Some((tag, depth)), _) => out.push(Group::List(tag, depth, vec![index])),
             (None, _) => out.push(Group::One(index)),
         }
     }
     out
+}
+
+/// The number each numbered item shows, by node: counted per depth through a run of items, so
+/// a list that goes on after a nested one goes on counting. Blitz draws no `<ol start>`, and a
+/// nested list is drawn as a list of its own, so an item past the first of a list that was
+/// interrupted carries its number as its marker.
+fn numbers(nodes: &[Node]) -> Vec<Option<usize>> {
+    let mut out = vec![None; nodes.len()];
+    let mut counts: Vec<(ListTag, usize)> = Vec::new();
+    for (index, node) in nodes.iter().enumerate() {
+        let Some((tag, depth)) = (match node {
+            Node::Para { kind, layout, .. } => list_tag(*kind).map(|tag| (tag, layout.depth)),
+            Node::Object(_) => None,
+        }) else {
+            counts.clear();
+            continue;
+        };
+        let depth = usize::from(depth);
+        counts.truncate(depth + 1);
+        while counts.len() <= depth {
+            counts.push((tag, 0));
+        }
+        if counts[depth].0 != tag {
+            counts[depth] = (tag, 0);
+        }
+        counts[depth].1 += 1;
+        if tag == ListTag::Numbered {
+            out[index] = Some(counts[depth].1);
+        }
+    }
+    out
+}
+
+/// A nested list's own style: how far in its depth puts it, and the bullet it draws. `None` at
+/// the top.
+fn list_style(tag: ListTag, depth: u8) -> Option<String> {
+    if depth == 0 {
+        return None;
+    }
+    let mut style = format!("margin-left:{}em", f32::from(depth) * 1.5);
+    if tag == ListTag::Bullet {
+        let bullet = if depth == 1 { "circle" } else { "square" };
+        style.push_str(&format!(";list-style-type:{bullet}"));
+    }
+    Some(style)
+}
+
+/// `parts` as a `style` attribute: `None`, so none is written, for no parts.
+fn style_of(parts: Vec<String>) -> Option<String> {
+    (!parts.is_empty()).then(|| parts.join(";"))
 }
 
 /// The body's children.
@@ -108,31 +163,39 @@ pub(in crate::ui) fn body(page: Signal<Page>) -> Element {
     let quoted = read.quoted;
     let keys: Vec<String> = (0..nodes.len()).map(|index| read.node_key(index)).collect();
     drop(read);
+    let numbers = numbers(&nodes);
     rsx! {
         for group in groups(&nodes) {
             match group {
                 Group::One(n) => match nodes[n].clone() {
-                    Node::Para { kind, runs } => rsx! {
-                        Para { key: "{keys[n]}", n, kind, runs, page }
+                    Node::Para { kind, runs, layout } => rsx! {
+                        Para { key: "{keys[n]}", n, kind, runs, layout, marker: None, page }
                     },
                     Node::Object(object) => rsx! {
                         Obj { key: "{keys[n]}", n, object, menu: menu_at == Some(n), quoted, page }
                     },
                 },
-                Group::List(tag, items) => {
+                Group::List(tag, depth, items) => {
                     let first = items.first().copied().unwrap_or(0);
-                    let entries = items.iter().map(|n| (*n, keys[*n].clone(), nodes[*n].clone()));
+                    // A list that starts at one counts itself; one that goes on after a nested
+                    // list says each number.
+                    let counted = numbers[first].is_none_or(|number| number == 1);
+                    let entries = items.iter().map(|n| {
+                        let marker = numbers[*n].filter(|_| !counted).map(|number| format!("{number}. "));
+                        (*n, keys[*n].clone(), nodes[*n].clone(), marker)
+                    });
                     let children = rsx! {
-                        for (n, key, node) in entries {
-                            if let Node::Para { kind, runs } = node {
-                                Para { key: "{key}", n, kind, runs, page }
+                        for (n, key, node, marker) in entries {
+                            if let Node::Para { kind, runs, layout } = node {
+                                Para { key: "{key}", n, kind, runs, layout, marker, page }
                             }
                         }
                     };
+                    let style = list_style(tag, depth);
                     match tag {
-                        ListTag::Numbered => rsx! { ol { key: "l{first}", {children} } },
-                        ListTag::Bullet => rsx! { ul { key: "l{first}", {children} } },
-                        ListTag::Todo => rsx! { ul { key: "l{first}", class: "todo", {children} } },
+                        ListTag::Numbered => rsx! { ol { key: "l{first}", style, {children} } },
+                        ListTag::Bullet => rsx! { ul { key: "l{first}", style, {children} } },
+                        ListTag::Todo => rsx! { ul { key: "l{first}", class: "todo", style, {children} } },
                     }
                 }
             }
@@ -156,6 +219,45 @@ fn mark_class(run: &Run) -> String {
     .join(" ")
 }
 
+/// A run's size and colour, as an inline style. The sizes are the ratios the written keywords
+/// come to at the body's size, so the composer shows what the reader will see.
+fn run_style(run: &Run) -> Option<String> {
+    let mut style = Vec::new();
+    if let Some(size) = run.marks.size {
+        let em = match size {
+            TextSize::Small => "0.85em",
+            TextSize::Large => "1.2em",
+            TextSize::Huge => "1.5em",
+        };
+        style.push(format!("font-size:{em}"));
+    }
+    if let Some(color) = run.marks.color {
+        style.push(format!("color:{}", color.css()));
+    }
+    style_of(style)
+}
+
+/// A paragraph's own style: its alignment, how far in its depth puts it, and a numbered item's
+/// own `marker`. A list item's depth is its list's, and code is neither aligned nor indented.
+fn para_style(kind: ParaKind, layout: Layout, marker: Option<String>) -> Option<String> {
+    let mut style = Vec::new();
+    let step = match kind {
+        ParaKind::Paragraph | ParaKind::Heading(_) => 2.5,
+        ParaKind::Quote => 1.0,
+        _ => 0.0,
+    };
+    if layout.depth > 0 && step > 0.0 {
+        style.push(format!("margin-left:{}em", f32::from(layout.depth) * step));
+    }
+    if layout.align != Align::Left && kind != ParaKind::Code {
+        style.push(format!("text-align:{}", layout.align.css()));
+    }
+    if let Some(marker) = marker {
+        style.push(format!("list-style-type:\"{marker}\""));
+    }
+    style_of(style)
+}
+
 /// A paragraph's text. An empty one holds a `<br>` so the caret has a line to stand on, and a
 /// trailing line break gets one so the empty last line shows.
 fn text(runs: &[Run]) -> Element {
@@ -163,9 +265,9 @@ fn text(runs: &[Run]) -> Element {
     rsx! {
         for (index, run) in runs.iter().enumerate() {
             if let Some(url) = &run.marks.link {
-                a { key: "{index}", class: "m-a {mark_class(run)}", href: "{url.as_str()}", "{run.text}" }
+                a { key: "{index}", class: "m-a {mark_class(run)}", style: run_style(run), href: "{url.as_str()}", "{run.text}" }
             } else {
-                span { key: "{index}", class: "{mark_class(run)}", "{run.text}" }
+                span { key: "{index}", class: "{mark_class(run)}", style: run_style(run), "{run.text}" }
             }
         }
         if ends_open {
@@ -174,27 +276,36 @@ fn text(runs: &[Run]) -> Element {
     }
 }
 
-/// One paragraph, drawn as the element its kind is.
+/// One paragraph, drawn as the element its kind is. `marker` is a numbered item's own number,
+/// when its list does not count it ([`numbers`]).
 #[component]
-fn Para(n: usize, kind: ParaKind, runs: Vec<Run>, page: Signal<Page>) -> Element {
+fn Para(
+    n: usize,
+    kind: ParaKind,
+    runs: Vec<Run>,
+    layout: Layout,
+    marker: Option<String>,
+    page: Signal<Page>,
+) -> Element {
     #[cfg(test)]
     PARA_RENDERS.with(|renders| *renders.borrow_mut().entry(n).or_insert(0) += 1);
     let inner = text(&runs);
+    let style = para_style(kind, layout, marker);
     match kind {
-        ParaKind::Paragraph => rsx! { p { ..node_attrs(n), {inner} } },
+        ParaKind::Paragraph => rsx! { p { style, ..node_attrs(n), {inner} } },
         ParaKind::Heading(level) => match level.number() {
-            1 => rsx! { h2 { ..node_attrs(n), {inner} } },
-            2 => rsx! { h3 { ..node_attrs(n), {inner} } },
-            _ => rsx! { h4 { ..node_attrs(n), {inner} } },
+            1 => rsx! { h2 { style, ..node_attrs(n), {inner} } },
+            2 => rsx! { h3 { style, ..node_attrs(n), {inner} } },
+            _ => rsx! { h4 { style, ..node_attrs(n), {inner} } },
         },
-        ParaKind::Bullet | ParaKind::Numbered => rsx! { li { ..node_attrs(n), {inner} } },
+        ParaKind::Bullet | ParaKind::Numbered => rsx! { li { style, ..node_attrs(n), {inner} } },
         ParaKind::Todo(check) => {
             let (class, next, checked) = match check {
                 Check::Open => ("", Check::Done, "false"),
                 Check::Done => ("done", Check::Open, "true"),
             };
             rsx! {
-                li { ..todo_attrs(n, class),
+                li { style, ..todo_attrs(n, class),
                     span {
                         class: "box",
                         role: "checkbox",
@@ -213,7 +324,7 @@ fn Para(n: usize, kind: ParaKind, runs: Vec<Run>, page: Signal<Page>) -> Element
                 }
             }
         }
-        ParaKind::Quote => rsx! { blockquote { ..node_attrs(n), {inner} } },
+        ParaKind::Quote => rsx! { blockquote { style, ..node_attrs(n), {inner} } },
         ParaKind::Code => rsx! { pre { ..node_attrs(n), {inner} } },
     }
 }
@@ -360,7 +471,10 @@ fn words(block: &mail_mime::Block) -> String {
             match part {
                 Span::Text(text) | Span::Code(text) => out.push_str(text),
                 Span::Break => out.push('\n'),
-                Span::Strong(inner) | Span::Emphasis(inner) | Span::Link { spans: inner, .. } => {
+                Span::Strong(inner)
+                | Span::Emphasis(inner)
+                | Span::Link { spans: inner, .. }
+                | Span::Styled { spans: inner, .. } => {
                     spans(inner, out);
                 }
             }

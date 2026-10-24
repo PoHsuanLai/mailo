@@ -120,3 +120,11 @@ pub fn open_row(subject: &str) -> String {
 pub fn try_again_to_download(name: &str) -> String {
     format!("Try again to download {name}")
 }
+
+// The composer's format bar.
+/// The pop-up of text sizes.
+pub const TEXT_SIZE: &str = "Text Size";
+/// The button that shows the colours, and the row of them.
+pub const TEXT_COLOUR: &str = "Text Colour";
+/// The pull-down of alignment, indentation and quote level.
+pub const PARAGRAPH: &str = "Paragraph";

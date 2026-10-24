@@ -2,7 +2,7 @@
 //! with its `-- ` signature and a quoted original folded into one object.
 
 use mail_domain::Draft;
-use mail_mime::{Block, Dir, RemoteImages, SanitizePolicy, Span, from_html, sanitize};
+use mail_mime::{Block, Dir, ParaStyle, RemoteImages, SanitizePolicy, Span, from_html, sanitize};
 
 use mail_core::editor::{Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain};
 
@@ -91,6 +91,7 @@ fn quoted_blocks(lines: &[&str]) -> Vec<Block> {
         .map(|line| Block::Paragraph {
             spans: vec![Span::Text(line.to_owned())],
             dir: Dir::Auto,
+            style: ParaStyle::default(),
         })
         .collect()
 }

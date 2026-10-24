@@ -23,7 +23,7 @@ pub struct Shortcut {
 /// Line markers (`# `, `---`, …) fire only in a plain paragraph, and only when they are the
 /// whole text before the caret. Inline markers fire in any paragraph except code.
 pub fn shortcuts(doc: &Doc, at: Pos) -> Option<Shortcut> {
-    let Node::Para { kind, runs } = doc.nodes.get(at.node)? else {
+    let Node::Para { kind, runs, .. } = doc.nodes.get(at.node)? else {
         return None;
     };
     if matches!(kind, ParaKind::Code) || at.offset > para_len(runs) {

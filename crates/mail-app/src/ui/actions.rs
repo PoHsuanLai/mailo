@@ -79,6 +79,25 @@ pub(in crate::ui) enum Own {
     AddBcc,
     /// Shift+Enter: the open conversation in a window of its own.
     OpenInWindow,
+    /// ⌘], as in Apple Mail: the composer's paragraphs indented, its list items nested.
+    Indent,
+    /// ⌘[: the composer's paragraphs outdented, its list items brought out.
+    Outdent,
+    /// ⌘', as in Apple Mail: the composer's paragraphs quoted a level more.
+    QuoteMore,
+    /// ⌥⌘': the composer's paragraphs quoted a level less.
+    QuoteLess,
+    /// ⌘{, as in Apple Mail: the composer's paragraphs aligned left.
+    AlignLeft,
+    /// ⌘|: centred.
+    AlignCenter,
+    /// ⌘}: aligned right.
+    AlignRight,
+    /// ⌘>: the composer's text a size bigger. Apple Mail's ⌘+ is the window's zoom in mailo, which
+    /// the window's shell answers before the page hears it, so this is Google Docs' chord.
+    TextBigger,
+    /// ⌘<: a size smaller, for the same reason.
+    TextSmaller,
 }
 
 /// Each [`Own`] action with its id and its default chords. `Primary` is ⌘ or Ctrl.
@@ -94,6 +113,17 @@ const OWN: &[(Own, &str, &[&str])] = &[
     (Own::AddCc, "mail.add-cc", &["Alt+Primary+C"]),
     (Own::AddBcc, "mail.add-bcc", &["Alt+Primary+B"]),
     (Own::OpenInWindow, "mail.open-in-window", &["Shift+Enter"]),
+    (Own::Indent, "mail.indent", &["Primary+]"]),
+    (Own::Outdent, "mail.outdent", &["Primary+["]),
+    (Own::QuoteMore, "mail.quote-more", &["Primary+'"]),
+    (Own::QuoteLess, "mail.quote-less", &["Alt+Primary+'"]),
+    // A symbol Shift makes is declared as it is pressed, the symbol with Shift: the window hands
+    // the key over with Shift applied.
+    (Own::AlignLeft, "mail.align-left", &["Primary+Shift+{"]),
+    (Own::AlignCenter, "mail.align-center", &["Primary+Shift+|"]),
+    (Own::AlignRight, "mail.align-right", &["Primary+Shift+}"]),
+    (Own::TextBigger, "mail.text-bigger", &["Primary+Shift+>"]),
+    (Own::TextSmaller, "mail.text-smaller", &["Primary+Shift+<"]),
 ];
 
 /// What a key press asks of a mailo window.

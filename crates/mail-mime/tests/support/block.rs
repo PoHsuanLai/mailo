@@ -74,15 +74,26 @@ fn sketch_blocks(out: &mut String, blocks: &[Block], indent: usize) {
     for block in blocks {
         pad(out, indent);
         match block {
-            Block::Paragraph { spans, dir } => {
+            Block::Paragraph { spans, dir, style } => {
                 out.push_str("p ");
                 out.push_str(dir_name(*dir));
                 out.push(' ');
+                if let Some(css) = style.css() {
+                    out.push_str(&format!("[{css}] "));
+                }
                 out.push_str(&spans_text(spans));
                 out.push('\n');
             }
-            Block::Heading { level, spans } => {
-                out.push_str(&format!("h{level} {}\n", spans_text(spans)));
+            Block::Heading {
+                level,
+                spans,
+                style,
+            } => {
+                let css = style
+                    .css()
+                    .map(|css| format!("[{css}] "))
+                    .unwrap_or_default();
+                out.push_str(&format!("h{level} {css}{}\n", spans_text(spans)));
             }
             Block::List { kind, items } => {
                 out.push_str(match kind {
@@ -204,6 +215,13 @@ fn write_spans(out: &mut String, spans: &[Span]) {
                 write_spans(out, inner);
                 out.push('_');
             }
+            Span::Styled { style, spans } => {
+                out.push('{');
+                out.push_str(&style.css().unwrap_or_default());
+                out.push(':');
+                write_spans(out, spans);
+                out.push('}');
+            }
             Span::Code(text) => {
                 out.push('`');
                 out.push_str(text);
@@ -296,7 +314,10 @@ fn write_plain_spans(out: &mut String, spans: &[Span]) {
         match span {
             Span::Text(text) | Span::Code(text) => out.push_str(text),
             Span::Break => {}
-            Span::Strong(inner) | Span::Emphasis(inner) | Span::Link { spans: inner, .. } => {
+            Span::Strong(inner)
+            | Span::Emphasis(inner)
+            | Span::Link { spans: inner, .. }
+            | Span::Styled { spans: inner, .. } => {
                 write_plain_spans(out, inner);
             }
         }
@@ -369,7 +390,9 @@ fn collect_span_urls(spans: &[Span], out: &mut Vec<SafeUrl>) {
                 out.push(url.clone());
                 collect_span_urls(spans, out);
             }
-            Span::Strong(inner) | Span::Emphasis(inner) => collect_span_urls(inner, out),
+            Span::Strong(inner) | Span::Emphasis(inner) | Span::Styled { spans: inner, .. } => {
+                collect_span_urls(inner, out)
+            }
             Span::Text(_) | Span::Code(_) | Span::Break => {}
         }
     }

@@ -5,7 +5,10 @@
 //! - breaks a long line only after a space, and leaves that space at the end (a soft break);
 //! - strips trailing spaces from every hard line, except the `-- ` signature separator;
 //! - space-stuffs a line that would start with a space, `>` or `From ` (RFC 3676 §4.4);
-//! - writes a quote as `>` then one space, which is itself the stuffing, then the text.
+//! - writes a quote as `>` then one space, which is itself the stuffing, then the text; a quote
+//!   at a deeper level as one `>` for each level, then the space;
+//! - writes a nested list item two spaces in for each level, and an indented paragraph four;
+//!   the space-stuffing keeps them.
 //!
 //! Text with no space to break at (a long URL, a line of Chinese or Japanese) is not broken
 //! at 72: breaking it would add a newline, or with a soft break a space, that the author did
@@ -13,8 +16,8 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{ListTag, block_text, list_end, todo_box};
-use crate::editor::doc::{Doc, Node, Object, ParaKind};
+use super::{ListTag, block_text, list_end, same_list, todo_box, written_depths};
+use crate::editor::doc::{Doc, Layout, Node, Object, ParaKind};
 use crate::editor::text::runs_text;
 
 /// Where a soft break is due, in grapheme clusters, the trailing space included.
@@ -31,16 +34,16 @@ pub fn to_flowed(doc: &Doc) -> String {
     let mut index = 0;
     while index < doc.nodes.len() {
         match &doc.nodes[index] {
-            Node::Para { kind, runs } => match ListTag::of(*kind) {
+            Node::Para { kind, runs, layout } => match ListTag::of(*kind) {
                 Some(tag) => {
                     let end = list_end(&doc.nodes, index, tag);
-                    blocks.push(flow_list(&doc.nodes[index..end], tag));
+                    blocks.push(flow_list(&doc.nodes[index..end]));
                     index = end;
                 }
                 None => {
                     let text = runs_text(runs);
                     if !text.is_empty() {
-                        blocks.push(flow_para(*kind, &text));
+                        blocks.push(flow_para(*kind, *layout, &text));
                     }
                     index += 1;
                 }
@@ -61,21 +64,33 @@ pub fn to_flowed(doc: &Doc) -> String {
     out
 }
 
+/// Spaces before a nested list item, for each level.
+const ITEM_INDENT: &str = "  ";
+/// Spaces before every line of an indented paragraph, for each level.
+const PARA_INDENT: &str = "    ";
+
 /// How a block's lines are marked at their start.
 #[derive(Clone, Copy)]
 enum Lead<'a> {
     /// Plain text, stuffed where needed.
     Plain,
-    /// The first line starts with this marker (`- `, `1. `, `[ ] `); later lines are plain.
+    /// The first line starts with this marker (`- `, `1. `, `[ ] `, after the spaces of its
+    /// level); later lines are plain.
     Item(&'a str),
-    /// Every line is quoted.
-    Quoted,
+    /// Every line is quoted, as many levels deep as this.
+    Quoted(usize),
+    /// Every line starts with these spaces, then is stuffed.
+    Indented(&'a str),
 }
 
-fn flow_para(kind: ParaKind, text: &str) -> String {
+fn flow_para(kind: ParaKind, layout: Layout, text: &str) -> String {
     match kind {
-        ParaKind::Quote => flow_text(text, Lead::Quoted),
+        ParaKind::Quote => flow_text(text, Lead::Quoted(usize::from(layout.depth) + 1)),
         ParaKind::Code => flow_code(text),
+        ParaKind::Paragraph | ParaKind::Heading(_) if layout.depth > 0 => flow_text(
+            text,
+            Lead::Indented(&PARA_INDENT.repeat(usize::from(layout.depth))),
+        ),
         ParaKind::Paragraph
         | ParaKind::Heading(_)
         | ParaKind::Bullet
@@ -84,24 +99,43 @@ fn flow_para(kind: ParaKind, text: &str) -> String {
     }
 }
 
-fn flow_list(nodes: &[Node], tag: ListTag) -> String {
-    nodes
-        .iter()
-        .enumerate()
-        .filter_map(|(number, node)| match node {
-            Node::Para { kind, runs } => Some((number, *kind, runs_text(runs))),
-            Node::Object(_) => None,
-        })
-        .map(|(number, kind, text)| {
-            let marker = match (tag, kind) {
-                (ListTag::Numbered, _) => format!("{}. ", number + 1),
-                (ListTag::Todo, ParaKind::Todo(check)) => todo_box(check).to_owned(),
-                (ListTag::Bullet | ListTag::Todo, _) => "- ".to_owned(),
-            };
-            flow_text(&text, Lead::Item(&marker))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+/// A run of list items, each on its line, a nested one indented under the one before. A
+/// numbered item counts among the numbered items of its own level since the last item that
+/// was shallower.
+fn flow_list(nodes: &[Node]) -> String {
+    let mut counts: Vec<(ListTag, usize)> = Vec::new();
+    let mut lines = Vec::new();
+    for (node, depth) in nodes.iter().zip(written_depths(nodes)) {
+        let Node::Para { kind, runs, .. } = node else {
+            continue;
+        };
+        let Some(tag) = ListTag::of(*kind) else {
+            continue;
+        };
+        counts.truncate(depth + 1);
+        let number = match counts.get_mut(depth) {
+            Some((last, count)) if same_list(*last, tag) => {
+                *count += 1;
+                *count
+            }
+            Some(slot) => {
+                *slot = (tag, 1);
+                1
+            }
+            None => {
+                counts.push((tag, 1));
+                1
+            }
+        };
+        let marker = match (tag, kind) {
+            (ListTag::Numbered, _) => format!("{number}. "),
+            (ListTag::Todo, ParaKind::Todo(check)) => todo_box(*check).to_owned(),
+            (ListTag::Bullet | ListTag::Todo, _) => "- ".to_owned(),
+        };
+        let marker = format!("{}{marker}", ITEM_INDENT.repeat(depth));
+        lines.push(flow_text(&runs_text(runs), Lead::Item(&marker)));
+    }
+    lines.join("\n")
 }
 
 fn flow_object(object: &Object) -> Option<String> {
@@ -128,7 +162,7 @@ fn flow_object(object: &Object) -> Option<String> {
                 body.iter()
                     .map(block_text)
                     .filter(|text| !text.is_empty())
-                    .map(|text| flow_text(&text, Lead::Quoted)),
+                    .map(|text| flow_text(&text, Lead::Quoted(1))),
             );
             Some(lines.join("\n"))
         }
@@ -150,20 +184,28 @@ fn flow_text(text: &str, lead: Lead<'_>) -> String {
     for (hard_index, segment) in text.split('\n').enumerate() {
         let marker = match lead {
             Lead::Item(marker) if hard_index == 0 => marker,
-            Lead::Item(_) | Lead::Plain | Lead::Quoted => "",
+            Lead::Indented(spaces) => spaces,
+            Lead::Item(_) | Lead::Plain | Lead::Quoted(_) => "",
         };
-        let quote = if matches!(lead, Lead::Quoted) { 2 } else { 0 };
+        let quote = match lead {
+            Lead::Quoted(levels) => levels + 1,
+            Lead::Plain | Lead::Item(_) | Lead::Indented(_) => 0,
+        };
         let budget = WIDTH.saturating_sub(marker.graphemes(true).count() + quote);
         let lines = wrap(segment, budget.max(1));
         let last = lines.len().saturating_sub(1);
         for (index, line) in lines.into_iter().enumerate() {
-            let first = if index == 0 { marker } else { "" };
+            let first = match lead {
+                Lead::Indented(spaces) => spaces,
+                _ if index == 0 => marker,
+                _ => "",
+            };
             let full = format!("{first}{line}");
             let full = if index == last { hard(&full) } else { full };
             out.push(match lead {
-                Lead::Quoted if full.is_empty() => ">".to_owned(),
-                Lead::Quoted => format!("> {full}"),
-                Lead::Plain | Lead::Item(_) => stuff(&full),
+                Lead::Quoted(levels) if full.is_empty() => ">".repeat(levels),
+                Lead::Quoted(levels) => format!("{} {full}", ">".repeat(levels)),
+                Lead::Plain | Lead::Item(_) | Lead::Indented(_) => stuff(&full),
             });
         }
     }

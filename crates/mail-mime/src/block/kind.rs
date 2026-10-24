@@ -5,6 +5,7 @@
 //! freeze yesterday's blocks in the database. Re-parse the message.
 
 use super::limits::Reached;
+use super::style::{ParaStyle, RunStyle};
 use super::url::SafeUrl;
 
 /// How heavily the body is laid out, and whether it is a machine talking.
@@ -77,10 +78,19 @@ pub enum ListKind {
 /// One block in reading order.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
-    /// `h1`–`h6`. `level` is 1 through 6.
-    Heading { level: u8, spans: Vec<Span> },
+    /// `h1`–`h6`. `level` is 1 through 6. `style` is its alignment and indent.
+    Heading {
+        level: u8,
+        spans: Vec<Span>,
+        style: ParaStyle,
+    },
     /// A paragraph. `dir` comes from the `dir` attribute, else the first strong character.
-    Paragraph { spans: Vec<Span>, dir: Dir },
+    /// `style` is its alignment and indent.
+    Paragraph {
+        spans: Vec<Span>,
+        dir: Dir,
+        style: ParaStyle,
+    },
     /// A list. Items are blocks, so a list can hold a paragraph, a quote, or another list.
     List {
         kind: ListKind,
@@ -128,6 +138,8 @@ pub enum Span {
     Code(String),
     /// A link. The renderer adds `target` and `rel`; they are not stored here.
     Link { url: SafeUrl, spans: Vec<Span> },
+    /// Text in one of the sizes or colours [`RunStyle`] allows.
+    Styled { style: RunStyle, spans: Vec<Span> },
     /// `br`.
     Break,
 }
@@ -232,7 +244,10 @@ pub(crate) fn span_text(spans: &[Span]) -> String {
         match span {
             Span::Text(text) | Span::Code(text) => out.push_str(text),
             Span::Break => out.push(' '),
-            Span::Strong(inner) | Span::Emphasis(inner) | Span::Link { spans: inner, .. } => {
+            Span::Strong(inner)
+            | Span::Emphasis(inner)
+            | Span::Link { spans: inner, .. }
+            | Span::Styled { spans: inner, .. } => {
                 stack.push((inner, 0));
             }
         }
@@ -368,7 +383,9 @@ fn span_weight(spans: &[Span]) -> usize {
         match span {
             Span::Text(text) | Span::Code(text) => total += text.len(),
             Span::Break => {}
-            Span::Strong(inner) | Span::Emphasis(inner) => stack.push((inner, 0)),
+            Span::Strong(inner) | Span::Emphasis(inner) | Span::Styled { spans: inner, .. } => {
+                stack.push((inner, 0));
+            }
             Span::Link { url, spans } => {
                 total += url.as_str().len();
                 stack.push((spans, 0));

@@ -47,3 +47,7 @@ pub const SPACE: &str = "Space";
 
 /// Tidy Up's list of what its button archives.
 pub const TO_ARCHIVE: &str = "To archive";
+
+/// The format bar's Paragraph menu: its alignment rows, then its levels.
+pub const ALIGNMENT: &str = "Alignment";
+pub const LEVELS: &str = "Levels";

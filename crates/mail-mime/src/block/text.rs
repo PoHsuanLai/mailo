@@ -14,6 +14,7 @@
 use super::kind::{Block, Delsp, Flowed, Span, first_strong, strip_overrides};
 use super::limits::{Limits, Reached};
 use super::quote::is_attribution;
+use super::style::ParaStyle;
 
 pub(crate) struct TextOut {
     pub blocks: Vec<Block>,
@@ -177,6 +178,7 @@ fn paragraph(depth: usize, text: String) -> Piece {
         block: Block::Paragraph {
             spans: vec![Span::Text(text)],
             dir,
+            style: ParaStyle::default(),
         },
     }
 }
@@ -200,6 +202,7 @@ fn broken_paragraph(depth: usize, run: &[Line]) -> Piece {
         block: Block::Paragraph {
             spans,
             dir: first_strong(&texts.join(" ")),
+            style: ParaStyle::default(),
         },
     }
 }

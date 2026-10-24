@@ -3,10 +3,10 @@
 //! [`mail_mime::from_html`] speaks [`Block`]. The composer speaks [`Node`]. This is the
 //! lossy direction used when the clipboard is HTML and when a written document is read back.
 
-use mail_mime::{Block, ListKind, Span};
+use mail_mime::{Block, ListKind, ParaStyle, Span};
 
 use crate::editor::doc::{
-    Check, ImageRef, Level, Mark, Marks, Node, Object, ParaKind, Presence, Run, Table,
+    Check, ImageRef, Layout, Level, Mark, Marks, Node, Object, ParaKind, Presence, Run, Table,
 };
 use crate::editor::text::{delete_text, grapheme_len, runs_text};
 
@@ -25,58 +25,113 @@ pub fn nodes_from_plain(text: &str) -> Vec<Node> {
 
 /// Editor nodes for a block document.
 ///
-/// Nested lists become sibling items. A heading deeper than 3 becomes a level-3 heading.
-/// Underline and strike do not exist on [`Span`], so a paste cannot carry them.
+/// A list inside a list item is its items, one level deeper; a quote inside a quote is its
+/// paragraphs, one level deeper. A paragraph's alignment and indent, and a run's size and
+/// colour, come along. A heading deeper than 3 becomes a level-3 heading. Underline and strike
+/// do not exist on [`Span`], so a paste cannot carry them.
 pub fn nodes_from_blocks(blocks: &[Block]) -> Vec<Node> {
     let mut out = Vec::new();
-    push_blocks(blocks, &mut out);
+    push_blocks(blocks, Within::default(), &mut out);
     out
 }
 
-fn push_blocks(blocks: &[Block], out: &mut Vec<Node>) {
+/// What the blocks being read sit in: the depth of the list whose item holds them, and how many
+/// quotes deep they are.
+#[derive(Debug, Clone, Copy, Default)]
+struct Within {
+    list: Option<u8>,
+    quotes: u8,
+}
+
+/// A paragraph's layout from its block style: its own indent is its depth.
+fn laid(style: ParaStyle) -> Layout {
+    Layout {
+        align: style.align,
+        depth: style.indent.min(Layout::MAX_DEPTH),
+    }
+}
+
+/// A paragraph of `runs`: a quote at its level when it is quoted, else a paragraph indented as
+/// its style says.
+fn paragraph(runs: Vec<Run>, style: ParaStyle, within: Within) -> Node {
+    match within.quotes.checked_sub(1) {
+        Some(level) => Node::laid(
+            ParaKind::Quote,
+            runs,
+            Layout {
+                align: style.align,
+                depth: level.min(Layout::MAX_DEPTH),
+            },
+        ),
+        None => Node::laid(ParaKind::Paragraph, runs, laid(style)),
+    }
+}
+
+fn push_blocks(blocks: &[Block], within: Within, out: &mut Vec<Node>) {
     for block in blocks {
         match block {
-            Block::Paragraph { spans, .. } => {
-                out.push(Node::para(ParaKind::Paragraph, runs_from_spans(spans)));
+            Block::Paragraph { spans, style, .. } => {
+                out.push(paragraph(runs_from_spans(spans), *style, within));
             }
-            Block::Heading { level, spans } => {
+            Block::Heading {
+                level,
+                spans,
+                style,
+            } => {
                 let kind = Level::from_number(*level)
                     .map(ParaKind::Heading)
                     .unwrap_or(ParaKind::Heading(Level::Three));
-                out.push(Node::para(kind, runs_from_spans(spans)));
+                out.push(Node::laid(kind, runs_from_spans(spans), laid(*style)));
             }
             Block::List { kind: list, items } => {
                 let kind = match list {
                     ListKind::Numbered => ParaKind::Numbered,
                     ListKind::Bulleted => ParaKind::Bullet,
                 };
+                let depth = within
+                    .list
+                    .map_or(0, |outer| outer.saturating_add(1))
+                    .min(Layout::MAX_DEPTH);
+                // An item's own paragraphs are not quoted by a quote the list sits in: the item
+                // is what it is, as it always was.
+                let inside = Within {
+                    list: Some(depth),
+                    quotes: 0,
+                };
                 for item in items {
                     let mut nodes = Vec::new();
-                    push_blocks(item, &mut nodes);
+                    push_blocks(item, inside, &mut nodes);
+                    let item_layout = Layout {
+                        depth,
+                        ..Layout::default()
+                    };
                     if nodes.is_empty() {
-                        nodes.push(Node::plain(kind, ""));
-                    } else if let Some(Node::Para { kind: slot, runs }) = nodes.first_mut()
+                        nodes.push(Node::laid(kind, Vec::new(), item_layout));
+                    } else if let Some(Node::Para {
+                        kind: slot,
+                        runs,
+                        layout,
+                    }) = nodes.first_mut()
                         && matches!(slot, ParaKind::Paragraph)
                     {
                         *slot = match (kind, take_box(runs)) {
                             (ParaKind::Bullet, Some(check)) => ParaKind::Todo(check),
                             _ => kind,
                         };
+                        *layout = Layout {
+                            align: layout.align,
+                            depth,
+                        };
                     }
                     out.extend(nodes);
                 }
             }
             Block::Quote { blocks, .. } => {
-                let mut nodes = Vec::new();
-                push_blocks(blocks, &mut nodes);
-                for node in &mut nodes {
-                    if let Node::Para { kind, .. } = node
-                        && matches!(kind, ParaKind::Paragraph)
-                    {
-                        *kind = ParaKind::Quote;
-                    }
-                }
-                out.extend(nodes);
+                let inside = Within {
+                    quotes: within.quotes.saturating_add(1),
+                    ..within
+                };
+                push_blocks(blocks, inside, out);
             }
             Block::Code { text, .. } => out.push(Node::plain(ParaKind::Code, text.clone())),
             Block::Table { head, rows } => {
@@ -103,14 +158,15 @@ fn push_blocks(blocks: &[Block], out: &mut Vec<Node>) {
             Block::Rule => out.push(Node::Object(Object::Divider)),
             Block::Signature(inner) => {
                 out.push(Node::Object(Object::Signature));
-                push_blocks(inner, out);
+                push_blocks(inner, within, out);
             }
             Block::Button { label, url } => {
                 let mut marks = Marks::new();
                 marks.link = Some(url.clone());
-                out.push(Node::para(
-                    ParaKind::Paragraph,
+                out.push(paragraph(
                     vec![Run::new(label.clone(), marks)],
+                    ParaStyle::default(),
+                    within,
                 ));
             }
             Block::Facts(pairs) => {
@@ -120,7 +176,11 @@ fn push_blocks(blocks: &[Block], out: &mut Vec<Node>) {
                         text.push(' ');
                     }
                     text.push_str(&spans_text(value));
-                    out.push(Node::plain(ParaKind::Paragraph, text));
+                    out.push(paragraph(
+                        vec![Run::new(text, Marks::new())],
+                        ParaStyle::default(),
+                        within,
+                    ));
                 }
             }
         }
@@ -158,6 +218,12 @@ fn walk_spans(spans: &[Span], marks: &Marks, out: &mut Vec<Run>) {
             Span::Link { url, spans } => {
                 let mut next = marks.clone();
                 next.link = Some(url.clone());
+                walk_spans(spans, &next, out);
+            }
+            Span::Styled { style, spans } => {
+                let mut next = marks.clone();
+                next.size = style.size.or(next.size);
+                next.color = style.color.or(next.color);
                 walk_spans(spans, &next, out);
             }
         }

@@ -35,6 +35,7 @@ pub(crate) fn paste(doc: &Doc, selection: Range, event: &InputEvent) -> Result<E
             Node::Para {
                 kind: ParaKind::Paragraph,
                 runs,
+                ..
             },
         ] if matches!(after.nodes.get(start.node), Some(Node::Para { .. })) => {
             let mut offset = start.offset;

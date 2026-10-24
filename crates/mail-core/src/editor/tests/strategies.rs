@@ -15,28 +15,49 @@ fn text_strategy(max: usize) -> impl Strategy<Value = String> {
     prop::collection::vec(prop::sample::select(CLUSTERS), 1..=max).prop_map(|parts| parts.concat())
 }
 
+fn size_strategy() -> impl Strategy<Value = Option<TextSize>> {
+    prop::option::of(prop::sample::select(TextSize::ALL.to_vec()))
+}
+
+fn color_strategy() -> impl Strategy<Value = Option<TextColor>> {
+    prop::option::of(prop::sample::select(TextColor::ALL.to_vec()))
+}
+
+/// Any alignment, and any depth up to the deepest.
+pub(super) fn layout_strategy() -> impl Strategy<Value = Layout> {
+    (
+        prop::sample::select(Align::ALL.to_vec()),
+        0..=Layout::MAX_DEPTH,
+    )
+        .prop_map(|(align, depth)| Layout { align, depth })
+}
+
 pub(super) fn marks_strategy() -> impl Strategy<Value = Marks> {
-    (0u8..32, any::<bool>()).prop_map(|(bits, linked)| {
-        let mut marks = Marks::new();
-        for (index, mark) in [
-            Mark::Bold,
-            Mark::Italic,
-            Mark::Underline,
-            Mark::Strike,
-            Mark::Code,
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            if bits & (1 << index) != 0 {
-                marks.set(mark, Presence::On);
+    (0u8..32, any::<bool>(), size_strategy(), color_strategy()).prop_map(
+        |(bits, linked, size, color)| {
+            let mut marks = Marks::new();
+            for (index, mark) in [
+                Mark::Bold,
+                Mark::Italic,
+                Mark::Underline,
+                Mark::Strike,
+                Mark::Code,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                if bits & (1 << index) != 0 {
+                    marks.set(mark, Presence::On);
+                }
             }
-        }
-        if linked {
-            marks.link = Some(url());
-        }
-        marks
-    })
+            if linked {
+                marks.link = Some(url());
+            }
+            marks.size = size;
+            marks.color = color;
+            marks
+        },
+    )
 }
 
 fn kind_strategy() -> impl Strategy<Value = ParaKind> {
@@ -74,11 +95,13 @@ fn node_strategy() -> impl Strategy<Value = Node> {
         4 => (
             kind_strategy(),
             prop::collection::vec((text_strategy(4), marks_strategy()), 0..4),
+            layout_strategy(),
         )
-            .prop_map(|(kind, runs)| {
-                Node::para(
+            .prop_map(|(kind, runs, layout)| {
+                Node::laid(
                     kind,
                     runs.into_iter().map(|(text, marks)| Run::new(text, marks)).collect(),
+                    layout,
                 )
             }),
         1 => object_strategy().prop_map(Node::Object),
@@ -121,6 +144,14 @@ fn op_strategy(doc: &Doc) -> impl Strategy<Value = Op> + use<> {
             range,
             url: linked.then(url),
         }),
+        1 => (range_strategy(doc), prop::sample::select(Align::ALL.to_vec()))
+            .prop_map(|(range, align)| Op::SetAlign { range, align }),
+        1 => (range_strategy(doc), 0..=Layout::MAX_DEPTH)
+            .prop_map(|(range, depth)| Op::SetDepth { range, depth }),
+        1 => (range_strategy(doc), size_strategy())
+            .prop_map(|(range, size)| Op::SetSize { range, size }),
+        1 => (range_strategy(doc), color_strategy())
+            .prop_map(|(range, color)| Op::SetColor { range, color }),
         1 => (pos_strategy(doc), prop::collection::vec(node_strategy(), 0..3))
             .prop_map(|(at, nodes)| Op::InsertNodes { at, nodes }),
         1 => (0..=count, 0usize..3, prop::collection::vec(node_strategy(), 0..3))

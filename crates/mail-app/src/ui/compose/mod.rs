@@ -34,6 +34,7 @@ mod remind;
 mod render;
 mod seal;
 mod spell;
+mod styling;
 mod surface;
 mod templates;
 mod wire;

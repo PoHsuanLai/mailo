@@ -104,13 +104,14 @@ fn prefix_of(node: &Node, offset: usize) -> Result<Option<Node>, OpError> {
         }
         // The paragraph the delete starts in survives, even emptied, with its kind: the
         // caret stays in it, as it does when a browser deletes a selection.
-        Node::Para { kind, runs } => {
+        Node::Para { kind, runs, layout } => {
             let len = para_len(runs);
             let mut kept = runs.clone();
             delete_text(&mut kept, offset, len)?;
             Ok(Some(Node::Para {
                 kind: *kind,
                 runs: kept,
+                layout: *layout,
             }))
         }
     }
@@ -125,7 +126,7 @@ fn suffix_of(node: &Node, offset: usize) -> Result<Option<Node>, OpError> {
                 Ok(Some(node.clone()))
             }
         }
-        Node::Para { kind, runs } => {
+        Node::Para { kind, runs, layout } => {
             let len = para_len(runs);
             if offset >= len {
                 Ok(None)
@@ -135,6 +136,7 @@ fn suffix_of(node: &Node, offset: usize) -> Result<Option<Node>, OpError> {
                 Ok(Some(Node::Para {
                     kind: *kind,
                     runs: kept,
+                    layout: *layout,
                 }))
             }
         }
@@ -143,10 +145,17 @@ fn suffix_of(node: &Node, offset: usize) -> Result<Option<Node>, OpError> {
 
 fn join(left: Option<Node>, right: Option<Node>) -> Vec<Node> {
     match (left, right) {
-        (Some(Node::Para { kind, mut runs }), Some(Node::Para { runs: more, .. })) => {
+        (
+            Some(Node::Para {
+                kind,
+                mut runs,
+                layout,
+            }),
+            Some(Node::Para { runs: more, .. }),
+        ) => {
             runs.extend(more);
             normalize_runs(&mut runs);
-            vec![Node::Para { kind, runs }]
+            vec![Node::Para { kind, runs, layout }]
         }
         (Some(left), Some(right)) => vec![left, right],
         (Some(node), None) | (None, Some(node)) => vec![node],

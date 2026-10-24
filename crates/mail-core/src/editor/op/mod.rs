@@ -1,17 +1,18 @@
 //! The five edits, each applied by [`apply`] and answered with an inverse.
 //!
-//! Insert, delete, split, merge, and set (a paragraph's kind or an inline mark). A delete
+//! Insert, delete, split, merge, and set (a paragraph's kind, alignment or depth, or an inline
+//! mark, link, size or colour). A delete
 //! that crosses a node boundary, and a paste, put nodes back with [`Op::Replace`] or
 //! [`Op::InsertNodes`]: one insert of text cannot restore an object or a second paragraph.
 //! [`Op::Seq`] is several of these applied as one inverse.
 
-use mail_mime::SafeUrl;
+use mail_mime::{Align, SafeUrl, TextColor, TextSize};
 
 mod delete;
 mod nodes;
 mod paint;
 
-use crate::editor::doc::{Doc, Mark, Marks, Node, ParaKind, Pos, Presence, Range, Run};
+use crate::editor::doc::{Doc, Layout, Mark, Marks, Node, ParaKind, Pos, Presence, Range, Run};
 use crate::editor::error::OpError;
 use crate::editor::text::{
     delete_text, grapheme_len, insert_text, node_len, normalize_runs, para_len,
@@ -34,14 +35,14 @@ pub enum Op {
         /// What goes.
         range: Range,
     },
-    /// Break a paragraph in two at `at`. Both keep its kind.
+    /// Break a paragraph in two at `at`. Both keep its kind and layout.
     Split {
         /// The break.
         at: Pos,
     },
     /// Join `node` onto the paragraph before it.
     Merge {
-        /// The right-hand node. The survivor keeps the left node's kind.
+        /// The right-hand node. The survivor keeps the left node's kind and layout.
         node: usize,
     },
     /// Turn every paragraph `range` touches into `kind`. A collapsed range is that paragraph.
@@ -50,6 +51,21 @@ pub enum Op {
         range: Range,
         /// The kind they become.
         kind: ParaKind,
+    },
+    /// Align every paragraph `range` touches. A collapsed range is that paragraph.
+    SetAlign {
+        /// Which paragraphs.
+        range: Range,
+        /// How they align.
+        align: Align,
+    },
+    /// Set the depth of every paragraph `range` touches, at most [`Layout::MAX_DEPTH`]. A
+    /// collapsed range is that paragraph.
+    SetDepth {
+        /// Which paragraphs.
+        range: Range,
+        /// Their depth.
+        depth: u8,
     },
     /// Set or clear `mark` over `range`.
     SetMark {
@@ -66,6 +82,20 @@ pub enum Op {
         range: Range,
         /// The link, or none.
         url: Option<SafeUrl>,
+    },
+    /// Size the text of `range`. `None` is the body's size.
+    SetSize {
+        /// Which text.
+        range: Range,
+        /// The size, or none.
+        size: Option<TextSize>,
+    },
+    /// Colour the text of `range`. `None` is the text's own colour.
+    SetColor {
+        /// Which text.
+        range: Range,
+        /// The colour, or none.
+        color: Option<TextColor>,
     },
     /// Insert `nodes` at `at`, splitting a paragraph when `at` is in the middle of one.
     InsertNodes {
@@ -115,8 +145,12 @@ fn apply_mut(doc: &mut Doc, op: Op) -> Result<Op, OpError> {
         Op::Split { at } => split(doc, at),
         Op::Merge { node } => merge(doc, node),
         Op::SetKind { range, kind } => set_kind(doc, range, kind),
+        Op::SetAlign { range, align } => set_align(doc, range, align),
+        Op::SetDepth { range, depth } => set_depth(doc, range, depth),
         Op::SetMark { range, mark, on } => paint::set_mark(doc, range, mark, on),
         Op::SetLink { range, url } => paint::set_link(doc, range, url),
+        Op::SetSize { range, size } => paint::set_size(doc, range, size),
+        Op::SetColor { range, color } => paint::set_color(doc, range, color),
         Op::InsertNodes { at, nodes } => nodes::insert_nodes(doc, at, nodes),
         Op::Replace { index, take, nodes } => nodes::replace(doc, index, take, nodes),
         Op::Seq(ops) => {
@@ -148,12 +182,12 @@ fn insert(doc: &mut Doc, at: Pos, text: String, marks: Marks) -> Result<Op, OpEr
 }
 
 fn split(doc: &mut Doc, at: Pos) -> Result<Op, OpError> {
-    let kind = match doc.nodes.get(at.node) {
-        Some(Node::Para { kind, runs }) => {
+    let (kind, layout) = match doc.nodes.get(at.node) {
+        Some(Node::Para { kind, runs, layout }) => {
             if at.offset > para_len(runs) {
                 return Err(OpError::OutOfRange);
             }
-            *kind
+            (*kind, *layout)
         }
         Some(Node::Object(_)) => return Err(OpError::NotText),
         None => return Err(OpError::OutOfRange),
@@ -163,7 +197,8 @@ fn split(doc: &mut Doc, at: Pos) -> Result<Op, OpError> {
         let len = para_len(runs);
         delete_text(runs, at.offset, len)?
     };
-    doc.nodes.insert(at.node + 1, Node::para(kind, right));
+    doc.nodes
+        .insert(at.node + 1, Node::laid(kind, right, layout));
     Ok(Op::Merge { node: at.node + 1 })
 }
 
@@ -171,10 +206,19 @@ fn merge(doc: &mut Doc, node: usize) -> Result<Op, OpError> {
     if node == 0 || node >= doc.nodes.len() {
         return Err(OpError::CannotMerge);
     }
-    let (left_kind, left_len, right_kind) = match (&doc.nodes[node - 1], &doc.nodes[node]) {
-        (Node::Para { kind: left, runs }, Node::Para { kind: right, .. }) => {
-            (*left, para_len(runs), *right)
-        }
+    let (left, left_len, right) = match (&doc.nodes[node - 1], &doc.nodes[node]) {
+        (
+            Node::Para { kind, runs, layout },
+            Node::Para {
+                kind: right_kind,
+                layout: right_layout,
+                ..
+            },
+        ) => (
+            (*kind, *layout),
+            para_len(runs),
+            (*right_kind, *right_layout),
+        ),
         _ => return Err(OpError::CannotMerge),
     };
     let Node::Para {
@@ -190,43 +234,100 @@ fn merge(doc: &mut Doc, node: usize) -> Result<Op, OpError> {
     let split_back = Op::Split {
         at: Pos::new(node - 1, left_len),
     };
-    if left_kind == right_kind {
-        Ok(split_back)
-    } else {
-        Ok(Op::Seq(vec![
-            split_back,
-            Op::SetKind {
-                range: Range {
-                    start: Pos::new(node, 0),
-                    end: Pos::new(node, 0),
-                },
-                kind: right_kind,
-            },
-        ]))
+    // The split gives the right half the left's kind and layout; whatever of the right's own
+    // differed is set back on it.
+    let at = Range {
+        start: Pos::new(node, 0),
+        end: Pos::new(node, 0),
+    };
+    let mut ops = vec![split_back];
+    if left.0 != right.0 {
+        ops.push(Op::SetKind {
+            range: at,
+            kind: right.0,
+        });
     }
+    if left.1.align != right.1.align {
+        ops.push(Op::SetAlign {
+            range: at,
+            align: right.1.align,
+        });
+    }
+    if left.1.depth != right.1.depth {
+        ops.push(Op::SetDepth {
+            range: at,
+            depth: right.1.depth,
+        });
+    }
+    Ok(one_or_seq_kept(ops))
 }
 
 fn set_kind(doc: &mut Doc, range: Range, kind: ParaKind) -> Result<Op, OpError> {
+    set_para(
+        doc,
+        range,
+        kind,
+        |node| match node {
+            Node::Para { kind, .. } => Some(kind),
+            Node::Object(_) => None,
+        },
+        |range, kind| Op::SetKind { range, kind },
+    )
+}
+
+fn set_align(doc: &mut Doc, range: Range, align: Align) -> Result<Op, OpError> {
+    set_para(
+        doc,
+        range,
+        align,
+        |node| match node {
+            Node::Para { layout, .. } => Some(&mut layout.align),
+            Node::Object(_) => None,
+        },
+        |range, align| Op::SetAlign { range, align },
+    )
+}
+
+fn set_depth(doc: &mut Doc, range: Range, depth: u8) -> Result<Op, OpError> {
+    set_para(
+        doc,
+        range,
+        depth.min(Layout::MAX_DEPTH),
+        |node| match node {
+            Node::Para { layout, .. } => Some(&mut layout.depth),
+            Node::Object(_) => None,
+        },
+        |range, depth| Op::SetDepth { range, depth },
+    )
+}
+
+/// Where a paragraph keeps one of its settings: its kind, its alignment or its depth.
+type Slot<T> = for<'a> fn(&'a mut Node) -> Option<&'a mut T>;
+
+/// Set `value` in every paragraph `range` touches, through `slot`, and answer with the edits
+/// that set each changed paragraph back, made by `op`.
+fn set_para<T: Copy + PartialEq>(
+    doc: &mut Doc,
+    range: Range,
+    value: T,
+    slot: Slot<T>,
+    op: fn(Range, T) -> Op,
+) -> Result<Op, OpError> {
     let range = range.ordered();
     check_range(doc, range)?;
     let mut inverses = Vec::new();
     for index in kind_targets(doc, range) {
-        let Node::Para { kind: slot, .. } = &mut doc.nodes[index] else {
+        let Some(slot) = slot(&mut doc.nodes[index]) else {
             continue;
         };
-        if *slot != kind {
+        if *slot != value {
             let previous = *slot;
-            *slot = kind;
-            inverses.push(Op::SetKind {
-                range: Range {
-                    start: Pos::new(index, 0),
-                    end: Pos::new(index, 0),
-                },
-                kind: previous,
-            });
+            *slot = value;
+            let at = Pos::new(index, 0);
+            inverses.push(op(Range { start: at, end: at }, previous));
         }
     }
-    Ok(one_or_seq(inverses, Op::SetKind { range, kind }))
+    Ok(one_or_seq(inverses, op(range, value)))
 }
 
 fn paragraph_mut(doc: &mut Doc, at: Pos) -> Result<&mut Vec<Run>, OpError> {
@@ -255,7 +356,8 @@ fn check_pos(doc: &Doc, pos: Pos) -> Result<(), OpError> {
     }
 }
 
-fn kind_targets(doc: &Doc, range: Range) -> Vec<usize> {
+/// The paragraphs `range` touches, by index: the caret's own when it is collapsed.
+pub(crate) fn kind_targets(doc: &Doc, range: Range) -> Vec<usize> {
     if range.is_collapsed() {
         return match doc.nodes.get(range.start.node) {
             Some(Node::Para { .. }) => vec![range.start.node],
@@ -288,10 +390,19 @@ fn normalize_nodes(nodes: Vec<Node>) -> Vec<Node> {
     nodes
         .into_iter()
         .map(|node| match node {
-            Node::Para { kind, runs } => Node::para(kind, runs),
+            Node::Para { kind, runs, layout } => Node::laid(kind, runs, layout),
             other => other,
         })
         .collect()
+}
+
+/// `ops` as one edit: the only one, or all of them in order.
+fn one_or_seq_kept(mut ops: Vec<Op>) -> Op {
+    if ops.len() == 1 {
+        ops.remove(0)
+    } else {
+        Op::Seq(ops)
+    }
 }
 
 fn one_or_seq(mut inverses: Vec<Op>, noop: Op) -> Op {

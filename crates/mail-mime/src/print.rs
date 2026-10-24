@@ -30,7 +30,7 @@
 //! Pure: the time zone and "now" are arguments, and nothing here reads the clock or the disk.
 
 use crate::block::{
-    Block, Dir, Document, ImgSrc, ListKind, Reached, Span, from_html_describing,
+    Block, Dir, Document, ImgSrc, ListKind, ParaStyle, Reached, Span, from_html_describing,
     from_text_keeping_lines,
 };
 use crate::parse::Parsed;
@@ -489,15 +489,19 @@ fn blocks(out: &mut String, list: &[Block], remote: Remote<'_>, labels: &Labels<
 
 fn one_block(out: &mut String, block: &Block, remote: Remote<'_>, labels: &Labels<'_>) {
     match block {
-        Block::Heading { level, spans } => {
+        Block::Heading {
+            level,
+            spans,
+            style,
+        } => {
             // Message headings sit under the message's own `h2`.
             let level = (*level).clamp(1, 6).saturating_add(2).min(6);
-            let _ = write!(out, "<h{level}>");
+            let _ = write!(out, "<h{level}{}>", style_attr(*style));
             inline(out, spans);
             let _ = writeln!(out, "</h{level}>");
         }
-        Block::Paragraph { spans, dir } => {
-            let _ = write!(out, "<p dir=\"{}\">", direction(*dir));
+        Block::Paragraph { spans, dir, style } => {
+            let _ = write!(out, "<p dir=\"{}\"{}>", direction(*dir), style_attr(*style));
             inline(out, spans);
             out.push_str("</p>\n");
         }
@@ -682,6 +686,15 @@ fn button(out: &mut String, label: &str, url: &str) {
     );
 }
 
+/// A paragraph's alignment and indent as a `style` attribute, with its leading space; nothing
+/// for a plain one. The values are `ParaStyle`'s fixed few, never the sender's CSS.
+fn style_attr(style: ParaStyle) -> String {
+    style
+        .css()
+        .map(|css| format!(" style=\"{css}\""))
+        .unwrap_or_default()
+}
+
 fn inline(out: &mut String, spans: &[Span]) {
     for span in spans {
         match span {
@@ -704,6 +717,14 @@ fn inline(out: &mut String, spans: &[Span]) {
                 inline(out, spans);
                 out.push_str("</a>");
             }
+            Span::Styled { style, spans } => match style.css() {
+                Some(css) => {
+                    let _ = write!(out, "<span style=\"{css}\">");
+                    inline(out, spans);
+                    out.push_str("</span>");
+                }
+                None => inline(out, spans),
+            },
             Span::Break => out.push_str("<br>"),
         }
     }

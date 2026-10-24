@@ -1,27 +1,33 @@
 //! A minimal, safe HTML writer.
 //!
-//! Every character of text is escaped. A link is written only from a [`SafeUrl`]. No
-//! element carries a `style`, a class or an id: the reader's client styles the mail.
+//! Every character of text is escaped. A link is written only from a [`SafeUrl`]. No element
+//! carries a class or an id, and a `style` only says what the composer set, each from its fixed
+//! few ([`ParaStyle`] and [`RunStyle`]): the reader's client styles the rest of the mail.
 
-use mail_mime::SafeUrl;
+use mail_mime::{Align, ParaStyle, RunStyle, SafeUrl};
 
-use super::{ListTag, block_text, list_end};
-use crate::editor::doc::{Check, Doc, Level, Mark, Node, Object, ParaKind, Run};
+use super::{ListTag, block_text, list_end, same_list, written_depths};
+use crate::editor::doc::{Check, Doc, Layout, Level, Mark, Node, Object, ParaKind, Run};
 use crate::editor::text::runs_text;
 
 /// HTML for `Draft.html`.
 ///
-/// Consecutive list items share one list. A to-do is a bullet whose text starts with ☐ or ☑,
-/// which is what a reader without to-dos shows, and what the paste path reads back.
+/// Consecutive list items share one list, a deeper item a list inside the item before it.
+/// Consecutive quotes share one quote, a deeper level a quote inside it. A to-do is a bullet
+/// whose text starts with ☐ or ☑, which is what a reader without to-dos shows, and what the
+/// paste path reads back.
 pub fn to_html(doc: &Doc) -> String {
     let mut out = String::new();
     let mut index = 0;
     while index < doc.nodes.len() {
         match &doc.nodes[index] {
-            Node::Para { kind, runs } => match ListTag::of(*kind) {
+            Node::Para { kind, runs, layout } => match ListTag::of(*kind) {
                 Some(tag) => index = write_items(&mut out, &doc.nodes, index, tag),
+                None if *kind == ParaKind::Quote => {
+                    index = write_quotes(&mut out, &doc.nodes, index);
+                }
                 None => {
-                    write_para(&mut out, *kind, runs);
+                    write_para(&mut out, *kind, runs, *layout);
                     index += 1;
                 }
             },
@@ -44,29 +50,98 @@ pub(crate) fn todo_glyph(check: Check) -> &'static str {
 
 fn write_items(out: &mut String, nodes: &[Node], start: usize, tag: ListTag) -> usize {
     let end = list_end(nodes, start, tag);
-    let (open, close) = match tag {
-        ListTag::Numbered => ("<ol>", "</ol>"),
-        ListTag::Bullet | ListTag::Todo => ("<ul>", "</ul>"),
-    };
-    out.push_str(open);
-    for node in &nodes[start..end] {
-        let Node::Para { kind, runs } = node else {
+    let items = &nodes[start..end];
+    // The lists open around the item being written, outermost first. Each holds an open `<li>`.
+    let mut open: Vec<ListTag> = Vec::new();
+    for (node, depth) in items.iter().zip(written_depths(items)) {
+        let Node::Para { kind, runs, layout } = node else {
             continue;
         };
+        let Some(tag) = ListTag::of(*kind) else {
+            continue;
+        };
+        while open.len() > depth + 1 {
+            close_list(out, open.pop());
+        }
+        match open.last() {
+            Some(last) if open.len() == depth + 1 && same_list(*last, tag) => {
+                out.push_str("</li>");
+            }
+            Some(_) if open.len() == depth + 1 => {
+                close_list(out, open.pop());
+                open_list(out, tag, &mut open);
+            }
+            _ => open_list(out, tag, &mut open),
+        }
         // The item's text sits in a paragraph. A bare `<li>` makes `from_html` close the
         // text the moment an inline tag opens, so "say **hi**" would come back as two blocks.
-        out.push_str("<li><p>");
+        out.push_str("<li>");
+        open_tag(out, "p", aligned(layout.align));
         if let ParaKind::Todo(check) = kind {
             push_text(out, todo_glyph(*check), Breaks::Keep);
         }
         write_runs(out, runs);
-        out.push_str("</p></li>");
+        out.push_str("</p>");
     }
-    out.push_str(close);
+    while !open.is_empty() {
+        close_list(out, open.pop());
+    }
     end
 }
 
-fn write_para(out: &mut String, kind: ParaKind, runs: &[Run]) {
+fn open_list(out: &mut String, tag: ListTag, open: &mut Vec<ListTag>) {
+    out.push_str(match tag {
+        ListTag::Numbered => "<ol>",
+        ListTag::Bullet | ListTag::Todo => "<ul>",
+    });
+    open.push(tag);
+}
+
+/// Close the item left open in `tag`'s list, and the list.
+fn close_list(out: &mut String, tag: Option<ListTag>) {
+    out.push_str(match tag {
+        Some(ListTag::Numbered) => "</li></ol>",
+        Some(ListTag::Bullet | ListTag::Todo) => "</li></ul>",
+        None => "",
+    });
+}
+
+/// The run of quotes from `start`, one `blockquote` per level: a quote at depth 1 sits in a
+/// quote inside the quote. Returns the index past the run.
+fn write_quotes(out: &mut String, nodes: &[Node], start: usize) -> usize {
+    let mut levels = 0;
+    let mut index = start;
+    while let Some(Node::Para {
+        kind: ParaKind::Quote,
+        runs,
+        layout,
+    }) = nodes.get(index)
+    {
+        let want = usize::from(layout.depth) + 1;
+        while levels > want {
+            out.push_str("</blockquote>");
+            levels -= 1;
+        }
+        while levels < want {
+            out.push_str("<blockquote>");
+            levels += 1;
+        }
+        open_tag(out, "p", aligned(layout.align));
+        write_runs(out, runs);
+        out.push_str("</p>");
+        index += 1;
+    }
+    for _ in 0..levels {
+        out.push_str("</blockquote>");
+    }
+    index
+}
+
+fn write_para(out: &mut String, kind: ParaKind, runs: &[Run], layout: Layout) {
+    let style = ParaStyle {
+        align: layout.align,
+        indent: layout.depth,
+    };
     match kind {
         ParaKind::Heading(level) => {
             let tag = match level {
@@ -74,26 +149,43 @@ fn write_para(out: &mut String, kind: ParaKind, runs: &[Run]) {
                 Level::Two => "h2",
                 Level::Three => "h3",
             };
-            out.push_str(&format!("<{tag}>"));
+            open_tag(out, tag, style);
             write_runs(out, runs);
             out.push_str(&format!("</{tag}>"));
-        }
-        ParaKind::Quote => {
-            out.push_str("<blockquote><p>");
-            write_runs(out, runs);
-            out.push_str("</p></blockquote>");
         }
         ParaKind::Code => {
             out.push_str("<pre>");
             push_text(out, &runs_text(runs), Breaks::Keep);
             out.push_str("</pre>");
         }
-        ParaKind::Paragraph | ParaKind::Bullet | ParaKind::Numbered | ParaKind::Todo(_) => {
-            out.push_str("<p>");
+        ParaKind::Paragraph
+        | ParaKind::Quote
+        | ParaKind::Bullet
+        | ParaKind::Numbered
+        | ParaKind::Todo(_) => {
+            open_tag(out, "p", style);
             write_runs(out, runs);
             out.push_str("</p>");
         }
     }
+}
+
+/// A paragraph's style with its alignment alone: an item's and a quote's depth is the lists or
+/// quotes around them, not an indent.
+fn aligned(align: Align) -> ParaStyle {
+    ParaStyle { align, indent: 0 }
+}
+
+/// `<tag>`, with `style`'s attribute when it says anything.
+fn open_tag(out: &mut String, tag: &str, style: ParaStyle) {
+    out.push('<');
+    out.push_str(tag);
+    if let Some(css) = style.css() {
+        out.push_str(" style=\"");
+        out.push_str(&css);
+        out.push('"');
+    }
+    out.push('>');
 }
 
 fn write_runs(out: &mut String, runs: &[Run]) {
@@ -102,11 +194,21 @@ fn write_runs(out: &mut String, runs: &[Run]) {
     }
 }
 
-/// One run: the link outermost, then the styles, in a fixed order.
+/// One run: the link outermost, then its size and colour, then the styles, in a fixed order.
 fn write_run(out: &mut String, run: &Run) {
     if let Some(url) = &run.marks.link {
         out.push_str("<a href=\"");
         push_text(out, url.as_str(), Breaks::Keep);
+        out.push_str("\">");
+    }
+    let styled = RunStyle {
+        size: run.marks.size,
+        color: run.marks.color,
+    }
+    .css();
+    if let Some(css) = &styled {
+        out.push_str("<span style=\"");
+        out.push_str(css);
         out.push_str("\">");
     }
     let tags: Vec<&str> = [
@@ -126,6 +228,9 @@ fn write_run(out: &mut String, run: &Run) {
     push_text(out, &run.text, Breaks::Br);
     for tag in tags.iter().rev() {
         out.push_str(&format!("</{tag}>"));
+    }
+    if styled.is_some() {
+        out.push_str("</span>");
     }
     if run.marks.link.is_some() {
         out.push_str("</a>");
