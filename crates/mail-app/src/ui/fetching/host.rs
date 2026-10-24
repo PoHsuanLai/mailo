@@ -14,6 +14,7 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::{Operation, PendingToken};
 use mail_core::fetch::{FolderFetch, Link};
+use mail_core::notify::Notifier;
 use mail_core::schedule::{
     Change, Daemon, Heard, Host, ListenCall, Local, Lost, PassCall, Passed, Schedule, Stored,
     Timing,
@@ -40,6 +41,33 @@ pub(super) struct WindowHost {
     /// What the last pass of each account offered beside its failure ([`offer_of`]).
     pub offers: Signal<BTreeMap<AccountId, Offer>>,
     pub revision: Signal<u64>,
+    /// Where what a pass fetched is announced, and the settings that say whether it is
+    /// ([`crate::ui::follow_up::speaking`]).
+    pub notices: Option<crate::ui::follow_up::Notices>,
+    pub settings: Option<Signal<crate::settings::MailSettings>>,
+}
+
+/// Announce what each finished pass in `ends` stored, as `mailo watch` does
+/// (`mail_core::sync::watcher::told`). A message is an arrival only on the pass that first
+/// stores it, so a watch and a window running side by side never both announce one.
+fn announce(store: &SqliteStore, ends: &[PassEnd], notifier: &dyn Notifier, at: DateTime<Utc>) {
+    for end in ends {
+        let PassEnd::Finished(report) = end else {
+            continue;
+        };
+        if let Err(why) = mail_core::notify::announce(
+            store,
+            report.account.clone(),
+            &report.counts.arrived,
+            notifier,
+            at,
+        ) {
+            log::warn!(
+                "new mail for {} could not be announced: {why}",
+                report.address
+            );
+        }
+    }
 }
 
 /// What a run offered `account`: the [`Offer`] its pass failed with, if it failed with one.
@@ -103,6 +131,8 @@ impl Host for WindowHost {
     fn pass(&self, call: PassCall) -> Local<'_, Passed> {
         let (store, passer) = (self.store.clone(), self.passer.clone());
         let mut offers = self.offers;
+        // Asked as the pass starts, so a switch turned in Settings counts from the next pass.
+        let notifier = crate::ui::follow_up::speaking(self.notices.as_ref(), self.settings);
         Box::pin(async move {
             let PassCall {
                 account,
@@ -121,7 +151,11 @@ impl Host for WindowHost {
                     progress: Some(&said),
                     cancel: BTreeMap::from([(this_account.clone(), cancel)]),
                 };
-                (passer.0)(store, started, this_account, hooks)
+                let done = (passer.0)(store.clone(), started, this_account, hooks);
+                if let (Some(notifier), Ok(ends)) = (&notifier, &done) {
+                    announce(&store, ends, notifier.as_ref(), started);
+                }
+                done
             })
             .await
             .unwrap_or_else(|e| Err(format!("the sync pass stopped: {e}")));

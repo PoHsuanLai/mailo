@@ -323,6 +323,8 @@ fn platform(out: &mut notify_rust::Notification, n: &Notification) {
         // The freedesktop category for this event, which servers use to pick a sound and to
         // group.
         .hint(Hint::Category("email.arrived".to_owned()))
+        // The freedesktop sound theme's name for it, for a server that plays sounds by name.
+        .sound_name("message-new-email")
         .hint(Hint::DesktopEntry("org.quire.Mail".to_owned()))
         .hint(Hint::Custom(
             "x-mailo-account".to_owned(),
@@ -341,6 +343,11 @@ fn platform(out: &mut notify_rust::Notification, n: &Notification) {
 #[cfg(not(all(unix, not(target_os = "macos"))))]
 fn platform(out: &mut notify_rust::Notification, n: &Notification) {
     out.body(&n.body);
+    // The system's own sound for it: a banner with none set is silent on both.
+    #[cfg(target_os = "macos")]
+    out.sound_name("NSUserNotificationDefaultSoundName");
+    #[cfg(windows)]
+    out.sound_name("Mail");
 }
 
 /// A body is markup to a server that advertises `body-markup`, and a subject is a stranger's text:

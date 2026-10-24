@@ -10,11 +10,25 @@ use mail_core::notify::Notifier;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Where the window says a reminder came back: the desktop's notifications in the launched
-/// window, while notifications are on; a recorder in a test. A window with none says it only in
-/// its list.
+/// Where the window says new mail arrived and a reminder came back: the desktop's notifications
+/// in the launched window, a recorder in a test. A window with none says it only in its list.
+///
+/// Provided whether or not notifications are on; [`speaking`] asks the setting each time, so
+/// turning them off or on in Settings takes effect at once.
 #[derive(Clone)]
 pub struct Notices(pub Arc<dyn Notifier>);
+
+/// The window's notices while `notifications.new_mail` is on, read now. A window with no settings
+/// (a test's lone component) has them on, as the setting's default is.
+pub(in crate::ui) fn speaking(
+    notices: Option<&Notices>,
+    settings: Option<Signal<crate::settings::MailSettings>>,
+) -> Option<Arc<dyn Notifier>> {
+    let on = settings.is_none_or(|settings| {
+        settings.peek().notifications.new_mail == crate::settings::NewMail::On
+    });
+    notices.filter(|_| on).map(|notices| notices.0.clone())
+}
 
 impl std::fmt::Debug for Notices {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,8 +67,11 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
             loop {
                 let now = super::clock::now();
                 let store = consume_context::<Arc<SqliteStore>>();
-                let notices = try_consume_context::<Notices>();
-                let notifier = notices.as_ref().map(|notices| notices.0.as_ref());
+                let notices = speaking(
+                    try_consume_context::<Notices>().as_ref(),
+                    try_consume_context::<Signal<crate::settings::MailSettings>>(),
+                );
+                let notifier = notices.as_deref();
                 match mail_core::follow_up::sweep_and_announce(&store, notifier, now) {
                     // Moving the revision starts this again, with the next due time.
                     Ok(swept) if swept.changed() => {

@@ -48,19 +48,13 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // the window runs, on threads of its own (`intents::index`).
     #[cfg(not(any(target_os = "macos", windows)))]
     crate::intents::index::start(store.clone());
-    // Read once, as the window opens, like the watch reads it.
-    let notices = dirs
-        .as_ref()
-        .filter(|dirs| {
-            crate::ui::prefs::root_of(dirs)
-                .map(|root| crate::settings::load(&root).notifications.new_mail)
-                == Some(crate::settings::NewMail::On)
-        })
-        .map(|_| {
-            crate::ui::follow_up::Notices(std::sync::Arc::new(
-                mail_core::notify::desktop::Desktop::connect_in_window(),
-            ))
-        });
+    // Whether they are on is asked as each is said (`follow_up::speaking`), so Settings' switch
+    // takes effect without a restart.
+    let notices = dirs.as_ref().map(|_| {
+        crate::ui::follow_up::Notices(std::sync::Arc::new(
+            mail_core::notify::desktop::Desktop::connect_in_window(),
+        ))
+    });
     let original = Original::window();
     // How the window reaches the world for a sign-in, for keys and for a removal's keyring: the
     // real ones, here and only here. A test's root (`contexts`) has none of them, and a window
