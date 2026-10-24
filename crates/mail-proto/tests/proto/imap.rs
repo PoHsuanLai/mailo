@@ -643,3 +643,35 @@ fn a_resumed_session_does_not_upgrade_again() {
         });
     replay(&mut s, "C: a004 NOOP\nS: a004 OK done\nDONE\n").unwrap();
 }
+
+
+/// A server offering SASL PLAIN with an initial response is signed in to with it, and the
+/// password, accents and all, goes base64-encoded; one that does not is sent `LOGIN`.
+#[test]
+fn a_password_goes_by_sasl_plain_where_the_server_offers_it() {
+    let with = |password: &str| ImapAuth {
+        username: "ada@example.test".to_owned(),
+        credential: Credential::Password(SecretText::new(password.to_owned())),
+        sasl: vec![SaslMech::Plain],
+    };
+    let cases: &[(&str, &str)] = &[
+        (
+            "héllo",
+            "S: * OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=PLAIN] ready\n\
+             C: a001 AUTHENTICATE PLAIN AGFkYUBleGFtcGxlLnRlc3QAaMOpbGxv\n\
+             S: a001 OK signed in\n\
+             DONE\n",
+        ),
+        (
+            "hunter2",
+            "S: * OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\n\
+             C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+             S: a001 OK signed in\n\
+             DONE\n",
+        ),
+    ];
+    for (password, trace) in cases {
+        let mut s = ImapSession::new(with(password), vec![ImapCommand::Login]).unwrap();
+        replay(&mut s, trace).unwrap();
+    }
+}
