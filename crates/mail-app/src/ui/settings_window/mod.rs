@@ -34,6 +34,7 @@ mod accounts;
 mod general;
 mod keys;
 mod offline;
+mod push_relay;
 mod root;
 mod rows;
 mod spaces;

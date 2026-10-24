@@ -17,14 +17,19 @@
 //! | IMAP     | the stored capabilities say `IDLE`          |
 //! | JMAP     | the session names an event source           |
 //! | POP3     | never: no server push exists                |
-//! | Graph    | never: polled                               |
+//! | Graph    | a push relay is set ([`super::graph_push`]) |
 //! | Local    | never: nothing to fetch                     |
+//!
+//! A Graph account with no relay is polled, as it always was; with one, it is waited on through
+//! the relay's WebSocket (`mail_runtime::graph::push`) at the floor of its poll interval, so the
+//! relay only brings new mail sooner, and a relay that cannot be reached leaves it polling.
 
 use super::report::Failure;
 use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
 use super::{signed_in_typed, to_sync};
 use crate::error::Logged;
 use mail_domain::*;
+use mail_runtime::graph::push::{Listener, SUBSCRIPTIONS};
 use mail_runtime::{
     AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, RuntimeError, Woke,
 };
@@ -69,6 +74,9 @@ fn unsupported(why: &str) -> Lost {
 pub use mail_runtime::schedule::Hold;
 
 /// Whether the account's stored plan and capabilities can be waited on: see the table above.
+///
+/// A Graph account is not here: whether it is pushed to is a setting the store holds, which
+/// [`pushing`] reads ([`super::graph_push::relayed`]).
 pub fn pushes(account: &Configured) -> bool {
     matches!(
         account.plan.incoming,
@@ -81,7 +89,7 @@ pub fn pushing(store: &SqliteStore) -> Vec<AccountId> {
     configured(store)
         .or_log_default("the accounts could not be read")
         .iter()
-        .filter(|account| pushes(account))
+        .filter(|account| pushes(account) || super::graph_push::relayed(store, account))
         .map(|account| account.id.clone())
         .collect()
 }
@@ -127,12 +135,40 @@ pub async fn listen_with(
     grace: Duration,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
+    listen_at(
+        store,
+        secrets,
+        registry,
+        SUBSCRIPTIONS,
+        account,
+        cancel,
+        hold,
+        grace,
+        heard,
+    )
+    .await
+}
+
+/// [`listen_with`], with Graph's subscriptions at `subscriptions` rather than Microsoft's: a
+/// test's own listener.
+#[allow(clippy::too_many_arguments)]
+pub async fn listen_at(
+    store: Arc<SqliteStore>,
+    secrets: Arc<dyn AccountSecrets>,
+    registry: &ClientRegistry,
+    subscriptions: &str,
+    account: AccountId,
+    cancel: watch::Receiver<bool>,
+    hold: Option<Hold>,
+    grace: Duration,
+    heard: &dyn Fn(Heard),
+) -> Result<(), Lost> {
     let account = configured(&store)
         .map_err(|why| unsupported(&why.to_string()))?
         .into_iter()
         .find(|one| one.id == account)
         .ok_or_else(|| unsupported("that account is no longer configured"))?;
-    let mut waiting = Waiter::open(&store, &account, secrets, registry).await?;
+    let mut waiting = Waiter::open(&store, &account, secrets, registry, subscriptions).await?;
     let mut cancel = cancel;
     hearing(&mut waiting, &mut cancel, hold, grace, heard).await
 }
@@ -148,6 +184,11 @@ enum Waiter {
         engine: Box<JmapEngine>,
         floor: Duration,
     },
+    /// A Graph account, through its relay.
+    Graph {
+        listener: Box<Listener>,
+        floor: Duration,
+    },
 }
 
 impl Waiter {
@@ -157,7 +198,11 @@ impl Waiter {
         account: &Configured,
         secrets: Arc<dyn AccountSecrets>,
         registry: &ClientRegistry,
+        subscriptions: &str,
     ) -> Result<Self, Lost> {
+        if super::graph_push::relayed(store, account) {
+            return Self::relayed(store, account, secrets, registry, subscriptions).await;
+        }
         if !pushes(account) {
             return Err(unsupported("this account has no push to wait on"));
         }
@@ -214,6 +259,36 @@ impl Waiter {
         }
     }
 
+    /// A Graph account's relay, set up as far as it is not already: see `mail_runtime::graph::push`.
+    async fn relayed(
+        store: &Arc<SqliteStore>,
+        account: &Configured,
+        secrets: Arc<dyn AccountSecrets>,
+        registry: &ClientRegistry,
+        subscriptions: &str,
+    ) -> Result<Self, Lost> {
+        let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
+            return Err(unsupported("a Graph account signs in with Microsoft"));
+        };
+        let client = mail_runtime::clients::client(registry, *issuer)
+            .ok_or_else(|| Lost::from(Failure::reauth(crate::account::no_client_id(*issuer))))?
+            .clone();
+        let listener = Listener::open(
+            account.id.clone(),
+            &account.plan,
+            store.clone(),
+            secrets,
+            client,
+            subscriptions,
+        )
+        .await
+        .map_err(|e| lost(&e))?;
+        Ok(Waiter::Graph {
+            listener: Box::new(listener),
+            floor: poll_floor(&account.caps.watch),
+        })
+    }
+
     async fn wait(&mut self, cancel: &mut Cancel) -> Result<Woke, RuntimeError> {
         match self {
             Waiter::Imap {
@@ -222,6 +297,7 @@ impl Waiter {
                 floor,
             } => engine.wait(inbox, cancel, *floor).await,
             Waiter::Jmap { engine, floor } => engine.wait(cancel, *floor).await,
+            Waiter::Graph { listener, floor } => listener.wait(cancel, *floor).await,
         }
     }
 }

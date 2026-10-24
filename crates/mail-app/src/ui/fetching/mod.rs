@@ -294,6 +294,13 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         let store = consume_context::<Arc<SqliteStore>>();
         mail_core::sync::due::intervals(&store)
     });
+    // Which accounts are pushed to, beside: a push relay set on an account's page changes it
+    // without changing any interval, and the runner reads it again when told the accounts.
+    let pushed = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        mail_core::sync::live::pushing(&store)
+    });
     let links = use_signal({
         let store = store.clone();
         move || schedule::initial(&store, &accounts.peek(), Utc::now())
@@ -318,6 +325,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
     // The accounts changing is the runner's to hear, since it owns what to do about it.
     let known = use_hook(|| Rc::new(RefCell::new(None::<BTreeSet<AccountId>>)));
     use_effect(move || {
+        let _ = pushed.read();
         let now: Vec<(AccountId, std::time::Duration)> = accounts.read().clone();
         announce_added(&known, &now);
         let _ = tx.peek().send(Note::Accounts(now));
