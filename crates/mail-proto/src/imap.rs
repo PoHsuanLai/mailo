@@ -265,7 +265,8 @@ impl Untagged {
                 continue;
             }
             let start = close + 3;
-            return self.raw.get(start..start + len);
+            // A count near `usize::MAX` is a server's claim, not a length: past the end is none.
+            return self.raw.get(start..start.checked_add(len)?);
         }
         None
     }
