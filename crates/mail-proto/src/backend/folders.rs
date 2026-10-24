@@ -161,15 +161,57 @@ fn unescape(quoted: &str) -> String {
 /// the server wrote the name. `\All` is the archive, as it is on Gmail; `\Flagged` and
 /// `\Important` are views, not mailboxes; and a container that holds no mail plays no role.
 ///
+/// A role no folder's SPECIAL-USE attribute names (RFC 6154 is optional, and many servers send
+/// none) goes to the folder named for it by the names clients agree on
+/// ([`MailboxRole::from_folder_name`]), as Apple Mail and Thunderbird find them: `Sent`, `Junk`,
+/// `Deleted Items`. Only at the top, or just under `INBOX` where Courier and Dovecot's older
+/// layouts keep them, so a user's `Projects/Sent` is never taken for the account's; and only for
+/// Sent, Drafts, Trash and Junk, since the archive is found another way ([`role_of`]).
+///
 /// [`ProtoOutcome::Folders`]: crate::ProtoOutcome::Folders
 pub(crate) fn roles(listed: &[Folder]) -> FolderRoles {
-    FolderRoles(
-        listed
+    let mut named: Vec<(String, MailboxRole)> = listed
+        .iter()
+        .filter(|f| f.holds == Holds::Mail)
+        .filter_map(|f| Some((f.path.clone(), role_of(f.special?)?)))
+        .collect();
+    for role in [
+        MailboxRole::Sent,
+        MailboxRole::Drafts,
+        MailboxRole::Trash,
+        MailboxRole::Spam,
+    ] {
+        if named.iter().any(|(_, has)| *has == role) {
+            continue;
+        }
+        let guessed = listed
             .iter()
-            .filter(|f| f.holds == Holds::Mail)
-            .filter_map(|f| Some((f.path.clone(), role_of(f.special?)?)))
-            .collect(),
-    )
+            .filter(|f| f.holds == Holds::Mail && f.special.is_none())
+            .filter(|f| MailboxRole::from_folder_name(&f.path) == Some(role))
+            .filter_map(|f| Some((standard_depth(f)?, f)))
+            .min_by_key(|(depth, _)| *depth);
+        if let Some((_, folder)) = guessed {
+            named.push((folder.path.clone(), role));
+        }
+    }
+    FolderRoles(named)
+}
+
+/// How far down a folder is where a standard folder is kept: 0 at the top, 1 just under
+/// `INBOX`, `None` anywhere else.
+fn standard_depth(folder: &Folder) -> Option<u8> {
+    let Some(delimiter) = folder.delimiter else {
+        return Some(0);
+    };
+    match folder.path.split_once(delimiter) {
+        None => Some(0),
+        Some((parent, rest))
+            if parent.eq_ignore_ascii_case("INBOX") && !rest.contains(delimiter) =>
+        {
+            Some(1)
+        }
+        Some(_) => None,
+    }
 }
 
 /// The role a mailbox with this special use plays in the capabilities.
@@ -340,5 +382,85 @@ mod tests {
         };
         assert!(already_so(&delete, &gone));
         assert!(!already_so(&rename, &gone));
+    }
+
+    /// A role no SPECIAL-USE attribute names goes to the standard name at the top or just under
+    /// `INBOX`; an attribute always wins, and a folder deeper down is never guessed at.
+    #[test]
+    fn a_server_without_special_use_has_its_standard_folders_found_by_name() {
+        let account = mail_domain::id::account_id_from_uuid(uuid::uuid!(
+            "00000000-0000-4000-8000-0000000000a1"
+        ));
+        type Case = (
+            &'static str,
+            &'static [&'static str],
+            &'static [(&'static str, MailboxRole)],
+        );
+        let cases: &[Case] = &[
+            (
+                "none named",
+                &[
+                    r#"* LIST () "/" INBOX"#,
+                    r#"* LIST () "/" "Sent Items""#,
+                    r#"* LIST () "/" Drafts"#,
+                    r#"* LIST () "/" "Deleted Items""#,
+                    r#"* LIST () "/" "Junk E-mail""#,
+                ],
+                &[
+                    ("INBOX", MailboxRole::Inbox),
+                    ("Sent Items", MailboxRole::Sent),
+                    ("Drafts", MailboxRole::Drafts),
+                    ("Deleted Items", MailboxRole::Trash),
+                    ("Junk E-mail", MailboxRole::Spam),
+                ],
+            ),
+            (
+                "under INBOX",
+                &[
+                    r#"* LIST () "." INBOX"#,
+                    r#"* LIST () "." INBOX.Sent"#,
+                    r#"* LIST () "." INBOX.Trash"#,
+                ],
+                &[
+                    ("INBOX", MailboxRole::Inbox),
+                    ("INBOX.Sent", MailboxRole::Sent),
+                    ("INBOX.Trash", MailboxRole::Trash),
+                ],
+            ),
+            (
+                "an attribute wins",
+                &[r#"* LIST () "/" Trash"#, r#"* LIST (\Trash) "/" Bin"#],
+                &[("Bin", MailboxRole::Trash)],
+            ),
+            (
+                "never deeper down",
+                &[
+                    r#"* LIST () "/" Projects"#,
+                    r#"* LIST () "/" Projects/Sent"#,
+                    r#"* LIST () "/" Projects/Spam"#,
+                ],
+                &[],
+            ),
+            (
+                "the top over INBOX's",
+                &[r#"* LIST () "/" INBOX/Spam"#, r#"* LIST () "/" Spam"#],
+                &[("Spam", MailboxRole::Spam)],
+            ),
+            (
+                "a container holds no mail",
+                &[r#"* LIST (\Noselect) "/" Sent"#],
+                &[],
+            ),
+        ];
+        for (name, lines, want) in cases {
+            let listed = listing(
+                &lines.iter().map(|l| untagged(l)).collect::<Vec<_>>(),
+                account.clone(),
+            );
+            let got = roles(&listed).0;
+            let want: Vec<(String, MailboxRole)> =
+                want.iter().map(|(p, r)| ((*p).to_owned(), *r)).collect();
+            assert_eq!(got, want, "{name}");
+        }
     }
 }
