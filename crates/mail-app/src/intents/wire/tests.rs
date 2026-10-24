@@ -1,6 +1,6 @@
 //! Each form pinned to the text the router writes or reads. The texts are the serde forms of
-//! docket-core's types (`Invocation`, `Outcome`, `AppRefusal`, `Preview`, `Hit`, `Label`), read
-//! from its source and its pinned-JSON tests; a form that changes there fails here, where it is
+//! docket-core's types (`Invocation`, `Outcome`, `AppRefusal`, `Preview`, `Hit`, `Label`,
+//! `IndexBatch`), read from its source and its pinned-JSON tests; a form that changes there fails here, where it is
 //! cheaper than at a person's desk.
 
 use super::*;
@@ -315,4 +315,43 @@ fn a_suggest_ask_is_read() {
         ),
         ("mail.thread.label", "label", "wo")
     );
+}
+
+/// A batch as docket-core's `IndexBatch` reads it and writes it back, byte for byte: the fixture
+/// was read into docket's type and written out again by docket, and came back the same.
+const INDEX_BATCH: &str = r#"{"epoch":7,"upserts":[{"key":"00000000-0000-0000-0000-000000007001","kind":"mail.thread","title":"Lunch on Friday","subtitle":"Ada Lovelace, Grace Hopper","keywords":["ada@example.test","Ada Lovelace","Work"],"updated":1700000000,"space":{"kind":"any"}},{"key":"ada@example.test","kind":"mail.contact","title":"Ada Lovelace","subtitle":"ada@example.test","keywords":[],"updated":1700000060,"space":{"kind":"any"}}],"removals":["grace@example.test","00000000-0000-0000-0000-000000007002"]}"#;
+
+#[test]
+fn an_index_batch_is_written_as_the_router_reads_it() {
+    use chrono::TimeZone;
+    use mail_core::findable::{Findable, Kind};
+    let at = |secs| chrono::Utc.timestamp_opt(secs, 0).single().expect("a time");
+    let thread = mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
+    let gone = mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(0x7002));
+    let conversation = Findable {
+        kind: Kind::Conversation,
+        key: thread.to_string(),
+        title: "Lunch on Friday".to_owned(),
+        subtitle: "Ada Lovelace, Grace Hopper".to_owned(),
+        keywords: vec![
+            "ada@example.test".to_owned(),
+            "Ada Lovelace".to_owned(),
+            "Work".to_owned(),
+        ],
+        updated: at(1_700_000_000),
+    };
+    let contact = Findable {
+        kind: Kind::Contact,
+        key: "ada@example.test".to_owned(),
+        title: "Ada Lovelace".to_owned(),
+        subtitle: "ada@example.test".to_owned(),
+        keywords: vec![],
+        updated: at(1_700_000_060),
+    };
+    let batch = IndexBatch {
+        epoch: 7,
+        upserts: vec![IndexEntry::of(&conversation), IndexEntry::of(&contact)],
+        removals: vec!["grace@example.test".to_owned(), gone.to_string()],
+    };
+    assert_eq!(serde_json::to_string(&batch).expect("json"), INDEX_BATCH);
 }

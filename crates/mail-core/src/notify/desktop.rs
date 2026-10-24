@@ -17,8 +17,8 @@
 //!
 //! On Linux, what a click opens also rides along in the hints, for any other listener:
 //! `x-mailo-thread` (a thread id, absent on a summary, which opens the inbox) and
-//! `x-mailo-account`, beside `category` (`email.arrived`) and `desktop-entry` (`mailo`). The one
-//! action offered is `default`, the key a server invokes when the bubble itself is clicked.
+//! `x-mailo-account`, beside `category` (`email.arrived`) and `desktop-entry` (`org.quire.Mail`).
+//! The one action offered is `default`, the key a server invokes when the bubble itself is clicked.
 //!
 //! What each platform does not do:
 //! - macOS: only the window hears a click ([`Desktop::connect_in_window`]): the click is delivered
@@ -323,7 +323,7 @@ fn platform(out: &mut notify_rust::Notification, n: &Notification) {
         // The freedesktop category for this event, which servers use to pick a sound and to
         // group.
         .hint(Hint::Category("email.arrived".to_owned()))
-        .hint(Hint::DesktopEntry("mailo".to_owned()))
+        .hint(Hint::DesktopEntry("org.quire.Mail".to_owned()))
         .hint(Hint::Custom(
             "x-mailo-account".to_owned(),
             n.account.to_string(),

@@ -17,9 +17,11 @@ use ds_blitz::{AppConfig, AppId, RootContexts};
 use mail_core::SqliteStore;
 use std::sync::Arc;
 
-/// The desktop entry's name (`packaging/mailo.desktop`), which notifications name too: the
-/// Wayland `app_id` and X11 `WM_CLASS`, so the desktop matches the window to its entry.
-pub(in crate::ui) const APP_ID: &str = "mailo";
+/// The desktop entry's name (`packaging/org.quire.Mail.desktop`), which notifications name too:
+/// the Wayland `app_id` and X11 `WM_CLASS`, so the desktop matches the window to its entry. It is
+/// the intents app ([`crate::intents::APP`]) too, so the scope a launcher starts the window in names
+/// the app the desktop's intent router knows.
+pub const APP_ID: &str = crate::intents::APP;
 
 /// Open the window on Blitz.
 ///
@@ -42,6 +44,10 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     } = opening;
     // What earlier runs' Open left in the temporary folder, cleared off the thread that draws.
     std::thread::spawn(crate::ui::reading::sweep_left_open);
+    // The desktop launcher's copy of the recent conversations and the address book, kept while
+    // the window runs, on threads of its own (`intents::index`).
+    #[cfg(not(any(target_os = "macos", windows)))]
+    crate::intents::index::start(store.clone());
     // Read once, as the window opens, like the watch reads it.
     let notices = dirs
         .as_ref()

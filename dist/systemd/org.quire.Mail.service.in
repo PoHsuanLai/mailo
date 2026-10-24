@@ -1,0 +1,14 @@
+# The user unit the bus starts `mailo intents` in, named by `SystemdService=` in the D-Bus service
+# file (dist/org.quire.Mail.service.in). As a unit of its own the provider is `org.quire.Mail.service`
+# to the desktop's intent router, which knows a caller by the unit its process runs in
+# (intentd-callers.toml), rather than a transient `dbus-…-org.quire.Mail@….service`. Not enabled:
+# only activation starts it. dist/install.sh writes this with @BIN@ replaced by where it put the
+# binary; the packages ship packaging/systemd/org.quire.Mail.service with /usr/bin/mailo.
+[Unit]
+Description=mailo intents provider (what the desktop asks mail to do)
+Documentation=https://github.com/PoHsuanLai/mailo
+
+[Service]
+Type=dbus
+BusName=org.quire.Mail
+ExecStart=@BIN@ intents

@@ -4,7 +4,7 @@
 //! that conversation, which is what a desktop notification's click needs to become: the
 //! notification names the thread (`x-mailo-thread`), and whoever hears the click can start the
 //! window this way. `mailo mailto:…` opens it on a composer holding what the link asks for,
-//! which is how the desktop runs its handler for the scheme (`packaging/mailo.desktop`, `%u`):
+//! which is how the desktop runs its handler for the scheme (`packaging/org.quire.Mail.desktop`, `%u`):
 //! [`mailto_of`] reads the link and [`start_mailto`] makes it a draft. Everything else on the
 //! command line is the CLI's, and [`start_of`] says so by answering `None`.
 

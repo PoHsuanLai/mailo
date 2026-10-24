@@ -9,10 +9,11 @@
 //! reads as [`Value::Other`], which no action accepts.
 //!
 //! Input types derive `Deserialize` only and output types `Serialize` only: mailo reads
-//! invocations and writes answers, never the other way round.
+//! invocations and writes answers and index batches, never the other way round.
 
 mod answer;
 mod call;
+mod index;
 mod label;
 
 pub use answer::{
@@ -20,6 +21,7 @@ pub use answer::{
     Selection, Snip, TextTarget, UndoFault, Undoable, Visible, answer_of,
 };
 pub use call::{ActionRef, EntityId, Invocation, SuggestAsk, Target, Value};
+pub use index::{IndexBatch, IndexEntry, SpaceScope, kind_of};
 pub use label::{Integrity, Label, Labelled};
 
 #[cfg(test)]

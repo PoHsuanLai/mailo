@@ -8,7 +8,7 @@
 #   1. dist/install.sh puts the desktop entry and the icon where sill reads them, and a second
 #      run changes nothing.
 #   2. The watch's first pass puts `count 0, count-visible false` on the launcher entry for
-#      `application://mailo.desktop`, from one connection (the watch).
+#      `application://org.quire.Mail.desktop`, from one connection (the watch).
 #   3. A message arrives: sill's banner column maps and draws, sill's `notifications status`
 #      counts it, and the Notify call carried the app name `mailo`, the icon `mailo`, the
 #      sender as the summary, the subject as the body, and the `desktop-entry` hint.
@@ -27,7 +27,7 @@ build_all
 ensure_compositor
 new_session
 check "1. dist/install.sh installs, and is idempotent" install_mailo
-check "1. the desktop entry is where sill looks" test -f "$PREFIX_DIR/share/applications/mailo.desktop"
+check "1. the desktop entry is where sill looks" test -f "$PREFIX_DIR/share/applications/org.quire.Mail.desktop"
 check "1. the icon is where sill looks" test -f "$PREFIX_DIR/share/icons/hicolor/512x512/apps/mailo.png"
 check "1. the unit is in place" test -f "$UNIT_DIR/mailo-watch.service"
 start_imap

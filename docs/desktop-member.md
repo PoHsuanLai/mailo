@@ -20,8 +20,8 @@ hand must not restart in a loop.
 
 | To | How | Where |
 | --- | --- | --- |
-| The notification server | `org.freedesktop.Notifications.Notify`: app name `mailo`, icon `mailo`, summary the sender, body the subject, action `default`, hints `category=email.arrived`, `desktop-entry=mailo`, `x-mailo-thread`, `x-mailo-account` | `mail-core/src/notify/desktop.rs` |
-| The dock | `com.canonical.Unity.LauncherEntry.Update("application://mailo.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-app/src/session.rs`, `ui/launcher/` |
+| The notification server | `org.freedesktop.Notifications.Notify`: app name `mailo`, icon `mailo`, summary the sender, body the subject, action `default`, hints `category=email.arrived`, `desktop-entry=org.quire.Mail`, `x-mailo-thread`, `x-mailo-account` | `mail-core/src/notify/desktop.rs` |
+| The dock | `com.canonical.Unity.LauncherEntry.Update("application://org.quire.Mail.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-app/src/session.rs`, `ui/launcher/` |
 
 With a watch running, the window leaves the launcher count to it (`mail_core::ipc::watching::running`):
 a dock forgets a count when its sender leaves the bus, so a count sent by a window would vanish when
@@ -46,8 +46,8 @@ the person is already reading, and raises the window: the request keeps the toke
 window's surface (the only way a compositor lets a window that exists take the keyboard; on X11, with
 no token, or without xdg-activation it is a plain focus). A token is good once, so of several URIs in
 one `Open` only the first request carries it. Only when no window answers does `mailo open` open one.
-The name has a dot because a D-Bus name needs one and the desktop entry's id (`mailo`, the
-window's `app_id`) has none; it is the Flatpak's app id too. There is no D-Bus activation file:
+The name is the Flatpak's app id; the desktop entry's id (`org.quire.Mail`, the window's `app_id`)
+is the intents app's, which `mailo intents` owns. There is no D-Bus activation file:
 nothing yet needs a closed mailo to be started by a method call, because the watch starts it.
 
 ## What it answers
@@ -58,14 +58,22 @@ way a companion, the launcher or `quire-do mail` ask it to do something without 
 `/org/quire/IntentProvider1` (`crates/mail-app/src/intents`). The router starts it by D-Bus
 activation (`dbus-1/services/org.quire.Mail.service`, installed by `dist/install.sh` and by the
 packages) and it stays until the bus goes away; a second one finds the name taken and exits 0.
+Where systemd runs the bus, the service file's `SystemdService=` starts it as the user unit
+`org.quire.Mail.service` (`dist/systemd`, `packaging/systemd`; installed, never enabled), so the
+router, which knows a caller by its unit or app scope and never by a bus name, knows it by that
+unit. The window is known by the scope a launcher starts it in, `app-<launcher>-org.quire.Mail-<n>.scope`,
+because the desktop entry is `org.quire.Mail.desktop` and the window's `app_id` is the same.
 
 The manifest, `dist/intents/org.quire.Mail.toml`, installed under `$XDG_DATA_DIRS/quire/intents/`,
-declares two kinds, `mail.thread` and `mail.draft`, and these actions:
+declares three kinds, `mail.thread`, `mail.draft` and `mail.contact`, and these actions:
 
 | Action | Effect | Takes | Undo |
 | --- | --- | --- | --- |
 | `mail.thread.search` | read | `query`, in mailo's own search language | |
 | `mail.thread.read` | read | one conversation; the answer is its text, labelled untrusted mail | |
+| `mail.thread.open` | read (hidden) | one conversation, shown in the window: the launcher's Enter | |
+| `mail.contact.search` | read | `query`, a name or an address | |
+| `mail.contact.open` | read (hidden) | one person; a new message to them in the window: the launcher's Enter | |
 | `mail.thread.archive`, `star`, `unstar` | undoable write | conversations | token |
 | `mail.thread.label`, `unlabel` | undoable write | conversations, `label` (must exist) | token |
 | `mail.thread.snooze` | undoable write | conversations, `until` | token |
@@ -94,6 +102,25 @@ Decisions:
 - **Only the router calls.** Every member but `Summon` is refused for a caller that does not own
   `org.quire.Intents1`, so a process that knows mailo's bus name gets no way round the gate.
 - **The window hears what the provider writes** through its look at the store's data version (above).
+
+### What the launcher finds without asking
+
+The router answers the launcher's searches from an index the apps push to, so typing in the
+launcher starts nothing. The window keeps mail's part of it (`intents/index.rs`, over
+`mail_core::findable`); `mailo intents` pushes nothing, being started for one request and gone.
+
+- **What.** The 5,000 newest conversations that are not only in Trash or Spam (`mail.thread`: the
+  subject, the other people latest sender first, their names and addresses and the labels as
+  words), and the first 2,000 people the composer offers (`mail.contact`: the name, the address, a
+  card's other addresses and organisation). Keyed as the intents key them; found in every Space.
+  Mail's own search box stays the way to search what the mail says.
+- **When.** `Reset` with a fresh epoch and everything, in batches of 500, once the window's store is
+  open and whenever `org.quire.Intents1` comes onto the bus; then, when the store is written to
+  (`ui::on_write`), what moved since the last push, at most once every two seconds. A push the
+  router refuses as `Malformed` (it restarted, or forgot mail) is a `Reset` and everything again.
+- **Without a router** nothing is read or pushed, and a debug line says so; the window shows nothing.
+- **Who is pushing.** The router knows the window by its scope, which carries the desktop entry's id
+  (above), so the push is mail's own only because the entry is `org.quire.Mail.desktop`.
 
 ## What it reads
 

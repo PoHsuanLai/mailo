@@ -492,24 +492,82 @@ fn reading_gives_the_words_as_untrusted_mail_private_to_the_space() {
     assert_eq!(outcome.undo, Undoable::No);
 }
 
+/// Each thing opened, with the token it came with.
+type Opened = Arc<Mutex<Vec<(Shown, Option<String>)>>>;
+
+/// An opener that writes down what it is asked to show.
+fn recording() -> (Opened, Opener) {
+    let opened: Opened = Arc::default();
+    let seen = opened.clone();
+    let opener = Opener::new(move |shown, token| {
+        seen.lock()
+            .expect("opened")
+            .push((shown.clone(), token.map(str::to_owned)));
+        Ok(())
+    });
+    (opened, opener)
+}
+
+/// The launcher's Enter on a person: a new message to them goes to the window, and the answer is
+/// nothing to show. The link reads back as the one address, whatever it holds.
+#[test]
+fn opening_a_contact_writes_to_them_in_the_window() {
+    let (opened, opener) = recording();
+    let (provider, store, _dir) = world_opening(opener);
+    befriend(&store);
+    let mut launched = call(
+        "mail.contact.open",
+        Target::Entities(vec![id("mail.contact", "accounting@example.test")]),
+        &[],
+    );
+    launched.activation = Some("launcher-token-2".to_owned());
+    let outcome = provider.perform(&launched).expect("opened");
+    assert!(
+        outcome.value.is_none() && outcome.said.is_none() && outcome.undo == Undoable::No,
+        "{outcome:?}"
+    );
+    assert_eq!(
+        *opened.lock().expect("opened"),
+        [(
+            Shown::Mailto("mailto:accounting@example.test".to_owned()),
+            Some("launcher-token-2".to_owned())
+        )]
+    );
+    let nobody = provider.perform(&call(
+        "mail.contact.open",
+        Target::Entities(vec![id("mail.contact", "nobody@example.test")]),
+        &[],
+    ));
+    assert!(matches!(nobody, Err(AppRefusal::NotFound(_))), "{nobody:?}");
+    assert_eq!(opened.lock().expect("opened").len(), 1);
+
+    for odd in [
+        "a&b?c@example.test",
+        "100%#x@example.test",
+        "o'neil@example.test",
+    ] {
+        let link: mail_mime::mailto::MailtoUri =
+            super::contacts::mailto_of(odd).parse().expect("a link");
+        assert_eq!(
+            link.to.iter().map(|a| a.email.as_str()).collect::<Vec<_>>(),
+            [odd]
+        );
+    }
+}
+
 /// The launcher's Enter on a mail hit: the conversation goes to the window, and the answer is
 /// nothing to show.
 #[test]
 fn opening_hands_the_conversation_to_the_window_and_answers_nothing() {
-    // Each conversation opened, with the token it came with.
-    type Opened = Vec<(ThreadId, Option<String>)>;
-    let opened: Arc<Mutex<Opened>> = Arc::default();
-    let seen = opened.clone();
-    let (provider, _store, _dir) = world_opening(Opener::new(move |thread, token| {
-        seen.lock()
-            .expect("opened")
-            .push((thread, token.map(str::to_owned)));
-        Ok(())
-    }));
+    let (opened, opener) = recording();
+    let (provider, _store, _dir) = world_opening(opener);
     let outcome = provider
         .perform(&call("mail.thread.open", threads(&[2]), &[]))
         .expect("opened");
-    assert_eq!(*opened.lock().expect("opened"), [(thread_of(2), None)]);
+    assert_eq!(
+        *opened.lock().expect("opened"),
+        [(Shown::Thread(thread_of(2)), None)]
+    );
     assert_eq!(outcome.undo, Undoable::No);
     assert!(
         outcome.value.is_none() && outcome.said.is_none(),
@@ -533,7 +591,10 @@ fn opening_hands_the_conversation_to_the_window_and_answers_nothing() {
     provider.perform(&launched).expect("opened");
     assert_eq!(
         opened.lock().expect("opened").last(),
-        Some(&(thread_of(3), Some("launcher-token-1".to_owned())))
+        Some(&(
+            Shown::Thread(thread_of(3)),
+            Some("launcher-token-1".to_owned())
+        ))
     );
 
     let (failing, _store, _dir) =
@@ -945,6 +1006,34 @@ fn a_window_less_provider_is_looking_at_nothing() {
 #[cfg(not(any(target_os = "macos", windows)))]
 #[test]
 fn the_window_handoff_answers_from_inside_zbus_executor() {
-    let _taken: bool =
-        zbus::block_on(async { super::handed_to_window(thread_of(1), Some("token")) });
+    let shown = Shown::Thread(thread_of(1));
+    let _taken: bool = zbus::block_on(async { super::handed_to_window(&shown, Some("token")) });
+}
+
+/// What mail hands the desktop's index is keyed as the intents key the same kinds: a conversation
+/// it finds opens as the conversation, and a person as the person.
+#[test]
+fn what_the_index_is_handed_is_keyed_as_the_intents_key_it() {
+    let (provider, store, _dir) = world();
+    befriend(&store);
+    let found = mail_core::findable::read(&store, Utc::now()).expect("read");
+    let (conversations, contacts): (Vec<_>, Vec<_>) = found
+        .values()
+        .partition(|f| f.kind == mail_core::findable::Kind::Conversation);
+    assert_eq!((conversations.len(), contacts.len()), (3, 1));
+    for found in conversations {
+        let named = id(crate::intents::wire::kind_of(found.kind), &found.key);
+        assert!(
+            matches!(provider.preview(&named), Preview::Thread { .. }),
+            "{}",
+            found.title
+        );
+    }
+    for found in contacts {
+        let named = id(crate::intents::wire::kind_of(found.kind), &found.key);
+        assert_eq!(
+            provider.contact_address(&named).expect("the person").email,
+            "accounting@example.test"
+        );
+    }
 }

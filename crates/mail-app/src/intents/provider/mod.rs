@@ -34,19 +34,29 @@ pub struct Provider {
     /// memory, so a token outlives neither this process nor the window's own Cmd+Z stack, which
     /// is another process's.
     stack: Mutex<UndoStack>,
-    /// Shows a conversation in mailo's window: [`Opener::window`], or a test's stand-in.
+    /// Shows a conversation, or a new message to a person, in mailo's window:
+    /// [`Opener::window`], or a test's stand-in.
     opener: Opener,
     /// How the person keeps the hours of the day, for the times the answers write.
     hours: mail_core::when::Clock,
 }
 
-/// What `mail.thread.open` does with the conversation it is given and the activation token that
-/// came with the call: show it in a window, or say why it could not.
+/// What an open action shows in the window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Shown {
+    /// A conversation: `mail.thread.open`.
+    Thread(ThreadId),
+    /// A new message on a `mailto:` link: `mail.contact.open`, writing to the person.
+    Mailto(String),
+}
+
+/// What the open actions do with what they show and the activation token that came with the
+/// call: show it in a window, or say why it could not.
 #[derive(Clone)]
 pub struct Opener(Arc<Open>);
 
-/// Showing `thread`, with the activation token the call carried.
-type Open = dyn Fn(ThreadId, Option<&str>) -> Result<(), String> + Send + Sync;
+/// Showing something, with the activation token the call carried.
+type Open = dyn Fn(&Shown, Option<&str>) -> Result<(), String> + Send + Sync;
 
 impl std::fmt::Debug for Opener {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -57,25 +67,30 @@ impl std::fmt::Debug for Opener {
 impl Opener {
     /// An opener that does `open`.
     pub fn new(
-        open: impl Fn(ThreadId, Option<&str>) -> Result<(), String> + Send + Sync + 'static,
+        open: impl Fn(&Shown, Option<&str>) -> Result<(), String> + Send + Sync + 'static,
     ) -> Opener {
         Opener(Arc::new(open))
     }
 
-    /// The window's: hand the conversation to the window that is running, as `mailo open` does,
-    /// with the token so it may take the keyboard, or start one on it when none is.
+    /// The window's: hand the conversation or the link to the window that is running, as
+    /// `mailo open` and `mailo mailto:…` do, with the token so it may take the keyboard, or start
+    /// one on it when none is.
     pub fn window() -> Opener {
-        Opener::new(|thread, token| {
-            if handed_to_window(thread, token) {
+        Opener::new(|shown, token| {
+            if handed_to_window(shown, token) {
                 return Ok(());
             }
+            let args = match shown {
+                Shown::Thread(thread) => vec!["open".to_owned(), thread.to_string()],
+                Shown::Mailto(link) => vec![link.clone()],
+            };
             let me = std::env::current_exe().map_err(|why| why.to_string())?;
             let mut started = std::process::Command::new(me);
             if let Some(token) = token {
                 started.env("XDG_ACTIVATION_TOKEN", token);
             }
             let mut child = started
-                .args(["open", &thread.to_string()])
+                .args(&args)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -88,13 +103,16 @@ impl Opener {
     }
 }
 
-/// Whether the running window took the conversation. The handoff is zbus's blocking API, and
+/// Whether the running window took what is shown. The handoff is zbus's blocking API, and
 /// the provider is called on zbus's executor, which is a tokio runtime once zbus's `tokio`
 /// feature is on (porter-secrets' oo7 turns it on): blocking there panics "Cannot start a runtime
 /// from within a runtime". So the call is made off the runtime.
-fn handed_to_window(thread: ThreadId, token: Option<&str>) -> bool {
+fn handed_to_window(shown: &Shown, token: Option<&str>) -> bool {
     let profile = crate::edge::profile();
-    mail_core::off_runtime(|| crate::handoff::deliver(profile.id(), thread, token))
+    mail_core::off_runtime(|| match shown {
+        Shown::Thread(thread) => crate::handoff::deliver(profile.id(), *thread, token),
+        Shown::Mailto(link) => crate::handoff::deliver_mailto(profile.id(), link, token),
+    })
 }
 
 impl std::fmt::Debug for Provider {
@@ -147,6 +165,7 @@ impl Provider {
             Act::Read => self.read(invocation),
             Act::Open => self.open(invocation),
             Act::Contacts => self.contacts(invocation),
+            Act::OpenContact => self.open_contact(invocation),
             Act::Thread(kind) => self.on_threads(kind, invocation),
             Act::CreateDraft => self.create_draft(invocation),
             Act::Send => self.send(invocation),

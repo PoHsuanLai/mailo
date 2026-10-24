@@ -1,0 +1,13 @@
+# The user unit the bus starts `mailo intents` in, as the .deb, the .rpm and the Arch package ship it
+# (dist/install.sh writes the same file for a source install, with the binary where it put it). The
+# D-Bus service file names it in `SystemdService=`, so the provider runs as this unit and the
+# desktop's intent router knows it by that name (intentd-callers.toml). Not enabled: only
+# activation starts it.
+[Unit]
+Description=mailo intents provider (what the desktop asks mail to do)
+Documentation=https://github.com/PoHsuanLai/mailo
+
+[Service]
+Type=dbus
+BusName=org.quire.Mail
+ExecStart=/usr/bin/mailo intents

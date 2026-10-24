@@ -10,14 +10,14 @@ use std::process::{Child, Command, Stdio};
 use zbus::zvariant::OwnedValue;
 
 /// A `dbus-daemon` of our own, killed when this drops.
-struct Bus {
+pub(super) struct Bus {
     child: Child,
-    address: String,
+    pub(super) address: String,
     _dir: tempfile::TempDir,
 }
 
 impl Bus {
-    fn start() -> Bus {
+    pub(super) fn start() -> Bus {
         let dir = tempfile::tempdir().expect("tempdir");
         let socket = dir.path().join("bus");
         let config = dir.path().join("bus.conf");
@@ -353,10 +353,10 @@ fn the_answers_are_the_routers_ok_and_err() {
     let _ = Invocation::text;
 }
 
-/// The package's D-Bus service file is the source install's with the package's path, so that the
-/// two cannot name different things.
+/// The package's D-Bus service file and the user unit it names are the source install's with the
+/// package's path, so that the two cannot name different things.
 #[test]
-fn the_packaged_service_file_is_the_installed_one_with_the_packages_path() {
+fn the_packaged_service_files_are_the_installed_ones_with_the_packages_path() {
     let body = |text: &str| -> Vec<String> {
         text.lines()
             .filter(|line| !line.starts_with('#') && !line.is_empty())
@@ -368,6 +368,57 @@ fn the_packaged_service_file_is_the_installed_one_with_the_packages_path() {
     let packaged = include_str!("../../../../packaging/org.quire.Mail.service");
     assert_eq!(body(&installed), body(packaged));
     assert!(body(packaged).contains(&format!("Name={APP}")));
+    let installed = include_str!("../../../../dist/systemd/org.quire.Mail.service.in")
+        .replace("@BIN@", "/usr/bin/mailo");
+    let packaged = include_str!("../../../../packaging/systemd/org.quire.Mail.service");
+    assert_eq!(body(&installed), body(packaged));
+}
+
+/// The desktop's intent router knows a caller by the unit or app scope its process runs in, never
+/// by a bus name: the window by the scope a launcher starts it in, which carries the desktop
+/// entry's id, and `mailo intents` by the user unit the bus starts it as. So the entry's file name,
+/// the window's app id, the manifest's app, the bus name and the unit are one name, and the entry
+/// says which id it had before, so a shell carries what it kept under that one over.
+#[test]
+fn the_entry_the_window_the_manifest_and_the_provider_unit_are_one_app() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest: toml::Table = MANIFEST.parse().expect("the manifest is TOML");
+    assert_eq!(manifest["app"].as_str(), Some(APP));
+    assert_eq!(crate::ui::native::APP_ID, APP);
+    assert_eq!(crate::launcher::unity::DESKTOP_ID, APP);
+    for dir in ["packaging", "dist"] {
+        let entry = root.join(dir).join(format!("{APP}.desktop"));
+        let text = std::fs::read_to_string(&entry).expect("the entry is named for the app");
+        let key = |name: &str| {
+            text.lines()
+                .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
+                .map(str::to_owned)
+        };
+        assert_eq!(key("StartupWMClass").as_deref(), Some(APP), "{dir}");
+        assert_eq!(
+            key("X-Flatpak-RenamedFrom").as_deref(),
+            Some("mailo.desktop;"),
+            "{dir}"
+        );
+    }
+    let unit = format!("SystemdService={APP}.service");
+    for file in [
+        "dist/org.quire.Mail.service.in",
+        "packaging/org.quire.Mail.service",
+    ] {
+        let text = std::fs::read_to_string(root.join(file)).expect(file);
+        assert!(text.lines().any(|line| line == unit), "{file}");
+    }
+    for unit in [
+        "dist/systemd/org.quire.Mail.service.in",
+        "packaging/systemd/org.quire.Mail.service",
+    ] {
+        let text = std::fs::read_to_string(root.join(unit)).expect(unit);
+        assert!(
+            text.lines().any(|line| line == format!("BusName={APP}")),
+            "{unit}"
+        );
+    }
 }
 
 /// The companion's mail skill names only actions this manifest declares and offers, and keeps
