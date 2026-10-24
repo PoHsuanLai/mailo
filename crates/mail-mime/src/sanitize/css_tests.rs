@@ -88,6 +88,28 @@ fn what_fetches_or_runs_is_removed_and_the_rest_kept() {
     }
 }
 
+/// Dropping a token (a comment, `<`, `<!--`) or writing one anew (`none`, a number in its own
+/// form) never leaves two tokens that read back as one, so a second scrub changes nothing.
+#[test]
+fn tokens_the_walk_leaves_side_by_side_stay_apart() {
+    const SHEET: &[(&str, &str)] = &[
+        // The case the idempotence property found: `a` before `.0` read back as `a0`.
+        ("<script>x</script>a.0", "script>x/script>a/**/0.0"),
+        ("p{color:a/**/b}", "p{color:a/**/b}"),
+        ("p{width:1<2px}", "p{width:1/**/2px}"),
+        ("p{margin:a<-b}", "p{margin:a/**/-b}"),
+        ("p{background:a url(x)}", "p{background:a none}"),
+        ("p{background:a/**/url(x)}", "p{background:a/**/none}"),
+        ("a<b{color:red}", "a/**/b{color:red}"),
+        ("p{x:#a<b}", "p{x:#a/**/b}"),
+    ];
+    for (css, kept) in SHEET {
+        let once = scrub(css, Context::Rules);
+        assert_eq!(once, *kept, "{css}");
+        assert_eq!(scrub(&once, Context::Rules), once, "{css} scrubbed twice");
+    }
+}
+
 #[test]
 fn plain_css_is_handed_back_as_it_came() {
     for css in [

@@ -21,7 +21,10 @@
 //! Background images a sender laid out in CSS are therefore never shown, even after the reader
 //! allows remote images: only an `<img>`'s address is on the consented list.
 
-use cssparser::{ParseError, Parser, ToCss, Token, serialize_identifier, serialize_string};
+use cssparser::{
+    ParseError, Parser, ToCss, Token, TokenSerializationType, serialize_identifier,
+    serialize_string,
+};
 use std::borrow::Cow;
 
 /// Functions whose arguments name something to fetch or run. Each call becomes `none`.
@@ -84,13 +87,39 @@ pub(super) fn scrub(css: &str, context: Context) -> Cow<'_, str> {
         return Cow::Borrowed(css);
     }
     let mut parser = Parser::new(css);
-    let mut out = String::with_capacity(css.len());
+    let mut out = Out {
+        css: String::with_capacity(css.len()),
+        last: TokenSerializationType::Nothing,
+    };
     walk(&mut parser, context, &mut out);
-    Cow::Owned(out)
+    Cow::Owned(out.css)
+}
+
+/// The scrubbed CSS, and the kind of the token written last.
+///
+/// The walk drops tokens (comments, `<`, `<!--`) and writes some anew (`none`, a number in its
+/// shortest form), so two tokens can end up side by side that the parser would read back as one:
+/// `a/**/b` would become the identifier `ab`, `a` before `.0` the identifier `a0`. Each write
+/// puts the empty comment `/**/` between two such tokens, as CSS's own serializer does, so a
+/// second scrub reads the tokens the first one wrote.
+struct Out {
+    css: String,
+    last: TokenSerializationType,
+}
+
+impl Out {
+    /// Write `text`, the serialization of one token of kind `kind`.
+    fn token(&mut self, kind: TokenSerializationType, text: &str) {
+        if self.last.needs_separator_when_before(kind) {
+            self.css.push_str("/**/");
+        }
+        self.css.push_str(text);
+        self.last = kind;
+    }
 }
 
 /// Write `parser`'s tokens, read as `context`, into `out`.
-fn walk(parser: &mut Parser<'_>, context: Context, out: &mut String) {
+fn walk(parser: &mut Parser<'_>, context: Context, out: &mut Out) {
     // A declaration starts at the head of a block and after each `;`.
     let mut declaration_start = true;
     // The at-keyword the rule being read began with, until its block or `;`.
@@ -98,7 +127,7 @@ fn walk(parser: &mut Parser<'_>, context: Context, out: &mut String) {
     while let Ok(token) = parser.next_including_whitespace_and_comments().cloned() {
         match &token {
             Token::WhiteSpace(space) => {
-                out.push_str(space);
+                out.token(token.serialization_type(), space);
                 continue;
             }
             Token::Comment(_)
@@ -153,28 +182,33 @@ fn walk(parser: &mut Parser<'_>, context: Context, out: &mut String) {
 }
 
 /// Write one token that is not structure the walk itself reads.
-fn write(parser: &mut Parser<'_>, token: &Token<'_>, out: &mut String) {
+fn write(parser: &mut Parser<'_>, token: &Token<'_>, out: &mut Out) {
     match token {
         Token::Function(name) if FETCHING.iter().any(|f| name.eq_ignore_ascii_case(f)) => {
-            out.push_str("none");
+            out.token(TokenSerializationType::Ident, "none");
             let _ = parser.parse_nested_block(|_| Ok::<(), ParseError<()>>(()));
         }
-        Token::UnquotedUrl(_) | Token::BadUrl(_) => out.push_str("none"),
+        Token::UnquotedUrl(_) | Token::BadUrl(_) => {
+            out.token(TokenSerializationType::Ident, "none")
+        }
         Token::QuotedString(text) => {
             let mut quoted = String::with_capacity(text.len() + 2);
             let _ = serialize_string(text, &mut quoted);
-            out.push_str(&quoted.replace('<', "\\3c "));
+            out.token(token.serialization_type(), &quoted.replace('<', "\\3c "));
         }
         Token::Function(name) => {
             let mut ident = String::with_capacity(name.len());
             let _ = serialize_identifier(name, &mut ident);
-            out.push_str(&unmarked(&ident));
+            out.token(token.serialization_type(), &unmarked(&ident));
             block(parser, '(', ')', Context::Value, out);
         }
         Token::ParenthesisBlock => block(parser, '(', ')', Context::Value, out),
         Token::SquareBracketBlock => block(parser, '[', ']', Context::Value, out),
         Token::CurlyBracketBlock => block(parser, '{', '}', Context::Value, out),
-        other => out.push_str(&unmarked(&other.to_css_string())),
+        other => out.token(
+            other.serialization_type(),
+            &unmarked(&other.to_css_string()),
+        ),
     }
 }
 
@@ -189,13 +223,20 @@ fn unmarked(css: &str) -> Cow<'_, str> {
 }
 
 /// The block just opened, between `open` and `close`, its inside read as `context`.
-fn block(parser: &mut Parser<'_>, open: char, close: char, context: Context, out: &mut String) {
-    out.push(open);
+fn block(parser: &mut Parser<'_>, open: char, close: char, context: Context, out: &mut Out) {
+    let kind = match open {
+        '(' => TokenSerializationType::OpenParen,
+        _ => TokenSerializationType::Other,
+    };
+    out.token(kind, open.encode_utf8(&mut [0; 4]));
     let _ = parser.parse_nested_block(|inner| {
         walk(inner, context, out);
         Ok::<(), ParseError<()>>(())
     });
-    out.push(close);
+    out.token(
+        TokenSerializationType::Other,
+        close.encode_utf8(&mut [0; 4]),
+    );
 }
 
 /// Pass over the rest of a declaration or an at-rule's prelude, through its `;` or to the end of
