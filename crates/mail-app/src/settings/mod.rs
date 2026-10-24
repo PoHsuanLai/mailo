@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, CopyCodes, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch,
+    Spelling,
 };
 
 use ds::prelude::Word;
@@ -63,6 +64,12 @@ pub struct NotificationSettings {
         section = "Mail"
     )]
     pub new_mail: NewMail,
+    #[settings(
+        label = "Copy verification codes automatically",
+        help = "Put the code from a new sign-in or verification email on the clipboard as it arrives.",
+        section = "Mail"
+    )]
+    pub copy_codes: CopyCodes,
 }
 
 /// `compose.*`: writing mail.

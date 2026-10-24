@@ -93,6 +93,25 @@ pub fn parse(raw: &[u8]) -> Result<Parsed, MimeError> {
     parse_as(raw, Markers::Ignore)
 }
 
+/// What a person reads in a message, as plain text: its `text/plain` body, or the text of its
+/// HTML where it has none, which is how most mail from a service arrives. `None` for bytes that
+/// are not a message, or a message with neither.
+///
+/// ```
+/// let raw = b"From: a@example.test\r\nContent-Type: text/html\r\n\r\n<p>Your code is <b>4821</b></p>\r\n";
+/// let text = mail_mime::parse::readable_text(raw).unwrap();
+/// assert!(text.contains("Your code is 4821"), "{text}");
+/// ```
+pub fn readable_text(raw: &[u8]) -> Option<String> {
+    // Bytes that are not a message have no text to read, which is all this asks.
+    let parsed = parse(raw).ok()?;
+    parsed.text.or_else(|| {
+        parsed
+            .html
+            .map(|html| mail_parser::decoders::html::html_to_text(&html))
+    })
+}
+
 /// Parse a message [`crate::reconstruct`] rebuilt, reading which parts it left on the server.
 ///
 /// Only for bytes that function wrote. It removes any marker the server's copy carried, so the

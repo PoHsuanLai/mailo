@@ -37,6 +37,8 @@
 .trust { display: inline-flex; align-items: center; flex: none; color: var(--ink-faint); }
 /* What is wrong with a sender, under the head, as the seal's banners are. */
 .trust-warn { margin-bottom: var(--s-10); }
+/* One quiet line under a message that carries a one-time code: the code, then Copy Code. */
+.otp-code { margin: 0 0 var(--s-10); display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-2) var(--s-8); }
 /* One quiet line over a message whose remote images are held back: what, then its actions. */
 .images-hidden { margin: 0 0 var(--s-10); display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-2) var(--s-8); }
 /* the message body is an opaque sandboxed frame: we animate the container,

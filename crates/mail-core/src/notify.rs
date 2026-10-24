@@ -9,6 +9,11 @@
 //! after the pass: the pass applies the server's flags and fetches bodies after it stores a
 //! header, so "is this still unread, is it still in the inbox" is the store's current answer and
 //! not the one the header fetch built.
+//!
+//! A message announced on its own that carries a one-time code ([`crate::otp`]) leads with it —
+//! "Your code: 123456" — and its notification offers Copy Code where the platform can hear the
+//! press. Where the person asked, the code is put on the clipboard as it is announced, through a
+//! second seam ([`Clipboard`]) that the tests, which must never touch the real clipboard, record.
 
 #[cfg(all(unix, not(target_os = "macos"), feature = "desktop"))]
 pub mod click;
@@ -142,6 +147,33 @@ pub struct Notification {
     /// Plain text. A transport that speaks markup escapes it.
     pub body: String,
     pub opens: Opens,
+    /// The one-time code the message carries, which the notification leads with and offers to
+    /// copy. `None` for a summary, and for a message with none.
+    pub code: Option<String>,
+}
+
+/// The headline of a notification that leads with a message's one-time code.
+pub fn your_code(code: &str) -> String {
+    format!("Your code: {code}")
+}
+
+/// The name of the notification's Copy Code action, as a server hands it back.
+pub const COPY_CODE_ACTION: &str = "copy-code";
+
+/// The label the platform draws on that action.
+pub const COPY_CODE_LABEL: &str = "Copy Code";
+
+impl Notification {
+    /// This notification, led by `code`: the code is the headline, and who sent it and what
+    /// about are the line under it.
+    pub fn with_code(self, code: String) -> Notification {
+        Notification {
+            summary: your_code(&code),
+            body: format!("{} \u{b7} {}", self.summary, self.body),
+            code: Some(code),
+            ..self
+        }
+    }
 }
 
 /// At most this many arrivals are announced one by one; more become one summary.
@@ -163,6 +195,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
                 summary: sender(message),
                 body: mail_domain::subject_or_none(&message.subject).into_owned(),
                 opens: Opens::Thread(message.thread),
+                code: None,
             })
             .collect();
     }
@@ -192,6 +225,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
         summary: format!("{} new messages", announced.len()),
         body,
         opens: Opens::Inbox,
+        code: None,
     }]
 }
 
@@ -209,6 +243,15 @@ pub trait Notifier: Send + Sync {
     fn show(&self, notification: &Notification);
 }
 
+/// Where a code copied without asking goes.
+///
+/// A seam with two sides, as [`Notifier`] is: the desktop's clipboard in the binary
+/// ([`desktop::SystemClipboard`]), a recorder in the tests, which must never touch the real one.
+/// Infallible for the same reason: a code that could not be copied is still shown.
+pub trait Clipboard: Send + Sync {
+    fn copy(&self, text: &str);
+}
+
 /// Whether a watch announces what it fetches.
 #[derive(Clone, Copy)]
 pub enum Announce<'a> {
@@ -217,6 +260,9 @@ pub enum Announce<'a> {
     To {
         store: &'a SqliteStore,
         notifier: &'a dyn Notifier,
+        /// Where a newly announced message's code is copied, when the person asked for that
+        /// (`notifications.copy_codes`); `None` leaves it to the notification's Copy Code.
+        copies: Option<&'a dyn Clipboard>,
     },
 }
 
@@ -233,11 +279,17 @@ impl std::fmt::Debug for Announce<'_> {
 ///
 /// Arms the account's floor on its first watched pass, whether or not anything arrived — the
 /// pass that arms it is the start of "new", and everything dated before it is backfill.
+///
+/// A message announced on its own leads with its one-time code, if it carries one, and the code
+/// goes to `copies` as it is shown when that is given: the newest one, where a pass brought
+/// several. A summary names no code, and copies none — which of seven messages the person was
+/// waiting on is not for this to guess.
 pub fn announce(
     store: &SqliteStore,
     account: AccountId,
     arrived: &[MessageId],
     notifier: &dyn Notifier,
+    copies: Option<&dyn Clipboard>,
     now: DateTime<Utc>,
 ) -> Result<usize, CoreError> {
     let floor = floor::armed(store, account.clone(), now)?;
@@ -264,9 +316,25 @@ pub fn announce(
         })
         .map(|(message, _)| message)
         .collect();
-    let notifications = batch(account, &announced);
+    let mut notifications = batch(account, &announced);
+    if notifications.len() == announced.len() {
+        notifications = notifications
+            .into_iter()
+            .zip(&announced)
+            .map(
+                |(notification, message)| match crate::otp::of_message(store, message) {
+                    Some(code) => notification.with_code(code),
+                    None => notification,
+                },
+            )
+            .collect();
+    }
     for notification in &notifications {
         notifier.show(notification);
+    }
+    let newest = notifications.iter().rev().find_map(|n| n.code.as_deref());
+    if let (Some(clipboard), Some(code)) = (copies, newest) {
+        clipboard.copy(code);
     }
     Ok(notifications.len())
 }
@@ -427,12 +495,14 @@ mod tests {
                     summary: "Ada Lovelace".to_owned(),
                     body: "lunch on friday".to_owned(),
                     opens: Opens::Thread(a.thread),
+                    code: None,
                 },
                 Notification {
                     account: account(),
                     summary: "bob@example.test".to_owned(),
                     body: "(no subject)".to_owned(),
                     opens: Opens::Thread(b.thread),
+                    code: None,
                 },
             ]
         );
@@ -469,6 +539,7 @@ mod tests {
                 // Ada sent three; the rest one each, in the order they came.
                 body: "From Ada, Newsletter, Bob and 2 others".to_owned(),
                 opens: Opens::Inbox,
+                code: None,
             }]
         );
         assert_eq!(

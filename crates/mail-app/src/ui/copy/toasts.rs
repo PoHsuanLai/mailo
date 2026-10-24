@@ -2,6 +2,9 @@
 //!
 //! Case: One short sentence, sentence case ("Moved to Archive.").
 
+/// A message's one-time code, put on the clipboard by Copy Code.
+pub const CODE_COPIED: &str = "Code copied";
+
 // A folder change, done.
 pub fn folder_made(name: &str) -> String {
     format!("Folder “{name}” made")

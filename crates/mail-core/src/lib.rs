@@ -39,6 +39,7 @@ pub mod mail;
 pub mod message;
 pub mod notify;
 pub mod offline;
+pub mod otp;
 pub mod password;
 pub mod pgp;
 pub mod place;

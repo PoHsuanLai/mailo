@@ -60,6 +60,15 @@ pub const OPEN_LINK: &str = "Open Link";
 /// A link's card: put the address on the clipboard.
 pub const COPY_LINK: &str = "Copy Link";
 
+// The line under a message that carries a one-time code.
+/// Put the code on the clipboard.
+pub const COPY_CODE: &str = "Copy Code";
+
+/// Copy Code's accessible name, which says which code.
+pub fn copy_code(code: &str) -> String {
+    format!("Copy Code {code}")
+}
+
 // The line over a message whose remote images are held back.
 /// This conversation's images, now.
 pub const LOAD_IMAGES: &str = "Load Images";
