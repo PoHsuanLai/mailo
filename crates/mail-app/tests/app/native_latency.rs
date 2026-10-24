@@ -113,6 +113,18 @@ fn row(n: usize) -> String {
     format!("{} .ds-row", item(n))
 }
 
+/// The subject of every conversation the list has drawn, in order.
+fn subjects(harness: &Harness) -> Vec<String> {
+    harness.with_doc(|doc| {
+        doc.query_selector_all(".list .ds-thread-sub")
+            .into_iter()
+            .flatten()
+            .filter_map(|id| doc.get_node(id))
+            .map(|node| node.text_content())
+            .collect()
+    })
+}
+
 /// Where a person clicks the `n`th row: the start of its subject line.
 fn row_subject(harness: &Harness, n: usize) -> Point {
     let selector = format!("{} .ds-thread-sub", row(n));
@@ -216,13 +228,11 @@ fn from_a_key_to_its_frame() {
             &mut harness,
             |h| h.key(Key::Char(last)),
             |h| {
-                // A fifth of the inbox matches; the first and last rows drawn both say the topic.
-                let rows = h.count(".list .ds-thread");
-                let says = |n: usize| {
-                    h.text_of(&format!("{} .ds-thread-sub", row(n)))
-                        .is_some_and(|subject| subject.contains(topic))
-                };
-                rows > 0 && rows <= THREADS / TOPICS.len() && says(1) && says(rows)
+                // A fifth of the inbox matches, so every row drawn says the topic. The rows are
+                // read by their subjects, not their places: the answer opens on a Top results
+                // band, which holds no conversation.
+                let subjects = subjects(h);
+                !subjects.is_empty() && subjects.iter().all(|subject| subject.contains(topic))
             },
         ));
     }
