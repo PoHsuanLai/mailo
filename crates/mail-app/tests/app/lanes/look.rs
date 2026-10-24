@@ -159,3 +159,75 @@ pub fn inbox_at(store: &SqliteStore, at: DateTime<Utc>) -> Vec<String> {
     .map(|thread| thread.subject)
     .collect()
 }
+
+/// The first element `selector` matches, by its class and accessible name: what a size failure
+/// says, rather than the whole document.
+fn named(harness: &Harness, selector: &str) -> String {
+    format!(
+        "class={:?} aria-label={:?} text={:?}",
+        harness.attr(selector, "class"),
+        harness.attr(selector, "aria-label"),
+        harness.text_of(selector)
+    )
+}
+
+/// The button size rule, on what `harness` draws now (`screen` names it): nothing mailo sizes is
+/// Mini (its list, reader and composer, and every button; quire's own parts, a Space tile's badge
+/// among them, keep the sizes quire gives them); a Large button is a toolbar's; and a glyph on a
+/// row, in the reader or in the composer is 14 px or larger, quire's 11 and 13 px rungs unused.
+pub fn sizes_hold(harness: &Harness, screen: &str) {
+    for mini in [
+        ".list [*|data-size=\"mini\"]",
+        ".reader [*|data-size=\"mini\"]",
+        ".cpage [*|data-size=\"mini\"]",
+        "button.ds-button[*|data-size=\"mini\"]",
+    ] {
+        assert_eq!(
+            harness.count(mini),
+            0,
+            "{screen}: something is drawn at Mini: {}",
+            named(harness, mini)
+        );
+    }
+    let large = "button.ds-button[*|data-size=\"large\"]:not([*|data-variant=\"toolbar\"])";
+    assert_eq!(
+        harness.count(large),
+        0,
+        "{screen}: a Large button is not a toolbar's: {}",
+        named(harness, large)
+    );
+    for place in [".list", ".reader", ".cpage"] {
+        for side in ["11", "13"] {
+            let retired = format!("{place} svg.ds-ic[*|data-size=\"{side}\"]");
+            assert_eq!(
+                harness.count(&retired),
+                0,
+                "{screen}: a {side} px glyph in {place}: {}",
+                named(harness, &retired)
+            );
+        }
+    }
+}
+
+/// [`sizes_hold`] on the open composer, and its bar (Attach, ⋯, Send and its ▾) Regular
+/// throughout, with one filled button, Send.
+pub fn composer_sizes_hold(harness: &Harness) {
+    sizes_hold(harness, "the composer");
+    let bar = ".cpage .c-head .bar-tools";
+    let under = |tail: &str| {
+        harness.count(&format!("{bar} > button.ds-button{tail}"))
+            + harness.count(&format!("{bar} > * > button.ds-button{tail}"))
+            + harness.count(&format!("{bar} > * > * > button.ds-button{tail}"))
+    };
+    let all = under("");
+    let regular = under("[*|data-size=\"regular\"]");
+    assert!(all >= 4, "the composer's bar has {all} buttons");
+    assert_eq!(regular, all, "the composer's bar is not Regular throughout");
+    assert_eq!(
+        harness.count(&format!(
+            "{bar} button.ds-button[*|data-answers=\"return\"]"
+        )),
+        1,
+        "the composer's bar fills one button, Send"
+    );
+}

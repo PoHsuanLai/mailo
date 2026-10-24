@@ -15,7 +15,7 @@ use mail_domain::SendState;
 use std::path::PathBuf;
 
 use super::drive::{Drive, Key, PRIMARY};
-use super::look::send;
+use super::look::{composer_sizes_hold, send};
 use super::row_menu::press_menu_item;
 use super::window::{INBOX, Window, account, panel_row, panel_settled, parsed, queued};
 
@@ -220,6 +220,7 @@ fn a_new_message_opens_here_every_way_and_a_draft_is_parked_brought_back_and_del
     // under it, and Send stays put; typed over, the mark goes.
     window.press(&[PRIMARY], Key::Char('n'), 1);
     window.until("⌘N gives To the keyboard", |h| h.is_focused(TO));
+    composer_sizes_hold(&window.harness);
     window.type_text("zz@");
     window.click(".c-title input");
     let to = ".cpage .c-props [*|data-row=to] input";

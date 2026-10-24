@@ -12,6 +12,7 @@ use mail_app::ui::copy;
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};
+use super::look::sizes_hold;
 use super::row_menu::row_action;
 use super::window::{Window, deliver, ms, row_of};
 
@@ -158,6 +159,7 @@ fn the_window_opens_on_the_inbox_and_reads_what_a_click_opens() {
 
     // Nothing open yet, and the keyboard is the window's from the first frame.
     assert_eq!(window.harness.count(".reader .ds-empty-state"), 1);
+    sizes_hold(&window.harness, "the list");
     assert!(window.harness.is_focused(".app"), "no keyboard");
 
     // The launcher counts the unread conversations, again when one is read and when that is
@@ -194,6 +196,7 @@ fn the_window_opens_on_the_inbox_and_reads_what_a_click_opens() {
 
     // A pass: the sender's cached logo takes the initial's place, and nothing warns.
     window.open_subject(SHIPPED);
+    sizes_hold(&window.harness, "the reader");
     let row = row_of(&window.harness, SHIPPED).unwrap_or_default();
     let selected = format!(".list .ds-list-item[*|aria-posinset=\"{row}\"] .ds-row");
     assert_eq!(

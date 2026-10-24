@@ -2,7 +2,7 @@
 //! another action holds, and the main window, open all along, archives on the new key at once
 //! and on the shipped one again after Reset; Accounts pushes an account's page, which Escape and
 //! ⌘[ come back from and whose Remove question Escape answers; Spaces are put in order by
-//! dragging a row's grip.
+//! dragging a row's grip; and every page keeps the button size rule.
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
@@ -13,7 +13,7 @@ use mail_app::ui::view::Shortcut;
 
 use super::drive::{Drive, Key};
 use super::hands::{centre, click, until};
-use super::look::inbox_at;
+use super::look::{inbox_at, sizes_hold};
 use super::window::{INBOX, Window, account, ms, row_of};
 
 /// Archive's row on the Keyboard page.
@@ -68,6 +68,7 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
 
     // A key another action holds is refused, and nothing is kept; a free one is.
     window.in_settings(copy::titles::KEYBOARD, |settings| {
+        sizes_hold(settings, copy::titles::KEYBOARD);
         let recorder = format!("{ARCHIVE} .ds-shortcut-field-well");
         click(settings, &recorder);
         settings.key(Key::Char('s'));
@@ -127,6 +128,7 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
     window.in_settings(copy::titles::ACCOUNTS, |settings| {
         let row = account_row();
         until(settings, "the account is listed", |h| h.count(&row) == 1);
+        sizes_hold(settings, copy::titles::ACCOUNTS);
         click(settings, &row);
         until(settings, "its page is pushed", at_account);
         until(settings, "the back button has the keyboard", |h| {
@@ -190,4 +192,12 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
         .map(|one| one.name.clone())
         .collect();
     assert_eq!(names, ["Work", "Travel", "Home"]);
+
+    // Every page keeps the button size rule.
+    for page in [copy::titles::GENERAL, copy::titles::RULES] {
+        window.in_settings(page, |settings| {
+            settings.advance(ms(300));
+            sizes_hold(settings, page);
+        });
+    }
 }
