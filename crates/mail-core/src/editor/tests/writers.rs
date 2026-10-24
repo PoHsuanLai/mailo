@@ -263,3 +263,54 @@ fn html_round_trip_examples_and_what_is_dropped() {
         "an empty paragraph is dropped by from_html"
     );
 }
+
+/// Text not written by the editor is flowed text that reads back exactly as it was written.
+#[test]
+fn plain_text_reads_back_as_itself_through_flowed() {
+    use crate::editor::plain_to_flowed;
+    use mail_mime::{Delsp, unflow};
+    let long = "word ".repeat(30);
+    let cases: &[(&str, &str, &str)] = &[
+        (
+            "trailing spaces are not soft breaks",
+            "one  \ntwo",
+            "one\ntwo",
+        ),
+        ("a leading space stays", " indented", " indented"),
+        ("From is stuffed", "From here", "From here"),
+        (
+            "the separator keeps its space",
+            "Hi\n-- \nAda",
+            "Hi\n-- \nAda",
+        ),
+        (
+            "a quote stays a quote",
+            "On Monday:\n> said\n>\n> more",
+            "On Monday:\n> said\n>\n> more",
+        ),
+        ("crlf lines", "a  \r\nb\r\n", "a\nb\n"),
+        ("a long line is not cut", long.as_str(), long.trim_end()),
+    ];
+    for (name, written, read) in cases {
+        let flowed = plain_to_flowed(written);
+        assert!(
+            flowed
+                .split('\n')
+                .map(|line| line.trim_end_matches('\r'))
+                .all(|line| line == "-- " || !line.ends_with(' ')),
+            "{name}: every line is hard: {flowed:?}"
+        );
+        assert_eq!(unflow(&flowed, Delsp::No), *read, "{name}");
+    }
+}
+
+/// What the editor soft-wraps reads back as the one paragraph the author typed.
+#[test]
+fn the_editors_soft_breaks_read_back_joined() {
+    use mail_mime::{Delsp, unflow};
+    let para = "word ".repeat(40);
+    let para = para.trim_end();
+    let flowed = to_flowed(&Doc::from_text(para));
+    assert!(flowed.lines().count() > 1, "{flowed:?}");
+    assert_eq!(unflow(&flowed, Delsp::No), format!("{para}\n"));
+}

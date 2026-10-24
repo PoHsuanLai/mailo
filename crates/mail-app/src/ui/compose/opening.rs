@@ -2,7 +2,9 @@
 //! with its `-- ` signature and a quoted original folded into one object.
 
 use mail_domain::Draft;
-use mail_mime::{Block, Dir, RemoteImages, SanitizePolicy, Span, from_html, sanitize};
+use mail_mime::{
+    Block, Delsp, Dir, RemoteImages, SanitizePolicy, Span, from_html, sanitize, unflow,
+};
 
 use mail_core::editor::{Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain};
 
@@ -13,7 +15,8 @@ pub(in crate::ui) fn doc_of(draft: &Draft) -> Doc {
             let safe = sanitize(html, SanitizePolicy::CURRENT);
             nodes_from_blocks(&from_html(&safe, &[], RemoteImages::Blocked).blocks)
         }
-        None => doc_from_text(&draft.text),
+        // `Draft.text` is `format=flowed`: its soft breaks are not the author's.
+        None => doc_from_text(&unflow(&draft.text, Delsp::No)),
     };
     finish(nodes)
 }

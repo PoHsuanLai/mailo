@@ -313,3 +313,27 @@ fn a_reply_text_opens_as_paragraphs_a_signature_and_a_folded_original() {
         ]
     );
 }
+
+/// A kept text draft is flowed: it opens as the paragraph its author typed, not as the lines
+/// it was wrapped into at 72.
+#[test]
+fn a_flowed_text_draft_opens_as_its_paragraphs() {
+    let para = "word ".repeat(40);
+    let para = para.trim_end();
+    let draft = Draft {
+        text: mail_core::editor::to_flowed(&mail_core::editor::Doc::from_text(para)),
+        html: None,
+        ..Draft::blank(&mail_domain::testing::identity(), at(0))
+    };
+    let doc = super::opening::doc_of(&draft);
+    let paras: Vec<String> = doc
+        .nodes
+        .iter()
+        .filter_map(|node| match node {
+            Node::Para { runs, .. } => Some(mail_core::editor::runs_text(runs)),
+            Node::Object(_) => None,
+        })
+        .filter(|text| !text.is_empty())
+        .collect();
+    assert_eq!(paras, vec![para.to_owned()]);
+}

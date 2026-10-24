@@ -324,3 +324,38 @@ fn a_quoted_link_and_its_line_breaks_stay() {
         vec![("https://a.test/q".to_owned(), "https://a.test/q".to_owned())]
     );
 }
+
+#[test]
+fn unflow_gives_back_the_lines_the_writer_meant() {
+    let no = Delsp::No;
+    let yes = Delsp::Yes;
+    let cases: &[(&str, &str, Delsp, &str)] = &[
+        (
+            "soft lines join",
+            "one \ntwo \nthree\nfour",
+            no,
+            "one two three\nfour",
+        ),
+        ("delsp=yes drops the marker", "日本 \n語", yes, "日本語"),
+        (
+            "stuffing comes off",
+            " From here\n  two",
+            no,
+            "From here\n two",
+        ),
+        ("the separator is hard", "Hi\n-- \nAda", no, "Hi\n-- \nAda"),
+        (
+            "quotes join at their depth",
+            "> a \n> b\n>> c \n>> d",
+            no,
+            "> a b\n>> c d",
+        ),
+        ("a change of depth ends a join", "> a \nb", no, "> a \nb"),
+        ("spaced markers", "> > a \n> > b", no, ">> a b"),
+        ("an empty quoted line", "> a\n>\n> b", no, "> a\n>\n> b"),
+        ("crlf", "a \r\nb\r\n", no, "a b\n"),
+    ];
+    for (name, text, delsp, expected) in cases {
+        assert_eq!(mail_mime::unflow(text, *delsp), *expected, "{name}");
+    }
+}

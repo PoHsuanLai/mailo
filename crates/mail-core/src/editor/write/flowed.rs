@@ -231,6 +231,31 @@ fn cut_long(line: &str) -> Vec<String> {
 }
 
 /// A hard line: no trailing space, which would make the reader join it to the next line.
+/// Plain text, written by a person or a program rather than the editor, as `format=flowed`
+/// that reads back exactly as it was: every line hard (trailing spaces gone, so none is taken
+/// for a soft break, the `-- ` signature separator kept), and a line that starts with a space
+/// or `From ` space-stuffed. A line starting `>` is left a quote, which is what it was written as.
+///
+/// So every `Draft.text` is flowed text, whichever way it was written, and the message is
+/// labelled `format=flowed` without a reader joining lines the writer kept apart.
+pub fn plain_to_flowed(text: &str) -> String {
+    text.split('\n')
+        .map(|line| {
+            // A line keeps its own ending, CRLF or LF.
+            let (line, end) = line
+                .strip_suffix('\r')
+                .map_or((line, ""), |line| (line, "\r"));
+            let line = match line {
+                SEPARATOR => SEPARATOR.to_owned(),
+                line if line.starts_with('>') => hard(line),
+                line => stuff(&hard(line)),
+            };
+            line + end
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn hard(line: &str) -> String {
     line.trim_end_matches(' ').to_owned()
 }
