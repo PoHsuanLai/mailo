@@ -25,6 +25,7 @@ pub mod public;
 pub mod quarantine;
 pub mod remote_image;
 pub mod reparse;
+pub mod roots;
 pub mod schedule;
 pub mod search;
 pub mod sending;

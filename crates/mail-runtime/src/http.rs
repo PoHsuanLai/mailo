@@ -13,7 +13,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The shared client.
 pub fn http_client() -> Result<reqwest::Client, RuntimeError> {
-    reqwest::Client::builder()
+    crate::roots::trusting_system(reqwest::Client::builder())
         .timeout(HTTP_TIMEOUT)
         .build()
         .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))

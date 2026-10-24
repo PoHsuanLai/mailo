@@ -73,8 +73,7 @@ pub fn forget_private_key(
 pub fn system_anchors() -> &'static [Cert] {
     static ANCHORS: OnceLock<Vec<Cert>> = OnceLock::new();
     ANCHORS.get_or_init(|| {
-        rustls_native_certs::load_native_certs()
-            .certs
+        crate::roots::system()
             .iter()
             .filter_map(|der| Cert::from_der(der.as_ref()).ok())
             .collect()
