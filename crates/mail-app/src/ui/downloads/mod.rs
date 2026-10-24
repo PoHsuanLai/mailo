@@ -15,7 +15,7 @@ mod open;
 mod panel;
 
 pub(in crate::ui) use self::log::Origin;
-pub(in crate::ui) use self::open::not_opened;
+pub use self::open::NotOpened;
 /// A saved file opened in its app, as a Downloads row opens it: Peek's Open uses it too.
 pub(in crate::ui) use self::open::open as open_file;
 pub(in crate::ui) use self::panel::DownloadsButton;
@@ -171,13 +171,13 @@ pub struct Opener {
     reveal: Arc<FileAct>,
 }
 
-type FileAct = dyn Fn(&Path) -> Result<(), String> + Send + Sync;
+type FileAct = dyn Fn(&Path) -> Result<(), NotOpened> + Send + Sync;
 
 impl Opener {
     /// `open` opens a file in its app; `reveal` shows it in its folder.
     pub fn new(
-        open: impl Fn(&Path) -> Result<(), String> + Send + Sync + 'static,
-        reveal: impl Fn(&Path) -> Result<(), String> + Send + Sync + 'static,
+        open: impl Fn(&Path) -> Result<(), NotOpened> + Send + Sync + 'static,
+        reveal: impl Fn(&Path) -> Result<(), NotOpened> + Send + Sync + 'static,
     ) -> Opener {
         Opener {
             open: Arc::new(open),

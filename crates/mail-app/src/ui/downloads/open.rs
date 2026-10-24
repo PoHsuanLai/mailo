@@ -8,21 +8,59 @@
 //! folder instead, and the person can open it from there knowing what it is.
 //!
 //! Both block until the system has taken the request, so the window calls them off the thread
-//! that draws. What they answer on failure is a sentence the window shows as it is.
+//! that draws. What they answer on failure is a [`NotOpened`]: a sentence the window shows as it
+//! is, or a library's words it says plainly ([`NotOpened::told`]).
 
-use crate::ui::copy::errors::couldnt_open;
+use crate::ui::copy::errors::{couldnt_open, moved_or_deleted};
 use std::path::Path;
 use std::process::Command;
 
+/// Why a file was not opened or shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NotOpened {
+    /// A sentence for the person, shown as it is: the file was moved or deleted, a program was
+    /// shown in its folder instead, the opener said why it would not.
+    Said(String),
+    /// A library's or the system's own words, for the log: the window says its own sentence.
+    Failed(String),
+}
+
+impl NotOpened {
+    /// What the window says: the sentence, or `said` with the library's words in the log.
+    #[track_caller]
+    pub(in crate::ui) fn told(self, said: &str) -> String {
+        match self {
+            NotOpened::Said(sentence) => sentence,
+            NotOpened::Failed(why) => crate::ui::remedy::plainly(said, why),
+        }
+    }
+}
+
 /// Open `path` in the app the system associates with its kind.
-pub(in crate::ui) fn open(path: &Path) -> Result<(), String> {
+pub(in crate::ui) fn open(path: &Path) -> Result<(), NotOpened> {
+    opened(path, reveal, launch)
+}
+
+/// [`open`], with what shows a file in its folder and what opens it handed in.
+fn opened(
+    path: &Path,
+    reveal: impl FnOnce(&Path) -> Result<(), NotOpened>,
+    launch: impl FnOnce(&Path) -> Result<(), NotOpened>,
+) -> Result<(), NotOpened> {
     if !path.exists() {
         return Err(gone(path));
     }
     if let Some(name) = runs_when_opened(path) {
         reveal(path)?;
-        return Err(crate::ui::copy::toasts::shown_not_run(&name));
+        return Err(NotOpened::Said(crate::ui::copy::toasts::shown_not_run(
+            &name,
+        )));
     }
+    launch(path)
+}
+
+/// `path` opened in its app: anyview, else the desktop's service, else the system's opener.
+fn launch(path: &Path) -> Result<(), NotOpened> {
     #[cfg(all(feature = "quire-desktop", not(any(target_os = "macos", windows))))]
     if in_anyview(path).is_ok() {
         return Ok(());
@@ -41,21 +79,9 @@ fn runs_when_opened(path: &Path) -> Option<String> {
     name.filter(|name| mail_core::attach::runs_when_opened(name))
 }
 
-/// What the window says when [`open`] did not open `path`: its own sentence when it showed a
-/// program in its folder rather than ran it, which is no failure to hide; otherwise `said`, with
-/// the opener's words in the log.
-#[track_caller]
-pub(in crate::ui) fn not_opened(path: &Path, said: &str, why: String) -> String {
-    if runs_when_opened(path).is_some() {
-        why
-    } else {
-        crate::ui::remedy::plainly(said, why)
-    }
-}
-
 /// Show `path` in the file manager, selected where the desktop can do that; its folder opened
 /// where it cannot.
-pub(in crate::ui) fn reveal(path: &Path) -> Result<(), String> {
+pub(in crate::ui) fn reveal(path: &Path) -> Result<(), NotOpened> {
     if !path.exists() {
         return Err(gone(path));
     }
@@ -81,12 +107,12 @@ pub(in crate::ui) fn reveal(path: &Path) -> Result<(), String> {
     }
 }
 
-fn gone(path: &Path) -> String {
+fn gone(path: &Path) -> NotOpened {
     let name = path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
     );
-    format!("{name} was moved or deleted.")
+    NotOpened::Said(moved_or_deleted(&name))
 }
 
 /// The command that opens `path` in the app the system associates with it. Never a shell: on
@@ -104,19 +130,25 @@ fn opener(path: &Path) -> Command {
     command
 }
 
-fn run(mut command: Command) -> Result<(), String> {
+/// Run the opener. That it could not be started is the system's words; that it ran and said no
+/// is the person's sentence.
+fn run(mut command: Command) -> Result<(), NotOpened> {
     // Explorer exits 1 whether or not it opened anything, so on Windows only starting it can fail.
     if cfg!(windows) {
         return command
             .spawn()
             .map(|_| ())
-            .map_err(|e| couldnt_open(&e.to_string()));
+            .map_err(|e| NotOpened::Failed(e.to_string()));
     }
-    let status = command.status().map_err(|e| couldnt_open(&e.to_string()))?;
+    let status = command
+        .status()
+        .map_err(|e| NotOpened::Failed(e.to_string()))?;
     if status.success() {
         Ok(())
     } else {
-        Err(couldnt_open(&format!("the opener exited with {status}")))
+        Err(NotOpened::Said(couldnt_open(&format!(
+            "the opener exited with {status}"
+        ))))
     }
 }
 
@@ -183,8 +215,71 @@ fn show_items(path: &Path) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::opener;
+    use super::{NotOpened, opened, opener};
+    use crate::ui::copy::errors::FILE_NOT_OPENED;
     use std::path::Path;
+
+    fn never(_: &Path) -> Result<(), NotOpened> {
+        panic!("nothing is launched for this file")
+    }
+
+    /// The sentences `open` writes for the person reach the toast as they are; only a library's
+    /// words become the window's own sentence.
+    #[test]
+    fn what_open_says_for_the_person_reaches_the_toast_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("plans.pdf");
+        let said = opened(&missing, never, never)
+            .unwrap_err()
+            .told(FILE_NOT_OPENED);
+        assert_eq!(said, "plans.pdf was moved or deleted.");
+
+        let program = dir.path().join("setup.exe");
+        std::fs::write(&program, b"MZ").unwrap();
+        let said = opened(&program, |_| Ok(()), never)
+            .unwrap_err()
+            .told(FILE_NOT_OPENED);
+        assert_eq!(said, crate::ui::copy::toasts::shown_not_run("setup.exe"));
+        assert!(said.contains("shown in its folder"), "{said}");
+
+        let file = dir.path().join("notes.txt");
+        std::fs::write(&file, b"hi").unwrap();
+        let refused = |_: &Path| {
+            Err(NotOpened::Said(crate::ui::copy::errors::couldnt_open(
+                "the opener exited with exit status: 4",
+            )))
+        };
+        let said = opened(&file, never, refused)
+            .unwrap_err()
+            .told(FILE_NOT_OPENED);
+        assert!(
+            said.contains("the opener exited with exit status: 4"),
+            "{said}"
+        );
+
+        let broke = |_: &Path| {
+            Err(NotOpened::Failed(
+                "No such file or directory (os error 2)".into(),
+            ))
+        };
+        let said = opened(&file, never, broke)
+            .unwrap_err()
+            .told(FILE_NOT_OPENED);
+        assert_eq!(said, FILE_NOT_OPENED);
+    }
+
+    /// An opener that runs and says no is told as its exit; one that cannot start is the system's.
+    #[cfg(unix)]
+    #[test]
+    fn the_openers_exit_is_a_sentence_and_its_failure_to_start_is_not() {
+        let said = super::run(std::process::Command::new("false")).unwrap_err();
+        assert!(
+            matches!(&said, NotOpened::Said(sentence) if sentence.contains("the opener exited with")),
+            "{said:?}"
+        );
+        let missing = super::run(std::process::Command::new("/nonexistent/mailo-opener"));
+        assert!(matches!(missing, Err(NotOpened::Failed(_))), "{missing:?}");
+    }
 
     #[test]
     fn the_opener_is_given_the_path_as_one_argument_and_no_shell() {

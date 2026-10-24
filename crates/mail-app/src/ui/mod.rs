@@ -107,7 +107,7 @@ pub mod native {
     pub use super::brand::BrandCache;
     pub use super::clock::WallClock;
     pub use super::compose::Dictionaries;
-    pub use super::downloads::Opener as FileOpener;
+    pub use super::downloads::{NotOpened as FileNotOpened, Opener as FileOpener};
     pub use super::files::SaveDir;
     pub use super::follow_up::Notices;
     pub use super::launch::DesktopSettings;

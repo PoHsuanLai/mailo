@@ -309,16 +309,10 @@ fn open_file(path: PathBuf, onclose: EventHandler<()>) {
     onclose.call(());
     // Forever, not this list's: the list closes as the file opens.
     dioxus::core::spawn_forever(async move {
-        let done = tokio::task::spawn_blocking(move || {
-            open(&path).map_err(|why| super::open::not_opened(&path, FILE_NOT_OPENED, why))
-        })
-        .await;
-        let said_it = match done {
-            Ok(Ok(())) => return,
-            Ok(Err(said_it)) => said_it,
-            Err(error) => crate::ui::remedy::plainly(FILE_NOT_OPENED, error),
-        };
-        tell_through(said, said_it);
+        let done = tokio::task::spawn_blocking(move || open(&path)).await;
+        if let Some(why) = failed(done, FILE_NOT_OPENED) {
+            tell_through(said, why);
+        }
     });
 }
 
@@ -333,13 +327,15 @@ fn reveal_file(path: PathBuf) {
     });
 }
 
-/// What the person is told when the system would not open or show a file: `said`, with the
-/// opener's own words in the log.
-fn failed(done: Result<Result<(), String>, tokio::task::JoinError>, said: &str) -> Option<String> {
-    let why = match done {
-        Ok(Ok(())) => return None,
-        Ok(Err(why)) => why,
-        Err(error) => error.to_string(),
-    };
-    Some(crate::ui::remedy::plainly(said, why))
+/// What the person is told when the system would not open or show a file: the sentence the
+/// opener wrote for them, else `said`, with the opener's own words in the log.
+fn failed(
+    done: Result<Result<(), super::NotOpened>, tokio::task::JoinError>,
+    said: &str,
+) -> Option<String> {
+    match done {
+        Ok(Ok(())) => None,
+        Ok(Err(why)) => Some(why.told(said)),
+        Err(error) => Some(crate::ui::remedy::plainly(said, error)),
+    }
 }

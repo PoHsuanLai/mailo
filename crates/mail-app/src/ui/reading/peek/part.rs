@@ -20,6 +20,7 @@ use mail_domain::MessageId;
 use super::super::route::{self, Own};
 use super::own::{self, Sheet};
 use crate::ui::copy;
+use crate::ui::remedy::plainly;
 use crate::ui::view::{Preview, Shell, Viewing};
 use mail_core::preview::{self, Kind, Page, Picture, Unshown};
 
@@ -174,10 +175,24 @@ fn save(viewing: Viewing, toasts: Toasts) {
             crate::ui::downloads::Saving::quick().end(Some(&path), origin);
             super::super::fetch::saved_toast(&path)
         }
-        Err(why) => crate::ui::remedy::plainly(copy::errors::ATTACHMENT_NOT_SAVED, why),
+        Err(why) => attachment_failure(why, copy::errors::ATTACHMENT_NOT_SAVED),
     };
     if let Some(toasts) = toasts {
         toasts.push(said, None);
+    }
+}
+
+/// What the window says when an attachment could not be written: core's own sentence when it is
+/// one for people (the part is still on the server, or there is no such part), else `said`, with
+/// core's words in the log.
+#[track_caller]
+fn attachment_failure(failure: mail_core::CoreError, said: &str) -> String {
+    use mail_core::CoreError;
+    match failure {
+        CoreError::AttachmentOnServer { .. } | CoreError::NoAttachment { .. } => {
+            crate::ui::remedy::told(failure)
+        }
+        other => plainly(said, other),
     }
 }
 
@@ -203,19 +218,16 @@ pub(super) fn open_in_app(viewing: Viewing) {
     let store = consume_context::<Arc<SqliteStore>>();
     let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
     spawn(async move {
-        let not_opened =
-            |why: String| crate::ui::remedy::plainly(copy::errors::ATTACHMENT_NOT_OPENED, why);
+        let said = copy::errors::ATTACHMENT_NOT_OPENED;
         let opened = tokio::task::spawn_blocking(move || {
-            let dir = open_dir(viewing.message).map_err(|why| not_opened(why.to_string()))?;
-            std::fs::create_dir_all(&dir).map_err(|why| not_opened(why.to_string()))?;
+            let dir = open_dir(viewing.message).map_err(|why| plainly(said, why))?;
+            std::fs::create_dir_all(&dir).map_err(|why| plainly(said, why))?;
             let path = mail_core::attach::save(&store, viewing.message, viewing.index, &dir)
-                .map_err(|why| not_opened(why.to_string()))?;
-            crate::ui::downloads::open_file(&path).map_err(|why| {
-                crate::ui::downloads::not_opened(&path, copy::errors::ATTACHMENT_NOT_OPENED, why)
-            })
+                .map_err(|why| attachment_failure(why, said))?;
+            crate::ui::downloads::open_file(&path).map_err(|why| why.told(said))
         })
         .await
-        .unwrap_or_else(|why| Err(not_opened(why.to_string())));
+        .unwrap_or_else(|why| Err(plainly(said, why)));
         if let (Err(said), Some(toasts)) = (opened, toasts) {
             toasts.push(said, None);
         }
