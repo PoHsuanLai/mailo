@@ -211,7 +211,7 @@ async fn a_server_that_does_not_answer_is_unreachable() {
 /// request would be the reader's machine acting on a stranger's behalf where they cannot reach.
 #[tokio::test]
 async fn the_local_network_is_never_posted_to() {
-    let (inside, connections) = plain_server().await;
+    let (inside, connections) = hang_up().await;
     let direct: HttpsUrl = format!("https://127.0.0.1:{}/u", inside.port())
         .parse()
         .unwrap();
