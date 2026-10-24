@@ -7,72 +7,35 @@
 //! failure it was.
 //!
 //! No network. The name `example.test` is resolved by the client to a local `TcpListener` behind
-//! TLS with a self-signed certificate from `tests/fixtures/discover-tls/` (for `example.test`,
-//! valid until 2126), which the client is told to trust.
+//! TLS with the certificate `tls_fixture` serves, which the client is told to trust.
 
+use crate::tls_fixture::{hang_up, read_request, reply, root, serve_tls};
 use mail_runtime::lookup::{DOCUMENT_LIMIT, ReqwestHttp, client_builder};
 use porter_core::WebUrl;
 use porter_http::{Http, HttpError, HttpRequest, Method};
-use rustls_pki_types::pem::PemObject;
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-
-const CERT: &[u8] = include_bytes!("../fixtures/discover-tls/cert.pem");
-const KEY: &[u8] = include_bytes!("../fixtures/discover-tls/key.pem");
-
-fn acceptor() -> tokio_rustls::TlsAcceptor {
-    let config = rustls::ServerConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .unwrap()
-    .with_no_client_auth()
-    .with_single_cert(
-        vec![CertificateDer::from_pem_slice(CERT).unwrap()],
-        PrivateKeyDer::from_pem_slice(KEY).unwrap(),
-    )
-    .unwrap();
-    tokio_rustls::TlsAcceptor::from(Arc::new(config))
-}
 
 /// Requests seen, as the request target.
 type Seen = Arc<Mutex<Vec<String>>>;
 
 /// A TLS listener answering every request with `response(target)`, verbatim.
 async fn server(response: impl Fn(&str) -> String + Send + Sync + 'static) -> (SocketAddr, Seen) {
-    let acceptor = acceptor();
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
     let seen: Seen = Arc::default();
     let recording = seen.clone();
     let response = Arc::new(response);
-    tokio::spawn(async move {
-        while let Ok((sock, _)) = listener.accept().await {
-            let (acceptor, recording, response) =
-                (acceptor.clone(), recording.clone(), response.clone());
-            tokio::spawn(async move {
-                let Ok(mut stream) = acceptor.accept(sock).await else {
-                    return;
-                };
-                let mut buf = Vec::new();
-                let mut chunk = [0u8; 4096];
-                while !String::from_utf8_lossy(&buf).contains("\r\n\r\n") {
-                    match stream.read(&mut chunk).await {
-                        Ok(0) | Err(_) => return,
-                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
-                    }
-                }
-                let text = String::from_utf8_lossy(&buf).to_string();
-                let target = text.split(' ').nth(1).unwrap_or_default().to_owned();
-                recording.lock().unwrap().push(target.clone());
-                let _ = stream.write_all(response(&target).as_bytes()).await;
-                let _ = stream.shutdown().await;
-            });
+    let addr = serve_tls(move |mut stream| {
+        let (recording, response) = (recording.clone(), response.clone());
+        async move {
+            let Some(text) = read_request(&mut stream).await else {
+                return;
+            };
+            let target = text.split(' ').nth(1).unwrap_or_default().to_owned();
+            recording.lock().unwrap().push(target.clone());
+            reply(&mut stream, response(&target).as_bytes()).await;
         }
-    });
+    })
+    .await;
     (addr, seen)
 }
 
@@ -87,7 +50,7 @@ fn ok(body: &str) -> String {
 fn trusting(addr: SocketAddr) -> ReqwestHttp {
     ReqwestHttp::over(
         client_builder()
-            .add_root_certificate(reqwest::Certificate::from_pem(CERT).unwrap())
+            .add_root_certificate(root())
             .resolve("example.test", addr)
             .build()
             .unwrap(),
@@ -145,15 +108,8 @@ async fn a_certificate_nobody_vouches_for_is_not_trusted() {
 
 #[tokio::test]
 async fn plain_http_is_never_used() {
-    let plain = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = plain.local_addr().unwrap().port();
-    let connected = Arc::new(Mutex::new(0));
-    let counting = connected.clone();
-    tokio::spawn(async move {
-        while let Ok((_sock, _)) = plain.accept().await {
-            *counting.lock().unwrap() += 1;
-        }
-    });
+    let (plain, connected) = hang_up().await;
+    let port = plain.port();
     let http = ReqwestHttp::new().unwrap();
     let err = http
         .send(get(&format!("http://127.0.0.1:{port}/")))
@@ -165,15 +121,8 @@ async fn plain_http_is_never_used() {
 
 #[tokio::test]
 async fn a_redirect_to_plain_http_is_not_followed() {
-    let plain = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let plain_port = plain.local_addr().unwrap().port();
-    let connected = Arc::new(Mutex::new(0));
-    let counting = connected.clone();
-    tokio::spawn(async move {
-        while let Ok((_sock, _)) = plain.accept().await {
-            *counting.lock().unwrap() += 1;
-        }
-    });
+    let (plain, connected) = hang_up().await;
+    let plain_port = plain.port();
     let (addr, _) = server(move |_| {
         format!(
             "HTTP/1.1 302 Found\r\nLocation: http://example.test:{plain_port}/x.xml\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"

@@ -4,8 +4,8 @@
 //! The incoming side is a stub backend over a socket that never says anything, which is what an
 //! IDLE with no new mail looks like from here: the only way out of the wait is the outbox.
 
+use crate::fixture::{IDENTITY, acct_account};
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::{Backend, IoNeed, IoReady, Progress, ProtoOutcome};
@@ -13,19 +13,13 @@ use mail_runtime::engine::Schedule;
 use mail_runtime::{AccountEngine, AccountSecrets, Woke};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-const IDENTITY: IdentityId =
-    IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
 /// When the message was written and frozen.
 fn written() -> DateTime<Utc> {

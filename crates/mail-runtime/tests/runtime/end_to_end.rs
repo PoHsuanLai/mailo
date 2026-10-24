@@ -10,29 +10,21 @@
 //! out is every failure that lives between `AccountEngine::sync` and the wire, which until now
 //! nothing exercised together.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{acct_account, inbox, now};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Pop3Command, Pop3Session};
 use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const PASSWORD: &str = "s3cr3t";
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 /// Three messages, deliberately awkward: one ordinary, one whose body contains a line starting
 /// with a dot, and one with no `Message-ID` at all.
@@ -240,10 +232,14 @@ fn caps() -> AccountCaps {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
-    let port = serve().await;
+struct Fixture {
+    store: Arc<SqliteStore>,
+    engine: AccountEngine<Pop3Backend>,
+    _dir: tempfile::TempDir,
+}
 
+/// An engine over the maildrop on `port`, with a store of its own.
+fn fixture(port: u16) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
@@ -270,18 +266,30 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
             Pop3Session::new("me", PASSWORD, all)
         }),
     );
-
-    let mut engine = AccountEngine::new(
+    let engine = AccountEngine::new(
         acct_account(),
         plan(port),
         backend,
         store.clone(),
         Arc::new(secrets),
     );
-    let mailbox = MailboxRef {
-        account: acct_account(),
-        path: "INBOX".to_owned(),
-    };
+    Fixture {
+        store,
+        engine,
+        _dir: dir,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
+    let port = serve().await;
+
+    let Fixture {
+        store,
+        mut engine,
+        _dir,
+    } = fixture(port);
+    let mailbox = inbox();
     let (_tx, mut cancel) = watch::channel(false);
 
     // --- the header pass ----------------------------------------------------------------
@@ -391,60 +399,6 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
 mod repeated_passes {
     use super::*;
 
-    struct Fixture {
-        store: Arc<SqliteStore>,
-        engine: AccountEngine<Pop3Backend>,
-        _dir: tempfile::TempDir,
-    }
-
-    fn fixture(port: u16) -> Fixture {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-        mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-
-        let secrets = MemorySecrets::default();
-        mail_runtime::block_on(secrets.put(
-            &SecretKey {
-                account: acct_account(),
-                purpose: SecretPurpose::IncomingPassword,
-            },
-            &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-        ))
-        .unwrap();
-
-        let backend = Pop3Backend::new(
-            acct_account(),
-            caps(),
-            Box::new(|auth, commands| {
-                let mut all = Vec::new();
-                if auth == Authenticate::First {
-                    all.push(Pop3Command::AuthPlain);
-                }
-                all.extend(commands);
-                Pop3Session::new("me", PASSWORD, all)
-            }),
-        );
-        let engine = AccountEngine::new(
-            acct_account(),
-            plan(port),
-            backend,
-            store.clone(),
-            Arc::new(secrets),
-        );
-        Fixture {
-            store,
-            engine,
-            _dir: dir,
-        }
-    }
-
-    fn inbox() -> MailboxRef {
-        MailboxRef {
-            account: acct_account(),
-            path: "INBOX".to_owned(),
-        }
-    }
-
     fn messages(store: &SqliteStore) -> u64 {
         store.count(&Filter::All, now()).unwrap()
     }
@@ -537,53 +491,40 @@ mod repeated_passes {
         );
     }
 
+    /// A message deleted in webmail disappears here too, and a sweep with the maildrop intact
+    /// deletes nothing.
+    ///
+    /// POP3's expunge diff is UIDL: the complete list of what the server still holds, and
+    /// anything in remote_map missing from it was deleted elsewhere. The runtime does that diff,
+    /// so this exercises the same code the IMAP sweep uses. The dangerous direction is the other
+    /// one: `gone` drives deletion, so a UIDL listing this code fails to read must never look like
+    /// an empty maildrop.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_message_deleted_in_webmail_disappears_here_too() {
-        // POP3's expunge diff is UIDL: the complete list of what the server still holds, and
-        // anything in remote_map missing from it was deleted elsewhere. The runtime does that
-        // diff, so this exercises the same code the IMAP sweep uses.
-        let (port, present) = serve_full().await;
-        let mut it = fixture(port);
-        let (_tx, mut cancel) = watch::channel(false);
+    async fn a_sweep_removes_what_webmail_deleted_and_nothing_else() {
+        for (left, expected) in [(1, 1), (3, 3)] {
+            let (port, present) = serve_full().await;
+            let mut it = fixture(port);
+            let (_tx, mut cancel) = watch::channel(false);
 
-        it.engine
-            .sync(&inbox(), &mut cancel, now(), 50)
-            .await
-            .unwrap();
-        assert_eq!(messages(&it.store), 3);
+            it.engine
+                .sync(&inbox(), &mut cancel, now(), 50)
+                .await
+                .unwrap();
+            assert_eq!(messages(&it.store), 3);
 
-        // Two of the three are deleted from the maildrop.
-        present.store(1, std::sync::atomic::Ordering::SeqCst);
+            // What is left in the maildrop: one of the three, or all of them.
+            present.store(left, std::sync::atomic::Ordering::SeqCst);
 
-        // The expunge interval is the longest of the three, so a sweep now would not be due.
-        let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
-        it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
+            // The expunge interval is the longest of the three, so a sweep now would not be due.
+            let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
+            it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
 
-        assert_eq!(
-            messages(&it.store),
-            1,
-            "messages deleted on the server are still here"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_sweep_with_the_maildrop_intact_deletes_nothing() {
-        // The dangerous direction: `gone` drives deletion, so a UIDL listing this code fails to
-        // read must never look like an empty maildrop.
-        let (port, _present) = serve_full().await;
-        let mut it = fixture(port);
-        let (_tx, mut cancel) = watch::channel(false);
-
-        it.engine
-            .sync(&inbox(), &mut cancel, now(), 50)
-            .await
-            .unwrap();
-        let before = messages(&it.store);
-
-        let later = now() + chrono::TimeDelta::try_hours(2).unwrap();
-        it.engine.sweep(&inbox(), &mut cancel, later).await.unwrap();
-
-        assert_eq!(messages(&it.store), before, "a sweep deleted live mail");
+            assert_eq!(
+                messages(&it.store),
+                expected,
+                "a sweep kept deleted mail or deleted live mail, with {left} left on the server"
+            );
+        }
     }
 }
 
@@ -615,41 +556,10 @@ async fn the_first_sync_fetches_the_newest_mail_first_within_each_band() {
     ])
     .await;
 
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-    let secrets = MemorySecrets::default();
-    mail_runtime::block_on(secrets.put(
-        &SecretKey {
-            account: acct_account(),
-            purpose: SecretPurpose::IncomingPassword,
-        },
-        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-    ))
-    .unwrap();
-    let backend = Pop3Backend::new(
-        acct_account(),
-        caps(),
-        Box::new(|auth, commands| {
-            let mut all = Vec::new();
-            if auth == Authenticate::First {
-                all.push(Pop3Command::AuthPlain);
-            }
-            all.extend(commands);
-            Pop3Session::new("me", PASSWORD, all)
-        }),
-    );
-    let mut engine = AccountEngine::new(
-        acct_account(),
-        plan(port),
-        backend,
-        store.clone(),
-        Arc::new(secrets),
-    );
-    let mailbox = MailboxRef {
-        account: acct_account(),
-        path: "INBOX".to_owned(),
-    };
+    let Fixture {
+        mut engine, _dir, ..
+    } = fixture(port);
+    let mailbox = inbox();
     let (_tx, mut cancel) = watch::channel(false);
 
     let headers = engine.sync(&mailbox, &mut cancel, now(), 50).await.unwrap();
@@ -686,41 +596,12 @@ async fn the_body_pass_fetches_what_the_window_is_showing_first() {
     ])
     .await;
 
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-    let secrets = MemorySecrets::default();
-    mail_runtime::block_on(secrets.put(
-        &SecretKey {
-            account: acct_account(),
-            purpose: SecretPurpose::IncomingPassword,
-        },
-        &Credential::Password(SecretText::new(PASSWORD.to_owned())),
-    ))
-    .unwrap();
-    let backend = Pop3Backend::new(
-        acct_account(),
-        caps(),
-        Box::new(|auth, commands| {
-            let mut all = Vec::new();
-            if auth == Authenticate::First {
-                all.push(Pop3Command::AuthPlain);
-            }
-            all.extend(commands);
-            Pop3Session::new("me", PASSWORD, all)
-        }),
-    );
-    let mut engine = AccountEngine::new(
-        acct_account(),
-        plan(port),
-        backend,
-        store.clone(),
-        Arc::new(secrets),
-    );
-    let mailbox = MailboxRef {
-        account: acct_account(),
-        path: "INBOX".to_owned(),
-    };
+    let Fixture {
+        store,
+        mut engine,
+        _dir,
+    } = fixture(port);
+    let mailbox = inbox();
     let (_tx, mut cancel) = watch::channel(false);
 
     let headers = engine.sync(&mailbox, &mut cancel, now(), 50).await.unwrap();

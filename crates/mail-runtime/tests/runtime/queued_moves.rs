@@ -5,7 +5,8 @@
 //! behind a first used to be sent to the UID the first had moved away from; the server answered
 //! OK, because a UID set naming nothing is not an error, and the second move was lost.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::fixture::now;
+use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
@@ -25,10 +26,6 @@ fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
 }
 const PASSWORD: &str = "s3cr3t";
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 const RAW: &str = "From: Ada Lovelace <ada@example.test>\r\n\
                    To: me@example.test\r\n\
@@ -440,6 +437,15 @@ fn holds(server: &Shared, path: &str) -> Vec<u32> {
     server.lock().unwrap().mailboxes[path]
         .held
         .keys()
+        .copied()
+        .collect()
+}
+
+/// The UIDs flagged in `path` on the server.
+fn flagged(server: &Shared, path: &str) -> Vec<u32> {
+    server.lock().unwrap().mailboxes[path]
+        .flagged
+        .iter()
         .copied()
         .collect()
 }
@@ -1113,15 +1119,8 @@ async fn a_star_retried_after_its_second_mailbox_failed_is_set_again_harmlessly(
             "UID STORE 3 +FLAGS (\\Flagged)".to_owned(),
         ]
     );
-    let flagged = |path: &str| -> Vec<u32> {
-        server.lock().unwrap().mailboxes[path]
-            .flagged
-            .iter()
-            .copied()
-            .collect()
-    };
-    assert_eq!(flagged("INBOX"), vec![10]);
-    assert_eq!(flagged("Work"), vec![3]);
+    assert_eq!(flagged(&server, "INBOX"), vec![10]);
+    assert_eq!(flagged(&server, "Work"), vec![3]);
 }
 
 // ---- a split operation refused after its first part was done ----
@@ -1262,15 +1261,8 @@ async fn a_star_refused_in_its_second_mailbox_stays_on_the_message_the_server_st
     let drained = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
 
     assert_eq!(drained.still_queued, 0);
-    let flagged = |path: &str| -> Vec<u32> {
-        server.lock().unwrap().mailboxes[path]
-            .flagged
-            .iter()
-            .copied()
-            .collect()
-    };
-    assert_eq!(flagged("INBOX"), vec![10]);
-    assert!(flagged("Work").is_empty());
+    assert_eq!(flagged(&server, "INBOX"), vec![10]);
+    assert!(flagged(&server, "Work").is_empty());
     assert_eq!(it.store.message(inbox).unwrap().star, Star::Starred);
     assert_eq!(it.store.message(work).unwrap().star, Star::Unstarred);
     assert_eq!(

@@ -6,7 +6,7 @@
 //! appear with two: a thread merged across accounts, an operation reaching the wrong copy, a
 //! label name meaning two different labels, a count that adds up the wrong mailboxes.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::fixture::now;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
@@ -18,10 +18,6 @@ fn acct_a() -> AccountId {
 }
 fn acct_b() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
 }
 
 fn store() -> (SqliteStore, tempfile::TempDir) {
@@ -80,11 +76,14 @@ const LIST_MAIL: &str = "From: list@example.test\n\
                          \n\
                          sent to a list both addresses are on\n";
 
+/// The inbox with no account clause holds both accounts' mail, and an account clause narrows it
+/// to one.
+///
+/// The plan's claim: "a unified inbox is `Filter::All` with no `Account` clause". Asserted,
+/// because the alternative — a list that silently shows one account — is the kind of thing a
+/// user only notices when mail goes missing.
 #[test]
-fn the_inbox_with_no_account_clause_holds_both() {
-    // The plan's claim: "a unified inbox is `Filter::All` with no `Account` clause". Asserted,
-    // because the alternative — a list that silently shows one account — is the kind of thing
-    // a user only notices when mail goes missing.
+fn the_inbox_holds_both_accounts_and_an_account_clause_narrows_to_one() {
     let (store, _dir) = store();
     deliver(
         &store,
@@ -106,23 +105,6 @@ fn the_inbox_with_no_account_clause_holds_both() {
     assert_eq!(subjects.len(), 2, "{subjects:?}");
     assert!(subjects.iter().any(|s| s == "from campus"));
     assert!(subjects.iter().any(|s| s == "from Gmail"));
-}
-
-#[test]
-fn an_account_clause_narrows_to_that_account() {
-    let (store, _dir) = store();
-    deliver(
-        &store,
-        acct_a(),
-        "u1",
-        "From: a@example.edu\nSubject: from campus\nMessage-ID: <n1@x.test>\n\nhi\n",
-    );
-    deliver(
-        &store,
-        acct_b(),
-        "u2",
-        "From: b@gmail.test\nSubject: from Gmail\nMessage-ID: <g1@x.test>\n\nhi\n",
-    );
 
     let only_a = listed(&store, Filter::Account(acct_a()));
     assert_eq!(only_a.len(), 1);

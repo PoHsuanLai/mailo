@@ -5,24 +5,21 @@
 //! and without `ESEARCH`. It answers `UID SEARCH` from what it was asked for, and refuses any
 //! fetch of a body, so a search that fetched one would fail here.
 
+use crate::fixture::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::{AccountEngine, AccountSecrets, Arrival, Searched};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const PASSWORD: &str = "s3cr3t";
 const ALL_MAIL: &str = "[Gmail]/All Mail";
 

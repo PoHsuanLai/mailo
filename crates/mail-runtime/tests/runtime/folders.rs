@@ -6,27 +6,10 @@
 //! folder it came from — invisible while one folder was synced, and the first thing to go wrong
 //! when a second one is.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{acct_account, now, store};
 use mail_domain::*;
 use mail_runtime::{Arrival, Destination, absorb_into};
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
-
-fn store() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-    (store, dir)
-}
 
 fn deliver(store: &SqliteStore, path: &str, role: MailboxRole, uidl: &str, subject: &str) {
     absorb_into(
@@ -98,18 +81,22 @@ fn a_message_from_sent_is_in_sent_and_not_in_the_inbox() {
     assert_eq!(subjects(&store, MailboxRole::Sent), vec!["I sent this"]);
 }
 
+/// Archived mail lands in Archive. A user folder the server did not flag is not synced today,
+/// but if it ever is, its mail must land somewhere the user looks rather than vanishing into a
+/// role that has no place: the inbox.
 #[test]
-fn archived_mail_lands_in_archive() {
-    let (store, _dir) = store();
-    deliver(
-        &store,
-        "[Gmail]/All Mail",
-        MailboxRole::Archive,
-        "u1",
-        "old thread",
-    );
-    assert_eq!(subjects(&store, MailboxRole::Archive), vec!["old thread"]);
-    assert!(subjects(&store, MailboxRole::Inbox).is_empty());
+fn mail_lands_under_its_folders_role_or_else_in_the_inbox() {
+    for (path, role, subject) in [
+        ("[Gmail]/All Mail", MailboxRole::Archive, "old thread"),
+        ("Work/Projects", MailboxRole::Inbox, "a project"),
+    ] {
+        let (store, _dir) = store();
+        deliver(&store, path, role, "u1", subject);
+        assert_eq!(subjects(&store, role), vec![subject], "{path}");
+        if role != MailboxRole::Inbox {
+            assert!(subjects(&store, MailboxRole::Inbox).is_empty(), "{path}");
+        }
+    }
 }
 
 #[test]
@@ -166,19 +153,4 @@ fn a_message_in_two_folders_is_stored_once_and_keeps_the_first_role() {
         subjects(&store, MailboxRole::Archive).is_empty(),
         "one role per message, so it cannot be in both"
     );
-}
-
-#[test]
-fn a_folder_with_no_role_is_absorbed_as_the_inbox() {
-    // A user folder the server did not flag. Not synced today, but if it ever is, mail must
-    // land somewhere the user looks rather than vanishing into a role that has no place.
-    let (store, _dir) = store();
-    deliver(
-        &store,
-        "Work/Projects",
-        MailboxRole::Inbox,
-        "u1",
-        "a project",
-    );
-    assert_eq!(subjects(&store, MailboxRole::Inbox), vec!["a project"]);
 }

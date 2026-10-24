@@ -10,8 +10,7 @@
 //! checking are invisible from the client's side: that every recipient was named in the
 //! envelope, and that the blind ones were named *nowhere else*.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{IDENTITY, acct_account, now};
 use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, Pop3Backend};
@@ -19,23 +18,14 @@ use mail_proto::{Pop3Command, Pop3Session};
 use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-const IDENTITY: IdentityId =
-    IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const PASSWORD: &str = "s3cr3t";
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 /// What the server was told, in order.
 #[derive(Debug, Default)]

@@ -6,21 +6,11 @@
 //! of the message and the blob store collapses repeated parts by content — but "we checked" is
 //! only worth anything if it keeps being checked, so the measurements are assertions now.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{acct_account, now, store};
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
 use std::time::Instant;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 /// A multipart message with `parts` attachments. `unique` decides whether their contents differ,
 /// which is what defeats the blob store's content addressing.
@@ -43,13 +33,6 @@ fn flood(parts: usize, unique: bool) -> Vec<u8> {
     }
     m.extend_from_slice(b"--b--\r\n");
     m
-}
-
-fn seeded() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-    (store, dir)
 }
 
 fn ingest(store: &SqliteStore, raw: Vec<u8>) {
@@ -82,7 +65,7 @@ fn ten_thousand_parts_cost_ten_thousand_blobs_and_no_more() {
     // Linear, which is the property that matters: the work is bounded by the size of the
     // message, so the worst a sender can do is send a big message. Anything superlinear here
     // would be a message that costs more to receive than to write.
-    let (store, _dir) = seeded();
+    let (store, _dir) = store();
     let raw = flood(10_000, true);
     let started = Instant::now();
     ingest(&store, raw);
@@ -104,7 +87,7 @@ fn ten_thousand_identical_parts_cost_one_blob_and_each_is_reachable() {
     // The blob store is content-addressed, so the obvious flood — one byte repeated — collapses
     // to a single stored part. Worth pinning: it is the difference between a hostile message
     // costing what it weighs and costing what it claims.
-    let (store, _dir) = seeded();
+    let (store, _dir) = store();
     ingest(&store, flood(10_000, false));
     assert_eq!(
         blob_rows(&store),

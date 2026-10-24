@@ -6,7 +6,7 @@
 //! exchange that hears nothing at all ends as [`RuntimeError::Stalled`], which is answered by a
 //! new connection.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::fixture::now;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::ImapBackend;
@@ -25,10 +25,6 @@ use tokio::time::Instant;
 
 fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c7"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
 }
 
 fn inbox() -> MailboxRef {

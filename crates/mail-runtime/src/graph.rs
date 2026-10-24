@@ -582,6 +582,7 @@ mod tests {
     const MIME: &[u8] = b"From: me@contoso.example\r\nTo: Ada <ada@example.test>\r\n\
         Cc: bob@example.test\r\nSubject: s\r\n\r\nhello\r\n";
 
+    /// Only the blind copies become a header: a message with none goes as it is.
     #[test]
     fn a_blind_copy_is_carried_as_a_header_because_graph_reads_no_envelope() {
         let out = with_blind_copies(
@@ -595,10 +596,7 @@ mod tests {
         .unwrap();
         let text = String::from_utf8(out).unwrap();
         assert!(text.starts_with("Bcc: eve@example.test\r\nFrom:"), "{text}");
-    }
 
-    #[test]
-    fn a_message_with_no_blind_copies_goes_as_it_is() {
         let out = with_blind_copies(
             MIME,
             &["ada@example.test".to_owned(), "bob@example.test".to_owned()],

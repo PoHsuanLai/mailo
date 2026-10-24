@@ -5,34 +5,10 @@
 //! with a missing header, a broken date, or no `Message-ID` at all, and those only exist in
 //! bytes.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::fixture::{acct_account, inbox, now, store};
 use mail_domain::*;
-use mail_runtime::{Arrival, absorb};
+use mail_runtime::{Arrival, RuntimeError, absorb};
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
-
-fn store() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-    (store, dir)
-}
-
-fn mailbox() -> MailboxRef {
-    MailboxRef {
-        account: acct_account(),
-        path: "INBOX".to_owned(),
-    }
-}
 
 fn pop(uidl: &str, raw: &str) -> Arrival {
     Arrival {
@@ -41,6 +17,23 @@ fn pop(uidl: &str, raw: &str) -> Arrival {
         },
         raw: raw.replace('\n', "\r\n").into_bytes(),
     }
+}
+
+/// Absorb `arrivals` into the inbox, as a POP3 pass does.
+fn arrive(
+    store: &SqliteStore,
+    arrivals: Vec<Arrival>,
+    headers_only: bool,
+) -> Result<Patch, RuntimeError> {
+    absorb(
+        store,
+        acct_account(),
+        inbox(),
+        Some(SyncCursor::Pop),
+        arrivals,
+        headers_only,
+        now(),
+    )
 }
 
 fn query(filter: Filter) -> Query {
@@ -67,16 +60,7 @@ fn a_whole_message_becomes_something_listable_and_searchable() {
                Message-ID: <first@example.test>\n\
                \n\
                Shall we say one o'clock?\n";
-    absorb(
-        &store,
-        acct_account(),
-        mailbox(),
-        Some(SyncCursor::Pop),
-        vec![pop("0000000166aaf64b", raw)],
-        false,
-        now(),
-    )
-    .unwrap();
+    arrive(&store, vec![pop("0000000166aaf64b", raw)], false).unwrap();
 
     let listed = store
         .threads(&query(Filter::InMailbox(MailboxRole::Inbox)), now())
@@ -101,16 +85,7 @@ fn a_message_fetched_twice_is_stored_once() {
     let (store, _dir) = store();
     let raw = "From: a@example.test\nSubject: once\nMessage-ID: <dup@example.test>\n\nbody\n";
     for _ in 0..2 {
-        absorb(
-            &store,
-            acct_account(),
-            mailbox(),
-            Some(SyncCursor::Pop),
-            vec![pop("uidl-1", raw)],
-            false,
-            now(),
-        )
-        .unwrap();
+        arrive(&store, vec![pop("uidl-1", raw)], false).unwrap();
     }
     let count: i64 = mail_store::testing::count(&store, "messages");
     assert_eq!(count, 1, "identity is MessageKey, so a refetch re-maps");
@@ -127,26 +102,8 @@ fn a_reply_joins_the_thread_it_answers_even_across_syncs() {
 
     // Two separate passes, because that is what an incremental sync does — and joining across
     // them is what `existing` in the threading call is for.
-    absorb(
-        &store,
-        acct_account(),
-        mailbox(),
-        Some(SyncCursor::Pop),
-        vec![pop("u1", first)],
-        false,
-        now(),
-    )
-    .unwrap();
-    absorb(
-        &store,
-        acct_account(),
-        mailbox(),
-        Some(SyncCursor::Pop),
-        vec![pop("u2", reply)],
-        false,
-        now(),
-    )
-    .unwrap();
+    arrive(&store, vec![pop("u1", first)], false).unwrap();
+    arrive(&store, vec![pop("u2", reply)], false).unwrap();
 
     let threads = store.threads(&query(Filter::All), now()).unwrap();
     assert_eq!(
@@ -167,18 +124,14 @@ fn malformed_headers_are_recorded_rather_than_rejected() {
                     Date: not a date at all\nMessage-ID: <bd@example.test>\n\nbody\n";
     let no_subject = "From: c@example.test\nMessage-ID: <ns@example.test>\n\nbody\n";
 
-    absorb(
+    arrive(
         &store,
-        acct_account(),
-        mailbox(),
-        Some(SyncCursor::Pop),
         vec![
             pop("u1", no_message_id),
             pop("u2", bad_date),
             pop("u3", no_subject),
         ],
         false,
-        now(),
     )
     .unwrap();
 
@@ -208,16 +161,7 @@ fn messages_with_no_message_id_stay_distinct() {
     // Same subject, same sender, no Message-ID, no date. Only the remote address differs —
     // which is why it is part of the synthetic key. Without it the user silently loses one.
     let raw = "From: a@example.test\nSubject: identical\n\nbody\n";
-    absorb(
-        &store,
-        acct_account(),
-        mailbox(),
-        Some(SyncCursor::Pop),
-        vec![pop("uidl-a", raw), pop("uidl-b", raw)],
-        false,
-        now(),
-    )
-    .unwrap();
+    arrive(&store, vec![pop("uidl-a", raw), pop("uidl-b", raw)], false).unwrap();
 
     let count: i64 = mail_store::testing::count(&store, "messages");
     assert_eq!(count, 2, "two arrivals are two messages");
@@ -229,16 +173,7 @@ fn a_headers_only_pass_is_listable_without_a_body() {
     let (store, _dir) = store();
     let raw =
         "From: a@example.test\nSubject: headers first\nMessage-ID: <h@example.test>\n\nbody\n";
-    absorb(
-        &store,
-        acct_account(),
-        mailbox(),
-        Some(SyncCursor::Pop),
-        vec![pop("u1", raw)],
-        true,
-        now(),
-    )
-    .unwrap();
+    arrive(&store, vec![pop("u1", raw)], true).unwrap();
 
     let threads = store.threads(&query(Filter::All), now()).unwrap();
     assert_eq!(threads.items.len(), 1);
@@ -260,11 +195,8 @@ fn a_headers_only_pass_is_listable_without_a_body() {
 fn bytes_that_are_not_a_message_are_skipped_not_fatal() {
     let (store, _dir) = store();
     let good = "From: a@example.test\nSubject: fine\nMessage-ID: <g@example.test>\n\nbody\n";
-    absorb(
+    arrive(
         &store,
-        acct_account(),
-        mailbox(),
-        Some(SyncCursor::Pop),
         vec![
             Arrival {
                 remote: RemoteRef::Pop {
@@ -275,7 +207,6 @@ fn bytes_that_are_not_a_message_are_skipped_not_fatal() {
             pop("u2", good),
         ],
         false,
-        now(),
     )
     .expect("one bad message must not fail the pass");
 
@@ -298,7 +229,7 @@ fn an_unreadable_arrival_is_skipped_and_counted() {
             &store,
             acct_account(),
             mail_runtime::Destination {
-                mailbox: mailbox(),
+                mailbox: inbox(),
                 role: MailboxRole::Inbox,
             },
             None,

@@ -6,7 +6,7 @@
 //! Both servers are on real sockets and record what they were told. The POP3 pairings are in
 //! `submission_end_to_end.rs` (SMTP) and `graph_send.rs` (Graph).
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::fixture::now;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::posting;
@@ -29,10 +29,6 @@ fn acct_account() -> AccountId {
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c2"));
 const PASSWORD: &str = "s3cr3t";
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 /// What the submission server was told.
 #[derive(Debug, Default)]
