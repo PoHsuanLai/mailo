@@ -342,18 +342,14 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::support_tests::account;
     use chrono::Utc;
 
-    fn account() -> AccountId {
-        mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xa1))
-    }
-
     /// A store with the one account the rules belong to.
-    fn seeded() -> (SqliteStore, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::in_memory(dir.path()).unwrap();
+    fn seeded() -> SqliteStore {
+        let store = mail_store::testing::in_memory();
         mail_store::testing::seed_account(&store, account(), "me@example.test");
-        (store, dir)
+        store
     }
 
     fn draft(name: &str, query: &str, actions: Vec<RuleAction>) -> Draft {
@@ -417,7 +413,7 @@ mod tests {
 
     #[test]
     fn a_draft_is_refused_for_its_name_its_condition_or_its_idleness_and_nothing_is_kept() {
-        let (store, _dir) = seeded();
+        let store = seeded();
         let account = account();
         let refused = |draft: &Draft| save(&store, account.clone(), draft, &Utc).unwrap_err();
         assert!(matches!(
@@ -450,7 +446,7 @@ mod tests {
 
     #[test]
     fn rules_are_listed_in_order_moved_edited_switched_and_forgotten() {
-        let (store, _dir) = seeded();
+        let store = seeded();
         let account = account();
         let make = |name: &str, query: &str| {
             save(

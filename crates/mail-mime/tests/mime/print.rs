@@ -3,13 +3,13 @@
 //! Structure is asserted on the tokens an HTML tokenizer reads back, not on bytes, so a change
 //! to the stylesheet or to whitespace does not break a test about what the document says.
 
+use crate::support::{self, addr};
 use chrono::{DateTime, FixedOffset, TimeZone, Utc};
 use html5ever::buffer_queue::BufferQueue;
 use html5ever::tendril::StrTendril;
 use html5ever::tokenizer::{
     Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
-use mail_domain::id::new_account_id;
 use mail_domain::*;
 use mail_mime::{Labels, Options, Pages, Remote, Script, Sheet, parse, print_with, remote_images};
 use std::cell::RefCell;
@@ -24,35 +24,18 @@ fn zone() -> FixedOffset {
     FixedOffset::east_opt(8 * 3600).unwrap()
 }
 
-fn addr(name: Option<&str>, email: &str) -> Address {
-    Address {
-        name: name.map(str::to_owned),
-        email: email.to_owned(),
-    }
-}
-
 fn message(subject: &str, date: DateTime<Utc>, body: Body) -> Message {
     Message {
-        id: MessageId::generate(),
-        thread: ThreadId::generate(),
-        account: new_account_id(),
         key: MessageKey::Rfc(format!("{}@example.test", date.timestamp())),
         date,
         from: addr(Some("Ada Lovelace"), "ada@example.test"),
-        reply_to: Vec::new(),
-        to: vec![addr(None, "me@example.test")],
         cc: vec![addr(Some("Bo"), "bo@example.test")],
         bcc: vec![addr(None, "secret@example.test")],
         subject: subject.to_owned(),
         in_reply_to: None,
-        references: Vec::new(),
-        rfc_message_id: None,
         read: ReadState::Read,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: Vec::new(),
         body,
-        attachments: Vec::new(),
+        ..support::parent(Vec::new(), None)
     }
 }
 
@@ -501,11 +484,11 @@ fn a_subject_cannot_escape_its_element() {
     let msg = message(subject, at(0), fetched(Some("hi")));
     let html = one(&msg, None);
     assert_inert(&html);
-    let tokens = tokens(&html);
-    assert_eq!(text_of(&tokens, "title", 0), subject);
-    assert_eq!(text_of(&tokens, "h2", 0), subject);
-    assert!(opened(&tokens, "script").is_empty());
-    assert!(opened(&tokens, "h1").is_empty());
+    let toks = tokens(&html);
+    assert_eq!(text_of(&toks, "title", 0), subject);
+    assert_eq!(text_of(&toks, "h2", 0), subject);
+    assert!(opened(&toks, "script").is_empty());
+    assert!(opened(&toks, "h1").is_empty());
 
     // Names and addresses are the sender's words too.
     let mut msg = message("s", at(0), fetched(Some("hi")));
@@ -524,11 +507,7 @@ fn a_subject_cannot_escape_its_element() {
     }];
     let html = one(&msg, None);
     assert_inert(&html);
-    assert!(opened(&tokens_of(&html), "img").is_empty(), "{html}");
-}
-
-fn tokens_of(html: &str) -> Vec<Tok> {
-    tokens(html)
+    assert!(opened(&tokens(&html), "img").is_empty(), "{html}");
 }
 
 #[test]
@@ -586,15 +565,15 @@ fn a_thread_prints_every_message_in_the_order_given() {
 
     let html = print(&sheets, &zone(), at(9_999), Pages::Flow);
     assert_inert(&html);
-    let tokens = tokens(&html);
-    assert_eq!(opened(&tokens, "article").len(), 3);
-    assert_eq!(text_of(&tokens, "title", 0), "Plan");
-    assert!(text_of(&tokens, "h1", 0).contains("3 messages"));
+    let toks = tokens(&html);
+    assert_eq!(opened(&toks, "article").len(), 3);
+    assert_eq!(text_of(&toks, "title", 0), "Plan");
+    assert!(text_of(&toks, "h1", 0).contains("3 messages"));
     let first = html.find("first message").unwrap();
     let second = html.find("second message").unwrap();
     let third = html.find("third message").unwrap();
     assert!(first < second && second < third);
-    let froms: Vec<_> = header_rows(&tokens)
+    let froms: Vec<_> = header_rows(&toks)
         .into_iter()
         .filter(|(label, _)| label == "From")
         .map(|(_, value)| value)
@@ -605,13 +584,13 @@ fn a_thread_prints_every_message_in_the_order_given() {
     );
     // Flowing: no message is forced onto a new page.
     assert!(
-        opened(&tokens, "article")
+        opened(&toks, "article")
             .iter()
             .all(|attrs| attr(attrs, "class") == Some("message"))
     );
 
     let paged = print(&sheets, &zone(), at(9_999), Pages::PerMessage);
-    let classes: Vec<_> = opened(&tokens_of(&paged), "article")
+    let classes: Vec<_> = opened(&tokens(&paged), "article")
         .iter()
         .map(|attrs| attr(attrs, "class").unwrap().to_owned())
         .collect();

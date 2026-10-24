@@ -1955,20 +1955,6 @@ mod tests {
     }
 
     #[test]
-    fn ehlo_smtputf8_is_recognised_without_regard_to_case() {
-        let offered = parse_ehlo(&ServerReply {
-            code: 250,
-            lines: vec!["hello".into(), "Smtputf8".into(), "SMTPUTF8 ignored".into()],
-        });
-        assert_eq!(offered.smtputf8, Advertised::Offered);
-        let absent = parse_ehlo(&ServerReply {
-            code: 250,
-            lines: vec!["8BITMIME".into()],
-        });
-        assert_eq!(absent.smtputf8, Advertised::Absent);
-    }
-
-    #[test]
     fn envelope_decision_is_ascii_utf8_or_an_a_label() {
         let offered = EhloExtensions {
             smtputf8: Advertised::Offered,

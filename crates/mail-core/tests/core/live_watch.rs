@@ -5,28 +5,19 @@
 //! out as [`Heard::Mail`], that the connection is called established only once it has been held,
 //! and that the watch ends in the ways a caller has to act on.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::support::{account, now};
 use mail_core::sync::live::{self, Heard};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::watch;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 /// What the scripted server does when the client asks to idle.
 #[derive(Clone, Copy)]
@@ -102,26 +93,8 @@ fn session(sock: std::net::TcpStream, idling: Idling, login: Login) {
     }
 }
 
-fn caps(watch: WatchMode) -> AccountCaps {
-    AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch,
-        archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles(Vec::new()),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 2 },
-        observed_at: now(),
-    }
-}
-
-fn account(port: u16, watch: WatchMode) -> (Arc<SqliteStore>, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+fn configured(port: u16, watch: WatchMode) -> Arc<SqliteStore> {
+    let store = Arc::new(mail_store::testing::in_memory());
     let plan = AccountPlan {
         address: "ada@example.test".to_owned(),
         incoming: Incoming::Imap {
@@ -140,16 +113,16 @@ fn account(port: u16, watch: WatchMode) -> (Arc<SqliteStore>, tempfile::TempDir)
         },
         identities: Vec::new(),
     };
-    mail_store::testing::seed_account_plan(&store, acct_account(), "ada@example.test", &plan, None);
-    mail_store::testing::seed_caps(&store, acct_account(), &caps(watch), now()).unwrap();
-    (store, dir)
+    mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
+    mail_store::testing::seed_caps(&store, account(), &caps(watch), now()).unwrap();
+    store
 }
 
 fn secrets() -> Arc<MemorySecrets> {
     let secrets = MemorySecrets::default();
     mail_runtime::block_on(secrets.put(
         &SecretKey {
-            account: acct_account(),
+            account: account(),
             purpose: SecretPurpose::IncomingPassword,
         },
         &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
@@ -182,7 +155,7 @@ fn listening_with_grace(
             store,
             secrets(),
             &ClientRegistry::default(),
-            acct_account(),
+            account(),
             cancel,
             None,
             grace,
@@ -207,7 +180,7 @@ fn until(heard: &Arc<Mutex<Vec<Heard>>>, n: usize) -> Vec<Heard> {
 #[test]
 fn a_server_announcing_mail_while_idling_is_heard_as_mail() {
     let port = server(Idling::Announce, Login::Accept);
-    let (store, _dir) = account(port, WatchMode::Idle);
+    let store = configured(port, WatchMode::Idle);
     let (cancel, rx) = watch::channel(false);
     let (handle, heard) = listening(store, rx);
 
@@ -224,7 +197,7 @@ fn a_server_announcing_mail_while_idling_is_heard_as_mail() {
 #[test]
 fn a_quiet_server_is_held_and_released_on_cancel() {
     let port = server(Idling::Quiet, Login::Accept);
-    let (store, _dir) = account(port, WatchMode::Idle);
+    let store = configured(port, WatchMode::Idle);
     let (cancel, rx) = watch::channel(false);
     let (handle, heard) = listening(store, rx);
 
@@ -238,7 +211,7 @@ fn a_quiet_server_is_held_and_released_on_cancel() {
 #[test]
 fn a_refused_sign_in_is_a_loss_that_asks_for_one() {
     let port = server(Idling::Quiet, Login::Refuse);
-    let (store, _dir) = account(port, WatchMode::Idle);
+    let store = configured(port, WatchMode::Idle);
     let (_cancel, rx) = watch::channel(false);
     // "Established" is a wait that outlived its grace, not a login that succeeded. With the
     // others' 100 ms, a loaded CI runner took longer than that to be refused and heard it.
@@ -252,7 +225,7 @@ fn a_refused_sign_in_is_a_loss_that_asks_for_one() {
 #[test]
 fn an_account_the_server_cannot_push_to_is_not_watched() {
     // No server at all: it must be refused before anything is connected to.
-    let (store, _dir) = account(
+    let store = configured(
         1,
         WatchMode::Poll {
             every: Duration::from_secs(300),
@@ -268,6 +241,14 @@ fn an_account_the_server_cannot_push_to_is_not_watched() {
 
 #[test]
 fn an_idle_account_is_one_that_pushes() {
-    let (store, _dir) = account(1, WatchMode::Idle);
-    assert_eq!(live::pushing(&store), [acct_account()]);
+    let store = configured(1, WatchMode::Idle);
+    assert_eq!(live::pushing(&store), [account()]);
+}
+
+fn caps(watch: WatchMode) -> AccountCaps {
+    AccountCaps {
+        watch,
+        connections: ConnectionBudget { max: 2 },
+        ..crate::support::caps()
+    }
 }

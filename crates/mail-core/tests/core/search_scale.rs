@@ -23,18 +23,13 @@
 //! cargo test -p mail-core --release --test core -- --ignored --nocapture search_scale::
 //! ```
 
+use crate::support::account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::search::{Affinity, Source, Term, first, search_list};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
 use std::cell::Cell;
 use std::time::{Duration, Instant};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 /// The mailbox. Fifty thousand is a long-lived account, and twenty times the measured maildrop
 /// this project was designed around.
@@ -193,7 +188,7 @@ impl Zipf {
 /// A file-backed store in `dir`, the way the window opens one, with one account.
 fn store(dir: &std::path::Path) -> SqliteStore {
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+    mail_store::testing::seed_account(&store, account(), "me@example.test");
     store
 }
 
@@ -216,7 +211,7 @@ fn fill(store: &SqliteStore) {
                 let message = Message {
                     id: MessageId::generate(),
                     thread: ThreadId::generate(),
-                    account: acct_account(),
+                    account: account(),
                     key: MessageKey::Rfc(key.clone()),
                     date: at(n),
                     from: Address {
@@ -255,10 +250,10 @@ fn fill(store: &SqliteStore) {
             .collect();
         store
             .ingest(
-                acct_account(),
+                account(),
                 Ingest {
                     mailbox: MailboxRef {
-                        account: acct_account(),
+                        account: account(),
                         path: "INBOX".to_owned(),
                     },
                     validity: UidValidity::Same,

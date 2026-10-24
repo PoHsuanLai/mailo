@@ -6,30 +6,20 @@
 //! and then, only with the setting on, each attachment on its own. What is asserted is which
 //! parts the pass asked the server for, in what order, and what the store says is held after.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::support::{account, caps, now};
 use mail_core::offline::Keep;
 use mail_core::sync::report::{AccountReport, PassEnd};
 use mail_core::sync::{self, Configured};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::{Backend, IoReady, Progress, ProtoOutcome};
 use mail_runtime::AccountEngine;
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
 use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
-
 fn inbox() -> MailboxRef {
     MailboxRef {
-        account: acct_account(),
+        account: account(),
         path: "INBOX".to_owned(),
     }
 }
@@ -214,38 +204,16 @@ fn somewhere_to_connect() -> u16 {
     port
 }
 
-fn caps() -> AccountCaps {
-    AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Poll {
-            every: std::time::Duration::from_secs(300),
-        },
-        archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles::default(),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 1 },
-        // Fresh, so the pass does not ask the server for them again.
-        observed_at: now(),
-    }
-}
-
 struct Passed {
     report: AccountReport,
     parts: Vec<String>,
     store: Arc<SqliteStore>,
-    _dir: tempfile::TempDir,
 }
 
 /// One first-sync pass of the account, kept as `keep`.
 async fn one_pass(keep: Keep) -> Passed {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+    let store = Arc::new(mail_store::testing::in_memory());
+    mail_store::testing::seed_account(&store, account(), "me@example.test");
     let port = somewhere_to_connect();
     let plan = AccountPlan {
         address: "me@example.test".to_owned(),
@@ -267,7 +235,7 @@ async fn one_pass(keep: Keep) -> Passed {
     };
     let parts: Asked = Arc::default();
     let mut engine = AccountEngine::new(
-        acct_account(),
+        account(),
         plan.clone(),
         Scripted {
             caps: caps(),
@@ -277,7 +245,7 @@ async fn one_pass(keep: Keep) -> Passed {
         Arc::new(MemorySecrets::default()),
     );
     let account = Configured {
-        id: acct_account(),
+        id: account(),
         address: "me@example.test".to_owned(),
         plan,
         caps: caps(),
@@ -293,7 +261,6 @@ async fn one_pass(keep: Keep) -> Passed {
         report,
         parts,
         store,
-        _dir: dir,
     }
 }
 
@@ -319,7 +286,7 @@ async fn kept_offline_every_part_is_fetched_largest_last() {
         "every attachment, the 2 MB one first and the 9 MB one last"
     );
     assert_eq!(passed.report.counts.parts_fetched, 3);
-    let offline = passed.store.offline(acct_account()).unwrap();
+    let offline = passed.store.offline(account()).unwrap();
     assert_eq!(
         (offline.messages, offline.held, offline.parts_remote),
         (2, 2, 0),
@@ -350,7 +317,7 @@ async fn not_kept_offline_no_large_part_is_fetched() {
     );
     assert_eq!(passed.parts, Vec::<String>::new());
     assert_eq!(passed.report.counts.parts_fetched, 0);
-    let offline = passed.store.offline(acct_account()).unwrap();
+    let offline = passed.store.offline(account()).unwrap();
     assert_eq!(
         (offline.messages, offline.held, offline.parts_remote),
         (2, 0, 3),
@@ -364,9 +331,9 @@ fn the_offline_command_sets_one_account_and_says_where_each_stands() {
     let config = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(data.path()).unwrap();
-    let accounts = [(acct_account(), "me@example.test".to_owned())];
+    let accounts = [(account(), "me@example.test".to_owned())];
     assert_eq!(
-        mail_core::offline::load(config.path()).of(acct_account()),
+        mail_core::offline::load(config.path()).of(account()),
         Keep::Bodies
     );
     let standing = mail_core::offline::standing(
@@ -386,7 +353,7 @@ fn the_offline_command_sets_one_account_and_says_where_each_stands() {
         }]
     );
     assert_eq!(
-        mail_core::offline::load(config.path()).of(acct_account()),
+        mail_core::offline::load(config.path()).of(account()),
         Keep::Everything
     );
     let nobody = mail_core::offline::standing(

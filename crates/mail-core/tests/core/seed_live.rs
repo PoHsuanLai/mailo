@@ -9,15 +9,10 @@
 //! `account_caps` empty, which `account add` never does, and the window then rightly reports a
 //! setup failure for what looks like the ordinary first-run state.
 
-use mail_domain::id::account_id_from_uuid;
+use crate::support::account;
 use mail_domain::*;
 use mail_runtime::{Arrival, absorb};
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 #[test]
 #[ignore = "fixture generator: set MAILO_SEED_DIR and run with --ignored"]
@@ -28,7 +23,7 @@ fn seed() {
     .join("mailo");
     std::fs::create_dir_all(base.join("blobs")).unwrap();
     let store = SqliteStore::open(base.join("mail.db"), base.join("blobs")).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+    mail_store::testing::seed_account(&store, account(), "me@example.test");
 
     let now = chrono::Utc::now();
     for (n, subject) in ["flight to taipei", "the invoice"].iter().enumerate() {
@@ -39,9 +34,9 @@ fn seed() {
         );
         absorb(
             &store,
-            acct_account(),
+            account(),
             MailboxRef {
-                account: acct_account(),
+                account: account(),
                 path: "INBOX".to_owned(),
             },
             Some(SyncCursor::Pop),
@@ -59,10 +54,10 @@ fn seed() {
     // One of them labelled, the way a Gmail sync reports it.
     store
         .ingest(
-            acct_account(),
+            account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: acct_account(),
+                    account: account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,

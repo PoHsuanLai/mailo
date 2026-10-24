@@ -7,8 +7,8 @@ use mail_domain::{Filter, PageReq, ReadState, Star, ThreadId, ThreadSummary};
 
 use super::super::ranking::Affinity;
 use super::super::source::{Source, Term, first};
-use super::super::support::{at, sqlite_with, summary};
 use super::{STRIP, search_list};
+use crate::support_tests::{at, sqlite_with, summary};
 
 fn searched(input: &str, store: &mail_store::SqliteStore) -> super::Searched {
     search_list(
@@ -29,7 +29,7 @@ fn subjects(rows: &[ThreadSummary]) -> Vec<&str> {
 
 #[test]
 fn the_list_is_newest_first_and_the_strip_is_best_first() {
-    let (store, _dir) = sqlite_with(&[
+    let store = sqlite_with(&[
         ("Invoice for March", "the invoice is attached", 100),
         ("Lunch", "and the invoice, again", 200),
         ("Weekly notes", "nothing about money", 300),
@@ -53,7 +53,7 @@ fn the_list_is_newest_first_and_the_strip_is_best_first() {
 
 #[test]
 fn operators_alone_list_without_a_strip() {
-    let (store, _dir) = sqlite_with(&[
+    let store = sqlite_with(&[
         ("Invoice for March", "the invoice is attached", 100),
         ("Lunch", "sandwiches", 200),
     ]);
@@ -65,7 +65,7 @@ fn operators_alone_list_without_a_strip() {
 
 #[test]
 fn a_strip_that_repeats_the_first_rows_is_not_shown() {
-    let (store, _dir) = sqlite_with(&[
+    let store = sqlite_with(&[
         ("Keyset cursors", "not offsets", 100),
         ("Lunch", "sandwiches", 200),
     ]);

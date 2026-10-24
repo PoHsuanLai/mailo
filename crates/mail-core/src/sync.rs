@@ -1460,7 +1460,7 @@ mod tests {
                 smtp_port: 465,
                 login: Some("s1234567".to_owned()),
             },
-            chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+            crate::support_tests::now(),
         );
         assert_eq!(username_for(&preset.plan), "s1234567");
     }

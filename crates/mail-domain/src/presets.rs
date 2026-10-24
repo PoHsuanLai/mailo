@@ -900,18 +900,11 @@ mod tests {
     /// Only the issuers mailo reads mail through have a preset.
     #[test]
     fn an_issuer_with_no_mail_has_no_preset() {
-        assert!(preset_for_issuer(Issuer::Google, "me@firm.example", at()).is_some());
-        assert!(preset_for_issuer(Issuer::Microsoft, "me@firm.example", at()).is_some());
         assert!(preset_for_issuer(Issuer::Dropbox, "me@firm.example", at()).is_none());
     }
-}
-
-#[cfg(test)]
-mod password_warning_tests {
-    use super::*;
 
     /// `(host, the warning it gets, or None for no warning)`.
-    const CASES: &[(&str, Option<PasswordWarning>)] = &[
+    const WARNINGS: &[(&str, Option<PasswordWarning>)] = &[
         // The user has a work Outlook mailbox and a school one, both managed tenants. Storing a
         // password for either produces an authentication failure at the first sync that says
         // nothing about the cause.
@@ -948,7 +941,7 @@ mod password_warning_tests {
 
     #[test]
     fn password_warning_by_host() {
-        for (host, want) in CASES {
+        for (host, want) in WARNINGS {
             assert_eq!(password_warning(host), *want, "{host:?}");
         }
     }

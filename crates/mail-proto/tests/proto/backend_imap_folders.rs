@@ -7,82 +7,27 @@
 
 use crate::common;
 
-use common::replay;
-use mail_domain::id::account_id_from_uuid;
+use common::{Driven, password_backend, replay};
 use mail_domain::*;
-use mail_proto::backend::{Authenticate, ImapBackend};
-use mail_proto::{
-    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Progress, ProtoError,
-    ProtoOutcome, Refusal,
-};
-use porter_core::SecretText;
-use porter_core::{AccountId, Credential};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
+use mail_proto::backend::ImapBackend;
+use mail_proto::{ProtoError, ProtoOutcome, Refusal};
 
 fn caps(labels: ServerLabels) -> AccountCaps {
     AccountCaps {
         labels,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Idle,
         archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles::default(),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
         connections: ConnectionBudget { max: 5 },
-        observed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        ..common::caps()
     }
 }
 
 /// A password account, which is what every server but Gmail gets.
 fn backend(labels: ServerLabels) -> ImapBackend {
-    ImapBackend::new(
-        acct_account(),
-        caps(labels),
-        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
-            let mut all = Vec::new();
-            if auth == Authenticate::First {
-                all.push(ImapCommand::Login);
-            }
-            all.extend(commands);
-            ImapSession::new(
-                ImapAuth {
-                    username: "ada@example.test".to_owned(),
-                    credential: Credential::Password(SecretText::new("hunter2".to_owned())),
-                    sasl: vec![SaslMech::Plain],
-                },
-                all,
-            )
-        }),
-    )
+    password_backend(caps(labels))
 }
 
-struct Driven {
-    backend: ImapBackend,
-    op: Option<ProtoOp>,
-}
-
-impl Machine for Driven {
-    type Out = ProtoOutcome;
-    fn start(&mut self) -> Progress<ProtoOutcome> {
-        let op = self.op.take().expect("start called twice");
-        self.backend.begin(op)
-    }
-    fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome> {
-        self.backend.feed(ready)
-    }
-}
-
-fn driven(work: FolderWork) -> Driven {
-    Driven {
-        backend: backend(ServerLabels::LocalOnly),
-        op: Some(ProtoOp::Folder(work)),
-    }
+fn driven(work: FolderWork) -> Driven<ImapBackend> {
+    Driven::new(backend(ServerLabels::LocalOnly), ProtoOp::Folder(work))
 }
 
 /// The greeting and sign-in every walk below begins with.
@@ -96,63 +41,115 @@ fn trace(rest: &str) -> String {
     format!("{SIGN_IN}{rest}")
 }
 
-#[test]
-fn creating_a_folder_creates_it_and_follows_it() {
-    let walk = trace(concat!(
-        "C: a002 CREATE \"Receipts\"\n",
-        "S: a002 OK CREATE completed\n",
-        "C: a003 SUBSCRIBE \"Receipts\"\n",
-        "S: a003 OK SUBSCRIBE completed\n",
-        "DONE\n",
-    ));
-    let outcome = replay(
-        &mut driven(FolderWork::Create {
-            path: "Receipts".to_owned(),
+/// `(what it shows, the work, the walk after sign-in)`, each of which the server takes.
+fn applied() -> Vec<(&'static str, FolderWork, String)> {
+    let create = |path: &str| FolderWork::Create {
+        path: path.to_owned(),
+    };
+    vec![
+        (
+            "creating a folder creates it and follows it",
+            create("Receipts"),
+            concat!(
+                "C: a002 CREATE \"Receipts\"\n",
+                "S: a002 OK CREATE completed\n",
+                "C: a003 SUBSCRIBE \"Receipts\"\n",
+                "S: a003 OK SUBSCRIBE completed\n",
+            )
+            .to_owned(),
+        ),
+        // The RFC 3501 §5.1.3 example: the name travels in modified UTF-7, and only on the wire.
+        (
+            "a non-ASCII name goes out in modified UTF-7",
+            create("台北/日本語"),
+            concat!(
+                "C: a002 CREATE \"&U,BTFw-/&ZeVnLIqe-\"\n",
+                "S: a002 OK CREATE completed\n",
+                "C: a003 SUBSCRIBE \"&U,BTFw-/&ZeVnLIqe-\"\n",
+                "S: a003 OK SUBSCRIBE completed\n",
+            )
+            .to_owned(),
+        ),
+        // `[ALREADYEXISTS]` to a create is the folder the user asked for, already there.
+        // Undoing the local folder would make this client disagree with the server about
+        // something both have.
+        (
+            "a create refused because it exists is done, not failed",
+            create("Receipts"),
+            concat!(
+                "C: a002 CREATE \"Receipts\"\n",
+                "S: a002 NO [ALREADYEXISTS] Mailbox already exists\n",
+            )
+            .to_owned(),
+        ),
+        (
+            "a rename names both ends on the wire",
+            FolderWork::Rename {
+                from: "Work".to_owned(),
+                to: "日本語".to_owned(),
+            },
+            concat!(
+                "C: a002 RENAME \"Work\" \"&ZeVnLIqe-\"\n",
+                "S: a002 OK RENAME completed\n",
+            )
+            .to_owned(),
+        ),
+        // Refusing to delete a folder with mail in it is asked of the server in the same walk
+        // as the delete, and an empty answer lets it through.
+        (
+            "an empty folder is deleted after the server says it is empty",
+            FolderWork::Delete {
+                path: "Old".to_owned(),
+                non_empty: NonEmpty::Refuse,
+            },
+            concat!(
+                "C: a002 STATUS \"Old\" (MESSAGES)\n",
+                "S: * STATUS \"Old\" (MESSAGES 0)\n",
+                "S: a002 OK STATUS completed\n",
+                "C: a003 DELETE \"Old\"\n",
+                "S: a003 OK DELETE completed\n",
+            )
+            .to_owned(),
+        ),
+        (
+            "a folder already gone is already deleted",
+            FolderWork::Delete {
+                path: "Old".to_owned(),
+                non_empty: NonEmpty::Allow,
+            },
+            concat!(
+                "C: a002 DELETE \"Old\"\n",
+                "S: a002 NO [NONEXISTENT] Mailbox doesn't exist\n",
+            )
+            .to_owned(),
+        ),
+    ]
+    .into_iter()
+    .chain(
+        [
+            (Subscription::Subscribed, "SUBSCRIBE"),
+            (Subscription::Unsubscribed, "UNSUBSCRIBE"),
+        ]
+        .map(|(subscription, verb)| {
+            (
+                "subscribing and unsubscribing are one command each",
+                FolderWork::Subscribe {
+                    path: "Lists/rust".to_owned(),
+                    subscription,
+                },
+                format!("C: a002 {verb} \"Lists/rust\"\nS: a002 OK {verb} completed\n"),
+            )
         }),
-        &walk,
     )
-    .unwrap();
-    assert_eq!(outcome, ProtoOutcome::Applied);
+    .collect()
 }
 
-/// The RFC 3501 §5.1.3 example: the name travels in modified UTF-7, and only on the wire.
 #[test]
-fn a_non_ascii_name_goes_out_in_modified_utf7() {
-    let walk = trace(concat!(
-        "C: a002 CREATE \"台北/日本語\"\n",
-        "S: a002 OK CREATE completed\n",
-        "C: a003 SUBSCRIBE \"台北/日本語\"\n",
-        "S: a003 OK SUBSCRIBE completed\n",
-        "DONE\n",
-    ))
-    .replace("台北/日本語", "&U,BTFw-/&ZeVnLIqe-");
-    let outcome = replay(
-        &mut driven(FolderWork::Create {
-            path: "台北/日本語".to_owned(),
-        }),
-        &walk,
-    )
-    .unwrap();
-    assert_eq!(outcome, ProtoOutcome::Applied);
-}
-
-/// `[ALREADYEXISTS]` to a create is the folder the user asked for, already there. Undoing the
-/// local folder would make this client disagree with the server about something both have.
-#[test]
-fn a_create_refused_because_it_exists_is_done_not_failed() {
-    let walk = trace(concat!(
-        "C: a002 CREATE \"Receipts\"\n",
-        "S: a002 NO [ALREADYEXISTS] Mailbox already exists\n",
-        "DONE\n",
-    ));
-    let outcome = replay(
-        &mut driven(FolderWork::Create {
-            path: "Receipts".to_owned(),
-        }),
-        &walk,
-    )
-    .unwrap();
-    assert_eq!(outcome, ProtoOutcome::Applied);
+fn each_folder_change_the_server_takes_is_applied() {
+    for (shows, work, walk) in applied() {
+        let outcome = replay(&mut driven(work), &trace(&format!("{walk}DONE\n"))).unwrap();
+        assert_eq!(outcome, ProtoOutcome::Applied, "{shows}");
+    }
 }
 
 /// Any other `NO` is a refusal the outbox undoes: permanent, so the folder is taken back here.
@@ -183,24 +180,6 @@ fn a_create_the_server_refuses_fails_permanently() {
     assert!(matches!(error.retry(), Retry::Fatal(_)));
 }
 
-#[test]
-fn a_rename_names_both_ends_on_the_wire() {
-    let walk = trace(concat!(
-        "C: a002 RENAME \"Work\" \"&ZeVnLIqe-\"\n",
-        "S: a002 OK RENAME completed\n",
-        "DONE\n",
-    ));
-    let outcome = replay(
-        &mut driven(FolderWork::Rename {
-            from: "Work".to_owned(),
-            to: "日本語".to_owned(),
-        }),
-        &walk,
-    )
-    .unwrap();
-    assert_eq!(outcome, ProtoOutcome::Applied);
-}
-
 /// A rename onto a name that exists is not "already done": the folder being renamed is still
 /// where it was.
 #[test]
@@ -218,29 +197,6 @@ fn a_rename_refused_because_the_target_exists_fails() {
         &walk,
     )
     .unwrap_err();
-}
-
-/// Refusing to delete a folder with mail in it is asked of the server in the same walk as the
-/// delete, and an empty answer lets it through.
-#[test]
-fn an_empty_folder_is_deleted_after_the_server_says_it_is_empty() {
-    let walk = trace(concat!(
-        "C: a002 STATUS \"Old\" (MESSAGES)\n",
-        "S: * STATUS \"Old\" (MESSAGES 0)\n",
-        "S: a002 OK STATUS completed\n",
-        "C: a003 DELETE \"Old\"\n",
-        "S: a003 OK DELETE completed\n",
-        "DONE\n",
-    ));
-    let outcome = replay(
-        &mut driven(FolderWork::Delete {
-            path: "Old".to_owned(),
-            non_empty: NonEmpty::Refuse,
-        }),
-        &walk,
-    )
-    .unwrap();
-    assert_eq!(outcome, ProtoOutcome::Applied);
 }
 
 /// The server holds mail this client never synced: nothing is deleted. The trace ends at the
@@ -292,55 +248,15 @@ fn deleting_with_its_mail_sends_delete_and_nothing_else() {
         "S: a002 OK DELETE completed\n",
         "DONE\n",
     ));
-    let mut gmail = Driven {
-        backend: backend(ServerLabels::Supported),
-        op: Some(ProtoOp::Folder(FolderWork::Delete {
-            path: "Old".to_owned(),
-            non_empty: NonEmpty::Allow,
-        })),
-    };
-    assert_eq!(replay(&mut gmail, &walk).unwrap(), ProtoOutcome::Applied);
-    assert!(!walk.contains("EXPUNGE") && !walk.contains("\\Deleted"));
-}
-
-#[test]
-fn a_folder_already_gone_is_already_deleted() {
-    let walk = trace(concat!(
-        "C: a002 DELETE \"Old\"\n",
-        "S: a002 NO [NONEXISTENT] Mailbox doesn't exist\n",
-        "DONE\n",
-    ));
-    let outcome = replay(
-        &mut driven(FolderWork::Delete {
+    let mut gmail = Driven::new(
+        backend(ServerLabels::Supported),
+        ProtoOp::Folder(FolderWork::Delete {
             path: "Old".to_owned(),
             non_empty: NonEmpty::Allow,
         }),
-        &walk,
-    )
-    .unwrap();
-    assert_eq!(outcome, ProtoOutcome::Applied);
-}
-
-#[test]
-fn subscribing_and_unsubscribing_are_one_command_each() {
-    const CASES: &[(Subscription, &str)] = &[
-        (Subscription::Subscribed, "SUBSCRIBE"),
-        (Subscription::Unsubscribed, "UNSUBSCRIBE"),
-    ];
-    for (subscription, verb) in CASES {
-        let walk = trace(&format!(
-            "C: a002 {verb} \"Lists/rust\"\nS: a002 OK {verb} completed\nDONE\n"
-        ));
-        let outcome = replay(
-            &mut driven(FolderWork::Subscribe {
-                path: "Lists/rust".to_owned(),
-                subscription: *subscription,
-            }),
-            &walk,
-        )
-        .unwrap();
-        assert_eq!(outcome, ProtoOutcome::Applied, "{verb}");
-    }
+    );
+    assert_eq!(replay(&mut gmail, &walk).unwrap(), ProtoOutcome::Applied);
+    assert!(!walk.contains("EXPUNGE") && !walk.contains("\\Deleted"));
 }
 
 /// A Gmail-shaped listing: special uses, a container, a label with a space, one in modified
@@ -366,10 +282,7 @@ fn a_listing_reports_every_folder_with_its_use_and_subscription() {
         "S: a003 OK LSUB completed\n",
         "DONE\n",
     ));
-    let mut listing = Driven {
-        backend: backend(ServerLabels::Supported),
-        op: Some(ProtoOp::ListFolders),
-    };
+    let mut listing = Driven::new(backend(ServerLabels::Supported), ProtoOp::ListFolders);
     let ProtoOutcome::Folders { caps, listed } = replay(&mut listing, &walk).unwrap() else {
         panic!("a listing reports folders");
     };
@@ -415,10 +328,7 @@ fn a_listed_name_may_be_an_atom() {
         "S: a003 OK LSUB completed\n",
         "DONE\n",
     ));
-    let mut listing = Driven {
-        backend: backend(ServerLabels::LocalOnly),
-        op: Some(ProtoOp::ListFolders),
-    };
+    let mut listing = Driven::new(backend(ServerLabels::LocalOnly), ProtoOp::ListFolders);
     let ProtoOutcome::Folders { listed, .. } = replay(&mut listing, &walk).unwrap() else {
         panic!("a listing reports folders");
     };
@@ -461,10 +371,7 @@ fn an_exchange_listing_gives_every_role_its_own_folder() {
         "S: a003 OK LSUB completed.\n",
         "DONE\n",
     ));
-    let mut listing = Driven {
-        backend: backend(ServerLabels::LocalOnly),
-        op: Some(ProtoOp::ListFolders),
-    };
+    let mut listing = Driven::new(backend(ServerLabels::LocalOnly), ProtoOp::ListFolders);
     let ProtoOutcome::Folders { caps, listed } = replay(&mut listing, &walk).unwrap() else {
         panic!("a listing reports folders");
     };
@@ -519,10 +426,7 @@ fn a_listed_name_may_be_a_literal() {
         "S: a003 OK LSUB completed\n",
         "DONE\n",
     ));
-    let mut listing = Driven {
-        backend: backend(ServerLabels::LocalOnly),
-        op: Some(ProtoOp::ListFolders),
-    };
+    let mut listing = Driven::new(backend(ServerLabels::LocalOnly), ProtoOp::ListFolders);
     let ProtoOutcome::Folders { caps, listed } = replay(&mut listing, &walk).unwrap() else {
         panic!("a listing reports folders");
     };

@@ -99,10 +99,8 @@ fn profiles(port: u16) -> Profiles {
     }
 }
 
-fn store() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    (store, dir)
+fn store() -> SqliteStore {
+    mail_store::testing::in_memory()
 }
 
 /// A query parameter of the sign-in page's address.
@@ -148,7 +146,7 @@ async fn never() {
 #[tokio::test]
 async fn signing_in_with_google_opens_the_page_once_and_adds_the_account_it_names() {
     let (port, asked) = issuer("you@example.test").await;
-    let (store, _dir) = store();
+    let store = store();
     let secrets = MemorySecrets::default();
     let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, port)]);
     let opened = Arc::new(Mutex::new(Vec::new()));
@@ -206,7 +204,7 @@ async fn signing_in_with_google_opens_the_page_once_and_adds_the_account_it_name
 #[tokio::test]
 async fn a_microsoft_sign_in_reads_the_address_from_graph_with_a_profile_token() {
     let (port, asked) = issuer("you@example.test").await;
-    let (store, _dir) = store();
+    let store = store();
     let secrets = MemorySecrets::default();
     let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Microsoft, port)]);
     let opened = Arc::new(Mutex::new(Vec::new()));
@@ -265,7 +263,7 @@ async fn a_microsoft_sign_in_reads_the_address_from_graph_with_a_profile_token()
 #[tokio::test]
 async fn closing_the_page_in_the_browser_is_a_cancelled_sign_in_and_adds_nothing() {
     let (port, asked) = issuer("you@example.test").await;
-    let (store, _dir) = store();
+    let store = store();
     let secrets = MemorySecrets::default();
     let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, port)]);
     let browse = browser(Arc::default(), Some("/?error=access_denied&state={state}"));
@@ -294,7 +292,7 @@ async fn closing_the_page_in_the_browser_is_a_cancelled_sign_in_and_adds_nothing
 #[tokio::test]
 async fn no_client_for_the_issuer_opens_no_page() {
     // No client at hand: a registry without one, on purpose.
-    let (store, _dir) = store();
+    let store = store();
     let opened = Arc::new(Mutex::new(Vec::new()));
     let browse = browser(opened.clone(), None);
     let ended = sign_in_with(
@@ -319,7 +317,7 @@ async fn no_client_for_the_issuer_opens_no_page() {
 
 #[tokio::test(start_paused = true)]
 async fn nobody_coming_back_ends_at_the_deadline() {
-    let (store, _dir) = store();
+    let store = store();
     let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, 9)]);
     let opened = Arc::new(Mutex::new(Vec::new()));
     let browse = browser(opened.clone(), None);
@@ -347,7 +345,7 @@ async fn nobody_coming_back_ends_at_the_deadline() {
 
 #[tokio::test(start_paused = true)]
 async fn cancelling_ends_the_wait_and_frees_the_listener() {
-    let (store, _dir) = store();
+    let store = store();
     let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, 9)]);
     let opened = Arc::new(Mutex::new(Vec::new()));
     let browse = browser(opened.clone(), None);
@@ -390,7 +388,7 @@ async fn cancelling_ends_the_wait_and_frees_the_listener() {
 #[tokio::test]
 async fn signing_in_again_as_someone_else_keeps_nothing() {
     let (port, _) = issuer("someone-else@example.test").await;
-    let (store, _dir) = store();
+    let store = store();
     let secrets = MemorySecrets::default();
     let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, port)]);
     // The account being signed in again, added the ordinary way first.

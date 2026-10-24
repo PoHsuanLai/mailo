@@ -1,6 +1,6 @@
 //! Flowed text, both `delsp` directions, and the monospace veto.
 
-use crate::block as support;
+use crate::support::block as support;
 
 use mail_mime::{Block, Delsp, Dir, Flowed};
 use support::{sketch, text};

@@ -5,32 +5,23 @@
 //! whose name travels as modified UTF-7, because the parts most likely to be wrong are which
 //! mailbox is selected when, and what a message held in two of them becomes.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::support::{account, now};
 use mail_core::sync;
 use mail_core::sync::report::{AccountReport, Hooks, PassEnd};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_core::{Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
 const PROJECTS: &str = "Projects/2026";
 const REPORTS: &str = "收件匣/報告";
 const OLD: &str = "Old";
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 /// One message, with a date that orders it: `minute` minutes into a fixed hour.
 fn message(id: &str, subject: &str, minute: u32) -> String {
@@ -226,34 +217,13 @@ fn fetch(mailbox: &[(u32, String)], upper: &str, tag: &str) -> String {
     out
 }
 
-fn caps(labels: ServerLabels) -> AccountCaps {
-    AccountCaps {
-        labels,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Poll {
-            every: std::time::Duration::from_secs(300),
-        },
-        archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles(Vec::new()),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 1 },
-        // Fresh, so no pass re-reads capabilities or the folder list from this server.
-        observed_at: now(),
-    }
-}
-
 /// A store with one IMAP account on `port`, its password held, and `folders` as its listing.
 fn configured(
     port: u16,
     caps: AccountCaps,
     folders: Vec<Folder>,
-) -> (Arc<SqliteStore>, Arc<MemorySecrets>, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+) -> (Arc<SqliteStore>, Arc<MemorySecrets>) {
+    let store = Arc::new(mail_store::testing::in_memory());
     let plan = AccountPlan {
         address: "ada@example.test".to_owned(),
         incoming: Incoming::Imap {
@@ -272,24 +242,24 @@ fn configured(
         },
         identities: Vec::new(),
     };
-    mail_store::testing::seed_account_plan(&store, acct_account(), "ada@example.test", &plan, None);
-    store.put_caps(acct_account(), &caps, now()).unwrap();
-    store.put_folders(acct_account(), folders).unwrap();
+    mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
+    store.put_caps(account(), &caps, now()).unwrap();
+    store.put_folders(account(), folders).unwrap();
     let secrets = Arc::new(MemorySecrets::default());
     mail_runtime::block_on(secrets.put(
         &SecretKey {
-            account: acct_account(),
+            account: account(),
             purpose: SecretPurpose::IncomingPassword,
         },
         &Credential::Password(SecretText::new("s3cr3t".to_owned())),
     ))
     .unwrap();
-    (store, secrets, dir)
+    (store, secrets)
 }
 
 fn folder(path: &str, subscription: Subscription) -> Folder {
     Folder {
-        account: acct_account(),
+        account: account(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special: None,
@@ -330,7 +300,7 @@ fn finished(ends: Vec<PassEnd>) -> AccountReport {
 
 fn at(path: &str) -> MailboxRef {
     MailboxRef {
-        account: acct_account(),
+        account: account(),
         path: path.to_owned(),
     }
 }
@@ -382,7 +352,7 @@ fn selected(seen: &Seen) -> Vec<String> {
 #[test]
 fn a_pass_fetches_every_followed_folder_and_lists_each_by_its_path() {
     let (port, seen) = serve(mailboxes(1));
-    let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
+    let (store, secrets) = configured(port, caps(ServerLabels::LocalOnly), listing());
 
     let out = pass(&store, &secrets);
     assert!(out.trouble.is_empty(), "{out:?}");
@@ -437,7 +407,7 @@ fn a_pass_fetches_every_followed_folder_and_lists_each_by_its_path() {
 #[test]
 fn a_message_held_in_two_folders_is_one_message_with_two_addresses() {
     let (port, _seen) = serve(mailboxes(1));
-    let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
+    let (store, secrets) = configured(port, caps(ServerLabels::LocalOnly), listing());
     pass(&store, &secrets);
 
     let ids: Vec<MessageId> = mail_store::testing::message_ids(&store)
@@ -479,7 +449,7 @@ fn the_inbox_is_brought_up_to_date_before_a_large_folder() {
     // More than one pass's worth of headers in the folder, and the inbox is still whole after
     // the first pass — fetched first, and before any of the folder's.
     let (port, seen, server) = serve_held(mailboxes(260));
-    let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
+    let (store, secrets) = configured(port, caps(ServerLabels::LocalOnly), listing());
 
     pass(&store, &secrets);
     assert_eq!(
@@ -548,14 +518,14 @@ fn the_inbox_is_brought_up_to_date_before_a_large_folder() {
 #[test]
 fn a_folder_nobody_follows_is_fetched_when_asked_for() {
     let (port, seen) = serve(mailboxes(1));
-    let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
+    let (store, secrets) = configured(port, caps(ServerLabels::LocalOnly), listing());
     assert!(listed(&store, Filter::InFolder(at(OLD))).is_empty());
 
     let end = crate::blocking::folder_now_with(
         store.clone(),
         secrets.clone(),
         &ClientRegistry::default(),
-        acct_account(),
+        account(),
         OLD,
         now(),
     )
@@ -583,12 +553,12 @@ fn first_message(store: &SqliteStore) -> MessageId {
 #[test]
 fn a_folder_the_server_does_not_have_is_said_not_thrown() {
     let (port, _seen) = serve(mailboxes(1));
-    let (store, secrets, _dir) = configured(port, caps(ServerLabels::LocalOnly), listing());
+    let (store, secrets) = configured(port, caps(ServerLabels::LocalOnly), listing());
     let end = crate::blocking::folder_now_with(
         store,
         secrets,
         &ClientRegistry::default(),
-        acct_account(),
+        account(),
         "Nowhere",
         now(),
     )
@@ -600,12 +570,12 @@ fn a_folder_the_server_does_not_have_is_said_not_thrown() {
 #[test]
 fn an_account_whose_folders_are_labels_is_not_fetched_by_folder() {
     // Nothing listens on port 1: both refusals come before anything is sent.
-    let (store, secrets, _dir) = configured(1, caps(ServerLabels::Supported), listing());
+    let (store, secrets) = configured(1, caps(ServerLabels::Supported), listing());
     let refused = crate::blocking::folder_now_with(
         store.clone(),
         secrets,
         &ClientRegistry::default(),
-        acct_account(),
+        account(),
         PROJECTS,
         now(),
     )
@@ -697,7 +667,7 @@ fn which_mailboxes_a_pass_fetches() {
     for (row, roles, listing, first, rest) in cases {
         let mut caps = caps(ServerLabels::LocalOnly);
         caps.folders = FolderRoles(roles);
-        let (store, _secrets, _dir) = configured(1, caps, listing);
+        let (store, _secrets) = configured(1, caps, listing);
         let paths = sync::mailboxes_by_account(&store).unwrap().remove(0).1;
         assert!(paths.len() >= first.len(), "{row}: {paths:?}");
         assert_eq!(&paths[..first.len()], first, "{row}: first, in order");
@@ -761,8 +731,8 @@ mod sending_apart {
 
     /// A signed-in Microsoft account on `port` that reads over IMAP and sends through Graph,
     /// with a token for IMAP good for the hour and none yet for Graph.
-    fn configured(port: u16) -> (Arc<SqliteStore>, Arc<MemorySecrets>, tempfile::TempDir) {
-        let (store, _, dir) = super::configured(port, caps(ServerLabels::LocalOnly), listing());
+    fn configured(port: u16) -> (Arc<SqliteStore>, Arc<MemorySecrets>) {
+        let (store, _) = super::configured(port, caps(ServerLabels::LocalOnly), listing());
         let plan = AccountPlan {
             address: "ada@example.test".to_owned(),
             incoming: Incoming::Imap {
@@ -781,7 +751,7 @@ mod sending_apart {
             },
             identities: Vec::new(),
         };
-        store.set_account_plan(acct_account(), &plan).unwrap();
+        store.set_account_plan(account(), &plan).unwrap();
         let secrets = Arc::new(MemorySecrets::default());
         let signed_in = Credential::OAuth {
             access: SecretText::new("imap-token".to_owned()),
@@ -791,21 +761,21 @@ mod sending_apart {
         for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
             mail_runtime::block_on(secrets.put(
                 &SecretKey {
-                    account: acct_account(),
+                    account: account(),
                     purpose,
                 },
                 &signed_in,
             ))
             .unwrap();
         }
-        (store, secrets, dir)
+        (store, secrets)
     }
 
     /// Pressing send on a message to one person.
     fn queue_a_message(store: &SqliteStore) -> DraftId {
         let identity = Identity {
             id: IdentityId::generate(),
-            account: acct_account(),
+            account: account(),
             from: Address {
                 name: None,
                 email: "ada@example.test".to_owned(),
@@ -817,7 +787,7 @@ mod sending_apart {
         mail_store::testing::seed_identity(store, &identity);
         let draft = Draft {
             id: DraftId::generate(),
-            account: acct_account(),
+            account: account(),
             identity: identity.id,
             to: vec![Address {
                 name: None,
@@ -839,7 +809,7 @@ mod sending_apart {
         };
         store
             .apply(
-                acct_account(),
+                account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
@@ -850,7 +820,7 @@ mod sending_apart {
         let raw = store.blobs().put(&post.message).unwrap();
         store
             .enqueue(
-                acct_account(),
+                account(),
                 RemoteIntent::Send {
                     draft: draft.id,
                     raw,
@@ -874,7 +844,7 @@ mod sending_apart {
     #[test]
     fn a_sending_token_that_will_not_renew_leaves_receiving_running() {
         let (port, _seen) = serve(mailboxes(1));
-        let (store, secrets, _dir) = configured(port);
+        let (store, secrets) = configured(port);
         let draft = queue_a_message(&store);
 
         let ends = crate::blocking::run_with(
@@ -928,5 +898,12 @@ mod sending_apart {
             store.draft(draft).unwrap().state
         );
         assert_eq!(report.counts.still_queued, 1, "{report:?}");
+    }
+}
+
+fn caps(labels: ServerLabels) -> AccountCaps {
+    AccountCaps {
+        labels,
+        ..crate::support::caps()
     }
 }

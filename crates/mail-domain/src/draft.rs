@@ -290,12 +290,12 @@ fn dedup_addresses(addresses: &mut Vec<Address>, identity: &crate::account::Iden
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::account::Identity;
     use crate::content::Body;
     use crate::id::new_account_id;
     use crate::id::{BlobId, ThreadId};
     use crate::message::MessageKey;
-    use crate::state::{IsDefault, MailboxRole, ReadState, Star};
+    use crate::state::{MailboxRole, ReadState, Star};
+    use crate::testing::identity;
 
     fn at() -> DateTime<Utc> {
         DateTime::parse_from_rfc3339("2026-03-01T12:00:00Z")
@@ -307,17 +307,6 @@ mod tests {
         Address {
             name: None,
             email: email.to_owned(),
-        }
-    }
-
-    fn identity() -> Identity {
-        Identity {
-            id: IdentityId::generate(),
-            account: new_account_id(),
-            from: addr("me@example.test"),
-            reply_to: None,
-            signature: None,
-            default: IsDefault::Default,
         }
     }
 

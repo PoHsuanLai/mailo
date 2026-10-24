@@ -88,25 +88,7 @@ fn plain(message: &str, recipients: &[&str]) -> SmtpSession {
     )
 }
 
-fn envelope(mail_from: &str, recipients: &[&str], message: &str) -> SmtpSession {
-    SmtpSession::new(Submission {
-        ehlo: "client.example".into(),
-        host: "smtp.example".into(),
-        port: 465,
-        tls: Tls::Implicit,
-        auth: Authentication::SignIn(SignIn {
-            username: USER.into(),
-            credential: password(),
-            sasl: vec![SaslMech::Plain],
-        }),
-        mail_from: mail_from.into(),
-        recipients: recipients.iter().map(|addr| (*addr).to_owned()).collect(),
-        receipt: None,
-        message: message.as_bytes().to_vec(),
-    })
-}
-
-fn with_receipt(
+fn envelope(
     mail_from: &str,
     recipients: &[&str],
     message: &str,
@@ -128,34 +110,6 @@ fn with_receipt(
         message: message.as_bytes().to_vec(),
     })
 }
-
-/// ASCII envelope, server lists `SMTPUTF8` in mixed case.
-///
-/// `MAIL FROM` must not gain the parameter: the addresses are ASCII, and the
-/// command has to stay the one an older server already accepts.
-const ASCII_SMTPUTF8: &str = "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-Smtputf8
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com>
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@example.com>
-S: 250 2.1.5 OK
-C: DATA
-S: 354 go ahead
-C: Subject: hi
-C:
-C: hi
-C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-";
 
 fn assert_secrets_absent(rendered: &str) {
     for secret in [PASSWORD, TOKEN, REFRESH, PLAIN_B64, PASS_B64, XOAUTH_B64] {
@@ -299,6 +253,7 @@ fn auth_rejection_is_not_a_refusal_and_keeps_the_offered_mechanisms() {
         session.extensions().auth,
         vec![SaslMech::Plain, SaslMech::Login]
     );
+    assert!(format!("{session:?}").contains(USER));
     let rendered = format!("{err} {err:?} {session:?}");
     assert!(rendered.contains("redacted"));
     assert_secrets_absent(&rendered);
@@ -434,20 +389,9 @@ fn closing_after_acceptance_does_not_unsend_the_message() {
     assert_eq!(closing.code, 421);
 }
 
+/// A session holding a bearer token shows neither it nor its refresh token, even before it runs.
 #[test]
-fn debug_does_not_contain_a_password_or_a_token() {
-    let mut session = plain(SHORT, &["bob@example.com"]);
-    let err = replay(
-        &mut session,
-        include_str!("../traces/smtp/auth_rejected.trace"),
-    )
-    .unwrap_err();
-    let rendered = format!("{session:?}");
-    assert!(rendered.contains("redacted"));
-    assert!(rendered.contains(USER));
-    assert_secrets_absent(&rendered);
-    assert_secrets_absent(&format!("{err} {err:?}"));
-
+fn debug_does_not_contain_a_token() {
     let token_session = build(
         Tls::Implicit,
         465,
@@ -483,28 +427,81 @@ fn a_rate_limit_backs_off_instead_of_discarding_the_message() {
     assert_secrets_absent(&format!("{err} {err:?} {session:?}"));
 }
 
-#[test]
-fn an_ascii_submission_omits_smtputf8_even_when_the_server_offers_it() {
-    let mut session = plain(SHORT, &["bob@example.com"]);
-    let reply = replay(&mut session, ASCII_SMTPUTF8).unwrap();
-    // The trace's MAIL FROM line is the assertion that the parameter is absent.
-    // This guards the other half: the omission is not because parsing missed it.
-    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
+/// A submission the server takes: the greeting, `EHLO` answered with `extensions` (each a
+/// `250-` line) and `AUTH PLAIN`, the sign-in, then `envelope` from `MAIL FROM` to the message's
+/// end, queued, and `QUIT`.
+fn taken(extensions: &[&str], envelope: &str) -> String {
+    let mut trace = String::from(
+        "S: 220 smtp.example ESMTP ready\nC: EHLO client.example\nS: 250-smtp.example Hello\n",
+    );
+    for extension in extensions {
+        trace.push_str(&format!("S: 250-{extension}\n"));
+    }
+    trace.push_str(&format!(
+        "S: 250 AUTH PLAIN\nC: AUTH PLAIN {PLAIN_B64}\nS: 235 2.7.0 Authentication successful\n"
+    ));
+    trace.push_str(envelope);
+    trace.push_str("S: 250 2.0.0 OK queued\nC: QUIT\nS: 221 2.0.0 Bye\nDONE\n");
+    trace
 }
 
-#[test]
-fn a_utf8_address_is_sent_raw_when_smtputf8_is_offered() {
-    let mut session = envelope("用户@例子.广告", &["收件人@例子.广告"], "hi\r\n");
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-SMTPUTF8
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
+/// `MAIL FROM` to the message's end for one `BDAT`, which carries `message` as it stands.
+fn bdat(message: &str) -> String {
+    format!(
+        "C: MAIL FROM:<ada@example.com>\n\
+         S: 250 2.1.0 OK\n\
+         C: RCPT TO:<bob@example.com>\n\
+         S: 250 2.1.5 OK\n\
+         C: BDAT {} LAST\n\
+         C64: {}\n",
+        message.len(),
+        b64(message.as_bytes()),
+    )
+}
+
+fn headers_receipt() -> Receipt {
+    Receipt {
+        notify: Notify::On {
+            success: true,
+            failure: true,
+            delay: false,
+        },
+        ret: Return::Headers,
+        envid: Some("q+1=x".into()),
+    }
+}
+
+/// `(what it shows, the session, the extensions the server lists, the envelope it is sent)`.
+///
+/// The `MAIL FROM` and `RCPT TO` lines are the assertion: which parameters go, in which form, and
+/// which are left off. The test checks the other half, that each extension was read as listed,
+/// so an omission is never a missed keyword.
+fn submissions() -> Vec<(&'static str, SmtpSession, &'static [&'static str], String)> {
+    let dsn_only = |receipt| envelope(USER, &["bob@example.com"], SHORT, receipt);
+    let short = "\
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: Subject: hi
+C:
+C: hi
+C: .
+";
+    vec![
+        (
+            "an ASCII submission omits SMTPUTF8 even when the server lists it, in mixed case",
+            plain(SHORT, &["bob@example.com"]),
+            &["Smtputf8"],
+            short.to_owned(),
+        ),
+        (
+            "a UTF-8 address is sent raw when SMTPUTF8 is offered",
+            envelope("用户@例子.广告", &["收件人@例子.广告"], "hi\r\n", None),
+            &["SMTPUTF8"],
+            "\
 C: MAIL FROM:<用户@例子.广告> SMTPUTF8
 S: 250 2.1.0 OK
 C: RCPT TO:<收件人@例子.广告>
@@ -513,28 +510,14 @@ C: DATA
 S: 354 go ahead
 C: hi
 C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
-}
-
-#[test]
-fn a_utf8_domain_is_rewritten_to_an_a_label_without_smtputf8() {
-    let mut session = envelope("ada@bücher.example", &["bob@例子.广告"], "hi\r\n");
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
+"
+            .to_owned(),
+        ),
+        (
+            "a UTF-8 domain is rewritten to an A-label without SMTPUTF8",
+            envelope("ada@bücher.example", &["bob@例子.广告"], "hi\r\n", None),
+            &[],
+            "\
 C: MAIL FROM:<ada@xn--bcher-kva.example>
 S: 250 2.1.0 OK
 C: RCPT TO:<bob@xn--fsqu00a.xn--4rr70v>
@@ -543,21 +526,155 @@ C: DATA
 S: 354 go ahead
 C: hi
 C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    assert_eq!(reply.extensions.smtputf8, Advertised::Absent);
+"
+            .to_owned(),
+        ),
+        (
+            "an 8-bit body and a UTF-8 address declare both parameters",
+            envelope("用户@例子.广告", &["bob@例子.广告"], "café\r\n", None),
+            &["8BITMIME", "SMTPUTF8"],
+            "\
+C: MAIL FROM:<用户@例子.广告> BODY=8BITMIME SMTPUTF8
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@例子.广告>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: café
+C: .
+"
+            .to_owned(),
+        ),
+        (
+            "an absent receipt leaves the commands unchanged when DSN is offered",
+            plain(SHORT, &["bob@example.com"]),
+            &["DSN"],
+            short.to_owned(),
+        ),
+        (
+            "a receipt adds xtext parameters when DSN is offered",
+            dsn_only(Some(headers_receipt())),
+            &["DSN"],
+            "\
+C: MAIL FROM:<ada@example.com> RET=HDRS ENVID=q+2B1+3Dx
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com> NOTIFY=SUCCESS,FAILURE ORCPT=rfc822;bob@example.com
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: Subject: hi
+C:
+C: hi
+C: .
+"
+            .to_owned(),
+        ),
+        (
+            "a receipt is omitted without failing when DSN is not offered",
+            dsn_only(Some(headers_receipt())),
+            &[],
+            short.to_owned(),
+        ),
+        (
+            "a non-ASCII recipient gets NOTIFY and no ORCPT",
+            envelope(
+                USER,
+                &["收件人@例子.广告"],
+                "hi\r\n",
+                Some(Receipt {
+                    notify: Notify::On {
+                        success: false,
+                        failure: true,
+                        delay: false,
+                    },
+                    ret: Return::Full,
+                    envid: None,
+                }),
+            ),
+            &["SMTPUTF8", "DSN"],
+            "\
+C: MAIL FROM:<ada@example.com> SMTPUTF8 RET=FULL
+S: 250 2.1.0 OK
+C: RCPT TO:<收件人@例子.广告> NOTIFY=FAILURE
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: hi
+C: .
+"
+            .to_owned(),
+        ),
+        // `DOTTED` has a line that begins with `.`. `DATA` stuffs it; `BDAT` writes it as it
+        // stands, because the count is the raw length.
+        (
+            "with CHUNKING one BDAT goes, not dot-stuffed",
+            plain(DOTTED, &["bob@example.com"]),
+            &["CHUNKING"],
+            bdat(DOTTED),
+        ),
+        (
+            "without CHUNKING a leading dot is still stuffed after DATA",
+            plain(DOTTED, &["bob@example.com"]),
+            &[],
+            "\
+C: MAIL FROM:<ada@example.com>
+S: 250 2.1.0 OK
+C: RCPT TO:<bob@example.com>
+S: 250 2.1.5 OK
+C: DATA
+S: 354 go ahead
+C: From: ada@example.com
+C: To: bob@example.com
+C: Subject: hello
+C:
+C: Hi.
+C: ..this starts with a dot
+C: Bye
+C: .
+"
+            .to_owned(),
+        ),
+        // `.x` stuffs to five octets; `BDAT` sends the four raw ones, which `SIZE 4` allows.
+        (
+            "CHUNKING measures SIZE on the raw message",
+            plain(".x\r\n", &["bob@example.com"]),
+            &["SIZE 4", "CHUNKING"],
+            bdat(".x\r\n"),
+        ),
+        (
+            "BDAT sends a message that does not end in CRLF",
+            plain("no-crlf", &["bob@example.com"]),
+            &["CHUNKING"],
+            bdat("no-crlf"),
+        ),
+    ]
+}
+
+#[test]
+fn each_submission_sends_the_envelope_its_server_allows() {
+    let offered = |listed: &[&str], keyword: &str| {
+        if listed.iter().any(|ext| ext.eq_ignore_ascii_case(keyword)) {
+            Advertised::Offered
+        } else {
+            Advertised::Absent
+        }
+    };
+    for (shows, mut session, listed, sent) in submissions() {
+        let reply = replay(&mut session, &taken(listed, &sent)).unwrap();
+        assert_eq!(reply.accepted.code, 250, "{shows}");
+        let read = &reply.extensions;
+        assert_eq!(read.smtputf8, offered(listed, "SMTPUTF8"), "{shows}");
+        assert_eq!(read.dsn, offered(listed, "DSN"), "{shows}");
+        assert_eq!(read.chunking, offered(listed, "CHUNKING"), "{shows}");
+        assert_eq!(read.eight_bit_mime, offered(listed, "8BITMIME"), "{shows}");
+    }
 }
 
 #[test]
 fn a_utf8_local_part_is_unsupported_without_smtputf8_and_mail_from_is_not_sent() {
     // The transcript stops at EHLO. A MAIL FROM, or even AUTH, would still be
     // a write the trace does not expect, so the refusal is before either.
-    let mut session = envelope("jörg@example.com", &["bob@example.com"], "hi\r\n");
+    let mut session = envelope("jörg@example.com", &["bob@example.com"], "hi\r\n", None);
     let err = replay(
         &mut session,
         "\
@@ -573,270 +690,6 @@ FAIL Unsupported
         err.to_string(),
         "server does not support SMTPUTF8, which jörg@example.com needs: its local part is not ASCII"
     );
-}
-
-#[test]
-fn eight_bit_body_and_utf8_address_declare_both_parameters() {
-    let mut session = envelope("用户@例子.广告", &["bob@例子.广告"], "café\r\n");
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-8BITMIME
-S: 250-SMTPUTF8
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<用户@例子.广告> BODY=8BITMIME SMTPUTF8
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@例子.广告>
-S: 250 2.1.5 OK
-C: DATA
-S: 354 go ahead
-C: café
-C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
-    assert_eq!(reply.extensions.eight_bit_mime, Advertised::Offered);
-}
-
-fn headers_receipt() -> Receipt {
-    Receipt {
-        notify: Notify::On {
-            success: true,
-            failure: true,
-            delay: false,
-        },
-        ret: Return::Headers,
-        envid: Some("q+1=x".into()),
-    }
-}
-
-#[test]
-fn an_absent_receipt_leaves_the_commands_unchanged_when_dsn_is_offered() {
-    let mut session = plain(SHORT, &["bob@example.com"]);
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-DSN
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com>
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@example.com>
-S: 250 2.1.5 OK
-C: DATA
-S: 354 go ahead
-C: Subject: hi
-C:
-C: hi
-C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    // The trace's MAIL FROM and RCPT TO lines are the assertion that nothing
-    // was added. This guards the other half: the omission is not a missed keyword.
-    assert_eq!(reply.extensions.dsn, Advertised::Offered);
-}
-
-#[test]
-fn a_receipt_adds_xtext_parameters_when_dsn_is_offered() {
-    let mut session = with_receipt(USER, &["bob@example.com"], SHORT, Some(headers_receipt()));
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-DSN
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com> RET=HDRS ENVID=q+2B1+3Dx
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@example.com> NOTIFY=SUCCESS,FAILURE ORCPT=rfc822;bob@example.com
-S: 250 2.1.5 OK
-C: DATA
-S: 354 go ahead
-C: Subject: hi
-C:
-C: hi
-C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    assert_eq!(reply.extensions.dsn, Advertised::Offered);
-    assert_eq!(reply.accepted.code, 250);
-}
-
-#[test]
-fn a_receipt_is_omitted_without_failing_when_dsn_is_not_offered() {
-    let mut session = with_receipt(USER, &["bob@example.com"], SHORT, Some(headers_receipt()));
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com>
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@example.com>
-S: 250 2.1.5 OK
-C: DATA
-S: 354 go ahead
-C: Subject: hi
-C:
-C: hi
-C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    assert_eq!(reply.extensions.dsn, Advertised::Absent);
-    assert_eq!(reply.accepted.code, 250);
-}
-
-#[test]
-fn a_non_ascii_recipient_gets_notify_and_no_orcpt() {
-    let mut session = with_receipt(
-        USER,
-        &["收件人@例子.广告"],
-        "hi\r\n",
-        Some(Receipt {
-            notify: Notify::On {
-                success: false,
-                failure: true,
-                delay: false,
-            },
-            ret: Return::Full,
-            envid: None,
-        }),
-    );
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-SMTPUTF8
-S: 250-DSN
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com> SMTPUTF8 RET=FULL
-S: 250 2.1.0 OK
-C: RCPT TO:<收件人@例子.广告> NOTIFY=FAILURE
-S: 250 2.1.5 OK
-C: DATA
-S: 354 go ahead
-C: hi
-C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    assert_eq!(reply.extensions.dsn, Advertised::Offered);
-    assert_eq!(reply.extensions.smtputf8, Advertised::Offered);
-}
-
-/// `DOTTED` contains a line that begins with `.`. `DATA` would stuff it;
-/// `BDAT` must write that line as it stands, because the count is the raw length.
-#[test]
-fn chunking_sends_one_bdat_and_does_not_dot_stuff() {
-    let message = DOTTED;
-    let trace = format!(
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-CHUNKING
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com>
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@example.com>
-S: 250 2.1.5 OK
-C: BDAT {n} LAST
-C64: {body}
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-        n = message.len(),
-        body = b64(message.as_bytes()),
-    );
-    let mut session = plain(message, &["bob@example.com"]);
-    let reply = replay(&mut session, &trace).unwrap();
-    assert_eq!(reply.extensions.chunking, Advertised::Offered);
-    assert_eq!(reply.accepted.code, 250);
-}
-
-#[test]
-fn without_chunking_a_leading_dot_is_still_stuffed_after_data() {
-    let mut session = plain(DOTTED, &["bob@example.com"]);
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com>
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@example.com>
-S: 250 2.1.5 OK
-C: DATA
-S: 354 go ahead
-C: From: ada@example.com
-C: To: bob@example.com
-C: Subject: hello
-C:
-C: Hi.
-C: ..this starts with a dot
-C: Bye
-C: .
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    assert_eq!(reply.extensions.chunking, Advertised::Absent);
-    assert_eq!(reply.accepted.code, 250);
 }
 
 #[test]
@@ -870,40 +723,10 @@ FAIL Refused
     assert!(text.contains("550"), "{text}");
 }
 
-/// `.x` stuffs to five octets. `SIZE 4` refuses that on `DATA` and accepts the
-/// four raw octets on `BDAT`.
+/// `.x` stuffs to five octets, which `SIZE 4` refuses on `DATA` before anything is sent.
 #[test]
-fn chunking_measures_size_on_the_raw_message() {
-    let message = ".x\r\n";
-    let mut session = plain(message, &["bob@example.com"]);
-    let reply = replay(
-        &mut session,
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-SIZE 4
-S: 250-CHUNKING
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com>
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@example.com>
-S: 250 2.1.5 OK
-C: BDAT 4 LAST
-C: .x
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-    )
-    .unwrap();
-    assert_eq!(reply.extensions.chunking, Advertised::Offered);
-    assert_eq!(reply.accepted.code, 250);
-
-    let mut session = plain(message, &["bob@example.com"]);
+fn without_chunking_size_is_measured_on_the_stuffed_message() {
+    let mut session = plain(".x\r\n", &["bob@example.com"]);
     let err = replay(
         &mut session,
         "\
@@ -922,35 +745,4 @@ FAIL Refused
     assert_eq!(*kind, Refusal::Permanent);
     assert!(text.contains("5 octets"), "{text}");
     assert!(text.contains("SIZE 4"), "{text}");
-}
-
-#[test]
-fn bdat_sends_a_message_that_does_not_end_in_crlf() {
-    let message = "no-crlf";
-    let trace = format!(
-        "\
-S: 220 smtp.example ESMTP ready
-C: EHLO client.example
-S: 250-smtp.example Hello
-S: 250-CHUNKING
-S: 250 AUTH PLAIN
-C: AUTH PLAIN AGFkYUBleGFtcGxlLmNvbQBzM2NyM3QtcGFzc3dvcmQ=
-S: 235 2.7.0 Authentication successful
-C: MAIL FROM:<ada@example.com>
-S: 250 2.1.0 OK
-C: RCPT TO:<bob@example.com>
-S: 250 2.1.5 OK
-C: BDAT {n} LAST
-C64: {body}
-S: 250 2.0.0 OK queued
-C: QUIT
-S: 221 2.0.0 Bye
-DONE
-",
-        n = message.len(),
-        body = b64(message.as_bytes()),
-    );
-    let mut session = plain(message, &["bob@example.com"]);
-    let reply = replay(&mut session, &trace).unwrap();
-    assert_eq!(reply.accepted.code, 250);
 }

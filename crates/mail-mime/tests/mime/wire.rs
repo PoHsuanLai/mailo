@@ -5,52 +5,12 @@
 //! is over 998 octets and none is over 78 (RFC 5322 §2.1.1), and what was written reads back as
 //! what the user typed. The sibling cases are the rows of the corpus, not separate tests.
 
-use chrono::{TimeZone, Utc};
-use mail_domain::id::new_account_id;
-use mail_domain::{
-    Address, BlobId, Draft, DraftId, Identity, IdentityId, IsDefault, PendingAttachment,
-    ReceiptRequest, SendState,
-};
+use crate::support::{addr, draft, parent, sender};
+use mail_domain::{BlobId, Draft, Identity, PendingAttachment};
 use mail_mime::{Disclosure, build, parse};
 
-fn addr(name: Option<&str>, email: &str) -> Address {
-    Address {
-        name: name.map(str::to_owned),
-        email: email.to_owned(),
-    }
-}
-
 fn identity() -> Identity {
-    Identity {
-        id: IdentityId::generate(),
-        account: new_account_id(),
-        from: addr(Some("Zoë Ångström"), "me@example.test"),
-        reply_to: None,
-        signature: None,
-        default: IsDefault::Default,
-    }
-}
-
-fn draft() -> Draft {
-    Draft {
-        id: DraftId::generate(),
-        account: new_account_id(),
-        identity: IdentityId::generate(),
-        to: vec![addr(Some("Bea"), "bea@example.test")],
-        cc: Vec::new(),
-        bcc: Vec::new(),
-        subject: "hello".to_owned(),
-        in_reply_to: None,
-        forward_of: None,
-        text: "hi\r\n".to_owned(),
-        html: None,
-        attachments: Vec::new(),
-        receipt: ReceiptRequest::Unrequested,
-        openpgp: mail_domain::OpenPgp::None,
-        smime: mail_domain::Smime::None,
-        state: SendState::Editing,
-        updated: Utc.with_ymd_and_hms(2026, 3, 15, 12, 0, 0).unwrap(),
-    }
+    sender(Some("Zoë Ångström"), "me@example.test")
 }
 
 fn attached(name: &str, mime: &str) -> (PendingAttachment, (BlobId, Vec<u8>)) {
@@ -281,37 +241,10 @@ fn date_and_message_id_are_in_the_forms_rfc_5322_gives_them() {
 
 #[test]
 fn a_long_references_list_folds_and_keeps_every_id() {
-    use mail_domain::{
-        Body, MailboxRole, Message, MessageId, MessageKey, ReadState, Star, ThreadId,
-    };
     let references: Vec<String> = (0..30)
         .map(|n| format!("ref{n}-0123456789abcdef@mail.example.test"))
         .collect();
-    let parent = Message {
-        id: MessageId::generate(),
-        thread: ThreadId::generate(),
-        account: new_account_id(),
-        key: MessageKey::Rfc("parent@example.test".to_owned()),
-        date: Utc.with_ymd_and_hms(2026, 3, 14, 12, 0, 0).unwrap(),
-        from: addr(Some("Ada"), "ada@example.test"),
-        reply_to: Vec::new(),
-        to: vec![addr(None, "me@example.test")],
-        cc: Vec::new(),
-        bcc: Vec::new(),
-        subject: "Lunch".to_owned(),
-        in_reply_to: None,
-        references: references.clone(),
-        rfc_message_id: Some("parent@example.test".to_owned()),
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: Vec::new(),
-        body: Body::Present {
-            text: Some("original".to_owned()),
-            raw: BlobId::generate(),
-        },
-        attachments: Vec::new(),
-    };
+    let parent = parent(references.clone(), Some("parent@example.test"));
     let built = build(
         &draft(),
         &identity(),

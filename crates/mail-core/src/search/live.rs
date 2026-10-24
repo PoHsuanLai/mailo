@@ -1,7 +1,7 @@
 //! The pipeline against the real SQLite index, where every other test uses a fake [`Source`].
 
-use super::support::{at, sqlite_with};
 use super::*;
+use crate::support_tests::{at, sqlite_with};
 use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir, TextMatch};
 use mail_store::Store;
 
@@ -21,7 +21,7 @@ fn subjects(input: &str, store: &mail_store::SqliteStore) -> Vec<String> {
 
 #[test]
 fn half_a_word_finds_its_thread_through_the_index() {
-    let (store, _dir) = sqlite_with(&[
+    let store = sqlite_with(&[
         ("UIDVALIDITY changed overnight", "the server reset it", 100),
         ("Lunch on Friday", "sandwiches again", 200),
         ("校園郵件通知", "請查收", 300),

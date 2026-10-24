@@ -434,19 +434,17 @@ mod tests {
             ("NOTE:one\n\ttwo\n", &["NOTE:onetwo"]),
             ("NOTE:one\r  two\r", &["NOTE:one two"]),
             ("A:1\r\n\r\nB:2", &["A:1", "B:2"]),
+            // A quoted-printable soft break joins the next line; on a plain value it is just
+            // a character.
+            (
+                "NOTE;ENCODING=QUOTED-PRINTABLE:first=\r\n second=\r\nthird\r\nFN:x\r\n",
+                &["NOTE;ENCODING=QUOTED-PRINTABLE:first secondthird", "FN:x"],
+            ),
+            ("NOTE:a=\r\nFN:x\r\n", &["NOTE:a=", "FN:x"]),
         ];
         for (input, expected) in CASES {
             assert_eq!(unfold(input), *expected, "{input:?}");
         }
-    }
-
-    #[test]
-    fn a_quoted_printable_soft_break_joins_the_next_line() {
-        let text = "NOTE;ENCODING=QUOTED-PRINTABLE:first=\r\n second=\r\nthird\r\nFN:x\r\n";
-        assert_eq!(
-            unfold(text),
-            ["NOTE;ENCODING=QUOTED-PRINTABLE:first secondthird", "FN:x"]
-        );
     }
 
     #[test]
@@ -462,11 +460,6 @@ mod tests {
             "ab".repeat(2000)
         );
         assert_eq!(lines, [want, "FN:x".to_owned()]);
-    }
-
-    #[test]
-    fn a_trailing_equals_sign_on_a_plain_value_is_just_a_character() {
-        assert_eq!(unfold("NOTE:a=\r\nFN:x\r\n"), ["NOTE:a=", "FN:x"]);
     }
 
     #[test]

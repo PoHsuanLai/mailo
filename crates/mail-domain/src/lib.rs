@@ -32,7 +32,7 @@ pub mod signing;
 pub mod smime;
 pub mod state;
 pub mod template;
-#[cfg(feature = "testing")]
+#[cfg(any(test, feature = "testing"))]
 pub mod testing;
 pub mod threading;
 pub mod view;

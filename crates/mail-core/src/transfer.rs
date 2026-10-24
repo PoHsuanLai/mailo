@@ -253,12 +253,9 @@ pub fn selection_size(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::support_tests::now;
     use mail_domain::id::new_account_id;
     use mail_domain::{AccountPlan, Folder, Holds, Subscription, presets};
-
-    fn now() -> DateTime<Utc> {
-        chrono::TimeZone::timestamp_opt(&Utc, 1_700_000_000, 0).unwrap()
-    }
 
     #[test]
     fn a_typed_path_starts_at_home_with_a_tilde() {

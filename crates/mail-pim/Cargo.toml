@@ -19,5 +19,8 @@ encoding_rs = "0.8"
 # all a `PROPFIND` or `REPORT` answer needs; its one dependency, memchr, is already here.
 roxmltree = "0.21"
 
+[dev-dependencies]
+proptest = "1"
+
 [lints]
 workspace = true

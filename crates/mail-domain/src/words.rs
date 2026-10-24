@@ -41,8 +41,16 @@ mod tests {
 
     #[test]
     fn sizes_step_up_at_a_kilobyte_and_a_megabyte() {
-        assert_eq!(human_size(512), "512 B");
-        assert_eq!(human_size(1536), "1.5 kB");
-        assert_eq!(human_size(5 * 1024 * 1024 + 512 * 1024), "5.5 MB");
+        const CASES: &[(u64, &str)] = &[
+            (0, "0 B"),
+            (512, "512 B"),
+            (1024, "1.0 kB"),
+            (1536, "1.5 kB"),
+            (1024 * 1024, "1.0 MB"),
+            (5 * 1024 * 1024 + 512 * 1024, "5.5 MB"),
+        ];
+        for (bytes, shown) in CASES {
+            assert_eq!(human_size(*bytes), *shown, "{bytes}");
+        }
     }
 }

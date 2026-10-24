@@ -532,3 +532,55 @@ Content-Type: application/pdf\r\nContent-Transfer-Encoding: base64\r\n\r\naGVsbG
         .collect();
     assert_eq!(names, ["Attachment 1.ics", "Attachment 2.pdf"]);
 }
+
+mod any_bytes {
+    use mail_mime::parse;
+    use proptest::prelude::*;
+
+    /// Bytes shaped like mail often enough to reach past the header: header lines, boundaries,
+    /// encodings and encoded words, with arbitrary bytes between them.
+    fn mailish() -> impl Strategy<Value = Vec<u8>> {
+        let piece = prop_oneof![
+            prop::sample::select(vec![
+                &b"From: Ada <ada@example.test>\r\n"[..],
+                b"Subject: =?utf-8?b?Y2Fmw6k=?= =?iso-2022-jp?q?=1B$B?=\r\n",
+                b"MIME-Version: 1.0\r\n",
+                b"Content-Type: multipart/mixed; boundary=\"b\"\r\n",
+                b"Content-Type: multipart/alternative; boundary=b\r\n",
+                b"Content-Type: text/plain; charset=big5; format=flowed; delsp=yes\r\n",
+                b"Content-Type: text/html; charset=\"x-unknown\"\r\n",
+                b"Content-Type: message/rfc822\r\n",
+                b"Content-Type: image/png; name*=utf-8''%E6%97%A5\r\n",
+                b"Content-Transfer-Encoding: base64\r\n",
+                b"Content-Transfer-Encoding: quoted-printable\r\n",
+                b"Content-Disposition: inline; filename=\"a.png\"\r\n",
+                b"Content-ID: <logo@x>\r\n",
+                b"Date: Sun, 15 Mar 2026 12:00:00 +0000\r\n",
+                b"References: <a@x> <b@x\r\n",
+                b"--b\r\n",
+                b"--b--\r\n",
+                b"\r\n",
+                b" folded\r\n",
+                b"=C3=A9=\r\n",
+                b"aGVsbG8=\r\n",
+            ])
+            .prop_map(<[u8]>::to_vec),
+            prop::collection::vec(any::<u8>(), 0..32),
+        ];
+        prop::collection::vec(piece, 0..24).prop_map(|pieces| pieces.concat())
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// A message is bytes from a stranger: whatever they are, reading them is a value or an
+        /// error, never a panic.
+        #[test]
+        fn parsing_any_bytes_never_panics(
+            raw in prop_oneof![prop::collection::vec(any::<u8>(), 0..2048), mailish()]
+        ) {
+            // Either answer is right; only a panic is wrong.
+            let _ = parse(&raw);
+        }
+    }
+}

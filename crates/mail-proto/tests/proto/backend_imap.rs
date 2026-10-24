@@ -5,42 +5,32 @@
 
 use crate::common;
 
-use common::replay;
-use mail_domain::id::account_id_from_uuid;
+use common::{Driven, password_backend, replay};
+use mail_domain::testing::account;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{
-    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Moved, Progress, ProtoError,
-    ProtoOutcome,
+    Backend, ImapAuth, ImapCommand, ImapSession, Moved, Progress, ProtoError, ProtoOutcome,
 };
+use porter_core::Credential;
 use porter_core::SecretText;
 use porter_core::UnixSeconds;
-use porter_core::{AccountId, Credential};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 fn caps(labels: ServerLabels, archive: ArchiveMeans) -> AccountCaps {
     AccountCaps {
         labels,
         threads: ServerThreads::ProviderId,
-        watch: WatchMode::Idle,
         archive,
-        folders: FolderRoles::default(),
         condstore: Condstore::Supported,
         move_ext: MoveExt::Supported,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
         connections: ConnectionBudget { max: 5 },
-        observed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        ..common::caps()
     }
 }
 
 fn backend(caps: AccountCaps) -> ImapBackend {
     ImapBackend::new(
-        acct_account(),
+        account(),
         caps,
         // The factory owns authentication, which is why it and not the backend decides that
         // this account uses XOAUTH2.
@@ -69,50 +59,11 @@ fn backend(caps: AccountCaps) -> ImapBackend {
     )
 }
 
-struct Driven {
-    backend: ImapBackend,
-    op: Option<ProtoOp>,
-}
-
-impl Machine for Driven {
-    type Out = ProtoOutcome;
-    fn start(&mut self) -> Progress<ProtoOutcome> {
-        let op = self.op.take().expect("start called twice");
-        self.backend.begin(op)
-    }
-    fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome> {
-        self.backend.feed(ready)
-    }
-}
-
 fn inbox() -> MailboxRef {
     MailboxRef {
-        account: acct_account(),
+        account: account(),
         path: "INBOX".to_owned(),
     }
-}
-
-/// The same backend, authenticating with a password: what every server but Gmail gets.
-fn password_backend(caps: AccountCaps) -> ImapBackend {
-    ImapBackend::new(
-        acct_account(),
-        caps,
-        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
-            let mut all = Vec::new();
-            if auth == Authenticate::First {
-                all.push(ImapCommand::Login);
-            }
-            all.extend(commands);
-            ImapSession::new(
-                ImapAuth {
-                    username: "ada@example.test".to_owned(),
-                    credential: Credential::Password(SecretText::new("hunter2".to_owned())),
-                    sasl: vec![SaslMech::Plain],
-                },
-                all,
-            )
-        }),
-    )
 }
 
 fn imap_ref(mailbox: &str, uid: u32) -> RemoteRef {
@@ -142,12 +93,12 @@ fn fetching_headers_uses_body_peek() {
         "S: a003 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(ProtoOp::FetchHeaders {
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        ProtoOp::FetchHeaders {
             remotes: vec![imap_ref("INBOX", 42)],
-        }),
-    };
+        },
+    );
     let outcome = replay(&mut driven, trace).unwrap();
     // And the flags it asked for are kept.
     //
@@ -200,16 +151,16 @@ fn bodies_are_matched_by_uid_not_by_order() {
         "S: a003 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(ProtoOp::FetchBody {
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        ProtoOp::FetchBody {
             remotes: vec![
                 imap_ref("INBOX", 9),
                 imap_ref("INBOX", 5),
                 imap_ref("INBOX", 3),
             ],
-        }),
-    };
+        },
+    );
     let ProtoOutcome::Fetched { items, .. } = replay(&mut driven, trace).unwrap() else {
         panic!("not a fetch");
     };
@@ -255,13 +206,13 @@ fn archiving_on_gmail_removes_the_inbox_label() {
         "S: a003 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(ProtoOp::SetMailbox {
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        ProtoOp::SetMailbox {
             remotes: vec![imap_ref("INBOX", 42)],
             role: MailboxRole::Archive,
-        }),
-    };
+        },
+    );
     assert!(matches!(
         replay(&mut driven, trace).unwrap(),
         ProtoOutcome::Applied
@@ -284,13 +235,13 @@ fn filing_on_gmail_adds_the_folders_label_and_drops_the_inbox() {
         "S: a004 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(ProtoOp::File {
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        ProtoOp::File {
             remotes: vec![imap_ref("INBOX", 42)],
             folder: "Money/Bills".to_owned(),
-        }),
-    };
+        },
+    );
     assert!(matches!(
         replay(&mut driven, trace).unwrap(),
         ProtoOutcome::Applied
@@ -311,16 +262,16 @@ fn filing_elsewhere_moves_into_the_folder() {
         "S: a003 OK moved\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: password_backend(caps(
+    let mut driven = Driven::new(
+        password_backend(caps(
             ServerLabels::LocalOnly,
             ArchiveMeans::MoveToFolder("Archive".to_owned()),
         )),
-        op: Some(ProtoOp::File {
+        ProtoOp::File {
             remotes: vec![imap_ref("INBOX", 7), imap_ref("INBOX", 9)],
             folder: "其他文件".to_owned(),
-        }),
-    };
+        },
+    );
     // No `COPYUID`: moved, and where to is for a sync to find.
     assert_eq!(
         replay(&mut driven, trace).unwrap(),
@@ -356,20 +307,20 @@ fn a_move_answered_with_copyuid_says_where_each_message_went() {
         "S: a003 OK moved\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: password_backend(caps(
+    let mut driven = Driven::new(
+        password_backend(caps(
             ServerLabels::LocalOnly,
             ArchiveMeans::MoveToFolder("Archive".to_owned()),
         )),
-        op: Some(ProtoOp::SetMailbox {
+        ProtoOp::SetMailbox {
             remotes: vec![
                 imap_ref("INBOX", 9),
                 imap_ref("INBOX", 7),
                 imap_ref("INBOX", 8),
             ],
             role: MailboxRole::Archive,
-        }),
-    };
+        },
+    );
     let landed = |uid| {
         Some(RemoteRef::Imap {
             mailbox: "Archive".to_owned(),
@@ -415,13 +366,13 @@ fn a_copy_answered_with_copyuid_in_its_completion_says_where_it_went() {
         "S: a003 OK [COPYUID 9 42 5] copied\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: password_backend(roles),
-        op: Some(ProtoOp::SetMailbox {
+    let mut driven = Driven::new(
+        password_backend(roles),
+        ProtoOp::SetMailbox {
             remotes: vec![imap_ref("INBOX", 42)],
             role: MailboxRole::Archive,
-        }),
-    };
+        },
+    );
     assert_eq!(
         replay(&mut driven, trace).unwrap(),
         ProtoOutcome::Moved(vec![Moved {
@@ -451,16 +402,16 @@ fn a_copyuid_that_does_not_pair_up_says_nothing() {
         "S: a003 OK moved\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: password_backend(caps(
+    let mut driven = Driven::new(
+        password_backend(caps(
             ServerLabels::LocalOnly,
             ArchiveMeans::MoveToFolder("Archive".to_owned()),
         )),
-        op: Some(ProtoOp::SetMailbox {
+        ProtoOp::SetMailbox {
             remotes: vec![imap_ref("INBOX", 7), imap_ref("INBOX", 9)],
             role: MailboxRole::Archive,
-        }),
-    };
+        },
+    );
     let ProtoOutcome::Moved(moved) = replay(&mut driven, trace).unwrap() else {
         panic!("a move answers Moved");
     };
@@ -481,13 +432,13 @@ fn moving_back_to_the_inbox_on_gmail_only_adds_the_inbox_label() {
         "S: a003 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(ProtoOp::SetMailbox {
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        ProtoOp::SetMailbox {
             remotes: vec![imap_ref("[Gmail]/All Mail", 42)],
             role: MailboxRole::Inbox,
-        }),
-    };
+        },
+    );
     assert_eq!(replay(&mut driven, trace).unwrap(), ProtoOutcome::Applied);
 }
 
@@ -521,13 +472,13 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
              S: a003 OK moved\n\
              DONE\n"
         );
-        let mut driven = Driven {
-            backend: password_backend(roles.clone()),
-            op: Some(ProtoOp::SetMailbox {
+        let mut driven = Driven::new(
+            password_backend(roles.clone()),
+            ProtoOp::SetMailbox {
                 remotes: vec![imap_ref("Work", 5)],
                 role,
-            }),
-        };
+            },
+        );
         assert!(
             matches!(replay(&mut driven, &trace).unwrap(), ProtoOutcome::Moved(_)),
             "{role:?}"
@@ -535,16 +486,16 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
     }
 
     // A role the server named no folder for is refused, not filed into a guess.
-    let mut driven = Driven {
-        backend: password_backend(caps(
+    let mut driven = Driven::new(
+        password_backend(caps(
             ServerLabels::LocalOnly,
             ArchiveMeans::MoveToFolder("Archive".to_owned()),
         )),
-        op: Some(ProtoOp::SetMailbox {
+        ProtoOp::SetMailbox {
             remotes: vec![imap_ref("INBOX", 5)],
             role: MailboxRole::Trash,
-        }),
-    };
+        },
+    );
     let err = replay(&mut driven, "FAIL Unsupported\n").unwrap_err();
     assert!(matches!(err, ProtoError::Unsupported(_)), "{err}");
 }
@@ -584,10 +535,7 @@ fn a_move_into_the_folder_the_message_is_already_in_sends_nothing() {
                 folder: "Projects".to_owned(),
             },
         ] {
-            let mut driven = Driven {
-                backend: password_backend(roles.clone()),
-                op: Some(op.clone()),
-            };
+            let mut driven = Driven::new(password_backend(roles.clone()), op.clone());
             assert_eq!(
                 replay(&mut driven, "DONE\n").unwrap(),
                 ProtoOutcome::Applied,
@@ -658,13 +606,13 @@ fn a_receipt_answered_sets_mdnsent() {
         "S: a003 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(ProtoOp::AddKeyword {
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        ProtoOp::AddKeyword {
             remotes: vec![imap_ref("INBOX", 42)],
             keyword: Keyword::MdnSent,
-        }),
-    };
+        },
+    );
     assert!(matches!(
         replay(&mut driven, trace).unwrap(),
         ProtoOutcome::Applied
@@ -699,16 +647,16 @@ fn a_flag_sweep_without_a_modseq_fetches_everything() {
         "S: a003 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(ProtoOp::FetchFlags {
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        ProtoOp::FetchFlags {
             mailbox: MailboxRef {
-                account: acct_account(),
+                account: account(),
                 path: "INBOX".to_owned(),
             },
             since_modseq: None,
-        }),
-    };
+        },
+    );
     assert!(matches!(
         replay(&mut driven, trace).unwrap(),
         ProtoOutcome::Ingested(_)
@@ -728,16 +676,16 @@ fn a_flag_sweep_with_a_modseq_uses_changedsince() {
         "S: a003 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(ProtoOp::FetchFlags {
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        ProtoOp::FetchFlags {
             mailbox: MailboxRef {
-                account: acct_account(),
+                account: account(),
                 path: "INBOX".to_owned(),
             },
             since_modseq: Some(3_737_642),
-        }),
-    };
+        },
+    );
     assert!(matches!(
         replay(&mut driven, trace).unwrap(),
         ProtoOutcome::Ingested(_)
@@ -876,13 +824,13 @@ mod gmail_labels {
             ),
             fetch_lines
         );
-        let mut driven = Driven {
-            backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-            op: Some(ProtoOp::FetchEnvelopes {
+        let mut driven = Driven::new(
+            backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+            ProtoOp::FetchEnvelopes {
                 mailbox: inbox(),
                 since: FetchSince::Beginning,
-            }),
-        };
+            },
+        );
         match replay(&mut driven, &trace).unwrap() {
             ProtoOutcome::Ingested(ingest) => *ingest,
             other => panic!("{other:?}"),
@@ -953,13 +901,13 @@ mod gmail_labels {
             "S: a003 OK Success\n",
             "DONE\n"
         );
-        let mut driven = Driven {
-            backend: password_backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
-            op: Some(ProtoOp::FetchEnvelopes {
+        let mut driven = Driven::new(
+            password_backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            ProtoOp::FetchEnvelopes {
                 mailbox: inbox(),
                 since: FetchSince::Beginning,
-            }),
-        };
+            },
+        );
         // `replay` asserts the client's side of the transcript, so the absence of X-GM-LABELS in
         // the C: line above is the assertion.
         let outcome = replay(&mut driven, trace).unwrap();
@@ -1010,10 +958,10 @@ fn a_qresync_sweep_asks_the_server_what_vanished() {
         "S: a003 OK [READ-ONLY] Examine completed\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(qresync_caps()),
-        op: Some(resync(67_890_007, 20_050_715_194_045_000)),
-    };
+    let mut driven = Driven::new(
+        backend(qresync_caps()),
+        resync(67_890_007, 20_050_715_194_045_000),
+    );
     let ProtoOutcome::Resynced { ingest, vanished } = replay(&mut driven, trace).unwrap() else {
         panic!("a QRESYNC select is not a listing, and must not come back as one");
     };
@@ -1064,10 +1012,10 @@ fn a_qresync_sweep_after_a_renumbering_reports_nothing() {
         "S: a003 OK [READ-ONLY] Examine completed\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(qresync_caps()),
-        op: Some(resync(67_890_007, 20_050_715_194_045_000)),
-    };
+    let mut driven = Driven::new(
+        backend(qresync_caps()),
+        resync(67_890_007, 20_050_715_194_045_000),
+    );
     let ProtoOutcome::Resynced { ingest, vanished } = replay(&mut driven, trace).unwrap() else {
         panic!("expected a resync");
     };
@@ -1093,10 +1041,10 @@ fn without_qresync_the_sweep_still_lists_every_uid() {
         "S: a003 OK Success\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
-        op: Some(resync(1, 3_737_642)),
-    };
+    let mut driven = Driven::new(
+        backend(caps(ServerLabels::Supported, ArchiveMeans::DropInbox)),
+        resync(1, 3_737_642),
+    );
     assert!(matches!(
         replay(&mut driven, trace).unwrap(),
         ProtoOutcome::Ingested(_)
@@ -1123,10 +1071,10 @@ fn qresync_is_believed_only_alongside_condstore() {
              S: a003 OK done\n\
              DONE\n"
         );
-        let mut driven = Driven {
-            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
-            op: Some(ProtoOp::FetchCaps),
-        };
+        let mut driven = Driven::new(
+            backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            ProtoOp::FetchCaps,
+        );
         let ProtoOutcome::Caps(found) = replay(&mut driven, &trace).unwrap() else {
             panic!("expected caps");
         };
@@ -1154,12 +1102,12 @@ mod parts {
              S: a003 OK done\n\
              DONE\n"
         );
-        let mut driven = Driven {
-            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
-            op: Some(ProtoOp::FetchStructure {
+        let mut driven = Driven::new(
+            backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            ProtoOp::FetchStructure {
                 remotes: vec![imap_ref("INBOX", 7)],
-            }),
-        };
+            },
+        );
         let ProtoOutcome::Structures(found) = replay(&mut driven, &trace).unwrap() else {
             panic!("expected structures");
         };
@@ -1212,17 +1160,17 @@ mod parts {
              S: a003 OK done\n\
              DONE\n"
         );
-        let mut driven = Driven {
-            backend: backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
-            op: Some(ProtoOp::FetchSections {
+        let mut driven = Driven::new(
+            backend(caps(ServerLabels::LocalOnly, ArchiveMeans::LocalOnly)),
+            ProtoOp::FetchSections {
                 remote: imap_ref("INBOX", 7),
                 sections: vec![
                     "HEADER".parse().unwrap(),
                     "2.MIME".parse().unwrap(),
                     "1.1".parse().unwrap(),
                 ],
-            }),
-        };
+            },
+        );
         let ProtoOutcome::Sections { parts, .. } = replay(&mut driven, &trace).unwrap() else {
             panic!("expected sections");
         };

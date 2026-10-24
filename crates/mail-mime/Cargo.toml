@@ -84,7 +84,8 @@ smime = [
 
 [dev-dependencies]
 uuid.workspace = true
-mail-domain.workspace = true
+# The values a test starts from (`mail_domain::testing`): the program never has them.
+mail-domain = { workspace = true, features = ["testing"] }
 chrono.workspace = true
 proptest = "1"
 # A directory for the S/MIME interoperability test to hand files to OpenSSL in.

@@ -4,56 +4,22 @@
 
 use crate::common;
 
-use common::replay;
-use mail_domain::id::account_id_from_uuid;
+use common::{password_backend, replay};
 use mail_domain::*;
-use mail_proto::backend::{Authenticate, Found, ImapBackend};
+use mail_proto::ProtoError;
+use mail_proto::backend::{Found, ImapBackend};
 use mail_proto::search::imap::{ImapPlan, SearchKey};
-use mail_proto::{ImapAuth, ImapCommand, ImapSession, ProtoError};
-use porter_core::SecretText;
-use porter_core::{AccountId, Credential};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 fn caps() -> AccountCaps {
     AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Idle,
-        archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
         folders: FolderRoles(vec![("Archive".to_owned(), MailboxRole::Archive)]),
-        condstore: Condstore::Absent,
         move_ext: MoveExt::Supported,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 2 },
-        observed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        ..common::caps()
     }
 }
 
 fn backend() -> ImapBackend {
-    ImapBackend::new(
-        acct_account(),
-        caps(),
-        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
-            let mut all = Vec::new();
-            if auth == Authenticate::First {
-                all.push(ImapCommand::Login);
-            }
-            all.extend(commands);
-            ImapSession::new(
-                ImapAuth {
-                    username: "ada@example.test".to_owned(),
-                    credential: Credential::Password(SecretText::new("hunter2".to_owned())),
-                    sasl: vec![SaslMech::Plain],
-                },
-                all,
-            )
-        }),
-    )
+    password_backend(caps())
 }
 
 fn plan(mailboxes: &[&str], keys: Vec<SearchKey>) -> ImapPlan {

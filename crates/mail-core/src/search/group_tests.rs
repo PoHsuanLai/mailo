@@ -2,9 +2,9 @@ use mail_domain::ThreadId;
 use mail_store::MemoryStore;
 
 use super::super::ranking::{Affinity, SenderStats};
-use super::super::support::{self, at};
 use super::{Command, Top};
 use crate::search::run;
+use crate::support_tests::{self as support, at};
 
 fn thread_of(n: u128) -> ThreadId {
     ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n))
@@ -110,7 +110,7 @@ fn top_hit_is_not_duplicated_in_mail() {
 
 #[test]
 fn a_query_that_is_a_command_opens_the_command() {
-    let (store, _dir) = support::sqlite_with(&[
+    let store = support::sqlite_with(&[
         ("alpha", "please compose this", 10),
         ("bravo", "compose the note", 20),
     ]);

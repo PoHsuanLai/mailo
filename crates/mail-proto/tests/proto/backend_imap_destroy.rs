@@ -8,78 +8,22 @@
 
 use crate::common;
 
-use common::replay;
-use mail_domain::id::account_id_from_uuid;
+use common::{Driven, password_backend, replay};
 use mail_domain::*;
-use mail_proto::backend::{Authenticate, ImapBackend};
-use mail_proto::{
-    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Progress, ProtoError,
-    ProtoOutcome,
-};
-use porter_core::SecretText;
-use porter_core::{AccountId, Credential};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
+use mail_proto::backend::ImapBackend;
+use mail_proto::{Backend, Progress, ProtoError, ProtoOutcome};
 
 fn caps() -> AccountCaps {
     AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Idle,
-        archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
         folders: FolderRoles(vec![
             ("Trash".to_owned(), MailboxRole::Trash),
             ("Junk".to_owned(), MailboxRole::Spam),
             ("Sent".to_owned(), MailboxRole::Sent),
         ]),
-        condstore: Condstore::Absent,
         move_ext: MoveExt::Supported,
         // The preset default, and it stays so: destroying in Trash is not expunging in general.
         expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 2 },
-        observed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-    }
-}
-
-fn backend() -> ImapBackend {
-    ImapBackend::new(
-        acct_account(),
-        caps(),
-        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
-            let mut all = Vec::new();
-            if auth == Authenticate::First {
-                all.push(ImapCommand::Login);
-            }
-            all.extend(commands);
-            ImapSession::new(
-                ImapAuth {
-                    username: "ada@example.test".to_owned(),
-                    credential: Credential::Password(SecretText::new("hunter2".to_owned())),
-                    sasl: vec![SaslMech::Plain],
-                },
-                all,
-            )
-        }),
-    )
-}
-
-struct Driven {
-    backend: ImapBackend,
-    op: Option<ProtoOp>,
-}
-
-impl Machine for Driven {
-    type Out = ProtoOutcome;
-    fn start(&mut self) -> Progress<ProtoOutcome> {
-        let op = self.op.take().expect("start called twice");
-        self.backend.begin(op)
-    }
-    fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome> {
-        self.backend.feed(ready)
+        ..common::caps()
     }
 }
 
@@ -91,11 +35,8 @@ fn at(mailbox: &str, uidvalidity: u32, uid: u32) -> RemoteRef {
     }
 }
 
-fn destroy(remotes: Vec<RemoteRef>) -> Driven {
-    Driven {
-        backend: backend(),
-        op: Some(ProtoOp::Destroy { remotes }),
-    }
+fn destroy(remotes: Vec<RemoteRef>) -> Driven<ImapBackend> {
+    Driven::new(password_backend(caps()), ProtoOp::Destroy { remotes })
 }
 
 #[test]
@@ -214,7 +155,7 @@ fn outside_trash_and_spam_nothing_is_sent() {
         ("Projects/2026", "a folder of the user's own"),
     ];
     for (folder, why) in CASES {
-        let mut backend = backend();
+        let mut backend = password_backend(caps());
         let outcome = backend.begin(ProtoOp::Destroy {
             remotes: vec![at(folder, 1, 7)],
         });
@@ -229,7 +170,7 @@ fn outside_trash_and_spam_nothing_is_sent() {
 
 #[test]
 fn one_deletion_never_spans_two_mailboxes() {
-    let mut backend = backend();
+    let mut backend = password_backend(caps());
     let outcome = backend.begin(ProtoOp::Destroy {
         remotes: vec![at("Trash", 1, 7), at("Junk", 1, 7)],
     });
@@ -242,7 +183,7 @@ fn one_deletion_never_spans_two_mailboxes() {
 #[test]
 fn expunging_in_general_stays_refused() {
     // Destroy is the exception, not a change of rule: Expunge is still refused, in Trash too.
-    let mut backend = backend();
+    let mut backend = password_backend(caps());
     let outcome = backend.begin(ProtoOp::Expunge {
         remotes: vec![at("Trash", 1, 7)],
     });

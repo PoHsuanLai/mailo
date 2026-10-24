@@ -1,11 +1,8 @@
 //! A reply's In-Reply-To and References are what the recipient threads on.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::new_account_id;
+use crate::support::{self, addr, at, emails, sender};
 use mail_domain::{
-    Address, BlobId, Body, Draft, DraftId, Identity, IdentityId, Inline, IsDefault, MailboxRole,
-    Message, MessageId, MessageKey, PendingAttachment, ReadState, ReceiptRequest, SendState, Star,
-    ThreadId,
+    BlobId, Draft, Identity, Inline, Message, MessageId, PendingAttachment, ReceiptRequest,
 };
 use mail_mime::{Disclosure, MimeError, ReturnPath, build, parse, posting, receipt_asked};
 
@@ -66,69 +63,19 @@ const THREADS: &[ThreadCase] = &[
     },
 ];
 
-fn at() -> DateTime<Utc> {
-    Utc.with_ymd_and_hms(2026, 3, 15, 12, 0, 0)
-        .single()
-        .expect("2026-03-15T12:00:00Z is a real timestamp")
-}
-
-fn addr(name: Option<&str>, email: &str) -> Address {
-    Address {
-        name: name.map(str::to_owned),
-        email: email.to_owned(),
-    }
-}
-
 fn identity() -> Identity {
     Identity {
-        id: IdentityId::generate(),
-        account: new_account_id(),
-        from: addr(Some("Me"), "me@example.test"),
         reply_to: Some(addr(None, "alias@example.test")),
-        signature: None,
-        default: IsDefault::Default,
-    }
-}
-
-fn parent(references: &[&str], rfc_message_id: Option<&str>) -> Message {
-    Message {
-        id: MessageId::generate(),
-        thread: ThreadId::generate(),
-        account: new_account_id(),
-        key: MessageKey::Rfc("parent@example.test".to_owned()),
-        date: at(),
-        from: addr(Some("Ada"), "ada@example.test"),
-        reply_to: Vec::new(),
-        to: vec![addr(None, "me@example.test")],
-        cc: Vec::new(),
-        bcc: Vec::new(),
-        subject: "Lunch".to_owned(),
-        in_reply_to: Some("mid@example.test".to_owned()),
-        references: references.iter().map(|id| (*id).to_owned()).collect(),
-        rfc_message_id: rfc_message_id.map(str::to_owned),
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: Vec::new(),
-        body: Body::Present {
-            text: Some("original".to_owned()),
-            raw: BlobId::generate(),
-        },
-        attachments: Vec::new(),
+        ..sender(Some("Me"), "me@example.test")
     }
 }
 
 fn draft(replying_to: Option<MessageId>, blob: Option<BlobId>) -> Draft {
     Draft {
-        id: DraftId::generate(),
-        account: new_account_id(),
-        identity: IdentityId::generate(),
-        to: vec![addr(Some("Bea"), "bea@example.test")],
         cc: vec![addr(None, "cara@example.test")],
         bcc: vec![addr(None, "dee@example.test")],
         subject: "Re: Lunch".to_owned(),
         in_reply_to: replying_to,
-        forward_of: None,
         text: "thanks".to_owned(),
         html: Some("<p>thanks</p>".to_owned()),
         attachments: blob
@@ -139,12 +86,15 @@ fn draft(replying_to: Option<MessageId>, blob: Option<BlobId>) -> Draft {
             })
             .into_iter()
             .collect(),
-        receipt: ReceiptRequest::Unrequested,
-        openpgp: mail_domain::OpenPgp::None,
-        smime: mail_domain::Smime::None,
-        state: SendState::Editing,
-        updated: at(),
+        ..support::draft()
     }
+}
+
+fn parent(references: &[&str], rfc_message_id: Option<&str>) -> Message {
+    support::parent(
+        references.iter().map(|id| (*id).to_owned()).collect(),
+        rfc_message_id,
+    )
 }
 
 #[test]
@@ -198,38 +148,10 @@ fn reply_round_trips_threading_headers() {
             let from = parsed.from.as_ref().expect("from");
             assert_eq!(from.email, "me@example.test");
             assert_eq!(from.name.as_deref(), Some("Me"));
-            assert_eq!(
-                parsed
-                    .reply_to
-                    .iter()
-                    .map(|addr| addr.email.as_str())
-                    .collect::<Vec<_>>(),
-                vec!["alias@example.test"]
-            );
-            assert_eq!(
-                parsed
-                    .to
-                    .iter()
-                    .map(|addr| addr.email.as_str())
-                    .collect::<Vec<_>>(),
-                vec!["bea@example.test"]
-            );
-            assert_eq!(
-                parsed
-                    .cc
-                    .iter()
-                    .map(|addr| addr.email.as_str())
-                    .collect::<Vec<_>>(),
-                vec!["cara@example.test"]
-            );
-            assert_eq!(
-                parsed
-                    .bcc
-                    .iter()
-                    .map(|addr| addr.email.as_str())
-                    .collect::<Vec<_>>(),
-                vec!["dee@example.test"]
-            );
+            assert_eq!(emails(&parsed.reply_to), vec!["alias@example.test"]);
+            assert_eq!(emails(&parsed.to), vec!["bea@example.test"]);
+            assert_eq!(emails(&parsed.cc), vec!["cara@example.test"]);
+            assert_eq!(emails(&parsed.bcc), vec!["dee@example.test"]);
             assert_eq!(parsed.attachments.len(), 1, "{}", case.name);
             assert_eq!(parsed.attachments[0].name, "notes.bin");
             assert_eq!(parsed.attachments[0].mime, "application/octet-stream");
@@ -261,14 +183,7 @@ fn build_rejects_unsendable_drafts() {
     bcc_only.bcc.push(addr(None, "dee@example.test"));
     let raw = build(&bcc_only, &me, None, &[], Disclosure::Full).expect("bcc alone is a recipient");
     let parsed = parse(&raw).expect("bcc-only message parses");
-    assert_eq!(
-        parsed
-            .bcc
-            .iter()
-            .map(|addr| addr.email.as_str())
-            .collect::<Vec<_>>(),
-        vec!["dee@example.test"]
-    );
+    assert_eq!(emails(&parsed.bcc), vec!["dee@example.test"]);
 
     let missing = draft(Some(original.id), Some(blob));
     let err =
@@ -349,21 +264,13 @@ mod blind_copies {
 
         let post = posting(&draft, &me, None, &[]).expect("has recipients");
         // To, Cc and Bcc alike: the envelope is how the blind copy is actually delivered.
-        assert!(
-            post.rcpt_to.contains(&"bea@example.test".to_owned()),
-            "envelope: {:?}",
-            post.rcpt_to
-        );
-        assert!(
-            post.rcpt_to.contains(&"cara@example.test".to_owned()),
-            "envelope: {:?}",
-            post.rcpt_to
-        );
-        assert!(
-            post.rcpt_to.contains(&"dee@example.test".to_owned()),
-            "envelope: the blind recipient would never receive this: {:?}",
-            post.rcpt_to
-        );
+        for rcpt in ["bea@example.test", "cara@example.test", "dee@example.test"] {
+            assert!(
+                post.rcpt_to.contains(&rcpt.to_owned()),
+                "envelope: {rcpt} would never receive this: {:?}",
+                post.rcpt_to
+            );
+        }
         assert!(
             !String::from_utf8_lossy(&post.message)
                 .to_lowercase()

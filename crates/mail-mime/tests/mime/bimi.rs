@@ -1,10 +1,8 @@
 //! A Verified Mark Certificate vouches for a logo only when every part of it holds: the chain,
 //! the dates, the purpose, the domain and the logo's hash. Against a throwaway authority made in
-//! `bimi_support`.
+//! `support::bimi`.
 
-use crate::bimi_support;
-
-use bimi_support::*;
+use crate::support::bimi::*;
 use mail_mime::bimi::{MarkProblem, same_logo, verified_logo};
 
 #[test]

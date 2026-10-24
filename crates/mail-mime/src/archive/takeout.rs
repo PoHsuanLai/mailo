@@ -94,26 +94,39 @@ mod tests {
         );
     }
 
+    /// Gmail's own labels become a role, the read state and the star; the rest stay labels.
+    /// Unread inbox mail stays unread, and the trash wins over the inbox.
     #[test]
     fn gmail_state_becomes_role_and_flags_and_the_rest_stay_labels() {
-        let labels = split("Archived,Starred,Category Updates,Receipts,Opened");
-        let placed = placement(&labels);
-        assert_eq!(placed.role, MailboxRole::Archive);
-        assert_eq!(placed.read(), ReadState::Read);
-        assert_eq!(placed.star(), Star::Starred);
-        assert_eq!(placed.labels, vec!["Category Updates", "Receipts"]);
-    }
-
-    #[test]
-    fn unread_inbox_mail_stays_unread() {
-        let placed = placement(&split("Inbox,Unread,Important"));
-        assert_eq!(placed.role, MailboxRole::Inbox);
-        assert_eq!(placed.read(), ReadState::Unread);
-        assert_eq!(placed.labels, vec!["Important"]);
-    }
-
-    #[test]
-    fn trash_wins_over_the_inbox() {
-        assert_eq!(placement(&split("Inbox,Trash")).role, MailboxRole::Trash);
+        let cases: &[(&str, MailboxRole, ReadState, Star, &[&str])] = &[
+            (
+                "Archived,Starred,Category Updates,Receipts,Opened",
+                MailboxRole::Archive,
+                ReadState::Read,
+                Star::Starred,
+                &["Category Updates", "Receipts"],
+            ),
+            (
+                "Inbox,Unread,Important",
+                MailboxRole::Inbox,
+                ReadState::Unread,
+                Star::Unstarred,
+                &["Important"],
+            ),
+            (
+                "Inbox,Trash",
+                MailboxRole::Trash,
+                ReadState::Read,
+                Star::Unstarred,
+                &[],
+            ),
+        ];
+        for (labels, role, read, star, rest) in cases {
+            let placed = placement(&split(labels));
+            assert_eq!(placed.role, *role, "{labels}");
+            assert_eq!(placed.read(), *read, "{labels}");
+            assert_eq!(placed.star(), *star, "{labels}");
+            assert_eq!(placed.labels, *rest, "{labels}");
+        }
     }
 }

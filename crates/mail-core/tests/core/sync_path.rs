@@ -9,7 +9,7 @@
 //! The IMAP half is `#[ignore]`d because it needs `scripts/live-imapd.py`; everything that does
 //! not need a server runs normally.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::support::{account, caps, now, with_password};
 use mail_core::fetch::{self, Effect, Event, First, Link, Step};
 use mail_core::sync::report::PassEnd;
 use mail_core::{account, sync};
@@ -71,21 +71,13 @@ fn waiting(failures: u32) -> Link {
     }
 }
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
-
 /// A store with one IMAP account pointed at `port`, in plaintext.
 ///
 /// The plan is written directly rather than through `account add`, which only produces
 /// `Tls::Implicit` — deliberately, since there is no configuration that sends a password in
 /// clear. A loopback test server has no certificate a public root would sign, so this is the one
 /// place that shape is constructed by hand.
-fn configured(port: u16, caps: AccountCaps) -> (Arc<SqliteStore>, tempfile::TempDir) {
+fn configured(port: u16, caps: AccountCaps) -> Arc<SqliteStore> {
     configured_with(
         port,
         caps,
@@ -97,13 +89,8 @@ fn configured(port: u16, caps: AccountCaps) -> (Arc<SqliteStore>, tempfile::Temp
 }
 
 /// The same, with the account's authentication spelled out.
-fn configured_with(
-    port: u16,
-    caps: AccountCaps,
-    auth: AuthPlan,
-) -> (Arc<SqliteStore>, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+fn configured_with(port: u16, caps: AccountCaps, auth: AuthPlan) -> Arc<SqliteStore> {
+    let store = Arc::new(mail_store::testing::in_memory());
     let plan = AccountPlan {
         address: "ada@example.test".to_owned(),
         incoming: Incoming::Imap {
@@ -120,48 +107,10 @@ fn configured_with(
         identities: Vec::new(),
     };
     {
-        mail_store::testing::seed_account_plan(
-            &store,
-            acct_account(),
-            "ada@example.test",
-            &plan,
-            None,
-        );
-        mail_store::testing::seed_caps(&store, acct_account(), &caps, now()).unwrap();
+        mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
+        mail_store::testing::seed_caps(&store, account(), &caps, now()).unwrap();
     }
-    (store, dir)
-}
-
-fn caps() -> AccountCaps {
-    AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Poll {
-            every: std::time::Duration::from_secs(300),
-        },
-        archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles(Vec::new()),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 1 },
-        // Fresh, so the pass does not try to re-read capabilities from a server that may not be
-        // there. Staleness is covered in `imap_end_to_end.rs`.
-        observed_at: now(),
-    }
-}
-
-fn with_password(store_secrets: &MemorySecrets, password: &str) {
-    mail_runtime::block_on(store_secrets.put(
-        &SecretKey {
-            account: acct_account(),
-            purpose: SecretPurpose::IncomingPassword,
-        },
-        &Credential::Password(SecretText::new(password.to_owned())),
-    ))
-    .unwrap();
+    store
 }
 
 #[test]
@@ -169,7 +118,7 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
     // One account needing attention must not stop the others fetching mail, and the reason has
     // to say what is missing — this is the first thing a new user sees. The command that fixes it
     // is the front end's to word (`Remedy::SignIn`).
-    let (store, _dir) = configured(1, caps());
+    let store = configured(1, caps());
     let out = crate::blocking::run_with(
         store,
         Arc::new(MemorySecrets::default()),
@@ -188,7 +137,7 @@ fn an_account_with_no_credential_is_skipped_with_a_reason() {
 #[test]
 fn an_unreachable_server_is_reported_per_account_not_thrown() {
     // Port 1 refuses. The pass should say so against that account and return.
-    let (store, _dir) = configured(1, caps());
+    let store = configured(1, caps());
     let secrets = MemorySecrets::default();
     with_password(&secrets, "s3cr3t-pass");
 
@@ -211,8 +160,7 @@ fn an_unreachable_server_is_reported_per_account_not_thrown() {
 #[test]
 fn no_accounts_is_a_run_with_no_account_in_it() {
     // What to say about that is the command line's: see `mail_app::cli::sync`.
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+    let store = Arc::new(mail_store::testing::in_memory());
     let ends = crate::blocking::run_with(
         store,
         Arc::new(MemorySecrets::default()),
@@ -229,7 +177,7 @@ fn no_accounts_is_a_run_with_no_account_in_it() {
 async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetched() {
     // The assembly, end to end: stored plan, stored capabilities, a credential, a real server,
     // and a report of what the pass fetched. How it is worded is the command line's.
-    let (store, _dir) = configured(11143, caps());
+    let store = configured(11143, caps());
     let secrets = MemorySecrets::default();
     with_password(&secrets, "s3cr3t-pass");
 
@@ -352,10 +300,10 @@ mod renewing_an_expired_sign_in {
     }
 
     /// The same store as above, but an account that signs in with Google rather than a password.
-    fn oauth_account() -> (Arc<SqliteStore>, tempfile::TempDir) {
+    fn oauth_account() -> Arc<SqliteStore> {
         // Port 1: the connection after the renewal is not the subject here and is expected to
         // fail. What is being tested is what happens before it.
-        let (store, dir) = configured(1, caps());
+        let store = configured(1, caps());
         let plan = AccountPlan {
             address: "ada@example.test".to_owned(),
             incoming: Incoming::Imap {
@@ -374,13 +322,13 @@ mod renewing_an_expired_sign_in {
             },
             identities: Vec::new(),
         };
-        store.set_account_plan(acct_account(), &plan).unwrap();
-        (store, dir)
+        store.set_account_plan(account(), &plan).unwrap();
+        store
     }
 
     fn key() -> SecretKey {
         SecretKey {
-            account: acct_account(),
+            account: account(),
             purpose: SecretPurpose::IncomingPassword,
         }
     }
@@ -416,7 +364,7 @@ mod renewing_an_expired_sign_in {
 
     #[test]
     fn an_expired_access_token_is_renewed_and_the_new_one_stored() {
-        let (store, _dir) = oauth_account();
+        let store = oauth_account();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         // Two hours past expiry, which is where every OAuth account ended up an hour after it
         // was added and stayed forever.
@@ -470,7 +418,7 @@ mod renewing_an_expired_sign_in {
         // `account add` writes the credential twice, under `IncomingPassword` and under
         // `OAuthRefresh`. Renewing only one leaves the other stale, which is the same account
         // failing an hour later by a different route.
-        let (store, _dir) = oauth_account();
+        let store = oauth_account();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
         let (ends, _seen) = token_endpoint(RENEWED);
@@ -484,7 +432,7 @@ mod renewing_an_expired_sign_in {
         );
 
         let stored = mail_runtime::block_on(secrets.get(&SecretKey {
-            account: acct_account(),
+            account: account(),
             purpose: SecretPurpose::OAuthRefresh,
         }))
         .expect("the refresh entry should have been rewritten");
@@ -498,7 +446,7 @@ mod renewing_an_expired_sign_in {
     fn a_token_that_is_still_good_is_not_sent_to_the_issuer() {
         // Renewing on every pass would turn a five-minute poll into a five-minute round trip to
         // the issuer, and issuers rate-limit that.
-        let (store, _dir) = oauth_account();
+        let store = oauth_account();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         mail_runtime::block_on(secrets.put(&key(), &token(45))).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
@@ -530,17 +478,17 @@ mod renewing_an_expired_sign_in {
     /// this sign-in was for two.
     #[test]
     fn a_sign_in_for_two_resources_renews_each_by_its_own_scopes() {
-        let (store, _dir) = oauth_account();
+        let store = oauth_account();
         let plan = mail_domain::presets::send_through_graph(
             mail_domain::presets::microsoft_preset("ada@example.test", now()),
         )
         .plan;
-        store.set_account_plan(acct_account(), &plan).unwrap();
+        store.set_account_plan(account(), &plan).unwrap();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
         mail_runtime::block_on(secrets.put(
             &SecretKey {
-                account: acct_account(),
+                account: account(),
                 purpose: SecretPurpose::OAuthRefresh,
             },
             &token(-120),
@@ -579,7 +527,7 @@ mod renewing_an_expired_sign_in {
     /// sign-in would mend, and offers to set the account up over Graph.
     #[test]
     fn a_work_account_refused_over_imap_is_offered_graph() {
-        let (store, _dir) = configured_with(
+        let store = configured_with(
             super::a_refused_sign_in::serve_refusing(),
             caps(),
             AuthPlan::OAuth {
@@ -595,7 +543,7 @@ mod renewing_an_expired_sign_in {
         for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
             mail_runtime::block_on(secrets.put(
                 &SecretKey {
-                    account: acct_account(),
+                    account: account(),
                     purpose,
                 },
                 &token(60),
@@ -633,7 +581,7 @@ mod renewing_an_expired_sign_in {
     fn a_password_account_never_reaches_the_issuer() {
         // The plan is what decides, not the credential: a password has no expiry and there is
         // nothing to renew it with.
-        let (store, _dir) = configured(1, caps());
+        let store = configured(1, caps());
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         mail_runtime::block_on(secrets.put(
             &key(),
@@ -658,7 +606,7 @@ mod renewing_an_expired_sign_in {
         // "authentication failed" points at the password the user does not have. The actual
         // problem is that this installation cannot renew, and the message has to say that. No
         // client at hand is an empty registry, handed in on purpose.
-        let (store, _dir) = oauth_account();
+        let store = oauth_account();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
 
@@ -688,12 +636,12 @@ mod polling {
     fn with_watch(store: &Arc<SqliteStore>, watch: WatchMode) {
         let mut caps = caps();
         caps.watch = watch;
-        mail_store::testing::seed_caps(store, acct_account(), &caps, chrono::Utc::now()).unwrap();
+        mail_store::testing::seed_caps(store, account(), &caps, chrono::Utc::now()).unwrap();
     }
 
     #[test]
     fn the_interval_comes_from_the_account_rather_than_a_constant() {
-        let (store, _dir) = configured(1, caps());
+        let store = configured(1, caps());
         with_watch(
             &store,
             WatchMode::Poll {
@@ -710,7 +658,7 @@ mod polling {
     fn an_idle_capable_account_is_polled_like_any_other_until_idle_is_held() {
         // `WatchMode::Idle` means the server offers a long-lived connection this loop does not
         // hold. Treating it as "no polling needed" would mean an IMAP account never syncing.
-        let (store, _dir) = configured(1, caps());
+        let store = configured(1, caps());
         with_watch(&store, WatchMode::Idle);
         assert_eq!(
             sync::poll_interval(&store),
@@ -723,8 +671,7 @@ mod polling {
     fn a_database_with_no_accounts_still_answers() {
         // The loop starts before anything is configured, and asking an empty store must not be
         // an error it has to handle.
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+        let store = Arc::new(mail_store::testing::in_memory());
         assert_eq!(
             sync::poll_interval(&store),
             std::time::Duration::from_secs(300)
@@ -782,7 +729,7 @@ mod a_refused_sign_in {
 
     #[test]
     fn the_pass_says_the_credential_was_rejected() {
-        let (store, _dir) = configured(serve_refusing(), caps());
+        let store = configured(serve_refusing(), caps());
         let secrets = MemorySecrets::default();
         with_password(&secrets, "definitely-not-the-password");
 
@@ -819,7 +766,7 @@ mod a_refused_sign_in {
     /// the user next noticed, and the stored credential was never the problem.
     #[test]
     fn a_server_that_is_simply_down_is_not_a_refusal() {
-        let (store, _dir) = configured(1, caps()); // port 1 refuses the connection
+        let store = configured(1, caps()); // port 1 refuses the connection
         let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
@@ -867,7 +814,7 @@ mod a_refused_sign_in {
     fn and_the_loop_stops_rather_than_backing_off() {
         // The two halves joined: the classification the pass produces, fed to the decision the
         // loop makes. Either alone proves nothing about what the client does to a mail server.
-        let (store, _dir) = configured(serve_refusing(), caps());
+        let store = configured(serve_refusing(), caps());
         let secrets = MemorySecrets::default();
         with_password(&secrets, "wrong");
 
@@ -935,7 +882,7 @@ mod a_server_asking_to_be_left_alone {
 
     #[test]
     fn the_wait_the_server_asked_for_survives_as_far_as_the_loop() {
-        let (store, _dir) = configured(serve_throttling(), caps());
+        let store = configured(serve_throttling(), caps());
         let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
@@ -964,7 +911,7 @@ mod a_server_asking_to_be_left_alone {
 
     #[test]
     fn and_the_loop_waits_that_long_rather_than_the_usual_five_minutes() {
-        let (store, _dir) = configured(serve_throttling(), caps());
+        let store = configured(serve_throttling(), caps());
         let secrets = MemorySecrets::default();
         with_password(&secrets, "the-right-password");
 
@@ -1009,7 +956,7 @@ mod an_account_with_nothing_stored {
     use super::*;
 
     fn told(auth: AuthPlan) -> String {
-        let (store, _dir) = configured_with(1, caps(), auth);
+        let store = configured_with(1, caps(), auth);
         crate::blocking::run_with(
             store,
             Arc::new(MemorySecrets::default()),
@@ -1054,7 +1001,7 @@ mod an_account_with_nothing_stored {
     fn the_remedy_for_a_refused_sign_in_follows_the_stored_plan() {
         use mail_core::{Remedy, SignInWith};
         let remedy = |auth: AuthPlan| {
-            let (store, _dir) = configured_with(1, caps(), auth);
+            let store = configured_with(1, caps(), auth);
             sync::sign_in_remedy(&store, "ada@example.test")
         };
         let signs_in = |with| Remedy::SignIn {
@@ -1077,7 +1024,7 @@ mod an_account_with_nothing_stored {
                 signs_in(SignInWith::OAuth { issuer })
             );
         }
-        let (store, _dir) = configured(1, caps());
+        let store = configured(1, caps());
         assert_eq!(
             sync::sign_in_remedy(&store, "nobody@example.test"),
             Remedy::SignIn {
@@ -1094,7 +1041,7 @@ mod an_account_with_nothing_stored {
     #[test]
     fn the_account_listing_says_the_same_thing_in_fewer_words() {
         let secrets = MemorySecrets::default();
-        let (oauth, _a) = configured_with(
+        let oauth = configured_with(
             1,
             caps(),
             AuthPlan::OAuth {
@@ -1110,7 +1057,7 @@ mod an_account_with_nothing_stored {
              password\": {listed:?}"
         );
 
-        let (password, _b) = configured_with(
+        let password = configured_with(
             1,
             caps(),
             AuthPlan::Password {
@@ -1137,7 +1084,7 @@ mod capabilities_the_window_reads {
 
     #[test]
     fn what_was_observed_is_what_comes_back() {
-        let (store, _dir) = configured_with(
+        let store = configured_with(
             1,
             AccountCaps {
                 archive: ArchiveMeans::DropInbox,
@@ -1150,7 +1097,7 @@ mod capabilities_the_window_reads {
             },
         );
 
-        let read = sync::caps_of(&store, acct_account()).expect("the account has capabilities");
+        let read = sync::caps_of(&store, account()).expect("the account has capabilities");
         assert_eq!(read.archive, ArchiveMeans::DropInbox);
         assert_eq!(read.labels, ServerLabels::Supported);
     }
@@ -1159,7 +1106,7 @@ mod capabilities_the_window_reads {
     fn an_account_nothing_has_connected_to_yet_has_none() {
         // Not an error: the window can be opened before the first sync, and the caller's answer
         // is to assume nothing rather than to refuse to act.
-        let (store, _dir) = configured(1, caps());
+        let store = configured(1, caps());
         assert!(sync::caps_of(&store, new_account_id()).is_none());
     }
 }
@@ -1205,8 +1152,8 @@ mod both_accounts_at_once {
         account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
     }
 
-    fn two_accounts(first: u16, second: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
-        let (store, dir) = configured(first, caps());
+    fn two_accounts(first: u16, second: u16) -> Arc<SqliteStore> {
+        let store = configured(first, caps());
         let other = other_account();
         let plan = AccountPlan {
             address: "bee@example.test".to_owned(),
@@ -1234,7 +1181,7 @@ mod both_accounts_at_once {
             Some(chrono::Utc::now() + chrono::Duration::seconds(1)),
         );
         mail_store::testing::seed_caps(&store, other.clone(), &caps(), now()).unwrap();
-        (store, dir)
+        store
     }
 
     /// Two intervals that share any instant at all.
@@ -1250,7 +1197,7 @@ mod both_accounts_at_once {
         let hold = std::time::Duration::from_millis(400);
         let (first, one) = slow_server(hold);
         let (second, two) = slow_server(hold);
-        let (store, _dir) = two_accounts(first, second);
+        let store = two_accounts(first, second);
 
         // Both accounts need a credential, or the one without it is skipped before it ever
         // opens a socket — and a test of concurrency with one participant proves nothing.
@@ -1291,7 +1238,7 @@ mod both_accounts_at_once {
 /// Downloading a part is IMAP's, and a message with no such account says so rather than trying.
 #[test]
 fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
-    let (store, _dir) = configured(1, caps());
+    let store = configured(1, caps());
     // Repoint the account at POP3: the one fact under test.
     let mut plan = store.list_accounts().unwrap().remove(0).plan.unwrap();
     plan.incoming = Incoming::Pop3 {
@@ -1300,12 +1247,12 @@ fn fetching_a_part_of_a_pop3_message_is_refused_before_anything_is_sent() {
         tls: Tls::Plaintext,
         leave: LeaveOnServer::Keep,
     };
-    store.set_account_plan(acct_account(), &plan).unwrap();
+    store.set_account_plan(account(), &plan).unwrap();
     mail_runtime::absorb(
         &store,
-        acct_account(),
+        account(),
         MailboxRef {
-            account: acct_account(),
+            account: account(),
             path: "INBOX".to_owned(),
         },
         None,

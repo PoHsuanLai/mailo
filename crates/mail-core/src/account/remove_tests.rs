@@ -4,6 +4,7 @@
 use super::{RemoveError, remove};
 use crate::account::{Credentials, add_with_password};
 use crate::password::Password;
+use crate::support_tests::{now, pop3};
 use mail_domain::id::new_account_id;
 use mail_runtime::{ClientRegistry, block_on};
 use mail_store::SqliteStore;
@@ -13,31 +14,16 @@ use porter_secrets::{MemorySecrets, Secrets, SecretsError};
 const KEPT: &str = "kept@example.edu";
 const GONE: &str = "gone@example.edu";
 
-fn now() -> chrono::DateTime<chrono::Utc> {
-    chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap()
-}
-
-fn pop3() -> crate::account::Setup {
-    crate::account::Setup::Pop3(mail_domain::presets::ManualPop3 {
-        pop3_host: "pop.example.edu".to_owned(),
-        pop3_port: 995,
-        smtp_host: "smtp.example.edu".to_owned(),
-        smtp_port: 465,
-        login: None,
-    })
-}
-
 /// A store with two password accounts, each with a label of its own, and the keyring holding
 /// both passwords.
-fn two_accounts(secrets: &MemorySecrets) -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+fn two_accounts(secrets: &MemorySecrets) -> SqliteStore {
+    let store = mail_store::testing::in_memory();
     for address in [KEPT, GONE] {
         let password = Password::new(format!("{address}-secret"));
         block_on(add_with_password(
             &store,
             address,
-            Some(&pop3()),
+            Some(&pop3(None)),
             false,
             false,
             now(),
@@ -55,7 +41,7 @@ fn two_accounts(secrets: &MemorySecrets) -> (SqliteStore, tempfile::TempDir) {
             .create_label(account_of(&store, address), "travel")
             .unwrap();
     }
-    (store, dir)
+    store
 }
 
 fn account_of(store: &SqliteStore, address: &str) -> AccountId {
@@ -85,7 +71,7 @@ fn password_of(secrets: &MemorySecrets, account: AccountId) -> Option<Credential
 #[test]
 fn removing_an_account_forgets_its_sign_in_and_every_row_naming_it_and_nothing_else() {
     let secrets = MemorySecrets::default();
-    let (store, _dir) = two_accounts(&secrets);
+    let store = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
     let kept = account_of(&store, KEPT);
     assert!(
@@ -106,7 +92,7 @@ fn removing_an_account_forgets_its_sign_in_and_every_row_naming_it_and_nothing_e
 #[test]
 fn an_account_already_removed_is_unknown() {
     let secrets = MemorySecrets::default();
-    let (store, _dir) = two_accounts(&secrets);
+    let store = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
     block_on(remove(&store, &secrets, gone.clone())).unwrap();
     for account in [gone, new_account_id()] {
@@ -120,7 +106,7 @@ fn an_account_already_removed_is_unknown() {
 #[test]
 fn the_account_that_keeps_mail_here_is_refused_and_kept() {
     let secrets = MemorySecrets::default();
-    let (store, _dir) = two_accounts(&secrets);
+    let store = two_accounts(&secrets);
     let local = crate::account::local(&store, now()).unwrap();
     assert!(matches!(
         block_on(remove(&store, &secrets, local.clone())),
@@ -153,7 +139,7 @@ impl Secrets for Locked<'_> {
 #[test]
 fn a_keyring_that_will_not_forget_stops_the_removal_with_nothing_deleted() {
     let secrets = MemorySecrets::default();
-    let (store, _dir) = two_accounts(&secrets);
+    let store = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
     let before = rows_naming(&store, gone.clone());
 
@@ -171,7 +157,7 @@ fn a_keyring_that_will_not_forget_stops_the_removal_with_nothing_deleted() {
 fn removing_an_account_forgets_every_purpose_of_it_through_delete_account() {
     use porter_core::{CapabilityKind, SecretText};
     let secrets = MemorySecrets::default();
-    let (store, _dir) = two_accounts(&secrets);
+    let store = two_accounts(&secrets);
     let gone = account_of(&store, GONE);
     let kept = account_of(&store, KEPT);
     let purposes = [

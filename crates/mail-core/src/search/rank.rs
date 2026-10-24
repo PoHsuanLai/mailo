@@ -195,8 +195,8 @@ mod tests {
     use mail_domain::{ReadState, Star, ThreadSummary};
 
     use super::super::parsing::parse;
-    use super::super::support::{self, at};
     use super::{Affinity, MAX_BONUS, SenderStats, rank};
+    use crate::support_tests::{self as support, at};
 
     fn ids(rows: &[(ThreadSummary, f64)]) -> Vec<u128> {
         rows.iter()

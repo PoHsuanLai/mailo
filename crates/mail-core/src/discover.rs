@@ -1402,30 +1402,45 @@ mod tests {
         assert!(matches!(found.preset.plan.auth, AuthPlan::Password { .. }));
     }
 
-    /// OAuth2 through the issuer a document names is taken even when that is the only
-    /// sign-in it lists, through the whole search.
+    /// OAuth2 through the issuer a document names is taken even when that is the only sign-in
+    /// it lists, through the whole search. A document that offers OAuth2 at an issuer's host
+    /// with submission on STARTTLS (Microsoft's own) is a miss under the rule, and is taken
+    /// after the later sources fail, as the issuer's preset whole.
     #[tokio::test]
-    async fn an_oauth_only_document_at_a_known_issuer_is_an_oauth_plan() {
-        let mut net = Net::default();
-        net.documents.insert(
-            "https://autoconfig.example.test/mail/config-v1.1.xml?emailaddress=me%40example.test"
-                .to_owned(),
-            imap_smtp(
+    async fn an_oauth_only_document_at_a_known_issuer_is_that_issuers_oauth_plan() {
+        let cases = [
+            (
                 ("imap.gmail.com", 993, "SSL"),
                 ("smtp.gmail.com", 465, "SSL"),
-                "",
-                &["OAuth2"],
+                Issuer::Google,
+                Some(Source::Autoconfig),
             ),
-        );
-        let found = net.found("me@example.test").await.expect("found");
-        assert!(matches!(
-            found.preset.plan.auth,
-            AuthPlan::OAuth {
-                issuer: Issuer::Google,
-                ..
+            (
+                ("outlook.office365.com", 993, "SSL"),
+                ("smtp.office365.com", 587, "STARTTLS"),
+                Issuer::Microsoft,
+                None,
+            ),
+        ];
+        for (incoming, outgoing, want, source) in cases {
+            let mut net = Net::default();
+            net.documents.insert(
+                "https://autoconfig.example.test/mail/config-v1.1.xml?emailaddress=me%40example.test"
+                    .to_owned(),
+                imap_smtp(incoming, outgoing, "", &["OAuth2"]),
+            );
+            let found = net.found("me@example.test").await.expect("found");
+            assert!(
+                matches!(
+                    found.preset.plan.auth,
+                    AuthPlan::OAuth { issuer, .. } if issuer == want
+                ),
+                "{want:?}"
+            );
+            if let Some(source) = source {
+                assert_eq!(found.source, source);
             }
-        ));
-        assert_eq!(found.source, Source::Autoconfig);
+        }
     }
 
     #[test]
@@ -1448,32 +1463,6 @@ mod tests {
             "{failed:?}"
         );
         assert!(found_under_mailo(&xml, "me@firm.example").is_ok());
-    }
-
-    /// A document that offers OAuth2 at an issuer's host with submission on STARTTLS
-    /// (Microsoft's own) is a miss under the rule, and is taken after the later sources fail, as
-    /// the issuer's preset whole.
-    #[tokio::test]
-    async fn a_starttls_document_that_leads_to_an_issuer_is_still_that_issuers_preset() {
-        let mut net = Net::default();
-        net.documents.insert(
-            "https://autoconfig.example.test/mail/config-v1.1.xml?emailaddress=me%40example.test"
-                .to_owned(),
-            imap_smtp(
-                ("outlook.office365.com", 993, "SSL"),
-                ("smtp.office365.com", 587, "STARTTLS"),
-                "",
-                &["OAuth2"],
-            ),
-        );
-        let found = net.found("me@example.test").await.expect("found");
-        assert!(matches!(
-            found.preset.plan.auth,
-            AuthPlan::OAuth {
-                issuer: Issuer::Microsoft,
-                ..
-            }
-        ));
     }
 
     /// POP3 serves only when no IMAP server will do, with its own login.

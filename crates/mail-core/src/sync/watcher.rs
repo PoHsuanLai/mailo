@@ -236,18 +236,13 @@ impl Host for Watching<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeZone;
-    use mail_domain::id::account_id_from_uuid;
+    use crate::support_tests::{account, caps};
+
     use mail_domain::*;
 
-    fn acct_imap() -> AccountId {
-        account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d4"))
-    }
-
     /// A store with one IMAP account, which is what a pass can be asked of.
-    fn store() -> (SqliteStore, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::in_memory(dir.path()).unwrap();
+    fn store() -> SqliteStore {
+        let store = mail_store::testing::in_memory();
         let plan = AccountPlan {
             address: "ada@example.test".to_owned(),
             incoming: Incoming::Imap {
@@ -263,28 +258,12 @@ mod tests {
             identities: Vec::new(),
         };
         let caps = AccountCaps {
-            labels: ServerLabels::LocalOnly,
-            threads: ServerThreads::Jwz,
             watch: WatchMode::Idle,
-            archive: ArchiveMeans::LocalOnly,
-            folders: FolderRoles(Vec::new()),
-            condstore: Condstore::Absent,
-            move_ext: MoveExt::Absent,
-            expunge: ExpungeMeans::Forbidden,
-            top: Supported::Absent,
-            pipelining: Supported::Absent,
-            connections: ConnectionBudget { max: 1 },
-            observed_at: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
+            ..caps()
         };
-        mail_store::testing::seed_account_plan(
-            &store,
-            acct_imap(),
-            "ada@example.test",
-            &plan,
-            None,
-        );
-        mail_store::testing::seed_caps(&store, acct_imap(), &caps, caps.observed_at).unwrap();
-        (store, dir)
+        mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
+        mail_store::testing::seed_caps(&store, account(), &caps, caps.observed_at).unwrap();
+        store
     }
 
     /// A Sync asked for at the watch's door was refused, so a window that left fetching to the
@@ -292,7 +271,7 @@ mod tests {
     /// the watch's own scheduler.
     #[tokio::test]
     async fn an_ask_at_the_door_starts_a_pass_of_every_account() {
-        let (store, _dir) = store();
+        let store = store();
         let (asks, asked) = tokio::sync::watch::channel(0u64);
         let (tx, mut notes) = tokio::sync::mpsc::unbounded_channel();
         let answering = answer(Some(asked), &store, tx);
@@ -312,8 +291,8 @@ mod tests {
             note = notes.recv() => note,
         };
         match note {
-            Some(Note::Event(account, Event::Start(Trigger::Manual))) => {
-                assert_eq!(account, acct_imap());
+            Some(Note::Event(started, Event::Start(Trigger::Manual))) => {
+                assert_eq!(started, account());
             }
             other => panic!("not a manual pass: {other:?}"),
         }

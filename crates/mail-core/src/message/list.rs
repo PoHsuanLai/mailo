@@ -41,7 +41,8 @@ pub fn offer_of(found: Found, sender: Address, from: Address) -> Option<Offer> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_domain::id::account_id_from_uuid;
+    use crate::support_tests::account;
+
     use mail_mime::{ListHeaders, ListId};
 
     const ONE_CLICK: &str = "List-Id: Rust Weekly <weekly.rust.test>\r\n\
@@ -58,10 +59,6 @@ mod tests {
             name: None,
             email: email.to_owned(),
         }
-    }
-
-    fn account() -> porter_core::AccountId {
-        account_id_from_uuid(uuid::Uuid::from_u128(0xa1))
     }
 
     fn offer_from(raw_headers: &str) -> Option<Offer> {

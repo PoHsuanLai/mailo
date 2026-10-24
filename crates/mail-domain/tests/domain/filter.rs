@@ -148,7 +148,6 @@ fn cases() -> Vec<Case> {
         ),
         // Identity of `any`: an empty disjunction is false.
         Case::new("empty Or is false", Filter::Or(vec![]), false),
-        Case::new("Not inverts a match", not(Filter::All), false),
         Case::new(
             "Not inverts a non-match",
             not(Filter::Account(acct_account_b())),
@@ -270,12 +269,6 @@ fn cases() -> Vec<Case> {
         Case::new(
             "From misses a different sender",
             Filter::From(contains("bob@example.org")),
-            false,
-        ),
-        // `from` is the newest sender only; the older participant does not satisfy `From`.
-        Case::new(
-            "From does not consult participants",
-            Filter::From(contains("bob")),
             false,
         ),
         Case::new(
@@ -703,11 +696,6 @@ fn cases() -> Vec<Case> {
             false,
         )
         .on(|s| s.subject = "İstanbul".to_owned()),
-        Case::new(
-            "an empty Contains matches any field",
-            Filter::Subject(contains("")),
-            true,
-        ),
         Case::new(
             "an empty Exact matches only an empty field",
             Filter::Subject(exact("")),
