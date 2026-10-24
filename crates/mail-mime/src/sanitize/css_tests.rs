@@ -88,6 +88,38 @@ fn what_fetches_or_runs_is_removed_and_the_rest_kept() {
     }
 }
 
+/// No rule of the sender's names one of mailo's own elements (the frame's inset, a folded
+/// quote): a class, an `#id` or an identifier starting `mailo-` gains an `x-`, an attribute
+/// selector that names `mailo` matches nothing, and the rest is as it was.
+#[test]
+fn mailo_s_own_names_are_out_of_a_sender_s_reach() {
+    const SHEET: &[(&str, &str)] = &[
+        (
+            ".mailo-inset{padding:0!important}",
+            ".x-mailo-inset{padding:0!important}",
+        ),
+        (
+            "div.MAILO-Quote{display:none}",
+            "div.x-MAILO-Quote{display:none}",
+        ),
+        ("#mailo-inset{margin:0}", "#x-mailo-inset{margin:0}"),
+        ("[class^=mailo]{margin:0}", "[x-mailo]{margin:0}"),
+        (
+            "div[class*=\"Mailo-in\"]{margin:0}",
+            "div[x-mailo]{margin:0}",
+        ),
+        ("[class=lead]{margin:0}", "[class=lead]{margin:0}"),
+        (".mailorder{margin:0}", ".mailorder{margin:0}"),
+        (
+            "@media print{.mailo-inset{padding:0}}",
+            "@media print{.x-mailo-inset{padding:0}}",
+        ),
+    ];
+    for (css, want) in SHEET {
+        assert_eq!(scrub(css, Context::Rules), *want, "{css}");
+    }
+}
+
 /// Dropping a token (a comment, `<`, `<!--`) or writing one anew (`none`, a number in its own
 /// form) never leaves two tokens that read back as one, so a second scrub changes nothing.
 #[test]

@@ -71,30 +71,27 @@ fn fitting(frame: &MountedData) -> Option<f32> {
     })
 }
 
-/// How wide `doc` is laid out, in its pixels as drawn: its widest box under `<body>`, and the
-/// body's own insets either side. Not where boxes end: Blitz starts a centred box that overflows
-/// at an offset that does not shrink with the zoom, where its width does. Read to a bound, as a
-/// page could be very large.
+/// How wide `doc` is laid out, in its pixels as drawn: its widest box inside the frame's inset
+/// (`mail_core::message`'s `mailo-inset`, the one element of `<body>`), and the insets of the
+/// body and the inset either side; a document with no inset, its widest box under `<body>`. The
+/// inset itself is a block as wide as the frame whatever it holds, so it is never the widest.
+/// Not where boxes end: Blitz starts a centred box that overflows at an offset that does not
+/// shrink with the zoom, where its width does. Read to a bound, as a page could be very large.
 fn laid_width(doc: &blitz_dom::BaseDocument) -> Option<f32> {
     const BOXES: usize = 20_000;
     let root = doc.root_element();
-    let body = root
-        .children
-        .iter()
-        .filter_map(|id| doc.get_node(*id))
-        .find(|node| {
-            node.element_data()
-                .is_some_and(|data| &*data.name.local == "body")
-        })?;
-    let outer = body.final_layout();
-    let insets = outer.padding.left
-        + outer.padding.right
-        + outer.border.left
-        + outer.border.right
-        + outer.margin.left
-        + outer.margin.right;
+    let body = child_named(doc, root, "body")?;
+    let inset = child_named(doc, body, "div").filter(|div| {
+        div.attr(blitz_dom::LocalName::from("class"))
+            .is_some_and(|class| {
+                class
+                    .split_ascii_whitespace()
+                    .any(|name| name == "mailo-inset")
+            })
+    });
+    let insets = insets_of(body) + inset.map_or(0.0, insets_of);
     let mut widest = 0.0_f32;
-    let mut stack: Vec<_> = body.children.to_vec();
+    let mut stack: Vec<_> = inset.unwrap_or(body).children.to_vec();
     let mut seen = 0;
     while let Some(id) = stack.pop() {
         seen += 1;
@@ -112,6 +109,33 @@ fn laid_width(doc: &blitz_dom::BaseDocument) -> Option<f32> {
         stack.extend(node.children.iter().copied());
     }
     Some(widest + insets)
+}
+
+/// `parent`'s first child element named `name`.
+fn child_named<'d>(
+    doc: &'d blitz_dom::BaseDocument,
+    parent: &blitz_dom::Node,
+    name: &str,
+) -> Option<&'d blitz_dom::Node> {
+    parent
+        .children
+        .iter()
+        .filter_map(|id| doc.get_node(*id))
+        .find(|node| {
+            node.element_data()
+                .is_some_and(|data| &*data.name.local == name)
+        })
+}
+
+/// `node`'s padding, border and margin, left and right together.
+fn insets_of(node: &blitz_dom::Node) -> f32 {
+    let outer = node.final_layout();
+    outer.padding.left
+        + outer.padding.right
+        + outer.border.left
+        + outer.border.right
+        + outer.margin.left
+        + outer.margin.right
 }
 
 /// Keep `zoom` at what fits `frame`'s document to its width, as Mail shrinks a message laid out
