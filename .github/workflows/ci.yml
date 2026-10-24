@@ -76,10 +76,16 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       # No network: everything that talks to a socket is `#[ignore]`d and runs in `live` below.
-      # The window is driven headlessly among them.
+      # The window is driven headlessly among them. nextest runs each test in its own process and
+      # names a hang; it runs no doctests, so they are a step of their own.
       - name: Tests
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
+      - name: Doctests
+        run: cargo test --workspace --doc
 
       # The rule the whole design rests on: the three pure crates must not be able to reach an
       # I/O dependency. It is checked mechanically because a person reading Cargo.toml will not
@@ -150,8 +156,13 @@ jobs:
         with:
           key: ${{ matrix.image }}
           cache-on-failure: true
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Tests
-        run: cargo test --workspace
+        run: cargo nextest run --workspace
+      - name: Doctests
+        run: cargo test --workspace --doc
 
   # Real sockets, against servers this repository did not write: a Twisted IMAP4Server, an
   # aiosmtpd SMTP server, and a POP3 server. Separate from `check` because it needs Python and a
@@ -213,9 +224,14 @@ jobs:
       # portable build is what is built and tested (quire design/36 rule 3).
       - name: Clippy
         run: cargo clippy --workspace --all-targets --no-default-features -- -D warnings
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       # No network, as in `check`: everything that talks to a socket is `#[ignore]`d.
       - name: Tests
-        run: cargo test --workspace --no-default-features
+        run: cargo nextest run --workspace --no-default-features
+      - name: Doctests
+        run: cargo test --workspace --doc --no-default-features
       # The default features on a Mac: the build a person gets from a plain `cargo build`, which
       # the two steps above never compile. Only checked, not run, and only on macOS until a
       # Windows runner says the same of itself.
