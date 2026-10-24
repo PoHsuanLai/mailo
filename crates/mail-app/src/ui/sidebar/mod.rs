@@ -6,7 +6,9 @@ mod folders;
 mod foot;
 mod join;
 mod lit;
+mod pager;
 mod panes;
+mod swipe;
 mod sync;
 mod tile_menu;
 mod tiles;
@@ -26,6 +28,7 @@ use ds::components::app::spaces::{SpaceHead, SpacesFoot};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName, ExtraClass};
+use ds::style::scope::use_scope;
 use mail_core::profile::ProfileId;
 
 /// A `data-<name>` of mailo's own on a quire component: where a hover card or a test finds the
@@ -109,6 +112,19 @@ pub(super) fn Places(
     } else {
         Shown::Visible
     };
+    // A sideways swipe over the sidebar goes to the Space beside this one (`pager`): the
+    // Space's name and its lists follow the fingers (`--space-dx`), and every switch slides
+    // them in from the side the new Space stands on.
+    let pager = pager::use_pager(handle);
+    let carried = pager.offset(use_scope().resolved.motion);
+    let swiping = carried.as_ref().map(|_| "live");
+    let (slide_in, pulse) = pager
+        .arrival()
+        .map_or((None, None), |(class, pulse)| (Some(class), Some(pulse)));
+    let moved = |base: &str| match &slide_in {
+        Some(class) => format!("{base} {class}"),
+        None => base.to_owned(),
+    };
     // The current Space's name heads the sidebar, one Space or several: it says where you are.
     // The dots stand in the foot only once there are several to tell apart (quire's `SpacesFoot`
     // draws none for one).
@@ -137,16 +153,26 @@ pub(super) fn Places(
             label: copy::aria::SIDEBAR,
             pinned,
             onpin: move |()| side_hidden.set(false),
-            common: Common { extra_class: ExtraClass::parse("side").ok(), ..Common::default() },
+            common: Common {
+                extra_class: ExtraClass::parse("side").ok(),
+                mounted: Some(EventHandler::new(move |event: MountedEvent| pager.on_mounted(event))),
+                ..Common::default()
+            },
             // The current Space's name heads the sidebar, as a browser's does; a plain press on it
             // does nothing. Downloads stands at the row's right end, its list opening below it.
             div { class: "side-head", oncontextmenu: space_menu,
-                div { class: "side-title",
+                div { class: moved("side-title"),
+                    "data-swipe": swiping,
+                    "data-pulse": pulse,
+                    style: carried.clone(),
                     SpaceHead { handle }
                 }
                 crate::ui::downloads::DownloadsButton { shell }
             }
-            div { class: "slide", oncontextmenu: space_menu,
+            div { class: moved("slide"), oncontextmenu: space_menu,
+                "data-swipe": swiping,
+                "data-pulse": pulse,
+                style: carried,
                 AccountTiles { shell, pages, handle, rows: tiled() }
                 Favourites { shell, pages, space: space.clone(), counted: counts_now }
                 PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
@@ -186,5 +212,7 @@ mod folder_place_tests;
 mod folder_store_tests;
 #[cfg(test)]
 mod folder_tests;
+#[cfg(test)]
+mod swipe_tests;
 #[cfg(test)]
 pub(in crate::ui) mod tests;
