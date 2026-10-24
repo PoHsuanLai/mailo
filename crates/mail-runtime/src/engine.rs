@@ -5,7 +5,7 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait (`CONTRIBUTING.md`, "Time").
 
-use crate::error::Failure;
+use crate::error::{Failure, Logged};
 use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive, drive_within};
 use chrono::{DateTime, Utc};
@@ -1417,7 +1417,7 @@ impl<B: Backend> AccountEngine<B> {
             _ => self.caps().clone(),
         };
         let caps = match self.graph.as_mut() {
-            Some(reader) => reader.observed(now),
+            Some(reader) => reader.observed(now, self.store.folders(self.account.clone())?.len()),
             None => caps,
         };
         self.store.put_caps(self.account.clone(), &caps, now)?;
@@ -1440,7 +1440,9 @@ impl<B: Backend> AccountEngine<B> {
             self.listed_inbox(&listed)?;
             self.store.put_folders(self.account.clone(), listed)?;
             let caps = match self.graph.as_mut() {
-                Some(reader) => reader.observed(now),
+                Some(reader) => {
+                    reader.observed(now, self.store.folders(self.account.clone())?.len())
+                }
                 None => *caps,
             };
             self.store.put_caps(self.account.clone(), &caps, now)?;
@@ -1569,9 +1571,22 @@ impl<B: Backend> AccountEngine<B> {
     /// A server gains and loses extensions across upgrades, and an account moved between
     /// providers keeps its row. Daily is often enough to notice, and rare enough to cost
     /// nothing; re-reading on every pass would be a wasted round trip every few minutes.
+    ///
+    /// A Graph account whose stored interval is slower than its folders now allow is stale at
+    /// once ([`Reader::polls_behind`](crate::graph::read::Reader::polls_behind)): it was written
+    /// when Graph was polled every minute, and would otherwise keep that for up to a day. The
+    /// folders are counted as the store holds them, as [`AccountEngine::refresh_caps`] counts
+    /// them, so a refresh settles it and the next pass does not ask again.
     pub fn caps_are_stale(&self, now: DateTime<Utc>) -> bool {
-        now.signed_duration_since(self.caps().observed_at)
-            > chrono::TimeDelta::try_hours(24).expect("24h is in range")
+        let dated = now.signed_duration_since(self.caps().observed_at)
+            > chrono::TimeDelta::try_hours(24).expect("24h is in range");
+        dated
+            || self.graph.as_ref().is_some_and(|reader| {
+                self.store
+                    .folders(self.account.clone())
+                    .or_log("the folders could not be counted")
+                    .is_some_and(|folders| reader.polls_behind(folders.len()))
+            })
     }
 
     /// Run the account's rules over what a pass stored for the first time.
