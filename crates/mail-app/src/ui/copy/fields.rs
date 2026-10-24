@@ -121,4 +121,12 @@ pub mod account {
     pub const SENDING: &str = "Sending";
     pub const SIGNS_IN: &str = "Signs in";
     pub const SENDS_AS: &str = "Sends as";
+    /// A Microsoft 365 account's relay, through which Graph pushes new mail
+    /// (`settings_window::push_relay`): the row's label, and the field's name to a screen reader.
+    pub const PUSH_RELAY: &str = "Push relay";
+    /// The field's placeholder while no relay is set.
+    pub const PUSH_RELAY_EXAMPLE: &str = "https://relay.example.com";
+    /// Under the field.
+    pub const PUSH_RELAY_HELP: &str =
+        "New mail arrives at once through a relay you deploy. Leave it empty to check on a timer.";
 }

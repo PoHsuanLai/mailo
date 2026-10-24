@@ -8,6 +8,7 @@ mod folders;
 mod forget;
 pub use forget::Freed;
 mod found;
+mod graph_push;
 mod groups;
 mod invite;
 mod offline;

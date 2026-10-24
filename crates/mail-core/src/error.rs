@@ -76,6 +76,9 @@ pub enum CoreError {
     UnknownAccount(String),
     #[error("no accounts")]
     NoAccounts,
+    /// A push relay's address that cannot be one (`sync::graph_push::set_relay`).
+    #[error(transparent)]
+    Relay(#[from] mail_runtime::graph::push::RelayRefused),
     #[error("no config directory (neither XDG_CONFIG_HOME nor HOME is set)")]
     NoConfigDir,
     /// A setting's file that is there and cannot be read, left as it is rather than written over.

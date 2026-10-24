@@ -13,6 +13,7 @@ mod fold_table;
 mod folders;
 mod follow_up;
 mod found;
+mod graph_push;
 mod graph_remote;
 mod groups;
 mod import;
