@@ -7,6 +7,7 @@
 //! glyph repeated down every row (design-language §2.2, §2.6).
 
 mod further;
+mod redirect;
 pub(super) use further::FurtherMenus;
 
 use super::menu::{Floating, MenuItem, MenuKey, Right, anchor_for, menu_key, palette_groups};

@@ -1,5 +1,6 @@
 use crate::ui::view::Shell;
 use dioxus::prelude::{ReadableExt, Signal, WritableExt};
+use mail_core::compose::{Answer, Quote};
 use mail_core::view::{mute_op, op_for, reply_target};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -18,9 +19,20 @@ use porter_core::AccountId;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Composes {
     Reply(ReplyScope),
+    /// A reply to the list the message came through, at its `List-Post` address.
+    ReplyList,
     Forward,
     /// A forward that carries the message itself as a `message/rfc822` attachment.
     ForwardAttached,
+    /// Edit as New, and Send Again: a new message filled in from the conversation's newest.
+    Again,
+}
+
+impl Composes {
+    /// Whether this answers the message, so a selection in it is what it quotes.
+    fn answers(self) -> bool {
+        matches!(self, Composes::Reply(_) | Composes::ReplyList)
+    }
 }
 
 pub(super) fn composes(kind: OpKind) -> Option<Composes> {
@@ -89,7 +101,14 @@ pub(super) fn open_composer(
             started.map(|draft| shell.write().compose(&draft))
         }
         Writes::On(thread, composes) => {
-            start_composing(store, thread, composes).map(|draft| shell.write().compose(&draft))
+            // Read here, as the press is heard: the selection is the window's, in its frames.
+            let selected = composes
+                .answers()
+                .then(|| store.thread(thread).ok())
+                .flatten()
+                .and_then(|loaded| crate::ui::reading::selection::selected(&loaded.messages));
+            start_composing(store, thread, composes, selected)
+                .map(|draft| shell.write().compose(&draft))
         }
         Writes::Draft(id) => shell.write().compose_id(store, id),
     };
@@ -99,13 +118,21 @@ pub(super) fn open_composer(
     opened
 }
 
+/// Create the draft `what` opens on `thread`. `selected` is the text selected in one of its
+/// messages, and that message: an answer answers it and quotes only that.
 pub(super) fn start_composing(
     store: &SqliteStore,
     thread: ThreadId,
     what: Composes,
+    selected: Option<(MessageId, String)>,
 ) -> Result<Draft, String> {
     match what {
-        Composes::Reply(scope) => start_reply(store, thread, scope),
+        Composes::Reply(scope) => start_reply(store, thread, Answer::Scope(scope), selected),
+        Composes::ReplyList => start_reply(store, thread, Answer::List, selected),
+        Composes::Again => {
+            let target = newest(store, thread)?;
+            mail_core::compose::draft_again(store, target, chrono::Utc::now()).map_err(String::from)
+        }
         Composes::Forward | Composes::ForwardAttached => {
             let loaded = store.thread(thread).map_err(|e| e.to_string())?;
             let messages: Vec<Message> = loaded
@@ -134,16 +161,30 @@ pub(super) fn start_composing(
     }
 }
 
-fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Result<Draft, String> {
+/// The message of `thread` Reply answers ([`reply_target`]).
+pub(super) fn newest(store: &SqliteStore, thread: ThreadId) -> Result<MessageId, String> {
     let loaded = store.thread(thread).map_err(|e| e.to_string())?;
     let messages: Vec<Message> = loaded
         .messages
         .iter()
         .filter_map(|id| store.message(*id).ok())
         .collect();
-    let target =
-        reply_target(&messages).ok_or_else(|| "that conversation has no messages".to_owned())?;
-    mail_core::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
+    reply_target(&messages)
+        .map(|target| target.id)
+        .ok_or_else(|| "that conversation has no messages".to_owned())
+}
+
+fn start_reply(
+    store: &SqliteStore,
+    thread: ThreadId,
+    to: Answer,
+    selected: Option<(MessageId, String)>,
+) -> Result<Draft, String> {
+    let (target, quote) = match &selected {
+        Some((message, text)) => (*message, Quote::Selection(text)),
+        None => (newest(store, thread)?, Quote::Whole),
+    };
+    mail_core::compose::draft_answer(store, target, to, quote, chrono::Utc::now())
         .map_err(String::from)
 }
 

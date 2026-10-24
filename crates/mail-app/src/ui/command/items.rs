@@ -30,6 +30,11 @@ pub(in crate::ui) enum CommandId {
     Compose,
     FromTemplate,
     ForwardAttached,
+    /// The open conversation's newest message: answered at its list's address, passed on
+    /// unchanged, and copied into a new message.
+    ReplyList,
+    Redirect,
+    Again,
     Print,
     Sync,
     Empty(Bin),
@@ -99,6 +104,27 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         "forward-attached",
         menus::FORWARD_AS_ATTACHMENT,
         Icon::Forward,
+        None,
+    ),
+    entry(
+        CommandId::ReplyList,
+        "reply-list",
+        menus::REPLY_TO_LIST,
+        Icon::Group,
+        None,
+    ),
+    entry(
+        CommandId::Redirect,
+        "redirect",
+        menus::REDIRECT,
+        Icon::ArrowUpRight,
+        None,
+    ),
+    entry(
+        CommandId::Again,
+        "edit-as-new",
+        menus::EDIT_AS_NEW,
+        Icon::FilePen,
         None,
     ),
     entry(

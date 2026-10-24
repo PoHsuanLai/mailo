@@ -94,6 +94,14 @@ pub const LABEL: &str = "Label…";
 pub const REPLY: &str = "Reply";
 pub const REPLY_ALL: &str = "Reply All";
 pub const FORWARD: &str = "Forward";
+/// The reader's ⋯ and ⌘K, when the message names its list's address (`List-Post`).
+pub const REPLY_TO_LIST: &str = "Reply to List";
+/// The reader's ⋯ and ⌘K: the message itself, unchanged, to someone else. Asks whom.
+pub const REDIRECT: &str = "Redirect…";
+/// The reader's ⋯ and ⌘K: a new message filled in from this one.
+pub const EDIT_AS_NEW: &str = "Edit as New";
+/// [`EDIT_AS_NEW`] for a conversation only in Sent, where the new message is the old one again.
+pub const SEND_AGAIN: &str = "Send Again";
 pub const MOVE_TO: &str = "Move to…";
 pub const DOWNLOAD: &str = "Download";
 pub const PRINT: &str = "Print…";

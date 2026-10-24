@@ -2,6 +2,7 @@
 //! the point its menu stood at, or the reader, against its ⋯. Which one is open, and over which
 //! conversation, is [`Shell::further`]; every way out of a menu clears it.
 
+use super::redirect::RedirectMenu;
 use super::{LabelMenu, SnoozeMenu};
 use crate::ui::move_to::MoveMenu;
 use crate::ui::view::{Further, Opened, Shell};
@@ -37,6 +38,9 @@ pub(in crate::ui) fn FurtherMenus(
         },
         Further::Label => rsx! {
             LabelMenu { id, summary, shell, revision, anchor, placed }
+        },
+        Further::Redirect => rsx! {
+            RedirectMenu { id, shell, revision, anchor, placed }
         },
         Further::Move => rsx! {
             MoveMenu {
