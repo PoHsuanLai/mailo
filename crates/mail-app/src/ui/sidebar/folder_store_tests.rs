@@ -289,25 +289,28 @@ async fn the_section_draws_nested_folders_and_leaves_out_places_and_unfollowed_o
     let (store, _dir) = imap_store();
     let page = frame(store);
     assert!(page.contains(">Folders"), "{page}");
-    for name in ["Projects", "2026", "收據"] {
+    for name in ["Projects", "Projects/2026", "收據"] {
         assert!(
-            page.contains(&format!("aria-label=\"Actions for {name}\"")),
+            page.contains(&format!("data-folder=\"{name}\"")),
             "{name} is not drawn: {page}"
         );
     }
     for name in ["INBOX", "Sent", "Old news"] {
         assert!(
-            !page.contains(&format!("aria-label=\"Actions for {name}\"")),
+            !page.contains(&format!("data-folder=\"{name}\"")),
             "{name} is drawn: {page}"
         );
     }
     // 2026 is inside Projects: Projects is an outline branch, and its row is followed by 2026's.
-    let projects = page.find("Actions for Projects").unwrap();
+    let projects = page.find("data-folder=\"Projects\"").unwrap();
     assert!(
         page[..projects].rfind("class=\"ds-row-branch\"").is_some(),
         "Projects is not a branch: {page}"
     );
-    assert!(page[projects..].contains("Actions for 2026"), "{page}");
+    assert!(
+        page[projects..].contains("data-folder=\"Projects/2026\""),
+        "{page}"
+    );
     assert!(
         page.contains(crate::ui::copy::menus::SHOW_ALL_FOLDERS),
         "{page}"
