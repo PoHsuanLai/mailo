@@ -37,12 +37,6 @@ pub fn fill_body(harness: &mut Harness, line: &str) {
     settle_until(harness, |h| h.count(CARET) == 1);
 }
 
-/// Where the caret settles once nothing more is typed: half a second of the window's time on.
-pub fn settled_caret(harness: &mut Harness) -> Option<Rect> {
-    harness.advance(Duration::from_millis(500));
-    caret(harness)
-}
-
 /// What one typed key cost.
 #[derive(Debug, Clone, Copy)]
 pub struct Typed {

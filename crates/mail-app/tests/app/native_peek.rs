@@ -122,11 +122,6 @@ impl Browse for Opened {
 
 /// The window as `launch` wires it, over the seeded store, a link opened from it going to `browse`.
 fn open(browse: Opened) -> (Harness, tempfile::TempDir) {
-    open_in(browse, false)
-}
-
-/// [`open`], in the dark scheme when `dark`.
-fn open_in(browse: Opened, dark: bool) -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let original = Original::new(Arc::new(NoFetch), Arc::new(browse));
     let contexts = mail_app::ui::native::contexts(
@@ -137,19 +132,12 @@ fn open_in(browse: Opened, dark: bool) -> (Harness, tempfile::TempDir) {
         mail_app::ui::Start::Inbox,
     );
     let config = HarnessConfig::new(VIEW)
-        .with_clock(Clock::Wall)
+        .with_clock(Clock::Virtual)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_contexts(contexts)
         .with_net(original.net())
         .with_frame_links(original.links())
         .with_contexts(original.contexts());
-    let config = if dark {
-        let mut env = ds_settings::Environment::default();
-        env.system.scheme = Scheme::Dark;
-        config.with_context(env)
-    } else {
-        config
-    };
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     until(&mut harness, "the list", |h| {
@@ -200,6 +188,7 @@ fn titled(harness: &mut Harness, title: &str) {
 /// A calendar file, a contact card and a forwarded message each open in Peek as mailo reads them:
 /// the event, the person, the message's head and plain text. The right arrow moves to the next
 /// attachment and stops at the last; the left moves back; Esc closes and leaves the conversation.
+/// Space on a tile that has the keyboard opens it too.
 #[test]
 fn a_calendar_a_card_and_a_forward_open_in_peek_and_the_arrows_move_between_them() {
     let (mut harness, _dir) = open(Opened::default());
@@ -257,15 +246,9 @@ fn a_calendar_a_card_and_a_forward_open_in_peek_and_the_arrows_move_between_them
         3,
         "Esc closed the conversation along with Peek"
     );
-}
 
-/// The tiles are on the keyboard's path: Tab reaches one, and Space opens it in Peek; Peek's
-/// close tool closes it.
-#[test]
-fn space_on_a_focused_attachment_opens_it_in_peek() {
-    let (mut harness, _dir) = open(Opened::default());
-    let harness = &mut harness;
-    open_row(harness, 1);
+    // The tiles are on the keyboard's path: Tab reaches one, and Space opens it in Peek; Peek's
+    // close tool closes it.
     let tile = format!("{} .att-mark", item(2));
     until(harness, "the card's tile", |h| h.count(&tile) == 1);
     for _ in 0..120 {
@@ -380,59 +363,4 @@ fn a_links_card_shows_where_it_goes_and_warns_when_its_text_lies() {
         *opened.0.lock().unwrap(),
         vec![HONEST.to_owned(), LYING.to_owned()]
     );
-}
-
-/// Picture generator (ignored): Peek on a photo, on a PDF, on a forwarded message and on a link's
-/// card, honest and lying, in light and dark. Set MAILO_SHOTS to a directory.
-#[test]
-#[ignore = "picture generator: set MAILO_SHOTS to a directory and run with --ignored"]
-fn peek_screens() {
-    let out = std::env::var("MAILO_SHOTS").expect("MAILO_SHOTS names the directory");
-    let shot = |harness: &mut Harness, name: &str, dark: bool| {
-        harness.advance(ms(600));
-        let file = format!("{out}/{name}-{}.png", if dark { "dark" } else { "light" });
-        harness.render().unwrap().save(file).unwrap();
-    };
-    for dark in [false, true] {
-        let (mut harness, _dir) = open_in(Opened::default(), dark);
-        let harness = &mut harness;
-        open_row(harness, 3);
-        let photo = format!("{} .att-thumb", item(1));
-        until(harness, "the photo's tile", |h| {
-            h.count(&format!("{photo} img")) == 1
-        });
-        let at = centre(harness, &photo);
-        harness.click(at);
-        until(harness, "the photo in Peek", |h| {
-            h.count(".ds-peek .peek-picture") == 1
-        });
-        shot(harness, "peek-image", dark);
-        harness.key(Key::Right);
-        until(harness, "the PDF in Peek", |h| {
-            h.count(".ds-peek .peek-page") == 1
-        });
-        shot(harness, "peek-pdf", dark);
-        harness.key(Key::Escape);
-
-        open_row(harness, 1);
-        let forward = format!("{} .att-mark", item(3));
-        until(harness, "the forward's tile", |h| h.count(&forward) == 1);
-        let at = centre(harness, &forward);
-        harness.click(at);
-        titled(harness, "Lunch on Friday");
-        shot(harness, "peek-message", dark);
-        harness.key(Key::Escape);
-
-        open_row(harness, 2);
-        until(harness, "the letter's frame", |h| {
-            h.frame(FRAME)
-                .is_some_and(|f| f.text().contains("the agenda"))
-        });
-        preview_link(harness, "#honest");
-        shot(harness, "peek-link", dark);
-        harness.key(Key::Escape);
-        until(harness, "Peek to close", |h| h.count(PEEK) == 0);
-        preview_link(harness, "#lying");
-        shot(harness, "peek-link-lying", dark);
-    }
 }

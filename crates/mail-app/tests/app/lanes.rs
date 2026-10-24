@@ -22,6 +22,9 @@ mod seed;
 mod settings;
 mod window;
 
+// 0: opening and reading.
+mod reading;
+
 // 1–2: writing, attaching and sending; formatting.
 mod compose;
 mod format;
@@ -40,8 +43,7 @@ mod print;
 mod rules;
 mod triage;
 
-// 12: an account tile's menu.
-mod tiles;
-
-// 13: Spaces put in order by dragging.
-mod spaces;
+// 13–14: the sidebar's Spaces, tiles and folders; the Settings window.
+mod preferences;
+mod search;
+mod sidebar;

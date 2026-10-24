@@ -13,8 +13,6 @@ mod drive;
 mod latency_inbox;
 #[path = "../support/native.rs"]
 mod native;
-#[path = "../support/one_message.rs"]
-mod one_message;
 #[path = "../support/opening.rs"]
 mod opening;
 #[path = "../support/row_menu.rs"]
@@ -39,48 +37,24 @@ mod import_export;
 mod invites;
 mod lanes;
 mod launcher;
-mod native_account_pane;
 mod native_add_account;
 #[cfg(feature = "anyview")]
 mod native_anyview;
-mod native_brand;
-mod native_compose_align;
-mod native_compose_here;
-mod native_compose_to;
-mod native_control_sizes;
-mod native_copy;
 mod native_damaged_settings;
 mod native_desktop_appearance;
-mod native_destroy;
-mod native_drop;
 mod native_emoji;
 mod native_fetch;
-mod native_follow_up;
 mod native_frame;
-mod native_harness;
-mod native_keyboard;
 mod native_latency;
-mod native_launcher;
-mod native_layout;
-mod native_marks;
-mod native_mute;
 mod native_original;
 mod native_peek;
 mod native_preview;
-mod native_reader_scroll;
-mod native_selection;
-mod native_sender;
-mod native_server_search;
-mod native_spaces;
 mod native_spelling;
-mod native_views;
-mod native_wide_mail;
 mod native_window;
 mod pgp;
 mod printing;
 mod receipts;
 mod rules;
-mod screens;
 mod searching;
 mod send_later;
 mod smime;

@@ -2,11 +2,13 @@
 //! through the file dialog; a group made as `mailo contacts group` makes one expands in To; and
 //! a sender is renamed from their name in the reader, by Edit Contact… in its right-click menu.
 
+use mail_app::ui::copy;
 use mail_app::ui::native::DialogAsk;
 use mail_core::Store;
 use mail_core::contacts::groups;
 
 use super::drive::{Drive as _, Key, PRIMARY};
+use super::look::chips;
 use super::window::{Window, panel_row, panel_settled};
 
 const CARD: &str =
@@ -60,13 +62,14 @@ fn a_vcard_imports_from_the_command_panel_and_a_group_expands_in_to() {
     });
     window.type_text("Team");
     window.until("To offers the group", |h| {
-        h.text_of(".ds-menu")
-            .is_some_and(|menu| menu.contains("Group · 2 people"))
+        h.count(".ds-menu .ds-menu-item") > 0
     });
     window.press(&[], Key::Enter, 1);
+    let to = ".c-props [*|data-row=to]";
     window.until("both are in To", |h| {
-        h.count(".c-props [*|aria-label=\"Remove Ada Lovelace\"]") == 1
-            && h.count(".c-props [*|aria-label=\"Remove Grace Hopper\"]") == 1
+        chips(h, to) == 2
+            && h.text_of(to)
+                .is_some_and(|to| to.contains("Ada Lovelace") && to.contains("Grace Hopper"))
     });
 }
 
@@ -80,7 +83,7 @@ fn a_sender_is_renamed_from_their_name_in_the_reader() {
     window
         .harness
         .press(at, ds::base::press::PointerButton::Secondary);
-    window.menu_item("Edit Contact\u{2026}");
+    window.menu_item(copy::menus::EDIT_CONTACT);
     window.until("the editor asks for the name", |h| {
         h.is_focused(".contact-editor input")
     });

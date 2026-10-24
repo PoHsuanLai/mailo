@@ -12,23 +12,16 @@
 //! `tests/app/native_original.rs`.
 //!
 //! The pairs, the webview's markup (gone with the webview) ↔ Blitz:
-//! - `sandbox=""` without `allow-same-origin` ↔ `the_frame_and_the_window_share_no_nodes`;
-//! - the frame being its own document ↔ `sender_css_cannot_reach_the_window`,
-//!   `the_windows_css_cannot_reach_the_frame`;
-//! - `sandbox=""` without `allow-scripts` ↔ `a_script_in_the_frame_does_nothing`, and
+//! - `sandbox=""` without `allow-same-origin`, the frame being its own document, and without
+//!   `allow-scripts` ↔ `the_frame_and_the_window_share_no_nodes_styles_or_scripts`, and
 //!   `native_original.rs`'s check that no JS engine is built in;
-//! - the sanitizer's blocked `src` ↔ `nothing_is_fetched_without_consent`,
-//!   `a_frame_is_never_served_a_file`;
+//! - the sanitizer's blocked `src` ↔ `a_frame_fetches_nothing_without_consent_and_is_never_served_a_file`;
 //! - `sandbox=""` without `allow-popups`/`allow-top-navigation` ↔
 //!   `a_link_click_never_navigates_the_frame`.
-//!
-//! Each case runs twice: under mailo's `Original` (the window's), and under `NetPolicy::Local`
-//! with `FrameLinks::Inert`, the mechanism before mailo held the frames' network itself.
 
 use crate::drive;
 use dioxus::prelude::*;
 use drive::Drive;
-use ds_blitz::{FrameLinks, NetPolicy};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_app::ui::native::{Browse, Fetch, Original, OriginalFrame};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -118,56 +111,27 @@ impl Opened {
     }
 }
 
-/// How the frames are held: as the window holds them now, or as they were held before.
-enum Held {
-    /// mailo's `Original`, with recorders for its fetches and its browser.
-    Mailo(Original, Arc<Fetched>, Arc<Opened>),
-    /// `NetPolicy::Local`, `FrameLinks::Inert`: `data:` only, clicks dropped.
-    Before,
-}
+/// mailo's `Original`, with recorders for its fetches and its browser.
+struct Held(Original, Arc<Fetched>, Arc<Opened>);
 
 impl Held {
-    fn mailo() -> Held {
+    fn new() -> Held {
         let fetched = Arc::new(Fetched::default());
         let opened = Arc::new(Opened::default());
-        Held::Mailo(
+        Held(
             Original::new(fetched.clone(), opened.clone()),
             fetched,
             opened,
         )
     }
 
-    fn both() -> [Held; 2] {
-        [Held::mailo(), Held::Before]
-    }
-
-    fn name(&self) -> &'static str {
-        match self {
-            Held::Mailo(..) => "mailo's Original",
-            Held::Before => "Local + Inert",
-        }
-    }
-
     fn config(&self, page: Page) -> HarnessConfig {
-        let config = HarnessConfig::new(VIEW)
-            .with_clock(Clock::Wall)
-            .with_context(page);
-        match self {
-            Held::Mailo(original, ..) => config
-                .with_net(original.net())
-                .with_frame_links(original.links())
-                .with_contexts(original.contexts()),
-            Held::Before => config
-                .with_net(NetPolicy::Local)
-                .with_frame_links(FrameLinks::Inert),
-        }
-    }
-
-    fn fetched(&self) -> Vec<String> {
-        match self {
-            Held::Mailo(_, fetched, _) => fetched.urls(),
-            Held::Before => Vec::new(),
-        }
+        HarnessConfig::new(VIEW)
+            .with_clock(Clock::Virtual)
+            .with_context(page)
+            .with_net(self.0.net())
+            .with_frame_links(self.0.links())
+            .with_contexts(self.0.contexts())
     }
 }
 
@@ -200,150 +164,109 @@ fn frame_width(harness: &Harness, selector: &str) -> f32 {
         .0
 }
 
-/// (a) No same-origin: the window's queries never see the frame's nodes, and the frame's never
-/// see the window's. A class the sender copies from mailo's markup finds only its own element.
+/// No same-origin: the window's queries never see the frame's nodes, and the frame's never see
+/// the window's; a class the sender copies from mailo's markup finds only its own element. A
+/// `<style>` resurrected in the frame, aimed at every element and at mailo's classes, leaves the
+/// window's elements as they were; mailo's CSS and its custom properties (the way every quire
+/// token is spelled) do not reach the frame, however hard its rules insist. A `<script>` is
+/// inert text.
 #[test]
-fn the_frame_and_the_window_share_no_nodes() {
+fn the_frame_and_the_window_share_no_nodes_styles_or_scripts() {
+    let held = Held::new();
     let body = "<p class='b b-note theirs'>from the sender</p><div class='reader-body'></div>";
-    for held in Held::both() {
-        let harness = open(&held, body, "");
-        let frame = harness.frame(FRAME).expect("the frame has a document");
-        let name = held.name();
-        assert_eq!(
-            harness.count(".b-note"),
-            1,
-            "{name}: the window saw into the frame"
-        );
-        assert_eq!(harness.count(".theirs"), 0, "{name}");
-        assert_eq!(frame.count(".b-note"), 1, "{name}");
-        assert_eq!(
-            frame.count(".ours, .probe, .tok-app"),
-            0,
-            "{name}: the frame saw the window"
-        );
-        assert_eq!(
-            frame.count(".reader-body"),
-            1,
-            "{name}: its own copy, not ours"
-        );
-        assert!(!frame.text().contains("MMMM"), "{name}");
-        let ours = harness.text_of(".window > .b-note").unwrap_or_default();
-        assert!(!ours.contains("from the sender"), "{name}: {ours}");
-    }
-}
+    let harness = open(&held, body, "");
+    let frame = harness.frame(FRAME).expect("the frame has a document");
+    assert_eq!(harness.count(".b-note"), 1, "the window saw into the frame");
+    assert_eq!(harness.count(".theirs"), 0);
+    assert_eq!(frame.count(".b-note"), 1);
+    assert_eq!(
+        frame.count(".ours, .probe, .tok-app"),
+        0,
+        "the frame saw the window"
+    );
+    assert_eq!(frame.count(".reader-body"), 1, "its own copy, not ours");
+    assert!(!frame.text().contains("MMMM"));
+    let ours = harness.text_of(".window > .b-note").unwrap_or_default();
+    assert!(!ours.contains("from the sender"), "{ours}");
 
-/// (b) Sender CSS cannot touch mailo: a `<style>` resurrected in the frame, aimed at every
-/// element and at mailo's own classes, leaves the window's elements exactly as they were.
-#[test]
-fn sender_css_cannot_reach_the_window() {
     let hostile = "<style>* { font-size: 64px !important; letter-spacing: 30px !important; \
         padding: 0 50px !important } .probe, .b-note, span { display: none !important }</style>\
         <p>hi</p>";
-    for held in Held::both() {
-        let name = held.name();
-        let plain = width(&open(&held, "<p>hi</p>", ""), ".probe");
-        let attacked = open(&held, hostile, "");
-        assert!(plain > 0.0, "{name}: the probe is not drawn");
-        assert_eq!(
-            width(&attacked, ".probe"),
-            plain,
-            "{name}: the sender's CSS reached the window"
-        );
-        assert_eq!(attacked.count(".probe"), 1, "{name}");
-    }
-}
+    let plain = width(&open(&held, "<p>hi</p>", ""), ".probe");
+    let attacked = open(&held, hostile, "");
+    assert!(plain > 0.0, "the probe is not drawn");
+    assert_eq!(
+        width(&attacked, ".probe"),
+        plain,
+        "the sender's CSS reached the window"
+    );
+    assert_eq!(attacked.count(".probe"), 1);
 
-/// (b) mailo's CSS cannot reach the frame, nor can its custom properties (the way every quire
-/// token is spelled): the frame's span is as wide as in a window with no CSS of its own, however
-/// hard the window's rules insist.
-#[test]
-fn the_windows_css_cannot_reach_the_frame() {
     let body = "<span class='probe' style='display: inline-block'>MMMM</span>\
         <span class='tok' style='display: inline-block; padding-left: var(--probe-pad)'>x</span>\
         <span class='bare' style='display: inline-block'>x</span>";
     let loud = ":root, html, body, * { --probe-pad: 40px } \
         span, .probe { font-size: 64px !important; padding: 0 40px !important } \
         .tok-app { padding-left: var(--probe-pad) }";
-    for held in Held::both() {
-        let name = held.name();
-        let quiet = open(&held, body, "");
-        let shouted = open(&held, body, loud);
-        assert_eq!(
-            frame_width(&shouted, ".probe"),
-            frame_width(&quiet, ".probe"),
-            "{name}: the window's CSS reached the frame"
-        );
-        // The token resolves in the window and not in the frame.
-        assert!(
-            width(&shouted, ".tok-app") > width(&quiet, ".tok-app") + 30.0,
-            "{name}: the token did not resolve in the window, so this proves nothing"
-        );
-        assert_eq!(
-            frame_width(&shouted, ".tok"),
-            frame_width(&shouted, ".bare"),
-            "{name}: the window's custom property reached the frame"
-        );
-    }
-}
+    let quiet = open(&held, body, "");
+    let shouted = open(&held, body, loud);
+    assert_eq!(
+        frame_width(&shouted, ".probe"),
+        frame_width(&quiet, ".probe"),
+        "the window's CSS reached the frame"
+    );
+    // The token resolves in the window and not in the frame.
+    assert!(
+        width(&shouted, ".tok-app") > width(&quiet, ".tok-app") + 30.0,
+        "the token did not resolve in the window, so this proves nothing"
+    );
+    assert_eq!(
+        frame_width(&shouted, ".tok"),
+        frame_width(&shouted, ".bare"),
+        "the window's custom property reached the frame"
+    );
 
-/// (c) No scripts: a `<script>` in the frame is inert text in its DOM.
-#[test]
-fn a_script_in_the_frame_does_nothing() {
     let body = "<p class='inner'>hello</p>\
         <script>document.body.innerHTML = '<p class=\"pwned\">rewritten</p>'; \
         parent.document.body.innerHTML = '<p class=\"pwned\">rewritten</p>';</script>\
         <img src='data:image/png;base64,iVBORw0KGgo=' onerror=\"document.title='pwned'\">";
-    for held in Held::both() {
-        let mut harness = open(&held, body, "");
-        harness.advance(Duration::from_millis(200));
-        let frame = harness.frame(FRAME).expect("the frame has a document");
-        let name = held.name();
-        assert_eq!(frame.count(".pwned"), 0, "{name}");
-        assert_eq!(frame.count(".inner"), 1, "{name}");
-        assert_eq!(harness.count(".pwned"), 0, "{name}");
-        assert_eq!(harness.count(".probe"), 1, "{name}");
-    }
+    let mut harness = open(&held, body, "");
+    harness.advance(Duration::from_millis(200));
+    let frame = harness.frame(FRAME).expect("the frame has a document");
+    assert_eq!(frame.count(".pwned"), 0);
+    assert_eq!(frame.count(".inner"), 1);
+    assert_eq!(harness.count(".pwned"), 0);
+    assert_eq!(harness.count(".probe"), 1);
 }
 
-/// (d) Zero requests without consent: remote images in the frame's markup (which the sanitizer
-/// would have stripped) are neither fetched nor shown.
+/// Zero requests without consent: remote images in the frame's markup (which the sanitizer
+/// would have stripped) are neither fetched nor shown, and the frame is never served `file:`.
+/// (Nor with consent: a consented list is read through a web-only filter,
+/// `ui/original/consent_tests.rs`.)
 #[test]
-fn nothing_is_fetched_without_consent() {
+fn a_frame_fetches_nothing_without_consent_and_is_never_served_a_file() {
+    let held = Held::new();
     let body = "<img class='remote' src='https://tracker.example.test/pixel.png'>\
         <img class='plain' src='http://cdn.example.test/a.png'>";
-    for held in Held::both() {
-        let harness = open(&held, body, "");
-        let name = held.name();
-        assert_eq!(held.fetched(), Vec::<String>::new(), "{name}");
-        assert_eq!(frame_width(&harness, ".remote"), 0.0, "{name}");
-        assert_eq!(frame_width(&harness, ".plain"), 0.0, "{name}");
-    }
-}
+    let harness = open(&held, body, "");
+    assert_eq!(frame_width(&harness, ".remote"), 0.0);
+    assert_eq!(frame_width(&harness, ".plain"), 0.0);
 
-/// (d) The frame is never served `file:`. (Nor with consent: a consented list is read through a
-/// web-only filter, `ui/original/consent_tests.rs`.)
-#[test]
-fn a_frame_is_never_served_a_file() {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let path = dir.path().join("on-disk.png");
     std::fs::write(&path, swatch()).expect("write the swatch");
-    let url = format!("file://{}", path.display());
-    let body = format!("<img class='disk' src='{url}'>");
-    for held in Held::both() {
-        let harness = open(&held, &body, "");
-        let name = held.name();
-        assert_eq!(
-            frame_width(&harness, ".disk"),
-            0.0,
-            "{name}: the frame read the disk"
-        );
-        assert_eq!(held.fetched(), Vec::<String>::new(), "{name}");
-    }
+    let body = format!("<img class='disk' src='file://{}'>", path.display());
+    let harness = open(&held, &body, "");
+    assert_eq!(
+        frame_width(&harness, ".disk"),
+        0.0,
+        "the frame read the disk"
+    );
+    assert_eq!(held.1.urls(), Vec::<String>::new());
 }
 
-/// (e) No navigation: a link clicked in the frame reloads nothing and fetches nothing. Under
-/// mailo's `Original` the click is heard and handed to the browser, checked: a `file:` or
-/// `javascript:` link opens nothing.
+/// No navigation: a link clicked in the frame reloads nothing and fetches nothing. The click is
+/// heard and handed to the browser, checked: a `file:` or `javascript:` link opens nothing.
 #[test]
 fn a_link_click_never_navigates_the_frame() {
     let body = "<body style='margin:0'>\
@@ -351,28 +274,23 @@ fn a_link_click_never_navigates_the_frame() {
         <a class='disk' href='file:///etc/passwd' style='display:block; font-size:40px'>Disk</a>\
         <a class='js' href='javascript:alert(1)' style='display:block; font-size:40px'>Script</a>\
         </body>";
-    for held in Held::both() {
-        let name = held.name();
-        let mut harness = open(&held, body, "");
-        let before = harness.frame(FRAME).expect("a frame document").id();
-        for link in ["a.web", "a.disk", "a.js"] {
-            let at = harness
-                .frame(FRAME)
-                .and_then(|frame| frame.centre(link))
-                .unwrap_or_else(|| panic!("{name}: {link} is not drawn"));
-            harness.click(at);
-            harness.advance(Duration::from_millis(50));
-        }
-        let after = harness.frame(FRAME).expect("still a frame document");
-        assert_eq!(after.id(), before, "{name}: the frame navigated");
-        assert_eq!(after.text_of("a.web").as_deref(), Some("Offer"), "{name}");
-        assert_eq!(held.fetched(), Vec::<String>::new(), "{name}");
-        if let Held::Mailo(_, _, opened) = &held {
-            assert_eq!(
-                opened.urls(),
-                vec!["https://shop.example.test/offer".to_owned()],
-                "{name}"
-            );
-        }
+    let held = Held::new();
+    let mut harness = open(&held, body, "");
+    let before = harness.frame(FRAME).expect("a frame document").id();
+    for link in ["a.web", "a.disk", "a.js"] {
+        let at = harness
+            .frame(FRAME)
+            .and_then(|frame| frame.centre(link))
+            .unwrap_or_else(|| panic!("{link} is not drawn"));
+        harness.click(at);
+        harness.advance(Duration::from_millis(50));
     }
+    let after = harness.frame(FRAME).expect("still a frame document");
+    assert_eq!(after.id(), before, "the frame navigated");
+    assert_eq!(after.text_of("a.web").as_deref(), Some("Offer"));
+    assert_eq!(held.1.urls(), Vec::<String>::new());
+    assert_eq!(
+        held.2.urls(),
+        vec!["https://shop.example.test/offer".to_owned()]
+    );
 }

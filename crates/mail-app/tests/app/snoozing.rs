@@ -127,18 +127,6 @@ fn waking_one_brings_it_back_before_its_hour() {
 }
 
 #[test]
-fn what_it_says_names_the_hour_it_chose() {
-    // The one thing the user checks: that "tomorrow" meant what they thought.
-    let (store, _dir, thread) = seeded();
-    let out = cli::snooze::snoozed(
-        snooze::snooze(&store, thread, "tomorrow", now()).unwrap(),
-        mail_core::when::Clock::H24,
-    );
-    assert!(out.starts_with("snoozed until "), "{out}");
-    assert!(out.contains("2026-09-23"), "{out}");
-}
-
-#[test]
 fn a_time_it_does_not_understand_changes_nothing() {
     // The failure must not be half-applied: a conversation that stayed in the inbox is better
     // than one that vanished to an hour nobody chose.

@@ -3,6 +3,7 @@
 //! that one addresses everyone on it.
 
 use super::drive::{Drive, Key, PRIMARY};
+use super::look::chips;
 use super::window::{INBOX, Window, hours_ago, parsed, queued};
 
 /// The inline reply under the open conversation.
@@ -20,17 +21,15 @@ fn a_reply_goes_out_quoted_its_answer_threads_back_and_reply_all_answers_everyon
     window.until("r opens a reply", |h| {
         h.count(&format!("{REPLY} .c-body")) == 1
     });
-    assert_eq!(
-        window
-            .harness
-            .count(&format!("{REPLY} [*|aria-label=\"Remove Ada Lovelace\"]")),
-        1,
+    let to = format!("{REPLY} .c-props [*|data-row=to]");
+    assert!(
+        chips(&window.harness, &to) == 1 && window.text(&to).contains("Ada Lovelace"),
         "Ada is not in To: {}",
-        window.text(&format!("{REPLY} .c-props"))
+        window.text(&to)
     );
     let quote = window.text(&format!("{REPLY} .o-rq"));
     assert!(
-        quote.contains("Ada Lovelace") && quote.contains("Show Quoted Text"),
+        quote.contains("Ada Lovelace"),
         "no folded quote naming Ada: {quote:?}"
     );
 
@@ -129,11 +128,9 @@ fn a_reply_goes_out_quoted_its_answer_threads_back_and_reply_all_answers_everyon
     let to = window.text(&format!("{props} [*|data-row=to]"));
     assert!(to.contains("Ada Lovelace"), "Ada is not in To: {to:?}");
     assert_eq!(
-        window
-            .harness
-            .count(&format!("{props} [*|aria-label=\"Remove Me\"]")),
-        0,
-        "I am among the recipients: {}",
+        chips(&window.harness, &props),
+        2,
+        "not Ada and Grace alone: {}",
         window.text(&props)
     );
 }

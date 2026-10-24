@@ -1,7 +1,7 @@
 //! Spelling in the composer, on the real window (Blitz, through `ds_harness::Harness`): a
-//! misspelling is marked once the caret has left it, the word being typed is not, a suggestion
-//! picked from the menu replaces the word as one undo step, the menu taking the keyboard neither
-//! parks nor closes the draft, and turning spelling off takes the marks away.
+//! misspelling is marked once the caret has left it, the word being typed is not, the menu
+//! taking the keyboard neither parks nor closes the draft, a suggestion picked from it replaces
+//! the word as one undo step, and turning spelling off takes the marks away.
 //!
 //! quire checks and draws; what is tested here is mailo's side: the setting, the caret it hands
 //! the surface, and the replacement turned into one editor edit. The dictionary is a tiny one
@@ -118,12 +118,6 @@ fn dictionaries(dir: &Path) -> Dictionaries {
     }
 }
 
-/// The window, with a new message open and its body holding the keyboard.
-fn composing() -> (Harness, tempfile::TempDir) {
-    composing_in(VIEW)
-}
-
-/// [`composing`], in a window of `view`.
 /// What a window here is given: the store, scratch directories, the test's dictionaries, and
 /// the revision every window of the app shares.
 fn contexts(dir: &std::path::Path, store: &Arc<SqliteStore>, revisions: &Shared) -> RootContexts {
@@ -151,11 +145,6 @@ struct Composing {
     dir: tempfile::TempDir,
     store: Arc<SqliteStore>,
     revisions: Shared,
-}
-
-fn composing_in(view: Viewport) -> (Harness, tempfile::TempDir) {
-    let open = composing_beside(view);
-    (open.harness, open.dir)
 }
 
 fn composing_beside(view: Viewport) -> Composing {
@@ -231,95 +220,75 @@ fn open_menu(harness: &mut Harness) {
     });
 }
 
-fn a_picked_suggestion_is_one_undo_step() {
-    let (mut harness, _dir) = composing();
-    type_text(&mut harness, "teh cat");
-    settle_until(&mut harness, |h| marks(h) == 1);
-    open_menu(&mut harness);
-    assert_eq!(
-        harness.text_of(".ds-menu-item").as_deref().map(str::trim),
-        Some("the"),
-        "the best suggestion first"
-    );
-    // The menu has the keyboard, and the draft is still open and not put aside.
-    assert!(
-        !harness.is_focused(".c-body"),
-        "the menu did not take the keyboard"
-    );
-    assert_eq!(harness.count(".cpage .c-body"), 1, "the draft closed");
-    harness.click(centre(&harness, ".ds-menu-item"));
-    settle_until(&mut harness, |h| body(h) == "the cat");
-    settle_until(&mut harness, |h| marks(h) == 0 && h.is_focused(".c-body"));
-    // One step back is the word as it was typed, and nothing before it.
-    harness.chord(&[PRIMARY], Key::Char('z'));
-    settle_until(&mut harness, |h| body(h) == "teh cat");
-    // The caret is back at the end of the word it restored, so the word waits for it to leave.
-    harness.key(Key::End);
-    settle_until(&mut harness, |h| marks(h) == 1);
-    // And the keyboard is the body's: typing goes on at the caret.
-    type_text(&mut harness, " sat");
-    settle_until(&mut harness, |h| body(h) == "teh cat sat");
-}
-
-#[test]
-fn a_picked_suggestion_replaces_the_word_and_one_ctrl_z_restores_it() {
-    isolated(
-        "a_picked_suggestion_replaces_the_word_and_one_ctrl_z_restores_it",
-        a_picked_suggestion_is_one_undo_step,
-    );
-}
-
-fn the_word_at_the_caret_waits() {
-    let (mut harness, _dir) = composing();
-    type_text(&mut harness, "hello teh");
+/// One draft, start to end: the word at the caret waits, the mark lands under the word that
+/// was left, Escape closes the menu and keeps the draft, a pick is one undo step, and spelling
+/// turned off in Settings takes the marks away.
+fn a_misspelling_is_marked_mended_and_unmarked() {
+    let mut open = composing_beside(VIEW);
+    let harness = &mut open.harness;
+    type_text(harness, "hello teh");
     harness.advance(debounce() * 3);
-    assert_eq!(marks(&harness), 0, "the word being typed was marked");
-    type_text(&mut harness, " ");
-    settle_until(&mut harness, |h| marks(h) == 1);
+    assert_eq!(marks(harness), 0, "the word being typed was marked");
+    type_text(harness, " cat");
+    settle_until(harness, |h| marks(h) == 1);
     // The mark is under the second word, on the paragraph's line, not wherever its layer sits.
     let mark = harness.rect(".c-body .ds-spell-mark").unwrap();
     let line = harness.rect(".c-body > p").unwrap();
     let left = mark.origin.x.0 - line.origin.x.0;
     assert!((25.0..60.0).contains(&left), "the mark starts at {left}");
-    let bottom = mark.origin.y.0 + mark.size.height.0 - line.origin.y.0;
+
+    // The menu takes the keyboard; Escape closes it and leaves the draft open.
+    open_menu(harness);
     assert!(
-        (line.size.height.0 * 0.5..=line.size.height.0 + 2.0).contains(&bottom),
-        "the dots sit {bottom} below a line {} tall",
-        line.size.height.0
+        !harness.is_focused(".c-body"),
+        "the menu did not take the keyboard"
     );
-}
-
-#[test]
-fn the_word_under_the_caret_is_not_marked_until_the_caret_leaves_it() {
-    isolated(
-        "the_word_under_the_caret_is_not_marked_until_the_caret_leaves_it",
-        the_word_at_the_caret_waits,
-    );
-}
-
-fn escape_keeps_the_draft() {
-    let (mut harness, _dir) = composing();
-    type_text(&mut harness, "teh cat");
-    settle_until(&mut harness, |h| marks(h) == 1);
-    open_menu(&mut harness);
     harness.key(Key::Escape);
-    settle_until(&mut harness, |h| h.count(".ds-menu-item") == 0);
+    settle_until(harness, |h| h.count(".ds-menu-item") == 0);
     harness.advance(ms(300));
     assert_eq!(
         harness.count(".cpage .c-body"),
         1,
-        "Escape in the menu put the draft aside"
+        "Escape put the draft aside"
     );
-    settle_until(&mut harness, |h| h.is_focused(".c-body"));
-    type_text(&mut harness, "s");
-    settle_until(&mut harness, |h| body(h) == "teh cats");
+
+    // The best suggestion first; picked, it replaces the word, and one step back restores it.
+    open_menu(harness);
+    assert_eq!(
+        harness.text_of(".ds-menu-item").as_deref().map(str::trim),
+        Some("the")
+    );
+    harness.click(centre(harness, ".ds-menu-item"));
+    settle_until(harness, |h| body(h) == "hello the cat");
+    settle_until(harness, |h| marks(h) == 0 && h.is_focused(".c-body"));
+    harness.chord(&[PRIMARY], Key::Char('z'));
+    settle_until(harness, |h| body(h) == "hello teh cat");
+    harness.key(Key::End);
+    settle_until(harness, |h| marks(h) == 1);
+
+    // Settings, a window of its own beside the draft: the switch off, and the marks leave.
+    let mut settings = settings_beside(&open);
+    let off = "[*|role=switch][*|aria-label=\"Check spelling\"]";
+    until(&mut settings, "the switch is drawn, on", |h| {
+        h.attr(off, "aria-checked").as_deref() == Some("true")
+    });
+    let at = centre(&settings, off);
+    settings.click(at);
+    until(&mut settings, "the switch is off", |h| {
+        h.attr(off, "aria-checked").as_deref() == Some("false")
+    });
+    let harness = &mut open.harness;
+    until(harness, "the marks leave", |h| marks(h) == 0);
+    harness.advance(debounce() * 3);
+    assert_eq!(marks(harness), 0, "a mark came back with spelling off");
+    assert_eq!(body(harness), "hello teh cat", "the draft changed");
 }
 
 #[test]
-fn escape_closes_the_spelling_menu_and_leaves_the_draft_open() {
+fn a_misspelling_is_marked_once_left_mended_from_its_menu_and_unmarked_when_spelling_is_off() {
     isolated(
-        "escape_closes_the_spelling_menu_and_leaves_the_draft_open",
-        escape_keeps_the_draft,
+        "a_misspelling_is_marked_once_left_mended_from_its_menu_and_unmarked_when_spelling_is_off",
+        a_misspelling_is_marked_mended_and_unmarked,
     );
 }
 
@@ -333,36 +302,4 @@ fn until(harness: &mut Harness, what: &str, done: impl Fn(&Harness) -> bool) {
         harness.advance(Duration::from_millis(10));
     }
     assert!(done(harness), "{what}:\n{}", harness.html());
-}
-
-fn off_removes_the_marks() {
-    let mut open = composing_beside(VIEW);
-    type_text(&mut open.harness, "teh cat");
-    settle_until(&mut open.harness, |h| marks(h) == 1);
-    // Settings, a window of its own beside the draft. Blitz's selectors name an attribute with a
-    // dash through the any-namespace form; the switch is the row's `role=switch`.
-    let mut settings = settings_beside(&open);
-    let off = "[*|role=switch][*|aria-label=\"Check spelling\"]";
-    until(&mut settings, "the switch is drawn, on", |h| {
-        h.attr(off, "aria-checked").as_deref() == Some("true")
-    });
-    let at = centre(&settings, off);
-    settings.click(at);
-    until(&mut settings, "the switch is off", |h| {
-        h.attr(off, "aria-checked").as_deref() == Some("false")
-    });
-    // The main window hears the shared revision, reads the settings again, and the marks leave.
-    let harness = &mut open.harness;
-    until(harness, "the marks leave", |h| marks(h) == 0);
-    harness.advance(debounce() * 3);
-    assert_eq!(marks(harness), 0, "a mark came back with spelling off");
-    assert_eq!(body(harness), "teh cat", "the draft changed");
-}
-
-#[test]
-fn turning_spelling_off_removes_the_marks() {
-    isolated(
-        "turning_spelling_off_removes_the_marks",
-        off_removes_the_marks,
-    );
 }

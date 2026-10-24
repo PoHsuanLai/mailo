@@ -11,6 +11,19 @@ use mail_domain::{
 
 use super::seed::account;
 
+/// The composer's Send button.
+pub fn send() -> String {
+    format!(
+        ".c-send [*|aria-label=\"{}\"]",
+        mail_app::ui::copy::controls::SEND
+    )
+}
+
+/// How many recipient chips `scope` holds.
+pub fn chips(harness: &Harness, scope: &str) -> usize {
+    harness.count(&format!("{scope} .ds-chip"))
+}
+
 /// The `n`th row of the list (1-based).
 pub fn row(n: usize) -> String {
     format!(".list .ds-list-item[*|aria-posinset=\"{n}\"] .ds-thread")

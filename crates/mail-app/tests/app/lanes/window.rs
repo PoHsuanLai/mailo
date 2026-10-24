@@ -23,6 +23,7 @@ use std::path::PathBuf;
 
 pub use super::look::{panel_row, panel_settled, parsed, queued, row_of};
 pub use super::seed::{INBOX, account, deliver, hours_ago};
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Instant;
 
@@ -148,12 +149,30 @@ pub struct Window {
     printed: Printed,
     notices: Arc<Notices>,
     clock: WallClock,
+    /// How far [`Window::jump`] has moved the wall clock past the harness's, in seconds.
+    jumped: Arc<AtomicI64>,
     dir: tempfile::TempDir,
 }
 
 impl Window {
     /// The window over the seeded store, which `seed` adds to first, first rows drawn.
     pub fn open(seed: impl FnOnce(&SqliteStore)) -> Window {
+        Window::open_at(chrono::Utc::now(), seed)
+    }
+
+    /// [`Window::open`], its wall clock starting at `base` rather than now: a lane whose
+    /// expectations are dates holds the clock fixed, so no daylight-saving change falls inside it.
+    pub fn open_at(base: chrono::DateTime<chrono::Utc>, seed: impl FnOnce(&SqliteStore)) -> Window {
+        Window::open_with(base, seed, |_, contexts| contexts)
+    }
+
+    /// [`Window::open_at`], the main window also handed what `with` adds to its contexts, given
+    /// the lane's scratch directory (the window's config is its `config`).
+    pub fn open_with(
+        base: chrono::DateTime<chrono::Utc>,
+        seed: impl FnOnce(&SqliteStore),
+        with: impl FnOnce(&std::path::Path, RootContexts) -> RootContexts,
+    ) -> Window {
         let dir = tempfile::tempdir().expect("a temp dir");
         let store = seeded(dir.path());
         seed(&store);
@@ -164,13 +183,17 @@ impl Window {
         let printed = Printed::default();
         let launched = Launched::default();
         let notices = Arc::new(Notices::default());
-        let base = chrono::Utc::now();
+        let jumped = Arc::new(AtomicI64::new(0));
         // Read first on the harness's thread, where quire's clock is the virtual one.
         let origin: Arc<OnceLock<Instant>> = Arc::new(OnceLock::new());
-        let clock = WallClock::new(move || {
-            let since =
-                ds::base::time::clock::since(*origin.get_or_init(ds::base::time::clock::now));
-            base + chrono::TimeDelta::from_std(since).unwrap_or_default()
+        let clock = WallClock::new({
+            let jumped = Arc::clone(&jumped);
+            move || {
+                let since =
+                    ds::base::time::clock::since(*origin.get_or_init(ds::base::time::clock::now));
+                base + chrono::TimeDelta::from_std(since).unwrap_or_default()
+                    + chrono::TimeDelta::seconds(jumped.load(Ordering::Relaxed))
+            }
         });
         let printer = mail_app::ui::native::Printer::with_dialog({
             let printed = Arc::clone(&printed);
@@ -197,6 +220,7 @@ impl Window {
             .with(clock.clone())
             .with(file_opener(&launched))
             .with(mail_app::ui::native::Notices(notices.clone()));
+        let contexts = with(dir.path(), contexts);
         let config = HarnessConfig::new(VIEW)
             .with_focus_fallback(FocusFallback::Ancestor)
             .with_clock(Clock::Virtual)
@@ -216,6 +240,7 @@ impl Window {
             printed,
             notices,
             clock,
+            jumped,
             dir,
         };
         window.until("the inbox's rows are drawn", |h| {
@@ -246,6 +271,13 @@ impl Window {
         hands::until(&mut self.harness, what, done);
     }
 
+    /// Move the window's wall clock `by` on at once, as days passing with the window left open.
+    /// The harness's own clock does not move, so no timer runs on the way: a timer the window
+    /// set before sees the new time when it next fires.
+    pub fn jump(&self, by: chrono::TimeDelta) {
+        self.jumped.fetch_add(by.num_seconds(), Ordering::Relaxed);
+    }
+
     /// The window's own now, which follows the harness's clock.
     pub fn now(&self) -> chrono::DateTime<chrono::Utc> {
         self.clock.now()
@@ -271,9 +303,9 @@ impl Window {
         held(&self.launched).clone()
     }
 
-    /// The window's state directory, where the Downloads list is stored.
-    pub fn state(&self) -> PathBuf {
-        self.shared.dirs.state.clone()
+    /// The window's directories: its config, and its state, where the Downloads list is stored.
+    pub fn dirs(&self) -> WindowDirs {
+        self.shared.dirs.clone()
     }
 
     /// Every PDF handed to the print dialog.

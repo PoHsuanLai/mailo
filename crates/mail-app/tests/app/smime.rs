@@ -13,17 +13,14 @@ use mail_core::smime;
 use mail_core::testing::MapSigningStore;
 use mail_core::{Arrival, SigningStore};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_mime::smime::{self as cms_smime, Cert, Sealing};
-use porter_core::AccountId;
 use smime_support::*;
 use std::sync::Arc;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
-}
+use crate::store::acct_account;
+
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
 const ME: &str = "me@example.test";

@@ -16,9 +16,7 @@ use settle::settle_until;
 use std::sync::Arc;
 use std::time::Duration;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b7"))
-}
+use crate::store::acct_account;
 
 const VIEW: Viewport = Viewport {
     width: 1200,

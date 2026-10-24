@@ -3,16 +3,12 @@
 
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::path::Path;
 use std::sync::Arc;
 
-/// The one account every lane's store holds.
-pub fn account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
+/// The one account the store holds.
+pub use crate::store::acct_account as account;
 
 /// The account's own address.
 pub const ME: &str = "me@example.test";

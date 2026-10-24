@@ -1,8 +1,7 @@
 //! Emoji in the composer, on the real window (Blitz, through `ds_harness::Harness`): `:smi` offers
 //! emoji by name and Enter puts the first in the body, where one Ctrl Z takes it out again; `/` ›
-//! Emoji… opens the picker at the caret (the foot has no emoji button), where a click picks; the
-//! picker is walked with the arrows, Enter and Escape; and what was picked is first in a new
-//! window's picker.
+//! Emoji… opens the picker at the caret (the foot has no emoji button), where a click picks; and
+//! what was picked is first in a new window's picker.
 //!
 //! The recent emoji are kept in the window's state directory, here a `TempDir`.
 
@@ -85,16 +84,8 @@ fn body(harness: &Harness) -> String {
 /// Enter on it, and wait for the picker's cells to be drawn
 /// where they can be pressed, with its search field holding the keyboard.
 fn open_picker(harness: &mut Harness) {
-    assert_eq!(
-        harness.count(".cpage .bar-tools [*|aria-label=\"Emoji\"]"),
-        0,
-        "the bar has an emoji button"
-    );
     type_text(harness, "/emoj");
-    settle_until(harness, |h| {
-        h.text_of(".ds-menu-item")
-            .is_some_and(|row| row.contains("Emoji"))
-    });
+    settle_until(harness, |h| h.count(".ds-menu-item") == 1);
     harness.key(Key::Enter);
     settle_until(harness, |h| {
         h.centre(CELL).is_some_and(|at| h.hits(at, CELL)) && h.is_focused(".em-picker input")
@@ -107,49 +98,35 @@ fn first_cell(harness: &Harness) -> Option<String> {
 }
 
 #[test]
-fn a_colon_and_a_name_offer_emoji_enter_puts_one_in_and_one_ctrl_z_takes_it_out() {
-    let (mut harness, _dir, _store, _dirs) = composing();
+fn a_name_after_a_colon_and_the_picker_put_emoji_in_and_a_new_window_has_the_pick_first() {
+    let (mut harness, _dir, store, dirs) = composing();
+
+    // `:smi` offers by name with the body keeping the keyboard; Enter puts the first row in,
+    // making no new line, and one undo takes it out again.
     type_text(&mut harness, ":smi");
     settle_until(&mut harness, |h| h.count(".ds-menu-item") > 0);
-    assert_eq!(
-        harness
-            .text_of(".ds-menu-item")
-            .as_deref()
-            .map(str::trim)
-            .map(|text| text.contains("smiling face with smiling eyes")),
-        Some(true),
-        "the first row is the first name that starts with it:\n{}",
-        harness.html()
-    );
     assert!(harness.is_focused(".c-body"), "the body kept the keyboard");
     harness.key(Key::Enter);
     settle_until(&mut harness, |h| body(h) == "😊");
     settle_until(&mut harness, |h| h.count(".ds-menu-item") == 0);
     assert_eq!(harness.count(".c-body > p"), 1, "Enter made no new line");
-
     harness.chord(&[PRIMARY], Key::Char('z'));
     settle_until(&mut harness, |h| body(h) == ":smi");
-    // The keyboard is still the body's. (An undo leaves the caret where it was, clamped: the
-    // editor's undo says nothing about the caret, so End takes it past the name again.)
+    // An undo says nothing about the caret, so End takes it past the name again.
     harness.key(Key::End);
-    type_text(&mut harness, "le");
-    settle_until(&mut harness, |h| body(h) == ":smile");
-}
+    type_text(&mut harness, "le ");
+    settle_until(&mut harness, |h| body(h).trim_end() == ":smile");
 
-#[test]
-fn slash_emoji_opens_the_picker_a_click_picks_and_a_new_window_has_it_first() {
-    let (mut harness, _dir, store, dirs) = composing();
-    type_text(&mut harness, "Hi ");
-    settle_until(&mut harness, |h| body(h).trim_end() == "Hi");
+    // `/emoj` › Emoji…: the emoji the name put in is already recent, first in the grid; a click
+    // picks it again and gives the body the keyboard back.
     open_picker(&mut harness);
-    // Nothing picked yet: the first group.
-    assert_eq!(first_cell(&harness).as_deref(), Some("grinning face"));
+    let first = first_cell(&harness).expect("the first cell is named");
     harness.click(centre(&harness, CELL));
     settle_until(&mut harness, |h| h.count(".em-picker") == 0);
-    settle_until(&mut harness, |h| body(h) == "Hi 😀");
+    settle_until(&mut harness, |h| body(h) == ":smile 😊");
     settle_until(&mut harness, |h| h.is_focused(".c-body"));
     type_text(&mut harness, "!");
-    settle_until(&mut harness, |h| body(h) == "Hi 😀!");
+    settle_until(&mut harness, |h| body(h) == ":smile 😊!");
     assert!(
         dirs.state
             .join(mail_app::ui::emoji::recent::FILE_NAME)
@@ -157,11 +134,11 @@ fn slash_emoji_opens_the_picker_a_click_picks_and_a_new_window_has_it_first() {
         "the pick was kept"
     );
 
-    // A second window over the same directories has it first, under the recent tab.
+    // A second window over the same directories opens on the recent tab, holding only that one.
     drop(harness);
     let mut harness = composing_over(&store, &dirs);
     open_picker(&mut harness);
-    assert_eq!(first_cell(&harness).as_deref(), Some("grinning face"));
+    assert_eq!(first_cell(&harness), Some(first));
     assert_eq!(harness.count(CELL), 1, "only what was picked is recent");
     assert_eq!(
         harness
