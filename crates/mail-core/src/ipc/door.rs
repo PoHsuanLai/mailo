@@ -22,8 +22,9 @@ use std::time::Duration;
 /// once.
 const AFTER_A_FAILED_ACCEPT: Duration = Duration::from_secs(1);
 
-/// How long a client has to say its request. The door serves one client at a time, so one that
-/// connects and says nothing would otherwise hold it shut for everyone after.
+/// How long a client has to say its request, in all. The door serves one client at a time, so one
+/// that connects and says nothing, or says it a byte at a time, would otherwise hold it shut for
+/// everyone after.
 const REQUEST_WAIT: Duration = Duration::from_secs(5);
 
 /// The longest request line read. Every request is a few hundred bytes; a client sending more
@@ -67,7 +68,11 @@ pub(crate) fn door(listening: &latchkey::Listening, mut on: impl FnMut(Request) 
         };
         // Where the system has no receive timeout the read waits as it did; the cap still holds.
         let _ = stream.set_recv_timeout(Some(REQUEST_WAIT));
-        let Some(line) = request_line(&mut stream) else {
+        let until = std::time::Instant::now() + REQUEST_WAIT;
+        let Some(line) = request_line(Within {
+            stream: &mut stream,
+            until,
+        }) else {
             continue;
         };
         let reply = match wire::parse::<Request>(&line) {
@@ -93,6 +98,23 @@ pub(crate) fn door(listening: &latchkey::Listening, mut on: impl FnMut(Request) 
                 return;
             }
         }
+    }
+}
+
+/// `stream`, read only until `until`: a read begun after it fails as timed out. With the receive
+/// timeout on each read, the whole request has at most [`REQUEST_WAIT`] and one read's wait past
+/// it, however slowly it is sent.
+struct Within<R> {
+    stream: R,
+    until: std::time::Instant,
+}
+
+impl<R: Read> Read for Within<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if std::time::Instant::now() >= self.until {
+            return Err(std::io::ErrorKind::TimedOut.into());
+        }
+        self.stream.read(buf)
     }
 }
 
@@ -124,8 +146,39 @@ pub(crate) fn say(stream: &mut latchkey::Stream, response: Response) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_REQUEST, request_line};
-    use std::io::Cursor;
+    use super::{MAX_REQUEST, Within, request_line};
+    use std::io::{Cursor, Read};
+    use std::time::{Duration, Instant};
+
+    /// A client that sends one byte a read and never a newline, counting the reads.
+    struct Trickle(usize);
+
+    impl Read for Trickle {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            self.0 += 1;
+            buf[0] = b'x';
+            Ok(1)
+        }
+    }
+
+    /// The whole request has its deadline, not each read: a client trickling it is cut off when
+    /// the time is up, long before the cap.
+    #[test]
+    fn a_request_sent_a_byte_at_a_time_is_cut_off_at_its_deadline() {
+        let mut trickle = Trickle(0);
+        let gone = Within {
+            stream: &mut trickle,
+            until: Instant::now(),
+        };
+        assert_eq!(request_line(gone), None);
+        assert_eq!(trickle.0, 0, "read past the deadline");
+
+        let line = Within {
+            stream: Cursor::new(b"{\"ping\":{}}\n"),
+            until: Instant::now() + Duration::from_secs(60),
+        };
+        assert!(request_line(line).is_some());
+    }
 
     #[test]
     fn a_request_is_one_whole_line_no_longer_than_the_cap() {
