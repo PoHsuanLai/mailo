@@ -16,12 +16,15 @@ use std::sync::Arc;
 pub(in crate::ui) struct Delegate(pub Arc<dyn Fn() -> Schedule + Send + Sync>);
 
 impl Delegate {
-    /// Asks the watch's lock ([`mail_core::ipc::watching::running`]), every time it is asked: a
-    /// watch may start or stop while the window is open.
+    /// Asks the watch's lock for this Profile ([`mail_core::ipc::watching::running`]), every
+    /// time it is asked: a watch may start or stop while the window is open. mailo.app's own
+    /// watch, in this process, is asked first (`crate::background`).
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|| {
-            if mail_core::ipc::watching::running() {
+            if crate::background::watching_here()
+                || mail_core::ipc::watching::running(crate::edge::profile().id())
+            {
                 Schedule::Watch
             } else {
                 Schedule::Window

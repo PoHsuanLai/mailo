@@ -52,6 +52,9 @@ impl Beat {
 /// Keep this platform's launcher showing the unread count, for as long as the process runs. `None`
 /// when the platform has no launcher to tell. For `mailo watch`, which has no window of its own.
 /// `file` is the database the store is in, when it is in one.
+///
+/// `None` on macOS too: the Dock tile is mailo.app's own, which no other process can badge, and
+/// the app keeps its count itself while it runs, with a window open or not (`ui::launch::native`).
 pub fn keep_the_launchers_badge<S>(
     store: Arc<S>,
     file: Option<PathBuf>,
@@ -59,6 +62,9 @@ pub fn keep_the_launchers_badge<S>(
 where
     S: Store + Send + Sync + ?Sized + 'static,
 {
+    if cfg!(target_os = "macos") {
+        return None;
+    }
     let launcher = crate::launcher::platform()?;
     Some(keep_the_badge(store, file, launcher.0, EVERY).map(|_| ()))
 }

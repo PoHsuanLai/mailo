@@ -192,6 +192,112 @@ async fn general_controls_write_settings_toml() {
     );
 }
 
+/// A login item that records what it is asked, and refuses when told to.
+#[derive(Default)]
+struct LoginRecorder {
+    asked: Mutex<Vec<&'static str>>,
+    refuse: bool,
+}
+
+impl LoginRecorder {
+    fn asked(&self) -> Vec<&'static str> {
+        self.asked
+            .lock()
+            .map(|asked| asked.clone())
+            .unwrap_or_default()
+    }
+}
+
+impl crate::login_item::LoginItem for LoginRecorder {
+    fn register(&self) -> Result<crate::login_item::Registered, String> {
+        if let Ok(mut asked) = self.asked.lock() {
+            asked.push("register");
+        }
+        if self.refuse {
+            Err("Operation not permitted".to_owned())
+        } else {
+            Ok(crate::login_item::Registered::Done)
+        }
+    }
+
+    fn unregister(&self) -> Result<(), String> {
+        if let Ok(mut asked) = self.asked.lock() {
+            asked.push("unregister");
+        }
+        Ok(())
+    }
+}
+
+/// The Settings window over `built` on General, its login item `item`.
+fn general_with_login(built: &Work, item: Arc<LoginRecorder>) -> (VirtualDom, Seen) {
+    dispatching();
+    let mut dom = VirtualDom::new(settings_root)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone())
+        .with_root_context(crate::login_item::LoginItems(item));
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    (dom, seen)
+}
+
+/// "Check for mail when quit" is off until it is turned on, and each turn of its switch is
+/// handed to the login item: on registers `mailo watch` at login, off unregisters it.
+#[tokio::test]
+async fn check_for_mail_when_quit_registers_and_unregisters_the_login_item() {
+    use crate::settings::WhileQuit;
+    let built = work();
+    let item = Arc::new(LoginRecorder::default());
+    let (mut dom, seen) = general_with_login(&built, item.clone());
+    assert_eq!(
+        stored(&built).sync.while_quit,
+        WhileQuit::Off,
+        "off as it ships"
+    );
+    let switch = seen.after("aria-label", "Check for mail when quit", "aria-checked")[0];
+    click(&mut dom, switch);
+    assert_eq!(stored(&built).sync.while_quit, WhileQuit::On);
+    assert_eq!(item.asked(), ["register"]);
+    click(&mut dom, switch);
+    assert_eq!(stored(&built).sync.while_quit, WhileQuit::Off);
+    assert_eq!(item.asked(), ["register", "unregister"]);
+}
+
+/// A login item the system would not keep turns the switch off again, and says why.
+#[tokio::test]
+async fn a_login_item_the_system_refuses_leaves_the_switch_off_and_says_so() {
+    use crate::settings::WhileQuit;
+    let built = work();
+    let item = Arc::new(LoginRecorder {
+        refuse: true,
+        ..LoginRecorder::default()
+    });
+    let (mut dom, seen) = general_with_login(&built, item.clone());
+    let switch = seen.after("aria-label", "Check for mail when quit", "aria-checked")[0];
+    click(&mut dom, switch);
+    assert_eq!(item.asked(), ["register"]);
+    assert_eq!(stored(&built).sync.while_quit, WhileQuit::Off);
+    crate::ui::fixtures::settle_quiet(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains(crate::ui::copy::titles::LOGIN_ITEM_NOT_CHANGED)
+            && page.contains("Operation not permitted"),
+        "{page}"
+    );
+}
+
+/// A window with no login item (every test's, and a window the launch did not make) changes
+/// the switch in `settings.toml` and reaches nothing else.
+#[tokio::test]
+async fn without_a_login_item_the_switch_is_only_the_setting() {
+    use crate::settings::WhileQuit;
+    let built = work();
+    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    click(
+        &mut dom,
+        seen.after("aria-label", "Check for mail when quit", "aria-checked")[0],
+    );
+    assert_eq!(stored(&built).sync.while_quit, WhileQuit::On);
+}
+
 /// Each page, by the sidebar's row, and a line only that page draws.
 const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::General, "Check spelling"),

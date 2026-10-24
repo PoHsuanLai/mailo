@@ -111,8 +111,24 @@ impl Notifier for Notices {
     }
 }
 
+/// What the login item was asked: `"register"` or `"unregister"`, in order. Never the system's.
+#[derive(Default)]
+pub struct LoginItem(Mutex<Vec<&'static str>>);
+
+impl mail_app::login_item::LoginItem for LoginItem {
+    fn register(&self) -> Result<mail_app::login_item::Registered, String> {
+        held(&self.0).push("register");
+        Ok(mail_app::login_item::Registered::Done)
+    }
+
+    fn unregister(&self) -> Result<(), String> {
+        held(&self.0).push("unregister");
+        Ok(())
+    }
+}
+
 /// What every window of the lane's app is handed alike: the store, its directories, the
-/// revision they share, the file dialog and where files are saved.
+/// revision they share, the file dialog, where files are saved and the login item.
 #[derive(Clone)]
 struct Shared {
     store: Arc<SqliteStore>,
@@ -120,6 +136,7 @@ struct Shared {
     revisions: (Revisions, Configured),
     dialogs: Dialogs,
     saves: SaveDir,
+    login: Arc<LoginItem>,
 }
 
 impl Shared {
@@ -135,6 +152,7 @@ impl Shared {
         .with(self.revisions.1.clone())
         .with(self.dialogs.clone())
         .with(self.saves.clone())
+        .with(mail_app::login_item::LoginItems(self.login.clone()))
     }
 }
 
@@ -213,6 +231,7 @@ impl Window {
             revisions: (Revisions::new(), Configured::default()),
             dialogs: picker.dialogs(),
             saves: SaveDir(dir.path().join("saves")),
+            login: Arc::default(),
         };
         let contexts = shared
             .contexts()
@@ -291,6 +310,11 @@ impl Window {
     /// Every ask the file dialog was handed.
     pub fn asked(&self) -> Vec<DialogAsk> {
         held(&self.picker.asked).clone()
+    }
+
+    /// What the login item was asked, in order.
+    pub fn login_asked(&self) -> Vec<&'static str> {
+        held(&self.shared.login.0).clone()
     }
 
     /// Every link opened in the browser.

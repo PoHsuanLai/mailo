@@ -407,7 +407,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         };
         // One watch per user: a second would announce every message twice. A unit that starts
         // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
-        let watching = match mail_core::ipc::watching::claim() {
+        let watching = match mail_core::ipc::watching::claim(crate::edge::profile().id()) {
             Ok(held) => held,
             Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
                 println!("a mailo watch is already running; leaving it to it");
@@ -422,7 +422,8 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         if let Some(why) = watching.doorless() {
             eprintln!("Sync in an open window will not reach this watch: {why}");
         }
-        // The unread count on the launcher, kept up whether or not a window is open.
+        // The unread count on the launcher, kept up whether or not a window is open. (Not on
+        // macOS, where the Dock tile is mailo.app's, which keeps it itself.)
         if let Some(Err(e)) =
             crate::session::keep_the_launchers_badge(store.clone(), store.file().map(Into::into))
         {

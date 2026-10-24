@@ -36,6 +36,12 @@ plutil -lint "$app/Contents/Info.plist"
 # The icon, at every size an .icns holds, drawn on macOS's rounded square with its margin.
 cp packaging/macos/mailo.icns "$app/Contents/Resources/mailo.icns"
 
+# The launch agent Settings' "Check for mail when quit" registers with SMAppService, which finds it
+# here by name (crates/mail-app/src/login_item.rs). Inside the seal, like Info.plist.
+mkdir -p "$app/Contents/Library/LaunchAgents"
+cp packaging/macos/watch.plist "$app/Contents/Library/LaunchAgents/io.github.PoHsuanLai.mailo.watch.plist"
+plutil -lint "$app/Contents/Library/LaunchAgents/io.github.PoHsuanLai.mailo.watch.plist"
+
 # An ad-hoc signature over the whole bundle, under the bundle identifier. The linker already signs
 # the binary ad hoc, but under a name taken from its hash and with Info.plist and the icon outside
 # the seal; sealing them under the identifier makes the bundle one thing macOS can recognise, which
