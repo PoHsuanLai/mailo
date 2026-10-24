@@ -144,6 +144,27 @@ pub mod account {
     /// Under the field.
     pub const PUSH_RELAY_HELP: &str =
         "New mail arrives at once through a relay you deploy. Leave it empty to check on a timer.";
+
+    // The rows the person edits on the account's page.
+    /// The account's own name, written in the sidebar in place of its address.
+    pub const DESCRIPTION: &str = "Description";
+    /// The switch that pauses an account's syncing.
+    pub const SYNC: &str = "Sync";
+    pub const SYNC_THIS_ACCOUNT: &str = "Sync this account";
+    pub const INCOMING_SERVER: &str = "Incoming server";
+    /// A JMAP account's one address, the session resource.
+    pub const SESSION_URL: &str = "Session URL";
+    pub const OUTGOING_SERVER: &str = "Outgoing server";
+    pub const PORT: &str = "Port";
+    pub const SECURITY: &str = "Security";
+    pub const USER_NAME: &str = "User name";
+
+    // The folders picked for roles, in the order the page lists them.
+    pub const DRAFTS: &str = "Drafts";
+    pub const SENT: &str = "Sent";
+    pub const JUNK: &str = "Junk";
+    pub const TRASH: &str = "Trash";
+    pub const ARCHIVE: &str = "Archive";
 }
 
 // A signature's page in Settings.

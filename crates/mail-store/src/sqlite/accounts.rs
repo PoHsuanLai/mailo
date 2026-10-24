@@ -97,10 +97,13 @@ impl SqliteStore {
             let Ok(id) = uuid("AccountId", &id) else {
                 continue;
             };
+            let id = account_id_from_uuid(id);
+            let caps =
+                caps.map(|text| json("AccountCaps", &text).and_then(|caps| self.picked(&id, caps)));
             out.push(StoredAccount {
-                id: account_id_from_uuid(id),
+                id,
                 plan: json("AccountPlan", &plan),
-                caps: caps.map(|text| json("AccountCaps", &text)),
+                caps,
                 address,
             });
         }
@@ -197,7 +200,9 @@ impl SqliteStore {
                 |r| r.get(0),
             )
             .optional()?;
-        stored.map(|text| json("AccountCaps", &text)).transpose()
+        stored
+            .map(|text| json("AccountCaps", &text).and_then(|caps| self.picked(&id, caps)))
+            .transpose()
     }
 
     /// When the last pass of `account` finished, as the store recorded it: the newest of its

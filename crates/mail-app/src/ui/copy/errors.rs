@@ -177,3 +177,13 @@ pub fn login_item_not_removed(why: &str) -> String {
 
 /// What macOS asks before a login item runs.
 pub const ALLOW_LOGIN_ITEM: &str = "To check for mail while mailo is quit, turn mailo on in System Settings › General › Login Items.";
+
+/// A server's host left empty on the account's page.
+pub const NO_HOST: &str = "Enter the server\u{2019}s name.";
+/// A port that is not one.
+pub const BAD_PORT: &str = "A port is a number from 1 to 65535.";
+/// A user name left empty.
+pub const NO_USER_NAME: &str = "Enter the name the server knows you by.";
+/// The check of new server settings ended without an answer, so nothing was changed.
+pub const CHECK_STOPPED: &str =
+    "The check stopped before the server answered. Nothing was changed.";

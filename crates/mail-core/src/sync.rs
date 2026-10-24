@@ -70,6 +70,17 @@ pub fn caps_of(store: &SqliteStore, account: AccountId) -> Option<AccountCaps> {
         .flatten()
 }
 
+/// Whether the person paused `account`'s syncing in Settings. A paused account is in every list
+/// of accounts but none of the lists of what to sync: no timed pass, no pass asked for, no
+/// connection held open for it. One whose preferences cannot be read syncs, as it did before
+/// there were any.
+pub fn paused(store: &SqliteStore, account: AccountId) -> bool {
+    store
+        .account_prefs(account)
+        .or_log("the account's preferences could not be read")
+        .is_some_and(|prefs| prefs.syncing == mail_store::Syncing::Paused)
+}
+
 /// Read the accounts back out of the store.
 pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, CoreError> {
     let mut out = Vec::new();
@@ -179,6 +190,7 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
         .into_iter()
         // IDLE is a long-lived connection this loop does not hold. Until it does, an account that
         // supports it is polled like any other, at `due::IDLE`.
+        .filter(|account| !paused(store, account.id.clone()))
         .map(|a| due::every(&a.caps.watch))
         .min()
         .unwrap_or(default)
@@ -331,6 +343,7 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, CoreE
     Ok(configured(store)?
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
+        .filter(|account| !paused(store, account.id.clone()))
         .filter(|a| (scope.due)(a.id.clone()))
         .map(|a| kept_as(a, scope.kept))
         .collect())

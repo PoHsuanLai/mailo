@@ -2,7 +2,8 @@
 //! another action holds, and the main window, open all along, archives on the new key at once
 //! and on the shipped one again after Reset; Accounts pushes an account's page, which Escape and
 //! ⌘[ come back from and whose Remove question Escape answers; Spaces are put in order by
-//! dragging a row's grip; and every page keeps the button size rule.
+//! dragging a row's grip; an account's page names it, pauses it and refuses a wrong port; and
+//! every page keeps the button size rule.
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
@@ -12,7 +13,7 @@ use mail_app::ui::space;
 use mail_app::ui::view::Shortcut;
 
 use super::drive::{Drive, Key};
-use super::hands::{centre, click, until};
+use super::hands::{centre, click, scroll_to, type_text, until};
 use super::look::{inbox_at, sizes_hold};
 use super::window::{INBOX, Window, account, ms, row_of};
 
@@ -145,6 +146,8 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
         until(settings, "⌘[ comes back", at_accounts);
         click(settings, &row);
         until(settings, "its page is pushed a third time", at_account);
+        // Remove Account… is the page's last part, below the servers and the folders.
+        scroll_to(settings, ".settings-scroll", ".acct-actions button");
         click(settings, ".acct-actions button");
         until(settings, "Remove asks", |h| h.count(".ds-alert") == 1);
         settings.advance(ms(400));
@@ -266,4 +269,92 @@ fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
     });
     assert_eq!(while_quit(), mail_app::settings::WhileQuit::Off);
     assert_eq!(window.login_asked(), ["register", "unregister"]);
+}
+
+/// The lane's account as Add Account would have kept one typed by hand: IMAP and SMTP, a
+/// password.
+fn typed_by_hand() -> mail_domain::AccountPlan {
+    use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, SaslMech, Tls, Username};
+    AccountPlan {
+        address: super::seed::ME.to_owned(),
+        incoming: Incoming::Imap {
+            host: "imap.example.test".to_owned(),
+            port: 993,
+            tls: Tls::Implicit,
+        },
+        outgoing: Outgoing::Smtp {
+            host: "smtp.example.test".to_owned(),
+            port: 465,
+            tls: Tls::Implicit,
+        },
+        auth: AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
+        },
+        identities: Vec::new(),
+    }
+}
+
+/// Lane 14, the account's page: a description typed there names the account in the main
+/// window, the Sync switch pauses it, and a server row typed wrong is refused under that row
+/// on Save, the account keeping the servers it had.
+#[test]
+fn an_account_s_page_names_pauses_and_refuses_a_wrong_port() {
+    let plan = typed_by_hand();
+    let mut window = Window::open(|store| {
+        store
+            .set_account_plan(account(), &plan)
+            .expect("the plan is written");
+    });
+    let store = std::sync::Arc::clone(&window.store);
+    window.in_settings(copy::titles::ACCOUNTS, |settings| {
+        let row = account_row();
+        click(settings, &row);
+        until(settings, "its page is pushed", at_account);
+        sizes_hold(settings, copy::titles::ACCOUNTS);
+
+        click(settings, "#acct-description");
+        type_text(settings, "Work mail");
+        settings.key(Key::Tab);
+        settings.advance(ms(100));
+        until(settings, "the description is kept", |_| {
+            store
+                .account_prefs(account())
+                .ok()
+                .and_then(|prefs| prefs.description)
+                == Some("Work mail".to_owned())
+        });
+
+        let switch = format!(
+            ".ds-toggle[*|aria-label=\"{}\"]",
+            copy::fields::account::SYNC_THIS_ACCOUNT
+        );
+        click(settings, &switch);
+        until(settings, "the account is paused", |h| {
+            h.attr(&switch, "aria-checked").as_deref() == Some("false")
+                && store
+                    .account_prefs(account())
+                    .is_ok_and(|prefs| prefs.syncing == mail_core::Syncing::Paused)
+        });
+        until(settings, "the page says what paused means", |h| {
+            h.html().contains(copy::status::account::PAUSED_HELP)
+        });
+
+        click(settings, "#acct-in-port");
+        settings.chord(&[Key::Super], Key::Char('a'));
+        type_text(settings, "99999");
+        click(settings, "#acct-save-servers");
+        until(settings, "the port is refused under its row", |h| {
+            h.html().contains(copy::errors::BAD_PORT)
+        });
+    });
+    window.until("the sidebar names the account by its description", |h| {
+        h.html().contains("Work mail")
+    });
+    let kept = window
+        .store
+        .account(account())
+        .expect("the account is read")
+        .and_then(|kept| kept.plan.ok());
+    assert_eq!(kept, Some(plan), "a refused port changed the servers");
 }

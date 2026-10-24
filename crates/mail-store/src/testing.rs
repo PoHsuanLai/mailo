@@ -492,6 +492,7 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              DROP TABLE account_passes;
              DROP TABLE graph_push;
              DROP TABLE signatures;
+             DROP TABLE account_prefs;
              DROP INDEX messages_thread_order;
              CREATE INDEX messages_thread ON messages(thread);
              DROP INDEX thread_summary_subject;

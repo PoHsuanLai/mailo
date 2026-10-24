@@ -41,8 +41,8 @@ pub(in crate::ui) fn load(
                 }
             };
             AccountFolders {
+                address: row.shown(),
                 account: row.id,
-                address: row.address,
                 mailboxes,
             }
         })

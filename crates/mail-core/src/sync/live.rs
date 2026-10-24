@@ -106,6 +106,7 @@ pub fn pushing_with(store: &SqliteStore, kept: &crate::offline::Kept) -> Vec<Acc
                 || (account.every == crate::offline::Every::Automatic
                     && super::graph_push::relayed(store, account))
         })
+        .filter(|account| !super::paused(store, account.id.clone()))
         .map(|account| account.id)
         .collect()
 }

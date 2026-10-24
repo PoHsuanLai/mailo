@@ -36,7 +36,7 @@ mod term;
 #[cfg(feature = "testing")]
 pub mod testing;
 
-pub use account::{NewAccount, StoredAccount};
+pub use account::{AccountPrefs, NewAccount, StoredAccount, Syncing, with_picks};
 pub use blob::Blobs;
 pub use contact::{
     AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,

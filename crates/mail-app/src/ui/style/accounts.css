@@ -5,6 +5,9 @@
 .add-account-window:focus { outline: none; }
 .add-account-step { display: flex; flex-direction: column; width: 100%; min-width: 0; }
 .add-account-detail { margin: var(--s-12) var(--s-22) 0; font-size: var(--fs-control); line-height: var(--lh-head); color: var(--ink-soft); overflow-wrap: anywhere; user-select: text; }
+/* Save under an account's servers, its help beside it, apart from Remove so a click on either is
+   only that one. */
+.acct-save { display: flex; align-items: center; justify-content: flex-end; gap: var(--s-12); }
 .acct-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s-8); }
 /* An alias's Save, Remove Alias and Cancel, in a row under its fields at the end. */
 .alias-actions { display: flex; justify-content: flex-end; gap: var(--s-8); }
