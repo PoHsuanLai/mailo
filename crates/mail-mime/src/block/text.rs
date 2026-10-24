@@ -10,9 +10,12 @@
 //! A run is [`Block::Code`] on column alignment, rule characters, or source
 //! shape. Prose is a veto, and a flowed line is never code: the sender said
 //! it may be rewrapped, which is a fact rather than a guess.
+//!
+//! A paragraph's addresses become links (see [`super::linkify`]); a code block's do not.
 
 use super::kind::{Block, Delsp, Flowed, Span, first_strong, strip_overrides};
 use super::limits::{Limits, Reached};
+use super::linkify::linked;
 use super::quote::is_attribution;
 
 pub(crate) struct TextOut {
@@ -175,7 +178,7 @@ fn paragraph(depth: usize, text: String) -> Piece {
     Piece {
         depth,
         block: Block::Paragraph {
-            spans: vec![Span::Text(text)],
+            spans: linked(&text),
             dir,
         },
     }
@@ -193,7 +196,7 @@ fn broken_paragraph(depth: usize, run: &[Line]) -> Piece {
         if at > 0 {
             spans.push(Span::Break);
         }
-        spans.push(Span::Text((*text).to_owned()));
+        spans.extend(linked(text));
     }
     Piece {
         depth,
@@ -291,8 +294,10 @@ fn attribution_of(parent: &mut Vec<Block>) -> Option<Vec<Span>> {
 fn span_text_plain(spans: &[Span]) -> String {
     let mut out = String::new();
     for span in spans {
-        if let Span::Text(text) = span {
-            out.push_str(text);
+        match span {
+            Span::Text(text) => out.push_str(text),
+            Span::Link { spans, .. } => out.push_str(&span_text_plain(spans)),
+            _ => {}
         }
     }
     out
