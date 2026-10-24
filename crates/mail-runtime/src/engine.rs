@@ -318,6 +318,59 @@ pub struct AccountEngine<B: Backend> {
     /// Where connections to the incoming server come from in place of a socket: a test's server
     /// in memory ([`AccountEngine::with_dial`]). `None` in the program.
     dial: Option<Dial>,
+    /// The connection to the incoming server the last operation finished on, or the one
+    /// [`AccountEngine::reachable`] opened, for the next operation to go on.
+    kept: Option<Kept>,
+    /// The connection to the submission server the last submission was accepted on, signed in
+    /// and open for the next, until the drain it is part of ends.
+    sending: Option<(Kept, mail_proto::Open)>,
+}
+
+/// How long a kept connection waits for the next operation before a new one is opened instead.
+///
+/// Long enough for what the store does between the steps of a pass, and far short of what a
+/// server lets a quiet connection sit: thirty minutes for IMAP (RFC 9051 §5.4), five for SMTP
+/// between commands (RFC 5321 §4.5.3.2.7). A NAT that forgets a quiet mapping sooner leaves a
+/// socket that only [`RuntimeError::Stalled`] would end, minutes later; a minute is not that.
+const KEPT_FOR: Duration = Duration::from_secs(60);
+
+/// How long the submission server has to answer the `QUIT` that ends a drain.
+const SAYING_GOODBYE: Duration = Duration::from_secs(5);
+
+/// A connection kept from one operation for the next.
+#[derive(Debug)]
+struct Kept {
+    transport: Transport,
+    /// When the last operation on it finished, or it was opened.
+    at: tokio::time::Instant,
+    /// Whether a session has read its greeting and signed in: not yet, for the one
+    /// [`AccountEngine::reachable`] opened, which the first operation takes as a new one.
+    greeted: bool,
+}
+
+impl Kept {
+    fn now(transport: Transport, greeted: bool) -> Self {
+        Self {
+            transport,
+            at: tokio::time::Instant::now(),
+            greeted,
+        }
+    }
+
+    /// Whether it has waited no longer than [`KEPT_FOR`].
+    fn fresh(&self) -> bool {
+        self.at.elapsed() < KEPT_FOR
+    }
+}
+
+/// Whether `e` is a submission connection that went away, or that the server closed with a 421
+/// (RFC 5321 §3.8): what a kept one answers when the server has had enough of it.
+fn let_go(e: &RuntimeError) -> bool {
+    use mail_proto::ProtoError::{Throttled, UnexpectedEof};
+    matches!(
+        e,
+        RuntimeError::Io(_) | RuntimeError::Proto(UnexpectedEof | Throttled { .. })
+    )
 }
 
 /// Opens a connection to the incoming server in place of [`Transport::connect`]: what a test hands
@@ -350,6 +403,8 @@ impl<B: Backend> AccountEngine<B> {
             graph: None,
             synced: Vec::new(),
             dial: None,
+            kept: None,
+            sending: None,
         }
     }
 
@@ -378,13 +433,17 @@ impl<B: Backend> AccountEngine<B> {
 
     /// Whether the incoming server can be reached, checked once before a pass.
     ///
-    /// A connection opened and dropped, for a server that has one. Graph has no connection to
-    /// open, and its first request answers the question soon enough.
-    pub async fn reachable(&self) -> Result<(), RuntimeError> {
+    /// A connection opened, for a server that has one, and kept for the pass's first operation
+    /// rather than dropped: the question costs no connection the pass would not have opened.
+    /// Opened afresh, even with one kept from before, so the answer is today's. Graph has no
+    /// connection to open, and its first request answers the question soon enough.
+    pub async fn reachable(&mut self) -> Result<(), RuntimeError> {
         if self.graph.is_some() {
             return Ok(());
         }
-        drop(self.connect().await?);
+        self.kept = None;
+        let transport = self.connect().await?;
+        self.kept = Some(Kept::now(transport, false));
         Ok(())
     }
 
@@ -432,8 +491,8 @@ impl<B: Backend> AccountEngine<B> {
 
     /// Open a connection to the incoming server.
     ///
-    /// Public so a caller can check reachability before committing to a pass; the sync methods
-    /// each open their own, because a session spends the greeting and cannot share one.
+    /// Public so a caller can hold one of its own; the operations here go on the one they keep
+    /// ([`Self::run_once`]).
     pub async fn connect(&self) -> Result<Transport, RuntimeError> {
         let (host, port, tls) = self
             .incoming()
@@ -516,7 +575,20 @@ impl<B: Backend> AccountEngine<B> {
             ProtoOp::Submit { .. } => Token::Sending,
             _ => Token::Incoming,
         };
+        let before = match token {
+            Token::Incoming => Some(tokens.current(token).await?),
+            Token::Sending => None,
+        };
         tokens.ahead(token).await?;
+        // A connection kept from before a renewal is signed in with the token it replaced, so
+        // the operation goes on a new one, which presents the renewed token. Only the incoming
+        // one: the submission connection lasts a drain, and reading the sending token is a
+        // read of the secret store.
+        if let Some(before) = before
+            && tokens.current(token).await? != before
+        {
+            self.kept = None;
+        }
         let first = self.run_once(op.clone(), cancel, leaving).await;
         let refused = matches!(&first, Err(e) if matches!(e.retry(), Retry::NeedsReauth));
         let Some(tokens) = self.tokens.as_ref().filter(|_| refused) else {
@@ -532,15 +604,18 @@ impl<B: Backend> AccountEngine<B> {
         }
     }
 
-    /// Run one operation to completion, on a connection of its own.
+    /// Run one operation to completion, on the connection the last one finished on where it can.
     ///
-    /// A fresh connection per operation, and that is not laziness. A session reads the server's
-    /// greeting before issuing anything, so a second session on the same socket waits forever
-    /// for a greeting that was already spent — which is exactly how this hung until an
-    /// end-to-end test sat on it for sixty seconds. The alternatives are a session that knows
-    /// whether it is resuming, which puts protocol state in the caller, or one operation per
-    /// pass, which is what batching already achieves: a sync is three connections, not one per
-    /// message.
+    /// A pass is many operations — capabilities, a survey and a header band per mailbox, bodies,
+    /// sections, the outbox — and a connection each was a TLS handshake and a sign-in each. A
+    /// session reads the server's greeting before issuing anything, so a second one on the same
+    /// socket would wait for ever for a greeting already spent, which is how this once hung; so
+    /// the backend is told when it is resuming ([`Backend::resume`]), and its session begins
+    /// with its first command. A backend that cannot resume has a new connection every time.
+    ///
+    /// A kept connection that fails fails its operation, as a new one would have, and the next
+    /// operation opens another: kept no longer than [`KEPT_FOR`], it has not outlived the
+    /// server's patience, so what ended it is what would have ended a new one.
     async fn run_once(
         &mut self,
         op: ProtoOp,
@@ -570,12 +645,27 @@ impl<B: Backend> AccountEngine<B> {
             ProtoOp::Watch { .. } => wait::IDLE_REARM + crate::drive::QUIET,
             _ => crate::drive::QUIET,
         };
-        let mut transport = self.connect().await?;
+        // Asked last, so nothing that can fail comes between the backend agreeing to resume and
+        // the operation beginning.
+        let kept = self
+            .kept
+            .take()
+            .filter(|kept| kept.fresh() && (!kept.greeted || self.backend.resume(&op)));
+        let mut transport = match kept {
+            Some(kept) => kept.transport,
+            None => self.connect().await?,
+        };
         let mut step = BackendMachine {
             backend: &mut self.backend,
             op: Some(op),
         };
-        drive_within(&mut step, &mut transport, cancel, quiet).await
+        let outcome = drive_within(&mut step, &mut transport, cancel, quiet).await?;
+        // Interrupted, a session may have stopped with a command still unanswered, and the
+        // answer would arrive in the middle of the next.
+        if !*cancel.borrow() {
+            self.kept = Some(Kept::now(transport, true));
+        }
+        Ok(outcome)
     }
 
     /// Run one operation through Microsoft Graph, and remap whatever it moved.
@@ -700,7 +790,8 @@ impl<B: Backend> AccountEngine<B> {
             .await
     }
 
-    /// Submit one composed message, over a connection to the outgoing server.
+    /// Submit one composed message, over a connection to the outgoing server: the one the last
+    /// submission of this drain was accepted on, where there is one.
     ///
     /// `leaving` replaces the frozen `Date`, so a message held in the outbox — scheduled, or
     /// waiting out a lid that was shut — says when it left rather than when Send was pressed.
@@ -737,21 +828,75 @@ impl<B: Backend> AccountEngine<B> {
         let Some((host, port, tls)) = self.outgoing() else {
             return self.submit_to_graph(&message, rcpt_to).await;
         };
-        let (host, port, tls) = (host.to_owned(), port, tls);
+        let outgoing = (host.to_owned(), port, tls);
         let posting = Posting {
             mail_from: mail_from.clone(),
             rcpt_to: rcpt_to.clone(),
             message,
         };
+        let kept = self.sending.take().filter(|(kept, _)| kept.fresh());
+        // Once more on a new connection, where the kept one was let go: by the server, or with
+        // a 421 that closes it. Every message before this one was accepted at its dot and is
+        // settled, so only this one goes again, and it had not been.
+        let again = kept.as_ref().map(|_| (posting.clone(), op.clone()));
+        match (
+            self.submit_on(&outgoing, posting, op, kept, cancel).await,
+            again,
+        ) {
+            (Err(e), Some((posting, op))) if let_go(&e) => {
+                self.submit_on(&outgoing, posting, op, None, cancel).await
+            }
+            (done, _) => done,
+        }
+    }
 
+    /// Submit `posting` on `kept`, or on a new connection to `outgoing`, and keep the
+    /// connection open for the next submission once the server has accepted this one.
+    async fn submit_on(
+        &mut self,
+        (host, port, tls): &(String, u16, Tls),
+        posting: Posting,
+        op: ProtoOp,
+        kept: Option<(Kept, mail_proto::Open)>,
+        cancel: &mut Cancel,
+    ) -> Result<ProtoOutcome, RuntimeError> {
         let mut backend = self.submitter().await?;
-        backend.stage(posting)?;
-        let mut transport = Transport::connect(&host, port, tls).await?;
+        let (transport, on) = match kept {
+            Some((kept, on)) => (Some(kept.transport), Some(on)),
+            None => (None, None),
+        };
+        backend.stage_open(posting, on)?;
+        let mut transport = match transport {
+            Some(transport) => transport,
+            None => Transport::connect(host, *port, *tls).await?,
+        };
         let mut step = BackendMachine {
             backend: &mut backend,
             op: Some(op),
         };
-        drive(&mut step, &mut transport, cancel).await
+        let outcome = drive(&mut step, &mut transport, cancel).await?;
+        if let Some(on) = backend.left_open().filter(|_| !*cancel.borrow()) {
+            self.sending = Some((Kept::now(transport, true), on));
+        }
+        Ok(outcome)
+    }
+
+    /// Say `QUIT` on the submission connection a drain kept, and close it.
+    ///
+    /// Whatever the server answers, or nothing: every message that went on it was accepted at
+    /// its dot, and nothing said now can change that.
+    async fn quit_sending(&mut self) {
+        let Some((mut kept, _)) = self.sending.take() else {
+            return;
+        };
+        let goodbye = async {
+            kept.transport
+                .satisfy(&mail_proto::IoNeed::Write(b"QUIT\r\n".to_vec()))
+                .await?;
+            kept.transport.satisfy(&mail_proto::IoNeed::Read).await
+        };
+        // The answer is not needed: the connection closes when `kept` goes, said or not.
+        let _ = crate::error::within(SAYING_GOODBYE, "saying goodbye", goodbye).await;
     }
 
     /// The bytes a submission hands the server: frozen when the user pressed send, so a draft
@@ -882,7 +1027,21 @@ impl<B: Backend> AccountEngine<B> {
     /// to be found ([`Store::unplaced_pass`]); once the syncs that should have found one have
     /// not, an operation on it is refused, its local change undone, and the reason said
     /// (FINDINGS F155). A drain with no sync before it, such as `mailo`'s upload, counts nothing.
+    ///
+    /// Every submission in it goes on one connection to the submission server, signed in once,
+    /// which the drain closes as it ends.
     pub async fn drain_outbox(
+        &mut self,
+        cancel: &mut Cancel,
+        now: DateTime<Utc>,
+    ) -> Result<SyncReport, RuntimeError> {
+        let drained = self.drain_passes(cancel, now).await;
+        self.quit_sending().await;
+        drained
+    }
+
+    /// [`Self::drain_outbox`], until no pass queues another.
+    async fn drain_passes(
         &mut self,
         cancel: &mut Cancel,
         now: DateTime<Utc>,

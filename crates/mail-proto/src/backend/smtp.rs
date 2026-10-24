@@ -5,7 +5,7 @@
 //! here.
 
 use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
-use crate::smtp::{SmtpSession, Submission};
+use crate::smtp::{Open, SmtpSession, Submission};
 use mail_domain::{AccountCaps, DraftId, ProtoOp};
 use mail_mime::Posting;
 use porter_core::AccountId;
@@ -29,6 +29,10 @@ pub struct SmtpBackend {
     session: Option<SmtpSession>,
     /// The draft in flight, so the outcome can name what was sent.
     draft: Option<DraftId>,
+    /// Whether the staged submission leaves its connection open ([`SmtpBackend::stage_open`]).
+    stays: bool,
+    /// What an accepted submission that stayed open left its connection with.
+    left: Option<Open>,
 }
 
 impl SmtpBackend {
@@ -43,6 +47,8 @@ impl SmtpBackend {
             build,
             session: None,
             draft: None,
+            stays: false,
+            left: None,
         }
     }
 
@@ -58,7 +64,24 @@ impl SmtpBackend {
     pub fn stage(&mut self, posting: Posting) -> Result<(), ProtoError> {
         let submission = (self.build)(posting)?;
         self.session = Some(SmtpSession::new(submission));
+        self.stays = false;
         Ok(())
+    }
+
+    /// [`Self::stage`], for a submission that leaves its connection open once accepted, so the
+    /// next can go on it ([`SmtpSession::open`]). `on` is what the one before left it with, when
+    /// the connection is that one's.
+    pub fn stage_open(&mut self, posting: Posting, on: Option<Open>) -> Result<(), ProtoError> {
+        let submission = (self.build)(posting)?;
+        self.session = Some(SmtpSession::open(submission, on));
+        self.stays = true;
+        Ok(())
+    }
+
+    /// What the accepted submission left its connection with, when it was staged to stay open.
+    /// `None` after one that failed, or said `QUIT`.
+    pub fn left_open(&mut self) -> Option<Open> {
+        self.left.take()
     }
 }
 
@@ -100,9 +123,13 @@ impl Backend for SmtpBackend {
                 self.session = None;
                 Progress::Failed(e)
             }
-            Progress::Done(_reply) => {
+            Progress::Done(reply) => {
                 self.session = None;
                 self.draft = None;
+                self.left = self.stays.then_some(Open {
+                    extensions: reply.extensions,
+                    mechanism: reply.mechanism,
+                });
                 // `remote: None`: SMTP tells us the message was accepted, not where a copy was
                 // filed. On Gmail the server files it in Sent itself and a client APPEND would
                 // duplicate it; on POP3 accounts there is no Sent folder at all, and the runtime

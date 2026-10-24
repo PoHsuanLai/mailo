@@ -163,6 +163,15 @@ pub struct Moved {
 ///
 /// Same shape as [`Machine`], deliberately.
 pub trait Backend {
+    /// Whether `op` can go on the connection the last operation finished on, greeted and signed
+    /// in already, and if so, that the next [`Backend::begin`] is to put it there.
+    ///
+    /// Asked just before that `begin`, and only of a connection the last operation finished on
+    /// cleanly. Not by default: a backend that cannot has a new connection for every operation.
+    fn resume(&mut self, _op: &ProtoOp) -> bool {
+        false
+    }
+
     /// Begin work on `op`. Called once per operation.
     fn begin(&mut self, op: ProtoOp) -> Progress<ProtoOutcome>;
 

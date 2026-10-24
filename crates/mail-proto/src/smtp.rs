@@ -224,16 +224,30 @@ enum Phase {
     Bdat,
     /// Waiting for `QUIT`. The value is the acceptance reply, which must survive a rude close.
     Quit(ReplyText),
+    /// On a connection an earlier session left open: nothing to wait for before `MAIL FROM`.
+    Resumed,
     Finished,
 }
 
-/// A submission client. It speaks one message, then `QUIT`.
+/// What a session that left its connection open knows of the server, for the next one on it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Open {
+    /// Extensions from the `EHLO` that preceded authentication.
+    pub extensions: EhloExtensions,
+    /// The mechanism the session signed in with.
+    pub mechanism: Option<SaslMech>,
+}
+
+/// A submission client. It speaks one message, then `QUIT`, or leaves the connection open for
+/// the next ([`SmtpSession::open`]).
 pub struct SmtpSession {
     submission: Submission,
     phase: Phase,
     buf: Vec<u8>,
     extensions: EhloExtensions,
     mechanism: Option<SaslMech>,
+    /// Whether the connection stays open once the message is accepted, rather than `QUIT`.
+    stays: bool,
     /// Wire form of the envelope, chosen at the `EHLO` that precedes `AUTH`.
     ///
     /// Absent until then. The pre-TLS `EHLO` does not set it: the extensions
@@ -264,8 +278,27 @@ impl SmtpSession {
             buf: Vec::new(),
             extensions: EhloExtensions::default(),
             mechanism: None,
+            stays: false,
             envelope: None,
         }
+    }
+
+    /// A session that leaves the connection open once the server accepts the message, so that
+    /// another can go on it, and finishes with no `closing` reply.
+    ///
+    /// With `on`, the connection is one an earlier session left so: greeted, secured and signed
+    /// in, and this one begins at `MAIL FROM`, deciding the envelope on the extensions that
+    /// session was given. After an accepted message the server is ready for the next
+    /// transaction (RFC 5321 §3.3), so nothing is reset first.
+    pub fn open(submission: Submission, on: Option<Open>) -> Self {
+        let mut session = Self::new(submission);
+        session.stays = true;
+        if let Some(on) = on {
+            session.extensions = on.extensions;
+            session.mechanism = on.mechanism;
+            session.phase = Phase::Resumed;
+        }
+        session
     }
 
     /// Extensions from the last completed `EHLO`, including after a later failure.
@@ -304,6 +337,13 @@ impl SmtpSession {
             Err(err) => return self.fail(err),
         };
         self.buf.drain(..consumed);
+        // Accepted, and the connection is kept for another message: no `QUIT`.
+        if self.stays && matches!(self.phase, Phase::Body | Phase::Bdat) {
+            return match expect_success(&reply) {
+                Ok(()) => self.finish_ok(reply_text(&reply), None),
+                Err(err) => self.fail(err),
+            };
+        }
         if matches!(self.phase, Phase::Ehlo | Phase::EhloAfterTls) && is_success(reply.code) {
             self.extensions = parse_ehlo(&reply);
         }
@@ -361,6 +401,28 @@ impl SmtpSession {
         ])
     }
 
+    /// Begin on a connection an earlier session left open: the checks and the envelope its
+    /// `EHLO` would have decided, then `MAIL FROM`.
+    fn resume(&mut self) -> Progress<SmtpReply> {
+        let sub = &self.submission;
+        let envelope = check_transfer(&self.extensions, &sub.message).and_then(|()| {
+            prepare_envelope(
+                &self.extensions,
+                &sub.mail_from,
+                &sub.recipients,
+                sub.receipt.as_ref(),
+            )
+        });
+        let envelope = match envelope {
+            Ok(envelope) => envelope,
+            Err(err) => return self.fail(err),
+        };
+        let line = mail_from_command(&envelope, &sub.message);
+        self.envelope = Some(envelope);
+        self.phase = Phase::MailFrom;
+        Progress::Need(vec![IoNeed::Write(cmd(&line)), IoNeed::Read])
+    }
+
     fn on_eof(&mut self) -> Progress<SmtpReply> {
         let Phase::Quit(accepted) = &self.phase else {
             return self.fail(ProtoError::UnexpectedEof);
@@ -398,6 +460,9 @@ impl Machine for SmtpSession {
     fn start(&mut self) -> Progress<SmtpReply> {
         if let Err(err) = validate(&self.submission) {
             return self.fail(err);
+        }
+        if matches!(self.phase, Phase::Resumed) {
+            return self.resume();
         }
         Progress::Need(vec![IoNeed::Read])
     }
@@ -742,6 +807,9 @@ fn decide(
         Phase::Body => on_body(reply),
         Phase::Bdat => on_bdat(reply),
         Phase::Quit(accepted) => on_quit(accepted, reply, ext, mech, &sub.auth),
+        Phase::Resumed => Err(ProtoError::Malformed(
+            "a reply before anything was sent on a resumed connection".into(),
+        )),
         Phase::Finished => Err(ProtoError::Malformed(
             "reply after the session finished".into(),
         )),

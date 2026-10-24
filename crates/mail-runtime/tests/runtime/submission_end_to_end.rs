@@ -43,6 +43,13 @@ struct Transcript {
     commands: Vec<String>,
     /// The `DATA` payload, after the server un-stuffed it.
     body: String,
+    /// Every payload accepted, in order, across every connection.
+    bodies: Vec<String>,
+    /// How many connections the client opened.
+    connections: usize,
+    /// The most messages the server takes on one connection before it answers the next
+    /// `MAIL FROM` with a 421 and closes, as a server that caps a session does. `None` for no cap.
+    per_connection: Option<usize>,
 }
 
 impl Transcript {
@@ -81,6 +88,12 @@ async fn serve(seen: Shared) -> u16 {
 async fn session(sock: tokio::net::TcpStream, seen: Shared) {
     let (read, mut write) = sock.into_split();
     let mut lines = BufReader::new(read).lines();
+    let cap = {
+        let mut seen = seen.lock().unwrap();
+        seen.connections += 1;
+        seen.per_connection
+    };
+    let mut accepted = 0;
 
     if write
         .write_all(b"220 smtp.example ESMTP ready\r\n")
@@ -96,7 +109,12 @@ async fn session(sock: tokio::net::TcpStream, seen: Shared) {
         if in_data {
             if line == "." {
                 in_data = false;
-                seen.lock().unwrap().body = std::mem::take(&mut body);
+                accepted += 1;
+                {
+                    let mut seen = seen.lock().unwrap();
+                    seen.bodies.push(body.clone());
+                    seen.body = std::mem::take(&mut body);
+                }
                 if write
                     .write_all(b"250 2.0.0 Ok: queued as ABC123\r\n")
                     .await
@@ -133,6 +151,11 @@ async fn session(sock: tokio::net::TcpStream, seen: Shared) {
                 .to_owned()
         } else if upper.starts_with("AUTH PLAIN") {
             "235 2.7.0 Accepted\r\n".to_owned()
+        } else if upper.starts_with("MAIL FROM") && cap == Some(accepted) {
+            let _ = write
+                .write_all(b"421 4.7.0 Too many messages on one connection\r\n")
+                .await;
+            return;
         } else if upper.starts_with("MAIL FROM") || upper.starts_with("RCPT TO") {
             "250 2.1.0 Ok\r\n".to_owned()
         } else if upper.starts_with("DATA") {
@@ -474,6 +497,88 @@ async fn a_queued_message_is_submitted_whole() {
         }
         other => panic!("draft: did not reach Sent: {other:?}"),
     }
+}
+
+/// The account with three messages queued, subjects `first`, `second` and `third`, in that order.
+fn three_queued(smtp_port: u16) -> Sending {
+    let it = open(smtp_port, 1);
+    for subject in ["first", "second", "third"] {
+        let one = Draft {
+            id: DraftId::generate(),
+            subject: subject.to_owned(),
+            ..draft()
+        };
+        queue(&it.store, &one, None);
+    }
+    it
+}
+
+/// The subject of each message the server accepted, in the order it accepted them.
+fn accepted(seen: &Transcript) -> Vec<String> {
+    seen.bodies
+        .iter()
+        .filter_map(|body| {
+            body.lines()
+                .find_map(|line| line.strip_prefix("Subject: "))
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
+/// How many of the commands the server heard begin with `verb`.
+fn heard(seen: &Transcript, verb: &str) -> usize {
+    seen.commands.iter().filter(|c| c.starts_with(verb)).count()
+}
+
+/// A drain of three messages signs in once and sends all three on that connection, then says
+/// `QUIT`. Each used to have a connection of its own: three handshakes and three sign-ins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_drain_sends_every_message_on_one_connection() {
+    let seen: Shared = Arc::new(Mutex::new(Transcript::default()));
+    let port = serve(seen.clone()).await;
+    let mut it = three_queued(port);
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+    assert_eq!(report.submitted, 3, "{report:?}");
+    assert_eq!(report.still_queued, 0, "{report:?}");
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.connections, 1, "{:?}", seen.commands);
+    assert_eq!(heard(&seen, "EHLO"), 1, "{:?}", seen.commands);
+    assert_eq!(heard(&seen, "AUTH"), 1, "{:?}", seen.commands);
+    assert_eq!(heard(&seen, "MAIL FROM"), 3, "{:?}", seen.commands);
+    assert_eq!(accepted(&seen), ["first", "second", "third"]);
+    assert_eq!(
+        seen.commands.last().map(String::as_str),
+        Some("QUIT"),
+        "the drain did not end the session: {:?}",
+        seen.commands
+    );
+}
+
+/// A server that closes the connection partway through a drain, as one that caps the messages
+/// on a session does, costs one more connection: the drain signs in again and goes on, and no
+/// message the server already accepted is sent twice.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_closed_mid_drain_is_opened_again_and_nothing_is_sent_twice() {
+    let seen: Shared = Arc::new(Mutex::new(Transcript {
+        per_connection: Some(2),
+        ..Transcript::default()
+    }));
+    let port = serve(seen.clone()).await;
+    let mut it = three_queued(port);
+    let (_tx, mut cancel) = watch::channel(false);
+
+    let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+    assert_eq!(report.submitted, 3, "{report:?}");
+    assert_eq!(report.outbox_settled, 3, "{report:?}");
+    assert!(report.needs_attention.is_empty(), "{report:?}");
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.connections, 2, "{:?}", seen.commands);
+    assert_eq!(heard(&seen, "AUTH"), 2, "{:?}", seen.commands);
+    assert_eq!(accepted(&seen), ["first", "second", "third"]);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
