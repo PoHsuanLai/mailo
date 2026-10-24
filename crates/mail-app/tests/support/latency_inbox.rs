@@ -8,14 +8,10 @@ use ds_harness::{Clock, HarnessConfig, Viewport};
 use mail_app::ui::appearance::WindowDirs;
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::Arc;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c3"))
-}
+use crate::store::acct_account;
 
 pub const VIEW: Viewport = Viewport {
     width: 1200,

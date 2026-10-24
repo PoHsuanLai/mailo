@@ -2,6 +2,8 @@
 //! Change answer then Decline sends another, and Save .ics writes the event where the window
 //! saves files.
 
+use mail_app::ui::copy;
+
 use super::drive::Key;
 use super::window::{Window, deliver, hours_ago, queued};
 
@@ -55,9 +57,9 @@ fn an_invitation_is_accepted_with_a_note_then_declined_and_saved_as_ics() {
     window.click(&format!("{CARD} .inv-note-field input"));
     window.type_text("Glad to join");
     window.press(&[], Key::Enter, 1);
-    window.until("the card says it was accepted", |h| {
-        h.text_of(CARD)
-            .is_some_and(|card| card.contains("You accepted"))
+    window.until_stored("the answer is queued", |store| queued(store).len() == 1);
+    window.until("the card settles on the answer", |h| {
+        h.count(&format!("{CARD} [*|data-invite=change]")) == 1
     });
     let sent = queued(&window.store);
     assert_eq!(sent.len(), 1, "not one answer");
@@ -73,15 +75,14 @@ fn an_invitation_is_accepted_with_a_note_then_declined_and_saved_as_ics() {
     assert!(raw.contains("Glad to join"), "the note did not go:\n{raw}");
 
     // Change answer, Decline, Send answer: a second reply, declining.
-    window.click(&format!("{CARD} [*|aria-label=\"Change answer\"]"));
+    window.click(&format!("{CARD} [*|data-invite=change]"));
     window.until("the answers are offered again", |h| {
         h.count(&answer(3)) == 1
     });
     window.click(&answer(3));
-    window.click(&format!("{CARD} [*|aria-label=\"Send answer\"]"));
-    window.until("the card says it was declined", |h| {
-        h.text_of(CARD)
-            .is_some_and(|card| card.contains("You declined"))
+    window.click(&format!("{CARD} [*|data-invite=send]"));
+    window.until_stored("the second answer is queued", |store| {
+        queued(store).len() == 2
     });
     let sent = queued(&window.store);
     assert_eq!(sent.len(), 2, "the second answer was not queued");
@@ -92,12 +93,16 @@ fn an_invitation_is_accepted_with_a_note_then_declined_and_saved_as_ics() {
     );
 
     // Save .ics, one of the Details: the event lands where the window saves files, named for it.
-    window.click(&format!("{CARD} [*|aria-label=\"Show Details\"]"));
-    window.click(&format!("{CARD} [*|aria-label=\"Save .ics\"]"));
+    window.click(&format!(
+        "{CARD} [*|aria-label=\"{}\"]",
+        copy::aria::SHOW_DETAILS
+    ));
+    window.click(&format!("{CARD} [*|data-invite=save]"));
     let saved = window.saves().join("Design review.ics");
+    let said = copy::toasts::saved_to(&saved);
     window.until("the toast says where it was saved", |h| {
         h.text_of(".ds-toast-body")
-            .is_some_and(|toast| toast.starts_with("Saved to"))
+            .is_some_and(|toast| toast.contains(&said))
     });
     let bytes = std::fs::read_to_string(&saved).expect("the .ics was saved");
     for said in [

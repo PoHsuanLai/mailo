@@ -3,6 +3,7 @@
 //! and the main window's inbox follows.
 
 use ds_harness::Harness;
+use mail_app::ui::copy;
 use mail_core::SqliteStore;
 use std::sync::Arc;
 
@@ -12,42 +13,44 @@ use super::window::{Window, hours_ago, row_of};
 
 const ARRIVING: &str = "Agenda for Monday";
 
-/// The From row's field a new rule opens on.
-const FROM: &str = "input[*|aria-label=\"From\"]";
+/// What carries `label` as its accessible name.
+fn labelled(label: &str) -> String {
+    format!("[*|aria-label=\"{label}\"]")
+}
 
 /// In Settings → Rules: a rule archiving whatever Edsger sends, made on the page New Rule…
 /// pushes, applied to the mail already here, and kept by Save Rule, which goes back to the list.
 fn make_the_rule(settings: &mut Harness, store: &SqliteStore) {
-    click(settings, "[*|aria-label=\"New Rule\u{2026}\"]");
-    until(settings, "the rule's page opens", |h| h.count(FROM) == 1);
-    click(settings, "input[*|aria-label=\"Name\"]");
+    // The From row's field, which a new rule opens on.
+    let from = format!("input{}", labelled(copy::fields::FROM));
+    let save = labelled(copy::aria::SAVE_RULE);
+    let add = labelled(copy::aria::ADD_ACTION);
+    click(settings, &labelled(copy::controls::NEW_RULE));
+    until(settings, "the rule's page opens", |h| h.count(&from) == 1);
+    click(settings, &format!("input{}", labelled(copy::fields::NAME)));
     type_text(settings, "Edsger");
-    click(settings, FROM);
+    click(settings, &from);
     type_text(settings, "edsger@example.test");
     until(
         settings,
         "the condition reads, so Save Rule is offered",
         |h| {
-            h.count("[*|aria-label=\"Save Rule\"][disabled]") == 0
-                && h.count("[*|aria-label=\"Save Rule\"][*|aria-disabled=true]") == 0
+            h.count(&format!("{save}[disabled]")) == 0
+                && h.count(&format!("{save}[*|aria-disabled=true]")) == 0
         },
     );
-    scroll_to(
-        settings,
-        ".settings-scroll",
-        "[*|aria-label=\"Add an action\"]",
-    );
-    click(settings, "[*|aria-label=\"Add an action\"]");
-    super::hands::menu_item(settings, "Archive");
+    scroll_to(settings, ".settings-scroll", &add);
+    click(settings, &add);
+    super::hands::menu_item(settings, copy::menus::ARCHIVE);
     scroll_to(settings, ".settings-scroll", ".ds-toggle");
     click(settings, ".ds-toggle");
     until(settings, "Also apply is on", |h| {
         h.count(".ds-toggle[*|aria-checked=true]") == 1
     });
-    scroll_to(settings, ".settings-scroll", "[*|aria-label=\"Save Rule\"]");
-    click(settings, "[*|aria-label=\"Save Rule\"]");
+    scroll_to(settings, ".settings-scroll", &save);
+    click(settings, &save);
     until(settings, "the list shows the rule", |h| {
-        h.count(FROM) == 0
+        h.count(&from) == 0
             && h.text_of(".settings-page")
                 .is_some_and(|page| page.contains("Edsger"))
     });
@@ -59,7 +62,10 @@ fn make_the_rule(settings: &mut Harness, store: &SqliteStore) {
     // The fixture's account has no password to reach its server with, so the save's push to it
     // may be refused in a dialog; a run that failed would say so in one of its own.
     let said = settings.text_of(".ds-alert").unwrap_or_default();
-    assert!(!said.contains("Run"), "the run said it failed: {said:?}");
+    assert!(
+        !said.contains(&copy::titles::did_not_run("Edsger")),
+        "the run said it failed: {said:?}"
+    );
 }
 
 #[test]
@@ -82,7 +88,9 @@ fn a_rule_made_in_settings_files_the_mail_it_matches() {
 
     // The rule, applied to the mail already here: both of Edsger's conversations leave the inbox.
     let store = Arc::clone(&window.store);
-    window.in_settings("Rules", |settings| make_the_rule(settings, &store));
+    window.in_settings(copy::titles::RULES, |settings| {
+        make_the_rule(settings, &store)
+    });
     window.until("the main window's inbox follows", |h| {
         row_of(h, ARRIVING).is_none() && row_of(h, "Notes from the review").is_none()
     });

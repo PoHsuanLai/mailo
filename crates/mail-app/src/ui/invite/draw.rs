@@ -196,7 +196,7 @@ pub(in crate::ui) fn InviteCard(
                             Button {
                                 label: change,
                                 onclick: on_primary(move || phase.set(Phase::Changing)),
-                                common: Common { aria_label: Some(change.to_owned()), ..Common::default() },
+                                common: Common { aria_label: Some(change.to_owned()), data: crate::ui::sidebar::tagged("invite", "change").data, ..Common::default() },
                             }
                         },
                     }
@@ -269,7 +269,7 @@ pub(in crate::ui) fn InviteCard(
                             label: save,
                             availability: available(!working),
                             onclick: on_primary(move || save_file(message, title.clone(), phase)),
-                            common: Common { aria_label: Some(save.to_owned()), ..Common::default() },
+                            common: Common { aria_label: Some(save.to_owned()), data: crate::ui::sidebar::tagged("invite", "save").data, ..Common::default() },
                         }
                     }
                 }
@@ -348,7 +348,7 @@ fn Noting(
                 Button {
         answers: Answers::Return,
         label: "Send".to_owned(),
-    common: Common { aria_label: Some("Send answer".to_owned()), ..Common::default() },
+    common: Common { aria_label: Some("Send answer".to_owned()), data: crate::ui::sidebar::tagged("invite", "send").data, ..Common::default() },
         onclick: on_primary(move || on_send.call((attendance, note.clone()))),
     }
             }

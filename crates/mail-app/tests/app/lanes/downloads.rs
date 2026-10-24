@@ -8,7 +8,7 @@ use super::window::{Window, deliver, hours_ago, ms};
 
 const SUBJECT: &str = "Notes from Thursday";
 const NAME: &str = "notes.txt";
-const BUTTON: &str = ".side-head [*|aria-label=\"Downloads\"]";
+const BUTTON: &str = ".side-head .downloads-hold .ds-button";
 const LIST: &str = ".downloads";
 const DOT: &str = ".downloads-dot";
 
@@ -24,6 +24,18 @@ fn with_notes(store: &mail_core::SqliteStore) {
         hours_ago(0)
     );
     deliver(store, "notes1", &raw);
+}
+
+/// A saved file's menu, by place: Open, Show in Folder, Go to Message, a rule, Remove from List
+/// and Clear List.
+const SHOW_IN_FOLDER: usize = 2;
+const GO_TO_MESSAGE: usize = 3;
+const CLEAR_LIST: usize = 6;
+
+/// Pick the open menu's `n`th row.
+fn pick(window: &mut Window, n: usize) {
+    window.click(&format!(".ds-menu .ds-menu-list > :nth-child({n})"));
+    window.harness.advance(ms(300));
 }
 
 /// Right-click the list's first file, and wait for its menu.
@@ -81,7 +93,8 @@ fn a_saved_attachment_is_listed_opened_shown_and_cleared() {
         mark.origin.y.0 + mark.size.height.0 <= name.origin.y.0 + 0.5,
         "the paperclip is not over the name: {mark:?} {name:?}"
     );
-    window.click(&format!(".reader [*|aria-label=\"Save {NAME}\"]"));
+    // The tile's own button: Save, as the part is here.
+    window.click(".reader .att-tile > .ds-button");
     let saved = window.saves().join(NAME);
     window.until("the file is saved and the button has its dot", |h| {
         saved.exists() && h.count(DOT) == 1
@@ -108,7 +121,7 @@ fn a_saved_attachment_is_listed_opened_shown_and_cleared() {
     window.click(BUTTON);
     window.until("the list opens again", listed);
     row_menu(&mut window);
-    window.menu_item("Show in Folder");
+    pick(&mut window, SHOW_IN_FOLDER);
     window.until_launched("the file is shown in its folder", 2);
     assert_eq!(window.launched()[1], ("reveal", saved.clone()));
 
@@ -116,7 +129,7 @@ fn a_saved_attachment_is_listed_opened_shown_and_cleared() {
     window.click(BUTTON);
     window.until("the list opens for the message", listed);
     row_menu(&mut window);
-    window.menu_item("Go to Message");
+    pick(&mut window, GO_TO_MESSAGE);
     window.until("the list closes on the message", |h| h.count(LIST) == 0);
     assert!(
         window.text(".reader").contains(SUBJECT),
@@ -127,16 +140,16 @@ fn a_saved_attachment_is_listed_opened_shown_and_cleared() {
     window.click(BUTTON);
     window.until("the list opens a third time", listed);
     row_menu(&mut window);
-    window.menu_item("Clear List");
+    pick(&mut window, CLEAR_LIST);
     window.until("the list closes on Clear", |h| h.count(LIST) == 0);
     window.click(BUTTON);
     window.until("the list is empty", |h| {
-        h.text_of(LIST)
-            .is_some_and(|list| !list.contains(NAME) && list.contains("show up here"))
+        h.count(&format!("{LIST} .ds-empty-state")) == 1
+            && h.text_of(LIST).is_some_and(|list| !list.contains(NAME))
     });
     assert!(saved.exists(), "Clear removed the file");
-    let stored =
-        std::fs::read_to_string(window.state().join("downloads.json")).expect("the list is stored");
+    let stored = std::fs::read_to_string(window.dirs().state.join("downloads.json"))
+        .expect("the list is stored");
     assert!(
         !stored.contains(NAME),
         "the stored list kept the file: {stored}"

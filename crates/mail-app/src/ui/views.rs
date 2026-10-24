@@ -176,6 +176,7 @@ pub(in crate::ui) fn ViewSheet(
                                 shown: Some(if grouping() { Shown::Visible } else { Shown::Hidden }),
                                 common: Common {
                                     aria_label: Some(format!("Group by: {group_label}")),
+                                    data: crate::ui::sidebar::tagged("view", "group").data,
                                     mounted: Some(EventHandler::new(move |event: MountedEvent| {
                                         group_at.set(Some(MountedRef(event.data())));
                                     })),
@@ -220,6 +221,7 @@ pub(in crate::ui) fn ViewSheet(
                             icon: Icon::Trash,
                             common: Common {
                                 aria_label: Some(copy::aria::DELETE_VIEW.to_owned()),
+                                data: crate::ui::sidebar::tagged("view", "delete").data,
                                 ..Common::default()
                             },
                             onclick: on_primary(move || delete(shell, revision, pages)),
@@ -231,6 +233,7 @@ pub(in crate::ui) fn ViewSheet(
                         label: copy::controls::SAVE.to_owned(),
                         common: Common {
                             aria_label: Some(format!("Save {}", title.to_lowercase())),
+                            data: crate::ui::sidebar::tagged("view", "save").data,
                             ..Common::default()
                         },
                         onclick: on_primary(move || save(shell, revision, pages)),

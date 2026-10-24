@@ -1,7 +1,8 @@
 //! The reader's Original view on Blitz (`native`), in the real window: the sender's sanitized
 //! markup is a sealed document of its own, its remote images are fetched only for the thread
 //! the reader consented to, a link in it opens in the browser, and a click on its inline image
-//! opens that image in Peek.
+//! opens that image in Peek. The window's own document asks for nothing remote, and no script
+//! engine is built in.
 //!
 //! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`, with an
 //! `Original` whose fetcher and browser are recorders: nothing here touches the network, the
@@ -14,9 +15,7 @@ use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_app::ui::native::{Browse, Fetch, Original};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use porter_core::AccountId;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -26,9 +25,7 @@ use crate::native::ms;
 use crate::native::thread;
 use drive::{Drive, Key};
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"))
-}
+use crate::store::acct_account;
 
 const VIEW: Viewport = Viewport {
     width: 1280,
@@ -219,7 +216,7 @@ fn open() -> Window {
     let opened = Arc::new(Opened::default());
     let original = Original::new(fetched.clone(), opened.clone());
     let config = HarnessConfig::new(VIEW)
-        .with_clock(Clock::Wall)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts(dir.path()))
         .with_net(original.net())
         .with_frame_links(original.links())
@@ -271,224 +268,6 @@ fn frame_width(harness: &Harness, selector: &str) -> f32 {
         .0
 }
 
-/// The newsletter open in its Original view.
-fn newsletter_original() -> Window {
-    let mut window = open();
-    open_row(&mut window.harness, 1);
-    assert!(
-        window.harness.count(FRAME) >= 1,
-        "the Original view did not mount"
-    );
-    window
-}
-
-/// (d) Consent, 0 → N → 0: nothing is fetched until "Load Images", exactly the newsletter's two
-/// images then, and nothing more once opening another thread has revoked it, including when the
-/// newsletter is opened again. Consent is for the thread shown: the other letter's image is never
-/// on the newsletter's list, and closing the reader takes the consent back.
-#[test]
-fn remote_images_are_fetched_only_while_consent_stands() {
-    let mut window = newsletter_original();
-    assert_eq!(window.fetched.count(), 0, "fetched before consent");
-    assert!(!window.original.consent().granted());
-    assert_eq!(frame_width(&window.harness, HERO), 0.0);
-
-    click(&mut window.harness, SHOW_IMAGES);
-    assert!(window.original.consent().granted());
-    assert_eq!(
-        window.fetched.urls(),
-        vec![BADGE_URL.to_owned(), HERO_URL.to_owned()],
-        "not exactly the consented images"
-    );
-    assert!(
-        frame_width(&window.harness, HERO) > 0.0,
-        "the hero did not show"
-    );
-    assert!(frame_width(&window.harness, BADGE) > 0.0);
-    let n = window.fetched.count();
-
-    // Another thread: consent is per thread, and opening revokes it.
-    open_row(&mut window.harness, 2);
-    assert!(
-        !window.original.consent().granted(),
-        "opening kept the consent"
-    );
-    assert_eq!(window.fetched.count(), n, "the next thread fetched unasked");
-
-    // Back to the newsletter: asked again, not remembered.
-    open_row(&mut window.harness, 1);
-    assert_eq!(
-        window.fetched.count(),
-        n,
-        "the consent came back on its own"
-    );
-    assert_eq!(frame_width(&window.harness, HERO), 0.0);
-
-    // Consented again, then the reader closed.
-    click(&mut window.harness, SHOW_IMAGES);
-    assert!(
-        !window.fetched.urls().contains(&OTHER.to_owned()),
-        "the other letter's image was fetched for the newsletter"
-    );
-    window.harness.key(Key::Escape);
-    window.harness.advance(ms(400));
-    assert_eq!(
-        window.harness.count(FRAME),
-        0,
-        "Escape did not close the reader"
-    );
-    assert!(
-        !window.original.consent().granted(),
-        "closing kept the consent"
-    );
-}
-
-/// Remote images are never fetched because something was hovered: not the rows (whose cards
-/// open), with nothing consented and with the newsletter consented.
-#[test]
-fn hovering_fetches_nothing() {
-    let mut window = open();
-    for n in 1..=3 {
-        let at = window
-            .harness
-            .centre(&format!("{} .ds-thread-from", thread(n)))
-            .expect("a row's sender");
-        window.harness.pointer_move(at);
-        window
-            .harness
-            .advance(ds::style::tokens::delay::DelayToken::CardOpen.delay() + ms(250));
-    }
-    assert_eq!(window.fetched.count(), 0, "hovering fetched");
-
-    let mut window = newsletter_original();
-    click(&mut window.harness, SHOW_IMAGES);
-    let n = window.fetched.count();
-    for n in 2..=3 {
-        let at = window
-            .harness
-            .centre(&format!("{} .ds-thread-from", thread(n)))
-            .expect("a row's sender");
-        window.harness.pointer_move(at);
-        window
-            .harness
-            .advance(ds::style::tokens::delay::DelayToken::CardOpen.delay() + ms(250));
-    }
-    assert_eq!(window.fetched.count(), n, "hovering another row fetched");
-}
-
-/// The newsletter's frame at rest. `cid:` inline images resolve inside the frame, as `data:` in
-/// its own markup: shown before any consent, with no request made for them. (a) No shared
-/// DOM in the real window: the sender's elements are found in the frame and never by the
-/// window's queries, and the frame holds none of the window's elements.
-#[test]
-fn the_frame_at_rest_shows_its_inline_image_and_shares_no_nodes_with_the_window() {
-    let window = newsletter_original();
-    // The inline image.
-    assert_eq!(frame_width(&window.harness, LOGO), 7.0, "the inline logo");
-    let frame = window.harness.frame(FRAME).expect("a frame document");
-    let src = frame.attr(LOGO, "src").unwrap_or_default();
-    assert!(
-        src.starts_with("data:image/png;base64,"),
-        "the inline logo: {src}"
-    );
-    assert_eq!(window.fetched.count(), 0, "the inline logo was fetched");
-
-    // No shared nodes.
-    assert_eq!(frame.count("h3"), 2, "the sender's headings in the frame");
-    assert!(
-        frame.text().contains("Twelve new knits"),
-        "the sender's words in the frame"
-    );
-    assert_eq!(
-        frame.count(".reader, .reader-body, .app, .ds-inline-banner, iframe"),
-        0,
-        "the window's elements in the frame"
-    );
-    // The window's own copy of the words is its blocks (the Reader view, hidden), never the
-    // frame's elements: the window finds one frame and none of the sender's tables.
-    assert_eq!(window.harness.count("iframe"), 1, "the window's frames");
-    assert_eq!(
-        window.harness.count("table table"),
-        0,
-        "the sender's tables in the window"
-    );
-}
-
-/// The link pill shows where a link in the frame goes as the pointer comes onto it, read by the
-/// same honesty check as a Reader view link, and goes as the pointer leaves. (e) Then a click on
-/// the link opens it in the browser, through mailo, and the frame stays as it was. What opens is
-/// the link without its tracking parameters, and with its own.
-#[test]
-fn a_link_in_the_frame_shows_where_it_goes_on_hover_and_opens_in_the_browser() {
-    let mut window = newsletter_original();
-    let (before, honest, liar) = {
-        let frame = window.harness.frame(FRAME).expect("a frame document");
-        (
-            frame.id(),
-            frame.centre(LINK).expect("the link is drawn"),
-            frame.centre(LIAR).expect("the second link is drawn"),
-        )
-    };
-    assert_eq!(window.harness.count(".ds-link-pill"), 0);
-    window.harness.pointer_move(honest);
-    window.harness.advance(ms(100));
-    assert_eq!(
-        window
-            .harness
-            .attr(".ds-link-pill", "data-truth")
-            .as_deref(),
-        Some("honest"),
-        "no pill for the frame's link:\n{}",
-        window.harness.html()
-    );
-    let said = window.harness.text_of(".ds-link-pill").unwrap_or_default();
-    assert!(said.contains("example.test"), "{said}");
-    // From one link to the next: the pill follows, and says the text lies.
-    window.harness.pointer_move(liar);
-    window.harness.advance(ms(100));
-    assert_eq!(
-        window
-            .harness
-            .attr(".ds-link-pill", "data-truth")
-            .as_deref(),
-        Some("lying")
-    );
-    let said = window.harness.text_of(".ds-link-pill").unwrap_or_default();
-    assert!(said.contains("g00gle-security.xyz"), "{said}");
-    // Off every link: the pill goes, and nothing was opened.
-    let off = window
-        .harness
-        .centre(".images-hidden")
-        .expect("the images line");
-    window.harness.pointer_move(off);
-    window.harness.advance(ms(100));
-    assert_eq!(window.harness.count(".ds-link-pill"), 0, "the pill stayed");
-    assert!(
-        window
-            .opened
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_empty(),
-        "hovering opened a link"
-    );
-
-    // A click on the honest link.
-    window.harness.click(honest);
-    window.harness.advance(ms(300));
-    let opened = window
-        .opened
-        .0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .clone();
-    assert_eq!(opened, vec![OFFER.to_owned()], "the click opened");
-    let frame = window.harness.frame(FRAME).expect("still a frame document");
-    assert_eq!(frame.id(), before, "the frame navigated");
-    assert_eq!(frame.count(HERO), 1, "the frame lost its hero");
-    assert_eq!(window.fetched.count(), 0, "the click fetched");
-}
-
 const PEEK: &str = ".ds-peek";
 
 /// Advance until `done`, or fail saying `what` never came.
@@ -504,50 +283,180 @@ fn until(harness: &mut Harness, what: &str, done: impl Fn(&Harness) -> bool) {
     }
 }
 
-/// A click on the frame's inline image opens it in Peek, drawn as a picture, as a click on its
-/// tile would; Esc closes it. A click on a remote image, once consent has loaded it, opens
-/// nothing: it is not the message's own. Neither click fetches anything or opens the browser.
+/// Rest the pointer on each of the rows `rows`, long enough for a card to open.
+fn hover_rows(harness: &mut Harness, rows: std::ops::RangeInclusive<usize>) {
+    for n in rows {
+        let at = harness
+            .centre(&format!("{} .ds-thread-from", thread(n)))
+            .expect("a row's sender");
+        harness.pointer_move(at);
+        harness.advance(ds::style::tokens::delay::DelayToken::CardOpen.delay() + ms(250));
+    }
+}
+
+/// What the browser was asked to open.
+fn opened(window: &Window) -> Vec<String> {
+    window
+        .opened
+        .0
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
+}
+
+/// The newsletter's frame, from rest to consent and back.
+///
+/// At rest, `cid:` inline images resolve inside the frame as `data:` in its own markup: shown
+/// before any consent, with no request made. (a) No shared DOM: the sender's elements are found
+/// in the frame and never by the window's queries, and the frame holds none of the window's.
+///
+/// The link pill shows where a link goes as the pointer comes onto it, read by the same honesty
+/// check as a Reader view link, and goes as the pointer leaves. (e) A click opens the link in the
+/// browser through mailo, without its tracking parameters, and the frame stays as it was. A
+/// click on the inline image opens it in Peek; Esc closes it.
+///
+/// (d) Consent, 0 → N → 0: nothing is fetched until Load Images, hovering rows included, then
+/// exactly the newsletter's two images; a click on a remote image opens nothing, as it is not
+/// the message's own. Opening another thread revokes the consent, and the newsletter opened
+/// again asks again; closing the reader takes the consent back.
 #[test]
-fn a_click_on_an_inline_image_in_the_frame_opens_it_in_peek() {
-    let mut window = newsletter_original();
-    let logo = {
-        let frame = window.harness.frame(FRAME).expect("a frame document");
-        frame.centre(LOGO).expect("the inline logo is drawn")
-    };
-    assert_eq!(window.harness.count(PEEK), 0, "Peek open before the click");
+fn the_newsletter_s_frame_is_sealed_its_links_are_checked_and_its_images_wait_for_consent() {
+    let mut window = open();
+    hover_rows(&mut window.harness, 1..=3);
+    assert_eq!(window.fetched.count(), 0, "hovering fetched");
+    open_row(&mut window.harness, 1);
+    assert!(
+        window.harness.count(FRAME) >= 1,
+        "the Original view did not mount"
+    );
+
+    assert_eq!(frame_width(&window.harness, LOGO), 7.0, "the inline logo");
+    let frame = window.harness.frame(FRAME).expect("a frame document");
+    let src = frame.attr(LOGO, "src").unwrap_or_default();
+    assert!(
+        src.starts_with("data:image/png;base64,"),
+        "the inline logo: {src}"
+    );
+    assert_eq!(frame.count("h3"), 2, "the sender's headings in the frame");
+    assert!(
+        frame.text().contains("Twelve new knits"),
+        "the sender's words in the frame"
+    );
+    assert_eq!(
+        frame.count(".reader, .reader-body, .app, .ds-inline-banner, iframe"),
+        0,
+        "the window's elements in the frame"
+    );
+    assert_eq!(window.harness.count("iframe"), 1, "the window's frames");
+    assert_eq!(
+        window.harness.count("table table"),
+        0,
+        "the sender's tables in the window"
+    );
+
+    let (before, honest, liar, logo) = (
+        frame.id(),
+        frame.centre(LINK).expect("the link is drawn"),
+        frame.centre(LIAR).expect("the second link is drawn"),
+        frame.centre(LOGO).expect("the inline logo is drawn"),
+    );
+    let truth = |h: &Harness| h.attr(".ds-link-pill", "data-truth");
+    assert_eq!(window.harness.count(".ds-link-pill"), 0);
+    window.harness.pointer_move(honest);
+    window.harness.advance(ms(100));
+    assert_eq!(truth(&window.harness).as_deref(), Some("honest"));
+    let said = window.harness.text_of(".ds-link-pill").unwrap_or_default();
+    assert!(said.contains("example.test"), "{said}");
+    window.harness.pointer_move(liar);
+    window.harness.advance(ms(100));
+    assert_eq!(truth(&window.harness).as_deref(), Some("lying"));
+    let said = window.harness.text_of(".ds-link-pill").unwrap_or_default();
+    assert!(said.contains("g00gle-security.xyz"), "{said}");
+    let off = window
+        .harness
+        .centre(".images-hidden")
+        .expect("the images line");
+    window.harness.pointer_move(off);
+    window.harness.advance(ms(100));
+    assert_eq!(window.harness.count(".ds-link-pill"), 0, "the pill stayed");
+    assert!(opened(&window).is_empty(), "hovering opened a link");
+    window.harness.click(honest);
+    window.harness.advance(ms(300));
+    assert_eq!(opened(&window), [OFFER], "the click opened");
+    let frame = window.harness.frame(FRAME).expect("still a frame document");
+    assert_eq!(frame.id(), before, "the frame navigated");
+    assert_eq!(frame.count(HERO), 1, "the frame lost its hero");
+
     window.harness.click(logo);
     until(&mut window.harness, "Peek's picture", |h| {
         h.count(".ds-peek .peek-picture") == 1
     });
     window.harness.key(Key::Escape);
     until(&mut window.harness, "Peek to close", |h| h.count(PEEK) == 0);
+    assert_eq!(window.fetched.count(), 0, "fetched before consent");
+    assert!(!window.original.consent().granted());
+    assert_eq!(frame_width(&window.harness, HERO), 0.0);
 
     click(&mut window.harness, SHOW_IMAGES);
+    assert!(window.original.consent().granted());
+    let consented = vec![BADGE_URL.to_owned(), HERO_URL.to_owned()];
+    assert_eq!(
+        window.fetched.urls(),
+        consented,
+        "not exactly the consented images"
+    );
     until(&mut window.harness, "the hero to load", |h| {
         h.frame(FRAME)
             .and_then(|frame| frame.width(HERO))
             .is_some_and(|width| width.0 == 7.0)
     });
-    let hero = {
-        let frame = window.harness.frame(FRAME).expect("a frame document");
-        frame.centre(HERO).expect("the hero is drawn")
-    };
+    assert!(frame_width(&window.harness, BADGE) > 0.0);
+    let hero = window
+        .harness
+        .frame(FRAME)
+        .and_then(|frame| frame.centre(HERO))
+        .expect("the hero is drawn");
     window.harness.click(hero);
     window.harness.advance(ms(300));
     assert_eq!(window.harness.count(PEEK), 0, "a remote image opened Peek");
-    assert!(
-        window
-            .opened
-            .0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_empty(),
+    assert_eq!(
+        opened(&window).len(),
+        1,
         "an image click opened the browser"
     );
+    let n = window.fetched.count();
+    hover_rows(&mut window.harness, 2..=3);
+    assert_eq!(window.fetched.count(), n, "hovering another row fetched");
+
+    open_row(&mut window.harness, 2);
+    assert!(
+        !window.original.consent().granted(),
+        "opening kept the consent"
+    );
+    assert_eq!(window.fetched.count(), n, "the next thread fetched unasked");
+    open_row(&mut window.harness, 1);
+    assert_eq!(
+        window.fetched.count(),
+        n,
+        "the consent came back on its own"
+    );
+    assert_eq!(frame_width(&window.harness, HERO), 0.0);
+    click(&mut window.harness, SHOW_IMAGES);
     assert_eq!(
         window.fetched.urls(),
-        vec![BADGE_URL.to_owned(), HERO_URL.to_owned()],
-        "only the consented images were fetched"
+        consented,
+        "the other letter's image was fetched"
+    );
+    window.harness.key(Key::Escape);
+    window.harness.advance(ms(400));
+    assert_eq!(
+        window.harness.count(FRAME),
+        0,
+        "Escape did not close the reader"
+    );
+    assert!(
+        !window.original.consent().granted(),
+        "closing kept the consent"
     );
 }
 
@@ -575,7 +484,7 @@ fn the_windows_own_document_asks_for_nothing_remote() {
     let dir = tempfile::tempdir().unwrap();
     let requests = Arc::new(Requests::default());
     let config = HarnessConfig::new(VIEW)
-        .with_clock(Clock::Wall)
+        .with_clock(Clock::Virtual)
         .with_contexts(contexts(dir.path()))
         .with_net(NetPolicy::Custom(requests.clone()));
     let mut harness = Harness::new(mail_app::ui::native::root, config);
@@ -657,22 +566,4 @@ fn no_script_engine_is_built_into_the_native_window() {
         found.is_empty(),
         "a script engine is in the native build: {found:?}"
     );
-}
-
-/// Pictures of the newsletter's Original view, images blocked and then consented, painted
-/// headlessly by Blitz.
-#[test]
-#[ignore = "picture generator: set MAILO_SNAPSHOT_DIR to a directory and run with --ignored"]
-fn snapshot() {
-    let dir = std::env::var("MAILO_SNAPSHOT_DIR").expect("MAILO_SNAPSHOT_DIR names a directory");
-    let mut window = newsletter_original();
-    window.harness.advance(ms(600));
-    let blocked = window.harness.render().unwrap();
-    blocked.save(format!("{dir}/original-blocked.png")).unwrap();
-    click(&mut window.harness, SHOW_IMAGES);
-    window.harness.advance(ms(600));
-    let consented = window.harness.render().unwrap();
-    consented
-        .save(format!("{dir}/original-consented.png"))
-        .unwrap();
 }

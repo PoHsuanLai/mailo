@@ -2,11 +2,12 @@
 //! the message with its files, and Forward as attachment encloses the whole message.
 
 use super::drive::{Key, PRIMARY};
+use super::look::{chips, send};
 use super::window::{Window, deliver, hours_ago, panel_row, panel_settled, parsed, queued};
 
 const SUBJECT: &str = "Minutes of the board";
 const PDF: &str = "%PDF-1.4\n% the minutes\n";
-const SEND: &str = ".c-send [*|aria-label=\"Send\"]";
+
 const TO: &str = ".c-props [*|data-row=to] .c-pin input";
 
 fn with_pdf(store: &mail_core::SqliteStore) {
@@ -59,10 +60,11 @@ fn opened() -> Window {
 fn send_to_grace(window: &mut Window) {
     window.click(TO);
     window.type_text("grace@example.test\n");
+    let to = ".c-props [*|data-row=to]";
     window.until("Grace is in To", |h| {
-        h.count(".c-props [*|aria-label=\"Remove Grace Hopper\"]") == 1
+        chips(h, to) == 1 && h.text_of(to).is_some_and(|to| to.contains("Grace Hopper"))
     });
-    window.click(SEND);
+    window.click(&send());
     window.until("the forward is sent", |h| h.count(".ds-send-pill") == 1);
 }
 

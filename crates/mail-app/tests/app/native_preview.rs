@@ -20,17 +20,13 @@ use crate::drive;
 use drive::Drive;
 use mail_core::{Arrival, Destination, absorb};
 use mail_core::{SqliteStore, Store};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::assemble::absorb_rebuilt_into;
-use porter_core::AccountId;
 use std::io::Cursor;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-pub(super) fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c7"))
-}
+pub(super) use crate::store::acct_account;
 
 pub(super) const VIEW: Viewport = Viewport {
     width: 1280,

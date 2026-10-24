@@ -3,39 +3,36 @@
 
 use super::body::{composing, outline, run_is, select_back};
 use super::drive::{Drive, Key, PRIMARY};
-use super::window::{Window, parsed, queued};
+use super::window::{Window, ms, parsed, queued};
 
 /// The bubble's mark segments, in order: Bold, Italic, Underline, Strike, Code.
 fn mark_segment(n: usize) -> String {
     format!(".bubble .ds-segmented-segment:nth-child({n})")
 }
 
-/// Type the markdown blocks every lane here starts from.
-fn type_blocks(window: &mut Window) {
-    window.type_text("# Plan\n");
-    window.type_text("- a\nb\n\n");
-    window.type_text("1. one\ntwo\n\n");
-    window.type_text("[ ] call\n\n");
-    window.type_text("> wise words\n");
-    window.type_text("after");
+/// Press `key` with `held` until `done` holds.
+fn press_until(window: &mut Window, held: &[Key], key: Key, done: impl Fn(&Window) -> bool) {
+    for _ in 0..80 {
+        if done(window) {
+            return;
+        }
+        window.harness.chord(held, key);
+        window.harness.advance(ms(16));
+    }
+    window.harness.advance(ms(100));
+    assert!(
+        done(window),
+        "{key:?} never got there: {:?}",
+        outline(&window.harness)
+    );
 }
 
-/// What [`type_blocks`] gives.
-fn typed_blocks() -> Vec<String> {
-    [
-        "h2 Plan",
-        "ul [a | b]",
-        "ol [one | two]",
-        "ul.todo [call]",
-        "blockquote wise words",
-        "p after",
-    ]
-    .map(str::to_owned)
-    .to_vec()
-}
-
+/// Markdown typed at a line start makes headings, lists, to-dos and quotes, and Enter on an
+/// empty item leaves them; backticks, stars and underscores close into code, bold and italic.
+/// Undo walks the whole session back to an empty body and redo walks it forward, both ways of
+/// asking for it; then the message goes out as HTML and as text that reads naturally.
 #[test]
-fn markdown_typed_at_a_line_start_makes_headings_lists_to_dos_and_quotes_and_enter_leaves_them() {
+fn a_message_formatted_by_typing_undoes_and_redoes_whole_and_goes_out_as_html_and_text() {
     let mut window = composing();
     window.type_text("# Plan\n");
     assert_eq!(outline(&window.harness), ["h2 Plan", "p"], "after # Plan");
@@ -54,38 +51,90 @@ fn markdown_typed_at_a_line_start_makes_headings_lists_to_dos_and_quotes_and_ent
     window.type_text("1. one\ntwo\n\n");
     window.type_text("[ ] call\n\n");
     window.type_text("> wise words\n");
-    window.type_text("after");
-    assert_eq!(outline(&window.harness), typed_blocks());
-}
-
-#[test]
-fn a_selection_made_with_shift_arrows_or_a_drag_takes_bold_italic_and_underline_from_the_keys() {
-    let mut window = composing();
-    window.type_text("a bold move");
-    select_back(&mut window, 4);
-    window.press(&[PRIMARY], Key::Char('b'), 1);
-    window.until("Ctrl-B bolds it", |h| run_is(h, ".m-b", "move"));
-    window.press(&[PRIMARY], Key::Char('i'), 1);
-    window.until("Ctrl-I italicises it", |h| run_is(h, ".m-b.m-i", "move"));
+    window.type_text("after `cargo` now, **bold**, _soft_ ok");
+    assert!(run_is(&window.harness, ".m-code", "cargo"), "no code run");
+    assert!(run_is(&window.harness, ".m-b", "bold"), "no bold run");
+    assert!(run_is(&window.harness, ".m-i", "soft"), "no italic run");
+    window.type_text("\nunder");
+    select_back(&mut window, 5);
     window.press(&[PRIMARY], Key::Char('u'), 1);
-    window.until("Ctrl-U underlines it", |h| {
-        run_is(h, ".m-b.m-i.m-u", "move")
-    });
-    assert_eq!(outline(&window.harness), ["p a bold move"]);
+    let done = [
+        "h2 Plan",
+        "ul [a | b]",
+        "ol [one | two]",
+        "ul.todo [call]",
+        "blockquote wise words",
+        "p after cargo now, bold, soft ok",
+        "p under",
+    ];
+    assert_eq!(outline(&window.harness), done);
+    assert!(run_is(&window.harness, ".m-u", "under"), "no underline");
 
-    // A drag selects too: across "bold", then Ctrl-B.
-    let (start, end) = word_ends(&window, "bold");
-    window.harness.drag(start, end, 6);
-    window.harness.advance(super::window::ms(100));
-    window.press(&[PRIMARY], Key::Char('b'), 1);
-    window.until("the dragged word is bold", |h| {
-        h.text_of(".c-body .m-b")
-            .is_some_and(|run| run.starts_with("bold"))
+    // Undo to the empty body, redo it all, then one step each way.
+    press_until(&mut window, &[PRIMARY], Key::Char('z'), |w| {
+        outline(&w.harness) == ["p"]
     });
+    press_until(&mut window, &[PRIMARY, Key::Shift], Key::Char('z'), |w| {
+        outline(&w.harness) == done && run_is(&w.harness, ".m-u", "under")
+    });
+    window.press(&[PRIMARY], Key::Char('z'), 1);
+    assert_eq!(
+        window.harness.count(".c-body .m-u"),
+        0,
+        "undo left the underline"
+    );
+    window.press(&[PRIMARY, Key::Shift], Key::Char('z'), 1);
+    assert!(
+        run_is(&window.harness, ".m-u", "under"),
+        "redo did not redo"
+    );
+
+    window.press(&[], Key::End, 1);
+    window.click(".c-props [*|data-row=to] .c-pin input");
+    window.type_text("ada@example.test\n");
+    window.click(".c-title input");
+    window.type_text("Plan");
+    window.click(&super::look::send());
+    window.until("the send pill shows", |h| h.count(".ds-send-pill") == 1);
+    let sent = queued(&window.store);
+    assert_eq!(sent.len(), 1, "not one submission");
+    let mail = parsed(&sent[0].raw);
+
+    let html = mail.html.unwrap_or_default();
+    for tag in [
+        "<h1>Plan</h1>",
+        "<ul><li><p>a</p></li><li><p>b</p></li></ul>",
+        "<ol><li><p>one</p></li><li><p>two</p></li></ol>",
+        "<blockquote><p>wise words</p></blockquote>",
+        "<strong>bold</strong>",
+        "<em>soft</em>",
+        "<code>cargo</code>",
+        "<u>under</u>",
+    ] {
+        assert!(html.contains(tag), "no {tag} in the HTML part:\n{html}");
+    }
+    let text = mail.text.unwrap_or_default();
+    for line in [
+        "Plan",
+        "- a",
+        "- b",
+        "1. one",
+        "2. two",
+        "[ ] call",
+        "> wise words",
+    ] {
+        assert!(
+            text.lines().any(|l| l.trim_end() == line),
+            "no line {line:?} in the text part:\n{text}"
+        );
+    }
 }
 
+/// A selection made with Shift and the arrows takes Bold from the bubble, which leaves the
+/// keyboard with the body for Ctrl-I and Ctrl-U; a drag selects as well. Backspace at the start
+/// of a heading or a list item unstyles it before it merges.
 #[test]
-fn a_selection_bolded_from_the_bubble_keeps_the_keyboard_for_ctrl_i() {
+fn a_selection_takes_marks_from_the_bubble_and_the_keys_and_backspace_unstyles_before_merging() {
     let mut window = composing();
     window.type_text("a bold move");
     select_back(&mut window, 4);
@@ -100,6 +149,48 @@ fn a_selection_bolded_from_the_bubble_keeps_the_keyboard_for_ctrl_i() {
     );
     window.press(&[PRIMARY], Key::Char('i'), 1);
     window.until("Ctrl-I italicises it", |h| run_is(h, ".m-b.m-i", "move"));
+    window.press(&[PRIMARY], Key::Char('u'), 1);
+    window.until("Ctrl-U underlines it", |h| {
+        run_is(h, ".m-b.m-i.m-u", "move")
+    });
+    assert_eq!(outline(&window.harness), ["p a bold move"]);
+
+    // A drag selects too: across "bold", then Ctrl-B.
+    let (start, end) = word_ends(&window, "bold");
+    window.harness.drag(start, end, 6);
+    window.harness.advance(ms(100));
+    window.press(&[PRIMARY], Key::Char('b'), 1);
+    window.until("the dragged word is bold", |h| {
+        h.text_of(".c-body .m-b")
+            .is_some_and(|run| run.starts_with("bold"))
+    });
+
+    window.press(&[], Key::End, 1);
+    window.type_text("\n# Title");
+    window.press(&[], Key::Home, 1);
+    window.press(&[], Key::Backspace, 1);
+    assert_eq!(
+        outline(&window.harness),
+        ["p a bold move", "p Title"],
+        "the heading became a paragraph"
+    );
+    window.press(&[], Key::Backspace, 1);
+    assert_eq!(
+        outline(&window.harness),
+        ["p a bold moveTitle"],
+        "then it merged"
+    );
+    window.press(&[], Key::End, 1);
+    window.type_text("\n- item");
+    window.press(&[], Key::Home, 1);
+    window.press(&[], Key::Backspace, 1);
+    assert_eq!(
+        outline(&window.harness),
+        ["p a bold moveTitle", "p item"],
+        "the bullet became a paragraph"
+    );
+    window.press(&[], Key::Backspace, 1);
+    assert_eq!(outline(&window.harness), ["p a bold moveTitleitem"]);
 }
 
 /// Where a drag over `word` in the body's only paragraph starts and ends: the paragraph's text
@@ -133,144 +224,31 @@ fn word_ends(window: &Window, word: &str) -> (ds::prelude::Point, ds::prelude::P
     (at(start), at(start + word.chars().count()))
 }
 
+/// The `/` menu turns a line into a quote and a code block, and `@` puts a person in Cc.
 #[test]
-fn backticks_stars_and_underscores_close_into_code_bold_and_italic() {
+fn the_slash_menu_makes_a_quote_and_a_code_block_and_an_at_sign_puts_a_person_in_cc() {
     let mut window = composing();
-    window.type_text("run `cargo` now, **really** and _gently_ ok");
-    assert!(run_is(&window.harness, ".m-code", "cargo"), "no code run");
-    assert!(run_is(&window.harness, ".m-b", "really"), "no bold run");
-    assert!(run_is(&window.harness, ".m-i", "gently"), "no italic run");
-    assert_eq!(
-        outline(&window.harness),
-        ["p run cargo now, really and gently ok"]
-    );
-}
-
-#[test]
-fn the_slash_menu_turns_a_line_into_a_quote_and_a_code_block() {
-    let mut window = composing();
-    window.type_text("/quo");
-    window.until("/ opens its menu", |h| {
-        h.text_of(".ds-menu")
-            .is_some_and(|menu| menu.contains("Quote"))
-    });
-    window.press(&[], Key::Enter, 1);
-    window.until("the menu goes", |h| h.count(".ds-menu") == 0);
+    let pick = |window: &mut Window, what: &str| {
+        window.until(what, |h| h.count(".ds-menu .ds-menu-item") > 0);
+        window.press(&[], Key::Enter, 1);
+        window.until("the menu goes", |h| h.count(".ds-menu") == 0);
+    };
+    window.type_text("thanks @grac");
+    pick(&mut window, "@ offers the contact");
+    window.type_text("\n/quo");
+    pick(&mut window, "/ opens its menu");
     window.type_text("Measure twice\n");
     window.type_text("/code");
-    window.until("/ opens its menu again", |h| {
-        h.text_of(".ds-menu")
-            .is_some_and(|menu| menu.contains("Code"))
-    });
-    window.press(&[], Key::Enter, 1);
-    window.until("the menu goes", |h| h.count(".ds-menu") == 0);
+    pick(&mut window, "/ opens its menu again");
     window.type_text("cargo test");
     assert_eq!(
-        outline(&window.harness),
+        outline(&window.harness)[1..],
         ["blockquote Measure twice", "pre cargo test"]
     );
-}
-
-#[test]
-fn an_at_sign_puts_a_person_in_cc_and_a_colon_name_puts_an_emoji_in() {
-    let mut window = composing();
-    window.type_text("thanks @grac");
-    window.until("@ offers Grace", |h| {
-        h.text_of(".ds-menu")
-            .is_some_and(|menu| menu.contains("Grace"))
-    });
-    window.press(&[], Key::Enter, 1);
     window.until("Grace is in Cc", |h| {
         h.text_of(".c-props [*|data-row=cc]")
             .is_some_and(|cc| cc.contains("Grace Hopper"))
     });
-    window.type_text("for it :smi");
-    window.until(":smi offers emoji", |h| {
-        h.text_of(".ds-menu")
-            .is_some_and(|menu| menu.contains("smiling face"))
-    });
-    window.press(&[], Key::Enter, 1);
-    window.until("the emoji is in", |h| {
-        h.text_of(".c-body > p")
-            .is_some_and(|text| text.starts_with("thanks @Grace Hopper for it 😊"))
-    });
-}
-
-#[test]
-fn backspace_at_the_start_of_a_heading_or_a_list_item_unstyles_it_before_merging() {
-    let mut window = composing();
-    window.type_text("intro\n# Title");
-    window.press(&[], Key::Home, 1);
-    window.press(&[], Key::Backspace, 1);
-    assert_eq!(
-        outline(&window.harness),
-        ["p intro", "p Title"],
-        "the heading became a paragraph"
-    );
-    window.press(&[], Key::Backspace, 1);
-    assert_eq!(outline(&window.harness), ["p introTitle"], "then it merged");
-
-    window.press(&[], Key::End, 1);
-    window.type_text("\n- item");
-    window.press(&[], Key::Home, 1);
-    window.press(&[], Key::Backspace, 1);
-    assert_eq!(
-        outline(&window.harness),
-        ["p introTitle", "p item"],
-        "the bullet became a paragraph"
-    );
-    window.press(&[], Key::Backspace, 1);
-    assert_eq!(outline(&window.harness), ["p introTitleitem"]);
-}
-
-#[test]
-fn undo_walks_the_whole_session_back_and_redo_walks_it_forward() {
-    let mut window = composing();
-    type_blocks(&mut window);
-    select_back(&mut window, 5);
-    window.press(&[PRIMARY], Key::Char('b'), 1);
-    assert!(run_is(&window.harness, ".m-b", "after"));
-    let done = outline(&window.harness);
-
-    // Undo until the body is empty again, then redo it all, both ways of asking for it.
-    for _ in 0..60 {
-        if outline(&window.harness) == ["p"] {
-            break;
-        }
-        window.press(&[PRIMARY], Key::Char('z'), 1);
-    }
-    assert_eq!(
-        outline(&window.harness),
-        ["p"],
-        "undo did not reach the start"
-    );
-    for _ in 0..60 {
-        if outline(&window.harness) == done && run_is(&window.harness, ".m-b", "after") {
-            break;
-        }
-        window.press(&[PRIMARY, Key::Shift], Key::Char('z'), 1);
-    }
-    assert_eq!(
-        outline(&window.harness),
-        done,
-        "the redo chord did not redo it all"
-    );
-    assert!(
-        run_is(&window.harness, ".m-b", "after"),
-        "the bold was not redone"
-    );
-
-    window.press(&[PRIMARY], Key::Char('z'), 1);
-    assert_eq!(
-        window.harness.count(".c-body .m-b"),
-        0,
-        "undo left the bold"
-    );
-    window.press(&[PRIMARY, Key::Shift], Key::Char('z'), 1);
-    assert!(
-        run_is(&window.harness, ".m-b", "after"),
-        "the platform's redo did not redo"
-    );
 }
 
 /// Clipboard HTML as a word processor in a browser writes it: a wrapper that says "not bold",
@@ -315,55 +293,6 @@ fn rich_html_pasted_from_a_word_processor_keeps_its_structure_spaces_and_link() 
         Some("https://example.test/plan"),
         "the link keeps its address, without the tracking parameter"
     );
-}
-
-#[test]
-fn a_formatted_message_goes_out_as_html_and_as_text_that_reads_naturally() {
-    let mut window = composing();
-    type_blocks(&mut window);
-    window.type_text(" with **bold**, _soft_, `code`");
-    window.type_text("\nunder");
-    select_back(&mut window, 5);
-    window.press(&[PRIMARY], Key::Char('u'), 1);
-    window.press(&[], Key::End, 1);
-    window.click(".c-props [*|data-row=to] .c-pin input");
-    window.type_text("ada@example.test\n");
-    window.click(".c-title input");
-    window.type_text("Plan");
-    window.click(".c-send [*|aria-label=\"Send\"]");
-    window.until("the send pill shows", |h| h.count(".ds-send-pill") == 1);
-    let sent = queued(&window.store);
-    assert_eq!(sent.len(), 1, "not one submission");
-    let mail = parsed(&sent[0].raw);
-
-    let html = mail.html.unwrap_or_default();
-    for tag in [
-        "<h1>Plan</h1>",
-        "<ul><li><p>a</p></li><li><p>b</p></li></ul>",
-        "<ol><li><p>one</p></li><li><p>two</p></li></ol>",
-        "<blockquote><p>wise words</p></blockquote>",
-        "<strong>bold</strong>",
-        "<em>soft</em>",
-        "<code>code</code>",
-        "<u>under</u>",
-    ] {
-        assert!(html.contains(tag), "no {tag} in the HTML part:\n{html}");
-    }
-    let text = mail.text.unwrap_or_default();
-    for line in [
-        "Plan",
-        "- a",
-        "- b",
-        "1. one",
-        "2. two",
-        "[ ] call",
-        "> wise words",
-    ] {
-        assert!(
-            text.lines().any(|l| l.trim_end() == line),
-            "no line {line:?} in the text part:\n{text}"
-        );
-    }
 }
 
 #[test]

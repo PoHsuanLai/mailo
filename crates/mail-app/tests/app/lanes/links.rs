@@ -1,10 +1,14 @@
 //! Lane 5: links in a message. Hovering one shows where it really goes; a web link opens in the
 //! browser without its tracking parameters, a mailto link goes where a mailto link goes, and a
-//! `javascript:` link does nothing.
+//! `javascript:` link does nothing. A right click on a link offers it to copy or open, and a
+//! right click off a link offers no link.
 
+use ds::base::press::PointerButton;
 use ds::prelude::Point;
+use mail_app::ui::copy;
 
-use super::drive::Drive;
+use super::drive::{Drive, Key};
+use super::hands::menu_item;
 use super::window::{Window, deliver, hours_ago, ms};
 
 const SUBJECT: &str = "Three links";
@@ -94,5 +98,50 @@ fn a_hovered_link_names_its_destination_and_a_click_opens_only_what_is_safe() {
             .frame(FRAME)
             .is_some_and(|frame| frame.text().contains("run this")),
         "the frame navigated away"
+    );
+
+    // A right click on the story: Copy Link copies where it really goes and opens nothing,
+    // Open Link opens it as the click did.
+    const MENU: &str = ".ds-menu .ds-menu-item";
+    let story = link(&window, 1);
+    window.harness.press(story, PointerButton::Secondary);
+    window.until("the link's menu", |h| h.count(MENU) == 3);
+    menu_item(&mut window.harness, copy::menus::COPY_LINK);
+    window.until("the menu closes", |h| h.count(MENU) == 0);
+    assert_eq!(
+        window.harness.clipboard_text().as_deref(),
+        Some("https://news.example.test/story?id=7")
+    );
+    assert_eq!(window.opened().len(), 2, "Copy Link opened the link");
+    window.harness.press(story, PointerButton::Secondary);
+    window.until("the link's menu again", |h| h.count(MENU) == 3);
+    menu_item(&mut window.harness, copy::menus::OPEN_LINK);
+    window.until("the menu closes again", |h| h.count(MENU) == 0);
+    window.harness.advance(ms(300));
+    assert_eq!(
+        window.opened()[2..],
+        ["https://news.example.test/story?id=7"]
+    );
+
+    // Off a link, the last link's menu is not offered again.
+    window.harness.press(story, PointerButton::Secondary);
+    window.until("the link's menu once more", |h| h.count(MENU) == 3);
+    window.press(&[], Key::Escape, 1);
+    window.until("Escape closes it", |h| h.count(MENU) == 0);
+    let words = window
+        .harness
+        .frame(FRAME)
+        .and_then(|frame| frame.centre("p"))
+        .expect("the paragraph is drawn");
+    let off = Point {
+        x: ds::prelude::Px(words.x.0),
+        y: ds::prelude::Px(words.y.0 + 40.0),
+    };
+    window.harness.press(off, PointerButton::Secondary);
+    window.harness.advance(ms(300));
+    assert_eq!(
+        window.harness.count(MENU),
+        0,
+        "a right click off a link offered a link"
     );
 }
