@@ -551,3 +551,37 @@ fn a_whole_add_of_typed_servers_follows_the_protocol_and_refuses_a_wrong_port() 
     );
     assert!(w.log.adds.lock().unwrap().is_empty());
 }
+
+/// An input method's preedit is drawn in the field before it is the field's text: the
+/// placeholder goes as composing starts, stays gone while it runs, and the commit is the text.
+#[test]
+fn pinyin_being_composed_hides_the_placeholder_and_its_commit_is_the_text() {
+    let mut w = open(Script::default(), None);
+    on_step(&mut w, "providers");
+    type_text(&mut w, "fast");
+    w.harness.key(Key::Enter);
+    on_step(&mut w, "sign-in");
+    const PLACEHOLDER: &str = ".ds-input-placeholder";
+    let before = w.harness.count(PLACEHOLDER);
+    assert!(before > 0, "the sign-in fields have no placeholder");
+    w.harness.ime_start();
+    w.harness.ime_update("ni", 2);
+    w.harness.advance(Duration::from_millis(100));
+    assert_eq!(
+        w.harness.count(PLACEHOLDER),
+        before - 1,
+        "the placeholder stayed over the preedit"
+    );
+    w.harness.ime_commit("你");
+    w.harness.ime_end();
+    w.harness.advance(Duration::from_millis(100));
+    assert_eq!(
+        w.harness.count(PLACEHOLDER),
+        before - 1,
+        "the committed text has the placeholder over it"
+    );
+    assert!(
+        w.harness.html().contains("value=\"你\""),
+        "the commit is not the text"
+    );
+}

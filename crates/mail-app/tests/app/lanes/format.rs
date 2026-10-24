@@ -311,3 +311,74 @@ fn styled_spans_pasted_from_a_word_processor_keep_their_bold_and_italic() {
         "the styled italic span is not italic"
     );
 }
+
+/// What an input method commits is written, and nothing else. A zhuyin composition is drawn at
+/// the caret as its preedit and leaves the body untouched until the commit, a key pressed while
+/// it composes is the IME's, and typing after the commit is text again; then a kana to kanji
+/// conversion after typed text. The IME's candidate window stands at the caret.
+#[test]
+fn an_input_method_writes_its_commit_and_nothing_else_and_its_window_stands_at_the_caret() {
+    let mut window = composing();
+
+    // Zhuyin.
+    window.harness.ime_start();
+    window.harness.ime_update("ㄓ", "ㄓ".len());
+    window.harness.ime_update("ㄓㄨ", "ㄓㄨ".len());
+    window.until("the zhuyin preedit is drawn", |h| {
+        h.text_of(".c-preedit").as_deref() == Some("ㄓㄨ")
+    });
+    assert_eq!(
+        outline(&window.harness),
+        ["p"],
+        "the preedit touched the body"
+    );
+    // A key while the IME composes is the IME's.
+    window.harness.key(Key::Char('x'));
+    // winit clears the preedit (an empty update), then commits.
+    window.harness.ime_commit("注");
+    window.until("the zhuyin commit is written", |h| outline(h) == ["p 注"]);
+    assert_eq!(
+        window.harness.count(".c-preedit"),
+        0,
+        "the preedit outlived the commit"
+    );
+    window.type_text("a");
+    assert_eq!(
+        outline(&window.harness),
+        ["p 注a"],
+        "typing after the commit"
+    );
+
+    // The candidate window follows the caret.
+    window.harness.advance(ms(100));
+    let caret = window.harness.rect(".c-caret").expect("no caret is drawn");
+    let area = window
+        .harness
+        .ime_cursor_area()
+        .expect("the IME has no area");
+    assert!(
+        (area.origin.x.0 - caret.origin.x.0).abs() <= 1.0
+            && (area.origin.y.0 - caret.origin.y.0).abs() <= 1.0,
+        "the IME's area {area:?} is not at the caret {caret:?}"
+    );
+
+    // Kana to kanji, after typed text.
+    window.type_text(" ");
+    window.harness.ime_start();
+    for preedit in ["に", "にほ", "にほん", "日本"] {
+        window.harness.ime_update(preedit, preedit.len());
+    }
+    window.until("the kana preedit is drawn", |h| {
+        h.text_of(".c-preedit").as_deref() == Some("日本")
+    });
+    assert_eq!(
+        outline(&window.harness),
+        ["p 注a "],
+        "the kana preedit touched the body"
+    );
+    window.harness.ime_commit("日本");
+    window.harness.ime_end();
+    window.until("the kanji commit is written", |h| {
+        outline(h) == ["p 注a 日本"]
+    });
+}
