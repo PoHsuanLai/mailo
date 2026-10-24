@@ -215,8 +215,9 @@ fn mailboxes_become_folders_with_paths_and_roles() {
         m.id_for_role(MailboxRole::Spam).map(|i| i.as_str()),
         Some("mbJ")
     );
+    assert_eq!(m.unfollowed(), vec![JmapMailboxId::from("mbD")]);
     assert_eq!(
-        m.unfollowed(),
+        m.unsearched(),
         vec![JmapMailboxId::from("mbD"), JmapMailboxId::from("mbJ")]
     );
     let roles = m.roles();
@@ -306,7 +307,21 @@ fn an_email_is_filed_by_the_mailboxes_it_is_in() {
             },
         ),
         (&["mbD"], Filing::Unfollowed),
-        (&["mbJ"], Filing::Unfollowed),
+        // Caught by the server's filter: Spam, and Spam over the inbox it may also be in.
+        (
+            &["mbJ"],
+            Filing::Filed {
+                role: MailboxRole::Spam,
+                labels: vec![],
+            },
+        ),
+        (
+            &["mbJ", "mbI"],
+            Filing::Filed {
+                role: MailboxRole::Spam,
+                labels: vec![],
+            },
+        ),
         (&["unknown"], Filing::Unfollowed),
     ];
     for (mailbox_ids, want) in cases {
@@ -443,6 +458,29 @@ fn patches_name_only_what_changed() {
             "mailboxIds/mbI": null,
             "mailboxIds/mbT": null,
             "mailboxIds/mbJ": null
+        })
+    );
+    // Spam: into Junk, and the filter told; back to the inbox, told the other way.
+    assert_eq!(
+        Value::Object(filing_patch(MailboxRole::Spam, &m).unwrap()),
+        json!({
+            "mailboxIds/mbJ": true,
+            "mailboxIds/mbI": null,
+            "mailboxIds/mbA": null,
+            "mailboxIds/mbT": null,
+            "keywords/$junk": true,
+            "keywords/$notjunk": null
+        })
+    );
+    assert_eq!(
+        Value::Object(filing_patch(MailboxRole::Inbox, &m).unwrap()),
+        json!({
+            "mailboxIds/mbI": true,
+            "mailboxIds/mbA": null,
+            "mailboxIds/mbT": null,
+            "mailboxIds/mbJ": null,
+            "keywords/$junk": null,
+            "keywords/$notjunk": true
         })
     );
     assert_eq!(
