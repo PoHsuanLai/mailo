@@ -162,3 +162,13 @@ pub fn nothing_removed(why: &str) -> String {
         "Nothing was removed: {why}. The saved sign-in is already forgotten, so it will ask you to sign in again."
     )
 }
+
+/// A server's host left empty on the account's page.
+pub const NO_HOST: &str = "Enter the server\u{2019}s name.";
+/// A port that is not one.
+pub const BAD_PORT: &str = "A port is a number from 1 to 65535.";
+/// A user name left empty.
+pub const NO_USER_NAME: &str = "Enter the name the server knows you by.";
+/// The check of new server settings ended without an answer, so nothing was changed.
+pub const CHECK_STOPPED: &str =
+    "The check stopped before the server answered. Nothing was changed.";

@@ -27,11 +27,13 @@ pub fn every(watch: &WatchMode) -> Duration {
 /// Each account with a server, and how often it wants a pass.
 ///
 /// An account that keeps its mail here is left out: it has nothing to fetch, so it is never due.
+/// Nor is one whose syncing is paused ([`super::paused`]).
 pub fn intervals(store: &SqliteStore) -> Vec<(AccountId, Duration)> {
     super::configured(store)
         .or_log_default("the accounts could not be read")
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
+        .filter(|account| !super::paused(store, account.id.clone()))
         .map(|account| (account.id, every(&account.caps.watch)))
         .collect()
 }
@@ -144,6 +146,44 @@ mod tests {
     #[test]
     fn an_account_that_offers_idle_is_polled_every_five_minutes() {
         assert_eq!(every(&WatchMode::Idle), secs(300));
+    }
+
+    #[test]
+    fn a_paused_account_is_never_due() {
+        let store = mail_store::testing::in_memory();
+        let now = chrono::Utc::now();
+        for (id, address) in [
+            (acct_imap(), "ada@example.test"),
+            (acct_new(), "bo@example.test"),
+        ] {
+            let preset = mail_domain::presets::manual_pop3(
+                address,
+                &mail_domain::presets::ManualPop3 {
+                    pop3_host: "pop.example.test".to_owned(),
+                    pop3_port: 995,
+                    smtp_host: "smtp.example.test".to_owned(),
+                    smtp_port: 465,
+                    login: None,
+                },
+                now,
+            );
+            mail_store::testing::seed_account_plan(&store, id.clone(), address, &preset.plan, None);
+            mail_store::testing::seed_caps(&store, id, &preset.expected_caps, now).unwrap();
+        }
+        store
+            .set_account_syncing(acct_imap(), mail_store::Syncing::Paused)
+            .unwrap();
+        let listed: Vec<AccountId> = intervals(&store).into_iter().map(|(id, _)| id).collect();
+        assert_eq!(
+            listed,
+            [acct_new()],
+            "the paused account is not on the timetable"
+        );
+        assert!(due(&intervals(&store), &HashMap::new(), Instant::now()) == [acct_new()]);
+        store
+            .set_account_syncing(acct_imap(), mail_store::Syncing::On)
+            .unwrap();
+        assert_eq!(intervals(&store).len(), 2, "and is again once it syncs");
     }
 
     fn secs(n: u64) -> Duration {

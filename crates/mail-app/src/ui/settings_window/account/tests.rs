@@ -105,14 +105,20 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
         page.contains(&format!(r#"<h2 class="ds-page-title">{ADDRESS}</h2>"#)),
         "the page is not titled with the account: {page}"
     );
-    assert!(page.contains("Receiving"), "{page}");
-    assert!(page.contains("Signs in"), "{page}");
+    assert!(
+        page.contains(crate::ui::copy::fields::account::INCOMING_SERVER),
+        "{page}"
+    );
+    assert!(
+        page.contains(crate::ui::copy::fields::account::USER_NAME),
+        "{page}"
+    );
     assert!(page.contains("data-page=\"Accounts\""), "{page}");
     // Download All Mail, the servers, Encryption, and Remove Account… last, alone.
     let mut from = 0;
     for drawn in [
         crate::ui::copy::fields::DOWNLOAD_ALL_MAIL.to_owned(),
-        "Receiving".to_owned(),
+        crate::ui::copy::fields::account::INCOMING_SERVER.to_owned(),
         crate::ui::copy::headers::ENCRYPTION.to_owned(),
         format!(r#"aria-label="Remove {ADDRESS}""#),
     ] {

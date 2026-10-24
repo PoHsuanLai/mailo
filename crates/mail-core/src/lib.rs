@@ -86,7 +86,7 @@ pub use mail_runtime::{
     remote_image, schedule, sieve::Pushed,
 };
 /// The store a front end opens and hands to mail-core.
-pub use mail_store::{SqliteStore, Store, StoreError};
+pub use mail_store::{AccountPrefs, SqliteStore, Store, StoreError, Syncing};
 pub use remedy::{Remedy, SignInWith};
 
 #[cfg(test)]

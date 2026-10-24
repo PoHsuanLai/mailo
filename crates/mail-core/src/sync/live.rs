@@ -82,6 +82,7 @@ pub fn pushing(store: &SqliteStore) -> Vec<AccountId> {
         .or_log_default("the accounts could not be read")
         .iter()
         .filter(|account| pushes(account))
+        .filter(|account| !super::paused(store, account.id.clone()))
         .map(|account| account.id.clone())
         .collect()
 }
