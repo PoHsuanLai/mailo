@@ -109,7 +109,7 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
 #[cfg(not(any(target_os = "macos", windows)))]
 mod bus;
 #[cfg(not(any(target_os = "macos", windows)))]
-pub use bus::{Requests, deliver, serve};
+pub use bus::{Requests, deliver, deliver_activate, deliver_mailto, serve};
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -119,7 +119,7 @@ pub use macos::{Requests, deliver, deliver_activate, deliver_mailto, hear_reopen
 #[cfg(windows)]
 mod none;
 #[cfg(windows)]
-pub use none::{Requests, deliver, serve};
+pub use none::{Requests, deliver, deliver_activate, deliver_mailto, serve};
 
 #[cfg(test)]
 mod tests {

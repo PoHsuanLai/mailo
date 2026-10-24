@@ -188,12 +188,12 @@ pub fn deliver(thread: ThreadId, _token: Option<&str>) -> bool {
 }
 
 /// Ask the running window to open a composer on the `mailto:` link `uri`. True when one took it.
-pub fn deliver_mailto(uri: &str) -> bool {
+pub fn deliver_mailto(uri: &str, _token: Option<&str>) -> bool {
     socket_path().is_some_and(|path| send(&path, uri))
 }
 
 /// Ask the running window to raise itself. True when one did; false when none is running.
-pub fn deliver_activate() -> bool {
+pub fn deliver_activate(_token: Option<&str>) -> bool {
     socket_path().is_some_and(|path| send(&path, ACTIVATE))
 }
 
