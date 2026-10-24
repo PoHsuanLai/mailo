@@ -29,6 +29,7 @@ pub mod editor;
 pub mod environment;
 pub mod error;
 pub mod export;
+pub mod findable;
 pub mod folder;
 pub mod follow_up;
 pub mod history;

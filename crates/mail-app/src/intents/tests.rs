@@ -10,14 +10,14 @@ use std::process::{Child, Command, Stdio};
 use zbus::zvariant::OwnedValue;
 
 /// A `dbus-daemon` of our own, killed when this drops.
-struct Bus {
+pub(super) struct Bus {
     child: Child,
-    address: String,
+    pub(super) address: String,
     _dir: tempfile::TempDir,
 }
 
 impl Bus {
-    fn start() -> Bus {
+    pub(super) fn start() -> Bus {
         let dir = tempfile::tempdir().expect("tempdir");
         let socket = dir.path().join("bus");
         let config = dir.path().join("bus.conf");

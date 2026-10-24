@@ -65,7 +65,7 @@ unit. The window is known by the scope a launcher starts it in, `app-<launcher>-
 because the desktop entry is `org.quire.Mail.desktop` and the window's `app_id` is the same.
 
 The manifest, `dist/intents/org.quire.Mail.toml`, installed under `$XDG_DATA_DIRS/quire/intents/`,
-declares two kinds, `mail.thread` and `mail.draft`, and these actions:
+declares three kinds, `mail.thread`, `mail.draft` and `mail.contact`, and these actions:
 
 | Action | Effect | Takes | Undo |
 | --- | --- | --- | --- |
@@ -99,6 +99,25 @@ Decisions:
 - **Only the router calls.** Every member but `Summon` is refused for a caller that does not own
   `org.quire.Intents1`, so a process that knows mailo's bus name gets no way round the gate.
 - **The window hears what the provider writes** through its look at the store's data version (above).
+
+### What the launcher finds without asking
+
+The router answers the launcher's searches from an index the apps push to, so typing in the
+launcher starts nothing. The window keeps mail's part of it (`intents/index.rs`, over
+`mail_core::findable`); `mailo intents` pushes nothing, being started for one request and gone.
+
+- **What.** The 5,000 newest conversations that are not only in Trash or Spam (`mail.thread`: the
+  subject, the other people latest sender first, their names and addresses and the labels as
+  words), and the first 2,000 people the composer offers (`mail.contact`: the name, the address, a
+  card's other addresses and organisation). Keyed as the intents key them; found in every Space.
+  Mail's own search box stays the way to search what the mail says.
+- **When.** `Reset` with a fresh epoch and everything, in batches of 500, once the window's store is
+  open and whenever `org.quire.Intents1` comes onto the bus; then, when the store is written to
+  (`ui::on_write`), what moved since the last push, at most once every two seconds. A push the
+  router refuses as `Malformed` (it restarted, or forgot mail) is a `Reset` and everything again.
+- **Without a router** nothing is read or pushed, and a debug line says so; the window shows nothing.
+- **Who is pushing.** The router knows the window by its scope, which carries the desktop entry's id
+  (above), so the push is mail's own only because the entry is `org.quire.Mail.desktop`.
 
 ## What it reads
 

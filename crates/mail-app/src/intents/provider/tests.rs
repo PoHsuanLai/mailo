@@ -948,3 +948,31 @@ fn the_window_handoff_answers_from_inside_zbus_executor() {
     let _taken: bool =
         zbus::block_on(async { super::handed_to_window(thread_of(1), Some("token")) });
 }
+
+/// What mail hands the desktop's index is keyed as the intents key the same kinds: a conversation
+/// it finds opens as the conversation, and a person as the person.
+#[test]
+fn what_the_index_is_handed_is_keyed_as_the_intents_key_it() {
+    let (provider, store, _dir) = world();
+    befriend(&store);
+    let found = mail_core::findable::read(&store, Utc::now()).expect("read");
+    let (conversations, contacts): (Vec<_>, Vec<_>) = found
+        .values()
+        .partition(|f| f.kind == mail_core::findable::Kind::Conversation);
+    assert_eq!((conversations.len(), contacts.len()), (3, 1));
+    for found in conversations {
+        let named = id(crate::intents::wire::kind_of(found.kind), &found.key);
+        assert!(
+            matches!(provider.preview(&named), Preview::Thread { .. }),
+            "{}",
+            found.title
+        );
+    }
+    for found in contacts {
+        let named = id(crate::intents::wire::kind_of(found.kind), &found.key);
+        assert_eq!(
+            provider.contact_address(&named).expect("the person").email,
+            "accounting@example.test"
+        );
+    }
+}

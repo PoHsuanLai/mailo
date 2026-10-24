@@ -10,6 +10,11 @@
 # address book is the person's own, so a contact's name is trusted. A write is `undoable_write` with an undo token, which mailo mints from the
 # same undo stack the window's Cmd+Z uses; sending is `outbound`, with its recipient declared as
 # the sink the router checks.
+#
+# Conversations are `indexed`: while the window runs it pushes the recent conversations to the
+# router's index (`crates/mail-app/src/intents/index.rs`), so the launcher finds them as the
+# person types without starting mailo. Drafts are not: they are found from the window. Mail's own
+# search box is the way to search what the mail says.
 vocab = 1
 app = "org.quire.Mail"
 
@@ -19,7 +24,7 @@ label = "Conversation"
 plural = "Conversations"
 icon = "mail"
 class = "mail"
-index = "not_indexed"
+index = "indexed"
 titles = { kind = "third_party", v = { kind = "mail" } }
 props = []
 

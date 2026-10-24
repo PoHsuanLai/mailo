@@ -12,10 +12,16 @@
 //! writes the JSON forms out, [`Provider`] is the typed side and [`serve`] the bus side. A change
 //! the window makes is not heard here, and one made here reaches the window through its look at
 //! the store (`ui::fetching::external`).
+//!
+//! The router answers the launcher's searches from an index the apps push to, so typing in the
+//! launcher starts nothing. The window keeps mail's part of it ([`index`]): the recent
+//! conversations and the address book, pushed while it runs. `mailo intents` pushes nothing.
 
 mod provider;
 pub mod wire;
 
+#[cfg(not(any(target_os = "macos", windows)))]
+pub mod index;
 #[cfg(not(any(target_os = "macos", windows)))]
 mod serve;
 
