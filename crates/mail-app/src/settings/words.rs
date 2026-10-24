@@ -35,6 +35,27 @@ pub enum Spelling {
     Off,
 }
 
+/// `compose.signature_above_quote`: whether a reply's signature starts above the quoted original
+/// rather than under it, at the end, where Apple Mail puts it unless asked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum SignatureAboveQuote {
+    On,
+    #[default]
+    Off,
+}
+
+impl SignatureAboveQuote {
+    /// Where a reply's signature goes, as composing says it.
+    pub fn placement(self) -> mail_core::signature::Placement {
+        match self {
+            SignatureAboveQuote::On => mail_core::signature::Placement::AboveQuote,
+            SignatureAboveQuote::Off => mail_core::signature::Placement::BelowQuote,
+        }
+    }
+}
+
 /// `reading.brand_logos`: whether a sender's verified logo (BIMI) is looked up and shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]

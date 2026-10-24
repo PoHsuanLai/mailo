@@ -18,7 +18,13 @@ use porter_core::AccountId;
 use rusqlite::{OptionalExtension, Row, params};
 
 /// The columns of an identity, in the order [`identity_of`] reads them.
-const IDENTITY: &str = "id, account, from_name, from_email, reply_to, signature, is_default";
+///
+/// Its signature is the text of its default for new mail (`signatures`), else what the column on
+/// `identities` held, which only a row written without going through `set_signature` still has.
+const IDENTITY: &str = "id, account, from_name, from_email, reply_to,
+    coalesce((SELECT s.body_text FROM signatures s
+              WHERE s.identity = identities.id AND s.for_new = 1), signature),
+    is_default";
 
 /// An identity out of a row selected with [`IDENTITY`].
 fn identity_of(row: &Row<'_>) -> Result<Identity, StoreError> {
@@ -125,10 +131,12 @@ impl SqliteStore {
             ],
         )?;
         for identity in new.identities {
-            tx.execute(
+            // The signature an identity arrives with is its first in `signatures`, the default
+            // for both; the column it would once have gone in is left empty.
+            let added = tx.execute(
                 "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
                      is_default)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)
                  ON CONFLICT(id) DO NOTHING",
                 params![
                     identity.id.to_string(),
@@ -140,10 +148,26 @@ impl SqliteStore {
                         .as_ref()
                         .map(|reply_to| to_json("Identity.reply_to", &Some(reply_to)))
                         .transpose()?,
-                    identity.signature,
                     to_json("Identity.is_default", &identity.default)?,
                 ],
             )?;
+            let signed = identity
+                .signature
+                .as_deref()
+                .filter(|text| !text.trim().is_empty());
+            if let (1, Some(text)) = (added, signed) {
+                tx.execute(
+                    "INSERT INTO signatures
+                         (id, identity, name, body_html, body_text, for_new, for_replies)
+                     VALUES (?1, ?2, ?3, NULL, ?4, 1, 1)",
+                    params![
+                        mail_domain::SignatureId::generate().to_string(),
+                        identity.id.to_string(),
+                        mail_domain::UNNAMED_SIGNATURE,
+                        text
+                    ],
+                )?;
+            }
         }
         write_caps(&tx, &account, new.caps, new.at)?;
         tx.commit()?;
@@ -232,19 +256,6 @@ impl SqliteStore {
         let mut stmt = db.prepare("SELECT from_email FROM identities")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         Ok(rows.collect::<Result<Vec<String>, _>>()?)
-    }
-
-    /// Set the signature of an identity, or clear it with `None`.
-    pub fn set_signature(
-        &self,
-        identity: IdentityId,
-        signature: Option<&str>,
-    ) -> Result<(), StoreError> {
-        self.connection().execute(
-            "UPDATE identities SET signature = ?2 WHERE id = ?1",
-            params![identity.to_string(), signature],
-        )?;
-        Ok(())
     }
 
     fn read_identities<P: rusqlite::Params>(

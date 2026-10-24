@@ -376,6 +376,9 @@ pub enum SettingsPage {
     /// Nothing about a key is kept in the shell: the page reads the store, and a passphrase, a
     /// password or a secret key never passes through it.
     Accounts,
+    /// Every address's signatures, each with its own page: its name, its words and its
+    /// defaults. Read from the store, as the composer reads them.
+    Signatures,
     /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
     Spaces,
     Rules,

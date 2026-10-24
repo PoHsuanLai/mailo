@@ -15,8 +15,12 @@ use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 pub mod addresses;
+mod doc;
 mod enclosed;
+pub use doc::{doc_from_text, doc_of};
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
+
+use crate::signature::{self, Placement};
 
 /// Read one identity, or the account's default, out of the `identities` table.
 ///
@@ -65,6 +69,19 @@ pub fn draft_reply(
     draft_reply_in(store, message, scope, body, now, &Local)
 }
 
+/// [`draft_reply`], its signature where `placement` puts it: the window's, which follows the
+/// setting that moves it above the quoted original.
+pub fn draft_reply_placed(
+    store: &SqliteStore,
+    message: MessageId,
+    scope: ReplyScope,
+    body: &str,
+    now: DateTime<Utc>,
+    placement: Placement,
+) -> Result<Draft, CoreError> {
+    reply_in(store, message, scope, body, now, &Local, placement)
+}
+
 /// The same, with the zone the attribution line is written in named.
 ///
 /// Named rather than read from the machine, because the attribution line leaves this machine:
@@ -81,13 +98,36 @@ pub fn draft_reply_in<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
+    reply_in(store, message, scope, body, now, zone, Placement::default())
+}
+
+/// A reply, its attribution written in `zone` and its signature where `placement` puts it.
+///
+/// The signature is the identity's default for replies, as text: the composer that opens the
+/// draft puts the signature's own formatting back (`crate::signature::recognise`).
+fn reply_in<Tz: chrono::TimeZone>(
+    store: &SqliteStore,
+    message: MessageId,
+    scope: ReplyScope,
+    body: &str,
+    now: DateTime<Utc>,
+    zone: &Tz,
+    placement: Placement,
+) -> Result<Draft, CoreError>
+where
+    Tz::Offset: std::fmt::Display,
+{
     let original = store.message(message)?;
     let identity = identity_of(store, original.account.clone(), None)?;
+    let signature = signature::default_for(store, identity.id, SignatureUse::Replies)?;
 
     let mut draft = Draft::reply_to(&original, &identity, scope, now);
     // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
     // a property of the draft — so the quoting happens here, where the renderer is.
-    draft.text = quoted(&signed(body, &identity), &original, zone);
+    draft.text = match placement {
+        Placement::AboveQuote => quoted(&signed(body, signature.as_ref()), &original, zone),
+        Placement::BelowQuote => signed(&quoted(body, &original, zone), signature.as_ref()),
+    };
     save(store, &draft)?;
     Ok(draft)
 }
@@ -145,10 +185,13 @@ where
 {
     let original = store.message(message)?;
     let identity = identity_of(store, original.account.clone(), None)?;
+    // A forward is signed as a reply is, and above the forwarded block whatever a reply does:
+    // the block is the message passed on, not a quotation under it.
+    let signature = signature::default_for(store, identity.id, SignatureUse::Replies)?;
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
-    draft.text = forwarded(&signed(body, &identity), &original, zone);
+    draft.text = forwarded(&signed(body, signature.as_ref()), &original, zone);
     draft.attachments = carried(&original.attachments);
     Ok(draft)
 }
@@ -261,7 +304,7 @@ pub fn draft_new(
     draft.subject = subject.to_owned();
     // The signature, and nothing else. There is no original to quote and no header block to
     // write, which is the whole difference between this and the other two.
-    draft.text = signed(body, &identity);
+    (draft.text, draft.html) = signed_new(store, &identity, body)?;
     save(store, &draft)?;
     Ok(draft)
 }
@@ -284,7 +327,7 @@ pub fn draft_mailto(
     draft.cc = link.cc.clone();
     draft.bcc = link.bcc.clone();
     draft.subject = link.subject.clone();
-    draft.text = signed(&link.body, &identity);
+    (draft.text, draft.html) = signed_new(store, &identity, &link.body)?;
     save(store, &draft)?;
     Ok(draft)
 }
@@ -555,23 +598,19 @@ pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<Vec<Attache
 /// so writing one without the other leaves a draft that `identity_of` cannot resolve and nothing
 /// can send — and the failure would arrive at Send, long after the choice was made. The identity
 /// is therefore looked up before anything is written, so an account that has none leaves the
-/// draft exactly where it was.
+/// draft exactly where it was. It goes as the account's default identity, signed with that
+/// identity's default in place of the signature it had ([`crate::signature::send_as`]).
 pub fn move_draft_to(
     store: &SqliteStore,
     draft: DraftId,
     account: AccountId,
     now: DateTime<Utc>,
 ) -> Result<Draft, CoreError> {
-    let mut draft = store.draft(draft)?;
+    let draft = store.draft(draft)?;
     if draft.account == account {
         return Ok(draft);
     }
-    let identity = identity_of(store, account.clone(), None)?;
-    draft.account = account;
-    draft.identity = identity.id;
-    draft.updated = now;
-    save(store, &draft)?;
-    Ok(draft)
+    crate::signature::send_as(store, draft.id, account, None, now)
 }
 
 /// A message just started with [`new_sealed_message`]: the draft, and what would stop it going.
@@ -760,7 +799,40 @@ pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError>
     Ok(draft.subject)
 }
 
-/// Put the identity's signature beneath what was written.
+/// A new message's text and HTML: `body`, then the identity's default signature for new mail.
+///
+/// HTML only when the signature was written in the composer and so has some: the document is
+/// the body's paragraphs, the separator and the signature's own, as the composer would write it,
+/// so the formatting goes out in the HTML part. A signature that is only text leaves the draft
+/// text only, as it always was.
+fn signed_new(
+    store: &SqliteStore,
+    identity: &Identity,
+    body: &str,
+) -> Result<(String, Option<String>), CoreError> {
+    let signature = signature::default_for(store, identity.id, SignatureUse::NewMail)?;
+    let text = signed(body, signature.as_ref());
+    let html = signature
+        .as_ref()
+        .filter(|signature| signature.html.is_some())
+        .map(|signature| {
+            let mut nodes = crate::editor::nodes_from_plain(body.trim());
+            if nodes.is_empty() {
+                nodes.push(crate::editor::Node::plain(
+                    crate::editor::ParaKind::Paragraph,
+                    "",
+                ));
+            }
+            nodes.push(crate::editor::Node::Object(
+                crate::editor::Object::Signature,
+            ));
+            nodes.extend(signature::nodes_of(signature));
+            crate::editor::to_html(&crate::editor::Doc { nodes })
+        });
+    Ok((text, html))
+}
+
+/// Put a signature beneath what was written.
 ///
 /// Appended at compose time rather than at send, like the quoted material beside it, so the user
 /// can see it, edit it, or take it off for one message. A signature the user cannot delete from
@@ -770,8 +842,8 @@ pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError>
 /// §4.3 names that exact string, and every client that trims a signature when quoting looks for
 /// it; `--` without the trailing space is a different line and gets quoted back at people for
 /// the rest of the thread.
-fn signed(body: &str, identity: &Identity) -> String {
-    let Some(signature) = identity.signature.as_deref().map(str::trim_end) else {
+fn signed(body: &str, signature: Option<&Signature>) -> String {
+    let Some(signature) = signature.map(|signature| signature.text.trim_end()) else {
         return body.to_owned();
     };
     if signature.is_empty() {

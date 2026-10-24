@@ -22,6 +22,7 @@ mod reparse;
 mod row;
 mod rules;
 mod search;
+mod signatures;
 mod smime;
 mod template;
 mod views;

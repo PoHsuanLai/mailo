@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch,
+    SignatureAboveQuote, Spelling,
 };
 
 use ds::prelude::Word;
@@ -76,6 +77,12 @@ pub struct ComposeSettings {
         section = "Mail"
     )]
     pub spelling: Spelling,
+    #[settings(
+        label = "Signature above quoted text",
+        help = "Put your signature above the message you reply to, rather than at the end.",
+        section = "Mail"
+    )]
+    pub signature_above_quote: SignatureAboveQuote,
 }
 
 /// `reading.*`: reading mail.

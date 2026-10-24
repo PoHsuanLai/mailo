@@ -28,6 +28,7 @@ pub mod remote;
 pub mod retry;
 pub mod rule;
 pub mod section;
+pub mod signature;
 pub mod signing;
 pub mod smime;
 pub mod state;
@@ -53,8 +54,8 @@ pub use folder::{
     Folder, FolderContents, FolderCtx, FolderWork, Holds, NonEmpty, SpecialUse, Subscription,
 };
 pub use id::{
-    BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, TemplateId,
-    ThreadId, ViewId,
+    BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, SignatureId,
+    TemplateId, ThreadId, ViewId,
 };
 pub use ingest::{Fetched, Import, Ingest, Kept};
 pub use invite::{Attendance, InviteAnswer};
@@ -76,6 +77,7 @@ pub use remote::{
 pub use retry::{Retry, Retryable};
 pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
 pub use section::Section;
+pub use signature::{Signature, SignatureUse, UNNAMED_SIGNATURE};
 pub use smime::{
     BadSignature, CertFingerprint, CertProblem, CertSource, Smime, SmimeCert, SmimeEncryption,
     SmimeVerification,

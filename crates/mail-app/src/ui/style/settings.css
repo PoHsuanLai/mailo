@@ -7,3 +7,7 @@
 /* A row that adds something leads with a bare plus (`common::add_mark`), plain beside the colour
    of the rows it adds to, in a box a row's tile wide so its title starts where theirs do. */
 .add-mark { display: grid; place-items: center; width: var(--row-icon-tile); height: var(--row-icon-tile); color: var(--ink-soft); }
+/* A signature's page (`settings_window::signatures`): the composer's body in a group of its own,
+   inset from the group's edge as a row's title is, and a few lines tall rather than a letter's. */
+.sig-edit { padding: var(--s-12) var(--s-18); }
+.sig-edit .c-body { min-height: 90px; }

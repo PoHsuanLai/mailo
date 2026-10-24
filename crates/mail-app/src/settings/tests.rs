@@ -38,6 +38,7 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         ("window.provider_marks", pair("icons", "letters")),
         ("notifications.new_mail", pair("on", "off")),
         ("compose.spelling", pair("on", "off")),
+        ("compose.signature_above_quote", pair("on", "off")),
         ("reading.brand_logos", pair("on", "off")),
         ("reading.read_receipts", pair("never", "always")),
         (

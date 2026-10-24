@@ -47,3 +47,6 @@ mod triage;
 mod preferences;
 mod search;
 mod sidebar;
+
+// 15: signatures, made in Settings and signing what is written.
+mod signatures;

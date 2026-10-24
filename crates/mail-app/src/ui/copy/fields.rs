@@ -53,6 +53,8 @@ pub const EMAIL: &str = "Email";
 pub const PHONE: &str = "Phone";
 pub const ORGANISATION: &str = "Organisation";
 pub const FROM: &str = "From";
+/// The composer's header row of the signature the message ends with.
+pub const SIGNATURE: &str = "Signature";
 pub const TO: &str = "To";
 pub const DATE: &str = "Date";
 
@@ -122,3 +124,11 @@ pub mod account {
     pub const SIGNS_IN: &str = "Signs in";
     pub const SENDS_AS: &str = "Sends as";
 }
+
+// A signature's page in Settings.
+/// Its name's field, as a screen reader hears it.
+pub const SIGNATURE_NAME: &str = "Signature name";
+/// The switch that starts every new message with it.
+pub const DEFAULT_FOR_NEW_MESSAGES: &str = "Default for new messages";
+/// The switch that starts every reply and forward with it.
+pub const DEFAULT_FOR_REPLIES: &str = "Default for replies";

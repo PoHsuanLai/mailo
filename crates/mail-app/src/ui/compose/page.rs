@@ -5,10 +5,10 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
 use mail_core::when::Clock;
-use mail_domain::{Address, Draft, DraftId, ReceiptRequest};
+use mail_domain::{Address, Draft, DraftId, IdentityId, ReceiptRequest, SignatureId};
 use porter_core::AccountId;
 
-use super::opening::doc_of;
+use mail_core::compose::doc_of;
 use mail_core::editor::{Person, Pos, Range, Session};
 
 /// Whether the page stands alone in the reader column or sits under a thread.
@@ -160,6 +160,8 @@ pub(in crate::ui) enum Float {
     PickRemind(String),
     /// The Receipt row's menu: "Requested" or "Off".
     Receipt,
+    /// The Signature row's menu: "None", then the identity's signatures.
+    Signature,
     /// Send ▾: Send Later, Remind Me If No Reply and Ask for Read Receipt.
     SendMenu,
     /// The foot's ⋯: Security, Show Plain Text, Save as Template…, Keep for Later, Delete Draft.
@@ -245,6 +247,10 @@ pub(in crate::ui) struct Page {
     pub draft: DraftId,
     pub kind: PageKind,
     pub from: AccountId,
+    /// The identity it is sent as, whose signatures the Signature row offers.
+    pub identity: IdentityId,
+    /// Which of the identity's signatures is on the page, when one is and is as it was kept.
+    pub signature: Option<SignatureId>,
     pub subject: String,
     pub to: Vec<Person>,
     pub cc: Vec<Person>,
@@ -317,6 +323,8 @@ impl Page {
             draft: draft.id,
             kind,
             from: draft.account.clone(),
+            identity: draft.identity,
+            signature: None,
             subject: draft.subject.clone(),
             to: draft.to.iter().map(person).collect(),
             cc_row: shown(&cc),
