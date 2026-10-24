@@ -2,8 +2,10 @@
 //! around it; a Space's name opens the Space's menu only on a right click, where Edit Space… asks
 //! for its page in Settings and Delete Space… asks first, Escape keeping the Space; a folder's
 //! rename ends with Escape, or by going to another folder, writing nothing; a hidden sidebar
-//! comes back from the head of the list.
+//! comes back from the head of the list. Two fingers moving sideways over the sidebar go to the
+//! Space beside this one, one a gesture; moving down they scroll its lists, as before.
 
+use ds::base::geometry::units::Px;
 use ds::base::press::PointerButton;
 use mail_app::ui::appearance::WindowDirs;
 use mail_app::ui::copy;
@@ -14,7 +16,7 @@ use mail_domain::{Folder, Holds, Subscription, presets};
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key};
-use super::hands::menu_item;
+use super::hands::{menu_item, text};
 use super::row_menu::menu_names;
 use super::window::{Window, account};
 use crate::lanes::seed::ME;
@@ -226,4 +228,95 @@ fn the_sidebar_s_tiles_spaces_and_folders_answer_their_menus() {
     window.until("the sidebar comes back", |h| {
         h.count(&show) == 0 && h.rect(".side").is_some_and(|r| r.size.width.0 > 100.0)
     });
+}
+
+/// The sidebar's head, which names the Space on screen.
+const SPACE_HEAD: &str = ".side .ds-space-head";
+
+/// The name of the Space on screen, as the sidebar's head says it.
+fn space_on_screen(window: &Window) -> String {
+    window.text(SPACE_HEAD)
+}
+
+/// Two fingers moving `dx`, `dy` a frame over the sidebar's lists, `frames` times, then the hand
+/// still for long enough that the next gesture is a new one.
+fn swipe(window: &mut Window, dx: f32, dy: f32, frames: usize) {
+    let at = window.centre(".side .slide");
+    for _ in 0..frames {
+        window.harness.wheel(at, Px(dx), Px(dy));
+        window.harness.advance(ms(16));
+    }
+    window.harness.advance(ms(400));
+}
+
+#[test]
+fn a_sideways_swipe_over_the_sidebar_moves_one_space_and_a_scroll_down_does_not() {
+    let ids = Arc::new(Mutex::new(Vec::new()));
+    let mut window = Window::open_with(chrono::Utc::now(), with_folders, {
+        let ids = Arc::clone(&ids);
+        move |dir, contexts| {
+            let two = space::built(
+                (1..=2)
+                    .map(|n| {
+                        let look = ds::prelude::SpaceLook::default();
+                        (format!("Space {n}"), look, Mail::of(vec![account()]))
+                    })
+                    .collect(),
+                0,
+            );
+            *ids.lock().unwrap_or_else(|e| e.into_inner()) =
+                two.list().iter().map(|space| space.id).collect();
+            let dirs = WindowDirs {
+                config: dir.join("config"),
+                state: dir.join("state"),
+            };
+            space::save(Some(&dirs), &two).expect("the Spaces are written");
+            contexts
+        }
+    });
+    let ids = ids.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let stored = |window: &Window| space::stored(&window.dirs()).map(|spaces| spaces.current().id);
+    assert_eq!(space_on_screen(&window), "Space 1");
+
+    // Down, and down with a drift sideways: the lists', never a switch.
+    swipe(&mut window, 0.0, -30.0, 12);
+    swipe(&mut window, -4.0, -30.0, 12);
+    assert_eq!(
+        space_on_screen(&window),
+        "Space 1",
+        "a scroll down switched"
+    );
+
+    // Towards the left, before the first Space: it stretches and stays.
+    swipe(&mut window, 30.0, 0.0, 12);
+    assert_eq!(
+        space_on_screen(&window),
+        "Space 1",
+        "a Space before the first"
+    );
+
+    // The content carried to the left, a long swipe with its momentum after: the next Space,
+    // and only that one, as a click on its dot would.
+    swipe(&mut window, -30.0, 0.0, 40);
+    window.until("the swipe switches", |h| text(h, SPACE_HEAD) == "Space 2");
+    assert_eq!(
+        stored(&window),
+        ids.get(1).copied(),
+        "the switch was not kept"
+    );
+    assert_eq!(
+        window.harness.count(".side .slide.a-slide-r"),
+        1,
+        "it slides in from the right"
+    );
+
+    // And back again, the other way.
+    swipe(&mut window, 30.0, 0.0, 12);
+    window.until("the swipe back switches", |h| {
+        text(h, SPACE_HEAD) == "Space 1"
+    });
+    assert_eq!(stored(&window), ids.first().copied());
+    assert_eq!(window.harness.count(".side .slide.a-slide-l"), 1);
+    // At rest, nothing is carried.
+    assert_eq!(window.harness.count(".side [*|data-swipe]"), 0);
 }

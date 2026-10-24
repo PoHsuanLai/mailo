@@ -36,6 +36,10 @@
   background: var(--f-solid);
 }
 .slide { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; display: flex; flex-direction: column; gap: var(--s-4); }
+/* A sideways swipe over the sidebar carries the Space's name and its lists with the fingers, and
+   springs them home from where they were left (`sidebar::pager`, which sets `--space-dx` on each
+   while it is off its place). A switch plays quire's Space slide on them instead. */
+.side-title[*|data-swipe="live"], .slide[*|data-swipe="live"] { transform: translateX(var(--space-dx)); }
 /* A folder the person does not follow is drawn quieter. */
 .dim:not([*|aria-selected="true"]) { color: var(--ink-faint); }
 /* The sidebar's head and foot are quire's Spaces kit (`SpaceHead`, `SpacesFoot`). The head is

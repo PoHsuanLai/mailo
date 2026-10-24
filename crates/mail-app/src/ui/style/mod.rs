@@ -43,9 +43,9 @@ pub(in crate::ui) mod tests {
     }
 
     /// The custom properties mailo's own rules use that the stylesheet does not declare: the
-    /// window's root element carries them as an inline `style`, set from Rust beside the number
-    /// they come from.
-    const PER_ELEMENT: &[&str] = &["--side-w"];
+    /// element that needs one carries it as an inline `style`, set from Rust beside the number it
+    /// comes from (the window's root its sidebar width, the swiped sidebar its offset).
+    const PER_ELEMENT: &[&str] = &["--side-w", "--space-dx"];
 
     fn config() -> LintConfig {
         LintConfig {
