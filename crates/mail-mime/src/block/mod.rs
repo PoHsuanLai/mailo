@@ -9,6 +9,7 @@ mod html;
 mod image;
 mod kind;
 mod limits;
+mod linkify;
 mod machine;
 mod parse;
 mod quote;
