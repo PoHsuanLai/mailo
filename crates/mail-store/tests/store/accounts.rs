@@ -58,6 +58,21 @@ fn add(
     })
 }
 
+/// A store holding one account, ada@example.test, with no identity yet.
+fn with_ada() -> (mail_store::SqliteStore, AccountId) {
+    let store = in_memory();
+    let id = new_account_id();
+    add(
+        &store,
+        &id,
+        &preset("ada@example.test", "example.test"),
+        &[],
+        1,
+    )
+    .unwrap();
+    (store, id)
+}
+
 #[test]
 fn an_account_is_written_whole_and_read_back_by_id_and_by_address() {
     let store = in_memory();
@@ -177,45 +192,22 @@ fn accounts_are_listed_oldest_first() {
 }
 
 #[test]
-fn setting_the_plan_of_an_account_that_is_not_there_says_so() {
-    let store = in_memory();
+fn setting_the_plan_replaces_it_and_says_so_of_an_account_not_there() {
+    let (store, id) = with_ada();
+    let next = preset("ada@example.test", "next.example.test").plan;
+    store.set_account_plan(id.clone(), &next).unwrap();
+    assert_eq!(store.account(id).unwrap().unwrap().plan.unwrap(), next);
+
     let ghost = new_account_id();
-    let plan = preset("ghost@example.test", "example.test").plan;
-    match store.set_account_plan(ghost.clone(), &plan) {
+    match store.set_account_plan(ghost.clone(), &next) {
         Err(StoreError::NoAccount(id)) => assert_eq!(id, ghost),
         other => panic!("{other:?}"),
     }
 }
 
 #[test]
-fn setting_the_plan_replaces_it() {
-    let store = in_memory();
-    let id = new_account_id();
-    add(
-        &store,
-        &id,
-        &preset("ada@example.test", "example.test"),
-        &[],
-        1,
-    )
-    .unwrap();
-    let next = preset("ada@example.test", "next.example.test").plan;
-    store.set_account_plan(id.clone(), &next).unwrap();
-    assert_eq!(store.account(id).unwrap().unwrap().plan.unwrap(), next);
-}
-
-#[test]
 fn identities_come_default_first_then_by_id() {
-    let store = in_memory();
-    let id = new_account_id();
-    add(
-        &store,
-        &id,
-        &preset("ada@example.test", "example.test"),
-        &[],
-        1,
-    )
-    .unwrap();
+    let (store, id) = with_ada();
     let alias = identity(&id, "alias@example.test", IsDefault::Alternate);
     let main = identity(&id, "ada@example.test", IsDefault::Default);
     store
@@ -246,16 +238,7 @@ fn identities_come_default_first_then_by_id() {
 
 #[test]
 fn a_signature_is_set_and_cleared_on_its_identity() {
-    let store = in_memory();
-    let id = new_account_id();
-    add(
-        &store,
-        &id,
-        &preset("ada@example.test", "example.test"),
-        &[],
-        1,
-    )
-    .unwrap();
+    let (store, id) = with_ada();
     let mine = seed_default_identity(&store, id.clone(), "ada@example.test", Some("Ada"));
 
     store
@@ -271,16 +254,7 @@ fn a_signature_is_set_and_cleared_on_its_identity() {
 
 #[test]
 fn a_label_the_user_names_twice_on_one_account_is_a_conflict() {
-    let store = in_memory();
-    let id = new_account_id();
-    add(
-        &store,
-        &id,
-        &preset("ada@example.test", "example.test"),
-        &[],
-        1,
-    )
-    .unwrap();
+    let (store, id) = with_ada();
 
     let first = store.create_label(id.clone(), "travel").unwrap();
     assert!(matches!(
@@ -307,16 +281,7 @@ fn a_label_the_user_names_twice_on_one_account_is_a_conflict() {
 
 #[test]
 fn the_notify_floor_is_armed_once_and_then_read_back() {
-    let store = in_memory();
-    let id = new_account_id();
-    add(
-        &store,
-        &id,
-        &preset("ada@example.test", "example.test"),
-        &[],
-        1,
-    )
-    .unwrap();
+    let (store, id) = with_ada();
 
     assert_eq!(store.arm_notify_floor(id.clone(), at(3)).unwrap(), at(3));
     assert_eq!(
@@ -328,16 +293,7 @@ fn the_notify_floor_is_armed_once_and_then_read_back() {
 
 #[test]
 fn a_hold_is_kept_replaced_listed_and_let_go() {
-    let store = in_memory();
-    let id = new_account_id();
-    add(
-        &store,
-        &id,
-        &preset("ada@example.test", "example.test"),
-        &[],
-        1,
-    )
-    .unwrap();
+    let (store, id) = with_ada();
     let draft = DraftId::generate();
     let mut hold = FollowUpHold {
         draft,
@@ -361,16 +317,7 @@ fn a_hold_is_kept_replaced_listed_and_let_go() {
 #[test]
 fn a_message_is_found_by_the_message_id_it_came_with() {
     use mail_store::Store;
-    let store = in_memory();
-    let id = new_account_id();
-    add(
-        &store,
-        &id,
-        &preset("ada@example.test", "example.test"),
-        &[],
-        1,
-    )
-    .unwrap();
+    let (store, id) = with_ada();
 
     assert_eq!(
         store
@@ -396,20 +343,10 @@ fn a_message_is_found_by_the_message_id_it_came_with() {
             name: None,
             email: "bee@example.test".to_owned(),
         },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
         subject: "hello".to_owned(),
-        in_reply_to: None,
-        references: vec![],
         rfc_message_id: Some("m1@example.test".to_owned()),
-        read: mail_domain::ReadState::Unread,
-        star: mail_domain::Star::Unstarred,
-        mailbox: mail_domain::MailboxRole::Inbox,
-        labels: vec![],
         body: mail_domain::Body::Present { text: None, raw },
-        attachments: vec![],
+        ..crate::support::message(0)
     };
     let (mid, tid) = (message.id, message.thread);
     store

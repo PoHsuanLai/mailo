@@ -4,14 +4,9 @@
 //! one. WAL lets a reader run beside a writer and does nothing for two writers: SQLite serialises
 //! them, and the second either waits or is told "database is locked".
 
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
 use mail_store::SqliteStore;
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 fn opened(dir: &std::path::Path) -> SqliteStore {
     let store = SqliteStore::open(dir.join("mail.db"), dir).unwrap();

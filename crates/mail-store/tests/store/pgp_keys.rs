@@ -5,14 +5,11 @@
 //! sees what a filter can ask, and a key is not something a filter can ask about. The key bytes
 //! here are placeholders — the store keeps them and never reads them.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::support::*;
 use mail_domain::id::new_account_id;
 use mail_domain::*;
-use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
-
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
+use mail_store::testing::{in_memory, seed_account, seed_identity_for};
+use mail_store::{MemoryStore, Store, StoreError};
 
 fn fp(byte: u8) -> Fingerprint {
     Fingerprint::V4([byte; 20])
@@ -36,33 +33,9 @@ fn key(byte: u8, email: &str, source: KeySource, seen: i64) -> PgpKey {
     }
 }
 
-struct Both {
-    sqlite: SqliteStore,
-    memory: MemoryStore,
-    _dir: tempfile::TempDir,
-}
-
-fn both() -> Both {
-    let dir = tempfile::tempdir().unwrap();
-    Both {
-        sqlite: SqliteStore::in_memory(dir.path()).unwrap(),
-        memory: MemoryStore::new(),
-        _dir: dir,
-    }
-}
-
-impl Both {
-    /// Run `f` on both stores and insist they answer alike.
-    fn agree<T: PartialEq + std::fmt::Debug>(&self, f: impl Fn(&dyn Store) -> T) -> T {
-        let (sqlite, memory) = (f(&self.sqlite), f(&self.memory));
-        assert_eq!(sqlite, memory, "SQLite and memory disagree");
-        sqlite
-    }
-}
-
 #[test]
 fn a_key_round_trips_and_is_found_by_address_and_by_any_of_its_ids() {
-    let stores = both();
+    let stores = Both::new();
     let kept = key(1, "Peer@Example.TEST", KeySource::Imported, 0);
     stores.agree(|s| s.put_pgp_key(kept.clone()).unwrap());
 
@@ -97,7 +70,7 @@ fn a_key_round_trips_and_is_found_by_address_and_by_any_of_its_ids() {
 
 #[test]
 fn keeping_a_key_again_merges_it_with_what_is_held() {
-    let stores = both();
+    let stores = Both::new();
     let mut mine = key(1, "me@example.test", KeySource::Generated, 0);
     mine.secret = SecretHeld::Held;
     stores.agree(|s| s.put_pgp_key(mine.clone()).unwrap());
@@ -122,7 +95,7 @@ fn keeping_a_key_again_merges_it_with_what_is_held() {
 
 #[test]
 fn an_addresss_keys_come_verified_first_then_by_source_then_newest() {
-    let stores = both();
+    let stores = Both::new();
     let address = "peer@example.test";
     let gossiped = key(1, address, KeySource::Gossip, 90);
     let autocrypt_old = key(2, address, KeySource::Autocrypt, 10);
@@ -142,7 +115,7 @@ fn an_addresss_keys_come_verified_first_then_by_source_then_newest() {
 
 #[test]
 fn trust_on_a_missing_key_is_an_error_and_delete_says_whether_there_was_one() {
-    let stores = both();
+    let stores = Both::new();
     for store in [&stores.sqlite as &dyn Store, &stores.memory] {
         assert!(matches!(
             store.set_pgp_trust(fp(7), KeyTrust::Verified),
@@ -160,7 +133,7 @@ fn trust_on_a_missing_key_is_an_error_and_delete_says_whether_there_was_one() {
 
 #[test]
 fn autocrypt_peer_state_round_trips_by_address_in_any_case() {
-    let stores = both();
+    let stores = Both::new();
     assert_eq!(
         stores.agree(|s| s.autocrypt_peer("peer@example.test").unwrap()),
         None
@@ -207,25 +180,17 @@ fn autocrypt_peer_state_round_trips_by_address_in_any_case() {
 
 #[test]
 fn a_draft_keeps_what_it_asks_openpgp_to_do() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = in_memory();
     let account = new_account_id();
     let identity = IdentityId::generate();
-    {
-        let db = store.raw_connection();
-        db.execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [account.to_string()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO identities (id, account, from_name, from_email, is_default)
-             VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-            [identity.to_string(), account.to_string()],
-        )
-        .unwrap();
-    }
+    seed_account(&store, account.clone(), "me@example.test");
+    seed_identity_for(
+        &store,
+        identity,
+        account.clone(),
+        "me@example.test",
+        Some("Me"),
+    );
     let draft = Draft {
         id: DraftId::generate(),
         account: account.clone(),
@@ -252,10 +217,7 @@ fn a_draft_keeps_what_it_asks_openpgp_to_do() {
     for s in [&store as &dyn Store, &memory] {
         s.apply(
             account.clone(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
-            },
+            &patch(vec![Change::DraftUpsert(Box::new(draft.clone()))]),
         )
         .unwrap();
         assert_eq!(s.draft(draft.id).unwrap().openpgp, OpenPgp::SignAndEncrypt);

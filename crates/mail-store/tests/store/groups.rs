@@ -1,15 +1,8 @@
 //! Contact groups: stored, listed, replaced and forgotten the same way by the SQLite store and
 //! the in-memory one, and surviving the migration that made room for them.
 
-use mail_store::{Edit, Group, GroupHome, GroupId, MemoryStore, SqliteStore, Store};
-
-/// Run `scenario` on both stores and hand back what each produced.
-fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
-    let dir = tempfile::tempdir().unwrap();
-    let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    let memory = MemoryStore::new();
-    (scenario(&sqlite), scenario(&memory))
-}
+use crate::support::*;
+use mail_store::{Edit, Group, GroupHome, GroupId};
 
 fn local(uid: &str, name: &str, members: &[&str]) -> Group {
     Group {
@@ -109,30 +102,4 @@ fn groups_are_kept_listed_replaced_and_forgotten_alike() {
     assert!(!again);
     assert_eq!(missing, None);
     assert_eq!(left, ["The family", "Āfter everyone"]);
-}
-
-#[test]
-fn a_store_from_before_groups_opens_with_none() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = rusqlite::Connection::open(dir.path().join("mail.db")).unwrap();
-    for (version, sql) in mail_store::migrate::MIGRATIONS {
-        if *version >= 23 {
-            break;
-        }
-        db.execute_batch(sql).unwrap();
-        if *version > 1 {
-            db.execute(
-                "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
-                [version],
-            )
-            .unwrap();
-        }
-    }
-    drop(db);
-    std::fs::create_dir_all(dir.path().join("blobs")).unwrap();
-    let store = SqliteStore::open(dir.path().join("mail.db"), dir.path().join("blobs")).unwrap();
-    assert!(store.groups().unwrap().is_empty());
-    let group = local("u", "g", &["mailto:x@example.test"]);
-    store.put_group(&group).unwrap();
-    assert_eq!(store.group(&group.id).unwrap(), Some(group));
 }

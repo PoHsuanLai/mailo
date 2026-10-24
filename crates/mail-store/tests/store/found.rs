@@ -2,40 +2,13 @@
 //! often the search is repeated, marked as found there, and nothing it found already held marked.
 //! Both stores, compared, with the numbers each must produce.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
-use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-fn acct_other() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
-}
-
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
+use mail_store::{MemoryStore, Store, StoreError};
 
 /// Run `scenario` on both stores and hand back what each produced.
 fn both<T>(scenario: impl Fn(&dyn Store, BlobId) -> T) -> (T, T) {
-    let dir = tempfile::tempdir().unwrap();
-    let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    for (account, address) in [
-        (acct_account(), "me@example.test"),
-        (acct_other(), "also@example.test"),
-    ] {
-        sqlite
-            .raw_connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, '{}', datetime('now'))",
-                [account.to_string(), address.to_owned()],
-            )
-            .unwrap();
-    }
+    let sqlite = sqlite();
     let raw = sqlite.blobs().put(b"headers").unwrap();
     let memory = MemoryStore::new();
     (scenario(&sqlite, raw), scenario(&memory, raw))
@@ -62,28 +35,9 @@ fn inbox(uid: u32) -> RemoteRef {
 fn headers(n: u128) -> Message {
     Message {
         id: MessageId::generate(),
-        thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: acct_account(),
-        key: MessageKey::Rfc(format!("m{n}@example.test")),
-        date: at(n as i64),
-        from: Address {
-            name: None,
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("message {n}"),
-        in_reply_to: None,
-        references: vec![],
         rfc_message_id: Some(format!("m{n}@example.test")),
-        read: ReadState::Unread,
-        star: Star::Unstarred,
         mailbox: MailboxRole::Archive,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
+        ..message(n)
     }
 }
 
@@ -130,20 +84,7 @@ fn absorb(store: &dyn Store, n: u128, remote: RemoteRef, raw: BlobId) -> Vec<Mes
 
 fn listed(store: &dyn Store) -> Vec<(String, ThreadId)> {
     let page = store
-        .threads(
-            &Query {
-                filter: Filter::Account(acct_account()),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
-                page: PageReq {
-                    after: None,
-                    limit: 50,
-                },
-            },
-            at(1_000),
-        )
+        .threads(&query(Filter::Account(acct_account()), 50), at(1_000))
         .unwrap();
     page.items.into_iter().map(|t| (t.subject, t.id)).collect()
 }

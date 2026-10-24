@@ -1,19 +1,10 @@
 //! History, kept alike by both stores: an open is recorded once per conversation at its newest
 //! time, listed newest first, forgotten after ninety days, and survives a reopen.
 
-use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
+use chrono::TimeDelta;
 use mail_domain::*;
-use mail_store::{MemoryStore, OPENED_KEPT, SqliteStore, Store};
-use porter_core::AccountId;
-
-fn account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn at(secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap() + TimeDelta::seconds(secs)
-}
+use mail_store::{OPENED_KEPT, SqliteStore, Store};
 
 fn day(days: i64) -> i64 {
     days * 86_400
@@ -23,58 +14,17 @@ fn thread(n: u128) -> ThreadId {
     ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n))
 }
 
-fn message(n: u128) -> Message {
-    Message {
-        id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
-        thread: thread(n),
-        account: account(),
-        key: MessageKey::Rfc(format!("m{n}@example.test")),
-        date: at(0),
-        from: Address {
-            name: None,
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![Address {
-            name: None,
-            email: "me@example.test".to_owned(),
-        }],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("subject {n}"),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: Some(format!("m{n}@example.test")),
-        read: ReadState::Read,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
-    }
-}
-
-/// Both stores over the same four conversations, one message each.
-fn both(dir: &std::path::Path) -> (SqliteStore, MemoryStore) {
-    let sqlite = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    sqlite
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [account().to_string()],
-        )
-        .unwrap();
-    let memory = MemoryStore::new();
-    for n in 1..=4 {
-        let upsert = Patch {
-            id: ChangeId::generate(),
-            changes: vec![Change::MessageUpsert(Box::new(message(n)))],
-        };
-        sqlite.apply(account(), &upsert).unwrap();
-        memory.apply(account(), &upsert).unwrap();
-    }
-    (sqlite, memory)
+/// Both stores over the same four conversations, one read message each.
+fn both(dir: &std::path::Path) -> (SqliteStore, mail_store::MemoryStore) {
+    both_on_disk(
+        dir,
+        (1..=4).map(|n| Message {
+            thread: thread(n),
+            date: at(0),
+            read: ReadState::Read,
+            ..message(0x9000 + n)
+        }),
+    )
 }
 
 /// The History list, by thread number.

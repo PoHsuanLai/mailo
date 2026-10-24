@@ -11,7 +11,9 @@ mod file;
 mod filing;
 mod follow_up;
 mod history;
+#[cfg(any(test, feature = "testing"))]
 pub mod memory;
+#[cfg(any(test, feature = "testing"))]
 mod memory_search;
 // Public to the testing feature only: a test of the schema walks its steps.
 #[cfg(feature = "testing")]
@@ -42,6 +44,7 @@ pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use file::write_atomic;
 pub use follow_up::FollowUpHold;
 pub use history::SenderRecord;
+#[cfg(any(test, feature = "testing"))]
 pub use memory::MemoryStore;
 pub use offline::{Offline, RemotePart};
 pub use opened::OPENED_KEPT;

@@ -4,34 +4,9 @@
 //! Every scenario runs against the SQLite store and the in-memory one and compares their
 //! answers, the parity the rest of the store is held to.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
-use mail_store::{MemoryStore, SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
-    let dir = tempfile::tempdir().unwrap();
-    let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    sqlite
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-    let memory = MemoryStore::new();
-    (scenario(&sqlite), scenario(&memory))
-}
+use mail_store::Store;
 
 fn all() -> MailboxRef {
     MailboxRef {
@@ -46,31 +21,11 @@ fn jmap(id: &str) -> RemoteRef {
     }
 }
 
+/// Message `n`, as a header fetch from a folder filed as `role` builds it.
 fn message(n: u128, role: MailboxRole) -> Message {
     Message {
-        id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
-        thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: acct_account(),
-        key: MessageKey::Rfc(format!("m{n}@example.test")),
-        date: at(n as i64),
-        from: Address {
-            name: None,
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("message {n}"),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
         mailbox: role,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
+        ..crate::support::message(n)
     }
 }
 
@@ -173,14 +128,8 @@ fn a_local_move_the_server_has_not_seen_survives_refiling() {
         deliver(store, &message(1, MailboxRole::Inbox), jmap("M1"));
         let id = MessageId::from_uuid(uuid::Uuid::from_u128(1));
         // Trashed here and queued; the server still says Inbox until the outbox drains.
-        let forward = Patch {
-            id: ChangeId::generate(),
-            changes: vec![Change::MessageMailbox(id, MailboxRole::Trash)],
-        };
-        let undo = Patch {
-            id: ChangeId::generate(),
-            changes: vec![Change::MessageMailbox(id, MailboxRole::Inbox)],
-        };
+        let forward = patch(vec![Change::MessageMailbox(id, MailboxRole::Trash)]);
+        let undo = patch(vec![Change::MessageMailbox(id, MailboxRole::Inbox)]);
         store.apply(acct_account(), &forward).unwrap();
         store
             .enqueue(

@@ -9,37 +9,21 @@
 //! leaves the database consistent — a deadlock here is a window that stops repainting while mail
 //! arrives, with nothing logged and nothing to see.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
+use chrono::Utc;
 use mail_domain::*;
+use mail_store::testing::{count, seed_account};
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+fn store() -> Arc<SqliteStore> {
+    Arc::new(sqlite())
 }
 
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
-    store
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-    (store, dir)
-}
-
+/// `count` new messages from `from` seconds on, each in a thread of its own, as a POP3 pass
+/// hands them over.
 fn ingest_of(store: &SqliteStore, from: i64, count: i64) -> Ingest {
     let raw = store.blobs().put(b"body").unwrap();
     let messages = (0..count)
@@ -49,30 +33,15 @@ fn ingest_of(store: &SqliteStore, from: i64, count: i64) -> Ingest {
             let message = Message {
                 id: MessageId::generate(),
                 thread: ThreadId::generate(),
-                account: acct_account(),
                 key: MessageKey::Rfc(key.clone()),
                 date: at(n),
-                from: Address {
-                    name: None,
-                    email: "s@example.test".to_owned(),
-                },
-                reply_to: vec![],
-                to: vec![],
-                cc: vec![],
-                bcc: vec![],
                 subject: format!("subject {n}"),
-                in_reply_to: None,
-                references: vec![],
                 rfc_message_id: Some(key.clone()),
-                read: ReadState::Unread,
-                star: Star::Unstarred,
-                mailbox: MailboxRole::Inbox,
-                labels: vec![],
                 body: Body::Present {
                     text: Some("body".to_owned()),
                     raw,
                 },
-                attachments: vec![],
+                ..message(0)
             };
             Fetched {
                 remote: RemoteRef::Pop { uidl: key },
@@ -83,28 +52,9 @@ fn ingest_of(store: &SqliteStore, from: i64, count: i64) -> Ingest {
         })
         .collect();
     Ingest {
-        mailbox: MailboxRef {
-            account: acct_account(),
-            path: "INBOX".to_owned(),
-        },
-        validity: UidValidity::Same,
         cursor: Some(SyncCursor::Pop),
         messages,
-        flags: vec![],
-        labels: vec![],
-        label_names: Vec::new(),
-        gone: vec![],
-    }
-}
-
-fn query(limit: u32) -> Query {
-    Query {
-        filter: Filter::All,
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
-        page: PageReq { after: None, limit },
+        ..ingest("INBOX")
     }
 }
 
@@ -112,7 +62,7 @@ fn query(limit: u32) -> Query {
 fn a_sync_writing_while_the_window_reads_does_not_deadlock() {
     // The shape of the real program: one thread absorbing mail, another drawing a list. A
     // reentrant lock makes recursion on one thread safe and says nothing about two.
-    let (store, _dir) = store();
+    let store = store();
     let stop = Arc::new(AtomicBool::new(false));
     let reads = Arc::new(AtomicUsize::new(0));
 
@@ -121,7 +71,7 @@ fn a_sync_writing_while_the_window_reads_does_not_deadlock() {
         std::thread::spawn(move || {
             while !stop.load(Ordering::SeqCst) {
                 // Exactly what the list pane does, plus what a badge does.
-                let _ = store.threads(&query(50), at(0)).unwrap();
+                let _ = store.threads(&query(Filter::All, 50), at(0)).unwrap();
                 let _ = store.count(&Filter::All, at(0)).unwrap();
                 reads.fetch_add(1, Ordering::SeqCst);
             }
@@ -163,7 +113,7 @@ fn a_sync_writing_while_the_window_reads_does_not_deadlock() {
 fn a_reader_is_not_starved_by_a_writer() {
     // One connection means reads and writes take turns. Turns are fine; never getting one is a
     // window that stops repainting for the length of a sync.
-    let (store, _dir) = store();
+    let store = store();
     store
         .ingest(acct_account(), ingest_of(&store, 0, 200))
         .unwrap();
@@ -174,7 +124,7 @@ fn a_reader_is_not_starved_by_a_writer() {
         let (store, stop, reads) = (store.clone(), stop.clone(), reads.clone());
         std::thread::spawn(move || {
             while !stop.load(Ordering::SeqCst) {
-                let _ = store.threads(&query(50), at(0)).unwrap();
+                let _ = store.threads(&query(Filter::All, 50), at(0)).unwrap();
                 reads.fetch_add(1, Ordering::SeqCst);
             }
         })
@@ -203,7 +153,7 @@ fn a_reader_is_not_starved_by_a_writer() {
 fn two_writers_do_not_corrupt_the_mailbox() {
     // Not the shape the application takes today — one engine per account — but the store is
     // behind an `Arc` and nothing stops it. Each message must appear once.
-    let (store, _dir) = store();
+    let store = store();
     let a = {
         let store = store.clone();
         std::thread::spawn(move || {
@@ -228,10 +178,7 @@ fn two_writers_do_not_corrupt_the_mailbox() {
     b.join().expect("writer b panicked");
 
     assert_eq!(store.count(&Filter::All, at(0)).unwrap(), 400);
-    let rows: i64 = store
-        .raw_connection()
-        .query_row("SELECT count(*) FROM remote_map", [], |r| r.get(0))
-        .unwrap();
+    let rows = count(&store, "remote_map");
     assert_eq!(rows, 400, "remote_map disagrees with the mailbox");
 }
 
@@ -248,14 +195,7 @@ mod a_reader_that_is_not_the_writer {
     fn on_disk() -> (Arc<SqliteStore>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
-        store
-            .raw_connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [acct_account().to_string()],
-            )
-            .unwrap();
+        seed_account(&store, acct_account(), "me@example.test");
         (store, dir)
     }
 
@@ -279,20 +219,7 @@ mod a_reader_that_is_not_the_writer {
 
         // And the list is asked for while that is still true.
         let started = Instant::now();
-        let listed = store.threads(
-            &Query {
-                filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
-                page: PageReq {
-                    after: None,
-                    limit: 50,
-                },
-            },
-            Utc::now(),
-        );
+        let listed = store.threads(&query(Filter::All, 50), Utc::now());
         let waited = started.elapsed();
         writer.join().unwrap();
 
@@ -317,30 +244,15 @@ mod a_reader_that_is_not_the_writer {
         let message = Message {
             id: MessageId::generate(),
             thread,
-            account: acct_account(),
             key: MessageKey::Rfc("m@example.test".to_owned()),
             date: Utc::now(),
-            from: Address {
-                name: None,
-                email: "ada@example.test".to_owned(),
-            },
-            reply_to: vec![],
-            to: vec![],
-            cc: vec![],
-            bcc: vec![],
             subject: "written just now".to_owned(),
-            in_reply_to: None,
-            references: vec![],
             rfc_message_id: Some("m@example.test".to_owned()),
-            read: ReadState::Unread,
-            star: Star::Unstarred,
-            mailbox: MailboxRole::Inbox,
-            labels: vec![],
             body: Body::Present {
                 text: Some("body".to_owned()),
                 raw,
             },
-            attachments: vec![],
+            ..message(0)
         };
         store
             .ingest(
@@ -368,22 +280,7 @@ mod a_reader_that_is_not_the_writer {
             )
             .unwrap();
 
-        let listed = store
-            .threads(
-                &Query {
-                    filter: Filter::All,
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
-                    page: PageReq {
-                        after: None,
-                        limit: 50,
-                    },
-                },
-                Utc::now(),
-            )
-            .unwrap();
+        let listed = store.threads(&query(Filter::All, 50), Utc::now()).unwrap();
         assert_eq!(
             listed.items.len(),
             1,
@@ -397,7 +294,7 @@ mod a_reader_that_is_not_the_writer {
         // Every test in this repository uses one, and a second `:memory:` connection would be a
         // second empty database — so `reader()` has to fall back to the writer rather than
         // opening one.
-        let (store, _dir) = store();
+        let store = store();
         assert!(store.labels(acct_account()).is_ok());
         assert!(
             store

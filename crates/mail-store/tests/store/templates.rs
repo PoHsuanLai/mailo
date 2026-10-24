@@ -3,72 +3,28 @@
 //! Asked of both and compared, for the reason `drafts.rs` gives: the parity proptest only sees
 //! what a filter can ask, and a template is not something a filter can ask about.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
-use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
-use porter_core::AccountId;
+use mail_store::testing::seed_identity_for;
+use mail_store::{MemoryStore, Store, StoreError};
 
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-fn acct_other() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 const OTHER_IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"));
 
-struct Both {
-    sqlite: SqliteStore,
-    memory: MemoryStore,
-    _dir: tempfile::TempDir,
-}
-
 /// Both stores, with the account and identity rows SQLite's foreign keys require.
 fn both() -> Both {
-    let dir = tempfile::tempdir().unwrap();
-    let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    {
-        let db = sqlite.raw_connection();
-        for (account, identity, address) in [
-            (acct_account(), IDENTITY, "me@example.test"),
-            (acct_other(), OTHER_IDENTITY, "also-me@example.test"),
-        ] {
-            db.execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, '{}', datetime('now'))",
-                [account.to_string(), address.to_owned()],
-            )
-            .unwrap();
-            db.execute(
-                "INSERT INTO identities (id, account, from_name, from_email, is_default)
-                 VALUES (?1, ?2, 'Me', ?3, '\"default\"')",
-                [
-                    identity.to_string(),
-                    account.to_string(),
-                    address.to_owned(),
-                ],
-            )
-            .unwrap();
-        }
+    let sqlite = sqlite();
+    for (account, identity, address) in [
+        (acct_account(), IDENTITY, "me@example.test"),
+        (acct_other(), OTHER_IDENTITY, "also-me@example.test"),
+    ] {
+        seed_identity_for(&sqlite, identity, account, address, Some("Me"));
     }
     Both {
         sqlite,
         memory: MemoryStore::new(),
-        _dir: dir,
-    }
-}
-
-impl Both {
-    /// Each store, named for a failure message.
-    fn each(&self) -> [(&'static str, &dyn Store); 2] {
-        [("sqlite", &self.sqlite), ("memory", &self.memory)]
     }
 }
 
@@ -197,10 +153,7 @@ fn a_draft_started_from_a_template_is_saved_beside_it_and_leaves_it_alone() {
     let kept = template("weekly");
     put(&b, &kept);
     let started = kept.draft(at(30));
-    let patch = Patch {
-        id: ChangeId::generate(),
-        changes: vec![Change::DraftUpsert(Box::new(started.clone()))],
-    };
+    let patch = patch(vec![Change::DraftUpsert(Box::new(started.clone()))]);
     for store in [&b.sqlite as &dyn Store, &b.memory] {
         store.apply(acct_account(), &patch).unwrap();
         assert_eq!(store.draft(started.id).unwrap(), started);

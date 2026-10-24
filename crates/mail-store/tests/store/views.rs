@@ -7,30 +7,9 @@
 //! fixture here beside the domain's own `view.json`: `tests/fixtures/view_row.json` is what
 //! this build writes into `views.view`, and a later build must still read it.
 
+use crate::support::*;
 use mail_domain::*;
-use mail_store::{MemoryStore, SqliteStore, Store, StoreError};
-
-struct Both {
-    sqlite: SqliteStore,
-    memory: MemoryStore,
-    _dir: tempfile::TempDir,
-}
-
-fn both() -> Both {
-    let dir = tempfile::tempdir().unwrap();
-    Both {
-        sqlite: SqliteStore::in_memory(dir.path()).unwrap(),
-        memory: MemoryStore::new(),
-        _dir: dir,
-    }
-}
-
-impl Both {
-    /// Each store, named for a failure message.
-    fn each(&self) -> [(&'static str, &dyn Store); 2] {
-        [("sqlite", &self.sqlite), ("memory", &self.memory)]
-    }
-}
+use mail_store::{Store, StoreError};
 
 const FIXTURE_ID: ViewId = ViewId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c1"));
 const LABEL: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"));
@@ -76,7 +55,7 @@ fn names(store: &dyn Store) -> Vec<String> {
 /// so, and a view kept after a delete still goes last.
 #[test]
 fn views_in_both_stores_keep_first_kept_order_edit_in_place_and_delete() {
-    let b = both();
+    let b = Both::new();
     let first = view("Receipts");
     put(&b, &first);
     // Not alphabetical, so an ORDER BY name would show.
@@ -162,7 +141,7 @@ fn fixture() -> &'static str {
 fn a_view_is_written_as_its_frozen_row() {
     // What this build writes. If this fails, the row's schema changed: that is a migration and
     // a new fixture beside this one, never an edit to this one.
-    let b = both();
+    let b = Both::new();
     b.sqlite.put_view(&fixture_view()).unwrap();
     let stored: String = b
         .sqlite
@@ -177,7 +156,7 @@ fn the_frozen_rows_still_read_back() {
     // This package's row, and the domain's own frozen `View`, each put in a row as an earlier
     // build would have left it.
     let domain = include_str!("../../../mail-domain/tests/fixtures/view.json");
-    let b = both();
+    let b = Both::new();
     for (position, (id, text)) in [
         (FIXTURE_ID.to_string(), fixture()),
         ("0b0b0b0b-0b0b-0b0b-0b0b-0b0b0b0b0b0b".to_owned(), domain),

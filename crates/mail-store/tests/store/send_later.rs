@@ -5,39 +5,28 @@
 //! decides when a scheduled send goes; these tests pin that the old rule answers the new
 //! question.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
+use chrono::{DateTime, Utc};
 use mail_domain::*;
-use mail_store::{MemoryStore, Settle, SqliteStore, Store};
-use porter_core::AccountId;
+use mail_store::testing::{seed_account, seed_identity_for};
+use mail_store::{Settle, SqliteStore, Store};
 
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const IDENTITY: IdentityId =
     IdentityId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
 
 /// When the scheduled send may leave.
 const LEAVES: i64 = 3_600;
 
+/// The account and the identity the drafts send as.
 fn seed(sqlite: &SqliteStore) {
-    let db = sqlite.raw_connection();
-    db.execute(
-        "INSERT INTO accounts (id, address, plan, created_at)
-         VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-        [acct_account().to_string()],
-    )
-    .unwrap();
-    db.execute(
-        "INSERT INTO identities (id, account, from_name, from_email, is_default)
-         VALUES (?1, ?2, 'Me', 'me@example.test', '\"default\"')",
-        [IDENTITY.to_string(), acct_account().to_string()],
-    )
-    .unwrap();
+    seed_account(sqlite, acct_account(), "me@example.test");
+    seed_identity_for(
+        sqlite,
+        IDENTITY,
+        acct_account(),
+        "me@example.test",
+        Some("Me"),
+    );
 }
 
 fn draft() -> Draft {
@@ -67,17 +56,11 @@ fn draft() -> Draft {
 
 /// Save `draft`, and queue its submission to leave at `leaves`, as `compose::queue` does.
 fn schedule(store: &dyn Store, draft: &Draft, leaves: DateTime<Utc>) -> OutboxId {
-    let empty = Patch {
-        id: ChangeId::generate(),
-        changes: Vec::new(),
-    };
+    let empty = patch(Vec::new());
     store
         .apply(
             acct_account(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::DraftUpsert(Box::new(draft.clone()))],
-            },
+            &patch(vec![Change::DraftUpsert(Box::new(draft.clone()))]),
         )
         .unwrap();
     let id = store
@@ -100,27 +83,11 @@ fn schedule(store: &dyn Store, draft: &Draft, leaves: DateTime<Utc>) -> OutboxId
     id
 }
 
-struct Both {
-    sqlite: SqliteStore,
-    memory: MemoryStore,
-    _dir: tempfile::TempDir,
-}
-
+/// Both stores, with the identity the drafts send as.
 fn both() -> Both {
-    let dir = tempfile::tempdir().unwrap();
-    let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    seed(&sqlite);
-    Both {
-        sqlite,
-        memory: MemoryStore::new(),
-        _dir: dir,
-    }
-}
-
-impl Both {
-    fn each(&self) -> [(&'static str, &dyn Store); 2] {
-        [("sqlite", &self.sqlite), ("memory", &self.memory)]
-    }
+    let b = Both::new();
+    seed(&b.sqlite);
+    b
 }
 
 /// A scheduled send is not handed out before its time, is handed out from its time on, and its
@@ -227,13 +194,10 @@ fn taking_the_draft_back_takes_the_send_with_it() {
         store
             .apply(
                 acct_account(),
-                &Patch {
-                    id: ChangeId::generate(),
-                    changes: vec![
-                        Change::DraftDelete(draft.id),
-                        Change::DraftUpsert(Box::new(back.clone())),
-                    ],
-                },
+                &patch(vec![
+                    Change::DraftDelete(draft.id),
+                    Change::DraftUpsert(Box::new(back.clone())),
+                ]),
             )
             .unwrap();
         assert_eq!(

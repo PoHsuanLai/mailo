@@ -4,40 +4,9 @@
 //! Every scenario runs against the SQLite store and the in-memory one and compares what each
 //! answers — the parity the rest of the store is held to, for the three new methods.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
-use mail_store::{MemoryStore, Settle, SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-fn sqlite() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    store
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-    (store, dir)
-}
-
-/// Run `scenario` on both stores and hand back what each produced.
-fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
-    let (sqlite, _dir) = sqlite();
-    let memory = MemoryStore::new();
-    (scenario(&sqlite), scenario(&memory))
-}
+use mail_store::{Settle, Store};
 
 fn folder(path: &str) -> Folder {
     Folder {
@@ -47,49 +16,6 @@ fn folder(path: &str) -> Folder {
         special: None,
         subscription: Subscription::Subscribed,
         holds: Holds::Mail,
-    }
-}
-
-fn mailbox(path: &str) -> MailboxRef {
-    MailboxRef {
-        account: acct_account(),
-        path: path.to_owned(),
-    }
-}
-
-fn imap(mailbox: &str, uid: u32) -> RemoteRef {
-    RemoteRef::Imap {
-        mailbox: mailbox.to_owned(),
-        uidvalidity: 7,
-        uid,
-    }
-}
-
-fn message(n: u128) -> Message {
-    Message {
-        id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
-        thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: acct_account(),
-        key: MessageKey::Rfc(format!("m{n}@example.test")),
-        date: at(n as i64),
-        from: Address {
-            name: None,
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("message {n}"),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
     }
 }
 
@@ -221,13 +147,6 @@ fn a_listing_that_predates_queued_work_does_not_undo_it() {
     });
     assert_eq!(sql, mem);
     assert_eq!(sql, vec!["INBOX", "New", "Old", "Web"]);
-}
-
-fn patch(changes: Vec<Change>) -> Patch {
-    Patch {
-        id: ChangeId::generate(),
-        changes,
-    }
 }
 
 /// Renaming a folder renames everything beneath it, every address and cursor filed under those

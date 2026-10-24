@@ -43,6 +43,7 @@ pub(crate) fn prefix_range(prefix: &str) -> Option<PrefixRange> {
 
 /// Whether `term` falls inside [`prefix_range`]. The memory store matches with this so it
 /// answers the same question as the SQL range.
+#[cfg(any(test, feature = "testing"))]
 pub(crate) fn term_has_prefix(term: &str, prefix: &str) -> bool {
     let Some(range) = prefix_range(prefix) else {
         return false;

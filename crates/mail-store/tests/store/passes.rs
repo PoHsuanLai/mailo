@@ -3,7 +3,7 @@
 
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
-use mail_store::{PassFailed, Passes, SqliteStore};
+use mail_store::{PassFailed, Passes};
 use porter_core::AccountId;
 
 fn account() -> AccountId {
@@ -16,8 +16,7 @@ fn at(minutes: i64) -> DateTime<Utc> {
 
 #[test]
 fn a_finish_clears_a_failure_and_a_failure_keeps_the_finish() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     mail_store::testing::seed_account(&store, account(), "me@example.test");
     assert_eq!(store.passes(account()).unwrap(), Passes::default());
 
@@ -56,16 +55,14 @@ fn a_finish_clears_a_failure_and_a_failure_keeps_the_finish() {
 
 #[test]
 fn an_account_the_store_does_not_hold_is_not_recorded() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     store.pass_finished(account(), at(0)).unwrap();
     assert_eq!(store.passes(account()).unwrap(), Passes::default());
 }
 
 #[test]
 fn the_record_goes_with_its_account() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     mail_store::testing::seed_account(&store, account(), "me@example.test");
     store.pass_finished(account(), at(0)).unwrap();
     store.remove_account(account()).unwrap();

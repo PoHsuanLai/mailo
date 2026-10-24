@@ -1,9 +1,10 @@
 //! `SqliteStore::remove_account`: the account's rows go, and with them the blobs only it used.
 //! A blob another account still names, even only from inside its JSON, stays.
 
-use chrono::{DateTime, TimeZone, Utc};
+use crate::support::*;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_store::testing::seed_account;
 use mail_store::{Freed, SqliteStore, Store};
 use porter_core::AccountId;
 
@@ -18,10 +19,6 @@ fn acct_kept() -> AccountId {
 const LARGE: usize = 40 * 1024;
 const SMALL: &[u8] = b"a part only the removed account had";
 
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
 fn store() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let store = SqliteStore::in_memory(dir.path()).unwrap();
@@ -29,14 +26,7 @@ fn store() -> (SqliteStore, tempfile::TempDir) {
         (acct_gone(), "gone@example.test"),
         (acct_kept(), "kept@example.test"),
     ] {
-        store
-            .raw_connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, ?2, '{}', datetime('now'))",
-                [account.to_string(), address.to_owned()],
-            )
-            .unwrap();
+        seed_account(&store, account, address);
     }
     (store, dir)
 }
@@ -56,22 +46,8 @@ fn kept(account: AccountId, key: &str, raw: BlobId, parts: &[BlobId]) -> Kept {
             account,
             key,
             date: at(1),
-            from: Address {
-                name: None,
-                email: "ada@example.test".into(),
-            },
-            reply_to: vec![],
-            to: vec![],
-            cc: vec![],
-            bcc: vec![],
             subject: "Subject".to_owned(),
-            in_reply_to: None,
-            references: vec![],
-            rfc_message_id: None,
             read: ReadState::Read,
-            star: Star::Unstarred,
-            mailbox: MailboxRole::Inbox,
-            labels: vec![],
             body: Body::Present { text: None, raw },
             attachments: parts
                 .iter()
@@ -83,6 +59,7 @@ fn kept(account: AccountId, key: &str, raw: BlobId, parts: &[BlobId]) -> Kept {
                     inline: Inline::Attached,
                 })
                 .collect(),
+            ..message(0)
         },
         labels: vec![],
     }
@@ -263,10 +240,7 @@ fn a_blob_a_kept_draft_attaches_stays() {
     store
         .apply(
             acct_kept(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![Change::DraftUpsert(Box::new(draft))],
-            },
+            &patch(vec![Change::DraftUpsert(Box::new(draft))]),
         )
         .unwrap();
 

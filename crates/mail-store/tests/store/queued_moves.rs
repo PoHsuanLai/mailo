@@ -5,124 +5,14 @@
 //! Every scenario runs against the SQLite store and the in-memory one and compares what each
 //! answers, the parity the rest of the store is held to.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::*;
 use mail_domain::*;
-use mail_store::{
-    Dispatch, MemoryStore, PASSES_TO_FIND, SYNCS_TO_FIND, Settle, SqliteStore, Store,
-};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn at(n: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + n, 0).unwrap()
-}
-
-/// Run `scenario` on both stores and hand back what each produced.
-fn both<T>(scenario: impl Fn(&dyn Store) -> T) -> (T, T) {
-    let dir = tempfile::tempdir().unwrap();
-    let sqlite = SqliteStore::in_memory(dir.path()).unwrap();
-    sqlite
-        .raw_connection()
-        .execute(
-            "INSERT INTO accounts (id, address, plan, created_at)
-             VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-            [acct_account().to_string()],
-        )
-        .unwrap();
-    let memory = MemoryStore::new();
-    (scenario(&sqlite), scenario(&memory))
-}
-
-fn imap(mailbox: &str, uid: u32) -> RemoteRef {
-    RemoteRef::Imap {
-        mailbox: mailbox.to_owned(),
-        uidvalidity: 7,
-        uid,
-    }
-}
-
-fn graph(mailbox: &str, id: &str) -> RemoteRef {
-    RemoteRef::Graph {
-        mailbox: mailbox.to_owned(),
-        id: id.to_owned(),
-    }
-}
-
-fn message(n: u128) -> Message {
-    Message {
-        id: MessageId::from_uuid(uuid::Uuid::from_u128(n)),
-        thread: ThreadId::from_uuid(uuid::Uuid::from_u128(n + 1000)),
-        account: acct_account(),
-        key: MessageKey::Rfc(format!("m{n}@example.test")),
-        date: at(n as i64),
-        from: Address {
-            name: None,
-            email: "ada@example.test".to_owned(),
-        },
-        reply_to: vec![],
-        to: vec![],
-        cc: vec![],
-        bcc: vec![],
-        subject: format!("message {n}"),
-        in_reply_to: None,
-        references: vec![],
-        rfc_message_id: None,
-        read: ReadState::Unread,
-        star: Star::Unstarred,
-        mailbox: MailboxRole::Inbox,
-        labels: vec![],
-        body: Body::Absent,
-        attachments: vec![],
-    }
-}
-
-fn ingest(path: &str) -> Ingest {
-    Ingest {
-        mailbox: MailboxRef {
-            account: acct_account(),
-            path: path.to_owned(),
-        },
-        validity: UidValidity::Same,
-        cursor: None,
-        messages: vec![],
-        flags: vec![],
-        labels: vec![],
-        label_names: vec![],
-        gone: vec![],
-    }
-}
-
-/// `m` arrives at `remote`, in the mailbox the address names.
-fn deliver(store: &dyn Store, m: &Message, remote: RemoteRef) {
-    let path = match &remote {
-        RemoteRef::Imap { mailbox, .. } | RemoteRef::Graph { mailbox, .. } => mailbox.clone(),
-        RemoteRef::Pop { .. } | RemoteRef::Jmap { .. } => "INBOX".to_owned(),
-    };
-    let mut batch = ingest(&path);
-    batch.messages.push(Fetched {
-        remote,
-        key: m.key.clone(),
-        raw: BlobId::generate(),
-        message: m.clone(),
-    });
-    store.ingest(acct_account(), batch).unwrap();
-}
+use mail_store::testing::seed_account;
+use mail_store::{Dispatch, PASSES_TO_FIND, SYNCS_TO_FIND, Settle, SqliteStore, Store};
 
 fn queue(store: &dyn Store, intent: RemoteIntent) -> OutboxId {
     store
-        .enqueue(
-            acct_account(),
-            intent,
-            &Patch {
-                id: ChangeId::generate(),
-                changes: Vec::new(),
-            },
-            at(0),
-        )
+        .enqueue(acct_account(), intent, &patch(Vec::new()), at(0))
         .unwrap()
         .expect("queued")
 }
@@ -163,35 +53,55 @@ fn first_move_lands(store: &dyn Store, first: OutboxId, to: Option<RemoteRef>) {
     store.outbox_settle(first, Settle::Ok, at(1)).unwrap();
 }
 
+/// An operation queued behind a move is sent to where the move put the message: a second move,
+/// and a flag change, alike.
 #[test]
-fn a_second_queued_move_is_sent_where_the_first_put_the_message() {
-    let (sqlite, memory) = both(|store| {
-        let m = message(1);
-        deliver(store, &m, imap("INBOX", 10));
-        let first = queue(store, file_into(&m, MailboxRole::Archive));
-        let second = queue(store, file_into(&m, MailboxRole::Trash));
-        // Both were queued with the one address the message had.
-        let queued = store.outbox_due(acct_account(), at(0)).unwrap();
-        assert_eq!(queued.len(), 2);
-
-        first_move_lands(store, first, Some(imap("Archive", 77)));
+fn an_operation_queued_behind_a_move_is_sent_where_the_move_put_the_message() {
+    let flag = |m: &Message| RemoteIntent::SetFlags {
+        messages: vec![m.id],
+        read: Some(ReadState::Read),
+        star: Some(Star::Starred),
+    };
+    type Behind = fn(&Message) -> RemoteIntent;
+    let cases: [(Behind, ProtoOp); 2] = [
         (
-            store.outbox_dispatch(second).unwrap(),
-            store.outbox_due(acct_account(), at(1)).unwrap()[0]
-                .op
-                .clone(),
-        )
-    });
-    assert_eq!(sqlite, memory);
-    assert_eq!(
-        sqlite.0,
-        Dispatch::Send(ProtoOp::SetMailbox {
-            remotes: vec![imap("Archive", 77)],
-            role: MailboxRole::Trash,
-        })
-    );
-    // What the queue lists is where it would go now, too.
-    assert_eq!(Dispatch::Send(sqlite.1), sqlite.0);
+            |m| file_into(m, MailboxRole::Trash),
+            ProtoOp::SetMailbox {
+                remotes: vec![imap("Archive", 77)],
+                role: MailboxRole::Trash,
+            },
+        ),
+        (
+            flag,
+            ProtoOp::SetFlags {
+                remotes: vec![imap("Archive", 77)],
+                read: Some(ReadState::Read),
+                star: Some(Star::Starred),
+            },
+        ),
+    ];
+    for (second, expected) in cases {
+        let (sqlite, memory) = both(|store| {
+            let m = message(1);
+            deliver(store, &m, imap("INBOX", 10));
+            let first = queue(store, file_into(&m, MailboxRole::Archive));
+            let second = queue(store, second(&m));
+            // Both were queued with the one address the message had.
+            assert_eq!(store.outbox_due(acct_account(), at(0)).unwrap().len(), 2);
+
+            first_move_lands(store, first, Some(imap("Archive", 77)));
+            (
+                store.outbox_dispatch(second).unwrap(),
+                store.outbox_due(acct_account(), at(1)).unwrap()[0]
+                    .op
+                    .clone(),
+            )
+        });
+        assert_eq!(sqlite, memory);
+        assert_eq!(sqlite.0, Dispatch::Send(expected));
+        // What the queue lists is where it would go now, too.
+        assert_eq!(Dispatch::Send(sqlite.1), sqlite.0);
+    }
 }
 
 #[test]
@@ -265,34 +175,6 @@ fn an_operation_made_while_the_server_has_not_said_where_a_message_went_waits_fo
         Dispatch::Send(ProtoOp::SetMailbox {
             remotes: vec![imap("Archive", 77)],
             role: MailboxRole::Trash,
-        })
-    );
-}
-
-#[test]
-fn a_flag_change_queued_behind_a_move_lands_on_the_moved_message() {
-    let (sqlite, memory) = both(|store| {
-        let m = message(1);
-        deliver(store, &m, imap("INBOX", 10));
-        let first = queue(store, file_into(&m, MailboxRole::Archive));
-        let flag = queue(
-            store,
-            RemoteIntent::SetFlags {
-                messages: vec![m.id],
-                read: Some(ReadState::Read),
-                star: Some(Star::Starred),
-            },
-        );
-        first_move_lands(store, first, Some(imap("Archive", 77)));
-        store.outbox_dispatch(flag).unwrap()
-    });
-    assert_eq!(sqlite, memory);
-    assert_eq!(
-        sqlite,
-        Dispatch::Send(ProtoOp::SetFlags {
-            remotes: vec![imap("Archive", 77)],
-            read: Some(ReadState::Read),
-            star: Some(Star::Starred),
         })
     );
 }
@@ -441,25 +323,9 @@ fn queue_undoable(
     forward: Change,
     undo: Change,
 ) -> OutboxId {
+    store.apply(acct_account(), &patch(vec![forward])).unwrap();
     store
-        .apply(
-            acct_account(),
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![forward],
-            },
-        )
-        .unwrap();
-    store
-        .enqueue(
-            acct_account(),
-            intent,
-            &Patch {
-                id: ChangeId::generate(),
-                changes: vec![undo],
-            },
-            at(0),
-        )
+        .enqueue(acct_account(), intent, &patch(vec![undo]), at(0))
         .unwrap()
         .expect("queued")
 }
@@ -646,14 +512,7 @@ fn how_long_a_message_has_been_looked_for_survives_a_restart() {
     let path = dir.path().join("mail.db");
     let (m, second) = {
         let store = SqliteStore::open(&path, dir.path()).unwrap();
-        store
-            .raw_connection()
-            .execute(
-                "INSERT INTO accounts (id, address, plan, created_at)
-                 VALUES (?1, 'me@example.test', '{}', datetime('now'))",
-                [acct_account().to_string()],
-            )
-            .unwrap();
+        seed_account(&store, acct_account(), "me@example.test");
         let m = message(1);
         deliver(&store, &m, imap("INBOX", 10));
         let first = queue(&store, file_into(&m, MailboxRole::Archive));
@@ -713,14 +572,11 @@ fn a_refusal_after_part_was_done_puts_back_only_the_rest() {
         let (m, n) = (message(1), message(2));
         deliver(store, &m, imap("INBOX", 10));
         deliver(store, &n, imap("Work", 3));
-        let forward = Patch {
-            id: ChangeId::generate(),
-            changes: vec![
-                Change::MessageMailbox(m.id, MailboxRole::Trash),
-                Change::MessageStar(m.id, Star::Starred),
-                Change::MessageMailbox(n.id, MailboxRole::Trash),
-            ],
-        };
+        let forward = patch(vec![
+            Change::MessageMailbox(m.id, MailboxRole::Trash),
+            Change::MessageStar(m.id, Star::Starred),
+            Change::MessageMailbox(n.id, MailboxRole::Trash),
+        ]);
         store.apply(acct_account(), &forward).unwrap();
         let id = store
             .enqueue(
@@ -729,14 +585,11 @@ fn a_refusal_after_part_was_done_puts_back_only_the_rest() {
                     messages: vec![m.id, n.id],
                     role: MailboxRole::Trash,
                 },
-                &Patch {
-                    id: ChangeId::generate(),
-                    changes: vec![
-                        Change::MessageMailbox(m.id, MailboxRole::Inbox),
-                        Change::MessageStar(m.id, Star::Unstarred),
-                        Change::MessageMailbox(n.id, MailboxRole::Inbox),
-                    ],
-                },
+                &patch(vec![
+                    Change::MessageMailbox(m.id, MailboxRole::Inbox),
+                    Change::MessageStar(m.id, Star::Unstarred),
+                    Change::MessageMailbox(n.id, MailboxRole::Inbox),
+                ]),
                 at(0),
             )
             .unwrap()
