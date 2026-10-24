@@ -99,7 +99,7 @@ pub(crate) fn use_fetch_missing(mut icons: Signal<Loaded>) {
             let results = mail_core::provider::icon::refresh(&dir, &missing).await;
             for (provider, result) in &results {
                 if let Err(err) = result {
-                    eprintln!("provider icon: {provider:?}: {err}");
+                    log::warn!("provider icon: {provider:?}: {err}");
                 }
             }
             icons.set(read(&dir));

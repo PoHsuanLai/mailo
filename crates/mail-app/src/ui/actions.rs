@@ -383,7 +383,7 @@ fn register(keys: &Keys) {
         return;
     };
     for conflict in settle(&app, |registration| keys.register(&app, registration)) {
-        eprintln!("keys: {conflict}");
+        log::warn!("keys: {conflict}");
     }
 }
 

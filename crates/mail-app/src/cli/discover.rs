@@ -58,17 +58,22 @@ pub fn describe(address: &str, origin: &str, found: &Preset) -> String {
         ),
         AuthPlan::OAuth { issuer, .. } => format!(
             "OAuth, signing in with {} in a browser; no password is stored",
-            match issuer {
-                Issuer::Google => "Google",
-                Issuer::Microsoft => "Microsoft",
-                _ => "an issuer mailo does not read mail through",
-            }
+            issuer_named(*issuer)
         ),
     };
     let _ = writeln!(out, "  incoming  {incoming}");
     let _ = writeln!(out, "  outgoing  {outgoing}");
     let _ = writeln!(out, "  sign-in   {sign_in}");
     out
+}
+
+/// The issuer a sign-in goes through, by the name its own page gives it.
+pub(super) fn issuer_named(issuer: Issuer) -> &'static str {
+    match issuer {
+        Issuer::Google => "Google",
+        Issuer::Microsoft => "Microsoft",
+        _ => "an issuer mailo does not read mail through",
+    }
 }
 
 fn tls_said(tls: Tls) -> &'static str {

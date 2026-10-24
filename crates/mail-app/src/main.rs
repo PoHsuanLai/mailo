@@ -108,8 +108,12 @@ fn main() {
     };
 
     let command = match mail_app::cli::exec::prepare(command) {
-        mail_app::cli::exec::Prepared::Finished => return,
-        mail_app::cli::exec::Prepared::Run(command) => command,
+        Ok(mail_app::cli::exec::Prepared::Finished) => return,
+        Ok(mail_app::cli::exec::Prepared::Run(command)) => command,
+        Err(message) => {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
     };
 
     let Some(roots) = roots() else {
@@ -178,7 +182,10 @@ fn main() {
     // Every command is the cli's: the steps that wait on the network or end the process live in
     // `cli::exec`. No command is the window.
     if let Some(command) = command {
-        mail_app::cli::exec::execute(store, command);
+        if let Err(message) = mail_app::cli::exec::execute(store, command) {
+            eprintln!("{message}");
+            std::process::exit(1);
+        }
         return;
     }
     {

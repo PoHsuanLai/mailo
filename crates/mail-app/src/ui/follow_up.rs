@@ -62,7 +62,7 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
                         return;
                     }
                     Ok(_) => {}
-                    Err(why) => eprintln!("reminders: {why}"),
+                    Err(why) => log::warn!("reminders: {why}"),
                 }
                 ds::base::time::clock::sleep(wait(mail_core::follow_up::next_due(&store), now))
                     .await;

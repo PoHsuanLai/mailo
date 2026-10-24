@@ -7,6 +7,7 @@
 use mail_domain::*;
 
 use super::{grouped, short, who};
+use crate::ui::copy::status::protection as words;
 
 /// How a line about a message's protection is drawn. A bad signature is the one that must be
 /// impossible to miss; a signature nobody can check must not look like a good one.
@@ -44,7 +45,7 @@ fn line(tone: Tone, text: impl Into<String>) -> Said {
 /// The line said when only part of a message is signed.
 fn partly(coverage: Option<Coverage>, out: &mut Vec<Said>) {
     if coverage == Some(Coverage::Part) {
-        out.push(line(Tone::Unknown, "Only part of this message is signed"));
+        out.push(line(Tone::Unknown, words::ONLY_PART_SIGNED));
     }
 }
 
@@ -52,29 +53,18 @@ fn partly(coverage: Option<Coverage>, out: &mut Vec<Said>) {
 pub(in crate::ui) fn said(protected: &mail_core::pgp::Protected) -> Vec<Said> {
     let mut out = Vec::new();
     out.push(match &protected.encryption {
-        Encryption::NotEncrypted => line(Tone::Plain, "Not encrypted"),
-        Encryption::Decrypted => line(Tone::Good, "Encrypted, and decrypted for reading"),
+        Encryption::NotEncrypted => line(Tone::Plain, words::NOT_ENCRYPTED),
+        Encryption::Decrypted => line(Tone::Good, words::DECRYPTED),
         Encryption::CannotDecrypt { to } => {
             let ids: Vec<String> = to.iter().map(|id| grouped(&id.to_string())).collect();
-            line(
-                Tone::Unknown,
-                format!(
-                    "Encrypted to keys you don\u{2019}t have ({})",
-                    ids.join(", ")
-                ),
-            )
+            line(Tone::Unknown, words::to_keys_not_held(&ids.join(", ")))
         }
-        Encryption::Locked { key } => line(
-            Tone::Unknown,
-            format!("Encrypted to your key {}: passphrase needed", short(*key)),
-        ),
-        Encryption::Unreadable { why } => {
-            line(Tone::Bad, format!("Encrypted, and couldn’t be read: {why}"))
-        }
+        Encryption::Locked { key } => line(Tone::Unknown, words::passphrase_needed(&short(*key))),
+        Encryption::Unreadable { why } => line(Tone::Bad, words::unreadable(why)),
     });
     let coverage = match &protected.verification {
         Verification::NoSignature => {
-            out.push(line(Tone::Plain, "Not signed"));
+            out.push(line(Tone::Plain, words::NOT_SIGNED));
             None
         }
         Verification::Good {
@@ -85,31 +75,25 @@ pub(in crate::ui) fn said(protected: &mail_core::pgp::Protected) -> Vec<Said> {
             let name = protected
                 .signer
                 .as_ref()
-                .map_or_else(|| "a key you hold".to_owned(), who);
+                .map_or_else(|| words::A_KEY_YOU_HOLD.to_owned(), who);
             let trust = match trust {
-                KeyTrust::Verified => "verified by you",
-                KeyTrust::Unverified => "not verified by you",
+                KeyTrust::Verified => words::VERIFIED_BY_YOU,
+                KeyTrust::Unverified => words::NOT_VERIFIED_BY_YOU,
             };
             out.push(line(
                 Tone::Good,
-                format!("Good signature by {name} · {} · {trust}", short(*signer)),
+                words::good_signature(&name, &short(*signer), trust),
             ));
             Some(*coverage)
         }
         Verification::Bad { coverage } => {
-            out.push(line(
-                Tone::Bad,
-                "Bad signature: the message changed after signing, or the signature is forged",
-            ));
+            out.push(line(Tone::Bad, words::BAD_SIGNATURE));
             Some(*coverage)
         }
         Verification::UnknownKey { issuer, coverage } => {
             out.push(line(
                 Tone::Unknown,
-                format!(
-                    "Signed by key {}, which you don\u{2019}t have",
-                    grouped(&issuer.to_string())
-                ),
+                words::signed_by_key_not_held(&grouped(&issuer.to_string())),
             ));
             Some(*coverage)
         }
@@ -130,48 +114,31 @@ pub(in crate::ui) fn whose(cert: &SmimeCert) -> String {
 pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<Said> {
     let mut out = Vec::new();
     out.push(match &protected.encryption {
-        SmimeEncryption::NotEncrypted => line(Tone::Plain, "Not encrypted"),
-        SmimeEncryption::Decrypted => line(
-            Tone::Good,
-            "Encrypted with S/MIME, and decrypted for reading",
-        ),
+        SmimeEncryption::NotEncrypted => line(Tone::Plain, words::NOT_ENCRYPTED),
+        SmimeEncryption::Decrypted => line(Tone::Good, words::SMIME_DECRYPTED),
         SmimeEncryption::CannotDecrypt { to } => line(
             Tone::Unknown,
-            format!(
-                "Encrypted with S/MIME to certificates you hold no key for ({}), so it can’t be read here",
-                to.join("; ")
-            ),
+            words::smime_to_certs_not_held(&to.join("; ")),
         ),
-        SmimeEncryption::Unreadable { why } => line(
-            Tone::Bad,
-            format!("Encrypted with S/MIME, and couldn’t be read: {why}"),
-        ),
+        SmimeEncryption::Unreadable { why } => line(Tone::Bad, words::smime_unreadable(why)),
     });
     let name = protected
         .signer
         .as_ref()
-        .map_or_else(|| "a certificate with no name".to_owned(), whose);
+        .map_or_else(|| words::A_CERTIFICATE_WITH_NO_NAME.to_owned(), whose);
     let coverage = match &protected.verification {
         SmimeVerification::NoSignature => {
-            out.push(line(Tone::Plain, "Not signed"));
+            out.push(line(Tone::Plain, words::NOT_SIGNED));
             None
         }
         SmimeVerification::Good { coverage, .. } => {
-            out.push(line(
-                Tone::Good,
-                format!("Good S/MIME signature by {name}, from a certificate you trust"),
-            ));
+            out.push(line(Tone::Good, words::smime_good(&name)));
             Some(*coverage)
         }
         SmimeVerification::Doubtful {
             problems, coverage, ..
         } => {
-            out.push(line(
-                Tone::Warn,
-                format!(
-                    "S/MIME signature by {name}: the message is unchanged, but the certificate doesn’t vouch for the sender"
-                ),
-            ));
+            out.push(line(Tone::Warn, words::smime_doubtful(&name)));
             out.extend(
                 problems
                     .iter()
@@ -184,10 +151,7 @@ pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<
             Some(*coverage)
         }
         SmimeVerification::UnknownSigner { coverage } => {
-            out.push(line(
-                Tone::Unknown,
-                "Signed with S/MIME by a certificate that isn’t in the message and that you don’t hold, so it can’t be checked",
-            ));
+            out.push(line(Tone::Unknown, words::SMIME_UNKNOWN_SIGNER));
             Some(*coverage)
         }
     };
@@ -202,41 +166,28 @@ pub(in crate::ui) fn said_smime(protected: &mail_core::smime::Protected) -> Vec<
 
 /// The signer's certificate, in one line: whom it names, for which addresses, and who issued it.
 fn certificate(cert: &SmimeCert) -> String {
-    let mut parts = vec![format!("Certificate of {}", cert.subject)];
+    let mut parts = vec![words::certificate_of(&cert.subject)];
     if !cert.emails.is_empty() {
         parts.push(cert.emails.join(", "));
     }
-    parts.push(format!("issued by {}", cert.issuer));
-    parts.push(format!(
-        "valid {} to {}",
-        cert.not_before.format("%Y-%m-%d"),
-        cert.not_after.format("%Y-%m-%d")
+    parts.push(words::issued_by(&cert.issuer));
+    parts.push(words::valid(
+        &cert.not_before.format("%Y-%m-%d").to_string(),
+        &cert.not_after.format("%Y-%m-%d").to_string(),
     ));
     parts.join(" · ")
 }
 
 /// One thing wrong with the certificate behind a signature that matches, and what it means.
 pub(in crate::ui) fn doubt(problem: &CertProblem) -> String {
+    let day = |at: &chrono::DateTime<chrono::Utc>| at.format("%Y-%m-%d").to_string();
     match problem {
-        CertProblem::Untrusted => "Untrusted: no authority you trust issued its certificate, so anyone could have made it. \
-                                   Trust it in Other Keys (Settings › Accounts) only after checking with its owner"
-            .to_owned(),
-        CertProblem::Expired { not_after } => format!(
-            "Expired: a certificate in its chain stopped being valid on {}, before the message was signed",
-            not_after.format("%Y-%m-%d")
-        ),
-        CertProblem::NotYetValid { not_before } => format!(
-            "Not yet valid: a certificate in its chain wasn’t valid until {}, after the message was signed",
-            not_before.format("%Y-%m-%d")
-        ),
-        CertProblem::NotForEmail => "Not for mail: its certificate wasn’t issued for signing mail"
-            .to_owned(),
-        CertProblem::NotFrom { from } if from.is_empty() => {
-            "No sender to check the certificate against".to_owned()
-        }
-        CertProblem::NotFrom { from } => format!(
-            "Signed with a certificate for someone else’s address, not {from}"
-        ),
+        CertProblem::Untrusted => words::UNTRUSTED.to_owned(),
+        CertProblem::Expired { not_after } => words::expired(&day(not_after)),
+        CertProblem::NotYetValid { not_before } => words::not_yet_valid(&day(not_before)),
+        CertProblem::NotForEmail => words::NOT_FOR_EMAIL.to_owned(),
+        CertProblem::NotFrom { from } if from.is_empty() => words::NO_SENDER.to_owned(),
+        CertProblem::NotFrom { from } => words::for_someone_else(from),
     }
 }
 
@@ -244,22 +195,12 @@ pub(in crate::ui) fn doubt(problem: &CertProblem) -> String {
 /// too weak to mean anything, or unreadable, is amber; one this client cannot check says so.
 fn bad(why: &BadSignature) -> Said {
     match why {
-        BadSignature::Altered => line(Tone::Bad, "Bad S/MIME signature: changed after signing"),
-        BadSignature::Forged => line(
-            Tone::Bad,
-            "Bad S/MIME signature: does not match its certificate",
-        ),
-        BadSignature::Weak { algorithm } => line(
-            Tone::Warn,
-            format!("S/MIME signature made with {algorithm}, which is too weak"),
-        ),
-        BadSignature::Unsupported { algorithm } => line(
-            Tone::Unknown,
-            format!("S/MIME signature made with {algorithm}, which isn’t checked"),
-        ),
-        BadSignature::Malformed { why } => line(
-            Tone::Warn,
-            format!("S/MIME signature that can’t be read: {why}"),
-        ),
+        BadSignature::Altered => line(Tone::Bad, words::SMIME_ALTERED),
+        BadSignature::Forged => line(Tone::Bad, words::SMIME_FORGED),
+        BadSignature::Weak { algorithm } => line(Tone::Warn, words::smime_weak(algorithm)),
+        BadSignature::Unsupported { algorithm } => {
+            line(Tone::Unknown, words::smime_unsupported(algorithm))
+        }
+        BadSignature::Malformed { why } => line(Tone::Warn, words::smime_malformed(why)),
     }
 }

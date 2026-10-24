@@ -55,7 +55,7 @@ pub(super) fn App() -> Element {
             Some(super::Start::Compose(id)) => {
                 let store = consume_context::<Arc<SqliteStore>>();
                 if let Err(why) = shell.compose_id(&*store, id) {
-                    eprintln!("compose: {why}");
+                    log::warn!("compose: {why}");
                 }
             }
             Some(super::Start::Inbox) | None => {}

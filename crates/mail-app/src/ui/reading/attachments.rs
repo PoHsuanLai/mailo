@@ -128,8 +128,8 @@ pub(super) fn Attachments(
                     actions: match failure.again {
                         Again::Offer => Some(rsx! {
                             Button {
-                                label: "Try Again",
-                                common: Common { aria_label: Some(format!("Try again to download {name}")), ..Common::default() },
+                                label: crate::ui::copy::controls::TRY_AGAIN,
+                                common: Common { aria_label: Some(crate::ui::copy::aria::try_again_to_download(&name)), ..Common::default() },
                                 onclick: super::super::press::on_primary(move || {
                                     start(&again_looks, message, body, index, kept, &again_name, downloads, toasts);
                                 }),

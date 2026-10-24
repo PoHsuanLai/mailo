@@ -23,6 +23,7 @@ use super::super::press::{available, on_primary};
 use super::server::{configured, reach};
 use crate::ui::common::Problem;
 use crate::ui::copy;
+use crate::ui::remedy::plainly;
 
 /// Whether the reply is wanted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,9 +118,7 @@ where
     mail_core::rules::server::instant(text, zone)
         .or_else(|_| mail_core::snooze::snooze_until(text, now, zone))
         .map(Some)
-        .map_err(|_| {
-            format!("“{text}” isn’t a time. Try 2026-10-08, 2026-10-08 09:00 or tomorrow.")
-        })
+        .map_err(|_| copy::errors::not_a_time(text))
 }
 
 /// Keep what the form says on `row`, returning what the page says of it.
@@ -140,14 +139,14 @@ where
     if away.reply == Reply::Off {
         store
             .put_vacation(row.id.clone(), None, now)
-            .map_err(|e| e.to_string())?;
-        return Ok("Vacation reply off.".to_owned());
+            .map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))?;
+        return Ok(copy::toasts::VACATION_OFF.to_owned());
     }
     if away.subject.trim().is_empty() {
-        return Err("The reply needs a subject.".to_owned());
+        return Err(copy::errors::REPLY_NEEDS_SUBJECT.to_owned());
     }
     if away.body.trim().is_empty() {
-        return Err("The reply needs something to say.".to_owned());
+        return Err(copy::errors::REPLY_NEEDS_BODY.to_owned());
     }
     let during = DateRange {
         from: when(&away.from, now, zone)?,
@@ -155,13 +154,12 @@ where
     };
     if let Some(end) = during.to {
         if end <= now {
-            return Err(format!(
-                "“Until” has passed: {}.",
-                when_words(end, now, zone, clock)
-            ));
+            return Err(copy::errors::until_passed(&when_words(
+                end, now, zone, clock,
+            )));
         }
         if during.from.is_some_and(|start| end <= start) {
-            return Err("“Until” has to be after “From”.".to_owned());
+            return Err(copy::errors::UNTIL_BEFORE_FROM.to_owned());
         }
     }
     let addresses = addresses(&away.addresses)?;
@@ -177,11 +175,10 @@ where
     };
     store
         .put_vacation(row.id.clone(), Some(&reply), now)
-        .map_err(|e| e.to_string())?;
-    Ok(format!(
-        "Saved: “{}”, {}.",
-        reply.subject,
-        span(&reply.during, now, zone, clock)
+        .map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))?;
+    Ok(copy::toasts::vacation_saved(
+        &reply.subject,
+        &span(&reply.during, now, zone, clock),
     ))
 }
 
@@ -194,7 +191,7 @@ fn addresses(typed: &str) -> Result<Vec<String>, String> {
             continue;
         }
         if !word.contains('@') || word.starts_with('@') || word.ends_with('@') {
-            return Err(format!("“{word}” isn’t an address."));
+            return Err(copy::errors::not_an_address(word));
         }
         let address = word.to_lowercase();
         if !out.contains(&address) {
@@ -202,7 +199,7 @@ fn addresses(typed: &str) -> Result<Vec<String>, String> {
         }
     }
     if out.is_empty() {
-        return Err("Add an address to reply for.".to_owned());
+        return Err(copy::errors::ADD_AN_ADDRESS.to_owned());
     }
     Ok(out)
 }
@@ -213,12 +210,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let at = |t: DateTime<Utc>| when_words(t, now, zone, clock);
-    match (during.from, during.to) {
-        (None, None) => "from now until it is turned off".to_owned(),
-        (Some(a), None) => format!("from {} until it is turned off", at(a)),
-        (None, Some(b)) => format!("from now until {}", at(b)),
-        (Some(a), Some(b)) => format!("from {} until {}", at(a), at(b)),
-    }
+    copy::status::vacation::runs(during.from.map(at).as_deref(), during.to.map(at).as_deref())
 }
 
 /// The vacation reply's page: a switch, and while it is on, the reply's fields and Keep Reply.
@@ -242,9 +234,9 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
         return rsx! {
             Form {
                 FormSection {
-                    FieldRow { label: "Vacation reply",
+                    FieldRow { label: copy::fields::VACATION_REPLY,
                         Toggle {
-                            label: "Vacation reply".to_owned(),
+                            label: copy::fields::VACATION_REPLY.to_owned(),
                             value: Check::Off,
                             availability: Availability::Disabled,
                             onchange: |_| {},
@@ -276,9 +268,9 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
         Form {
         FormSection {
             FieldRow {
-                label: "Vacation reply",
+                label: copy::fields::VACATION_REPLY,
                 Toggle {
-                    label: "Vacation reply".to_owned(),
+                    label: copy::fields::VACATION_REPLY.to_owned(),
                     value: if on { Check::On } else { Check::Off },
                     onchange: move |_| {
                         if on {
@@ -306,25 +298,25 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                     TextField {
                         label: copy::fields::SUBJECT.to_owned(),
                         value: form.subject.clone(),
-                        placeholder: "Away until the 12th".to_owned(),
+                        placeholder: copy::fields::AWAY_SUBJECT_EXAMPLE.to_owned(),
                         common: classed("rules-field"),
                         oninput: move |value: String| away.write().subject = value,
                     }
                 }
-                FieldRow { label: "Reply",
+                FieldRow { label: copy::fields::REPLY,
                     TextField {
-                        label: "The reply's text".to_owned(),
+                        label: copy::fields::REPLY_BODY.to_owned(),
                         kind: FieldKind::Multiline,
                         rows: FieldRows::Four,
                         value: form.body.clone(),
-                        placeholder: "Reply text".to_owned(),
+                        placeholder: copy::fields::REPLY_TEXT.to_owned(),
                         common: classed("rules-field"),
                         oninput: move |value: String| away.write().body = value,
                     }
                 }
-                FieldRow { label: "Answers mail to",
+                FieldRow { label: copy::fields::ANSWERS_MAIL_TO,
                     TextField {
-                        label: "Answers mail to".to_owned(),
+                        label: copy::fields::ANSWERS_MAIL_TO.to_owned(),
                         value: form.addresses.clone(),
                         placeholder: "you@example.com".to_owned(),
                         common: classed("rules-field"),
@@ -333,21 +325,21 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                 }
             }
             FormSection {
-                FieldRow { label: "From",
+                FieldRow { label: copy::fields::FROM,
                     TextField {
-                        label: "From".to_owned(),
+                        label: copy::fields::FROM.to_owned(),
                         value: form.from.clone(),
-                        placeholder: "now, or 2026-10-08".to_owned(),
+                        placeholder: copy::fields::FROM_EXAMPLE.to_owned(),
                         validity: from_validity,
                         common: classed("rules-field"),
                         oninput: move |value: String| away.write().from = value,
                     }
                 }
-                FieldRow { label: "Until",
+                FieldRow { label: copy::fields::UNTIL,
                     TextField {
-                        label: "Until".to_owned(),
+                        label: copy::fields::UNTIL.to_owned(),
                         value: form.until.clone(),
-                        placeholder: "turned off, or monday".to_owned(),
+                        placeholder: copy::fields::UNTIL_EXAMPLE.to_owned(),
                         validity: until_validity,
                         common: classed("rules-field"),
                         oninput: move |value: String| away.write().until = value,
@@ -358,7 +350,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
             // does.
             div { class: "acct-actions",
                     Button {
-                        label: "Keep Reply".to_owned(),
+                        label: copy::controls::KEEP_REPLY.to_owned(),
                         availability: available(readable),
                         onclick: on_primary(move || {
                             let store = consume_context::<Arc<SqliteStore>>();

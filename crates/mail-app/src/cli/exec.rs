@@ -3,7 +3,8 @@
 //! [`run`](super::run) is synchronous and tested without a network, a runtime or a person at a
 //! terminal. Everything that needs one of those lives here instead: [`prepare`] before the store
 //! is opened (discovery, which asks a person; the body read from stdin), and [`execute`] after
-//! (sync and watch, the daemon, the commands that wait on the network, and the exit code).
+//! (sync and watch, the daemon, the commands that wait on the network). Both return what went
+//! wrong rather than ending the process: `main` prints it, once, and exits with a failing status.
 
 use super::Command;
 use mail_core::SqliteStore;
@@ -19,17 +20,23 @@ pub enum Prepared {
 }
 
 /// The steps that come before the store is opened.
-pub fn prepare(command: Option<Command>) -> Prepared {
+pub fn prepare(command: Option<Command>) -> Result<Prepared, String> {
+    // Help and the version need nothing at all.
+    match &command {
+        Some(Command::Help) => {
+            print!("{}", super::usage());
+            return Ok(Prepared::Finished);
+        }
+        Some(Command::Version) => {
+            print!("{}", super::version());
+            return Ok(Prepared::Finished);
+        }
+        _ => {}
+    }
     // The schema needs nothing but somewhere to write it: no store, no config directory.
     if let Some(Command::WriteSchema { dir }) = &command {
-        match crate::settings::write_schema(dir) {
-            Ok(said) => print!("{said}"),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        }
-        return Prepared::Finished;
+        print!("{}", crate::settings::write_schema(dir)?);
+        return Ok(Prepared::Finished);
     }
 
     // Discovery needs the network and, unless `--yes` was given, a person at a terminal to say
@@ -37,76 +44,38 @@ pub fn prepare(command: Option<Command>) -> Prepared {
     // tested without either. Nothing is stored and nothing is sent to a found server before
     // the yes.
     if let Some(Command::AccountDiscover { address }) = &command {
-        match super::discover::show(address, super::discover::lookup) {
-            Ok(said) => print!("{said}"),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        }
-        return Prepared::Finished;
+        print!(
+            "{}",
+            super::discover::show(address, super::discover::lookup)?
+        );
+        return Ok(Prepared::Finished);
     }
-    let command = match command {
-        Some(command) => match super::discover::before_add(
-            command,
-            super::discover::lookup,
-            super::discover::Terminal::of_stdin(),
-            |text| {
-                use std::io::Write as _;
-                print!("{text}");
-                let _ = std::io::stdout().flush();
-            },
-            |question| {
-                use std::io::Write as _;
-                print!("{question}");
-                let _ = std::io::stdout().flush();
-                let mut line = String::new();
-                match std::io::stdin().read_line(&mut line) {
-                    Ok(0) | Err(_) => None,
-                    Ok(_) => Some(line),
-                }
-            },
-        ) {
-            Ok(command) => Some(command),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        },
-        None => None,
-    };
+    let command = command
+        .map(|command| {
+            super::discover::before_add(
+                command,
+                super::discover::lookup,
+                super::discover::Terminal::of_stdin(),
+                say,
+                ask,
+            )
+        })
+        .transpose()?;
     // `--jmap` with no URL: the domain's well-known session, found and confirmed the same way.
-    let command = match command {
-        Some(command) => match super::discover::before_add_jmap(
-            command,
-            |domain: &str| {
-                crate::edge::block_on(mail_core::discover::find_jmap(domain)).map_err(String::from)
-            },
-            super::discover::Terminal::of_stdin(),
-            |text| {
-                use std::io::Write as _;
-                print!("{text}");
-                let _ = std::io::stdout().flush();
-            },
-            |question| {
-                use std::io::Write as _;
-                print!("{question}");
-                let _ = std::io::stdout().flush();
-                let mut line = String::new();
-                match std::io::stdin().read_line(&mut line) {
-                    Ok(0) | Err(_) => None,
-                    Ok(_) => Some(line),
-                }
-            },
-        ) {
-            Ok(command) => Some(command),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        },
-        None => None,
-    };
+    let command = command
+        .map(|command| {
+            super::discover::before_add_jmap(
+                command,
+                |domain: &str| {
+                    crate::edge::block_on(mail_core::discover::find_jmap(domain))
+                        .map_err(String::from)
+                },
+                super::discover::Terminal::of_stdin(),
+                say,
+                ask,
+            )
+        })
+        .transpose()?;
 
     // `reply` takes its body from stdin, which is I/O and so does not belong in the parser.
     // Read here, once, before anything opens the database.
@@ -115,18 +84,11 @@ pub fn prepare(command: Option<Command>) -> Prepared {
             message,
             scope,
             body: _,
-        }) => {
-            let mut body = String::new();
-            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
-                eprintln!("can't read the message body: {e}");
-                std::process::exit(1);
-            }
-            Some(Command::Reply {
-                message,
-                scope,
-                body,
-            })
-        }
+        }) => Some(Command::Reply {
+            message,
+            scope,
+            body: stdin("the message body")?,
+        }),
         Some(Command::Compose {
             from,
             to,
@@ -137,59 +99,38 @@ pub fn prepare(command: Option<Command>) -> Prepared {
             receipt,
             openpgp,
             smime,
-        }) => {
-            let mut body = String::new();
-            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
-                eprintln!("can't read the message body: {e}");
-                std::process::exit(1);
-            }
-            Some(Command::Compose {
-                from,
-                to,
-                cc,
-                bcc,
-                subject,
-                body,
-                receipt,
-                openpgp,
-                smime,
-            })
-        }
+        }) => Some(Command::Compose {
+            from,
+            to,
+            cc,
+            bcc,
+            subject,
+            body: stdin("the message body")?,
+            receipt,
+            openpgp,
+            smime,
+        }),
         Some(Command::Forward {
             message,
             to,
             body: _,
             carry,
-        }) => {
-            let mut body = String::new();
-            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut body) {
-                eprintln!("can't read the covering note: {e}");
-                std::process::exit(1);
-            }
-            Some(Command::Forward {
-                message,
-                to,
-                body,
-                carry,
-            })
-        }
+        }) => Some(Command::Forward {
+            message,
+            to,
+            body: stdin("the covering note")?,
+            carry,
+        }),
         // `signature` takes its text from stdin too, unless it is being cleared.
         Some(Command::Signature {
             address,
             clear: false,
             text: _,
-        }) => {
-            let mut text = String::new();
-            if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut text) {
-                eprintln!("can't read the signature: {e}");
-                std::process::exit(1);
-            }
-            Some(Command::Signature {
-                address,
-                clear: false,
-                text,
-            })
-        }
+        }) => Some(Command::Signature {
+            address,
+            clear: false,
+            text: stdin("the signature")?,
+        }),
         other => other,
     };
     // `print` with no `--out` goes to stdout when that is a pipe or a file, and to a file
@@ -210,7 +151,48 @@ pub fn prepare(command: Option<Command>) -> Prepared {
         }
         other => other,
     };
-    Prepared::Run(command)
+    Ok(Prepared::Run(command))
+}
+
+/// All of stdin, which is `what` the command was given there.
+fn stdin(what: &str) -> Result<String, String> {
+    let mut text = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)
+        .map_err(|e| format!("can't read {what}: {e}"))?;
+    Ok(text)
+}
+
+/// Print what discovery found, before it asks about it.
+fn say(text: &str) {
+    use std::io::Write as _;
+    print!("{text}");
+    // A terminal that cannot be flushed shows the words late; the question still waits.
+    let _ = std::io::stdout().flush();
+}
+
+/// Ask `question` and read the answer, or `None` when stdin has ended or cannot be read.
+fn ask(question: &str) -> Option<String> {
+    say(question);
+    let mut line = String::new();
+    match std::io::stdin().read_line(&mut line) {
+        Ok(0) | Err(_) => None,
+        Ok(_) => Some(line),
+    }
+}
+
+/// What the daemon answered, when it was not the answer asked for.
+fn answered(response: &mail_core::ipc::wire::Response) -> String {
+    use mail_core::ipc::wire::Response;
+    match response {
+        Response::Pong { pid, version } => format!("daemon {version} answering, pid {pid}"),
+        Response::Started => "the daemon has started a sync".to_owned(),
+        Response::Stopping => "the daemon is stopping".to_owned(),
+        Response::Refused(why) => format!("the daemon refused: {why}"),
+        Response::WrongVersion { daemon, client } => format!(
+            "the daemon running speaks version {daemon} of its protocol and this mailo version \
+             {client}: one of them is from an older mailo"
+        ),
+    }
 }
 
 /// Whether `command` reads `settings.toml` or `offline.json`: a sync keeps what `offline.json`
@@ -228,45 +210,33 @@ fn reads_settings(command: &Command) -> bool {
     )
 }
 
-/// Do `command`, ending the process with a failing status when it fails.
+/// Do `command`, or say what went wrong.
 ///
 /// A command that reads a settings file that is there and cannot be used says which and why, and
 /// stops: running on the defaults in its place would hide it, and a write would replace it.
-pub fn execute(store: Arc<SqliteStore>, command: Command) {
+pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> {
     if reads_settings(&command)
         && let Some(config) = mail_core::config::config_dir()
     {
         let found = crate::damage::of_config(&config);
         if !found.is_empty() {
-            for damaged in &found {
-                eprintln!("{damaged}");
-            }
-            eprintln!("fix or move the file aside, then run the command again");
-            std::process::exit(1);
+            let mut said: Vec<String> = found.iter().map(ToString::to_string).collect();
+            said.push("fix or move the file aside, then run the command again".to_owned());
+            return Err(said.join("\n"));
         }
     }
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside super::run, which is deliberately synchronous and testable.
     if matches!(command, Command::Sync) {
         let mail = crate::edge::mail(&store);
-        match crate::edge::block_on(mail.sync().run(Default::default())) {
-            Ok(ends) => print!("{}", super::sync::run_text(&store, &ends)),
-            Err(message) => {
-                eprintln!("{}", super::remedy::error(message));
-                std::process::exit(1);
-            }
-        }
-        return;
+        let ends = crate::edge::block_on(mail.sync().run(Default::default()))
+            .map_err(super::remedy::error)?;
+        print!("{}", super::sync::run_text(&store, &ends));
+        return Ok(());
     }
     if let Command::SyncFolder { account, path } = &command {
-        match super::sync_folder(store, account, path) {
-            Ok(text) => print!("{text}"),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        }
-        return;
+        print!("{}", super::sync_folder(store, account, path)?);
+        return Ok(());
     }
     // Saving an attachment may have to download it first — a large IMAP message's attachments
     // stay on the server until asked for — and that needs the store by `Arc`, like sync.
@@ -280,20 +250,15 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         let download = |section: &mail_domain::Section| {
             crate::edge::block_on(mail.sync().fetch_part(*message, section))
         };
-        match mail_core::attach::fetch_and_save(&store, *message, *index, dir, download) {
-            Ok(path) => println!("{}", super::attach::saved(&path)),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        }
-        return;
+        let path = mail_core::attach::fetch_and_save(&store, *message, *index, dir, download)?;
+        println!("{}", super::attach::saved(&path));
+        return Ok(());
     }
     // The daemon and the clients that reach it. Dispatched here with `sync` and `watch` because
-    // they need the store by `Arc` and an exit code, neither of which `super::run` has.
+    // they need the store by `Arc`, which `super::run` has not.
     match &command {
         Command::Daemon { stop: false } => {
-            match mail_core::ipc::daemon::serve(
+            let ended = mail_core::ipc::daemon::serve(
                 store,
                 std::sync::Arc::new(|store| {
                     let mail = crate::edge::mail(&store);
@@ -310,54 +275,43 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                         println!("listening on {endpoint}");
                     }
                 },
-            ) {
-                Ok(ended) => {
-                    if ended == mail_core::ipc::daemon::Ended::Stopped {
-                        println!("stopped");
-                    }
-                    return;
-                }
-                Err(message) => {
-                    eprintln!("{}", super::remedy::error(message));
-                    std::process::exit(1);
-                }
+            )
+            .map_err(super::remedy::error)?;
+            if ended == mail_core::ipc::daemon::Ended::Stopped {
+                println!("stopped");
             }
+            return Ok(());
         }
         Command::Daemon { stop: true } => {
             // Never starts one in order to stop it, which is why this is `connect` and not
             // `reach`: "there was nothing to stop" is a success, not a reason to spawn a daemon
             // and immediately ask it to leave.
-            match mail_core::ipc::client::connect() {
-                Ok(None) => println!("no daemon is running"),
-                Ok(Some(mut daemon)) => match daemon.ask(mail_core::ipc::wire::Request::Shutdown) {
-                    Ok(mail_core::ipc::wire::Response::Stopping) => println!("stopped"),
-                    Ok(other) => println!("{other:?}"),
-                    Err(why) => {
-                        eprintln!("{why}");
-                        std::process::exit(1);
-                    }
-                },
-                Err(why) => {
-                    eprintln!("{why}");
-                    std::process::exit(1);
-                }
+            let Some(mut daemon) =
+                mail_core::ipc::client::connect().map_err(|why| why.to_string())?
+            else {
+                println!("no daemon is running");
+                return Ok(());
+            };
+            match daemon
+                .ask(mail_core::ipc::wire::Request::Shutdown)
+                .map_err(|why| why.to_string())?
+            {
+                mail_core::ipc::wire::Response::Stopping => println!("stopped"),
+                other => return Err(answered(&other)),
             }
-            return;
+            return Ok(());
         }
         Command::Ping => {
             match mail_core::ipc::client::reach()
                 .and_then(|mut d| d.ask(mail_core::ipc::wire::Request::Ping))
+                .map_err(|why| why.to_string())?
             {
-                Ok(mail_core::ipc::wire::Response::Pong { pid, version }) => {
-                    println!("daemon {version} answering, pid {pid}");
+                pong @ mail_core::ipc::wire::Response::Pong { .. } => {
+                    println!("{}", answered(&pong))
                 }
-                Ok(other) => println!("{other:?}"),
-                Err(why) => {
-                    eprintln!("{why}");
-                    std::process::exit(1);
-                }
+                other => return Err(answered(&other)),
             }
-            return;
+            return Ok(());
         }
         _ => {}
     }
@@ -365,14 +319,11 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
     // A Web Key Directory lookup needs the network: dispatched here with the other commands that
     // do, so `super::run` stays something a test can call without one.
     if let Command::Pgp(super::pgp::PgpCommand::Lookup { address }) = &command {
-        match crate::edge::block_on(crate::edge::mail(&store).crypto().lookup_address(address)) {
-            Ok(found) => print!("{}", super::pgp::lookup(found.as_ref(), address)),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        }
-        return;
+        let found =
+            crate::edge::block_on(crate::edge::mail(&store).crypto().lookup_address(address))
+                .map_err(|message| message.to_string())?;
+        print!("{}", super::pgp::lookup(found.as_ref(), address));
+        return Ok(());
     }
     // An encrypted message to someone with no key yet: their domain is asked, once, as the
     // draft is made — the other moment the brief names besides an explicit lookup.
@@ -389,52 +340,32 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
     // Import and export print progress as they go, to stderr, and an upload needs the network:
     // dispatched here for the same reasons as `sync`.
     if let Command::Import { path, into } = &command {
-        match super::import::run(&store, path, into) {
-            Ok(said) => print!("{said}"),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        }
-        return;
+        print!("{}", super::import::run(&store, path, into)?);
+        return Ok(());
     }
     if let Command::Export { query, target } = &command {
-        match super::export::run(&store, query, target) {
-            Ok(said) => print!("{said}"),
-            Err(message) => {
-                eprintln!("{}", super::remedy::error(message));
-                std::process::exit(1);
-            }
-        }
-        return;
+        let said = super::export::run(&store, query, target).map_err(super::remedy::error)?;
+        print!("{said}");
+        return Ok(());
     }
 
     if let Command::Notify { set } = &command {
-        match super::settings::notify(crate::settings::person_root().as_ref(), *set) {
-            Ok(said) => print!("{said}"),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        }
-        return;
+        let said = super::settings::notify(crate::settings::person_root().as_ref(), *set)?;
+        print!("{said}");
+        return Ok(());
     }
     if let Command::Offline { address, set } = &command {
         let accounts = mail_core::sync::addresses(&store);
-        match super::offline::command(
+        let said = super::offline::command(
             mail_core::config::config_dir().as_deref(),
             store.as_ref(),
             &accounts,
             address.as_deref(),
             *set,
-        ) {
-            Ok(said) => print!("{said}"),
-            Err(message) => {
-                eprintln!("{}", super::remedy::error(message));
-                std::process::exit(1);
-            }
-        }
-        return;
+        )
+        .map_err(super::remedy::error)?;
+        print!("{said}");
+        return Ok(());
     }
     if let Command::Intents = &command {
         // What the router starts by D-Bus activation: no window, the same store. A second one
@@ -448,18 +379,17 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
                 crate::intents::Opener::window(),
             )
             .with_hours(crate::edge::environment().hours);
-            match crate::intents::serve(provider) {
-                Ok(()) | Err(crate::intents::ServeError::Taken) => return,
-                Err(why) => {
-                    eprintln!("{why}");
-                    std::process::exit(1);
-                }
-            }
+            return match crate::intents::serve(provider) {
+                Ok(()) | Err(crate::intents::ServeError::Taken) => Ok(()),
+                Err(why) => Err(why.to_string()),
+            };
         }
         #[cfg(any(target_os = "macos", windows))]
         {
-            eprintln!("mailo intents answers on the Linux session bus, which this system has not");
-            std::process::exit(1);
+            return Err(
+                "mailo intents answers on the Linux session bus, which this system has not"
+                    .to_owned(),
+            );
         }
     }
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
@@ -481,11 +411,12 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
             Ok(held) => held,
             Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
                 println!("a mailo watch is already running; leaving it to it");
-                return;
+                return Ok(());
             }
             Err(mail_core::ipc::watching::Refused::Failed(why)) => {
-                eprintln!("can't tell whether a mailo watch is running: {why}");
-                std::process::exit(1);
+                return Err(format!(
+                    "can't tell whether a mailo watch is running: {why}"
+                ));
             }
         };
         if let Some(why) = watching.doorless() {
@@ -519,26 +450,58 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) {
         };
         // A Sync asked for at the watch's door (`ipc::watching`) is a pass now, here.
         let asked = Some(watching.asked());
-        match crate::edge::block_on(mail.sync().watch(notifier, &say, asked)) {
-            // Only reached when every account has stopped for a reason worth stopping for — a
-            // credential the server refused, which no amount of retrying fixes.
-            Ok(ends) => {
-                print!("{}", super::sync::run_text(&store, &ends));
-                eprintln!("stopped watching; nothing left to watch");
-                std::process::exit(1);
-            }
-            Err(message) => {
-                eprintln!("{}", super::remedy::error(message));
-                std::process::exit(1);
-            }
+        // Only ends when every account has stopped for a reason worth stopping for — a
+        // credential the server refused, which no amount of retrying fixes.
+        let ends = crate::edge::block_on(mail.sync().watch(notifier, &say, asked))
+            .map_err(super::remedy::error)?;
+        print!("{}", super::sync::run_text(&store, &ends));
+        return Err("stopped watching; nothing left to watch".to_owned());
+    }
+
+    print!("{}", super::run(&crate::edge::mail(&store), &command)?);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mail_core::ipc::wire::Response;
+
+    #[test]
+    fn help_and_the_version_are_answered_before_any_store() {
+        for command in [Command::Help, Command::Version] {
+            assert!(matches!(prepare(Some(command)), Ok(Prepared::Finished)));
         }
     }
 
-    match super::run(&crate::edge::mail(&store), &command) {
-        Ok(output) => print!("{output}"),
-        Err(message) => {
-            eprintln!("{message}");
-            std::process::exit(1);
+    #[test]
+    fn the_daemon_s_answers_are_said_in_words() {
+        // Not as Rust spells the wire's enum: `WrongVersion { daemon: 2, client: 3 }` is nothing
+        // a person at a terminal reads.
+        let cases = [
+            (
+                Response::Pong {
+                    pid: 42,
+                    version: "0.1.0".to_owned(),
+                },
+                "daemon 0.1.0 answering, pid 42",
+            ),
+            (
+                Response::Refused("not now".to_owned()),
+                "the daemon refused: not now",
+            ),
+            (
+                Response::WrongVersion {
+                    daemon: 2,
+                    client: 3,
+                },
+                "speaks version 2 of its protocol and this mailo version 3",
+            ),
+        ];
+        for (response, says) in cases {
+            let said = answered(&response);
+            assert!(said.contains(says), "{said}");
+            assert!(!said.contains('{'), "{said}");
         }
     }
 }

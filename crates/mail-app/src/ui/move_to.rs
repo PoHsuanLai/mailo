@@ -115,7 +115,7 @@ pub(in crate::ui) fn file_all_into(
             act_all(store, shell, revision, ops)
         }
         Err(why) => {
-            eprintln!("move to {}: {why}", folder.path);
+            log::warn!("move to {}: {why}", folder.path);
             0
         }
     }

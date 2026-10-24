@@ -10,7 +10,7 @@ use mail_core::account::{
 };
 use mail_core::{Mail, SqliteStore, Store};
 use mail_domain::presets::PasswordWarning;
-use mail_domain::{AccountPlan, Incoming, LeaveOnServer};
+use mail_domain::{AccountPlan, Incoming, LeaveOnServer, SaslMech};
 use porter_provider::Issuer;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -128,7 +128,8 @@ pub(super) fn added(added: &Added) -> String {
                 let _ = writeln!(
                     out,
                     "no password stored. Re-run with MAILO_PASSWORD set; \
-                     the login name will be {login:?} and the server offers {sasl:?}."
+                     the login name will be {login:?} and the server offers {}.",
+                    sasl_named(sasl)
                 );
             }
         }
@@ -185,13 +186,12 @@ pub(super) fn added(added: &Added) -> String {
             };
             let _ = writeln!(
                 out,
-                "this account uses OAuth ({issuer:?}) and needs a client id.\n\
+                "this account uses OAuth ({issuer}) and needs a client id.\n\
                  \n{where}\n\
                  \nThen re-run:\n\
                  \n  MAILO_OAUTH_CLIENT_ID=… {secret}mailo account add {address}{flags}\n\
                  \nThey are recorded after the first sign-in, so the variables are needed \
-                 once.\n\
-                 \nScopes it will request: {scopes:?}",
+                 once.",
                 // Named, because two bare `{}` fill in source order and these two read
                 // perfectly plausibly the wrong way round.
                 where = where_to_get_one(*issuer),
@@ -200,10 +200,29 @@ pub(super) fn added(added: &Added) -> String {
                 } else {
                     ""
                 },
+                issuer = super::discover::issuer_named(*issuer),
             );
+            if !scopes.is_empty() {
+                let _ = writeln!(out, "\nScopes it will request: {}", scopes.join(", "));
+            }
         }
     }
     out
+}
+
+/// The sign-in mechanisms a server offers, by the names its own reply gives them.
+fn sasl_named(sasl: &[SaslMech]) -> String {
+    if sasl.is_empty() {
+        return "no sign-in mechanism mailo knows".to_owned();
+    }
+    sasl.iter()
+        .map(|mech| match mech {
+            SaslMech::Plain => "PLAIN",
+            SaslMech::Login => "LOGIN",
+            SaslMech::XOauth2 => "XOAUTH2",
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// `account list`: each account and what it still needs.
@@ -508,6 +527,36 @@ mod render_tests {
             "{said}"
         );
         assert!(!said.contains("s1234567@example.edu\""), "{said}");
+    }
+
+    #[test]
+    fn the_issuer_and_the_mechanisms_are_named_as_their_owners_name_them() {
+        // Not as Rust spells its enums: `[Plain, XOauth2]` is nothing a person typed or read.
+        let said = added(&done(
+            "s1234567@example.edu",
+            false,
+            Outcome::PasswordMissing {
+                jmap: false,
+                login: "s1234567".to_owned(),
+                sasl: vec![SaslMech::Plain, SaslMech::XOauth2],
+            },
+        ));
+        assert!(said.contains("the server offers PLAIN, XOAUTH2."), "{said}");
+        let said = added(&done(
+            "someone@gmail.com",
+            false,
+            Outcome::NeedsClientId {
+                issuer: Issuer::Google,
+                scopes: vec!["https://mail.google.com/".to_owned(), "openid".to_owned()],
+                route: MicrosoftRoute::Other,
+            },
+        ));
+        assert!(said.contains("uses OAuth (Google)"), "{said}");
+        assert!(
+            said.contains("Scopes it will request: https://mail.google.com/, openid"),
+            "{said}"
+        );
+        assert!(!said.contains('['), "{said}");
     }
 
     #[test]

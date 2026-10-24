@@ -270,7 +270,7 @@ pub fn save(dirs: Option<&WindowDirs>, spaces: &Spaces) -> Result<(), String> {
 /// moved file's name says which it was).
 pub(super) fn kept(saved: &ds_settings::Saved) {
     if let Some(at) = &saved.kept_at {
-        eprintln!(
+        log::warn!(
             "mailo: a file that could not be read was kept at {} and a new one written",
             at.display()
         );

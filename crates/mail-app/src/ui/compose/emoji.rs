@@ -59,7 +59,7 @@ fn remember(emoji: &'static Emoji) {
     if let Some(dirs) = desk.dirs.peek().as_ref()
         && let Err(why) = recent::save(&dirs.state, &next)
     {
-        eprintln!("emoji: {why}");
+        log::warn!("emoji: {why}");
     }
     desk.emoji.set(next);
 }

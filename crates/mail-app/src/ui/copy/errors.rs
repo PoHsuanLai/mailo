@@ -108,3 +108,47 @@ pub fn key_given_twice(action: &str) -> String {
 
 /// Send pressed with nobody to send to: To's error.
 pub const ADD_A_RECIPIENT: &str = "Add at least one person to send to.";
+
+// A failure whose own words are a library's: the detail goes to the log, and the window says
+// one of these (`ui::remedy::plainly`).
+/// Mail, a rule or a setting kept on this computer that could not be read.
+pub const NOT_READ_HERE: &str = "This couldn’t be read from this computer. Try again.";
+/// A change that could not be written on this computer.
+pub const NOT_KEPT_HERE: &str = "The change couldn’t be saved on this computer. Try again.";
+/// An attachment that could not be written to the downloads folder.
+pub const ATTACHMENT_NOT_SAVED: &str = "The attachment couldn’t be saved.";
+/// An attachment the system would not open.
+pub const ATTACHMENT_NOT_OPENED: &str = "The attachment couldn’t be opened.";
+/// A rule run over the mail already here that stopped part way.
+pub const RULE_STOPPED: &str = "The rule stopped before it finished. Try again.";
+/// A downloaded file the system would not open.
+pub const FILE_NOT_OPENED: &str = "The file couldn’t be opened.";
+/// A downloaded file the file manager would not show.
+pub const FILE_NOT_SHOWN: &str = "The file couldn’t be shown in its folder.";
+
+// Settings › Vacation Reply, refusing what its fields say.
+/// A date field that does not read as a time.
+pub fn not_a_time(text: &str) -> String {
+    format!("“{text}” isn’t a time. Try 2026-10-08, 2026-10-08 09:00 or tomorrow.")
+}
+pub const REPLY_NEEDS_SUBJECT: &str = "The reply needs a subject.";
+pub const REPLY_NEEDS_BODY: &str = "The reply needs something to say.";
+/// “Until” already gone: `when` is it, in the clock's words.
+pub fn until_passed(when: &str) -> String {
+    format!("“Until” has passed: {when}.")
+}
+pub const UNTIL_BEFORE_FROM: &str = "“Until” has to be after “From”.";
+pub fn not_an_address(word: &str) -> String {
+    format!("“{word}” isn’t an address.")
+}
+pub const ADD_AN_ADDRESS: &str = "Add an address to reply for.";
+
+// Remove Account, refused: why nothing was removed.
+pub const ACCOUNT_ALREADY_GONE: &str = "This account is already gone.";
+pub const LOCAL_NOT_REMOVABLE: &str = "Local mail can’t be removed like an account.";
+pub const KEYRING_WOULD_NOT_FORGET: &str = "The keyring wouldn’t forget the saved sign-in, so nothing was removed. Unlock the keyring and try again.";
+pub fn nothing_removed(why: &str) -> String {
+    format!(
+        "Nothing was removed: {why}. The saved sign-in is already forgotten, so it will ask you to sign in again."
+    )
+}

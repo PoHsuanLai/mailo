@@ -72,11 +72,23 @@ pub(in crate::ui) fn KeysPage(
         .collect();
     let (keys, failed) = match store.pgp_keys() {
         Ok(keys) => (ordered(keys), None),
-        Err(why) => (Vec::new(), Some(why.to_string())),
+        Err(why) => (
+            Vec::new(),
+            Some(crate::ui::remedy::plainly(
+                crate::ui::copy::errors::NOT_READ_HERE,
+                why,
+            )),
+        ),
     };
     let (certs, certs_failed) = match store.smime_certs() {
         Ok(certs) => (super::certs::ordered(certs), None),
-        Err(why) => (Vec::new(), Some(why.to_string())),
+        Err(why) => (
+            Vec::new(),
+            Some(crate::ui::remedy::plainly(
+                crate::ui::copy::errors::NOT_READ_HERE,
+                why,
+            )),
+        ),
     };
     let keys: Vec<_> = keys
         .into_iter()

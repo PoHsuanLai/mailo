@@ -309,7 +309,7 @@ fn open_file(path: PathBuf, onclose: EventHandler<()>) {
     // Forever, not this list's: the list closes as the file opens.
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || open(&path)).await;
-        if let Some(why) = failed(done) {
+        if let Some(why) = failed(done, crate::ui::copy::errors::FILE_NOT_OPENED) {
             tell_through(said, why);
         }
     });
@@ -320,16 +320,19 @@ fn reveal_file(path: PathBuf) {
     let said = motion();
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || reveal(&path)).await;
-        if let Some(why) = failed(done) {
+        if let Some(why) = failed(done, crate::ui::copy::errors::FILE_NOT_SHOWN) {
             tell_through(said, why);
         }
     });
 }
 
-fn failed(done: Result<Result<(), String>, tokio::task::JoinError>) -> Option<String> {
-    match done {
-        Ok(Ok(())) => None,
-        Ok(Err(why)) => Some(why),
-        Err(error) => Some(format!("Couldn\u{2019}t open it: {error}")),
-    }
+/// What the person is told when the system would not open or show a file: `said`, with the
+/// opener's own words in the log.
+fn failed(done: Result<Result<(), String>, tokio::task::JoinError>, said: &str) -> Option<String> {
+    let why = match done {
+        Ok(Ok(())) => return None,
+        Ok(Err(why)) => why,
+        Err(error) => error.to_string(),
+    };
+    Some(crate::ui::remedy::plainly(said, why))
 }

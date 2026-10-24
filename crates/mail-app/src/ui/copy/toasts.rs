@@ -64,3 +64,10 @@ pub fn graph_waits(name: &str) -> String {
 pub fn graph_refused(name: &str, why: &str) -> String {
     format!("Couldn’t switch {name} to Microsoft Graph. {why}")
 }
+
+// Settings › Vacation Reply, kept.
+pub const VACATION_OFF: &str = "Vacation reply off.";
+/// The reply kept: its subject, and when it runs ([`super::status::vacation::runs`]).
+pub fn vacation_saved(subject: &str, runs: &str) -> String {
+    format!("Saved: “{subject}”, {runs}.")
+}

@@ -83,7 +83,7 @@ pub(in crate::ui) fn answer_asked(
                 looks.receipt_again(store, standing.message);
                 sent.push(standing.message);
             }
-            Err(why) => eprintln!("read receipt: {why}"),
+            Err(why) => log::warn!("read receipt: {why}"),
         }
     }
     sent

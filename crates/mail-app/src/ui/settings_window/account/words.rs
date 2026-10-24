@@ -1,15 +1,17 @@
 //! What an account's page says: the account's servers and sign-in as rows, what Remove takes
 //! with it, and why a removal did not happen. Pure, so each is a table test.
 
+use crate::ui::copy;
 use crate::ui::copy::controls::REMOVE;
+use crate::ui::copy::fields::account as row;
+use crate::ui::copy::status::account as said;
 use crate::ui::files::work::messages;
 use mail_core::account::RemoveError;
 use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
 use porter_provider::Issuer;
 
-/// What the Status row says while an account waits for the person: the same for a sign-in refused and for Mail no longer allowed, since the
-/// button beside it is the same.
-pub(super) const WAITING: &str = "mailo can\u{2019}t fetch new mail until you sign in again.";
+/// What the Status row says while an account waits for the person.
+pub(super) const WAITING: &str = said::WAITING;
 
 /// One row of the page's settings: what it is, and how the account has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,22 +29,22 @@ fn line(label: &'static str, value: impl Into<String>) -> Line {
 
 fn security(tls: Tls) -> &'static str {
     match tls {
-        Tls::Implicit => "TLS",
-        Tls::StartTlsRequired => "STARTTLS",
-        Tls::Plaintext => "not encrypted",
+        Tls::Implicit => said::TLS,
+        Tls::StartTlsRequired => said::STARTTLS,
+        Tls::Plaintext => said::NOT_ENCRYPTED,
     }
 }
 
 fn server(protocol: &str, host: &str, port: u16, tls: Tls) -> String {
-    format!("{protocol}, {host}:{port}, {}", security(tls))
+    said::server(protocol, host, port, security(tls))
 }
 
 fn issuer(issuer: Issuer) -> &'static str {
     match issuer {
-        Issuer::Google => "Google",
-        Issuer::Microsoft => "Microsoft",
+        Issuer::Google => said::GOOGLE,
+        Issuer::Microsoft => said::MICROSOFT,
         // porter names more issuers than mailo signs in to; no account here holds one.
-        _ => "another issuer",
+        _ => said::ANOTHER_ISSUER,
     }
 }
 
@@ -52,7 +54,7 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
     let mut lines = Vec::new();
     let token = match &plan.incoming {
         Incoming::Imap { host, port, tls } => {
-            lines.push(line("Receiving", server("IMAP", host, *port, *tls)));
+            lines.push(line(row::RECEIVING, server("IMAP", host, *port, *tls)));
             false
         }
         Incoming::Pop3 {
@@ -61,47 +63,45 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
             tls,
             leave,
         } => {
-            lines.push(line("Receiving", server("POP3", host, *port, *tls)));
+            lines.push(line(row::RECEIVING, server("POP3", host, *port, *tls)));
             lines.push(line(
-                "Downloaded mail",
+                row::DOWNLOADED_MAIL,
                 match leave {
-                    LeaveOnServer::Keep => "Left on the server",
-                    LeaveOnServer::DeleteAfterFetch => "Deleted from the server",
+                    LeaveOnServer::Keep => said::LEFT_ON_SERVER,
+                    LeaveOnServer::DeleteAfterFetch => said::DELETED_FROM_SERVER,
                 },
             ));
             false
         }
         Incoming::Graph => {
-            lines.push(line("Receiving", "Microsoft Graph"));
+            lines.push(line(row::RECEIVING, said::GRAPH));
             false
         }
         Incoming::Jmap { session, auth } => {
-            lines.push(line("Receiving", format!("JMAP, {session}")));
+            lines.push(line(row::RECEIVING, said::jmap(&session.to_string())));
             *auth == HttpAuth::Bearer
         }
         Incoming::Local => {
-            lines.push(line("Receiving", "Kept on this computer"));
+            lines.push(line(row::RECEIVING, said::KEPT_HERE));
             false
         }
     };
     lines.push(line(
-        "Sending",
+        row::SENDING,
         match &plan.outgoing {
             Outgoing::Smtp { host, port, tls } => server("SMTP", host, *port, *tls),
-            Outgoing::Graph => "Microsoft Graph".to_owned(),
-            Outgoing::Jmap => "JMAP, on the same server".to_owned(),
-            Outgoing::Nowhere => "Does not send".to_owned(),
+            Outgoing::Graph => said::GRAPH.to_owned(),
+            Outgoing::Jmap => said::JMAP_SAME_SERVER.to_owned(),
+            Outgoing::Nowhere => said::DOES_NOT_SEND.to_owned(),
         },
     ));
     lines.push(line(
-        "Signs in",
+        row::SIGNS_IN,
         match (&plan.auth, token) {
-            (AuthPlan::OAuth { issuer: by, .. }, _) => {
-                format!("With {}, in the browser", issuer(*by))
-            }
-            (AuthPlan::Password { .. }, true) => format!("With a token, as {}", plan.username()),
+            (AuthPlan::OAuth { issuer: by, .. }, _) => said::in_the_browser(issuer(*by)),
+            (AuthPlan::Password { .. }, true) => said::with_a_token(&plan.username().to_string()),
             (AuthPlan::Password { .. }, false) => {
-                format!("With a password, as {}", plan.username())
+                said::with_a_password(&plan.username().to_string())
             }
         },
     ));
@@ -111,7 +111,7 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
         .map(|identity| identity.from.to_string())
         .collect();
     if !addresses.is_empty() {
-        lines.push(line("Sends as", addresses.join(", ")));
+        lines.push(line(row::SENDS_AS, addresses.join(", ")));
     }
     lines
 }
@@ -140,16 +140,12 @@ pub(super) fn asking(address: &str, held: usize, incoming: &Incoming) -> Asking 
         Incoming::Pop3 {
             leave: LeaveOnServer::DeleteAfterFetch,
             ..
-        } => {
-            format!("This server deletes mail once downloaded, so these {mail} are the only copy.")
-        }
-        _ => "Mail on the server isn’t deleted.".to_owned(),
+        } => copy::confirm::only_copy(&mail),
+        _ => copy::confirm::MAIL_STAYS_ON_SERVER.to_owned(),
     };
     Asking {
-        title: format!("Remove {address}?"),
-        body: format!(
-            "Its {mail} on this computer, folders, rules and saved sign-in are removed. {server} Keys and certificates aren’t removed."
-        ),
+        title: copy::confirm::remove_account(address),
+        body: copy::confirm::remove_account_body(&mail, &server),
         confirm: REMOVE,
     }
 }
@@ -157,17 +153,10 @@ pub(super) fn asking(address: &str, held: usize, incoming: &Incoming) -> Asking 
 /// Why nothing was removed, as the page says it.
 pub(super) fn refused(error: &RemoveError) -> String {
     match error {
-        RemoveError::Unknown => "This account is already gone.".to_owned(),
-        RemoveError::Local => {
-            "Local mail can’t be removed like an account.".to_owned()
-        }
-        RemoveError::Keyring(_) => {
-            "The keyring wouldn’t forget the saved sign-in, so nothing was removed. Unlock the keyring and try again."
-                .to_owned()
-        }
-        RemoveError::Store(why) => format!(
-            "Nothing was removed: {why}. The saved sign-in is already forgotten, so it will ask you to sign in again."
-        ),
+        RemoveError::Unknown => copy::errors::ACCOUNT_ALREADY_GONE.to_owned(),
+        RemoveError::Local => copy::errors::LOCAL_NOT_REMOVABLE.to_owned(),
+        RemoveError::Keyring(_) => copy::errors::KEYRING_WOULD_NOT_FORGET.to_owned(),
+        RemoveError::Store(why) => copy::errors::nothing_removed(why),
     }
 }
 
