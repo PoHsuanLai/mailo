@@ -255,7 +255,13 @@ fn sweep_in(temp: &std::path::Path, now: std::time::SystemTime) {
 
 /// Who a folder this process makes belongs to, to tell this user's folders from another's: the
 /// owner's id on Unix, and `None` where there is none to compare or it could not be learnt.
-struct Owner(Option<u32>);
+struct Owner(
+    #[cfg_attr(
+        not(unix),
+        expect(dead_code, reason = "owners are compared on Unix only")
+    )]
+    Option<u32>,
+);
 
 impl Owner {
     /// The owner of a folder made in `temp` now, and removed again.
