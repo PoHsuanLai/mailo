@@ -3,7 +3,7 @@
 //! Its own crate because these are not protocol machines — they have no [`IoNeed`] and no
 //! state — and because `mail-app` must be able to sanitize without depending on `mail-proto`.
 //!
-//! [`IoNeed`]: https://docs.rs/mail-proto
+//! [`IoNeed`]: https://docs.rs/mailo-proto
 
 pub mod archive;
 pub mod auth;

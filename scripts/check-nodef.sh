@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-for crate in mail-domain mail-mime mail-pim mail-store mail-proto mail-runtime mail-core mail-appkit; do
+for crate in mailo-domain mailo-mime mailo-pim mail-store mailo-proto mail-runtime mail-core mail-appkit; do
   echo "nodef: $crate"
   cargo check -p "$crate" --no-default-features
 done
@@ -17,10 +17,10 @@ done
 # Each half of mail-mime alone, tests included (they are gated by the same features).
 for feature in openpgp smime; do
   echo "nodef: mail-mime --features $feature"
-  cargo check -p mail-mime --no-default-features --features "$feature" --tests
+  cargo check -p mailo-mime --no-default-features --features "$feature" --tests
 done
 echo "nodef: mail-mime"
-cargo check -p mail-mime --no-default-features --tests
+cargo check -p mailo-mime --no-default-features --tests
 
 # Each crate's test doubles (`testing`) build with nothing else on: the runtime's without the
 # platform keyring and the bus, and the others' without whatever the workspace turns on for them.

@@ -1,5 +1,5 @@
 [package]
-name = "mail-pim"
+name = "mailo-pim"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -11,6 +11,10 @@ description = "vCard, iCalendar invitations and CardDAV requests and replies, as
 readme = "README.md"
 keywords = ["vcard", "icalendar", "carddav", "itip"]
 categories = ["email", "parser-implementations"]
+
+# Published as mailo-pim; used in code as `mail_pim`, as the workspace always has.
+[lib]
+name = "mail_pim"
 
 [dependencies]
 mail-domain.workspace = true
