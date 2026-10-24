@@ -541,7 +541,11 @@ fn opening_a_contact_writes_to_them_in_the_window() {
     assert!(matches!(nobody, Err(AppRefusal::NotFound(_))), "{nobody:?}");
     assert_eq!(opened.lock().expect("opened").len(), 1);
 
-    for odd in ["a&b?c@example.test", "100%#x@example.test", "o'neil@example.test"] {
+    for odd in [
+        "a&b?c@example.test",
+        "100%#x@example.test",
+        "o'neil@example.test",
+    ] {
         let link: mail_mime::mailto::MailtoUri =
             super::contacts::mailto_of(odd).parse().expect("a link");
         assert_eq!(
