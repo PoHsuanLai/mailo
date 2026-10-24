@@ -1,17 +1,13 @@
 use mail_core::SqliteStore;
 
 /// The one logger. What the libraries warn of (`log::warn!`) goes to stderr as a line, the way
-/// they printed it before they logged: no level, no target, the text is the whole message.
+/// they printed it before they logged: no level, no target, the text is the whole message. Which
+/// records it writes is [`mail_app::edge::logged`]'s.
 struct Stderr;
-
-/// Libraries whose warnings are about the input they were handed, not about a fault: an HTML
-/// parser warns of malformed markup, which is what most mail is, and nothing anyone can act on.
-const INPUT_PARSERS: &[&str] = &["html5ever", "markup5ever", "xml5ever"];
 
 impl log::Log for Stderr {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        let root = metadata.target().split("::").next().unwrap_or_default();
-        metadata.level() <= log::Level::Warn && !INPUT_PARSERS.contains(&root)
+        mail_app::edge::logged(metadata.level(), metadata.target())
     }
 
     fn log(&self, record: &log::Record<'_>) {
@@ -26,7 +22,7 @@ impl log::Log for Stderr {
 fn main() {
     // Already set means a harness got there first; its logger stands.
     if log::set_logger(&Stderr).is_ok() {
-        log::set_max_level(log::LevelFilter::Warn);
+        log::set_max_level(log::LevelFilter::Info);
     }
     // `--profile` is the program's own, ahead of the verb: what follows is read as if it had not
     // been there.

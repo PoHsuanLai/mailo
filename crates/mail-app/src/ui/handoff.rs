@@ -47,7 +47,7 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
                     Request::Thread { thread, token } => {
                         // Logged: the one trace of what a click did to a window with no other way
                         // to ask it.
-                        log::debug!("opened conversation {thread}");
+                        log::info!(target: crate::edge::TRACE, "opened conversation {thread}");
                         super::open_thread(&mut shell.write(), thread);
                         token
                     }
@@ -68,7 +68,7 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
                         token
                     }
                     Request::Activate { token } => {
-                        log::debug!("asked to raise the window");
+                        log::info!(target: crate::edge::TRACE, "asked to raise the window");
                         token
                     }
                 };

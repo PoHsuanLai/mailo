@@ -203,6 +203,25 @@ pub fn clock_from(hours: ds_settings::ResolvedHours) -> Clock {
     }
 }
 
+/// The log target of the window's few traces of what it was asked from outside (a banner's
+/// click, a second launch's hand-off). They go to stderr beside the warnings: a window has no
+/// other way to say what a click did, and the desktop scenarios (`dev/scenarios`) read them there.
+pub const TRACE: &str = "mailo::trace";
+
+/// Libraries whose warnings are about the input they were handed, not about a fault: an HTML
+/// parser warns of malformed markup, which is what most mail is, and nothing anyone can act on.
+const INPUT_PARSERS: &[&str] = &["html5ever", "markup5ever", "xml5ever"];
+
+/// Whether the one logger (`main`'s) writes a record at `level` from `target` to stderr: the
+/// warnings and errors, but not an HTML parser's, and the window's [`TRACE`]s at info.
+pub fn logged(level: log::Level, target: &str) -> bool {
+    if target == TRACE {
+        return level <= log::Level::Info;
+    }
+    let root = target.split("::").next().unwrap_or_default();
+    level <= log::Level::Warn && !INPUT_PARSERS.contains(&root)
+}
+
 /// mailo's store of account secrets, for the calls that take only that.
 pub fn secrets() -> Arc<dyn AccountSecrets> {
     mail_runtime::platform_secrets(runtime().handle())
@@ -214,6 +233,15 @@ mod tests {
 
     fn taken(words: &[&str]) -> Result<(Vec<String>, Option<String>), String> {
         take_profile_flag(words.iter().map(|word| (*word).to_owned()))
+    }
+
+    #[test]
+    fn the_window_traces_reach_stderr_and_other_info_does_not() {
+        assert!(logged(log::Level::Info, TRACE));
+        assert!(!logged(log::Level::Debug, TRACE));
+        assert!(!logged(log::Level::Info, "mail_app::ui::handoff"));
+        assert!(logged(log::Level::Warn, "mail_app::ui::handoff"));
+        assert!(!logged(log::Level::Warn, "html5ever::tree_builder"));
     }
 
     #[test]
