@@ -7,7 +7,8 @@
 //! pass, because there is nowhere to show a bubble.
 //!
 //! A click opens what the notification was about: `mailo open <thread>` for one
-//! conversation, `mailo` for a summary's inbox, started with the activation token the server minted
+//! conversation, `mailo open --inbox <account>` for a summary's
+//! account's inbox, started with the activation token the server minted
 //! for the click so the compositor lets the window take focus. On Linux one listener for the whole
 //! process hears the server's `ActivationToken`, `ActionInvoked` and `NotificationClosed`
 //! ([`super::click`]); on Windows each notification shown is waited on by the thread that showed
@@ -144,7 +145,7 @@ macro_rules! wait_on {
             let mut clicked = None;
             // A notification closed without an answer is a click nobody made.
             let _ = $shown.wait_for_response(|response: &NotificationResponse| {
-                clicked = answer(response, $opens);
+                clicked = answer(response, &$opens);
             });
             if let Some(launch) = clicked {
                 start(launch, None);
@@ -171,7 +172,7 @@ impl Notifier for Desktop {
                 return;
             };
             #[cfg(all(unix, not(target_os = "macos")))]
-            hearing.show(shown.id(), notification.opens);
+            hearing.show(shown.id(), notification.opens.clone());
             #[cfg(windows)]
             wait_on!(shown, notification.opens, hearing);
             // On macOS only the window hears a click (the module's notes say why); `shown` sends
@@ -243,11 +244,16 @@ pub struct Launch {
 }
 
 impl Launch {
-    /// The arguments that start the window there: `open <thread>`, or none for the inbox.
+    /// The arguments that start the window there: `open <thread>`, or `open --inbox <account>`
+    /// for a summary's account's inbox.
     pub fn args(&self) -> Vec<String> {
-        match self.opens {
+        match &self.opens {
             Opens::Thread(thread) => vec!["open".to_owned(), thread.to_string()],
-            Opens::Inbox => Vec::new(),
+            Opens::Inbox(account) => vec![
+                "open".to_owned(),
+                "--inbox".to_owned(),
+                account.as_str().to_owned(),
+            ],
         }
     }
 }
@@ -256,7 +262,8 @@ impl Launch {
 /// start when the notification itself was clicked, and nothing for a close or for any other
 /// action (none other is offered, so a service inventing one gets nothing).
 #[cfg(any(windows, target_os = "macos"))]
-pub fn answer(response: &NotificationResponse, opens: Opens) -> Option<Launch> {
+pub fn answer(response: &NotificationResponse, opens: &Opens) -> Option<Launch> {
+    let opens = opens.clone();
     match response {
         NotificationResponse::Default => Some(Launch { opens }),
         NotificationResponse::Action(action) if action == "default" => Some(Launch { opens }),
@@ -370,6 +377,13 @@ mod tests {
         Opens::Thread(mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(n)))
     }
 
+    #[cfg(any(windows, target_os = "macos"))]
+    fn inbox() -> Opens {
+        Opens::Inbox(mail_domain::id::account_id_from_uuid(
+            uuid::Uuid::from_u128(0xacc),
+        ))
+    }
+
     #[test]
     fn a_subject_cannot_become_markup() {
         assert_eq!(escape("<b>R&D</b>"), "&lt;b&gt;R&amp;D&lt;/b&gt;");
@@ -413,13 +427,11 @@ mod tests {
             ),
         ];
         for (name, response, expect) in cases {
-            assert_eq!(answer(&response, thread(1)), expect, "{name}");
+            assert_eq!(answer(&response, &thread(1)), expect, "{name}");
         }
         assert_eq!(
-            answer(&NotificationResponse::Default, Opens::Inbox),
-            Some(Launch {
-                opens: Opens::Inbox
-            }),
+            answer(&NotificationResponse::Default, &inbox()),
+            Some(Launch { opens: inbox() }),
             "a summary opens the inbox"
         );
     }

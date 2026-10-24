@@ -4,8 +4,8 @@
 //! in the window the person has, not start a second program. The running window therefore claims
 //! `io.github.PoHsuanLai.mailo` on the session bus and answers `org.freedesktop.Application`, the
 //! freedesktop interface a launcher or a notification server may call on an application:
-//! `Open(uris, platform_data)` with `mailo:thread/<id>` for a conversation, `Activate` for the
-//! window itself. The name is the app id mailo's Flatpak already has, because a D-Bus name needs a
+//! `Open(uris, platform_data)` with `mailo:thread/<id>` for a conversation, `mailo:inbox/<account>`
+//! for an account's inbox (a summary banner's click), `Activate` for the window itself. The name is the app id mailo's Flatpak already has, because a D-Bus name needs a
 //! dot and the desktop entry's own id (`mailo`) has none.
 //!
 //! Two ends. [`serve`] is the window's: it queues each request for the window to read on the
@@ -28,6 +28,7 @@
 use mail_core::profile::ProfileId;
 use mail_domain::ThreadId;
 use mail_mime::MailtoUri;
+use porter_core::AccountId;
 
 /// The well-known name the default Profile's running window owns.
 pub const NAME: &str = "io.github.PoHsuanLai.mailo";
@@ -60,6 +61,8 @@ pub fn path_of(profile: &ProfileId) -> String {
 pub enum Handoff {
     /// `mailo open <thread>`: open the conversation.
     Open(ThreadId),
+    /// `mailo open --inbox <account>`: show the account's inbox.
+    Inbox(AccountId),
     /// `mailo mailto:…`: compose on the link.
     Mailto(String),
     /// A bare `mailo`: raise the window.
@@ -74,6 +77,7 @@ impl Handoff {
         match (start, mailto) {
             (_, Some(uri)) => Some(Handoff::Mailto(uri.to_owned())),
             (Some(Start::Thread(thread)), None) => Some(Handoff::Open(*thread)),
+            (Some(Start::InboxOf(account)), None) => Some(Handoff::Inbox(account.clone())),
             (Some(Start::Inbox), None) => Some(Handoff::Activate),
             _ => None,
         }
@@ -84,6 +88,7 @@ impl Handoff {
     pub fn deliver(&self, profile: &ProfileId, token: Option<&str>) -> bool {
         match self {
             Handoff::Open(thread) => deliver(profile, *thread, token),
+            Handoff::Inbox(account) => deliver_inbox(profile, account, token),
             Handoff::Mailto(uri) => deliver_mailto(profile, uri, token),
             Handoff::Activate => deliver_activate(profile, token),
         }
@@ -117,6 +122,11 @@ pub enum Request {
         thread: ThreadId,
         token: Option<ActivationToken>,
     },
+    /// Show this account's inbox, and raise the window.
+    Inbox {
+        account: AccountId,
+        token: Option<ActivationToken>,
+    },
     /// Open the composer on what this `mailto:` link asks for, and raise the window.
     Mailto {
         link: MailtoUri,
@@ -138,6 +148,19 @@ pub fn thread_of(uri: &str) -> Option<ThreadId> {
     id.parse().ok().map(ThreadId::from_uuid)
 }
 
+/// The scheme and path of an account's inbox: `mailo:inbox/<account>`.
+const INBOX_PREFIX: &str = "mailo:inbox/";
+
+/// The URI that asks a running window for `account`'s inbox.
+pub fn inbox_uri(account: &AccountId) -> String {
+    format!("{INBOX_PREFIX}{}", account.as_str())
+}
+
+/// The account whose inbox `uri` names, or `None` for one that is not an inbox of ours.
+pub fn inbox_of(uri: &str) -> Option<AccountId> {
+    AccountId::parse(uri.strip_prefix(INBOX_PREFIX)?).ok()
+}
+
 /// What `uris` ask, the token on the first request only: every one is for this window, and a
 /// token is good once. A conversation of ours or a `mailto:` link is a request; none among them
 /// is a request to raise the window.
@@ -150,6 +173,11 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
                     thread,
                     token: None,
                 })
+            } else if let Some(account) = inbox_of(uri) {
+                Some(Request::Inbox {
+                    account,
+                    token: None,
+                })
             } else {
                 uri.parse()
                     .ok()
@@ -158,7 +186,11 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
         })
         .collect();
     match requests.first_mut() {
-        Some(Request::Thread { token: first, .. } | Request::Mailto { token: first, .. }) => {
+        Some(
+            Request::Thread { token: first, .. }
+            | Request::Inbox { token: first, .. }
+            | Request::Mailto { token: first, .. },
+        ) => {
             *first = token;
         }
         _ => requests.push(Request::Activate { token }),
@@ -169,17 +201,19 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
 #[cfg(not(any(target_os = "macos", windows)))]
 mod bus;
 #[cfg(not(any(target_os = "macos", windows)))]
-pub use bus::{Requests, deliver, deliver_activate, deliver_mailto, serve};
+pub use bus::{Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, serve};
 
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
-pub use macos::{Requests, deliver, deliver_activate, deliver_mailto, hear_reopen, serve};
+pub use macos::{
+    Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, hear_reopen, serve,
+};
 
 #[cfg(windows)]
 mod none;
 #[cfg(windows)]
-pub use none::{Requests, deliver, deliver_activate, deliver_mailto, serve};
+pub use none::{Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, serve};
 
 #[cfg(test)]
 mod tests {
@@ -208,6 +242,11 @@ mod tests {
             Handoff::of(Some(&Start::Inbox), None),
             Some(Handoff::Activate)
         );
+        let account = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc));
+        assert_eq!(
+            Handoff::of(Some(&Start::InboxOf(account.clone())), None),
+            Some(Handoff::Inbox(account))
+        );
         assert_eq!(Handoff::of(None, None), None);
 
         let default = ProfileId::default();
@@ -233,6 +272,22 @@ mod tests {
         for uri in NOT_OURS {
             assert_eq!(thread_of(uri), None, "{uri:?}");
         }
+    }
+
+    /// A summary's click asks for its account's inbox, by a URI of its own; an inbox with no
+    /// account, or one that is not an account id, is not one of ours.
+    #[test]
+    fn an_accounts_inbox_round_trips_through_its_uri_and_is_a_request() {
+        let account = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc));
+        assert_eq!(inbox_of(&inbox_uri(&account)), Some(account.clone()));
+        for uri in ["mailo:inbox", "mailo:inbox/", "mailo:inbox/not an id!"] {
+            assert_eq!(inbox_of(uri), None, "{uri:?}");
+        }
+        let token = ActivationToken::new("t");
+        assert_eq!(
+            requests_of(&[inbox_uri(&account)], token.clone()),
+            vec![Request::Inbox { account, token }]
+        );
     }
 
     #[test]

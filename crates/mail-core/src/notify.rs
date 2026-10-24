@@ -126,11 +126,12 @@ pub fn verdict(
 }
 
 /// What a click on a notification should open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Opens {
     Thread(ThreadId),
-    /// A summary of several: there is no one conversation to open, so the inbox.
-    Inbox,
+    /// A summary of several: there is no one conversation to open, so the inbox, with the
+    /// account the summary was about, so the window can show it where that account's mail is.
+    Inbox(AccountId),
 }
 
 /// One desktop notification, before any transport has touched it.
@@ -188,10 +189,10 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
         n => format!("From {} and {n} others", named.join(", ")),
     };
     vec![Notification {
+        opens: Opens::Inbox(account.clone()),
         account,
         summary: format!("{} new messages", announced.len()),
         body,
-        opens: Opens::Inbox,
     }]
 }
 
@@ -468,7 +469,7 @@ mod tests {
                 summary: "7 new messages".to_owned(),
                 // Ada sent three; the rest one each, in the order they came.
                 body: "From Ada, Newsletter, Bob and 2 others".to_owned(),
-                opens: Opens::Inbox,
+                opens: Opens::Inbox(account()),
             }]
         );
         assert_eq!(

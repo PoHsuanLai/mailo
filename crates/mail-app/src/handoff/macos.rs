@@ -13,9 +13,10 @@
 //! socket cannot have (too long for `sockaddr_un`, no home) means no hand-off, as no bus does on
 //! Linux.
 
-use super::{Request, requests_of, uri_of};
+use super::{Request, inbox_uri, requests_of, uri_of};
 use mail_core::profile::ProfileId;
 use mail_domain::ThreadId;
+use porter_core::AccountId;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
@@ -202,6 +203,11 @@ pub fn deliver_mailto(profile: &ProfileId, uri: &str, _token: Option<&str>) -> b
     socket_path(profile).is_some_and(|path| send(&path, uri))
 }
 
+/// Ask the running window to show `account`'s inbox. True when one took it.
+pub fn deliver_inbox(profile: &ProfileId, account: &AccountId, _token: Option<&str>) -> bool {
+    socket_path(profile).is_some_and(|path| send(&path, &inbox_uri(account)))
+}
+
 /// Ask the running window to raise itself. True when one did; false when none is running.
 pub fn deliver_activate(profile: &ProfileId, _token: Option<&str>) -> bool {
     socket_path(profile).is_some_and(|path| send(&path, ACTIVATE))
@@ -257,6 +263,24 @@ mod tests {
             queue.try_recv().ok(),
             Some(Request::Mailto { link, .. }) if link.subject == "hi"
         ));
+    }
+
+    #[test]
+    fn an_accounts_inbox_sent_to_the_socket_reaches_the_window() {
+        let dir = tempfile::tempdir().expect("a scratch directory");
+        let path = dir.path().join("h.sock");
+        let requests = serve_at(&path).expect("served");
+        let mut queue = requests.take().expect("the queue, once");
+
+        let account = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc));
+        assert!(send(&path, &inbox_uri(&account)));
+        assert_eq!(
+            queue.try_recv().ok(),
+            Some(Request::Inbox {
+                account,
+                token: None
+            })
+        );
     }
 
     #[test]

@@ -58,19 +58,18 @@ pub fn hours_ago(hours: i64) -> String {
     (chrono::Utc::now() - chrono::Duration::hours(hours)).to_rfc2822()
 }
 
+/// Add the account `id`, at `address`, with an identity named Me.
+pub fn with_account(store: &SqliteStore, id: porter_core::AccountId, address: &str) {
+    mail_store::testing::seed_account(store, id.clone(), address);
+    mail_store::testing::seed_identity_for(store, IdentityId::generate(), id, address, Some("Me"));
+}
+
 /// A store in `dir` with one account, its identity and capabilities, and [`INBOX`].
 pub fn seeded(dir: &Path) -> Arc<SqliteStore> {
     std::fs::create_dir_all(dir.join("blobs")).expect("a blob directory");
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).expect("the store opens");
     {
-        mail_store::testing::seed_account(&store, account(), ME);
-        mail_store::testing::seed_identity_for(
-            &store,
-            IdentityId::generate(),
-            account(),
-            ME,
-            Some("Me"),
-        );
+        with_account(&store, account(), ME);
         let caps = AccountCaps {
             labels: ServerLabels::Supported,
             threads: ServerThreads::Jwz,

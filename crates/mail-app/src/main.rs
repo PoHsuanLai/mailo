@@ -123,7 +123,8 @@ fn main() {
     };
     // A second `mailo` hands what it was asked to its Profile's window that is running and ends,
     // with the click's activation token: `mailo open <thread>` (a banner's click, or the person at
-    // a terminal) opens the conversation there, `mailo mailto:…` composes there, and a bare
+    // a terminal) opens the conversation there, `mailo open --inbox <account>` (a summary's click)
+    // shows that account's inbox there, `mailo mailto:…` composes there, and a bare
     // `mailo` raises it, as macOS's launcher does for the app bundle. A window of another Profile
     // is never handed to. No window running (or no bus) is the ordinary start below.
     let token = std::env::var("XDG_ACTIVATION_TOKEN").ok();

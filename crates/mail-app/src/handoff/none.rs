@@ -2,6 +2,7 @@
 
 use mail_core::profile::ProfileId;
 use mail_domain::ThreadId;
+use porter_core::AccountId;
 
 /// Never constructed.
 #[derive(Debug, Clone)]
@@ -16,6 +17,10 @@ pub fn deliver(_profile: &ProfileId, _thread: ThreadId, _token: Option<&str>) ->
 }
 
 pub fn deliver_mailto(_profile: &ProfileId, _uri: &str, _token: Option<&str>) -> bool {
+    false
+}
+
+pub fn deliver_inbox(_profile: &ProfileId, _account: &AccountId, _token: Option<&str>) -> bool {
     false
 }
 

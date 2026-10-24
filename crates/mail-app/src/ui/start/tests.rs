@@ -79,6 +79,59 @@ fn a_window_started_on_a_thread_opens_it_in_the_reader() {
     );
 }
 
+/// A window started from a click (`mailo open`, nothing running to hand it to) opens on the Space
+/// that holds the conversation's account, not the one it was left in.
+#[test]
+fn a_window_started_on_a_thread_opens_in_the_space_that_holds_its_account() {
+    let (store, _dir) = realistic();
+    let thread = thread_like(&store, "supervision meeting");
+    let Ok(account) = store.thread(thread).map(|thread| thread.summary.account) else {
+        panic!("the fixture's conversation");
+    };
+    let spaces = crate::ui::space::built(
+        vec![
+            (
+                "Elsewhere".to_owned(),
+                ds::prelude::SpaceLook::default(),
+                crate::ui::space::Mail::of(Vec::new()),
+            ),
+            (
+                "Supervision".to_owned(),
+                ds::prelude::SpaceLook::default(),
+                crate::ui::space::Mail::of(vec![account]),
+            ),
+        ],
+        0,
+    );
+    let paint = |start: Start| {
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(store.clone())
+            .with_root_context(spaces.clone())
+            .with_root_context(start);
+        dom.rebuild_in_place();
+        dioxus_ssr::render(&dom)
+    };
+    let head = |html: &str| {
+        html.split("class=\"ds-space-head")
+            .nth(1)
+            .map(|rest| rest.chars().take(400).collect::<String>())
+            .unwrap_or_default()
+    };
+
+    let plain = paint(Start::Inbox);
+    assert!(head(&plain).contains("Elsewhere"), "{}", head(&plain));
+    let opened = paint(Start::Thread(thread));
+    assert!(
+        head(&opened).contains("Supervision"),
+        "not in the Space that holds it: {}",
+        head(&opened)
+    );
+    assert!(
+        opened.contains("supervision meeting — moved to Thursday</span></h2>"),
+        "the reader is not on it"
+    );
+}
+
 #[test]
 fn a_lone_mailto_link_is_the_windows_and_anything_else_is_not() {
     const CASES: &[(&[&str], Option<&str>)] = &[
@@ -174,21 +227,37 @@ fn a_window_started_from_a_mailto_link_opens_the_composer_on_its_draft() {
 
 /// What a desktop notification's click launches, and what the window makes of those arguments.
 #[test]
-fn a_click_starts_the_window_on_the_conversation_or_the_inbox() {
+fn a_click_starts_the_window_on_the_conversation_or_the_accounts_inbox() {
     let one = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
-    let args = mail_core::notify::desktop::Launch {
+    let opens = mail_core::notify::desktop::Launch {
         opens: mail_core::notify::Opens::Thread(one),
     }
     .args();
-    assert_eq!(args, ["open".to_owned(), one.to_string()]);
+    assert_eq!(opens, ["open".to_owned(), one.to_string()]);
     // What the window's own reading of the command line makes of them.
-    assert_eq!(super::start_of(&args), Some(Ok(super::Start::Thread(one))));
+    assert_eq!(super::start_of(&opens), Some(Ok(super::Start::Thread(one))));
+    // A summary's: its account's inbox, through the same reading.
+    let account = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc));
     let inbox = mail_core::notify::desktop::Launch {
-        opens: mail_core::notify::Opens::Inbox,
+        opens: mail_core::notify::Opens::Inbox(account.clone()),
     }
     .args();
-    assert!(inbox.is_empty());
-    assert_eq!(super::start_of(&inbox), Some(Ok(super::Start::Inbox)));
+    assert_eq!(
+        inbox,
+        ["open".to_owned(), "--inbox".to_owned(), account.to_string()]
+    );
+    assert_eq!(
+        super::start_of(&inbox),
+        Some(Ok(super::Start::InboxOf(account)))
+    );
+    assert!(matches!(
+        super::start_of(&args(&["open", "--inbox"])),
+        Some(Err(_))
+    ));
+    assert!(matches!(
+        super::start_of(&args(&["open", "--inbox", "not an id!"])),
+        Some(Err(_))
+    ));
 }
 
 /// A link's `bcc` is a recipient nobody else will see, chosen by whoever wrote the link: the
