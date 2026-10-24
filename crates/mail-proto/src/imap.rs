@@ -661,6 +661,22 @@ impl ImapSession {
             ImapCommand::RequireEmpty { mailbox } => {
                 format!("STATUS {} (MESSAGES)", wire(mailbox))
             }
+            // A server that offers SASL PLAIN with an initial response is signed in to with it:
+            // the password goes base64-encoded, so one in any script arrives as typed, where
+            // LOGIN's quoted string is 7-bit (RFC 3501 §4.3) and an accented letter in it is
+            // the server's to refuse. One round trip either way.
+            ImapCommand::Login
+                if offers_sasl(&self.transcript.capabilities, "PLAIN")
+                    && has_capability(&self.transcript.capabilities, "SASL-IR") =>
+            {
+                let Credential::Password(password) = &self.auth.credential else {
+                    return Err(ProtoError::Unsupported(
+                        "PLAIN needs a password credential".to_owned(),
+                    ));
+                };
+                let raw = crate::smtp::plain_raw(&self.auth.username, password.expose());
+                format!("AUTHENTICATE PLAIN {}", crate::smtp::b64(&raw))
+            }
             ImapCommand::Login => {
                 // RFC 3501 §6.2.3: a client MUST NOT issue LOGIN when the server advertises
                 // LOGINDISABLED. Observed live on outlook.office365.com, which answers
@@ -1092,6 +1108,16 @@ fn capabilities_in(response: &Response<'_>) -> Option<Vec<String>> {
         _ => return None,
     };
     Some(atoms.iter().map(|c| format!("{c:?}")).collect())
+}
+
+/// Whether the server offers the SASL mechanism `mechanism` (`AUTH=<mechanism>`, RFC 9051 §6.2.2).
+fn offers_sasl(capabilities: &[String], mechanism: &str) -> bool {
+    capabilities.iter().any(|c| {
+        c.trim()
+            .strip_prefix("Auth(")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .is_some_and(|name| name.trim_matches('"').eq_ignore_ascii_case(mechanism))
+    })
 }
 
 /// Whether the server advertised a capability, matched as a whole atom.
