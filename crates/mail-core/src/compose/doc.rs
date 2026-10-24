@@ -1,21 +1,42 @@
 //! The document a stored draft opens as: the composer's HTML when it wrote one, else the text,
 //! with its `-- ` signature and a quoted original folded into one object.
+//!
+//! Here rather than in the window because a draft is opened as a document on both sides of it:
+//! the composer edits one, and [`crate::signature`] puts a signature into one when From changes,
+//! whether or not a composer is open on the draft.
 
 use mail_domain::Draft;
 use mail_mime::{Block, Dir, RemoteImages, SanitizePolicy, Span, from_html, sanitize};
 
-use mail_core::editor::{Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain};
+use crate::editor::{Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain, runs_text};
 
 /// The document a stored draft holds: its HTML when the composer wrote one, else its text.
-pub(in crate::ui) fn doc_of(draft: &Draft) -> Doc {
+pub fn doc_of(draft: &Draft) -> Doc {
     let nodes = match &draft.html {
         Some(html) => {
             let safe = sanitize(html, SanitizePolicy::CURRENT);
-            nodes_from_blocks(&from_html(&safe, &[], RemoteImages::Blocked).blocks)
+            separated(nodes_from_blocks(
+                &from_html(&safe, &[], RemoteImages::Blocked).blocks,
+            ))
         }
         None => doc_from_text(&draft.text),
     };
     finish(nodes)
+}
+
+/// `nodes` with the signature separator the composer wrote as `<p>-- </p>` an object again: the
+/// last paragraph that says only `--`, as RFC 3676 reads the last `-- ` line of a text part.
+/// Read back as a paragraph it would be words the person could type over, and a signature no
+/// picker could find.
+fn separated(mut nodes: Vec<Node>) -> Vec<Node> {
+    let separator = nodes.iter().rposition(|node| {
+        matches!(node, Node::Para { kind: ParaKind::Paragraph, runs }
+            if runs_text(runs).trim() == "--")
+    });
+    if let Some(at) = separator {
+        nodes[at] = Node::Object(Object::Signature);
+    }
+    nodes
 }
 
 /// A document ends in a paragraph, so there is always a line to type on after an object.
@@ -28,7 +49,7 @@ fn finish(mut nodes: Vec<Node>) -> Doc {
 
 /// Plain draft text as nodes: paragraphs, the `-- ` signature, and a quoted original folded
 /// into one object.
-pub(in crate::ui) fn doc_from_text(text: &str) -> Vec<Node> {
+pub fn doc_from_text(text: &str) -> Vec<Node> {
     let text = text.replace("\r\n", "\n");
     let lines: Vec<&str> = text.split('\n').collect();
     let mut nodes = Vec::new();

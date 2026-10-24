@@ -199,6 +199,7 @@ const PAGES: &[(SettingsPage, &str)] = &[
         SettingsPage::Accounts,
         crate::ui::copy::controls::ADD_ACCOUNT,
     ),
+    (SettingsPage::Signatures, "id=\"signatures-pane\""),
     (SettingsPage::Spaces, crate::ui::copy::controls::NEW_SPACE),
     (SettingsPage::Rules, crate::ui::copy::controls::NEW_RULE),
     (SettingsPage::Vacation, "id=\"vacation-pane\""),
@@ -206,12 +207,13 @@ const PAGES: &[(SettingsPage, &str)] = &[
 ];
 
 #[test]
-fn settings_has_6_pages_in_that_order() {
+fn settings_has_7_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
         [
             crate::ui::copy::titles::GENERAL,
             crate::ui::copy::titles::ACCOUNTS,
+            crate::ui::copy::titles::SIGNATURES,
             crate::ui::copy::titles::SPACES,
             crate::ui::copy::titles::RULES,
             "Vacation Reply",

@@ -1207,6 +1207,9 @@ mod signatures {
     /// The delimiter is `-- ` with its trailing space: RFC 3676 §4.3 names that string, and
     /// every client that trims a signature when quoting looks for it. `--` without the space is
     /// a different line and gets quoted back at people for the rest of the thread.
+    ///
+    /// The signature is the identity's default for replies, at the end under the quoted
+    /// original, as Apple Mail puts it unless asked to put it above.
     #[test]
     fn a_reply_carries_the_signature_beneath_what_was_written() {
         let (store, _dir) = seeded();
@@ -1226,8 +1229,11 @@ mod signatures {
         let delimiter = text.find("\r\n-- \r\n").expect("the signature delimiter");
         let sig = text.find("Analytical Engines").expect("the signature");
         let quote = text.find("Ada Lovelace wrote:").expect("the attribution");
-        assert!(written < delimiter, "the signature came first:\n{text}");
-        assert!(delimiter < sig && sig < quote, "out of order:\n{text}");
+        assert!(written < quote, "the quote came first:\n{text}");
+        assert!(
+            quote < delimiter && delimiter < sig,
+            "out of order:\n{text}"
+        );
     }
 
     #[test]

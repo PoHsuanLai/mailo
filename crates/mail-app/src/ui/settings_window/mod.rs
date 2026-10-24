@@ -3,11 +3,13 @@
 //! already open. Laid out as detent lays out a program's page: a sidebar of pages, each a column
 //! of titled groups of rows.
 //!
-//! Five pages: General, Accounts, Spaces, Rules and Keyboard. General draws mailo's settings schema
-//! (`crate::settings`) as two groups of rows ([`general`], each row a key's, drawn by [`keys`]),
-//! the same keys detent draws on mailo's page and writes to the same `mailo/settings.toml`.
-//! Accounts lists each account, whose row pushes its own page into the pane ([`account`]): its
-//! mail kept here, its encryption keys, and its removal. Rules and Keyboard are drawn by their
+//! Seven pages: General, Accounts, Signatures, Spaces, Rules, Vacation Reply and Keyboard.
+//! General draws mailo's settings schema (`crate::settings`) as two groups of rows ([`general`],
+//! each row a key's, drawn by [`keys`]), the same keys detent draws on mailo's page and writes to
+//! the same `mailo/settings.toml`. Accounts lists each account, whose row pushes its own page into
+//! the pane ([`account`]): its mail kept here, its encryption keys, and its removal. Signatures
+//! lists every address's signatures, each written in the composer's body on a page of its own
+//! ([`signatures`]). Rules and Keyboard are drawn by their
 //! modules (`rules`, `keyboard`). A page that has pages of its own pushes them, as System
 //! Settings does, with quire's `PaneStack`; a sheet is only for making something or asking
 //! before something goes. Spaces lists each Space, whose row pushes its page: its name, colour,
@@ -36,6 +38,7 @@ mod keys;
 mod offline;
 mod root;
 mod rows;
+mod signatures;
 mod spaces;
 
 pub(in crate::ui) use account::Seams as AccountSeams;
@@ -65,9 +68,10 @@ pub(in crate::ui) const TITLE: &str = copy::titles::SETTINGS;
 const SIZE: (u32, u32) = (780, 620);
 
 impl SettingsPage {
-    pub(in crate::ui) const ALL: [SettingsPage; 6] = [
+    pub(in crate::ui) const ALL: [SettingsPage; 7] = [
         SettingsPage::General,
         SettingsPage::Accounts,
+        SettingsPage::Signatures,
         SettingsPage::Spaces,
         SettingsPage::Rules,
         SettingsPage::Vacation,
@@ -79,6 +83,7 @@ impl SettingsPage {
         match self {
             SettingsPage::General => copy::titles::GENERAL,
             SettingsPage::Accounts => copy::titles::ACCOUNTS,
+            SettingsPage::Signatures => copy::titles::SIGNATURES,
             SettingsPage::Spaces => copy::titles::SPACES,
             SettingsPage::Rules => copy::titles::RULES,
             SettingsPage::Vacation => copy::titles::VACATION_REPLY,
@@ -90,6 +95,7 @@ impl SettingsPage {
         match self {
             SettingsPage::General => Icon::Settings,
             SettingsPage::Accounts => Icon::Mail,
+            SettingsPage::Signatures => Icon::Pen,
             SettingsPage::Spaces => Icon::Grid,
             SettingsPage::Rules => Icon::FolderInput,
             SettingsPage::Vacation => Icon::Sun,
@@ -341,6 +347,7 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
                 match page {
                     SettingsPage::General => rsx! { general::General {} },
                     SettingsPage::Accounts => rsx! { accounts::Accounts { shell, revision } },
+                    SettingsPage::Signatures => rsx! { signatures::Signatures { shell, revision } },
                     SettingsPage::Spaces => match try_consume_context::<crate::ui::space::Handle>() {
                         Some(handle) => rsx! { spaces::Spaces { shell, handle } },
                         None => rsx! {},

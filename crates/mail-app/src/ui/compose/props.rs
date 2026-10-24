@@ -89,6 +89,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
                     Recipients { page, list: List::Bcc, refused: None }
                 }
             }
+            super::signoff::SignatureRow { page }
             SendsRow { page }
             RemindRow { page }
             ProtectionRow { page }
@@ -324,7 +325,10 @@ fn move_to(mut page: Signal<Page>, key: &str) {
             .map_err(crate::ui::remedy::told)
     });
     match moved {
-        Ok(draft) => write.from = draft.account,
+        Ok(draft) => {
+            super::signoff::follow_from(&store, &mut write, &draft);
+            write.from = draft.account;
+        }
         Err(why) => write.notice = Some(why),
     }
 }

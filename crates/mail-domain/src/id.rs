@@ -97,6 +97,10 @@ uuid_id!(
     IdentityId
 );
 uuid_id!(
+    /// One signature of an identity's. Local only, never on a server.
+    SignatureId
+);
+uuid_id!(
     /// One applied [`crate::Patch`]. Recorded so a pending local change can be re-layered on
     /// top of server truth, or undone if its remote counterpart fails permanently.
     ChangeId
