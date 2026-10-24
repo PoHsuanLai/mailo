@@ -419,3 +419,65 @@ fn in_trash_a_row_is_deleted_forever_and_the_trash_emptied_only_once_asked() {
     window.press(&[PRIMARY], Key::Char('z'), 1);
     assert_eq!(in_trash(&window), 0, "Ctrl-Z took something back");
 }
+
+/// A click on a row only opens it, wherever on the row it lands: at 70% of its width, where a
+/// strip of actions once stood and a pointer that had just arrived clicked Archive or Trash, the
+/// conversation opens and nothing leaves the list. A right click only opens the row's menu, at
+/// the pointer: the conversation neither leaves nor opens.
+#[test]
+fn a_click_on_a_row_opens_it_and_a_right_click_only_opens_its_menu_at_the_pointer() {
+    use ds::prelude::{Point, Px};
+    let mut window = Window::open(|_| {});
+    let first = window.text(&format!("{} .ds-thread-sub", item(1)));
+    assert!(!first.is_empty(), "the first row reads no subject");
+    let first = first.as_str();
+    let rows = window.subjects();
+    let any_open = |window: &Window| INBOX.iter().any(|(_, s)| reading(&window.harness, s));
+    assert!(
+        !any_open(&window),
+        "a conversation is open before any click"
+    );
+
+    // A right click: the menu, at the pointer, and nothing else.
+    let line = format!("{} .ds-thread-sub", item(1));
+    let at = window.centre(&line);
+    window
+        .harness
+        .press(at, ds::base::press::PointerButton::Secondary);
+    window.until("the right click opens the row's menu", |h| {
+        h.count(".ds-menu .ds-menu-item") > 0
+    });
+    let menu = window.harness.rect(".ds-menu").expect("the menu is drawn");
+    assert!(
+        (menu.origin.x.0 - at.x.0).abs() < 24.0,
+        "the menu {menu:?} does not hang at the pointer {at:?}"
+    );
+    window.harness.advance(ms(300));
+    assert_eq!(window.subjects(), rows, "the right click acted on a row");
+    assert!(
+        !any_open(&window),
+        "the right click opened the conversation"
+    );
+    window.press(&[], Key::Escape, 1);
+    window.until("Escape closes the menu", |h| h.count(".ds-menu") == 0);
+
+    // A click at 70% of the row's width opens it, and acts on nothing.
+    let row = window
+        .harness
+        .rect(&item(1))
+        .expect("the first row is drawn");
+    let at = Point {
+        x: Px(row.origin.x.0 + row.size.width.0 * 0.7),
+        y: Px(row.origin.y.0 + row.size.height.0 / 2.0),
+    };
+    window.harness.pointer_move(at);
+    window.harness.click(at);
+    window.until("the click opens the conversation", |h| reading(h, first));
+    window.harness.advance(ms(300));
+    assert_eq!(window.subjects(), rows, "the click acted on a row");
+    assert_eq!(
+        stored_where(&window, |thread| thread.subject == first).len(),
+        1,
+        "the click moved the conversation out of the account"
+    );
+}
