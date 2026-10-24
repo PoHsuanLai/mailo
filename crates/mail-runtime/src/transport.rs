@@ -185,13 +185,10 @@ impl Transport {
         // Here rather than in `connect`, because `upgrade` builds a session too and this is
         // the one place that touches rustls at all.
         install_crypto_provider();
-        let roots = rustls::RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        };
-        // No custom verifier and no way to disable verification. If a campus server presents a
-        // chain webpki rejects, that is a conversation to have deliberately, not a flag to add.
+        // The bundled roots and the system's (`crate::roots`). No custom verifier and no way to
+        // disable verification: a campus server's authority is believed when the system has it.
         let config = rustls::ClientConfig::builder()
-            .with_root_certificates(roots)
+            .with_root_certificates(crate::roots::server_roots())
             .with_no_client_auth();
         let name = rustls_pki_types::ServerName::try_from(host.to_owned()).map_err(|_| {
             RuntimeError::Tls(Failure::said(format!("{host} is not a valid server name")))

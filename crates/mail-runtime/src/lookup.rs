@@ -149,7 +149,7 @@ fn fault(e: hickory_resolver::net::NetError) -> DnsFault {
 /// A builder so a test can trust its own certificate and point names at a local listener;
 /// everything that makes the fetch safe is already set.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::roots::trusting_system(reqwest::Client::builder())
         .timeout(PER_REQUEST)
         .connect_timeout(PER_REQUEST)
         .https_only(true)

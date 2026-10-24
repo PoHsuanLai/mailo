@@ -63,7 +63,8 @@ sha2 = "0.10"
 # A logo read as XML before it is drawn, to refuse what SVG Tiny PS leaves out. The parser usvg
 # already uses, at its version; it expands no entities and reads no DTD.
 roxmltree = "0.21"
-# The operating system's certificate authorities, as S/MIME trust anchors (`smime.rs`). Apache-2.0
+# The operating system's certificate authorities, as S/MIME trust anchors (`smime.rs`) and, beside
+# the bundled roots, for the servers an account is set up with (`roots.rs`). Apache-2.0
 # OR ISC OR MIT; reads the platform's bundle (on Linux the files OpenSSL would, found by
 # `openssl-probe`, also permissive).
 rustls-native-certs = "0.8"

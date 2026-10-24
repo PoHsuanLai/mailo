@@ -123,7 +123,7 @@ impl From<CardDavFailure> for RuntimeError {
 ///
 /// A builder so a test can add a root it trusts and point a name at a local listener.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::roots::trusting_system(reqwest::Client::builder())
         .timeout(TIMEOUT)
         .connect_timeout(Duration::from_secs(15))
         .https_only(true)
