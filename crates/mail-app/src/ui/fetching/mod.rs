@@ -337,6 +337,8 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
             folders,
             offers,
             revision,
+            notices: try_consume_context::<crate::ui::follow_up::Notices>(),
+            settings: try_consume_context::<Signal<crate::settings::MailSettings>>(),
         };
         let every = accounts.peek().iter().cloned().collect();
         let initial = links.peek().clone();
