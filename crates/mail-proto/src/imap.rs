@@ -309,6 +309,17 @@ impl fmt::Debug for ImapAuth {
 enum Phase {
     /// Waiting for the server greeting, which is itself an untagged response.
     Greeting,
+    /// `STARTTLS` was sent; waiting for its tagged completion (RFC 9051 §6.2.1).
+    StartingTls {
+        tag: String,
+    },
+    /// The server agreed to `STARTTLS`, and the runtime is upgrading the connection.
+    AwaitingTls,
+    /// Upgraded: `CAPABILITY` was sent, because what the server said before TLS is not to be
+    /// trusted (RFC 9051 §6.2.1), and the first command waits for its answer.
+    Recapping {
+        tag: String,
+    },
     /// A command is outstanding; waiting for its tagged completion.
     Running {
         index: usize,
@@ -403,6 +414,9 @@ pub struct ImapSession {
     /// The mailbox the connection has selected, and how: from the last `SELECT` or `EXAMINE`
     /// that completed, this session's or the one it resumed from.
     selected: Option<Access>,
+    /// The server's name and port, when the connection is to be upgraded with `STARTTLS` before
+    /// anything else is said ([`Self::with_starttls`]).
+    starttls: Option<(String, u16)>,
 }
 
 /// What a session that finished leaves for the next one on its connection.
@@ -468,7 +482,20 @@ impl ImapSession {
             held: 0,
             resumed: false,
             selected: None,
+            starttls: None,
         })
+    }
+
+    /// The same session, upgrading the connection with `STARTTLS` straight after the greeting,
+    /// before it signs in or sends anything else ([`mail_domain::Tls::StartTlsRequired`]).
+    ///
+    /// The upgrade is required, never opportunistic: a server that refuses it, greets with
+    /// `PREAUTH` (signed in already, so `STARTTLS` is no longer allowed), or sends anything after
+    /// agreeing to it ends the session before a credential is written.
+    #[must_use]
+    pub fn with_starttls(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.starttls = Some((host.into(), port));
+        self
     }
 
     /// The same session, failing a response that grows past `bytes` without ending rather than
@@ -504,6 +531,8 @@ impl ImapSession {
         self.selected = from.selected;
         self.buf = from.unread;
         self.resumed = true;
+        // The connection was upgraded when it was opened.
+        self.starttls = None;
         self
     }
 
@@ -530,6 +559,32 @@ impl ImapSession {
         let tag = self.next_tag();
         let line = format!("{tag} UNSELECT\r\n").into_bytes();
         self.phase = Phase::Deselecting { tag };
+        Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
+    }
+
+    /// The greeting was read: upgrade the connection first when it is to be, else begin.
+    fn greeted(&mut self, preauth: bool) -> Progress<ImapTranscript> {
+        if self.starttls.is_none() {
+            return self.issue(0);
+        }
+        if preauth {
+            return self.fail(ProtoError::Unsupported(
+                "the server signed in before STARTTLS, so the connection cannot be secured"
+                    .to_owned(),
+            ));
+        }
+        let tag = self.next_tag();
+        let line = format!("{tag} STARTTLS\r\n").into_bytes();
+        self.phase = Phase::StartingTls { tag };
+        Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
+    }
+
+    /// The connection is upgraded: forget what the server said before, and ask again.
+    fn upgraded(&mut self) -> Progress<ImapTranscript> {
+        self.transcript.capabilities.clear();
+        let tag = self.next_tag();
+        let line = format!("{tag} CAPABILITY\r\n").into_bytes();
+        self.phase = Phase::Recapping { tag };
         Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
     }
 
@@ -921,6 +976,13 @@ impl ImapSession {
             // again. A response that ended the session leaves nothing that matters behind it.
             self.buf = buf;
             self.buf.drain(..consumed);
+            // Anything the server sent after its go-ahead came before TLS, so an attacker on the
+            // path may have written it to be read as said under TLS (CVE-2011-0411's shape).
+            if matches!(self.phase, Phase::AwaitingTls) && !self.buf.is_empty() {
+                return self.fail(ProtoError::Malformed(
+                    "the server sent more after agreeing to STARTTLS".to_owned(),
+                ));
+            }
             if let Some(progress) = progress {
                 return progress;
             }
@@ -982,13 +1044,40 @@ impl ImapSession {
                     | Phase::AppendPending { tag, .. }
                     // The same for a search refused before its literal: a bad charset, say.
                     | Phase::LiteralPending { tag, .. }
-                    | Phase::Deselecting { tag } => tag.clone(),
+                    | Phase::Deselecting { tag }
+                    | Phase::StartingTls { tag }
+                    | Phase::Recapping { tag } => tag.clone(),
                     _ => String::new(),
                 };
                 if tag != expected {
                     return Some(self.fail(ProtoError::Malformed(format!(
                         "tagged {tag} while waiting for {expected}"
                     ))));
+                }
+                if matches!(self.phase, Phase::StartingTls { .. }) {
+                    return Some(match status {
+                        imap_proto::Status::Ok => {
+                            // `StartingTls` is only entered with a server to upgrade to.
+                            let Some((host, port)) = self.starttls.clone() else {
+                                return Some(self.fail(ProtoError::Malformed(
+                                    "STARTTLS without a server".to_owned(),
+                                )));
+                            };
+                            self.phase = Phase::AwaitingTls;
+                            Progress::Need(vec![IoNeed::OpenTls {
+                                host,
+                                port,
+                                mode: mail_domain::Tls::StartTlsRequired,
+                            }])
+                        }
+                        _ => self.fail(ProtoError::Unsupported(format!("STARTTLS: {text}"))),
+                    });
+                }
+                if matches!(self.phase, Phase::Recapping { .. }) {
+                    return Some(match status {
+                        imap_proto::Status::Ok => self.issue(0),
+                        _ => self.fail(ProtoError::Malformed(format!("CAPABILITY: {text}"))),
+                    });
                 }
                 if matches!(self.phase, Phase::Deselecting { .. }) {
                     return Some(match status {
@@ -1035,8 +1124,18 @@ impl ImapSession {
                     _ => Some(self.fail(ProtoError::Malformed(format!("BAD: {text}")))),
                 }
             }
-            // News of the mailbox being left, not of this session's.
-            _ if matches!(self.phase, Phase::Deselecting { .. }) => None,
+            // News of the mailbox being left, not of this session's; or what the server says
+            // while the connection is being secured, which no command asked for.
+            _ if matches!(
+                self.phase,
+                Phase::Deselecting { .. }
+                    | Phase::StartingTls { .. }
+                    | Phase::AwaitingTls
+                    | Phase::Recapping { .. }
+            ) =>
+            {
+                None
+            }
             _ => {
                 // Everything else is untagged and may arrive at any moment, solicited or not.
                 let during = match &self.phase {
@@ -1162,6 +1261,7 @@ impl Machine for ImapSession {
     fn feed(&mut self, ready: IoReady) -> Progress<ImapTranscript> {
         match ready {
             IoReady::Eof => self.fail(ProtoError::UnexpectedEof),
+            IoReady::TlsOpen if matches!(self.phase, Phase::AwaitingTls) => self.upgraded(),
             IoReady::TlsOpen | IoReady::Woke => Progress::Need(vec![IoNeed::Read]),
             IoReady::Interrupt => match self.phase.clone() {
                 // The cancellation path IDLE exists for: wind down in protocol so the
@@ -1190,13 +1290,20 @@ impl Machine for ImapSession {
                             if let Some(atoms) = capabilities_in(&response) {
                                 self.transcript.capabilities = atoms;
                             }
+                            let preauth = matches!(
+                                response,
+                                Response::Data {
+                                    status: imap_proto::Status::PreAuth,
+                                    ..
+                                }
+                            );
                             self.transcript.untagged.push(Untagged {
                                 during: 0,
                                 text,
                                 raw: self.buf[..used].to_vec(),
                             });
                             self.buf.drain(..used);
-                            self.issue(0)
+                            self.greeted(preauth)
                         }
                         Err(nom::Err::Incomplete(_)) => self.read_more(),
                         Err(_) => {

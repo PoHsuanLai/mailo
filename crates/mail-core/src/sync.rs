@@ -765,6 +765,25 @@ pub async fn check_sign_in(
     }
 }
 
+/// The incoming server's name and port when its connections are to be upgraded with STARTTLS
+/// (STLS for POP3) before anything is signed in; `None` for implicit TLS or no server.
+fn starttls_for(plan: &AccountPlan) -> Option<(String, u16)> {
+    match &plan.incoming {
+        Incoming::Imap {
+            host,
+            port,
+            tls: Tls::StartTlsRequired,
+        }
+        | Incoming::Pop3 {
+            host,
+            port,
+            tls: Tls::StartTlsRequired,
+            ..
+        } => Some((host.clone(), *port)),
+        _ => None,
+    }
+}
+
 /// An engine for a POP3 account, signed in with the password `held` holds.
 fn pop3_engine(
     store: &Arc<SqliteStore>,
@@ -777,6 +796,7 @@ fn pop3_engine(
         return Err(Failure::fatal("POP3 needs a password credential"));
     };
     let sasl = sasl_for(&account.plan);
+    let starttls = starttls_for(&account.plan);
     let backend = Pop3Backend::new(
         account.id.clone(),
         account.caps.clone(),
@@ -788,7 +808,11 @@ fn pop3_engine(
                 all.extend(auth_prelude(&sasl));
             }
             all.extend(commands);
-            Pop3Session::new(username.clone(), password.expose().to_owned(), all)
+            let session = Pop3Session::new(username.clone(), password.expose().to_owned(), all)?;
+            Ok(match &starttls {
+                Some((host, port)) => session.with_starttls(host.clone(), *port),
+                None => session,
+            })
         }),
     );
     Ok(AccountEngine::new(
@@ -820,6 +844,7 @@ fn imap_engine(
         | Credential::KeyPair { .. } => ImapCommand::Login,
     };
     let (username, sasl) = (username_for(&account.plan), sasl_for(&account.plan));
+    let starttls = starttls_for(&account.plan);
     let backend = ImapBackend::new(
         account.id.clone(),
         account.caps.clone(),
@@ -838,7 +863,13 @@ fn imap_engine(
                 credential: held.current(),
                 sasl: sasl.clone(),
             };
-            ImapSession::new(auth, all)
+            // A session resumed on a connection already open drops this
+            // (`ImapSession::resuming`): that connection was upgraded when it was opened.
+            let session = ImapSession::new(auth, all)?;
+            Ok(match &starttls {
+                Some((host, port)) => session.with_starttls(host.clone(), *port),
+                None => session,
+            })
         }),
     );
     AccountEngine::new(
