@@ -41,6 +41,8 @@ pub(super) struct TileRow {
     pub unread: u64,
     /// Its provider; none for local folders, which are on no provider.
     pub via: Option<Provider>,
+    /// Whether the person paused its syncing, which its mark says while nothing worse does.
+    pub paused: bool,
 }
 
 /// The tiles for `space`: each account it shows, in the order they were put in it, that the
@@ -68,17 +70,23 @@ pub(super) fn tile_rows(store: &SqliteStore, space: &Space) -> Vec<TileRow> {
                 name: row.shown(),
                 unread,
                 via: (!row.is_local()).then(|| provider(&row.plan)),
+                paused: row.paused(),
             }
         })
         .collect()
 }
 
 /// What a tile's mark says of its account's status line: nothing while all is well or busy (a
-/// sync shows as the foot's turning arrows), else the warning, with the line as its words.
-pub(super) fn status_of(line: Option<&StatusLine>) -> PinStatus {
+/// sync shows as the foot's turning arrows), else the warning, with the line as its words. An
+/// account the person paused says so while nothing worse is wrong, and its mark, like any
+/// other, opens the account's page, where the switch is.
+pub(super) fn status_of(line: Option<&StatusLine>, paused: bool) -> PinStatus {
     match line {
         Some(line) if line.tone != Tone::Plain => PinStatus::Attention {
             why: line.text.clone(),
+        },
+        _ if paused => PinStatus::Attention {
+            why: copy::status::account::PAUSED.to_owned(),
         },
         _ => PinStatus::Quiet,
     }
@@ -137,7 +145,7 @@ pub(super) fn AccountTiles(
         .iter()
         .map(|row| {
             let line = fetching.and_then(|fetching| fetching.account_line(&row.id, now));
-            status_of(line.as_ref())
+            status_of(line.as_ref(), row.paused)
         })
         .collect();
     let mut items: Vec<PinItem<Option<AccountId>>> = Vec::new();
@@ -279,6 +287,7 @@ fn bring_in(handle: Handle, account: AccountId) {
 #[cfg(test)]
 mod tests {
     use super::{all_status, status_of};
+    use crate::ui::copy;
     use crate::ui::fetching::{StatusLine, Tone};
     use ds::components::app::pin_tile::PinStatus;
 
@@ -320,8 +329,22 @@ mod tests {
             ),
         ];
         for (line, want) in cases {
-            assert_eq!(status_of(line.as_ref()), want, "{line:?}");
+            assert_eq!(status_of(line.as_ref(), false), want, "{line:?}");
         }
+    }
+
+    #[test]
+    fn a_paused_tile_says_so_unless_something_worse_is_wrong() {
+        let paused = attention(copy::status::account::PAUSED);
+        assert_eq!(status_of(None, true), paused);
+        assert_eq!(
+            status_of(Some(&line("Updated just now", Tone::Plain)), true),
+            paused
+        );
+        assert_eq!(
+            status_of(Some(&line("Sign in again.", Tone::Danger)), true),
+            attention("Sign in again.")
+        );
     }
 
     /// A pressed tile narrows the list to its account inside the Space; one whose account the

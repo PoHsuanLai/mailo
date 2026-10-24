@@ -58,7 +58,9 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     });
     let page = use_callback(move |page: AccountsPage| match page {
         AccountsPage::List => rsx! { AccountList { shell, revision } },
-        AccountsPage::Account(account) => rsx! { AccountPage { shell, revision, account } },
+        AccountsPage::Account(account) => {
+            rsx! { AccountPage { key: "{account}", shell, revision, account } }
+        }
         AccountsPage::OtherKeys => rsx! {
             Form {
                 crate::ui::pgp::keys::KeysPage { whose: crate::ui::pgp::keys::Whose::Others, revision }

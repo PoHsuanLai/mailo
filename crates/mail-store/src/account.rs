@@ -5,7 +5,7 @@
 
 use crate::StoreError;
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountCaps, AccountPlan, Identity};
+use mail_domain::{AccountCaps, AccountPlan, ArchiveMeans, FolderRoles, Identity, MailboxRole};
 use porter_core::AccountId;
 
 /// One account as it is stored.
@@ -37,4 +37,39 @@ pub struct NewAccount<'a> {
     pub identities: &'a [Identity],
     /// When the account was created, kept as it was if the address is already here.
     pub at: DateTime<Utc>,
+}
+
+/// Whether an account syncs. Paused, it keeps its mail and its settings and is left out of every
+/// pass until it is switched back on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Syncing {
+    #[default]
+    On,
+    Paused,
+}
+
+/// What the person says about an account beyond its plan.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AccountPrefs {
+    /// What the account is called in the window in place of its address. Never blank.
+    pub description: Option<String>,
+    pub syncing: Syncing,
+    /// The server folder picked for each role, in place of the one auto-detection found.
+    pub folders: Vec<(MailboxRole, String)>,
+}
+
+/// `caps` with the folders the person picked laid over the roles the server was observed to
+/// give: each picked role is that folder's alone, and the folder plays no other. An archive
+/// folder picked is also where archiving moves mail, on a server that archives by moving it.
+pub fn with_picks(mut caps: AccountCaps, picks: &[(MailboxRole, String)]) -> AccountCaps {
+    let mut roles = caps.folders.0;
+    for (role, path) in picks {
+        roles.retain(|(had, played)| had != path && played != role);
+        roles.push((path.clone(), *role));
+        if *role == MailboxRole::Archive && matches!(caps.archive, ArchiveMeans::MoveToFolder(_)) {
+            caps.archive = ArchiveMeans::MoveToFolder(path.clone());
+        }
+    }
+    caps.folders = FolderRoles(roles);
+    caps
 }

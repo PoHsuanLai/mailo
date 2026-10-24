@@ -3,7 +3,8 @@
 //! servers and sign-in, its own keys and certificates (`pgp::keys`), and, last and alone,
 //! Remove Account….
 //!
-//! The servers are read, not edited: changing them is the Add account sheet's. Remove asks first
+//! What the account is called, whether it syncs, its servers and its folders' roles are
+//! changed here ([`edit`]). Remove asks first
 //! in quire's alert, naming how much mail goes and whether the server still has it. Only the
 //! confirming button removes; Escape and Cancel leave the page as it was. A removal runs off the
 //! thread that draws (the keyring blocks), on the window's own task, so turning to another page
@@ -12,6 +13,8 @@
 //! follow it, as they do for an account removed with `mailo account remove`. What the page says
 //! is [`words`]'s.
 
+mod edit;
+mod servers;
 mod words;
 
 use crate::ui::appearance::WindowDirs;
@@ -233,12 +236,12 @@ pub(super) fn AccountPage(
                     super::offline::DownloadAll { row: row.clone() }
                 }
             }
-            FormSection { title: Some(copy::headers::SERVERS.to_owned()),
-                for line in words::settings(&row.plan) {
-                    FieldRow { key: "{line.label}", label: line.label,
-                        Label { text: line.value }
-                    }
-                }
+            if !row.is_local() {
+                edit::About { row: row.clone(), revision }
+            }
+            edit::Servers { row: row.clone(), revision }
+            if !row.is_local() {
+                edit::FolderRoles { row: row.clone(), revision }
             }
             if !row.is_local() {
                 crate::ui::pgp::keys::KeysPage { whose: Whose::Account(row.address.clone()), revision }

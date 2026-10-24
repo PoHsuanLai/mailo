@@ -324,6 +324,10 @@ pub struct AccountEngine<B: Backend> {
     /// The connection to the submission server the last submission was accepted on, signed in
     /// and open for the next, until the drain it is part of ends.
     sending: Option<(Kept, mail_proto::Open)>,
+    /// What the server was last observed to support with the folders the person picked for
+    /// roles laid over it ([`mail_store::with_picks`]), read back from the store after each
+    /// refresh. `None` while nothing is picked, and the backend's own belief stands.
+    picked: Option<AccountCaps>,
 }
 
 /// How long a kept connection waits for the next operation before a new one is opened instead.
@@ -406,6 +410,7 @@ impl<B: Backend> AccountEngine<B> {
             dial: None,
             kept: None,
             sending: None,
+            picked: None,
         }
     }
 
@@ -418,6 +423,9 @@ impl<B: Backend> AccountEngine<B> {
 
     /// What the server is believed to support: the Graph reader's, where there is one.
     fn caps(&self) -> &AccountCaps {
+        if let Some(picked) = &self.picked {
+            return picked;
+        }
         match &self.graph {
             Some(reader) => reader.caps(),
             None => self.backend.caps(),
@@ -1410,7 +1418,19 @@ impl<B: Backend> AccountEngine<B> {
             None => caps,
         };
         self.store.put_caps(self.account.clone(), &caps, now)?;
-        Ok(caps)
+        self.repick()?;
+        Ok(self.caps().clone())
+    }
+
+    /// Read back what was just written, with the person's picked folders over it, for the
+    /// rest of this engine's life to file by.
+    fn repick(&mut self) -> Result<(), RuntimeError> {
+        let picks = self.store.account_prefs(self.account.clone())?.folders;
+        self.picked = match picks.is_empty() {
+            true => None,
+            false => self.store.account_caps(self.account.clone())?,
+        };
+        Ok(())
     }
 
     /// Ask the server for its folders, and write down the answer.
@@ -1433,6 +1453,7 @@ impl<B: Backend> AccountEngine<B> {
                 None => *caps,
             };
             self.store.put_caps(self.account.clone(), &caps, now)?;
+            self.repick()?;
         }
         Ok(self.store.folders(self.account.clone())?)
     }

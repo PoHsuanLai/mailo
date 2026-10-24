@@ -1,5 +1,6 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
+mod account_prefs;
 mod accounts;
 mod contacts;
 mod destroyed;
@@ -731,13 +732,16 @@ impl Store for SqliteStore {
         caps: &AccountCaps,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
+        // What was observed, with what the person picked laid over it: a refresh replaces the
+        // first and keeps the second.
+        let caps = self.picked(&account, caps.clone())?;
         self.connection().execute(
             "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(account) DO UPDATE SET
                  caps = excluded.caps, observed_at = excluded.observed_at",
             rusqlite::params![
                 account.to_string(),
-                row::to_json("AccountCaps", caps)?,
+                row::to_json("AccountCaps", &caps)?,
                 row::from_time(now),
             ],
         )?;

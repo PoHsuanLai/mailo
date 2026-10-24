@@ -1,5 +1,5 @@
 use crate::ui::view::Listing;
-use mail_core::{SqliteStore, Store};
+use mail_core::{SqliteStore, Store, Syncing};
 use mail_domain::*;
 use porter_core::AccountId;
 
@@ -61,6 +61,10 @@ pub(super) struct AccountRow {
     pub id: AccountId,
     pub address: String,
     pub plan: AccountPlan,
+    /// What the person calls it, written in place of the address where the window names it.
+    pub description: Option<String>,
+    /// Whether the person paused its syncing.
+    pub syncing: Syncing,
 }
 
 /// Every account, oldest first. A plan that does not parse becomes a plain IMAP account so the
@@ -74,10 +78,15 @@ pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
             let plan = account
                 .plan
                 .unwrap_or_else(|_| fallback_plan(&account.address));
+            // An account whose preferences cannot be read is shown as it was before there were
+            // any: by its address, syncing.
+            let prefs = store.account_prefs(account.id.clone()).unwrap_or_default();
             AccountRow {
                 id: account.id,
                 address: account.address,
                 plan,
+                description: prefs.description,
+                syncing: prefs.syncing,
             }
         })
         .collect()
@@ -90,13 +99,21 @@ impl AccountRow {
         matches!(self.plan.incoming, Incoming::Local)
     }
 
-    /// The account's name as the window writes it: its address, or "Local folders".
+    /// The account's name as the window writes it: the description the person gave it, else
+    /// its address, or "Local folders".
     pub(in crate::ui) fn shown(&self) -> String {
-        if self.is_local() {
+        if let Some(description) = &self.description {
+            description.clone()
+        } else if self.is_local() {
             LOCAL_FOLDERS.to_owned()
         } else {
             self.address.clone()
         }
+    }
+
+    /// Whether the person paused this account's syncing ([`mail_core::sync::paused`]).
+    pub(in crate::ui) fn paused(&self) -> bool {
+        self.syncing == Syncing::Paused
     }
 }
 
