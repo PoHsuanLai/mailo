@@ -2,7 +2,7 @@
 //!
 //! The window wakes at the shortest interval any account asks for, [`super::poll_interval`]. A
 //! wake syncs only the accounts whose own interval has passed: one Graph account polls every
-//! minute, and the acct_imap() accounts beside it want a pass every five. A pass the user asks for is
+//! fifteen seconds, and the IMAP accounts beside it want a pass every five minutes. A pass the user asks for is
 //! not a wake and still syncs them all, through [`SyncOps::run`](crate::SyncOps).
 
 use crate::error::{CoreError, Logged};
@@ -104,7 +104,12 @@ mod tests {
     #[test]
     fn each_account_is_due_at_its_own_interval() {
         let intervals = [
-            (acct_graph(), every(&WatchMode::Poll { every: secs(60) })),
+            (
+                acct_graph(),
+                every(&WatchMode::Poll {
+                    every: mail_domain::presets::GRAPH_POLL_EVERY,
+                }),
+            ),
             (acct_imap(), every(&WatchMode::Poll { every: secs(300) })),
             (acct_pushed(), every(&WatchMode::Idle)),
             (acct_new(), secs(300)),
@@ -117,8 +122,8 @@ mod tests {
             .collect();
         let table: [(u64, &[AccountId]); 6] = [
             (0, &[acct_new()]),
-            (59, &[acct_new()]),
-            (60, &[acct_graph(), acct_new()]),
+            (14, &[acct_new()]),
+            (15, &[acct_graph(), acct_new()]),
             (120, &[acct_graph(), acct_new()]),
             (299, &[acct_graph(), acct_new()]),
             (300, &[acct_graph(), acct_imap(), acct_pushed(), acct_new()]),
@@ -134,7 +139,7 @@ mod tests {
 
     #[test]
     fn a_window_just_opened_syncs_every_account() {
-        let intervals = [(acct_graph(), secs(60)), (acct_imap(), secs(300))];
+        let intervals = [(acct_graph(), secs(15)), (acct_imap(), secs(300))];
         assert_eq!(
             due(&intervals, &HashMap::new(), Instant::now()),
             [acct_graph(), acct_imap()]
