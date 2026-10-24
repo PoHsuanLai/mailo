@@ -146,6 +146,8 @@ pub(in crate::ui) enum Picked {
     Done,
     /// Attach a file: the page shows its file picker.
     Attach,
+    /// Put an image in the body: the page shows its file picker for pictures.
+    Image,
 }
 
 /// Apply `ops` as one undo step, with the caret after them.
@@ -216,12 +218,10 @@ pub(in crate::ui) fn pick_slash(page: &mut Page, key: &str, today: &str) -> Pick
             return Picked::Attach;
         }
         Action::Divider => return insert_object(page, ops, at, Object::Divider),
+        // The picture goes where the `/` was once it is picked and stored (`attach::take`).
         Action::Image => {
-            let image = Object::Image {
-                src: ImageRef::new(""),
-                alt: String::new(),
-            };
-            return insert_object(page, ops, at, image);
+            commit(page, ops, Caret::at(at.node, at.offset));
+            return Picked::Image;
         }
         Action::Table => {
             let table = Table {
@@ -237,6 +237,24 @@ pub(in crate::ui) fn pick_slash(page: &mut Page, key: &str, today: &str) -> Pick
     };
     commit(page, ops, caret);
     Picked::Done
+}
+
+/// The draft's image `cid` at the caret, in place of the selection when there is one, as one
+/// undo step: a picture picked, dropped or pasted.
+pub(in crate::ui) fn insert_image(page: &mut Page, cid: &str) {
+    let caret = page.session.caret.pos;
+    let (at, ops) = match page.selection {
+        Some(range) => {
+            let range = range.ordered();
+            (range.start, vec![Op::Delete { range }])
+        }
+        None => (caret, Vec::new()),
+    };
+    let image = Object::Image {
+        src: ImageRef::of_cid(cid),
+        alt: String::new(),
+    };
+    insert_object(page, ops, at, image);
 }
 
 /// Put `object` where the `/` was: in place of an empty line, else beside or inside the text.

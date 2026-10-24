@@ -199,8 +199,10 @@ fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
         return;
     }
     let picked = pick_slash(&mut page.write(), key, &today_words());
-    if picked == Picked::Attach {
-        on_attach.call(());
+    match picked {
+        Picked::Attach => on_attach.call(()),
+        Picked::Image => super::attach::choose_image(page),
+        Picked::Done => {}
     }
 }
 

@@ -3,8 +3,11 @@
 use crate::MimeError;
 use mail_builder::MessageBuilder;
 use mail_builder::headers::address::Address as MailAddress;
+use mail_builder::headers::content_type::ContentType;
 use mail_builder::mime::{BodyPart, MimePart};
-use mail_domain::{Address, BlobId, Draft, Identity, Message, ReceiptRequest, normalize_id};
+use mail_domain::{
+    Address, BlobId, Draft, Identity, Message, PendingAttachment, ReceiptRequest, normalize_id,
+};
 use std::collections::HashSet;
 
 /// Whether the built bytes may name blind recipients.
@@ -93,8 +96,16 @@ pub fn build(
         return Err(MimeError::NoRecipients);
     }
 
+    let html = draft.html.as_deref();
     let mut resolved = Vec::with_capacity(draft.attachments.len());
-    for attachment in &draft.attachments {
+    // An image the body no longer shows (deleted, or never put back after an undo) stays on the
+    // draft so an undo can bring it back, and is not sent: a part nothing refers to would arrive
+    // as a stray file.
+    for attachment in draft
+        .attachments
+        .iter()
+        .filter(|attachment| placement(attachment, html) != Placement::Dropped)
+    {
         let bytes = parts
             .iter()
             .find(|(id, _)| *id == attachment.blob)
@@ -147,8 +158,20 @@ pub fn build(
             builder = builder.references(references);
         }
     }
+    let mut inline = Vec::new();
     for (attachment, bytes) in resolved {
         let mime = media_type(&attachment.mime);
+        if let Placement::Inline(cid) = placement(attachment, html) {
+            // Inline, and named, so a reader that offers to save the picture has a name for it.
+            let disposition =
+                ContentType::new("inline").attribute("filename", filename(&attachment.name));
+            inline.push(
+                MimePart::new(mime, BodyPart::Binary(bytes.into()))
+                    .header("Content-Disposition", disposition)
+                    .cid(cid),
+            );
+            continue;
+        }
         let enclosed = is_enclosed_message(mime);
         if enclosed && enclosed_encoding(&crlf_lines(bytes)) != "binary" {
             builder
@@ -169,9 +192,68 @@ pub fn build(
         }
     }
 
+    // RFC 2387: the HTML and the images it names travel together as one `multipart/related`,
+    // the HTML first, in the place mail-builder gives the HTML body: so the message is
+    // `alternative(text, related(html, images))`, inside `mixed` when files come with it.
+    if !inline.is_empty()
+        && let Some(html) = builder.html_body.take()
+    {
+        let mut parts = Vec::with_capacity(inline.len() + 1);
+        parts.push(html);
+        parts.extend(inline);
+        builder.html_body = Some(MimePart::new("multipart/related", parts));
+    }
+
     builder
         .write_to_vec()
         .map_err(|err| MimeError::Unparseable(err.to_string()))
+}
+
+/// Where one of a draft's attachments goes in the message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Placement<'a> {
+    /// A file, after the body.
+    Attached,
+    /// An image the HTML shows, inside its `multipart/related`, under this `Content-ID`.
+    Inline(&'a str),
+    /// An image the HTML once showed and no longer does: not sent.
+    Dropped,
+}
+
+/// Where `attachment` goes, given the HTML body. An image with a `Content-ID` is inline when the
+/// HTML names it, and dropped when it does not; with no HTML to name it, or a `Content-ID` that
+/// cannot be written into a header as it is, it goes as a file, so its bytes still arrive.
+fn placement<'a>(attachment: &'a PendingAttachment, html: Option<&str>) -> Placement<'a> {
+    let (Some(cid), Some(html)) = (attachment.cid.as_deref(), html) else {
+        return Placement::Attached;
+    };
+    if !is_content_id(cid) {
+        Placement::Attached
+    } else if names_cid(html, cid) {
+        Placement::Inline(cid)
+    } else {
+        Placement::Dropped
+    }
+}
+
+/// Whether `cid` can be a `Content-ID` written raw between angle brackets: printable ASCII with
+/// no space, bracket or quote, so it neither breaks the header nor the `src` that names it.
+fn is_content_id(cid: &str) -> bool {
+    !cid.is_empty()
+        && cid
+            .bytes()
+            .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'<' | b'>' | b'"' | b'\''))
+}
+
+/// Whether `html` refers to `cid:{cid}` as a whole reference, not as the start of a longer one.
+fn names_cid(html: &str, cid: &str) -> bool {
+    let wanted = format!("cid:{cid}");
+    html.match_indices(&wanted).any(|(at, _)| {
+        html[at + wanted.len()..]
+            .chars()
+            .next()
+            .is_none_or(|next| matches!(next, '"' | '\'' | '>' | ')') || next.is_whitespace())
+    })
 }
 
 /// `References` is the parent's `References` followed by the parent's `Message-ID`.

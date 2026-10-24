@@ -1,6 +1,10 @@
 //! Files onto the draft: the Attach button's dialog, and files dropped on the page from a file
-//! manager. Both hand paths to [`attach`], so a dropped file is refused, read and stored exactly
+//! manager. Both hand paths to [`take`], so a dropped file is refused, read and stored exactly
 //! as a picked one is.
+//!
+//! Pictures into the body: `/` › Image's dialog, a picture dropped on the page, and one pasted
+//! from the clipboard. Each is stored on the draft as one of its parts and shown where the caret
+//! is (`float::insert_image`); it goes out inline, in the HTML's `multipart/related`.
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -47,15 +51,57 @@ pub(super) fn Attach(page: Signal<Page>, label: &'static str, bezel: Bezel) -> E
 /// come here.
 pub(super) fn choose(page: Signal<Page>) {
     crate::ui::pick::choose(crate::ui::pick::Ask::Attachments, None, move |paths| {
-        attach(page, paths);
+        take(
+            page,
+            paths.into_iter().map(|path| (path, Lands::Files)).collect(),
+        );
     });
 }
 
-/// The page as a drop target: files let go on it are attached, in the order they came. Its
-/// element takes the handle's `onmounted` and `data-drop`.
+/// Open the file picker for pictures; each chosen is shown in the body at the caret: `/` › Image.
+pub(super) fn choose_image(page: Signal<Page>) {
+    crate::ui::pick::choose(crate::ui::pick::Ask::Images, None, move |paths| {
+        take(
+            page,
+            paths.into_iter().map(|path| (path, Lands::Body)).collect(),
+        );
+    });
+}
+
+/// The page as a drop target: files let go on it are attached, in the order they came, and a
+/// picture the body can show is shown in it, at the caret. Its element takes the handle's
+/// `onmounted` and `data-drop`.
 pub(super) fn use_drop_target(page: Signal<Page>) -> FileDropHandle {
     // The drop handler is an event, not the component body, so reading can start here.
-    use_file_drop(move |files: FileDrop| attach(page, files.paths))
+    use_file_drop(move |files: FileDrop| {
+        let landing = files
+            .paths
+            .into_iter()
+            .map(|path| {
+                let picture = mail_core::compose::shows_inline(&crate::ui::pick::file_name(&path));
+                (path, if picture { Lands::Body } else { Lands::Files })
+            })
+            .collect();
+        take(page, landing);
+    })
+}
+
+/// The picture on the clipboard, `png`, shown in the body at the caret: a paste the surface
+/// brought nothing for (`crate::ui::pasted_image`).
+pub(super) fn paste_image(mut page: Signal<Page>, png: Vec<u8>) {
+    let name = crate::ui::copy::fields::PASTED_IMAGE;
+    if let Err(why) = into_body(page, name, &png) {
+        page.write().notice = Some(why);
+    }
+}
+
+/// Where a file read in goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Lands {
+    /// Onto the draft, as a file in the strip at the body's end.
+    Files,
+    /// Into the body, as a picture at the caret.
+    Body,
 }
 
 /// A file asked for, read when it is a regular file within the budget.
@@ -94,12 +140,12 @@ fn read_picked(path: &Path) -> Picked {
     }
 }
 
-/// Attach each of `paths` to the draft, in order, each read on a blocking thread. What could not
-/// be attached is named in one note once all have been tried.
-fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
+/// Store each of `paths` on the draft, in order, each read on a blocking thread, where it
+/// [`Lands`]. What could not be stored is named in one note once all have been tried.
+fn take(mut page: Signal<Page>, paths: Vec<(PathBuf, Lands)>) {
     spawn(async move {
         let mut refused = Vec::new();
-        for path in paths {
+        for (path, lands) in paths {
             let name = crate::ui::pick::file_name(&path);
             let picked = tokio::task::spawn_blocking(move || read_picked(&path))
                 .await
@@ -119,6 +165,12 @@ fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
                     continue;
                 }
             };
+            if lands == Lands::Body {
+                if let Err(why) = into_body(page, &name, &bytes) {
+                    refused.push(why);
+                }
+                continue;
+            }
             let store = consume_context::<Arc<SqliteStore>>();
             let draft = page.peek().draft;
             let now = chrono::Utc::now();
@@ -139,6 +191,28 @@ fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
             page.write().notice = Some(refused.join("; "));
         }
     });
+}
+
+/// Store the picture `bytes`, named `name`, on the draft, and show it in the body at the caret,
+/// as one undo step. The page is saved first, so the store's draft is the page's when the
+/// picture is added to it.
+fn into_body(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), String> {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let draft = page.peek().draft;
+    let now = chrono::Utc::now();
+    let (stored, cid) = life::save(&store, &mut page.write(), now).and_then(|_| {
+        mail_core::compose::attach_inline(&store, draft, name, bytes, now)
+            .map_err(crate::ui::remedy::told)
+    })?;
+    let mime = stored
+        .attachments
+        .iter()
+        .find(|part| part.cid.as_deref() == Some(cid.as_str()))
+        .map_or("", |part| part.mime.as_str());
+    let mut write = page.write();
+    write.images.insert(&cid, mime, bytes);
+    super::float::insert_image(&mut write, &cid);
+    Ok(())
 }
 
 #[cfg(test)]

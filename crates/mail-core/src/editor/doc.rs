@@ -184,9 +184,26 @@ impl ImageRef {
         Self(id.into())
     }
 
+    /// An image carried on the draft as its own part, named by `cid`: the `Content-ID` the
+    /// written HTML refers to it by (`cid:…`).
+    pub fn of_cid(cid: &str) -> Self {
+        Self(format!("cid:{cid}"))
+    }
+
     /// The id.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// The `Content-ID` of an image carried on the draft, when this is one and the id can be
+    /// written into the HTML as it is: printable ASCII with no space, bracket or quote.
+    pub fn cid(&self) -> Option<&str> {
+        let cid = self.0.strip_prefix("cid:")?;
+        let plain = !cid.is_empty()
+            && cid
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'<' | b'>' | b'"' | b'\''));
+        plain.then_some(cid)
     }
 }
 

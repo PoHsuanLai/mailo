@@ -155,6 +155,13 @@ ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "d17e19da64c
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
 base64 = "0.22"
+# A picture on the clipboard, pasted into the composer's body (`ui/pasted_image.rs`): quire's
+# clipboard reads text, HTML and files only. The arboard quire's window already reads the
+# clipboard with, its `image-data` read switched on (TIFF decoding on a Mac, PNG elsewhere).
+arboard = { version = "3.6", default-features = false, features = ["image-data"] }
+# The pasted picture's pixels written out as PNG, the one form the body's picture is stored in.
+# Already in the lock through blitz-dom and arboard.
+image = { version = "0.25", default-features = false, features = ["png"] }
 # Grapheme clusters for caret movement and backspace. Unicode Standard Annex #29.
 unicode-segmentation = "1.13"
 # Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that

@@ -263,3 +263,50 @@ fn html_round_trip_examples_and_what_is_dropped() {
         "an empty paragraph is dropped by from_html"
     );
 }
+
+#[test]
+fn an_image_on_the_draft_is_written_by_its_content_id_and_reopens_by_it() {
+    let image = |src: &str| {
+        doc_of(vec![Node::Object(Object::Image {
+            src: ImageRef::new(src),
+            alt: "Garden".to_owned(),
+        })])
+    };
+    let cases = [
+        (
+            "cid:img1@mailo",
+            "<img alt=\"Garden\" src=\"cid:img1@mailo\">",
+        ),
+        (
+            "https://example.com/a.png",
+            "<img alt=\"Garden\" src=\"https://example.com/a.png\">",
+        ),
+        // A cid that would close the attribute is written with no source at all.
+        ("cid:a\"onerror=\"x", "<img alt=\"Garden\">"),
+        ("cid:", "<img alt=\"Garden\">"),
+        ("", "<img alt=\"Garden\">"),
+    ];
+    for (src, expect) in cases {
+        assert_eq!(to_html(&image(src)), expect, "{src}");
+    }
+
+    // Reopened with the draft's part, the image is that part again, by the same name.
+    let part = mail_mime::ParsedPart {
+        name: "photo.png".to_owned(),
+        mime: "image/png".to_owned(),
+        bytes: b"\x89PNG".to_vec(),
+        inline: mail_domain::Inline::Embedded {
+            cid: "img1@mailo".to_owned(),
+        },
+        remote: None,
+    };
+    let safe = sanitize(&to_html(&image("cid:img1@mailo")), SanitizePolicy::CURRENT);
+    let parsed = from_html(&safe, &[part], RemoteImages::Blocked);
+    assert_eq!(
+        nodes_from_blocks(&parsed.blocks),
+        vec![Node::Object(Object::Image {
+            src: ImageRef::of_cid("img1@mailo"),
+            alt: "Garden".to_owned(),
+        })]
+    );
+}

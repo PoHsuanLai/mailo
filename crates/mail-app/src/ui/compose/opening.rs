@@ -2,16 +2,17 @@
 //! with its `-- ` signature and a quoted original folded into one object.
 
 use mail_domain::Draft;
-use mail_mime::{Block, Dir, RemoteImages, SanitizePolicy, Span, from_html, sanitize};
+use mail_mime::{Block, Dir, ParsedPart, RemoteImages, SanitizePolicy, Span, from_html, sanitize};
 
 use mail_core::editor::{Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain};
 
-/// The document a stored draft holds: its HTML when the composer wrote one, else its text.
-pub(in crate::ui) fn doc_of(draft: &Draft) -> Doc {
+/// The document a stored draft holds: its HTML when the composer wrote one, else its text. Its
+/// images are found among `inline`, the draft's own pictures; one not there is dropped.
+pub(in crate::ui) fn doc_of(draft: &Draft, inline: &[ParsedPart]) -> Doc {
     let nodes = match &draft.html {
         Some(html) => {
             let safe = sanitize(html, SanitizePolicy::CURRENT);
-            nodes_from_blocks(&from_html(&safe, &[], RemoteImages::Blocked).blocks)
+            nodes_from_blocks(&from_html(&safe, inline, RemoteImages::Blocked).blocks)
         }
         None => doc_from_text(&draft.text),
     };

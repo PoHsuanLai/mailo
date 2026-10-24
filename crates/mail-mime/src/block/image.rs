@@ -56,7 +56,7 @@ fn inline_part(reference: &str, parts: &[ParsedPart], spent: &mut usize) -> Opti
     uri.push_str(mime);
     uri.push_str(";base64,");
     uri.push_str(&STANDARD.encode(&part.bytes));
-    Some(Inlined::new(uri))
+    Some(Inlined::new(uri, wanted))
 }
 
 fn encoded_len(bytes: usize) -> usize {

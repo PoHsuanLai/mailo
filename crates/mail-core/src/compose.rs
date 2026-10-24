@@ -176,6 +176,7 @@ fn carried(attachments: &[Attachment]) -> Vec<PendingAttachment> {
                     name: a.name.clone(),
                     mime: a.mime.clone(),
                     blob,
+                    cid: None,
                 }
             })
         })
@@ -430,10 +431,116 @@ pub fn attach_bytes(
         mime: media_type_of(&name).to_owned(),
         name,
         blob,
+        cid: None,
     });
     draft.updated = now;
     save(store, &draft)?;
     Ok(draft)
+}
+
+/// Whether a file named `name` is a picture the body can show (`attach_inline` takes it): by
+/// its name, as everything here that types a file does.
+pub fn shows_inline(name: &str) -> bool {
+    mail_mime::embeddable(media_type_of(name)).is_some()
+}
+
+/// Put the image `bytes`, named `name`, on a draft to be shown in its body, and say the
+/// `Content-ID` the body refers to it by (`ImageRef::of_cid`).
+///
+/// It is stored as any attachment is, under the same budget, and marked with its `Content-ID`
+/// so `mail_mime::build` sends it inside the HTML's `multipart/related` rather than as a file.
+/// Only the types a reader draws inline are taken (`mail_mime::embeddable`: PNG, JPEG, GIF and
+/// WebP, never SVG), and the pictures in one body together stay within what a draft reopens with
+/// (`mail_mime::INLINE_BUDGET`), so one put in is never missing when the draft comes back.
+pub fn attach_inline(
+    store: &SqliteStore,
+    draft: DraftId,
+    name: &str,
+    bytes: &[u8],
+    now: DateTime<Utc>,
+) -> Result<(Draft, String), CoreError> {
+    let mut draft = store.draft(draft)?;
+    if on_its_way(&draft.state) {
+        return Err(CoreError::DraftOnItsWay);
+    }
+    let name = crate::attach::safe_name(name);
+    let Some(mime) = mail_mime::embeddable(media_type_of(&name)) else {
+        return Err(CoreError::NotAnInlineImage { name });
+    };
+
+    let carried: u64 = attached_size(store, &draft);
+    let total = carried.saturating_add(bytes.len() as u64);
+    if total > ATTACHMENT_BUDGET {
+        return Err(CoreError::AttachmentsTooBig {
+            total: crate::attach::human_size(total),
+            limit: crate::attach::human_size(ATTACHMENT_BUDGET),
+        });
+    }
+    // Measured as the reopened draft spends it: as base64.
+    let shown: u64 = draft
+        .attachments
+        .iter()
+        .filter(|a| a.cid.is_some())
+        .filter_map(|a| {
+            store
+                .blobs()
+                .size(a.blob)
+                .or_log("an inline image's size could not be read")
+        })
+        .chain([bytes.len() as u64])
+        .map(|size| size.div_ceil(3) * 4)
+        .sum();
+    if shown > mail_mime::INLINE_BUDGET as u64 {
+        return Err(CoreError::InlineImagesTooBig {
+            limit: crate::attach::human_size(mail_mime::INLINE_BUDGET as u64 / 4 * 3),
+        });
+    }
+
+    let blob = store
+        .blobs()
+        .put(bytes)
+        .map_err(|e| CoreError::cannot(format!("store {name}"), e))?;
+    let cid = (1..)
+        .map(|n| format!("img{n}.{}@mailo", draft.id))
+        .find(|cid| {
+            !draft
+                .attachments
+                .iter()
+                .any(|a| a.cid.as_ref() == Some(cid))
+        })
+        .unwrap_or_else(|| format!("img.{}@mailo", draft.id));
+    draft.attachments.push(PendingAttachment {
+        mime: mime.to_owned(),
+        name,
+        blob,
+        cid: Some(cid.clone()),
+    });
+    draft.updated = now;
+    save(store, &draft)?;
+    Ok((draft, cid))
+}
+
+/// The images `draft` shows in its body, as the parts its stored HTML names them by: what the
+/// composer reopens the body with. One the store no longer has is left out, and the body drops it.
+pub fn inline_parts(store: &SqliteStore, draft: &Draft) -> Vec<mail_mime::ParsedPart> {
+    draft
+        .attachments
+        .iter()
+        .filter_map(|a| {
+            let cid = a.cid.clone()?;
+            let bytes = store
+                .blobs()
+                .get(a.blob)
+                .or_log("an inline image could not be read")?;
+            Some(mail_mime::ParsedPart {
+                name: a.name.clone(),
+                mime: a.mime.clone(),
+                bytes,
+                inline: mail_domain::Inline::Embedded { cid },
+                remote: None,
+            })
+        })
+        .collect()
 }
 
 /// Read `path` and attach it.
@@ -509,9 +616,11 @@ fn attached_size(store: &SqliteStore, draft: &Draft) -> u64 {
 /// The sizes come from the store rather than from whatever was just handed over, so a file that
 /// failed to store cannot appear in the list as though it had.
 pub fn attached_to(store: &SqliteStore, draft: &Draft) -> Vec<(String, String)> {
+    // An image shown in the body is in the body, not in the list of files.
     draft
         .attachments
         .iter()
+        .filter(|a| a.cid.is_none())
         .map(|a| {
             let size = store
                 .blobs()

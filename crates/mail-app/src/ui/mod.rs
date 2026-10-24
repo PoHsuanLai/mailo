@@ -59,6 +59,7 @@ mod no_account;
 mod ops;
 mod original;
 mod page;
+mod pasted_image;
 mod pgp;
 mod pick;
 mod picks;
@@ -115,6 +116,7 @@ pub mod native {
     pub use super::launch::gate::{Found, found as damaged_files};
     pub use super::launch::native::{contexts, live_root, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
+    pub use super::pasted_image::ClipboardImage;
     pub use super::pick::{Ask as DialogAsk, Dialogs};
     pub use super::print::Printer;
     pub use super::provider_chip::read as read_icons;

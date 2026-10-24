@@ -83,6 +83,7 @@ fn draft(replying_to: Option<MessageId>, blob: Option<BlobId>) -> Draft {
                 name: "notes.bin".to_owned(),
                 mime: "application/octet-stream".to_owned(),
                 blob,
+                cid: None,
             })
             .into_iter()
             .collect(),

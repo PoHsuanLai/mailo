@@ -113,6 +113,11 @@ pub const UNTIL: &str = "Until";
 pub const FROM_EXAMPLE: &str = "now, or 2026-10-08";
 pub const UNTIL_EXAMPLE: &str = "turned off, or monday";
 
+/// The file dialog's filter for `/` › Image: the pictures a body can show.
+pub const PICTURES: &str = "Pictures";
+/// The name a picture pasted into the body goes by, on the draft and in the message.
+pub const PASTED_IMAGE: &str = "Pasted image.png";
+
 /// An account's page in Settings: the rows of its servers and sign-in, by what each is.
 pub mod account {
     pub const RECEIVING: &str = "Receiving";
