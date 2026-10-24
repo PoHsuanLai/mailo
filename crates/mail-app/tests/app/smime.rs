@@ -605,6 +605,9 @@ mod reading {
             from_bea(Smime::SignAndEncrypt, &[me().cert], &html("sealed")),
         );
         let signed = arrive(&store, from_bea(Smime::Sign, &[], &html("signed")));
+        // Not yet opened: the reader may be about to find it decrypted, so nothing remote yet.
+        assert!(!looks.opened_may_load_remote(&sealed));
+        assert!(looks.opened_may_load_remote(&signed));
         for message in [&sealed, &signed] {
             let _ = looks.sealed(&store, &secrets, message.id, message.body.raw(), now());
         }

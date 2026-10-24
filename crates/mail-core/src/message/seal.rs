@@ -158,15 +158,21 @@ impl Looks {
     /// Whether the body `message` was opened to may load remote content: not when it was
     /// decrypted from S/MIME encryption that did not prove it unchanged
     /// ([`SmimeEncryption::Decrypted`]), whatever the reader's settings or buttons say.
+    ///
+    /// A message holding an `application/pkcs7-mime` part loads nothing remote until it is
+    /// opened: the reader asks this and then, separately, for the body
+    /// ([`opened_body`](Self::opened_body)), and an opening that lands between the two would
+    /// otherwise hand it a CBC-decrypted body with remote content allowed. So it fails closed,
+    /// and the opening draws the reader again.
     pub fn opened_may_load_remote(&self, message: &Message) -> bool {
-        let Some(Opening::Opened(sealed)) = self.sealed_last(message.id, message.body.raw()) else {
-            return true;
-        };
-        !matches!(
-            &sealed.protection,
-            Protection::Smime(protected)
-                if protected.encryption == SmimeEncryption::Decrypted
-        )
+        match self.sealed_last(message.id, message.body.raw()) {
+            Some(Opening::Opened(sealed)) => !matches!(
+                &sealed.protection,
+                Protection::Smime(protected)
+                    if protected.encryption == SmimeEncryption::Decrypted
+            ),
+            _ => !carries_pkcs7(message),
+        }
     }
 
     /// The subject `message` was opened to, when that differs from the stored one: an encrypted
@@ -242,4 +248,15 @@ impl Looks {
             },
         );
     }
+}
+
+/// Whether `message` holds an `application/pkcs7-mime` part (either spelling): S/MIME enveloped,
+/// auth-enveloped or opaque-signed data; only opening it tells which.
+fn carries_pkcs7(message: &Message) -> bool {
+    message.attachments.iter().any(|part| {
+        let mime = part.mime.split(';').next().unwrap_or("").trim();
+        ["application/pkcs7-mime", "application/x-pkcs7-mime"]
+            .iter()
+            .any(|kind| mime.eq_ignore_ascii_case(kind))
+    })
 }
