@@ -71,10 +71,10 @@ async fn a_new_message_draws_subject_to_the_body_and_the_foot_and_nothing_else()
     }
     // The foot: Attach, ⋯, Send ▾, and one filled button.
     for name in [
-        "Attach",
-        "More",
-        "Send",
-        "Send Options",
+        crate::ui::copy::controls::ATTACH,
+        crate::ui::copy::aria::MORE,
+        crate::ui::copy::controls::SEND,
+        crate::ui::copy::aria::SEND_OPTIONS,
         "Add Cc",
         "Add Bcc",
     ] {
@@ -260,20 +260,20 @@ fn send_menu_and_more_hold_every_choice_once() {
     assert_eq!(
         titles(&send_items(&page, at(0), &Utc, mail_core::when::Clock::H24)),
         [
-            "Send Later",
-            "Remind Me If No Reply",
+            crate::ui::copy::menus::SEND_LATER,
+            crate::ui::copy::menus::REMIND_IF_NO_REPLY,
             "Ask for Read Receipt"
         ]
     );
     assert_eq!(
         titles(&more_items(&page)),
         [
-            "Security",
+            crate::ui::copy::menus::SECURITY,
             "Show Plain Text",
-            "Save as Template\u{2026}",
+            crate::ui::copy::menus::SAVE_AS_TEMPLATE,
             "—",
-            "Keep for Later",
-            "Delete Draft",
+            crate::ui::copy::menus::KEEP_FOR_LATER,
+            crate::ui::copy::menus::DELETE_DRAFT,
         ]
     );
     let mut page = page;

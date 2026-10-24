@@ -120,6 +120,6 @@ fn toast_text(said: &str) -> String {
 }
 
 #[cfg(test)]
-mod card_tests;
+pub(in crate::ui) mod card_tests;
 #[cfg(test)]
 mod tests;

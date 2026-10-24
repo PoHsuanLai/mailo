@@ -1,7 +1,6 @@
 //! The search bar's rows over the reference fixture, what its commands do, and the pages its
 //! screenshots are taken from. How the bar itself behaves is `bar_tests.rs`.
 
-use super::super::app::App;
 use super::items::{CommandId, Pick, chips, complete_syntax, interpret, rows_of, search_now};
 use super::*;
 use crate::ui::bin::Bin;
@@ -134,7 +133,7 @@ fn the_renamed_sidebar_row_is_marked_for_its_own_wording() {
         .filter(|(index, _)| renamed.marks.contains(&(*index as u32)))
         .map(|(_, c)| c)
         .collect();
-    assert_eq!(marked, "Sidebar");
+    assert_eq!(marked, crate::ui::copy::aria::SIDEBAR);
 }
 
 /// The chips under the field: the syntax while nothing is typed or while the last word starts an
@@ -182,79 +181,6 @@ fn dana_is_marked_in_the_persons_name() {
         .map(|(_, c)| c)
         .collect();
     assert_eq!(marked, "Dana", "the person's name marks {marked:?}");
-}
-
-/// The search bar open on `dana` (`menus.html`), and the label menu open on the second row
-/// (`menus-label.html`), each in both themes, as pages a browser can photograph. Two pages
-/// because two open menus at once is a state the window never shows.
-#[tokio::test]
-#[ignore = "writes the menus pages to a file for screenshots"]
-async fn render_the_menus_to_a_file() {
-    use crate::ui::fixtures::{dispatching, rebuild_into};
-
-    use crate::ui::fixtures::in_scheme;
-
-    dispatching();
-    // Rendered once per scheme, so the Space's tint and hue are the ones each scheme derives.
-    for (suffix, scheme) in [("", Scheme::Light), ("-dark", Scheme::Dark)] {
-        let built = work();
-        let mut dom = VirtualDom::new(App)
-            .with_root_context(built.store.clone())
-            .with_root_context(built.dirs.clone())
-            .with_root_context(in_scheme(scheme));
-        // ⌘K in the window, then "dana" in the bar, whose panel floats in the root's overlay
-        // and answers once the field has been still.
-        let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-        crate::ui::fixtures::chord(
-            &mut dom,
-            "k",
-            crate::ui::fixtures::PRIMARY,
-            dioxus_core::ElementId(crate::ui::fixtures::INSIDE_THE_SHELL as usize),
-        );
-        let field = *seen
-            .all("aria-label", LABEL)
-            .last()
-            .expect("the bar's field");
-        crate::ui::fixtures::type_into(&mut dom, field, "dana");
-        for _ in 0..6 {
-            settle(&mut dom).await;
-        }
-        crate::ui::fixtures::drain(&mut dom);
-        let command = dioxus_ssr::render(&dom);
-
-        let mut dom = VirtualDom::new(App)
-            .with_root_context(built.store.clone())
-            .with_root_context(built.dirs)
-            .with_root_context(in_scheme(scheme));
-        let seen = rebuild_into(&mut dom);
-        let second = crate::ui::fixtures::listed_subjects(&dioxus_ssr::render(&dom))
-            .get(1)
-            .cloned()
-            .expect("a second row");
-        crate::ui::fixtures::row_action(&mut dom, &seen, &second, "Label…").await;
-        settle(&mut dom).await;
-        let label = dioxus_ssr::render(&dom);
-        // The label menu is quire's, floating in the root's overlay where the second row's menu
-        // stood.
-        assert!(
-            label.contains("role=\"listbox\" aria-label=\"Labels\""),
-            "the label menu did not open"
-        );
-
-        for (name, body) in [("menus", &command), ("menus-label", &label)] {
-            crate::ui::fixtures::write_page(
-                &format!("{name}{suffix}"),
-                &crate::ui::fixtures::page(body, ""),
-            );
-        }
-    }
-}
-
-async fn settle(dom: &mut VirtualDom) {
-    tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())
-        .await
-        .ok();
-    dom.render_immediate(&mut dioxus_core::NoOpMutations);
 }
 
 /// Every command the panel offers, by the id it is dispatched on and the key its row carries.

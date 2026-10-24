@@ -208,7 +208,7 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
             Some(Mail(Shortcut::Trash)),
         ),
         (
-            "Delete",
+            crate::ui::copy::menus::DELETE,
             ours(),
             Key::Delete,
             NONE,
@@ -304,7 +304,7 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
             Some(Standard(StandardAction::MoveToTrash)),
         ),
         (
-            "Delete",
+            crate::ui::copy::menus::DELETE,
             ours(),
             Key::Delete,
             NONE,

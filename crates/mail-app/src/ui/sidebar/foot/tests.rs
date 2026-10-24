@@ -16,24 +16,22 @@ fn read(rows: &[MenuItem<Pick>]) -> Vec<(String, bool)> {
 /// Space's menu.
 #[test]
 fn the_menu_holds_exactly_tidy_up_settings_and_the_sidebar_toggle() {
-    assert_eq!(
-        read(&menu_items(Shown::Visible)),
-        [
-            ("Tidy Up\u{2026}".to_owned(), false),
-            ("-".to_owned(), false),
-            ("Settings\u{2026}".to_owned(), true),
-            ("Hide Sidebar".to_owned(), true),
-        ]
-    );
-    assert_eq!(
-        read(&menu_items(Shown::Hidden)),
-        [
-            ("Tidy Up\u{2026}".to_owned(), false),
-            ("-".to_owned(), false),
-            ("Settings\u{2026}".to_owned(), true),
-            ("Show Sidebar".to_owned(), true),
-        ]
-    );
+    use crate::ui::copy::menus::{HIDE_SIDEBAR, SETTINGS, SHOW_SIDEBAR, TIDY_UP};
+    for (shown, toggle) in [
+        (Shown::Visible, HIDE_SIDEBAR),
+        (Shown::Hidden, SHOW_SIDEBAR),
+    ] {
+        assert_eq!(
+            read(&menu_items(shown)),
+            [
+                (TIDY_UP.to_owned(), false),
+                ("-".to_owned(), false),
+                (SETTINGS.to_owned(), true),
+                (toggle.to_owned(), true),
+            ],
+            "{toggle}"
+        );
+    }
     let picks: Vec<Pick> = menu_items(Shown::Visible)
         .into_iter()
         .filter_map(|row| match row {

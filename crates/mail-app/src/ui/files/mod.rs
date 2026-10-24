@@ -188,6 +188,6 @@ pub(in crate::ui) fn tilde_here(path: &std::path::Path) -> String {
 }
 
 #[cfg(test)]
-mod sheet_tests;
+pub(in crate::ui) mod sheet_tests;
 #[cfg(test)]
 mod work_tests;

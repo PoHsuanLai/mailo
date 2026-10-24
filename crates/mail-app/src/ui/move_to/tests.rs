@@ -249,10 +249,10 @@ async fn moving_to_a_folder_files_it_there_and_undo_brings_it_back() {
     assert_eq!(subjects.len(), 2, "the folder lists both conversations");
     let opened = open_row_menu(&mut dom, &listed, &subjects[0]);
     assert!(
-        menu_names(&dioxus_ssr::render(&dom)).contains(&"Move to…".to_owned()),
+        menu_names(&dioxus_ssr::render(&dom)).contains(&crate::ui::copy::menus::MOVE_TO.to_owned()),
         "the row's menu offers no Move to…"
     );
-    let picked = pick_named(&mut dom, &opened, "Move to…").await;
+    let picked = pick_named(&mut dom, &opened, crate::ui::copy::menus::MOVE_TO).await;
     let menu = floated(&mut dom, picked).await;
     let page = dioxus_ssr::render(&dom);
     // quire's pick list floats where the row's menu stood, in the root's overlay, not in the row.
@@ -442,16 +442,4 @@ fn folder_accepts(page: &str) -> bool {
         let tag_end = page[at..].find('>').map_or(page.len(), |end| at + end);
         page[at..tag_end].contains("data-place=\"")
     })
-}
-
-#[tokio::test]
-#[ignore = "writes target/move-to.html and its -dark twin to look at"]
-async fn render_the_move_to_menu_to_a_file() {
-    let (store, _dir, _) = store();
-    let (mut dom, seen) = window(store);
-    let listed = open_the_folder(&mut dom, &seen).await;
-    let subjects = listed_subjects(&dioxus_ssr::render(&dom));
-    let opened = open_row_menu(&mut dom, &listed, &subjects[0]);
-    pick_named(&mut dom, &opened, "Move to…").await;
-    crate::ui::fixtures::dump("move-to", &dioxus_ssr::render(&dom));
 }

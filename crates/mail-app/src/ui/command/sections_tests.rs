@@ -25,8 +25,16 @@ fn an_empty_field_lists_recent_then_places_then_commands() {
         row("recent:1", "Lunch", items::RECENT),
         row("draft:2", "Notes", items::RECENT),
         row("person:dana@example.org", "Dana", items::PEOPLE),
-        row("action:compose", "New Message", items::ACTIONS),
-        row("action:settings", "Settings…", items::ACTIONS),
+        row(
+            "action:compose",
+            crate::ui::copy::menus::NEW_MESSAGE,
+            items::ACTIONS,
+        ),
+        row(
+            "action:settings",
+            crate::ui::copy::menus::SETTINGS,
+            items::ACTIONS,
+        ),
     ];
     let places = vec![
         row("place:0", "Inbox", "anything"),
@@ -54,7 +62,11 @@ fn typed_text_lists_places_and_people_then_commands_and_no_mail() {
     let rows = vec![
         row("recent:1", "Lunch", items::RECENT),
         row("person:dana@example.org", "Dana", items::PEOPLE),
-        row("action:compose", "New Message", items::ACTIONS),
+        row(
+            "action:compose",
+            crate::ui::copy::menus::NEW_MESSAGE,
+            items::ACTIONS,
+        ),
     ];
     let places = vec![row("place:4", "Projects", "anything")];
     let got = titles(&sections(rows, places, "a"));
@@ -159,10 +171,10 @@ fn places_and_spaces_are_found_by_name_and_listed_at_rest() {
 fn typed_text_lights_a_row_it_names() {
     const CASES: &[(&str, &str, bool)] = &[
         ("Inbox", "inb", true),
-        ("Add Account…", "acc", true),
-        ("Add Account…", "add acc", true),
-        ("Forward as Attachment", "re", false),
-        ("Settings…", "lunch", false),
+        (crate::ui::copy::menus::ADD_ACCOUNT, "acc", true),
+        (crate::ui::copy::menus::ADD_ACCOUNT, "add acc", true),
+        (crate::ui::copy::menus::FORWARD_AS_ATTACHMENT, "re", false),
+        (crate::ui::copy::menus::SETTINGS, "lunch", false),
         ("Inbox", "  ", false),
     ];
     for (name, query, want) in CASES {
@@ -191,7 +203,11 @@ fn a_key_reads_back_as_what_its_row_does() {
 #[test]
 fn tab_completes_a_row_as_its_text() {
     const CASES: &[(&str, &str, &str)] = &[
-        ("action:settings", "Settings…", "Settings…"),
+        (
+            "action:settings",
+            crate::ui::copy::menus::SETTINGS,
+            crate::ui::copy::menus::SETTINGS,
+        ),
         ("person:dana@example.org", "Dana", "from:dana@example.org"),
         ("place:2", "Projects", "Projects"),
     ];

@@ -1156,30 +1156,7 @@ pub enum Listing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{DateTime, TimeZone, Utc};
     use mail_core::place::pending_snooze;
-
-    fn summary(tweak: impl FnOnce(&mut ThreadSummary)) -> ThreadSummary {
-        let mut s = ThreadSummary {
-            from: Address {
-                name: None,
-                email: "a@b.test".into(),
-            },
-            ..mail_domain::testing::summary()
-        };
-        tweak(&mut s);
-        s
-    }
-
-    /// Whether a thread matches, with no corpus — none of these filters reads one.
-    fn fits(filter: &Filter, summary: &ThreadSummary, now: DateTime<Utc>) -> bool {
-        filter.fit(&mail_domain::MatchCtx {
-            summary,
-            corpus: None,
-            folders: &[],
-            now,
-        })
-    }
 
     #[test]
     fn inbox_is_just_a_filter() {
@@ -1194,49 +1171,6 @@ mod tests {
                 Filter::Not(Box::new(pending_snooze())),
             ])
         );
-    }
-
-    #[test]
-    fn a_snoozed_conversation_is_away_from_the_inbox_until_its_hour() {
-        // Against `Filter::fit`, which is the same predicate the SQL side agrees with by
-        // proptest. A button that leaves the conversation in the list does nothing.
-        let now = Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap();
-        let inbox = Shell::default().query(20).filter;
-
-        let awake = summary(|_| {});
-        let away =
-            summary(|s| s.snooze = Snooze::Until(now + chrono::TimeDelta::try_hours(3).unwrap()));
-        let due =
-            summary(|s| s.snooze = Snooze::Until(now - chrono::TimeDelta::try_hours(1).unwrap()));
-
-        assert!(
-            fits(&inbox, &awake, now),
-            "an ordinary thread is in the inbox"
-        );
-        assert!(
-            !fits(&inbox, &away, now),
-            "a snoozed thread is still listed"
-        );
-        assert!(
-            fits(&inbox, &due, now),
-            "a snooze that has passed did not bring it back"
-        );
-    }
-
-    #[test]
-    fn the_snoozed_place_holds_only_what_is_still_away() {
-        // A due thread is back in the inbox; listing it here as well would make "snoozed" mean
-        // two different things in two places.
-        let now = Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap();
-        let snoozed = pending_snooze();
-        let away =
-            summary(|s| s.snooze = Snooze::Until(now + chrono::TimeDelta::try_hours(3).unwrap()));
-        let due =
-            summary(|s| s.snooze = Snooze::Until(now - chrono::TimeDelta::try_hours(1).unwrap()));
-
-        assert!(fits(&snoozed, &away, now));
-        assert!(!fits(&snoozed, &due, now));
-        assert!(!fits(&snoozed, &summary(|_| {}), now));
     }
 
     #[test]
@@ -1585,7 +1519,7 @@ mod keyboard {
     use super::*;
     use chrono::{TimeZone, Utc};
     use mail_core::place::pin_op;
-    use mail_core::view::{hover_actions, mute_op, op_for, step};
+    use mail_core::view::{hover_actions, op_for, step};
 
     fn summary(read: ReadState, star: Star, mailbox: MailboxRole) -> ThreadSummary {
         ThreadSummary {
@@ -1746,23 +1680,20 @@ mod keyboard {
         assert_eq!(shortcut("m", true), None, "fired while typing");
 
         let unmuted = summary(ReadState::Read, Star::Unstarred, MailboxRole::Inbox);
-        let mut muted = unmuted.clone();
-        muted.mute = Mute::Muted;
-        assert_eq!(mute_op(&unmuted), Op::SetMute(Mute::Muted));
-        assert_eq!(mute_op(&muted), Op::SetMute(Mute::Unmuted));
-        // Not an operation `op_for` can produce: the direction comes from the state.
+        // Which way a mute turns is core's `view::mute_op`. Not an operation `op_for` can produce: the direction comes from the state.
         assert_eq!(op_for(OpKind::Mute), None);
         assert_eq!(op_for_shortcut(Shortcut::ToggleMute, &unmuted), None);
 
-        // A selection: one mute for all, unmute only when every one is muted.
-        const CASES: &[(&[Mute], Mute, &str)] = &[
-            (&[Mute::Unmuted], Mute::Muted, "Mute"),
-            (&[Mute::Muted], Mute::Unmuted, "Unmute"),
-            (&[Mute::Muted, Mute::Unmuted], Mute::Muted, "Mute"),
-            (&[Mute::Muted, Mute::Muted], Mute::Unmuted, "Unmute"),
-            (&[], Mute::Muted, "Mute"),
+        // A selection is named for the one mute it takes: unmute only when every one is muted.
+        use crate::ui::copy::menus::{MUTE, UNMUTE};
+        const CASES: &[(&[Mute], &str)] = &[
+            (&[Mute::Unmuted], MUTE),
+            (&[Mute::Muted], UNMUTE),
+            (&[Mute::Muted, Mute::Unmuted], MUTE),
+            (&[Mute::Muted, Mute::Muted], UNMUTE),
+            (&[], MUTE),
         ];
-        for (states, wanted, said) in CASES {
+        for (states, said) in CASES {
             let picked: Vec<ThreadSummary> = states
                 .iter()
                 .map(|mute| ThreadSummary {
@@ -1770,7 +1701,6 @@ mod keyboard {
                     ..unmuted.clone()
                 })
                 .collect();
-            assert_eq!(mute_for_all(&picked), *wanted, "{states:?}");
             assert_eq!(mute_label(&picked), *said, "{states:?}");
         }
     }

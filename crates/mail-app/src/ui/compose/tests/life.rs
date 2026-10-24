@@ -42,7 +42,7 @@ async fn send_with_nobody_to_send_to_queues_nothing_and_marks_the_to_field_inval
         "the To field was refused before Send was pressed:\n{untouched}"
     );
 
-    let send = seen.one("aria-label", "Send");
+    let send = seen.one("aria-label", crate::ui::copy::controls::SEND);
     click(&mut window.dom, send);
     let markup = window.render();
     assert_eq!(
@@ -90,7 +90,10 @@ async fn an_attachment_mentioned_and_missing_shows_one_bar_until_send_anyway() {
         "the bar showed before Send"
     );
 
-    let after_send = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let after_send = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let markup = window.render();
     assert_eq!(
         markup.matches(r#"class="ds-inline-banner""#).count(),
@@ -125,7 +128,10 @@ async fn attach_puts_the_files_the_dialog_chose_on_the_draft() {
 
     let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
     window.dom.provide_root_context(dialogs);
-    click(&mut window.dom, seen.one("aria-label", "Attach"));
+    click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::ATTACH),
+    );
     for _ in 0..40 {
         let quiet = std::time::Duration::from_millis(150);
         if tokio::time::timeout(quiet, window.dom.wait_for_work())
@@ -307,17 +313,6 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
     );
 }
 
-/// Draw what lands until `span` of quire's clock has passed.
-async fn run_for(window: &mut Window, span: std::time::Duration) -> String {
-    let until = tokio::time::Instant::now() + span;
-    while tokio::time::Instant::now() < until {
-        let left = until - tokio::time::Instant::now();
-        let _ = tokio::time::timeout(left, window.dom.wait_for_work()).await;
-        window.render();
-    }
-    window.render()
-}
-
 /// Draw what lands until `done` holds of the markup, for at most `bound` of quire's clock. The
 /// markup `done` last saw, and when it first held (or when the bound ran out).
 async fn run_until(
@@ -351,7 +346,10 @@ async fn a_sent_page_folds_away_on_quires_clock() {
     window.render();
 
     let sent = tokio::time::Instant::now();
-    click(&mut window.dom, seen.one("aria-label", "Send"));
+    click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let markup = window.render();
     assert!(
         markup.contains(r#"class="cpage sending""#),
@@ -396,7 +394,10 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
     window.render();
     let before = window.dom.in_runtime(|| page.peek().clone());
 
-    let painted = click(&mut window.dom, seen.one("aria-label", "Send"));
+    let painted = click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
     let markup = window.render();
     assert_eq!(queued(&store), before_queue + 1, "Send queued nothing");
     assert_eq!(
@@ -450,32 +451,4 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
         markup.contains(r#"class="cpage""#),
         "the page is not back:\n{markup}"
     );
-}
-
-#[tokio::test]
-#[ignore = "writes target/composer-failed.html and its -dark twin for a person to look at"]
-async fn render_a_failed_send_to_a_file() {
-    let (store, _dir) = seeded();
-    let draft = fresh_draft(&store);
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
-    let mut page = window.page();
-    window.dom.in_runtime(|| {
-        let mut write = page.write();
-        write.to = vec![dana()];
-        write.subject = "Friday".to_owned();
-        type_text(&mut write, "See you then.");
-    });
-    window.render();
-    click(&mut window.dom, seen.one("aria-label", "Send"));
-    window.render();
-    let failed = SendState::Failed {
-        reason: "the server said no".to_owned(),
-        retry: mail_domain::Retry::Fatal("rejected".to_owned()),
-    };
-    store
-        .set_send_state(draft.id, &failed, Utc::now())
-        .unwrap_or_else(|why| panic!("failing the send: {why}"));
-    // The pill reads the store on its own half-second tick.
-    let markup = run_for(&mut window, std::time::Duration::from_millis(1200)).await;
-    crate::ui::fixtures::dump("composer-failed", &markup);
 }

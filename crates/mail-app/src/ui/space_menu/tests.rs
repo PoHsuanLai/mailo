@@ -30,7 +30,7 @@ fn rows(items: &[MenuItem<AccountPick>]) -> Vec<(String, Check, bool)> {
     else {
         panic!("not one Accounts submenu: {items:?}");
     };
-    assert_eq!(title, "Accounts");
+    assert_eq!(title, crate::ui::copy::menus::ACCOUNTS);
     children
         .iter()
         .flat_map(|child| match child {
@@ -77,7 +77,7 @@ fn accounts_are_checked_by_the_space_s_accounts_and_stay_open_on_a_pick() {
             ("a2@example.test".to_owned(), Check::Off, true),
             ("a3@example.test".to_owned(), Check::On, true),
             add("-"),
-            add("Add Account\u{2026}"),
+            add(crate::ui::copy::menus::ADD_ACCOUNT),
         ]
     );
 }
@@ -115,7 +115,7 @@ fn any_account_may_leave_the_space() {
 fn add_account_ends_the_accounts_menu() {
     assert_eq!(
         rows(&accounts_menu(&[], &[], &[])),
-        [add("Add Account\u{2026}")]
+        [add(crate::ui::copy::menus::ADD_ACCOUNT)]
     );
     let google = (porter_provider::Issuer::Google, "Google".to_owned());
     assert_eq!(

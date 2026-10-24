@@ -139,29 +139,15 @@ mod tests {
         }
     }
 
+    /// A fetch that ran is done even with trouble that is not a refusal; a refused sign-in is
+    /// the folder's refusal in the server's words; and one that never ran, or was refused before
+    /// it began, says which folder was not fetched.
     #[test]
-    fn a_fetch_that_ran_is_done_even_with_trouble_that_is_not_a_refusal() {
-        assert_eq!(ended(finished(Vec::new()), "Archive"), FolderEvent::Done);
+    fn a_fetch_ends_done_or_refused_in_words() {
         let slow = trouble(Retry::After(Duration::from_secs(60)), None);
         let odd = trouble(Retry::Now, Some("Archive: cannot select"));
-        assert_eq!(
-            ended(finished(vec![slow, odd]), "Archive"),
-            FolderEvent::Done
-        );
-    }
-
-    #[test]
-    fn a_refused_sign_in_is_the_folders_refusal_in_the_servers_words() {
         let refused = trouble(Retry::NeedsReauth, Some("login failed"));
-        assert_eq!(
-            ended(finished(vec![refused]), "Archive"),
-            FolderEvent::Refused("login failed".to_owned())
-        );
-    }
-
-    #[test]
-    fn a_fetch_that_never_ran_says_which_folder_was_not_fetched() {
-        let failed = Ok(PassEnd::Failed {
+        let never = Ok(PassEnd::Failed {
             account: acct_account(),
             address: "me@nowhere.example".to_owned(),
             retry: Retry::Now,
@@ -169,12 +155,20 @@ mod tests {
             pause: Pause::Unreachable,
             offer: None,
         });
-        let said = FolderEvent::Refused("Couldn’t fetch Archive: cannot connect".to_owned());
-        assert_eq!(ended(failed, "Archive"), said);
-        assert_eq!(
-            ended(Err("cannot connect".to_owned()), "Archive"),
-            said,
-            "a request refused before it began reads the same"
-        );
+        let unfetched = FolderEvent::Refused("Couldn’t fetch Archive: cannot connect".to_owned());
+        let cases = [
+            (finished(Vec::new()), FolderEvent::Done),
+            (finished(vec![slow, odd]), FolderEvent::Done),
+            (
+                finished(vec![refused]),
+                FolderEvent::Refused("login failed".to_owned()),
+            ),
+            (never, unfetched.clone()),
+            (Err("cannot connect".to_owned()), unfetched),
+        ];
+        for (result, event) in cases {
+            let said = format!("{result:?}");
+            assert_eq!(ended(result, "Archive"), event, "{said}");
+        }
     }
 }

@@ -227,8 +227,10 @@ async fn the_arrows_move_across_the_sections_and_stop_at_the_ends() {
 async fn tab_completes_the_lit_row_and_an_operator() {
     let recorder = Recorder::default();
     let mut bar = alone(&recorder);
-    bar.typed("settings", |page| has(page, "Settings…") && !at_rest(page))
-        .await;
+    bar.typed("settings", |page| {
+        has(page, crate::ui::copy::menus::SETTINGS) && !at_rest(page)
+    })
+    .await;
     bar.key("Tab");
     assert_eq!(search(&bar.dom), menus::SETTINGS);
     assert!(open(&bar.dom).is_some(), "Tab closed the panel");

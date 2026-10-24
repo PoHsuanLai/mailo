@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dioxus::prelude::*;
-use dioxus_core::{NoOpMutations, VirtualDom};
+use dioxus_core::VirtualDom;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use porter_core::AccountId;
@@ -197,21 +197,15 @@ async fn every_state(store: &Arc<SqliteStore>, root: &Path) -> String {
     dioxus_ssr::render(&import) + &dioxus_ssr::render(&export) + &dioxus_ssr::render(&phases)
 }
 
-#[tokio::test]
-async fn every_class_the_mail_file_sheets_draw_is_styled() {
+/// Every state the sheets draw, for the style lint in `style::tests`.
+pub(in crate::ui) async fn drawn_states() -> String {
     dispatching();
     let (store, dir) = crate::ui::fixtures::seeded();
     let markup = every_state(&store, &a_maildir(dir.path())).await;
-    // The destination is quire's dropdown value now, named for what it holds.
-    for class in [
-        "aria-label=\"Import into: ",
-        "ds-progress",
-        "role=\"alert\"",
-    ] {
+    for class in ["ds-progress", "role=\"alert\""] {
         assert!(markup.contains(class), "{class} was not drawn");
     }
-    let offences = crate::ui::style::tests::markup_offences(&markup);
-    assert!(offences.is_empty(), "markup offences: {offences:#?}");
+    markup
 }
 
 /// Whether the window offers a sync: the sync mark at the sidebar's foot.
@@ -306,61 +300,4 @@ fn local_folders_send_nothing_and_tell_no_server() {
         store.outbox_due(local, far).unwrap().is_empty(),
         "local folders' outbox is never drained, so nothing is put in it"
     );
-}
-
-/// `extra` as the first child of `.app`, where the window mounts its overlays.
-fn inject(page: &str, extra: &str) -> String {
-    let at = page.find("class=\"app").unwrap_or(0);
-    let close = page[at..].find('>').map_or(page.len(), |rel| at + rel + 1);
-    format!("{}{extra}{}", &page[..close], &page[close..])
-}
-
-#[tokio::test]
-#[ignore = "writes target/import.html, target/export.html and their -dark twins to look at"]
-async fn render_the_mail_file_sheets_to_files() {
-    dispatching();
-    let built = crate::ui::fixtures::work();
-    let root = a_maildir(built.root.path());
-    let saves = built.root.path().join("Downloads");
-    std::fs::create_dir_all(&saves).unwrap();
-    let mut frame = VirtualDom::new(crate::ui::app::App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone());
-    frame.rebuild_in_place();
-    let backdrop = dioxus_ssr::render(&frame);
-
-    let mut import = sheet(
-        &built.store,
-        &saves,
-        FileSheet::Import {
-            path: root.display().to_string(),
-        },
-    );
-    let seen = landed(&mut import).await;
-    click(
-        &mut import,
-        seen.one("aria-label", "Import into: Local folders"),
-    );
-    crate::ui::fixtures::dump("import", &inject(&backdrop, &dioxus_ssr::render(&import)));
-
-    let mut export = sheet(
-        &built.store,
-        &saves,
-        FileSheet::Export {
-            query: "inbox".to_owned(),
-        },
-    );
-    export.rebuild_in_place();
-    // The count is worked out off the thread that draws; let it land.
-    for _ in 0..10 {
-        let quiet = std::time::Duration::from_millis(200);
-        if tokio::time::timeout(quiet, export.wait_for_work())
-            .await
-            .is_err()
-        {
-            break;
-        }
-        export.render_immediate(&mut NoOpMutations);
-    }
-    crate::ui::fixtures::dump("export", &inject(&backdrop, &dioxus_ssr::render(&export)));
 }

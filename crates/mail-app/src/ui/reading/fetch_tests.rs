@@ -20,73 +20,67 @@ fn running() -> Operation {
 }
 
 #[test]
-fn a_missing_body_asks_to_be_downloaded() {
-    assert_eq!(
-        body_face(&BodyState::Missing, Operation::Idle, "a@x.test"),
-        BodyFace::Prompt
-    );
-}
-
-#[test]
-fn a_fetching_body_is_loading_under_its_operation() {
+fn each_body_state_has_its_face_and_a_failure_says_what_to_do_about_it() {
     let op = running();
-    assert_eq!(
-        body_face(&BodyState::Fetching, op, "a@x.test"),
-        BodyFace::Pane(Phase::Loading(op), Again::Withhold)
-    );
-}
-
-#[test]
-fn a_failed_body_says_what_to_do_about_it() {
+    let failure = |said: &str, again| {
+        BodyFace::Pane(
+            Phase::Failed {
+                title: "Couldn't download this message".to_owned(),
+                description: Some(TextLine::from(said)),
+            },
+            again,
+        )
+    };
     let cases = [
+        (BodyState::Missing, Operation::Idle, BodyFace::Prompt),
         (
-            Retry::Now,
-            "connection reset",
-            "Check your connection and try again. (connection reset)",
-            Again::Offer,
+            BodyState::Fetching,
+            op,
+            BodyFace::Pane(Phase::Loading(op), Again::Withhold),
         ),
         (
-            Retry::After(std::time::Duration::from_secs(5)),
-            "",
-            "Check your connection and try again.",
-            Again::Offer,
+            failed(Retry::Now, "connection reset"),
+            Operation::Idle,
+            failure(
+                "Check your connection and try again. (connection reset)",
+                Again::Offer,
+            ),
         ),
         (
-            Retry::NeedsReauth,
-            "401",
-            "Sign in to ada@example.test again to download.",
-            Again::SignIn(Need::SignIn),
+            failed(Retry::After(Duration::from_secs(5)), ""),
+            Operation::Idle,
+            failure("Check your connection and try again.", Again::Offer),
         ),
         (
-            Retry::NeedsGrant,
-            "revoked",
-            "Allow Mail to use ada@example.test again to download.",
-            Again::SignIn(Need::Allow),
+            failed(Retry::NeedsReauth, "401"),
+            Operation::Idle,
+            failure(
+                "Sign in to ada@example.test again to download.",
+                Again::SignIn(Need::SignIn),
+            ),
         ),
         (
-            Retry::Fatal("POP3 cannot fetch one message".into()),
-            "POP3 cannot fetch one message",
-            "This account's messages download on the next sync.",
-            Again::Withhold,
+            failed(Retry::NeedsGrant, "revoked"),
+            Operation::Idle,
+            failure(
+                "Allow Mail to use ada@example.test again to download.",
+                Again::SignIn(Need::Allow),
+            ),
+        ),
+        (
+            failed(
+                Retry::Fatal("POP3 cannot fetch one message".into()),
+                "POP3 cannot fetch one message",
+            ),
+            Operation::Idle,
+            failure(
+                "This account's messages download on the next sync.",
+                Again::Withhold,
+            ),
         ),
     ];
-    for (retry, why, said, again) in cases {
-        let face = body_face(
-            &failed(retry.clone(), why),
-            Operation::Idle,
-            "ada@example.test",
-        );
-        assert_eq!(
-            face,
-            BodyFace::Pane(
-                Phase::Failed {
-                    title: "Couldn't download this message".to_owned(),
-                    description: Some(TextLine::from(said)),
-                },
-                again
-            ),
-            "{retry:?}"
-        );
+    for (state, op, face) in cases {
+        assert_eq!(body_face(&state, op, "ada@example.test"), face, "{state:?}");
     }
 }
 

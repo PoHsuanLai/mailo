@@ -153,9 +153,9 @@ pub(in crate::ui) fn who(key: &PgpKey) -> String {
 }
 
 #[cfg(test)]
-mod certs_tests;
+pub(in crate::ui) mod certs_tests;
 #[cfg(test)]
-mod keys_tests;
+pub(in crate::ui) mod keys_tests;
 #[cfg(test)]
 mod look_tests;
 #[cfg(test)]

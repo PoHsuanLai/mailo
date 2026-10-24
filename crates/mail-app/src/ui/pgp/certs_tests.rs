@@ -173,7 +173,7 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let (mut dom, seen) = sheet(&store, seams_with(secrets.clone()));
     let id = cert_short(mine.fingerprint);
 
-    let asked = pick(&mut dom, &seen, &id, "Delete").await;
+    let asked = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DELETE).await;
     assert!(markup(&dom).contains("private key is deleted too"));
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_some());
     assert!(holds(&secrets, &mine));
@@ -182,7 +182,7 @@ async fn deleting_a_certificate_with_its_private_key_is_asked_again_first() {
     let _ = drain_seen(&mut dom);
     assert!(!markup(&dom).contains("private key is deleted too"));
 
-    let asked = pick(&mut dom, &seen, &id, "Delete").await;
+    let asked = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DELETE).await;
     let mut done = click(&mut dom, alert_button(&asked, None));
     settle(&mut dom, &mut done).await;
     assert!(store.smime_cert(mine.fingerprint).unwrap().is_none());
@@ -209,11 +209,11 @@ async fn a_certificate_is_trusted_and_the_trust_taken_back() {
     let id = cert_short(root);
     let trust = |store: &SqliteStore| store.smime_cert(root).unwrap().unwrap().trust;
 
-    let mut trusted = pick(&mut dom, &seen, &id, "Trust").await;
+    let mut trusted = pick(&mut dom, &seen, &id, crate::ui::copy::menus::TRUST).await;
     settle(&mut dom, &mut trusted).await;
     assert_eq!(trust(&store), KeyTrust::Verified);
     assert!(markup(&dom).contains("trusted by you"));
-    let mut untrusted = pick(&mut dom, &seen, &id, "Don’t Trust").await;
+    let mut untrusted = pick(&mut dom, &seen, &id, crate::ui::copy::menus::DONT_TRUST).await;
     settle(&mut dom, &mut untrusted).await;
     assert_eq!(trust(&store), KeyTrust::Unverified);
 }
@@ -287,8 +287,9 @@ async fn the_sheet_says_when_a_key_was_made_and_until_when_it_holds() {
     }
 }
 
-#[tokio::test]
-async fn every_class_of_the_certificates_half_is_styled() {
+/// The certificates half asking to import, saying a change, and asking whether to delete, for
+/// the style lint in `style::tests`.
+pub(in crate::ui) async fn drawn_states() -> String {
     let (store, dir) = seeded();
     let secrets = Arc::new(MapSigningStore::default());
     let mine = with_identity(&store, &secrets);
@@ -306,12 +307,18 @@ async fn every_class_of_the_certificates_half_is_styled() {
     let mut page = markup(&dom);
     assert!(page.contains("keys-ask"), "{page}");
     let root = cert_short(pki().root.cert.fingerprint());
-    let mut untrusted = pick(&mut dom, &seen, &root, "Don’t Trust").await;
+    let mut untrusted = pick(&mut dom, &seen, &root, crate::ui::copy::menus::DONT_TRUST).await;
     settle(&mut dom, &mut untrusted).await;
     page += &markup(&dom);
     // What a change came to is said in quire's banner.
     assert!(page.contains("ds-inline-banner"), "{page}");
-    pick(&mut dom, &seen, &cert_short(mine.fingerprint), "Delete").await;
+    pick(
+        &mut dom,
+        &seen,
+        &cert_short(mine.fingerprint),
+        crate::ui::copy::menus::DELETE,
+    )
+    .await;
     // The question is quire's alert, drawn in the root's overlay the render after it asks.
     crate::ui::fixtures::drain(&mut dom);
     page += &markup(&dom);
@@ -319,6 +326,5 @@ async fn every_class_of_the_certificates_half_is_styled() {
         page.contains("ds-alert") && page.contains("ds-section-header-title"),
         "{page}"
     );
-    let offences = crate::ui::style::tests::markup_offences(&page);
-    assert!(offences.is_empty(), "the markup lint: {offences:#?}");
+    page
 }

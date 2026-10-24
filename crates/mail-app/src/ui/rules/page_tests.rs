@@ -498,8 +498,8 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
         + &dioxus_ssr::render(&phases)
 }
 
-#[tokio::test]
-async fn every_class_the_rules_page_draws_is_styled() {
+/// Every state the page draws, on a seeded store, for the style lint in `style::tests`.
+pub(in crate::ui) async fn drawn_states() -> String {
     dispatching();
     let (store, _dir) = crate::ui::fixtures::seeded();
     let markup = every_state(&store).await;
@@ -517,67 +517,7 @@ async fn every_class_the_rules_page_draws_is_styled() {
     ] {
         assert!(markup.contains(class), "{class} was not drawn: {markup}");
     }
-    let offences = crate::ui::style::tests::markup_offences(&markup);
-    assert!(offences.is_empty(), "markup offences: {offences:#?}");
-}
-
-/// `extra` as the first child of `.app`, where the window mounts its overlays.
-fn inject(page: &str, extra: &str) -> String {
-    let at = page.find("class=\"app").unwrap_or(0);
-    let close = page[at..].find('>').map_or(page.len(), |rel| at + rel + 1);
-    format!("{}{extra}{}", &page[..close], &page[close..])
-}
-
-#[tokio::test]
-#[ignore = "writes target/rules*.html and their -dark twins to look at"]
-async fn render_the_rules_page_to_files() {
-    dispatching();
-    let built = crate::ui::fixtures::work();
-    let mut frame = VirtualDom::new(crate::ui::app::App)
-        .with_root_context(built.store.clone())
-        .with_root_context(built.dirs.clone());
-    frame.rebuild_in_place();
-    let backdrop = dioxus_ssr::render(&frame);
-    let own = account_rows(&built.store)
-        .into_iter()
-        .find(|row| reach(&row.plan).is_ok())
-        .expect("the Work Space has an account with its own server");
-    for (name, query, actions) in [
-        (
-            "Rust newsletter",
-            "from:newsletter@thisweekinrust.example",
-            vec![RuleAction::Label("rust".to_owned()), RuleAction::MarkRead],
-        ),
-        (
-            "Build bot",
-            "from:ci@example.com -subject:failed",
-            vec![RuleAction::Archive],
-        ),
-    ] {
-        let draft = Draft {
-            name: name.to_owned(),
-            query: query.to_owned(),
-            actions,
-            ..Draft::blank()
-        };
-        work::save(&built.store, own.id.clone(), &draft, &Utc).unwrap();
-    }
-    let (push, _) = counting();
-    for (name, at) in [
-        ("rules", Some(RulesAt::List)),
-        ("rules-new", Some(RulesAt::Rule(None))),
-        ("rules-vacation", None),
-    ] {
-        let mut dom = match at {
-            Some(at) => sheet_at(&built.store, own.id.clone(), push.clone(), at),
-            None => vacation_sheet(&built.store, own.id.clone(), push.clone()),
-        };
-        {
-            let first = rebuild_into(&mut dom);
-            landed(&mut dom, first).await
-        };
-        crate::ui::fixtures::dump(name, &inject(&backdrop, &dioxus_ssr::render(&dom)));
-    }
+    markup
 }
 
 /// Delete Rule says so in a toast with an Undo, and the Undo puts the rule back as it was: its

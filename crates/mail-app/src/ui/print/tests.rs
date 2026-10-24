@@ -293,39 +293,3 @@ fn each_row_of_the_menu_starts_its_own_job() {
     // The rule sits between printing and saving.
     assert_eq!(ROWS[2], None);
 }
-
-/// Print's menu open, and a printed page, for screenshots.
-///
-/// ```text
-/// cargo test -p mail-app -- --ignored render_printing_to_files
-/// ```
-#[tokio::test]
-#[ignore = "writes target/print-menu.html and target/printed.html; run with --ignored"]
-async fn render_printing_to_files() {
-    dispatching();
-    let (store, thread, _dir) = conversation();
-    let printed = build(
-        &store,
-        Job {
-            thread,
-            pages: Pages::PerMessage,
-        },
-        &chrono::Utc,
-        now(),
-        mail_core::when::Clock::H24,
-    )
-    .unwrap();
-    let target = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target");
-    std::fs::write(target.join("printed.html"), &printed.html).unwrap();
-
-    let mut dom = VirtualDom::new_with_props(Head, HeadProps { thread }).with_root_context(store);
-    let seen = rebuild_into(&mut dom);
-    click(&mut dom, seen.one("aria-label", "Print this conversation"));
-    let body = dioxus_ssr::render(&dom);
-    crate::ui::fixtures::dump(
-        "print-menu",
-        &format!(
-            "<div class=\"reader\" style=\"width: 760px; height: 560px; margin: 0 auto\">{body}</div>"
-        ),
-    );
-}

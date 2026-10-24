@@ -171,6 +171,6 @@ fn push(row: AccountRow, mut said: Said) {
 #[cfg(test)]
 mod away_tests;
 #[cfg(test)]
-mod page_tests;
+pub(in crate::ui) mod page_tests;
 #[cfg(test)]
 mod work_tests;

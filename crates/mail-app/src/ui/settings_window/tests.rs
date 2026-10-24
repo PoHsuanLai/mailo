@@ -92,7 +92,7 @@ async fn command_comma_and_the_foot_menu_ask_for_the_settings_window() {
         seen.one("aria-label", crate::ui::copy::aria::SIDEBAR_MENU),
     );
     let opened = crate::ui::fixtures::settle(&mut dom, opened);
-    crate::ui::fixtures::pick_named(&mut dom, &opened, "Settings\u{2026}").await;
+    crate::ui::fixtures::pick_named(&mut dom, &opened, crate::ui::copy::menus::SETTINGS).await;
     assert_eq!(
         asked.asks(),
         [None, None],
@@ -112,9 +112,9 @@ async fn general_draws_reading_then_mail_with_their_rows() {
     let page = dioxus_ssr::render(&dom);
     let mut from = 0;
     for label in [
-        "Reading",
+        crate::ui::copy::headers::READING,
         "Load remote images",
-        "Trusted Senders",
+        crate::ui::copy::titles::TRUSTED_SENDERS,
         "Brand logos",
         "Mail",
         "Notifications",
@@ -195,9 +195,12 @@ async fn general_controls_write_settings_toml() {
 /// Each page, by the sidebar's row, and a line only that page draws.
 const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::General, "Check spelling"),
-    (SettingsPage::Accounts, "Add Account\u{2026}"),
-    (SettingsPage::Spaces, "New Space"),
-    (SettingsPage::Rules, "New Rule\u{2026}"),
+    (
+        SettingsPage::Accounts,
+        crate::ui::copy::controls::ADD_ACCOUNT,
+    ),
+    (SettingsPage::Spaces, crate::ui::copy::controls::NEW_SPACE),
+    (SettingsPage::Rules, crate::ui::copy::controls::NEW_RULE),
     (SettingsPage::Vacation, "id=\"vacation-pane\""),
     (SettingsPage::Keyboard, "Change the key for"),
 ];
@@ -207,12 +210,12 @@ fn settings_has_6_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
         [
-            "General",
-            "Accounts",
-            "Spaces",
-            "Rules",
+            crate::ui::copy::titles::GENERAL,
+            crate::ui::copy::titles::ACCOUNTS,
+            crate::ui::copy::titles::SPACES,
+            crate::ui::copy::titles::RULES,
             "Vacation Reply",
-            "Keyboard"
+            crate::ui::copy::titles::KEYBOARD
         ]
     );
 }

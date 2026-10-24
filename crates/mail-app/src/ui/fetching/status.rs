@@ -496,6 +496,33 @@ mod tests {
                 None,
             ),
             ("no accounts", vec![], t(0, 0), "", None),
+            (
+                "a folder that could not update",
+                vec![current(t(0, 0), Live::Polling, 1)],
+                t(0, 0),
+                "Updated just now \u{b7} 1 folder couldn\u{2019}t update",
+                Some(Tone::Warn),
+            ),
+            (
+                "pushed, with two that could not",
+                vec![current(t(0, 0), Live::Pushed, 2)],
+                t(0, 0),
+                "Up to date \u{b7} 2 folders couldn\u{2019}t update",
+                None,
+            ),
+            (
+                "the worst problem is the one said",
+                vec![
+                    waiting(Pause::Unreachable, t(5, 0)),
+                    Link::Broken {
+                        why: "x".into(),
+                        first: First::No,
+                    },
+                ],
+                t(0, 0),
+                "Can\u{2019}t fetch mail",
+                Some(Tone::Danger),
+            ),
         ];
         for (name, links, now, text, tone) in cases {
             let got = say(&links, now);
@@ -592,36 +619,22 @@ mod tests {
     /// rest of the line as it is.
     #[test]
     fn the_tip_says_the_age_in_fewer_words() {
+        use crate::ui::copy::status::{JUST_NOW, at_clock, minutes_ago};
         let cases = [
-            (t(0, 0), 0, "just now"),
-            (t(1, 0), 0, "1 min ago"),
-            (t(3, 0), 0, "3 min ago"),
-            (t(60, 0), 0, "at 12:00"),
+            (t(0, 0), 0, JUST_NOW.to_owned()),
+            (t(1, 0), 0, minutes_ago(1)),
+            (t(3, 0), 0, minutes_ago(3)),
+            (t(60, 0), 0, at_clock("12:00")),
             (
                 t(3, 0),
                 1,
-                "3 min ago \u{b7} 1 folder couldn\u{2019}t update",
+                format!("{} \u{b7} 1 folder couldn\u{2019}t update", minutes_ago(3)),
             ),
         ];
         for (now, folders, tip) in cases {
             let got = say(&[current(t(0, 0), Live::Polling, folders)], now);
             assert_eq!(got.tip, tip, "{}", got.text);
         }
-    }
-
-    #[test]
-    fn folders_that_could_not_update_are_counted() {
-        let one = say(&[current(t(0, 0), Live::Polling, 1)], t(0, 0));
-        assert_eq!(
-            one.text,
-            "Updated just now \u{b7} 1 folder couldn\u{2019}t update"
-        );
-        assert_eq!(one.tone, Tone::Warn);
-        let two = say(&[current(t(0, 0), Live::Pushed, 2)], t(0, 0));
-        assert_eq!(
-            two.text,
-            "Up to date \u{b7} 2 folders couldn\u{2019}t update"
-        );
     }
 
     #[test]
@@ -664,17 +677,5 @@ mod tests {
             let got = say(&[current(t(0, 0), Live::Polling, 0), link.clone()], t(1, 0));
             assert_eq!((got.text.as_str(), got.tone), (text, tone), "{link:?}");
         }
-    }
-
-    #[test]
-    fn the_worst_problem_is_the_one_said() {
-        let links = [
-            waiting(Pause::Unreachable, t(5, 0)),
-            Link::Broken {
-                why: "x".into(),
-                first: First::No,
-            },
-        ];
-        assert_eq!(say(&links, t(0, 0)).tone, Tone::Danger);
     }
 }

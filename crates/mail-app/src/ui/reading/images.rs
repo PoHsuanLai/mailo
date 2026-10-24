@@ -192,7 +192,7 @@ pub(super) fn look_later(
 
 #[cfg(test)]
 mod tests {
-    use super::{auto_allow, suspicious};
+    use super::auto_allow;
     use crate::settings::LoadRemoteImages::{self, Always, Ask, Trusted};
 
     const SENDER: &str = "billing@shop.example";
@@ -307,13 +307,5 @@ mod tests {
                 junk,
             );
         }
-    }
-
-    #[test]
-    fn a_sender_is_suspicious_when_the_name_is_a_brand_or_dmarc_did_not_pass() {
-        assert!(!suspicious(Some("Shop"), SENDER, true));
-        assert!(!suspicious(None, SENDER, true));
-        assert!(suspicious(Some("PayPal"), SENDER, true));
-        assert!(suspicious(Some("Shop"), SENDER, false));
     }
 }

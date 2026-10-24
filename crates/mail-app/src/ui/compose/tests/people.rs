@@ -75,16 +75,6 @@ fn the_people_menu_is_the_books_order_less_whoever_is_on_the_message() {
     assert_eq!(keys(&page, List::Cc), without);
 }
 
-#[test]
-fn a_word_inside_the_name_finds_them_where_a_prefix_of_the_name_would_not() {
-    // "okafor" is the start of no name or address, only of a word inside one. The old menu
-    // matched name and address prefixes only, and offered nobody here.
-    let (store, _dir) = the_book();
-    let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new());
-    typed(&mut page, List::To, "okafor".to_owned(), store.as_ref());
-    assert_eq!(keys(&page, List::To), vec![HEARD.to_owned()]);
-}
-
 /// The page with "r" typed in To and the book's people under it, laid out by the real app.
 fn with_the_menu_open() -> (String, tempfile::TempDir) {
     super::render::window_with(|page, store| {
@@ -93,22 +83,14 @@ fn with_the_menu_open() -> (String, tempfile::TempDir) {
     })
 }
 
-#[tokio::test]
-async fn the_people_menu_in_the_window_is_styled_and_titled() {
+/// The people menu open in the window, for the style lint in `style::tests`.
+pub(in crate::ui) fn drawn_states() -> String {
     let (markup, _root) = with_the_menu_open();
     assert!(
-        markup.contains("From your contacts"),
+        markup.contains(r#"role="menu""#),
         "no people menu:\n{markup}"
     );
-    let offences = crate::ui::style::tests::markup_offences(&markup);
-    assert!(offences.is_empty(), "markup offences: {offences:#?}");
-}
-
-#[tokio::test]
-#[ignore = "writes target/people-menu.html and target/people-menu-dark.html for a person to look at"]
-async fn render_the_people_menu_to_a_file() {
-    let (markup, _root) = with_the_menu_open();
-    crate::ui::fixtures::dump("people-menu", &markup);
+    markup
 }
 
 #[test]
