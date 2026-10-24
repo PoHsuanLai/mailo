@@ -122,3 +122,13 @@ pub fn open_row(subject: &str) -> String {
 pub fn try_again_to_download(name: &str) -> String {
     format!("Try again to download {name}")
 }
+
+/// Settings › Signatures: an address's New Signature row.
+pub fn new_signature_for(address: &str) -> String {
+    format!("New Signature for {address}")
+}
+
+/// A signature's page: Delete Signature, naming the one it deletes.
+pub fn delete_signature(name: &str) -> String {
+    format!("Delete Signature {name}")
+}

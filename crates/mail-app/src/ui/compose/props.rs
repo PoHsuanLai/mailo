@@ -88,6 +88,7 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
                     Recipients { page, list: List::Bcc, refused: None }
                 }
             }
+            super::signoff::SignatureRow { page }
             SendsRow { page }
             RemindRow { page }
             ProtectionRow { page }
@@ -356,6 +357,8 @@ fn move_to(mut page: Signal<Page>, key: &str) {
             // where it now goes, or its next save would put the old address back.
             write.cc = draft.cc.iter().map(super::page::person).collect();
             write.bcc = draft.bcc.iter().map(super::page::person).collect();
+            // Before the identity changes: the signature follows it from the one it leaves.
+            super::signoff::follow_from(&store, &mut write, &draft);
             write.from = draft.account;
             write.identity = draft.identity;
         }

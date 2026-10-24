@@ -26,6 +26,8 @@ pub const OTHER_KEYS: &str = "Other Keys";
 pub const NEW_RULE: &str = "New Rule";
 /// The vacation reply's page under Rules.
 pub const VACATION_REPLY: &str = "Vacation Reply";
+/// Settings' page of every address's signatures.
+pub const SIGNATURES: &str = "Signatures";
 
 /// The question when Microsoft refused an account mail over IMAP and Graph would serve it.
 pub fn use_graph(name: &str) -> String {

@@ -272,3 +272,11 @@ pub mod account {
         format!("With a password, as {username}")
     }
 }
+
+/// What a signature's row in Settings says of it: which default it is.
+pub mod signature {
+    /// The default for new messages and for replies.
+    pub const DEFAULT: &str = "New messages and replies";
+    pub const NEW_MESSAGES: &str = "New messages";
+    pub const REPLIES: &str = "Replies";
+}

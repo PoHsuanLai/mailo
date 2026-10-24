@@ -164,8 +164,20 @@ fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Resu
         .collect();
     let target =
         reply_target(&messages).ok_or_else(|| "that conversation has no messages".to_owned())?;
-    mail_core::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
-        .map_err(String::from)
+    // Where the signature goes is the person's setting: under the quoted original unless asked.
+    let placement = super::prefs::current()
+        .compose
+        .signature_above_quote
+        .placement();
+    mail_core::compose::draft_reply_placed(
+        store,
+        target.id,
+        scope,
+        "",
+        chrono::Utc::now(),
+        placement,
+    )
+    .map_err(String::from)
 }
 
 /// Apply a hover action, returning whether anything changed.

@@ -2,6 +2,7 @@
 
 use mail_domain::{
     CertFingerprint, DraftId, Fingerprint, IdentityId, MessageId, Retry, Retryable, RuleId,
+    SignatureId,
     TemplateId, ThreadId, ViewId,
 };
 use porter_core::AccountId;
@@ -32,6 +33,8 @@ pub enum StoreError {
     NoDraft(DraftId),
     #[error("no such template: {0}")]
     NoTemplate(TemplateId),
+    #[error("no such signature: {0}")]
+    NoSignature(SignatureId),
     #[error("no such view: {0}")]
     NoView(ViewId),
     #[error("no such rule: {0}")]
@@ -136,6 +139,7 @@ impl Retryable for StoreError {
             | StoreError::NoMessage(_)
             | StoreError::NoDraft(_)
             | StoreError::NoTemplate(_)
+            | StoreError::NoSignature(_)
             | StoreError::NoView(_)
             | StoreError::NoRule(_)
             | StoreError::RuleNameTaken(_)

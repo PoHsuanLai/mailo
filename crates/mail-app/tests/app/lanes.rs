@@ -53,3 +53,6 @@ mod identity;
 
 // 16: the list as conversations or a message to a row.
 mod organise;
+
+// 17: signatures, made in Settings and signing what is written.
+mod signatures;

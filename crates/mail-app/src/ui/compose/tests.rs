@@ -291,7 +291,7 @@ impl Window {
 fn a_reply_text_opens_as_paragraphs_a_signature_and_a_folded_original() {
     use mail_core::editor::Object;
     let text = "Sounds good.\r\n\r\n-- \r\nDana\r\n\r\nOn Wed, 23 Sep 2026 at 09:02, Sam Okafor wrote:\r\n> first line\r\n> second line\r\n";
-    let nodes = super::opening::doc_from_text(text);
+    let nodes = mail_core::compose::doc_from_text(text);
     let shape: Vec<String> = nodes
         .iter()
         .map(|node| match node {

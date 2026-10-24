@@ -19,6 +19,10 @@ use rusqlite::Connection;
 const ACCOUNT: &str = "00000000-0000-4000-8000-0000000000a1";
 const THREAD: &str = "00000000-0000-4000-8000-0000000000e1";
 const MESSAGE: &str = "00000000-0000-4000-8000-0000000000f1";
+/// The identities 0034's case writes: signed, signed with only blank lines, and unsigned.
+const SIGNED: &str = "00000000-0000-4000-8000-0000000000b1";
+const BLANK: &str = "00000000-0000-4000-8000-0000000000b2";
+const UNSIGNED: &str = "00000000-0000-4000-8000-0000000000b3";
 /// A second message, for the cases that need one beside [`MESSAGE`].
 const OTHER: &str = "00000000-0000-4000-8000-0000000000f2";
 
@@ -692,6 +696,80 @@ const CASES: &[Case] = &[
                 1,
                 "the other's mail stays"
             );
+        },
+    },
+    Case {
+        // The one signature an identity had becomes its first row, the default for both, and
+        // the column it was in is emptied; a blank one becomes nothing.
+        migration: "0034_signatures",
+        from: 32,
+        seed: |db| {
+            seed(db);
+            for (id, email, signature) in [
+                (
+                    SIGNED,
+                    "me@example.test",
+                    Some("Ada Lovelace\nAnalytical Engines"),
+                ),
+                (BLANK, "alias@example.test", Some("  \n ")),
+                (UNSIGNED, "other@example.test", None),
+            ] {
+                db.execute(
+                    "INSERT INTO identities (id, account, from_name, from_email, reply_to,
+                         signature, is_default)
+                     VALUES (?1, ?2, NULL, ?3, NULL, ?4, '\"alternate\"')",
+                    rusqlite::params![id, ACCOUNT, email, signature],
+                )
+                .unwrap();
+            }
+        },
+        check: |open| {
+            use mail_domain::{IdentityId, IsDefault, SignatureUse};
+            let store = open();
+            let id = |text: &str| IdentityId::from_uuid(text.parse().unwrap());
+            let signed = store.signatures(id(SIGNED)).unwrap();
+            assert_eq!(signed.len(), 1, "{signed:?}");
+            let only = &signed[0];
+            assert_eq!(only.text, "Ada Lovelace\nAnalytical Engines");
+            assert_eq!(only.name, mail_domain::UNNAMED_SIGNATURE);
+            assert_eq!(only.html, None);
+            assert_eq!(
+                (only.new_mail, only.replies),
+                (IsDefault::Default, IsDefault::Default)
+            );
+            assert_eq!(
+                store
+                    .default_signature(id(SIGNED), SignatureUse::Replies)
+                    .unwrap()
+                    .map(|s| s.id),
+                Some(only.id)
+            );
+            // Read through the identity as it always was.
+            assert_eq!(
+                store
+                    .identity(id(SIGNED))
+                    .unwrap()
+                    .unwrap()
+                    .signature
+                    .as_deref(),
+                Some("Ada Lovelace\nAnalytical Engines")
+            );
+            assert_eq!(store.signatures(id(BLANK)).unwrap(), vec![]);
+            assert_eq!(store.signatures(id(UNSIGNED)).unwrap(), vec![]);
+            assert_eq!(store.identity(id(BLANK)).unwrap().unwrap().signature, None);
+            let db = store.raw_connection();
+            assert_eq!(
+                number(
+                    &db,
+                    "SELECT count(*) FROM identities WHERE signature IS NOT NULL"
+                ),
+                0,
+                "the old column still speaks"
+            );
+            // Deleting the row leaves the identity unsigned: nothing comes back from the column.
+            drop(db);
+            store.delete_signature(only.id).unwrap();
+            assert_eq!(store.identity(id(SIGNED)).unwrap().unwrap().signature, None);
         },
     },
 ];

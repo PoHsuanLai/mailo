@@ -20,7 +20,7 @@ mod words;
 
 pub use words::{
     BrandLogos, CopyCodes, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, NewMail,
-    ProviderMarks, ReadReceipts, ServerSearch, Snippets, Spelling, WhileQuit,
+    ProviderMarks, ReadReceipts, ServerSearch, SignatureAboveQuote, Snippets, Spelling, WhileQuit,
 };
 
 use ds::prelude::Word;
@@ -114,6 +114,12 @@ pub struct ComposeSettings {
         section = "Mail"
     )]
     pub copy_myself: CopyMyself,
+    #[settings(
+        label = "Signature above quoted text",
+        help = "Put your signature above the message you reply to, rather than at the end.",
+        section = "Mail"
+    )]
+    pub signature_above_quote: SignatureAboveQuote,
 }
 
 /// `reading.*`: reading mail.

@@ -23,6 +23,7 @@ mod reparse;
 mod row;
 mod rules;
 mod search;
+mod signatures;
 mod singles;
 pub use singles::MessageRow;
 mod smime;

@@ -66,7 +66,9 @@ pub fn draft_forward_attached(
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
-    draft.text = plain_to_flowed(&signed(body, &identity));
+    let signature =
+        crate::signature::default_for(store, identity.id, mail_domain::SignatureUse::Replies)?;
+    draft.text = plain_to_flowed(&signed(body, signature.as_ref()));
     draft.attachments.push(PendingAttachment {
         name: eml_name(&original.subject),
         mime: ENCLOSED.to_owned(),

@@ -184,3 +184,6 @@ pub const COPY_CERTIFICATE: &str = "Copy Certificate";
 pub const SAVE_CERTIFICATE: &str = "Save Certificate\u{2026}";
 pub const TRUST: &str = "Trust";
 pub const DONT_TRUST: &str = "Don\u{2019}t Trust";
+
+/// The composer's Signature row: the choice that sends the message unsigned.
+pub const NO_SIGNATURE: &str = "None";

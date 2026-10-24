@@ -43,7 +43,9 @@ pub(in crate::ui) fn load(
     let stored = store.draft(draft).ok()?;
     let attached = mail_core::compose::attached_to(store, &stored);
     // Nobody is suggested until something is typed: the book is asked then, for that text.
-    Some(Page::of(&stored, Vec::new(), attached))
+    let mut page = Page::of(&stored, Vec::new(), attached);
+    super::signoff::adopt(store, &mut page);
+    Some(page)
 }
 
 /// Write the page to its draft. The dot goes clean only when the store took it.

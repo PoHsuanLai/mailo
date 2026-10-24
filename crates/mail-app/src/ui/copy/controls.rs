@@ -101,3 +101,8 @@ pub const KEEP_REPLY: &str = "Keep Reply";
 pub const DELETE_VIEW: &str = "Delete View";
 /// Asks again for what did not work: a download, a sign-in.
 pub const TRY_AGAIN: &str = "Try Again";
+
+/// Settings › Signatures: the row under an address's signatures that makes another.
+pub const NEW_SIGNATURE: &str = "New Signature";
+/// A signature's page in Settings: the button that deletes it.
+pub const DELETE_SIGNATURE: &str = "Delete Signature";
