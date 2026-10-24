@@ -28,7 +28,8 @@ code does about that, as of 0.1.0:
   cap and a timeout; documents do not reach the network on their own. Read receipts are never sent
   automatically.
 - **HTML is sanitised.** Message HTML goes through an allow-list sanitiser (ammonia) in
-  `mail-mime`. Links are limited to `http`, `https` and `mailto`, and CSS that could reach the
+  `mail-mime`. Links are limited to `http`, `https`, `mailto` and `cid` (a part of the same
+  message), and CSS that could reach the
   network is scrubbed before a sender's styles are kept for the reader's frame.
 - **mailo's own fetches are HTTPS-only, with certificates checked:** server discovery, WKD key
   lookup, BIMI logos, CardDAV, one-click unsubscribe and allowed remote images. A remote image
@@ -44,7 +45,7 @@ code does about that, as of 0.1.0:
   component before anything is written, so a name like `../../x` cannot escape the folder.
 - **Files are private.** mailo's data, config and cache folders are mode 0700 and its database,
   blobs and saved attachments 0600. On macOS a saved or opened attachment carries the quarantine
-  mark, and opening a script or program asks first.
+  mark. A program or script is never opened from mailo; it is shown in its folder.
 - **Unauthenticated decryption is said so.** An S/MIME body decrypted from a mode without
   integrity (AES-CBC) keeps remote content blocked, and its status says it is not authenticated.
 

@@ -12,8 +12,9 @@ First public release.
 
 - IMAP, POP3 (leave-on-server is a choice), JMAP, Microsoft Graph, and local-only accounts.
 - Sending over SMTP, JMAP `EmailSubmission` or Graph `sendMail`.
-- OAuth sign-in for Google and Microsoft accounts, password sign-in with SASL for the rest, and
-  server discovery from an address.
+- OAuth sign-in for Google and Microsoft accounts, with a client id of your own, since none
+  ships (`MAILO_OAUTH_CLIENT_ID`, porter's `clients.toml`, or mailo's `oauth.json`); password
+  sign-in with SASL for the rest, and server discovery from an address.
 - Account secrets and signing keys are kept in the OS keychain.
 - Profiles, each with its own store, accounts, keys and agent, and Spaces over them in the sidebar.
 - Offline use through an outbox that replays queued actions.
@@ -35,7 +36,8 @@ First public release.
   loopback, private, link-local and `.local` addresses.
 - Server responses and fetched bodies are read up to a fixed size.
 - Data folders are 0700 and the database, blobs and saved attachments 0600; on macOS attachments
-  carry the quarantine mark and opening a script or program asks first.
+  carry the quarantine mark. A program or script is never opened from mailo; it is shown in its
+  folder.
 - An S/MIME body decrypted without integrity (AES-CBC) keeps remote content blocked and says it is
   not authenticated.
 

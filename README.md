@@ -16,8 +16,12 @@ the least exercised.
 - IMAP, POP3 (with a leave-on-server choice), JMAP, Microsoft Graph, and local-only accounts that
   have no server.
 - Sending over SMTP, JMAP `EmailSubmission` or Graph `sendMail`.
-- OAuth sign-in for Google and Microsoft accounts; passwords and PLAIN/LOGIN-style SASL for the
-  rest. Server settings are discovered from the address where possible.
+- OAuth sign-in for Google and Microsoft accounts, with an OAuth client id of your own: no
+  client id ships with mailo. Give one in `MAILO_OAUTH_CLIENT_ID` (and `MAILO_OAUTH_CLIENT_SECRET`
+  where the client has a secret), in porter's `clients.toml`
+  (`$XDG_CONFIG_HOME/porter/clients.toml`), or in mailo's `oauth.json` in its config folder.
+  Passwords and PLAIN/LOGIN-style SASL for the rest. Server settings are discovered from the
+  address where possible.
 - Offline use: actions are queued in an outbox and replayed when the server is reachable.
 - `mailo watch` fetches continuously without a window, waiting on IMAP IDLE or JMAP's event stream where the server offers one and polling otherwise.
 
@@ -169,7 +173,7 @@ The workspace is nine crates under `crates/`. The sans-I/O crates never open a s
 clock or spawn a task, and `scripts/check-boundary.sh` fails CI if one of them reaches tokio,
 rusqlite, dioxus, reqwest or keyring.
 
-Published libraries (the folders are still `crates/mail-*`; they are being renamed to match):
+Published libraries (each package is named `mailo-*`; its folder keeps the `crates/mail-*` name):
 
 | Crate | For |
 | --- | --- |
