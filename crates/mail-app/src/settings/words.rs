@@ -15,6 +15,37 @@ pub enum ProviderMarks {
     Letters,
 }
 
+/// `window.snippets`: whether a conversation's row shows a line of its latest message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum Snippets {
+    #[default]
+    On,
+    Off,
+}
+
+/// `window.label_chips`: whether a conversation's row shows its labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum LabelChips {
+    #[default]
+    On,
+    Off,
+}
+
+/// `window.group_by_date`: whether the list is grouped under Today, Yesterday, This week and
+/// Older.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum GroupByDate {
+    On,
+    #[default]
+    Off,
+}
+
 /// `notifications.new_mail`: whether the window and `mailo watch` say new mail on the desktop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]

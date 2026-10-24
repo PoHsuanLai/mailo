@@ -170,9 +170,17 @@ pub(super) fn more_items(
     rows
 }
 
+/// What the list menu changed, kept in `settings.toml` so the next window opens the same way.
+/// Shown at once whatever the write does; a window with nowhere to write keeps it until it closes.
+fn kept(edit: impl FnOnce(&mut crate::settings::WindowSettings)) {
+    if let Err(why) = crate::ui::prefs::change(|settings| edit(&mut settings.window)) {
+        log::warn!("the list's look was not kept: {why}");
+    }
+}
+
 /// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one
-/// menu so the header is its title and three icons. Grouping and the rows' parts apply to the
-/// loaded page only. Sync Now is the sidebar's sync mark's press, so it is here only while the
+/// menu so the header is its title and three icons. Grouping and the rows' parts are kept as
+/// settings ([`kept`]), so every window opens with them. Sync Now is the sidebar's sync mark's press, so it is here only while the
 /// sidebar is hidden; `syncs` is false with only local folders in view.
 #[component]
 pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bool>) -> Element {
@@ -220,18 +228,27 @@ pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bo
                 },
                 onpick: move |pick: More| match pick {
                     More::GroupByDate => {
-                        let mut written = shell.write();
-                        written.group = match written.group {
-                            PageGroup::Date => PageGroup::None,
-                            PageGroup::None => PageGroup::Date,
+                        let group = {
+                            let mut written = shell.write();
+                            written.group = match written.group {
+                                PageGroup::Date => PageGroup::None,
+                                PageGroup::None => PageGroup::Date,
+                            };
+                            written.page_menu = PageMenu::Closed;
+                            written.group
                         };
-                        written.page_menu = PageMenu::Closed;
+                        kept(|window| window.group_by_date = group.into());
                     }
                     // The menu stays up for the next toggle (`AfterPick::KeepOpen`).
                     More::Part(key) => {
-                        if let Some(part) = shell.write().parts.part_mut(key) {
-                            *part = (*part).toggle();
-                        }
+                        let parts = {
+                            let mut written = shell.write();
+                            if let Some(part) = written.parts.part_mut(key) {
+                                *part = (*part).toggle();
+                            }
+                            written.parts
+                        };
+                        kept(|window| parts.keep(window));
                     }
                     More::Sync => {
                         shell.write().page_menu = PageMenu::Closed;

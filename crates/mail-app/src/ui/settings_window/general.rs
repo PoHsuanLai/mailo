@@ -40,13 +40,21 @@ pub(super) struct Section {
 }
 
 /// General, group by group.
-pub(super) const SECTIONS: [Section; 2] = [
+pub(super) const SECTIONS: [Section; 3] = [
     Section {
         title: copy::headers::READING,
         lines: &[
             Line::Key("reading.remote_images"),
             Line::TrustedSenders,
             Line::Key("reading.brand_logos"),
+        ],
+    },
+    Section {
+        title: copy::headers::MESSAGE_LIST,
+        lines: &[
+            Line::Key("window.snippets"),
+            Line::Key("window.label_chips"),
+            Line::Key("window.group_by_date"),
         ],
     },
     Section {
