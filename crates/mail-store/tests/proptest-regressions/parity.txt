@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1319f5b566334076b7c335e3bbb45e67d26f6743659e2d8bbccf492d33a420ee # shrinks to specs = [Spec { thread: 2, subject: [0], body: [0], from_name: None, from_local: 0, to_local: 0, read: false, star: false, mailbox: 0, labels: [false, false], folders: [false, false, false], moving: None, date: 0 }, Spec { thread: 0, subject: [0], body: [0], from_name: None, from_local: 0, to_local: 0, read: false, star: false, mailbox: 0, labels: [false, false], folders: [false, false, false], moving: None, date: 0 }], limit = 1
