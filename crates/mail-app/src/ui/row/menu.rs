@@ -43,6 +43,9 @@ pub(in crate::ui) enum Pick {
     /// Unsubscribe…: the popover that says what leaving the list will do. The reader's ⋯ only,
     /// and only while the conversation offers a way out.
     Unsubscribe,
+    /// Block Sender: a rule that files the sender's mail in Spam, and this conversation there
+    /// now. The reader's ⋯ only, beside Mark as Spam.
+    BlockSender,
     /// Delete Draft, with an undo. A draft's row only.
     DeleteDraft,
     /// Cancel Sending: a message held for its time goes back to being a draft. Its row only.
@@ -91,7 +94,8 @@ pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
 
 /// The open conversation's ⋯ in the reader: the row's menu without what the reader's toolbar
 /// already holds (`toolbar`, its Reply, Archive and Delete), with the quieter actions that are
-/// the reader's alone (Mute beside Pin, Mark as Spam where the conversation can be), View first
+/// the reader's alone (Mute beside Pin, Mark as Spam and Block Sender where the conversation can
+/// be), View first
 /// where the reader is a pane (`view`), Unsubscribe… with what takes the conversation away while
 /// its list offers a way out (`leave`), and Print and Download last.
 pub(in crate::ui) fn reader_groups(
@@ -104,6 +108,7 @@ pub(in crate::ui) fn reader_groups(
     picks[1].push(op(OpKind::Mute));
     if offers(summary, OpKind::Spam) {
         picks[3].push(op(OpKind::Spam));
+        picks[3].push(Pick::BlockSender);
     }
     if leave {
         picks[3].push(Pick::Unsubscribe);
@@ -133,6 +138,7 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::Print => menus::PRINT,
         Pick::View => menus::VIEW,
         Pick::Unsubscribe => menus::UNSUBSCRIBE,
+        Pick::BlockSender => menus::BLOCK_SENDER,
         Pick::DeleteDraft => menus::DELETE_DRAFT,
         Pick::CancelSending => menus::CANCEL_SENDING,
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
@@ -146,6 +152,7 @@ fn icon(pick: Pick) -> Icon {
         Pick::Print => Icon::Printer,
         Pick::View => Icon::Panel,
         Pick::Unsubscribe => Icon::LogOut,
+        Pick::BlockSender => Icon::Hand,
         Pick::DeleteDraft => Icon::Trash,
         Pick::CancelSending => Icon::X,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
@@ -410,6 +417,7 @@ mod tests {
                 m::STOP_REMINDING,
                 m::MUTE,
                 m::MARK_AS_SPAM,
+                m::BLOCK_SENDER,
                 m::PRINT,
                 m::DOWNLOAD,
                 m::VIEW,
@@ -442,6 +450,7 @@ mod tests {
                 m::MOVE_TO,
                 "-",
                 m::MARK_AS_SPAM,
+                m::BLOCK_SENDER,
                 "-",
                 m::PRINT,
                 m::DOWNLOAD,
@@ -467,13 +476,19 @@ mod tests {
                 "beside Mark as Spam",
                 &toolbar,
                 true,
-                Some(vec![spam, Pick::Unsubscribe]),
+                Some(vec![spam, Pick::BlockSender, Pick::Unsubscribe]),
             ),
             (
                 "after Archive and Move to Trash where the toolbar has neither",
                 &[],
                 true,
-                Some(vec![archive, trash, spam, Pick::Unsubscribe]),
+                Some(vec![
+                    archive,
+                    trash,
+                    spam,
+                    Pick::BlockSender,
+                    Pick::Unsubscribe,
+                ]),
             ),
         ];
         for (case, toolbar, leave, want) in cases {
@@ -491,6 +506,8 @@ mod tests {
         }
         let row = groups(&read);
         assert!(!row.iter().flatten().any(|pick| *pick == Pick::Unsubscribe));
+        // Blocking is the reader's, as Mark as Spam is.
+        assert!(!row.iter().flatten().any(|pick| *pick == Pick::BlockSender));
     }
 
     #[test]

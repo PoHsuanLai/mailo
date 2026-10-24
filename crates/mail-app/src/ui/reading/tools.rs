@@ -167,6 +167,7 @@ pub(super) fn ReaderMore(
     let mut further = use_signal(|| Further::None);
     let tool = use_signal(|| None::<MountedRef>);
     let id = summary.id;
+    let sender = (summary.account.clone(), summary.from.email.clone());
     // Asked through the alert's own phase, so Unsubscribe's sending state is the alert's.
     let mut leaving = use_signal(|| Phase::Closed);
     let items = rows(
@@ -207,6 +208,10 @@ pub(super) fn ReaderMore(
                             further.set(Further::Unsubscribe);
                         }
                         Pick::Download => download(id),
+                        Pick::BlockSender => {
+                            let (account, email) = sender.clone();
+                            block_sender(shell, revision, id, account, &email);
+                        }
                         // A draft's, never offered here.
                         Pick::DeleteDraft | Pick::CancelSending => {}
                     }
@@ -230,6 +235,37 @@ pub(super) fn ReaderMore(
             },
             (Further::View | Further::None, _) => rsx! {},
         }
+    }
+}
+
+/// Block the newest message's sender on its account (`mail_core::rules::block`): a rule, first
+/// in the order, that files their mail in Spam as it arrives. This conversation goes to Spam now
+/// as Mark as Spam takes it, so it is undone as that is; the rule stays until it is taken off in
+/// Rules, as Apple Mail's blocked senders stay until they are unblocked.
+fn block_sender(
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    thread: ThreadId,
+    account: porter_core::AccountId,
+    email: &str,
+) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
+    let said = match mail_core::rules::block::block(&store, account, email) {
+        Ok(_) => {
+            press(
+                shell,
+                revision,
+                thread,
+                Pressed::Op(OpKind::Spam),
+                Opened::Reader,
+            );
+            copy::toasts::blocked(email)
+        }
+        Err(why) => copy::toasts::not_blocked(email, &why.to_string()),
+    };
+    if let Some(toasts) = toasts {
+        toasts.push(said, None);
     }
 }
 
