@@ -29,6 +29,7 @@ use ds::prelude::*;
 use mail_core::message::{FrameBody, ON_THE_FRAME, Sent};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
 use std::cell::RefCell;
 use std::collections::HashSet;

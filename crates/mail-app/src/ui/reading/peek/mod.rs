@@ -14,6 +14,7 @@
 mod link;
 mod own;
 mod part;
+pub(in crate::ui) use part::sweep_left_open;
 
 use dioxus::prelude::*;
 use ds::prelude::Keys;

@@ -40,6 +40,8 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         brand,
         found,
     } = opening;
+    // What earlier runs' Open left in the temporary folder, cleared off the thread that draws.
+    std::thread::spawn(crate::ui::reading::sweep_left_open);
     // Read once, as the window opens, like the watch reads it.
     let notices = dirs
         .as_ref()

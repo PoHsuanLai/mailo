@@ -205,11 +205,94 @@ fn open_dir(message: MessageId) -> std::io::Result<PathBuf> {
     let root = match OPENED.get() {
         Some(root) => root,
         None => {
-            let made = tempfile::Builder::new().prefix("mailo-open-").tempdir()?;
+            let made = tempfile::Builder::new().prefix(OPEN_PREFIX).tempdir()?;
             OPENED.get_or_init(|| made)
         }
     };
     Ok(root.path().join(message.to_string()))
+}
+
+/// What the folder [`open_dir`] makes for a run is named with.
+const OPEN_PREFIX: &str = "mailo-open-";
+
+/// How long a folder an earlier run's Open left must have gone unchanged before a window clears
+/// it away: a window still running may be showing a file from one newer than this.
+const LEFT_OPEN_FOR: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Clear away the folders earlier runs' Open left in the system's temporary folder: each run
+/// makes one ([`open_dir`]) and nothing removes it, since its files may still be open in their
+/// apps when the window closes. Only this user's, only folders (never a link to one), and only
+/// those older than [`LEFT_OPEN_FOR`]. Best-effort: one that cannot be removed is left.
+pub(in crate::ui) fn sweep_left_open() {
+    sweep_in(&std::env::temp_dir(), std::time::SystemTime::now());
+}
+
+fn sweep_in(temp: &std::path::Path, now: std::time::SystemTime) {
+    let Ok(entries) = std::fs::read_dir(temp) else {
+        return;
+    };
+    let mine = Owner::of_new_folder_in(temp);
+    for entry in entries.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with(OPEN_PREFIX) {
+            continue;
+        }
+        let path = entry.path();
+        // Not followed: a link named like ours is left as it is, and so is what it points at.
+        let Ok(meta) = path.symlink_metadata() else {
+            continue;
+        };
+        let old = meta
+            .modified()
+            .ok()
+            .and_then(|at| now.duration_since(at).ok())
+            .is_some_and(|age| age > LEFT_OPEN_FOR);
+        if meta.is_dir() && mine.owns(&meta) && old {
+            // Best-effort: what cannot be removed now is tried again at the next start.
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+}
+
+/// Who a folder this process makes belongs to, to tell this user's folders from another's: the
+/// owner's id on Unix, and `None` where there is none to compare or it could not be learnt.
+struct Owner(Option<u32>);
+
+impl Owner {
+    /// The owner of a folder made in `temp` now, and removed again.
+    fn of_new_folder_in(temp: &std::path::Path) -> Owner {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            let made = tempfile::Builder::new()
+                .prefix("mailo-probe-")
+                .tempdir_in(temp);
+            Owner(
+                made.ok()
+                    .and_then(|dir| dir.path().metadata().ok())
+                    .map(|meta| meta.uid()),
+            )
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = temp;
+            Owner(None)
+        }
+    }
+
+    /// Whether `meta` is of something this user owns. Where there are no owners to compare (not
+    /// Unix), the temporary folder is the user's own already.
+    fn owns(&self, meta: &std::fs::Metadata) -> bool {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            self.0 == Some(meta.uid())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = meta;
+            true
+        }
+    }
 }
 
 /// Open the part in the app the system gives its kind. From a press or a key: the write and the
@@ -375,5 +458,34 @@ fn SheetView(sheet: Sheet) -> Element {
                 p { class: "peek-own-text", "{text}" }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LEFT_OPEN_FOR, OPEN_PREFIX, sweep_in};
+    use std::time::SystemTime;
+
+    /// A folder an earlier run's Open left, once old enough, is cleared away; a new one, a file
+    /// named like one, and anything else in the temporary folder are left.
+    #[test]
+    fn old_folders_open_left_are_swept_and_nothing_else() {
+        let temp = tempfile::tempdir().expect("a scratch folder");
+        let left = temp.path().join(format!("{OPEN_PREFIX}abc"));
+        std::fs::create_dir_all(left.join("1234")).expect("a folder Open made");
+        std::fs::write(left.join("1234").join("plans.pdf"), b"%PDF").expect("its file");
+        let file = temp.path().join(format!("{OPEN_PREFIX}file"));
+        std::fs::write(&file, b"x").expect("a file named like one");
+        let other = temp.path().join("someone-else");
+        std::fs::create_dir(&other).expect("another folder");
+
+        // Now: all of it is too new.
+        sweep_in(temp.path(), SystemTime::now());
+        assert!(left.exists(), "a folder from now was swept");
+
+        let later = SystemTime::now() + LEFT_OPEN_FOR * 2;
+        sweep_in(temp.path(), later);
+        assert!(!left.exists(), "an old folder was left");
+        assert!(file.exists() && other.exists(), "something else was swept");
     }
 }
