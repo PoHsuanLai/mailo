@@ -28,213 +28,195 @@ fn message(lines: &[&str]) -> Vec<u8> {
     out
 }
 
-#[test]
-fn greeting_capa_user_pass_and_quit() {
-    let replies = drive(
-        vec![
-            Pop3Command::Capa,
-            Pop3Command::User,
-            Pop3Command::Pass,
-            Pop3Command::Quit,
-        ],
-        include_str!("../traces/pop3/auth_quit.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Capabilities(vec![
-                "USER".into(),
-                "SASL PLAIN LOGIN".into(),
-                "UIDL".into(),
-            ]),
-            Pop3Reply::UserAccepted("student accepted".into()),
-            Pop3Reply::Authenticated("maildrop ready".into()),
-            Pop3Reply::Quit("bye".into()),
-        ]
-    );
-}
-
-#[test]
-fn capa_answered_with_err_is_not_a_failure() {
-    let replies = drive(
-        vec![
-            Pop3Command::Capa,
-            Pop3Command::User,
-            Pop3Command::Pass,
-            Pop3Command::Quit,
-        ],
-        include_str!("../traces/pop3/capa_unsupported.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::CapaUnsupported("unrecognized command".into()),
-            Pop3Reply::UserAccepted(String::new()),
-            Pop3Reply::Authenticated(String::new()),
-            Pop3Reply::Quit("signing off".into()),
-        ]
-    );
-}
-
-#[test]
-fn uidl_lists_every_message() {
-    let replies = drive(
-        vec![
-            Pop3Command::User,
-            Pop3Command::Pass,
-            Pop3Command::Uidl,
-            Pop3Command::Quit,
-        ],
-        include_str!("../traces/pop3/uidl.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::UserAccepted(String::new()),
-            Pop3Reply::Authenticated("3 messages".into()),
-            Pop3Reply::Uidl(vec![
-                UidlEntry {
-                    number: 1,
-                    uidl: "0000000a4b2c1d3e".into(),
+/// `(what the session shows, its commands, its transcript, the replies after the greeting)`,
+/// each a session that ends well.
+fn sessions() -> Vec<(&'static str, Vec<Pop3Command>, &'static str, Vec<Pop3Reply>)> {
+    vec![
+        (
+            "greeting, CAPA, USER, PASS and QUIT",
+            vec![
+                Pop3Command::Capa,
+                Pop3Command::User,
+                Pop3Command::Pass,
+                Pop3Command::Quit,
+            ],
+            include_str!("../traces/pop3/auth_quit.trace"),
+            vec![
+                Pop3Reply::Capabilities(vec![
+                    "USER".into(),
+                    "SASL PLAIN LOGIN".into(),
+                    "UIDL".into(),
+                ]),
+                Pop3Reply::UserAccepted("student accepted".into()),
+                Pop3Reply::Authenticated("maildrop ready".into()),
+                Pop3Reply::Quit("bye".into()),
+            ],
+        ),
+        (
+            "CAPA answered with -ERR is not a failure",
+            vec![
+                Pop3Command::Capa,
+                Pop3Command::User,
+                Pop3Command::Pass,
+                Pop3Command::Quit,
+            ],
+            include_str!("../traces/pop3/capa_unsupported.trace"),
+            vec![
+                Pop3Reply::CapaUnsupported("unrecognized command".into()),
+                Pop3Reply::UserAccepted(String::new()),
+                Pop3Reply::Authenticated(String::new()),
+                Pop3Reply::Quit("signing off".into()),
+            ],
+        ),
+        (
+            "UIDL lists every message",
+            vec![
+                Pop3Command::User,
+                Pop3Command::Pass,
+                Pop3Command::Uidl,
+                Pop3Command::Quit,
+            ],
+            include_str!("../traces/pop3/uidl.trace"),
+            vec![
+                Pop3Reply::UserAccepted(String::new()),
+                Pop3Reply::Authenticated("3 messages".into()),
+                Pop3Reply::Uidl(vec![
+                    UidlEntry {
+                        number: 1,
+                        uidl: "0000000a4b2c1d3e".into(),
+                    },
+                    UidlEntry {
+                        number: 2,
+                        uidl: "0000000a4b2c1d3f".into(),
+                    },
+                    UidlEntry {
+                        number: 3,
+                        uidl: "abcd/ef+12".into(),
+                    },
+                ]),
+                Pop3Reply::Quit("bye".into()),
+            ],
+        ),
+        (
+            "an empty UIDL is an empty list",
+            vec![Pop3Command::Uidl, Pop3Command::Quit],
+            include_str!("../traces/pop3/uidl_empty.trace"),
+            vec![Pop3Reply::Uidl(vec![]), Pop3Reply::Quit("bye".into())],
+        ),
+        (
+            "RETR strips dot-stuffing and keeps the message's CRLF",
+            vec![Pop3Command::Retr(1), Pop3Command::Quit],
+            include_str!("../traces/pop3/retr_dot_stuffed.trace"),
+            vec![
+                Pop3Reply::Retrieved(message(&[
+                    "From: ada@example.test",
+                    "Subject: dots",
+                    "",
+                    "Hello",
+                    ".a line that starts with a dot",
+                    ".",
+                    "Bye",
+                ])),
+                Pop3Reply::Quit("bye".into()),
+            ],
+        ),
+        (
+            "RETR reassembles a reply that arrives one byte at a time",
+            vec![Pop3Command::Retr(2), Pop3Command::Quit],
+            include_str!("../traces/pop3/retr_split.trace"),
+            vec![
+                Pop3Reply::Retrieved(message(&["Hello", ".dot"])),
+                Pop3Reply::Quit("bye".into()),
+            ],
+        ),
+        (
+            "RETR accepts a whole multiline reply in one read",
+            vec![Pop3Command::Retr(1), Pop3Command::Quit],
+            include_str!("../traces/pop3/retr_one_read.trace"),
+            vec![
+                Pop3Reply::Retrieved(message(&["Hello", ".dot"])),
+                Pop3Reply::Quit("bye".into()),
+            ],
+        ),
+        (
+            "STAT, LIST and DELE",
+            vec![
+                Pop3Command::Stat,
+                Pop3Command::List,
+                Pop3Command::Dele(1),
+                Pop3Command::Quit,
+            ],
+            include_str!("../traces/pop3/transaction.trace"),
+            vec![
+                Pop3Reply::Stat {
+                    messages: 2,
+                    octets: 320,
                 },
-                UidlEntry {
-                    number: 2,
-                    uidl: "0000000a4b2c1d3f".into(),
+                Pop3Reply::List(vec![
+                    ListEntry {
+                        number: 1,
+                        octets: 120,
+                    },
+                    ListEntry {
+                        number: 2,
+                        octets: 200,
+                    },
+                ]),
+                Pop3Reply::Deleted("message 1 deleted".into()),
+                Pop3Reply::Quit("dewey POP3 server signing off".into()),
+            ],
+        ),
+        (
+            "AUTH PLAIN sends the initial response",
+            vec![Pop3Command::AuthPlain, Pop3Command::Quit],
+            include_str!("../traces/pop3/auth_plain.trace"),
+            vec![
+                Pop3Reply::Authenticated("authenticated".into()),
+                Pop3Reply::Quit("bye".into()),
+            ],
+        ),
+        (
+            "an interrupt finishes the command in flight, then quits",
+            vec![Pop3Command::Stat, Pop3Command::Uidl, Pop3Command::Quit],
+            include_str!("../traces/pop3/interrupt_skips_queue.trace"),
+            vec![
+                Pop3Reply::Stat {
+                    messages: 2,
+                    octets: 320,
                 },
-                UidlEntry {
-                    number: 3,
-                    uidl: "abcd/ef+12".into(),
-                },
-            ]),
-            Pop3Reply::Quit("bye".into()),
-        ]
-    );
+                Pop3Reply::Quit("bye".into()),
+            ],
+        ),
+        // `TOP n 0` returns headers and does not claim to be a whole message. `RETR` sets the
+        // seen flag on Dovecot and `TOP` does not, so a first sync over a large maildrop must
+        // use `TOP` or it marks the whole mailbox read in webmail; a reply of its own stops a
+        // caller storing headers as a full message.
+        (
+            "TOP returns headers without claiming a whole message",
+            vec![Pop3Command::Top(1, 2), Pop3Command::Quit],
+            include_str!("../traces/pop3/top_headers_only.trace"),
+            vec![
+                Pop3Reply::Headers(message(&[
+                    "From: ada@example.test",
+                    "Subject: headers and two lines",
+                    "",
+                    "Hello there",
+                    // sent as "..signature follows": one leading dot removed, exactly as in RETR
+                    ".signature follows",
+                ])),
+                Pop3Reply::Quit("bye".into()),
+            ],
+        ),
+    ]
 }
 
 #[test]
-fn an_empty_uidl_is_an_empty_list() {
-    let replies = drive(
-        vec![Pop3Command::Uidl, Pop3Command::Quit],
-        include_str!("../traces/pop3/uidl_empty.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Uidl(vec![]),
-            Pop3Reply::Quit("bye".into()),
-        ]
-    );
-}
-
-#[test]
-fn retr_strips_dot_stuffing_and_keeps_message_crlf() {
-    let replies = drive(
-        vec![Pop3Command::Retr(1), Pop3Command::Quit],
-        include_str!("../traces/pop3/retr_dot_stuffed.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Retrieved(message(&[
-                "From: ada@example.test",
-                "Subject: dots",
-                "",
-                "Hello",
-                ".a line that starts with a dot",
-                ".",
-                "Bye",
-            ])),
-            Pop3Reply::Quit("bye".into()),
-        ]
-    );
-}
-
-#[test]
-fn retr_reassembles_a_response_that_arrives_one_byte_at_a_time() {
-    let replies = drive(
-        vec![Pop3Command::Retr(2), Pop3Command::Quit],
-        include_str!("../traces/pop3/retr_split.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Retrieved(message(&["Hello", ".dot"])),
-            Pop3Reply::Quit("bye".into()),
-        ]
-    );
-}
-
-#[test]
-fn retr_accepts_a_whole_multiline_reply_in_one_read() {
-    let replies = drive(
-        vec![Pop3Command::Retr(1), Pop3Command::Quit],
-        include_str!("../traces/pop3/retr_one_read.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Retrieved(message(&["Hello", ".dot"])),
-            Pop3Reply::Quit("bye".into()),
-        ]
-    );
-}
-
-#[test]
-fn stat_list_and_dele() {
-    let replies = drive(
-        vec![
-            Pop3Command::Stat,
-            Pop3Command::List,
-            Pop3Command::Dele(1),
-            Pop3Command::Quit,
-        ],
-        include_str!("../traces/pop3/transaction.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Stat {
-                messages: 2,
-                octets: 320,
-            },
-            Pop3Reply::List(vec![
-                ListEntry {
-                    number: 1,
-                    octets: 120,
-                },
-                ListEntry {
-                    number: 2,
-                    octets: 200,
-                },
-            ]),
-            Pop3Reply::Deleted("message 1 deleted".into()),
-            Pop3Reply::Quit("dewey POP3 server signing off".into()),
-        ]
-    );
-}
-
-#[test]
-fn auth_plain_sends_the_initial_response() {
-    let replies = drive(
-        vec![Pop3Command::AuthPlain, Pop3Command::Quit],
-        include_str!("../traces/pop3/auth_plain.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Authenticated("authenticated".into()),
-            Pop3Reply::Quit("bye".into()),
-        ]
-    );
+fn each_session_replies_as_its_transcript_says() {
+    for (shows, commands, trace, after_greeting) in sessions() {
+        let mut want = vec![Pop3Reply::Greeting("POP3 server ready".into())];
+        want.extend(after_greeting);
+        assert_eq!(drive(commands, trace), want, "{shows}");
+    }
 }
 
 #[test]
@@ -252,21 +234,20 @@ fn a_rejected_password_is_auth_rejected_and_is_not_echoed() {
 }
 
 #[test]
-fn end_of_stream_mid_retr_is_unexpected_eof() {
-    let err = drive_err(
-        vec![Pop3Command::Retr(1)],
-        include_str!("../traces/pop3/unexpected_eof.trace"),
-    );
-    assert!(matches!(err, ProtoError::UnexpectedEof));
-}
-
-#[test]
-fn end_of_stream_before_the_greeting_is_unexpected_eof() {
-    let err = drive_err(
-        vec![],
-        include_str!("../traces/pop3/eof_before_greeting.trace"),
-    );
-    assert!(matches!(err, ProtoError::UnexpectedEof));
+fn end_of_stream_before_the_greeting_or_mid_retr_is_unexpected_eof() {
+    for (commands, trace) in [
+        (
+            vec![],
+            include_str!("../traces/pop3/eof_before_greeting.trace"),
+        ),
+        (
+            vec![Pop3Command::Retr(1)],
+            include_str!("../traces/pop3/unexpected_eof.trace"),
+        ),
+    ] {
+        let err = drive_err(commands, trace);
+        assert!(matches!(err, ProtoError::UnexpectedEof), "{err:?}");
+    }
 }
 
 #[test]
@@ -300,52 +281,5 @@ fn retr_err_is_a_refusal_and_does_not_wait_for_a_dot() {
             } if text == "no such message"
         ),
         "{err:?}"
-    );
-}
-
-#[test]
-fn interrupt_finishes_the_inflight_command_then_quits() {
-    let replies = drive(
-        vec![Pop3Command::Stat, Pop3Command::Uidl, Pop3Command::Quit],
-        include_str!("../traces/pop3/interrupt_skips_queue.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Stat {
-                messages: 2,
-                octets: 320,
-            },
-            Pop3Reply::Quit("bye".into()),
-        ]
-    );
-}
-
-/// `TOP n 0` returns headers and does not claim to be a whole message.
-///
-/// The distinction is load-bearing: `RETR` sets the seen flag on Dovecot and `TOP` does not, so
-/// a first sync over a large maildrop must use `TOP` or it marks the user's entire mailbox read
-/// in their webmail. A separate reply variant stops a caller storing headers as a full message.
-#[test]
-fn top_returns_headers_without_claiming_a_whole_message() {
-    let replies = drive(
-        vec![Pop3Command::Top(1, 2), Pop3Command::Quit],
-        include_str!("../traces/pop3/top_headers_only.trace"),
-    );
-    assert_eq!(
-        replies,
-        vec![
-            Pop3Reply::Greeting("POP3 server ready".into()),
-            Pop3Reply::Headers(message(&[
-                "From: ada@example.test",
-                "Subject: headers and two lines",
-                "",
-                "Hello there",
-                // sent as "..signature follows": one leading dot removed, exactly as in RETR
-                ".signature follows",
-            ])),
-            Pop3Reply::Quit("bye".into()),
-        ]
     );
 }

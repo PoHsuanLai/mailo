@@ -1,7 +1,4 @@
-//! Shared sketch and walkers for the block tests.
-//!
-//! Each `block_*.rs` binary includes this file and uses a different subset.
-#![allow(dead_code)]
+//! The sketch and walkers the `block_*` tests read a document with.
 
 use mail_domain::Inline;
 use mail_mime::{

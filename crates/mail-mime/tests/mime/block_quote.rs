@@ -1,6 +1,6 @@
 //! Attribution, in six languages, and the three lines that must not match.
 
-use crate::block as support;
+use crate::support::block as support;
 
 use mail_mime::Flowed;
 use support::{html, sketch, text};

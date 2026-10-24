@@ -689,7 +689,7 @@ mod tests {
                 .iter()
                 .fold(MailboxSet::empty(), |set, role| set.with(*role))
         };
-        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let now = crate::support_tests::now();
         let cases: &[(&str, &[MailboxRole])] = &[
             (
                 "Gmail: in the inbox, its All Mail copy filed as Archive",
@@ -732,7 +732,7 @@ mod tests {
     #[test]
     fn every_pair_is_offered_by_the_side_the_conversation_is_not_on() {
         use MailboxRole::*;
-        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let now = crate::support_tests::now();
         // Where the conversation's messages are, and the sides of Archive / Move to Inbox,
         // Spam / Not Spam and Trash it is offered there.
         type Place<'a> = (&'a str, &'a [MailboxRole], &'a [Say]);
@@ -867,7 +867,7 @@ mod tests {
 
     #[test]
     fn a_way_out_of_a_state_is_one_pick_and_the_way_in_opens_its_times() {
-        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let now = crate::support_tests::now();
         let soon = Utc.timestamp_opt(1_700_100_000, 0).unwrap();
         let fresh = summary(|_| {});
         let snoozed = summary(|s| s.snooze = Snooze::Until(soon));
@@ -888,7 +888,7 @@ mod tests {
 
     #[test]
     fn a_selection_is_offered_not_spam_only_when_all_of_it_is_spam() {
-        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let now = crate::support_tests::now();
         let spam = summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Spam));
         let archived = summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Archive));
         let inbox = summary(|_| {});
@@ -1047,7 +1047,7 @@ mod tests {
     /// `is:kept` finds what is starred and what is pinned, together, and nothing else.
     #[test]
     fn kept_finds_starred_and_pinned_conversations() {
-        let now = Utc.timestamp_opt(1_700_000_000, 0).unwrap();
+        let now = crate::support_tests::now();
         let kept = kept_filter();
         type Case = (&'static str, fn(&mut ThreadSummary), bool);
         let cases: [Case; 4] = [

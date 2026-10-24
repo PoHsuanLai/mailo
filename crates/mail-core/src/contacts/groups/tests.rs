@@ -12,16 +12,15 @@ const ADDED: &str = "dara.quinn@example.test";
 const WRITTEN: &str = "daniel@example.test";
 
 /// A store whose book holds two people by hand.
-fn the_book() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+fn the_book() -> SqliteStore {
+    let store = mail_store::testing::in_memory();
     store
         .put_contact(ADDED, Some("Dara Quinn"), &Origin::Manual)
         .unwrap();
     store
         .put_contact(WRITTEN, Some("Daniel Brook"), &Origin::Manual)
         .unwrap();
-    (store, dir)
+    store
 }
 
 /// A synced book holding Grace's card, whose `UID` a member names. Stored the way a sync before
@@ -75,7 +74,7 @@ fn addresses(people: &[Person]) -> Vec<&str> {
 
 #[test]
 fn a_group_expands_by_address_by_card_and_by_nested_group_and_keeps_what_it_cannot_find() {
-    let (store, _dir) = the_book();
+    let store = the_book();
     with_grace(&store);
     let inner = group(
         "inner-1",
@@ -114,7 +113,7 @@ fn a_group_expands_by_address_by_card_and_by_nested_group_and_keeps_what_it_cann
 
 #[test]
 fn to_offers_a_group_by_a_word_of_its_name_and_not_one_of_nobody() {
-    let (store, _dir) = the_book();
+    let store = the_book();
     let before = offers(&store, "fam");
     let family = group(
         "fam-1",
@@ -153,7 +152,7 @@ fn to_offers_a_group_by_a_word_of_its_name_and_not_one_of_nobody() {
 
 #[test]
 fn an_edit_to_a_synced_group_is_marked_for_the_next_sync_and_a_local_one_is_just_kept() {
-    let (store, _dir) = the_book();
+    let store = the_book();
     let href = format!("{BOOK}team.vcf");
     let synced = group(
         "team-1",
@@ -219,7 +218,7 @@ fn an_edit_to_a_synced_group_is_marked_for_the_next_sync_and_a_local_one_is_just
 
 #[test]
 fn a_member_is_labelled_by_whom_it_names() {
-    let (store, _dir) = the_book();
+    let store = the_book();
     with_grace(&store);
     let g = group(
         "g",

@@ -26,8 +26,6 @@ mod source;
 mod live;
 #[cfg(test)]
 mod superset;
-#[cfg(test)]
-mod support;
 
 use crate::error::CoreError;
 use chrono::{DateTime, TimeZone, Utc};

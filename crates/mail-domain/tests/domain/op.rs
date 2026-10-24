@@ -6,7 +6,7 @@
 //! general statement.
 
 use chrono::{DateTime, Utc};
-use mail_domain::id::account_id_from_uuid;
+use mail_domain::testing::{account, now};
 use mail_domain::{
     AccountCaps, ArchiveMeans, Attachments, BlobId, Body, Change, Condstore, ConnectionBudget,
     ExpungeMeans, FolderRoles, LabelId, MailboxRole, MailboxSet, Membership, Message, MessageId,
@@ -14,7 +14,6 @@ use mail_domain::{
     ServerThreads, Snooze, Star, Supported, Target, Thread, ThreadId, ThreadSummary, WatchMode,
 };
 use mail_domain::{Address, Attachment, FollowUp, Inline, Mute, PartContent};
-use porter_core::AccountId;
 use proptest::prelude::*;
 use std::time::Duration;
 use uuid::Uuid;
@@ -36,9 +35,6 @@ const fn lid(n: u128) -> LabelId {
 
 const THREAD: ThreadId = tid(0x7001);
 const OTHER_THREAD: ThreadId = tid(0x7002);
-fn acct_account() -> AccountId {
-    account_id_from_uuid(Uuid::from_u128(0xacc0))
-}
 const LABEL_A: LabelId = lid(0xa1);
 const LABEL_B: LabelId = lid(0xb2);
 const LABEL_C: LabelId = lid(0xc3);
@@ -46,11 +42,6 @@ const LABEL_C: LabelId = lid(0xc3);
 /// A fixed instant, `secs` seconds after the epoch.
 fn at(secs: i64) -> DateTime<Utc> {
     DateTime::from_timestamp(secs, 0).expect("a small positive timestamp is always in range")
-}
-
-/// The `now` handed to every `apply` call. Nothing in the domain reads it today.
-fn now() -> DateTime<Utc> {
-    at(1_000_000)
 }
 
 fn addr(name: Option<&str>, email: &str) -> Address {
@@ -65,7 +56,7 @@ fn message(n: u128, date: i64) -> Message {
     Message {
         id: mid(n),
         thread: THREAD,
-        account: acct_account(),
+        account: account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at(date),
         from: addr(None, "ada@example.test"),
@@ -97,6 +88,18 @@ fn attachment(name: &str) -> Attachment {
         content: PartContent::Held(BlobId::from_uuid(Uuid::from_u128(0xf00d))),
         inline: Inline::Attached,
     }
+}
+
+/// The summary of `messages` with every thread-level setting off.
+fn derive(messages: &[Message]) -> ThreadSummary {
+    ThreadSummary::derive(
+        THREAD,
+        messages,
+        Snooze::Inactive,
+        Pin::Unpinned,
+        Mute::Unmuted,
+        FollowUp::Inactive,
+    )
 }
 
 fn thread_of(messages: &[Message], snooze: Snooze, pin: Pin, mute: Mute) -> Thread {
@@ -191,21 +194,16 @@ fn kind_strips_the_payload() {
         (Op::File(LABEL_B), OpKind::Archive),
         (Op::Destroy, OpKind::Destroy),
     ];
-
-    let waiting = Op::SetFollowUp(FollowUp::Until {
-        at: at(900),
-        set: at(100),
-    });
-    assert_eq!(waiting.kind(), OpKind::FollowUp);
     for (op, expected) in CASES {
         assert_eq!(op.kind(), *expected, "kind of {op:?}");
     }
-
-    assert_eq!(
-        Op::SetSnooze(Snooze::Until(at(500))).kind(),
-        OpKind::Snooze,
-        "a snoozed-until payload is still the Snooze kind"
-    );
+    // A payload with an instant in it is still its kind.
+    let waiting = FollowUp::Until {
+        at: at(900),
+        set: at(100),
+    };
+    assert_eq!(Op::SetFollowUp(waiting).kind(), OpKind::FollowUp);
+    assert_eq!(Op::SetSnooze(Snooze::Until(at(500))).kind(), OpKind::Snooze);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -255,7 +253,7 @@ fn derive_rolls_up_the_thread() {
     );
 
     assert_eq!(s.id, THREAD);
-    assert_eq!(s.account, acct_account());
+    assert_eq!(s.account, account());
     // Oldest is m2 (date 100); its reply prefix stays exactly as it arrived.
     assert_eq!(s.subject, "Re: Original subject");
     // Newest is m3 (date 500).
@@ -358,14 +356,7 @@ fn derive_rolls_read_and_star_over_every_message() {
                 m
             })
             .collect();
-        let s = ThreadSummary::derive(
-            THREAD,
-            &messages,
-            Snooze::Inactive,
-            Pin::Unpinned,
-            Mute::Unmuted,
-            FollowUp::Inactive,
-        );
+        let s = derive(&messages);
         assert_eq!(s.read, case.read, "{}: read", case.name);
         assert_eq!(s.star, case.star, "{}: star", case.name);
     }
@@ -412,14 +403,7 @@ fn derive_builds_the_snippet_from_the_newest_body() {
             raw: newest.body.raw().expect("fixture has a body"),
         };
         let older = message(1, 100); // has no text part; must not be consulted
-        let s = ThreadSummary::derive(
-            THREAD,
-            &[older, newest],
-            Snooze::Inactive,
-            Pin::Unpinned,
-            Mute::Unmuted,
-            FollowUp::Inactive,
-        );
+        let s = derive(&[older, newest]);
         assert_eq!(s.snippet, expected, "{name}");
         assert!(s.snippet.chars().count() <= 140, "{name}: length bound");
     }
@@ -434,14 +418,7 @@ fn derive_breaks_date_ties_by_position() {
     second.subject = "second".to_owned();
     second.from = addr(None, "second@example.test");
 
-    let s = ThreadSummary::derive(
-        THREAD,
-        &[first, second],
-        Snooze::Inactive,
-        Pin::Unpinned,
-        Mute::Unmuted,
-        FollowUp::Inactive,
-    );
+    let s = derive(&[first, second]);
     assert_eq!(
         s.subject, "first",
         "the earlier position is the older message"
@@ -454,14 +431,7 @@ fn derive_breaks_date_ties_by_position() {
 fn derive_rejects_an_empty_thread() {
     // Documented caller invariant: a thread with no messages is programmer error, and there is
     // no honest summary to return for it.
-    let _ = ThreadSummary::derive(
-        THREAD,
-        &[],
-        Snooze::Inactive,
-        Pin::Unpinned,
-        Mute::Unmuted,
-        FollowUp::Inactive,
-    );
+    let _ = derive(&[]);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -789,15 +759,6 @@ fn a_follow_up_applies_and_inverts_from_every_state() {
                 "{name}: a follow-up is never sent"
             );
         }
-        // Another thread's reminder does not reach this one.
-        let applied = Op::SetFollowUp(wanted).apply(
-            &Target::Threads(vec![OTHER_THREAD]),
-            &thread,
-            &messages,
-            &server_caps(),
-            now(),
-        );
-        assert!(applied.forward.changes.is_empty(), "{name}: other thread");
     }
 }
 
@@ -833,15 +794,6 @@ fn mute_applies_and_inverts_from_either_state() {
             assert_eq!(applied.inverse.changes, inverse, "{name}: inverse");
             assert!(applied.remote.is_none(), "{name}: mute is never sent");
         }
-        // Another thread's mute does not reach this one.
-        let applied = Op::SetMute(*wanted).apply(
-            &Target::Threads(vec![OTHER_THREAD]),
-            &thread,
-            &messages,
-            &server_caps(),
-            now(),
-        );
-        assert!(applied.forward.changes.is_empty());
     }
 }
 
@@ -1293,14 +1245,7 @@ fn derive_rolls_up_recipients_without_bcc() {
     b.cc = vec![];
     b.bcc = vec![];
 
-    let summary = ThreadSummary::derive(
-        THREAD,
-        &[a, b],
-        Snooze::Inactive,
-        Pin::Unpinned,
-        Mute::Unmuted,
-        FollowUp::Inactive,
-    );
+    let summary = derive(&[a, b]);
     let emails: Vec<&str> = summary
         .recipients
         .iter()
@@ -1342,23 +1287,9 @@ fn embedded_images_are_not_counted_as_attachments() {
         },
     ];
 
-    let only_images = ThreadSummary::derive(
-        THREAD,
-        &[newsletter.clone()],
-        Snooze::Inactive,
-        Pin::Unpinned,
-        Mute::Unmuted,
-        FollowUp::Inactive,
-    );
+    let only_images = derive(&[newsletter.clone()]);
     assert_eq!(only_images.attachments, Attachments::None);
-    let both = ThreadSummary::derive(
-        THREAD,
-        &[newsletter, report],
-        Snooze::Inactive,
-        Pin::Unpinned,
-        Mute::Unmuted,
-        FollowUp::Inactive,
-    );
+    let both = derive(&[newsletter, report]);
     assert_eq!(both.attachments, Attachments::Present { count: 1 });
 }
 

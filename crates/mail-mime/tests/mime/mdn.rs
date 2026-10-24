@@ -1,8 +1,8 @@
 //! Read receipts: seeing a request, and the RFC 8098 report that answers one.
 
+use crate::support::{addr, sender};
 use chrono::{DateTime, Utc};
-use mail_domain::id::new_account_id;
-use mail_domain::{Address, DraftId, Identity, IdentityId, IsDefault};
+use mail_domain::{DraftId, Identity};
 use mail_mime::{
     Human, OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, Words, receipt, receipt_asked,
 };
@@ -32,17 +32,7 @@ fn at() -> DateTime<Utc> {
 }
 
 fn reader() -> Identity {
-    Identity {
-        id: IdentityId::generate(),
-        account: new_account_id(),
-        from: Address {
-            name: Some("Me".to_owned()),
-            email: "me@reader.test".to_owned(),
-        },
-        reply_to: None,
-        signature: None,
-        default: IsDefault::Default,
-    }
+    sender(Some("Me"), "me@reader.test")
 }
 
 /// The sentences a front-end would word; written out here so the bytes can be compared.
@@ -102,10 +92,7 @@ fn a_request_is_seen_with_where_the_receipt_would_go() {
     assert_eq!(
         receipt_asked(ASKING),
         Some(ReceiptAsk {
-            to: vec![Address {
-                name: Some("Ada".to_owned()),
-                email: "ada@example.test".to_owned(),
-            }],
+            to: vec![addr(Some("Ada"), "ada@example.test")],
             return_path: ReturnPath::Agrees,
         })
     );

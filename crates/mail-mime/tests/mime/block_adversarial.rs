@@ -4,7 +4,7 @@
 //! file is not this session's to edit. The strings are loaded from it so a
 //! new payload there is a new payload here, rather than a list copied by hand.
 
-use crate::block as support;
+use crate::support::block as support;
 
 use mail_mime::{Flowed, ImgSrc, Reached, RemoteImages, SafeUrl, from_html, from_text, sanitize};
 use std::thread::Builder;

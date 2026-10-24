@@ -4,6 +4,7 @@
 use super::Password;
 use crate::Environment;
 use crate::account::{Credentials, Outcome, add_with_password};
+use crate::support_tests::{now, pop3};
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
@@ -31,21 +32,6 @@ fn an_empty_password_says_so_and_nothing_else() {
     assert_eq!(format!("{password:?}"), "Password(<empty>)");
 }
 
-fn now() -> chrono::DateTime<chrono::Utc> {
-    chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap()
-}
-
-/// A POP3 server that logs in with a number, named by hand.
-fn pop3() -> crate::account::Setup {
-    crate::account::Setup::Pop3(mail_domain::presets::ManualPop3 {
-        pop3_host: "pop.example.edu".to_owned(),
-        pop3_port: 995,
-        smtp_host: "smtp.example.edu".to_owned(),
-        smtp_port: 465,
-        login: Some("s1234567".to_owned()),
-    })
-}
-
 fn account_of(store: &SqliteStore, address: &str) -> AccountId {
     store
         .account_by_address(address)
@@ -61,14 +47,13 @@ fn everything_in(store: &SqliteStore) -> String {
 
 #[test]
 fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_else() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     let secrets = MemorySecrets::default();
     let password = Password::new(SECRET.to_owned());
     let said = mail_runtime::block_on(add_with_password(
         &store,
         "s1234567@example.edu",
-        Some(&pop3()),
+        Some(&pop3(Some("s1234567"))),
         false,
         false,
         now(),
@@ -118,15 +103,14 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
 
 #[test]
 fn no_password_stores_nothing_and_says_so() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     let secrets = MemorySecrets::default();
     let empty = Password::default();
     for password in [None, Some(&empty)] {
         let said = mail_runtime::block_on(add_with_password(
             &store,
             "s1234567@example.edu",
-            Some(&pop3()),
+            Some(&pop3(Some("s1234567"))),
             false,
             false,
             now(),
@@ -159,8 +143,7 @@ fn no_password_stores_nothing_and_says_so() {
 fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
     // The window's path: the token handed over in `Credentials`, `HttpAuth::Bearer` named in
     // the setup, and no environment variable read.
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     let secrets = MemorySecrets::default();
     let token = Password::new(SECRET.to_owned());
     let said = mail_runtime::block_on(add_with_password(
@@ -220,8 +203,7 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
 
 #[test]
 fn a_credential_a_sign_in_already_made_is_filed_without_asking_for_a_browser_again() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
+    let store = mail_store::testing::in_memory();
     let secrets = MemorySecrets::default();
     let saved = mail_runtime::clients::registry_of(vec![mail_runtime::clients::entry(
         porter_provider::Issuer::Google,

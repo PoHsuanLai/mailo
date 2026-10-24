@@ -6,7 +6,8 @@
 //! writing an hour by itself again. The files below write or read hours for machines, not for
 //! people, and say so.
 
-use std::path::{Path, PathBuf};
+use crate::support::sources;
+use std::path::Path;
 
 /// The files that may name an hour pattern, and why.
 const ALLOWED: &[(&str, &str)] = &[
@@ -48,21 +49,6 @@ const ALLOWED: &[(&str, &str)] = &[
 const PATTERNS: &[&str] = &[
     "%H:%M", "%I", "%-I", "%l", "%p", "%P", "%r", "%R", "%T", "%X", "%k",
 ];
-
-/// Every non-test `.rs` file under `dir`: not `tests.rs`, `*_tests.rs` or a `tests` directory.
-fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if path.is_dir() {
-            if name != "tests" {
-                sources(&path, into);
-            }
-        } else if name.ends_with(".rs") && name != "tests.rs" && !name.ends_with("_tests.rs") {
-            into.push(path);
-        }
-    }
-}
 
 /// Whether `line` names one of [`PATTERNS`].
 fn names_an_hour(line: &str) -> bool {

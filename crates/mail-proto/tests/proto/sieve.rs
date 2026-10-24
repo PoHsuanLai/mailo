@@ -4,7 +4,7 @@ use crate::common;
 
 use chrono::{DateTime, TimeZone, Utc};
 use common::replay;
-use mail_domain::id::account_id_from_uuid;
+use mail_domain::testing::account;
 use mail_domain::{
     AfterMatch, DateRange, Filter, LabelId, MailboxRole, Rule, RuleAction, RuleId, RuleState,
     TextMatch, Tls, Vacation,
@@ -14,13 +14,9 @@ use mail_proto::sieve::{
     Active, Compiled, Deleted, Places, ScriptEntry, SieveAuthentication, SieveJob, SieveLogin,
     SieveOutcome, SieveSession, Takeover, Unmappable, VacationPlaced, compile, quoted,
 };
+use porter_core::Credential;
 use porter_core::SecretText;
 use porter_core::UnixSeconds;
-use porter_core::{AccountId, Credential};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::Uuid::from_u128(1))
-}
 
 fn at(day: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, day, 0, 0, 0).unwrap()
@@ -29,7 +25,7 @@ fn at(day: u32) -> DateTime<Utc> {
 fn rule(position: u32, name: &str, filter: Filter, actions: Vec<RuleAction>) -> Rule {
     Rule {
         id: RuleId::from_uuid(uuid::Uuid::from_u128(u128::from(position) + 100)),
-        account: acct_account(),
+        account: account(),
         name: name.to_owned(),
         position,
         state: RuleState::Enabled,
@@ -280,7 +276,7 @@ fn a_disabled_rule_is_left_out_and_not_called_local() {
 
 fn vacation() -> Vacation {
     Vacation {
-        account: acct_account(),
+        account: account(),
         subject: "Away until the 8th".to_owned(),
         body: "I am away.\nFor \"urgent\" things, call the desk.".to_owned(),
         days: 7,

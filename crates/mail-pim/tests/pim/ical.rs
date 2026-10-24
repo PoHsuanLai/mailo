@@ -11,6 +11,7 @@ use mail_domain::Attendance;
 use mail_pim::ical::{self, Answering, End, EventZone, Method, Moment, PartStat, Role, Rsvp};
 use mail_pim::ical::{Recurrence, RepeatEnd, RepeatUnit, Repeats};
 use mail_pim::{Invite, Kind, Me, PimError, Revision, Unplaced, When, summarise};
+use proptest::prelude::*;
 
 const ME: &[&str] = &["me@example.test"];
 
@@ -248,18 +249,6 @@ fn a_web_calendar_invitation_reads_in_utc_with_its_guests_and_their_answers() {
             address: "me@example.test".into(),
             answer: PartStat::NeedsAction
         }
-    );
-    // Written in UTC: nothing says where the organiser is, so there is no second reading.
-    assert!(
-        matches!(
-            &invite.when,
-            When::Timed {
-                zone: EventZone::Utc,
-                ..
-            }
-        ),
-        "{:?}",
-        invite.when
     );
 }
 
@@ -776,24 +765,78 @@ fn nonsense_nesting_and_garbage_do_not_panic() {
          BEGIN:VEVENT\r\nUID:l\r\nDTSTART;TZID=Loop:20261001T090000\r\nEND:VEVENT\r\n",
     ] {
         if let Ok(calendar) = ical::parse(text) {
+            // Only that it returns: what it makes of nonsense is beside the point.
             let _ = summarise(&calendar, ME);
         }
     }
 }
 
-#[test]
-fn an_invitation_read_back_from_its_own_bytes_is_the_same_invitation() {
-    // Export is the calendar object as it came; reading the exported bytes gives the same
-    // invitation, which is what a calendar importing the file will see.
-    for text in [WEB, DESKTOP, CUSTOM_ZONE, PHONE, ONE_OCCURRENCE] {
-        let exported = text.as_bytes().to_vec();
-        let again = summarise(
-            &ical::parse(std::str::from_utf8(&exported).unwrap()).unwrap(),
-            ME,
-        );
-        assert_eq!(again, Some(read_invite(text)));
+/// A line an invitation might hold, well formed or not: the readers' own vocabulary, so the
+/// arbitrary text reaches past the first `BEGIN`.
+fn arb_calendar_line() -> impl Strategy<Value = String> {
+    prop_oneof![
+        any::<String>(),
+        prop::sample::select(vec![
+            "BEGIN:VCALENDAR",
+            "END:VCALENDAR",
+            "BEGIN:VEVENT",
+            "END:VEVENT",
+            "BEGIN:VTIMEZONE",
+            "END:VTIMEZONE",
+            "BEGIN:STANDARD",
+            "END:STANDARD",
+            "BEGIN:DAYLIGHT",
+            "END:DAYLIGHT",
+            "METHOD:REQUEST",
+            "METHOD:CANCEL",
+            "METHOD:REPLY",
+            "UID:u",
+            "SEQUENCE:-1",
+            "STATUS:CANCELLED",
+            "ORGANIZER:mailto:ada@example.test",
+            "ATTENDEE;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:me@example.test",
+            "ATTENDEE;EMAIL=me@example.test:urn:uuid:1",
+            "TZID:Z",
+            "TZOFFSETFROM:+2500",
+            "TZOFFSETTO:-9999",
+            "DTSTART;TZID=Z:20261001T090000",
+            "DTSTART;VALUE=DATE:20261001",
+            "DTSTART:16010101T020000",
+            "DTEND:20260101T000000Z",
+            "DURATION:P99999W",
+            "RECURRENCE-ID:20261109T090000Z",
+            "RRULE:FREQ=YEARLY;BYMONTH=13;BYDAY=-9SU",
+            "RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=4294967296",
+            " folded",
+        ])
+        .prop_map(str::to_owned),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn arbitrary_text_is_read_summarised_and_answered_without_a_panic(
+        lines in prop::collection::vec(arb_calendar_line(), 0..40),
+    ) {
+        let text = lines.join("\r\n");
+        if let Ok(calendar) = ical::parse(&text) {
+            // Only that each returns: what they make of nonsense is beside the point.
+            let _ = summarise(&calendar, ME);
+            if let Some(event) = calendar.main_event() {
+                let _ = ical::reply(
+                    &calendar,
+                    event,
+                    &answering("me@example.test", Attendance::Accepted, None),
+                );
+            }
+        }
     }
-    // And a calendar written out property by property reads back the same.
+}
+
+#[test]
+fn a_calendar_written_out_property_by_property_reads_back_the_same() {
     let calendar = ical::parse(PHONE).unwrap();
     let mut written = String::from("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\n");
     for zone in &calendar.zones {

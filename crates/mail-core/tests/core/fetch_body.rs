@@ -4,52 +4,20 @@
 //! The IMAP server is a scripted one on loopback, in this process, so the test is fast and needs
 //! no daemon: it answers just enough of the protocol for one `UID FETCH`.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use crate::support::{account, caps, now, with_password};
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_runtime::ClientRegistry;
 use mail_store::{SqliteStore, Store};
-use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::net::TcpListener;
 use std::sync::Arc;
-use std::time::Duration;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"))
-}
 
 const RAW: &[u8] = b"From: a@example.test\r\nSubject: hello\r\nMessage-ID: <b1@example.test>\r\n\r\nthe body text\r\n";
 
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
-
-fn caps() -> AccountCaps {
-    AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Poll {
-            every: Duration::from_secs(300),
-        },
-        archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles(Vec::new()),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 1 },
-        observed_at: now(),
-    }
-}
-
 /// An IMAP account on `port` holding one message, headers only, and its id.
-fn account_with_header_only_message(port: u16) -> (Arc<SqliteStore>, MessageId, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+fn account_with_header_only_message(port: u16) -> (Arc<SqliteStore>, MessageId) {
+    let store = Arc::new(mail_store::testing::in_memory());
     let plan = AccountPlan {
         address: "ada@example.test".to_owned(),
         incoming: Incoming::Imap {
@@ -69,20 +37,14 @@ fn account_with_header_only_message(port: u16) -> (Arc<SqliteStore>, MessageId, 
         identities: Vec::new(),
     };
     {
-        mail_store::testing::seed_account_plan(
-            &store,
-            acct_account(),
-            "ada@example.test",
-            &plan,
-            None,
-        );
-        mail_store::testing::seed_caps(&store, acct_account(), &caps(), now()).unwrap();
+        mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
+        mail_store::testing::seed_caps(&store, account(), &caps(), now()).unwrap();
     }
     mail_runtime::absorb(
         &store,
-        acct_account(),
+        account(),
         MailboxRef {
-            account: acct_account(),
+            account: account(),
             path: "INBOX".to_owned(),
         },
         None,
@@ -99,7 +61,7 @@ fn account_with_header_only_message(port: u16) -> (Arc<SqliteStore>, MessageId, 
     )
     .unwrap();
     let id = mail_store::testing::message_ids(&store).remove(0);
-    (store, id, dir)
+    (store, id)
 }
 
 /// Answers one connection: every command succeeds, `SELECT` reports validity 7, and
@@ -143,23 +105,12 @@ fn held_body(store: &SqliteStore, id: MessageId) -> Option<String> {
     store.message(id).unwrap().body.text().map(str::to_owned)
 }
 
-fn with_password(secrets: &MemorySecrets) {
-    mail_runtime::block_on(secrets.put(
-        &SecretKey {
-            account: acct_account(),
-            purpose: SecretPurpose::IncomingPassword,
-        },
-        &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
-    ))
-    .unwrap();
-}
-
 #[test]
 fn a_body_fetched_on_demand_is_stored_for_the_reader() {
-    let (store, id, _dir) = account_with_header_only_message(serve_one());
+    let (store, id) = account_with_header_only_message(serve_one());
     assert!(held_body(&store, id).is_none(), "seeded with a body");
     let secrets = MemorySecrets::default();
-    with_password(&secrets);
+    with_password(&secrets, "s3cr3t-pass");
 
     crate::blocking::fetch_body_with(
         store.clone(),
@@ -176,7 +127,7 @@ fn a_body_fetched_on_demand_is_stored_for_the_reader() {
 
 #[test]
 fn a_missing_credential_asks_for_a_new_sign_in() {
-    let (store, id, _dir) = account_with_header_only_message(1);
+    let (store, id) = account_with_header_only_message(1);
     let (retry, why) = crate::blocking::fetch_body_with(
         store,
         Arc::new(MemorySecrets::default()),
@@ -193,9 +144,9 @@ fn a_missing_credential_asks_for_a_new_sign_in() {
 #[test]
 fn an_unreachable_server_can_be_tried_again_later() {
     // Port 1 refuses.
-    let (store, id, _dir) = account_with_header_only_message(1);
+    let (store, id) = account_with_header_only_message(1);
     let secrets = MemorySecrets::default();
-    with_password(&secrets);
+    with_password(&secrets, "s3cr3t-pass");
     let (retry, why) = crate::blocking::fetch_body_with(
         store.clone(),
         Arc::new(secrets),

@@ -8,85 +8,22 @@ use crate::common;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use common::replay;
-use mail_domain::id::account_id_from_uuid;
+use common::{Driven, password_backend, replay};
+use mail_domain::testing::account;
 use mail_domain::*;
-use mail_proto::backend::{Authenticate, ImapBackend};
-use mail_proto::{
-    Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Machine, Progress, ProtoOutcome,
-};
-use porter_core::SecretText;
-use porter_core::{AccountId, Credential};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a2"))
-}
+use mail_proto::backend::ImapBackend;
+use mail_proto::{Backend, Machine, Progress, ProtoOutcome};
 
 const RAW: &[u8] = b"Subject: hi\r\n\r\nbody\r\n";
 
-fn caps() -> AccountCaps {
-    AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Idle,
-        archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
-        folders: FolderRoles::default(),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 2 },
-        observed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
-    }
-}
-
-fn backend() -> ImapBackend {
-    ImapBackend::new(
-        acct_account(),
-        caps(),
-        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
-            let mut all = Vec::new();
-            if auth == Authenticate::First {
-                all.push(ImapCommand::Login);
-            }
-            all.extend(commands);
-            ImapSession::new(
-                ImapAuth {
-                    username: "ada@example.test".to_owned(),
-                    credential: Credential::Password(SecretText::new("hunter2".to_owned())),
-                    sasl: vec![SaslMech::Plain],
-                },
-                all,
-            )
-        }),
-    )
-}
-
-struct Driven {
-    backend: ImapBackend,
-    op: Option<ProtoOp>,
-}
-
-impl Machine for Driven {
-    type Out = ProtoOutcome;
-    fn start(&mut self) -> Progress<ProtoOutcome> {
-        let op = self.op.take().expect("start called twice");
-        self.backend.begin(op)
-    }
-    fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome> {
-        self.backend.feed(ready)
-    }
-}
-
-fn append() -> Driven {
-    let mut backend = backend();
+fn append() -> Driven<ImapBackend> {
+    let mut backend = password_backend(common::caps());
     backend.stage_append(RAW.to_vec());
     Driven {
         backend,
         op: Some(ProtoOp::Append {
             mailbox: MailboxRef {
-                account: acct_account(),
+                account: account(),
                 path: "Archive".to_owned(),
             },
             flags: vec![SystemFlag::Seen, SystemFlag::Flagged],
@@ -181,6 +118,6 @@ fn literal_minus_covers_a_small_message() {
 #[test]
 fn an_append_with_no_bytes_staged_is_refused() {
     let mut driven = append();
-    driven.backend = backend();
+    driven.backend = password_backend(common::caps());
     assert!(matches!(driven.start(), Progress::Failed(_)));
 }

@@ -37,26 +37,13 @@ impl Draft {
 
 #[cfg(test)]
 mod tests {
-    use crate::account::Identity;
     use crate::content::Address;
     use crate::draft::Draft;
-    use crate::id::{IdentityId, MessageId, new_account_id};
-    use crate::state::IsDefault;
-    use chrono::{TimeZone, Utc};
+    use crate::id::MessageId;
+    use crate::testing::{identity, now};
 
     fn new_draft() -> Draft {
-        let identity = Identity {
-            id: IdentityId::generate(),
-            account: new_account_id(),
-            from: Address {
-                name: None,
-                email: "me@example.test".to_owned(),
-            },
-            reply_to: None,
-            signature: None,
-            default: IsDefault::Default,
-        };
-        Draft::blank(&identity, Utc.timestamp_opt(1_700_000_000, 0).unwrap())
+        Draft::blank(&identity(), now())
     }
 
     #[test]

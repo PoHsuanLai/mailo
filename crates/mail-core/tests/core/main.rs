@@ -4,6 +4,8 @@
 //! dependency graph again. A file here is a module, so a test's name gains its file's name
 //! as a prefix: `cargo test -p mail-core --test core -- <file>::`.
 
+mod support;
+
 mod attachments;
 mod blocking;
 mod direct_sign_in;

@@ -1,19 +1,61 @@
-//! Fixtures for the search tests. Not compiled into the binary.
+//! What more than one of the crate's unit tests starts from. Not compiled into the binary, and
+//! named as a test file so the checks over the program's source pass it by.
 
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
+use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::*;
 use mail_store::{MemoryStore, SqliteStore, Store};
-use porter_core::AccountId;
 
-pub fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
+pub use mail_domain::testing::{account, now};
+
+/// A POP3 account's setup at `example.edu`, signing in as `login` (the address when `None`).
+pub fn pop3(login: Option<&str>) -> crate::account::Setup {
+    crate::account::Setup::Pop3(mail_domain::presets::ManualPop3 {
+        pop3_host: "pop.example.edu".to_owned(),
+        pop3_port: 995,
+        smtp_host: "smtp.example.edu".to_owned(),
+        smtp_port: 465,
+        login: login.map(str::to_owned),
+    })
 }
 
+/// A plain IMAP server's capabilities: no labels, threads, extensions or pipelining, one
+/// connection, polled every five minutes. Read at [`now`], so a pass at [`now`] finds them fresh
+/// and does not ask the server again.
+pub fn caps() -> AccountCaps {
+    AccountCaps {
+        labels: ServerLabels::LocalOnly,
+        threads: ServerThreads::Jwz,
+        watch: WatchMode::Poll {
+            every: std::time::Duration::from_secs(300),
+        },
+        archive: ArchiveMeans::LocalOnly,
+        folders: FolderRoles(Vec::new()),
+        condstore: Condstore::Absent,
+        move_ext: MoveExt::Absent,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget { max: 1 },
+        observed_at: now(),
+    }
+}
+
+/// [`account`]'s incoming password, kept in `secrets`.
+pub fn with_password(secrets: &porter_secrets::MemorySecrets, password: &str) {
+    use mail_runtime::AccountSecrets as _;
+    mail_runtime::block_on(secrets.put(
+        &porter_core::SecretKey {
+            account: account(),
+            purpose: porter_core::SecretPurpose::IncomingPassword,
+        },
+        &porter_core::Credential::Password(porter_core::SecretText::new(password.to_owned())),
+    ))
+    .unwrap();
+}
+
+/// `secs` seconds after [`now`].
 pub fn at(secs: i64) -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000 + secs, 0)
-        .single()
-        .expect("fixture timestamp")
+    now() + TimeDelta::seconds(secs)
 }
 
 pub fn summary(
@@ -27,7 +69,7 @@ pub fn summary(
 ) -> ThreadSummary {
     ThreadSummary {
         id: ThreadId::from_uuid(uuid::Uuid::from_u128(n)),
-        account: acct_account(),
+        account: account(),
         subject: subject.to_owned(),
         snippet: snippet.to_owned(),
         from: Address {
@@ -45,7 +87,7 @@ pub fn remember(store: &MemoryStore, n: u128, subject: &str, body: &str, secs: i
     let message = message(n, subject, body, secs, ReadState::Read, Star::Unstarred);
     store
         .apply(
-            acct_account(),
+            account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -65,7 +107,7 @@ pub fn message(
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n)),
-        account: acct_account(),
+        account: account(),
         key: MessageKey::Rfc(format!("m{n}@b.c")),
         date: at(secs),
         from: Address {
@@ -92,11 +134,11 @@ pub fn message(
     }
 }
 
-/// A sqlite store with one account, so `mailo search` and [`super::run`] see the same rows.
-pub fn sqlite_with(rows: &[(&str, &str, i64)]) -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let store = SqliteStore::in_memory(dir.path()).expect("sqlite");
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+/// A sqlite store with one account, so `mailo search` and [`crate::search::run`] see the same
+/// rows.
+pub fn sqlite_with(rows: &[(&str, &str, i64)]) -> SqliteStore {
+    let store = mail_store::testing::in_memory();
+    mail_store::testing::seed_account(&store, account(), "me@example.test");
     for (i, (subject, body, secs)) in rows.iter().enumerate() {
         let raw = store.blobs().put(body.as_bytes()).expect("blob");
         let mut message = message(
@@ -112,7 +154,7 @@ pub fn sqlite_with(rows: &[(&str, &str, i64)]) -> (SqliteStore, tempfile::TempDi
         }
         store
             .apply(
-                acct_account(),
+                account(),
                 &Patch {
                     id: ChangeId::generate(),
                     changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -120,5 +162,5 @@ pub fn sqlite_with(rows: &[(&str, &str, i64)]) -> (SqliteStore, tempfile::TempDi
             )
             .expect("sqlite apply");
     }
-    (store, dir)
+    store
 }

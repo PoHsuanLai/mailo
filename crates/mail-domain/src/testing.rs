@@ -4,15 +4,30 @@
 //! is beside the point. Each test used to spell all of them out; now it writes
 //! `ThreadSummary { subject, read, ..summary() }`. The defaults are an unread, unstarred
 //! conversation of one message in the Inbox, with every thread-level setting off.
+//!
+//! [`account`] and [`now`] are fixed rather than fresh, so two calls in one test name the same
+//! account and the same instant.
 
 use crate::account::Identity;
 use crate::address::Address;
-use crate::id::{IdentityId, ThreadId, new_account_id};
+use crate::id::{IdentityId, ThreadId, account_id_from_uuid, new_account_id};
 use crate::message::ThreadSummary;
 use crate::state::{
     Attachments, FollowUp, IsDefault, MailboxRole, MailboxSet, Mute, Pin, ReadState, Snooze, Star,
 };
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, TimeZone, Utc};
+use porter_core::AccountId;
+use uuid::Uuid;
+
+/// The one account a test's records belong to.
+pub fn account() -> AccountId {
+    account_id_from_uuid(Uuid::from_u128(0xa1))
+}
+
+/// The instant a test's clock reads: 2023-11-14 22:13:20 UTC.
+pub fn now() -> DateTime<Utc> {
+    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
+}
 
 /// An unread, unstarred one-message conversation in the Inbox, from `a@example.test`, on an
 /// account of its own.
@@ -28,7 +43,7 @@ pub fn summary() -> ThreadSummary {
         },
         participants: vec![],
         recipients: vec![],
-        last_date: Utc.timestamp_opt(1_700_000_000, 0).unwrap(),
+        last_date: now(),
         message_count: 1,
         read: ReadState::Unread,
         star: Star::Unstarred,

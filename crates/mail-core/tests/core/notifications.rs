@@ -5,25 +5,22 @@
 //! file is what needs a store or a socket: the floor surviving a restart, a first backfill staying
 //! quiet, and a watch's passes fetching new mail from an IMAP server and announcing it.
 
+use crate::support::account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::notify::{self, Notification, Notifier, Opens};
 use mail_core::sync;
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::AccountEngine;
 use mail_store::{SqliteStore, Store};
+use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential};
 use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 const ME: &str = "me@example.test";
 
 /// Every notification the loop raised, in order.
@@ -47,7 +44,7 @@ fn open(dir: &std::path::Path) -> SqliteStore {
 }
 
 fn with_account(store: &SqliteStore, plan: &AccountPlan) {
-    mail_store::testing::seed_account_plan(store, acct_account(), ME, plan, None);
+    mail_store::testing::seed_account_plan(store, account(), ME, plan, None);
 }
 
 fn plan(port: u16) -> AccountPlan {
@@ -80,11 +77,11 @@ fn the_floor_is_armed_once_and_a_restart_keeps_it() {
         let store = open(dir.path());
         with_account(&store, &plan(1));
         assert_eq!(
-            notify::floor::armed(&store, acct_account(), first).unwrap(),
+            notify::floor::armed(&store, account(), first).unwrap(),
             first
         );
         assert_eq!(
-            notify::floor::armed(&store, acct_account(), later).unwrap(),
+            notify::floor::armed(&store, account(), later).unwrap(),
             first,
             "a later pass does not move it"
         );
@@ -93,7 +90,7 @@ fn the_floor_is_armed_once_and_a_restart_keeps_it() {
     // while nothing was watching.
     let store = open(dir.path());
     assert_eq!(
-        notify::floor::armed(&store, acct_account(), later).unwrap(),
+        notify::floor::armed(&store, account(), later).unwrap(),
         first
     );
 }
@@ -104,7 +101,7 @@ fn stored(store: &SqliteStore, n: u128, from: &str, date: DateTime<Utc>) -> Mess
     let message = Message {
         id,
         thread: ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n)),
-        account: acct_account(),
+        account: account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date,
         from: Address {
@@ -128,7 +125,7 @@ fn stored(store: &SqliteStore, n: u128, from: &str, date: DateTime<Utc>) -> Mess
     };
     store
         .apply(
-            acct_account(),
+            account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -156,7 +153,7 @@ fn an_accounts_first_backfill_raises_nothing() {
         })
         .collect();
     let recorder = Recorder::default();
-    let raised = notify::announce(&store, acct_account(), &arrived, &recorder, watched).unwrap();
+    let raised = notify::announce(&store, account(), &arrived, &recorder, watched).unwrap();
     assert_eq!(raised, 0);
     assert!(recorder.seen().is_empty(), "{:?}", recorder.seen());
 
@@ -164,7 +161,7 @@ fn an_accounts_first_backfill_raises_nothing() {
     let later = watched + chrono::Duration::minutes(5);
     let new = stored(&store, 500, "bob@example.test", later);
     let mine = stored(&store, 501, "ME@example.test", later);
-    notify::announce(&store, acct_account(), &[new, mine], &recorder, later).unwrap();
+    notify::announce(&store, account(), &[new, mine], &recorder, later).unwrap();
     let seen = recorder.seen();
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0].summary, "bob@example.test");
@@ -334,24 +331,6 @@ fn fetch(held: &[(u32, String, Vec<String>)], upper: &str, tag: &str) -> String 
     out
 }
 
-fn caps() -> AccountCaps {
-    AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Idle,
-        archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles::default(),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 1 },
-        // Fresh, so the loop does not stop to re-read capabilities.
-        observed_at: Utc::now(),
-    }
-}
-
 fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
     let auth = ImapAuth {
         username: ME.to_owned(),
@@ -359,7 +338,7 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
         sasl: vec![SaslMech::Plain],
     };
     let backend = ImapBackend::new(
-        acct_account(),
+        account(),
         caps(),
         Box::new(move |authenticate, commands: Vec<ImapCommand>| {
             let mut all = Vec::new();
@@ -371,7 +350,7 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
         }),
     );
     AccountEngine::new(
-        acct_account(),
+        account(),
         plan(port),
         backend,
         store,
@@ -394,14 +373,14 @@ async fn watching<F: std::future::Future<Output = ()>>(
 ) {
     let mut engine = engine(port, store.clone());
     let account = sync::Configured {
-        id: acct_account(),
+        id: account(),
         address: ME.to_owned(),
         plan: plan(port),
         caps: caps(),
         keep: mail_core::offline::Keep::Bodies,
     };
     let inbox = vec![MailboxRef {
-        account: acct_account(),
+        account: account.id.clone(),
         path: "INBOX".to_owned(),
     }];
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
@@ -484,7 +463,7 @@ async fn a_watch_announces_what_arrives_and_not_what_was_already_there() {
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0].summary, "Cy");
     assert_eq!(seen[0].body, "lunch on friday");
-    assert_eq!(seen[0].account, acct_account());
+    assert_eq!(seen[0].account, account());
     let Opens::Thread(thread) = seen[0].opens else {
         panic!("one message opens its conversation: {:?}", seen[0].opens);
     };
@@ -514,4 +493,13 @@ async fn a_watch_announces_what_arrives_and_not_what_was_already_there() {
     let seen = again.seen();
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0].body, "after the restart");
+}
+
+fn caps() -> AccountCaps {
+    AccountCaps {
+        watch: WatchMode::Idle,
+        // Fresh, so the loop does not stop to re-read capabilities.
+        observed_at: Utc::now(),
+        ..crate::support::caps()
+    }
 }

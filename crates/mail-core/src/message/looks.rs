@@ -319,8 +319,7 @@ mod tests {
 
     #[test]
     fn an_answer_found_is_kept_and_the_second_ask_does_not_read() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        let store = mail_store::testing::in_memory();
         let looks = Looks::new();
         let (message, raw) = unknown();
         assert_eq!(looks.checks_cached(message, raw), None);
@@ -333,8 +332,7 @@ mod tests {
 
     #[test]
     fn a_body_that_arrives_is_asked_again() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        let store = mail_store::testing::in_memory();
         let looks = Looks::new();
         let (message, _) = unknown();
         assert_eq!(looks.invite(&store, message, None), None);
@@ -347,8 +345,7 @@ mod tests {
 
     #[test]
     fn two_looks_share_nothing() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        let store = mail_store::testing::in_memory();
         let (one, other) = (Looks::new(), Looks::new());
         let (message, raw) = unknown();
         one.checks(&store, message, raw);

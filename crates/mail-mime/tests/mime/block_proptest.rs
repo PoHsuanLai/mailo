@@ -4,7 +4,7 @@
 //! A mapping that drops a subtree fails that, which is the failure that
 //! loses mail. Every URL in the output parses back to itself.
 
-use crate::block as support;
+use crate::support::block as support;
 
 use html5ever::buffer_queue::BufferQueue;
 use html5ever::tendril::StrTendril;

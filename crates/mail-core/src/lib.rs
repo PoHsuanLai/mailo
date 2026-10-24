@@ -88,3 +88,6 @@ pub use mail_runtime::{
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{SqliteStore, Store, StoreError};
 pub use remedy::{Remedy, SignInWith};
+
+#[cfg(test)]
+mod support_tests;

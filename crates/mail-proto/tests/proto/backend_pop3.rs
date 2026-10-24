@@ -10,43 +10,29 @@
 
 use crate::common;
 
-use common::replay;
-use mail_domain::id::account_id_from_uuid;
+use common::{Driven, replay};
+use mail_domain::testing::account;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Backend, IoNeed, IoReady, Machine, Pop3Command, Progress, ProtoOutcome};
+use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::{AccountId, Credential};
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 
 fn caps() -> AccountCaps {
     AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
         watch: WatchMode::Poll {
             every: std::time::Duration::from_secs(300),
         },
         archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles::default(),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
         connections: ConnectionBudget { max: 1 },
-        observed_at: chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap(),
+        ..common::caps()
     }
 }
 
 fn backend() -> Pop3Backend {
     Pop3Backend::new(
-        acct_account(),
+        account(),
         caps(),
-        // The factory authenticates, exactly as the runtime's will: it is the only thing that
-        // knows both the mechanism and the credential.
         // The factory authenticates, exactly as the runtime's will: it is the only thing that
         // knows both the mechanism and the credential.
         Box::new(|auth: Authenticate, commands: Vec<Pop3Command>| {
@@ -62,36 +48,13 @@ fn backend() -> Pop3Backend {
 
 fn mailbox() -> MailboxRef {
     MailboxRef {
-        account: acct_account(),
+        account: account(),
         path: "INBOX".to_owned(),
     }
 }
 
-/// The harness drives a `Machine`; a `Backend` starts from an op, so adapt rather than
-/// duplicating the loop.
-struct Driven {
-    backend: Pop3Backend,
-    op: Option<ProtoOp>,
-}
-
-impl Machine for Driven {
-    type Out = ProtoOutcome;
-
-    fn start(&mut self) -> Progress<ProtoOutcome> {
-        let op = self.op.take().expect("start called twice");
-        self.backend.begin(op)
-    }
-
-    fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome> {
-        self.backend.feed(ready)
-    }
-}
-
 fn run(op: ProtoOp, trace: &str) -> (ProtoOutcome, Pop3Backend) {
-    let mut driven = Driven {
-        backend: backend(),
-        op: Some(op),
-    };
+    let mut driven = Driven::new(backend(), op);
     let out = replay(&mut driven, trace).unwrap();
     (out, driven.backend)
 }
@@ -315,13 +278,13 @@ fn fetch_headers_uses_top_and_returns_raw_bytes() {
         "S: .\n",
         "DONE\n"
     );
-    let mut driven = Driven {
-        backend: backend(),
-        op: Some(ProtoOp::FetchEnvelopes {
+    let mut driven = Driven::new(
+        backend(),
+        ProtoOp::FetchEnvelopes {
             mailbox: mailbox(),
             since: FetchSince::Beginning,
-        }),
-    };
+        },
+    );
     replay(&mut driven, survey).unwrap();
 
     // TOP is only offered once caps say so; otherwise the backend must refuse rather than
@@ -351,7 +314,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
     use mail_proto::{Authentication, SignIn, Submission};
 
     let mut backend = SmtpBackend::new(
-        acct_account(),
+        account(),
         caps(),
         // The envelope comes from the Posting, not from the closure: the closure knows the
         // host and the credential, and nothing about who this particular message is for.

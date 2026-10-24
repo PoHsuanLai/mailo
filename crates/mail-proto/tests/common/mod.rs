@@ -1,4 +1,5 @@
-//! The trace replay harness. See `../traces/FORMAT.md` for the grammar.
+//! The trace replay harness, and the account and backends the backend tests drive through it.
+//! See `../traces/FORMAT.md` for the grammar.
 //!
 //! Shared deliberately: four sessions written by four people must not invent four harnesses,
 //! or a trace stops being a portable description of what a server did and becomes an input to
@@ -9,7 +10,89 @@
 
 #![allow(dead_code)] // each test file uses a different subset
 
-use mail_proto::{IoNeed, IoReady, Machine, Progress, ProtoError};
+use mail_domain::testing::{account, now};
+use mail_domain::{
+    AccountCaps, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, FolderRoles, MoveExt,
+    ProtoOp, SaslMech, ServerLabels, ServerThreads, Supported, WatchMode,
+};
+use mail_proto::backend::{Authenticate, ImapBackend};
+use mail_proto::{
+    Backend, ImapAuth, ImapCommand, ImapSession, IoNeed, IoReady, Machine, Progress, ProtoError,
+    ProtoOutcome,
+};
+use porter_core::{Credential, SecretText};
+
+/// A plain IMAP server's capabilities: no labels, no CONDSTORE, no MOVE, an Archive folder to
+/// archive into, and expunging forbidden. A test names only what its server does otherwise.
+pub fn caps() -> AccountCaps {
+    AccountCaps {
+        labels: ServerLabels::LocalOnly,
+        threads: ServerThreads::Jwz,
+        watch: WatchMode::Idle,
+        archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        folders: FolderRoles::default(),
+        condstore: Condstore::Absent,
+        move_ext: MoveExt::Absent,
+        expunge: ExpungeMeans::Forbidden,
+        top: Supported::Absent,
+        pipelining: Supported::Absent,
+        connections: ConnectionBudget { max: 2 },
+        observed_at: now(),
+    }
+}
+
+/// An IMAP backend for [`account`] that signs in with `LOGIN` as `ada@example.test` and the
+/// password `hunter2`: what every server but Gmail gets.
+pub fn password_backend(caps: AccountCaps) -> ImapBackend {
+    ImapBackend::new(
+        account(),
+        caps,
+        Box::new(|auth: Authenticate, commands: Vec<ImapCommand>| {
+            let mut all = Vec::new();
+            if auth == Authenticate::First {
+                all.push(ImapCommand::Login);
+            }
+            all.extend(commands);
+            ImapSession::new(
+                ImapAuth {
+                    username: "ada@example.test".to_owned(),
+                    credential: Credential::Password(SecretText::new("hunter2".to_owned())),
+                    sasl: vec![SaslMech::Plain],
+                },
+                all,
+            )
+        }),
+    )
+}
+
+/// A backend and the one op it is to do, as a [`Machine`]: the harness drives a machine, and a
+/// backend starts from an op, so this adapts rather than duplicating the loop.
+pub struct Driven<B> {
+    pub backend: B,
+    pub op: Option<ProtoOp>,
+}
+
+impl<B> Driven<B> {
+    pub fn new(backend: B, op: ProtoOp) -> Self {
+        Self {
+            backend,
+            op: Some(op),
+        }
+    }
+}
+
+impl<B: Backend> Machine for Driven<B> {
+    type Out = ProtoOutcome;
+
+    fn start(&mut self) -> Progress<ProtoOutcome> {
+        let op = self.op.take().expect("start called twice");
+        self.backend.begin(op)
+    }
+
+    fn feed(&mut self, ready: IoReady) -> Progress<ProtoOutcome> {
+        self.backend.feed(ready)
+    }
+}
 
 /// How a replay ended.
 #[derive(Debug)]

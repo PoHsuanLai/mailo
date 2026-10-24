@@ -11,13 +11,11 @@ use crate::imap::Untagged;
 use crate::jmap::Mailboxes;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::account_id_from_uuid;
+use mail_domain::testing::account;
 use mail_domain::*;
 use porter_core::AccountId;
 use serde_json::{Value, json};
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
 fn acct_other() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b2"))
 }
@@ -50,7 +48,7 @@ fn between(from: Option<DateTime<Utc>>, to: Option<DateTime<Utc>>) -> Filter {
 
 fn folder(path: &str, special: Option<SpecialUse>) -> Folder {
     Folder {
-        account: acct_account(),
+        account: account(),
         path: path.to_owned(),
         delimiter: Some('/'),
         special,
@@ -161,7 +159,7 @@ fn generic_rows() -> Vec<ImapRow> {
         (
             "a folder chooses the mailbox",
             Filter::InFolder(MailboxRef {
-                account: acct_account(),
+                account: account(),
                 path: "Projects/2026".to_owned(),
             }),
             Ok((vec!["Projects/2026"], "a1 UID SEARCH ALL\r\n")),
@@ -199,7 +197,7 @@ fn generic_rows() -> Vec<ImapRow> {
         (
             "an account clause for this account is dropped",
             and(vec![
-                Filter::Account(acct_account()),
+                Filter::Account(account()),
                 Filter::From(contains("ada")),
             ]),
             Ok((inbox_archive.clone(), "a1 UID SEARCH FROM \"ada\"\r\n")),
@@ -273,7 +271,7 @@ fn imap_asks_each_clause_of_its_own_field_and_names_what_it_cannot() {
     ]);
     let named = [(TRAVEL, "travel".to_owned())];
     let ctx = ImapCtx {
-        account: acct_account(),
+        account: account(),
         folders: &folders,
         roles: &roles,
         labels: ServerLabels::LocalOnly,
@@ -297,7 +295,7 @@ fn imap_asks_each_clause_of_its_own_field_and_names_what_it_cannot() {
 fn a_query_that_can_match_nothing_here_asks_nothing() {
     let roles = roles(&[]);
     let ctx = ImapCtx {
-        account: acct_account(),
+        account: account(),
         folders: &[],
         roles: &roles,
         labels: ServerLabels::LocalOnly,
@@ -312,7 +310,7 @@ fn a_query_that_can_match_nothing_here_asks_nothing() {
     for (name, filter) in CASES.iter().zip(filters) {
         assert_eq!(imap::translate(&filter, &ctx), Ok(Asked::Nothing), "{name}");
         assert_eq!(
-            graph::translate(&filter, acct_account()),
+            graph::translate(&filter, account()),
             Ok(Asked::Nothing),
             "{name}"
         );
@@ -332,7 +330,7 @@ fn on_gmail_all_mail_is_searched_and_labels_are_x_gm_labels() {
     ]);
     let named = [(TRAVEL, "travel".to_owned())];
     let ctx = ImapCtx {
-        account: acct_account(),
+        account: account(),
         folders: &folders,
         roles: &roles,
         labels: ServerLabels::Supported,
@@ -525,7 +523,7 @@ fn jmap_carries_the_query_whole_as_a_filter_tree() {
     let boxes = mailboxes();
     let named = [(TRAVEL, "travel".to_owned())];
     let ctx = JmapCtx {
-        account: acct_account(),
+        account: account(),
         mailboxes: &boxes,
         labels_named: &named,
     };
@@ -694,7 +692,7 @@ fn graph_uses_filter_for_state_and_search_for_words_never_both() {
         ("is:pinned", and(vec![Filter::Pinned, text("x")]), Err(vec!["is:pinned (kept on this computer)"])),
     ];
     for (name, filter, expected) in cases {
-        match (graph::translate(&filter, acct_account()), expected) {
+        match (graph::translate(&filter, account()), expected) {
             (Ok(Asked::Ask(got)), Ok(want)) => assert_eq!(got, want, "{name}"),
             (Err(said), Err(parts)) => assert_eq!(said, unsaid(&parts), "{name}"),
             (got, expected) => panic!("{name}: got {got:?}, expected {expected:?}"),

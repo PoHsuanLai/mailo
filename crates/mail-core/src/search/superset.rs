@@ -9,8 +9,8 @@ use mail_store::{MemoryStore, Store};
 use proptest::prelude::*;
 
 use super::source::{Source, Term};
-use super::support::{self, at};
 use super::{expand, parse};
+use crate::support_tests::{self as support, at};
 
 const WORDS: &[&str] = &[
     "alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet",

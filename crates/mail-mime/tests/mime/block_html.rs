@@ -1,6 +1,6 @@
 //! One case per tag mapping, compared by a sketch, plus the allowlist closure.
 
-use crate::block as support;
+use crate::support::block as support;
 
 use mail_mime::{Block, ImgSrc, RemoteImages, is_mapped, mapped_tags};
 use support::{html, html_images, part, sketch};

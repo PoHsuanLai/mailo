@@ -19,7 +19,9 @@
 
 use mail_domain::SaslMech;
 use mail_proto::machine::{IoReady, Machine, Progress};
-use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
+use mail_proto::{
+    Access, ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session, ProtoError, Untagged,
+};
 use porter_core::Credential;
 use porter_core::SecretText;
 use proptest::prelude::*;
@@ -85,6 +87,8 @@ fn wire_chunk() -> impl Strategy<Value = Vec<u8>> {
             b".\r\n".to_vec(),
             b"{".to_vec(),
             b"{-1}\r\n".to_vec(),
+            b"* 1 FETCH (BODY[] {18446744073709551615}\r\n".to_vec(),
+            b"* 1 FETCH (BODY[] {99999999999999999999999}\r\n".to_vec(),
             vec![0u8; 8],
         ]),
     ]
@@ -160,6 +164,71 @@ proptest! {
     }
 }
 
+/// A literal's announced size: small, or at the edge of what the integer types hold, where an
+/// unchecked `start + len` overflows.
+fn literal_size() -> impl Strategy<Value = u64> {
+    prop_oneof![0u64..64, u64::MAX - 64..=u64::MAX, any::<u64>()]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// Bytes with no protocol in them at all, whole or cut at any point, as the greeting and as
+    /// the answer to a command.
+    #[test]
+    fn imap_takes_arbitrary_bytes_without_panicking(
+        raw in proptest::collection::vec(any::<u8>(), 0..512),
+        cut in any::<prop::sample::Index>(),
+    ) {
+        let at = cut.index(raw.len() + 1);
+        let (head, tail) = raw.split_at(at);
+        let mut cold = imap_session(vec![ImapCommand::Capability]);
+        prop_assert!(drive_to_rest(&mut cold, vec![head.to_vec(), tail.to_vec()]));
+        let mut greeted = imap_session(vec![ImapCommand::Capability]);
+        prop_assert!(drive_to_rest(&mut greeted, vec![b"* OK ready\r\n".to_vec(), raw]));
+    }
+
+    /// A literal of any announced size is waited for as bytes arrive, never allocated up front:
+    /// the hang-up that follows ends the session as an early close, not an abort.
+    #[test]
+    fn a_literal_of_any_announced_size_ends_in_an_error_not_an_allocation(len in literal_size()) {
+        let mut session = imap_session(vec![ImapCommand::UidFetch {
+            set: "1".to_owned(),
+            items: "(UID BODY.PEEK[])".to_owned(),
+        }]);
+        let fetch = format!("* 1 FETCH (UID 1 BODY[] {{{len}}}\r\nabc").into_bytes();
+        prop_assert!(matches!(session.start(), Progress::Need(_)));
+        prop_assert!(matches!(session.feed(IoReady::Bytes(b"* OK ready\r\n".to_vec())), Progress::Need(_)));
+        let ended = match session.feed(IoReady::Bytes(fetch)) {
+            Progress::Need(_) => session.feed(IoReady::Eof),
+            settled => settled,
+        };
+        prop_assert!(
+            matches!(ended, Progress::Failed(ProtoError::UnexpectedEof | ProtoError::Malformed(_))),
+            "{ended:?}"
+        );
+    }
+
+    /// A response's literal is read by its count, and a count past the end of the response, at
+    /// any size, is no literal.
+    #[test]
+    fn a_literal_is_its_announced_bytes_or_none(
+        len in literal_size(),
+        body in proptest::collection::vec(any::<u8>(), 0..64),
+    ) {
+        let mut raw = format!("* 1 FETCH (UID 1 BODY[] {{{len}}}\r\n").into_bytes();
+        raw.extend_from_slice(&body);
+        let untagged = Untagged { during: 0, text: String::new(), raw };
+        match untagged.literal() {
+            Some(literal) => {
+                prop_assert_eq!(literal.len() as u64, len);
+                prop_assert_eq!(literal, &body[..literal.len()]);
+            }
+            None => prop_assert!(len > body.len() as u64),
+        }
+    }
+}
+
 /// A literal announcing more bytes than will ever arrive must not wedge the session.
 ///
 /// `{999999}` followed by a hang-up is what a truncated response looks like, and a parser that
@@ -178,4 +247,17 @@ fn an_overlong_literal_that_never_arrives_ends_rather_than_hangs() {
         ],
     );
     assert!(settled, "a truncated literal left the session waiting");
+}
+
+/// A count of `usize::MAX` once overflowed `start + len` and panicked, so a `FETCH` claiming a
+/// literal that size crashed whatever read its body.
+#[test]
+fn a_literal_counted_at_the_top_of_usize_is_none_rather_than_an_overflow() {
+    let raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\nabc)\r\n", usize::MAX).into_bytes();
+    let untagged = Untagged {
+        during: 0,
+        text: String::new(),
+        raw,
+    };
+    assert_eq!(untagged.literal(), None);
 }

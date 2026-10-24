@@ -1,28 +1,16 @@
 use super::*;
+use crate::support_tests::{account, caps, now, with_password};
 use crate::sync::run_with;
-use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_runtime::ClientRegistry;
 use mail_store::SqliteStore;
-use porter_core::SecretText;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f1"))
-}
-
-fn now() -> DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
-
 /// A store with one IMAP account at `port` over plaintext, with capabilities fresh enough that a
 /// pass does not ask the server for them.
-fn store_at(port: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+fn store_at(port: u16) -> Arc<SqliteStore> {
+    let store = Arc::new(mail_store::testing::in_memory());
     let plan = AccountPlan {
         address: "ada@example.test".to_owned(),
         incoming: Incoming::Imap {
@@ -41,41 +29,14 @@ fn store_at(port: u16) -> (Arc<SqliteStore>, tempfile::TempDir) {
         },
         identities: Vec::new(),
     };
-    let caps = AccountCaps {
-        labels: ServerLabels::LocalOnly,
-        threads: ServerThreads::Jwz,
-        watch: WatchMode::Poll {
-            every: std::time::Duration::from_secs(300),
-        },
-        archive: ArchiveMeans::LocalOnly,
-        folders: FolderRoles(Vec::new()),
-        condstore: Condstore::Absent,
-        move_ext: MoveExt::Absent,
-        expunge: ExpungeMeans::Forbidden,
-        top: Supported::Absent,
-        pipelining: Supported::Absent,
-        connections: ConnectionBudget { max: 1 },
-        observed_at: now(),
-    };
-    mail_store::testing::seed_account_plan(&store, acct_account(), "ada@example.test", &plan, None);
-    mail_store::testing::seed_caps(&store, acct_account(), &caps, now()).unwrap();
-    (store, dir)
-}
-
-fn with_password(secrets: &MemorySecrets) {
-    mail_runtime::block_on(secrets.put(
-        &SecretKey {
-            account: acct_account(),
-            purpose: SecretPurpose::IncomingPassword,
-        },
-        &Credential::Password(SecretText::new("s3cr3t-pass".to_owned())),
-    ))
-    .unwrap();
+    mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
+    mail_store::testing::seed_caps(&store, account(), &caps(), now()).unwrap();
+    store
 }
 
 #[tokio::test]
 async fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
-    let (store, _dir) = store_at(1);
+    let store = store_at(1);
     let ends = run_with(
         store,
         Arc::new(MemorySecrets::default()),
@@ -94,9 +55,9 @@ async fn a_missing_credential_fails_the_account_as_needing_a_sign_in() {
 
 #[tokio::test]
 async fn an_unreachable_server_fails_the_account_with_a_wait() {
-    let (store, _dir) = store_at(1);
+    let store = store_at(1);
     let secrets = MemorySecrets::default();
-    with_password(&secrets);
+    with_password(&secrets, "s3cr3t-pass");
     let ends = run_with(
         store,
         Arc::new(secrets),
@@ -121,10 +82,10 @@ async fn an_unreachable_server_fails_the_account_with_a_wait() {
 /// been fetched: a failure is recorded without forgetting the last finish, and a finish clears it.
 #[tokio::test]
 async fn how_a_pass_ended_is_kept_in_the_store() {
-    let (store, _dir) = store_at(1);
+    let store = store_at(1);
     let secrets = Arc::new(MemorySecrets::default());
-    with_password(&secrets);
-    store.pass_finished(acct_account(), now()).unwrap();
+    with_password(&secrets, "s3cr3t-pass");
+    store.pass_finished(account(), now()).unwrap();
     let later = now() + chrono::TimeDelta::minutes(40);
     let ends = run_with(
         store.clone(),
@@ -139,7 +100,7 @@ async fn how_a_pass_ended_is_kept_in_the_store() {
         matches!(ends.as_slice(), [PassEnd::Failed { .. }]),
         "{ends:?}"
     );
-    let passes = store.passes(acct_account()).unwrap();
+    let passes = store.passes(account()).unwrap();
     assert_eq!(passes.finished, Some(now()), "the last finish is kept");
     assert_eq!(passes.failed.map(|failed| failed.at), Some(later));
 }
@@ -155,9 +116,9 @@ async fn a_mailbox_that_fails_lands_in_trouble_with_its_decision() {
             drop(sock);
         }
     });
-    let (store, _dir) = store_at(port);
+    let store = store_at(port);
     let secrets = MemorySecrets::default();
-    with_password(&secrets);
+    with_password(&secrets, "s3cr3t-pass");
     let ends = run_with(
         store,
         Arc::new(secrets),
@@ -333,13 +294,13 @@ fn a_stalled_pass_leaves_the_account_waiting_with_a_wake() {
 #[test]
 fn only_a_pass_that_ran_may_have_stored_something() {
     let finished = PassEnd::Finished(AccountReport {
-        account: acct_account(),
+        account: account(),
         address: "ada@example.test".to_owned(),
         counts: Counts::default(),
         trouble: vec![],
     });
     let failed = PassEnd::Failed {
-        account: acct_account(),
+        account: account(),
         address: "ada@example.test".to_owned(),
         retry: Retry::After(std::time::Duration::from_secs(5)),
         why: "cannot connect".to_owned(),
@@ -347,7 +308,7 @@ fn only_a_pass_that_ran_may_have_stored_something() {
         offer: None,
     };
     let cancelled = PassEnd::Cancelled {
-        account: acct_account(),
+        account: account(),
         address: "ada@example.test".to_owned(),
     };
     // A flag sweep stores without counting, so even an all-zero pass that ran says yes.

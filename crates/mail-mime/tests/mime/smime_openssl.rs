@@ -6,11 +6,9 @@
 //! by hand with `cargo test -p mail-mime --test mime -- --ignored smime_openssl::`; each test says so
 //! and passes vacuously when there is no `openssl` on the PATH.
 
-use crate::smime_support;
-
+use crate::support::smime::*;
 use mail_domain::*;
 use mail_mime::smime::{self, Identity, Keys, Sealing};
-use smime_support::*;
 use std::path::Path;
 use std::process::Command;
 

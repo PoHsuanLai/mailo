@@ -1,6 +1,6 @@
 //! Ordering and verdict over the fixtures. Not the absolute scores.
 
-use crate::block as support;
+use crate::support::block as support;
 
 use mail_mime::{Block, Shape, Span};
 use support::{html, sketch};

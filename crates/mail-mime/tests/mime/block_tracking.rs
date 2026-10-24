@@ -1,6 +1,6 @@
 //! Links lose the query parameters that only tell a sender who clicked, and nothing else.
 
-use crate::block as support;
+use crate::support::block as support;
 
 use mail_mime::{ImgSrc, RemoteImages, SafeUrl};
 use support::{html, html_images, sketch};

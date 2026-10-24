@@ -1,15 +1,12 @@
 use super::*;
+use crate::support_tests::account;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
     Address, Body, Change, ChangeId, MailboxRole, MessageId, MessageKey, Patch, ReadState, Star,
 };
 use mail_domain::{Draft, SendState};
-use porter_core::AccountId;
 use std::sync::Mutex;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::Uuid::from_u128(0xa1))
-}
 const ME: &str = "me@example.test";
 
 /// Noon on a Monday, 2026-09-28, and whole days from it.
@@ -23,11 +20,11 @@ fn thread(n: u128) -> ThreadId {
 
 fn store(dir: &std::path::Path) -> SqliteStore {
     let store = SqliteStore::open(dir.join("mail.db"), dir.join("blobs")).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), ME);
+    mail_store::testing::seed_account(&store, account(), ME);
     mail_store::testing::seed_identity_for(
         &store,
         mail_domain::IdentityId::generate(),
-        acct_account(),
+        account(),
         ME,
         None,
     );
@@ -39,7 +36,7 @@ fn message(n: u128, t: ThreadId, from: &str, at: DateTime<Utc>, role: MailboxRol
     Message {
         id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
         thread: t,
-        account: acct_account(),
+        account: account(),
         key: MessageKey::Rfc(format!("m{n}@example.test")),
         date: at,
         from: Address {
@@ -66,7 +63,7 @@ fn message(n: u128, t: ThreadId, from: &str, at: DateTime<Utc>, role: MailboxRol
 fn put(store: &SqliteStore, message: Message) {
     store
         .apply(
-            acct_account(),
+            account(),
             &Patch {
                 id: ChangeId::generate(),
                 changes: vec![Change::MessageUpsert(Box::new(message))],
@@ -299,15 +296,9 @@ fn a_returned_conversation_leaves_the_top_when_archived_or_snoozed() {
 
 /// A draft queued to leave, as `crate::compose` leaves it.
 fn queued(store: &SqliteStore, in_reply_to: Option<MessageId>) -> Draft {
-    let draft = crate::compose::draft_new(
-        store,
-        acct_account(),
-        &[],
-        "Checking in",
-        "Any news?",
-        day(0),
-    )
-    .unwrap();
+    let draft =
+        crate::compose::draft_new(store, account(), &[], "Checking in", "Any news?", day(0))
+            .unwrap();
     let draft = Draft {
         in_reply_to,
         state: SendState::Queued,
@@ -463,7 +454,7 @@ fn a_pop3_message_s_reminder_joins_the_copy_kept_when_it_was_sent() {
     let raw = raw_with_id("pop.1@example.test");
     after_queue(&store, &draft, &raw, Some(day(3)), day(0)).unwrap();
 
-    let copy = mail_runtime::assemble::sent(&store, acct_account(), raw, day(0))
+    let copy = mail_runtime::assemble::sent(&store, account(), raw, day(0))
         .unwrap()
         .expect("the copy is kept");
     let t = store.message(copy).unwrap().thread;

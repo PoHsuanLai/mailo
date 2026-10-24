@@ -5,26 +5,17 @@
 //! The server is a `TcpListener` in this process speaking just enough POP3 to take or refuse a
 //! login. Nothing here reaches a real server or a keyring.
 
-use chrono::{TimeZone, Utc};
+use crate::support::{account, now};
 use mail_core::CoreError;
 use mail_core::sync::check_sign_in;
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_runtime::AccountSecrets;
 use mail_store::SqliteStore;
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText};
+use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
 use porter_secrets::MemorySecrets;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
-
-fn account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"))
-}
-
-fn now() -> chrono::DateTime<Utc> {
-    Utc.timestamp_opt(1_700_000_000, 0).unwrap()
-}
 
 /// A POP3 server that takes the user `ada` with the password `right` and refuses any other
 /// login with the reply a server gives. The port it listens on.
@@ -72,9 +63,8 @@ fn added(
     port: u16,
     username: Username,
     password: &str,
-) -> (Arc<SqliteStore>, Arc<dyn AccountSecrets>, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+) -> (Arc<SqliteStore>, Arc<dyn AccountSecrets>) {
+    let store = Arc::new(mail_store::testing::in_memory());
     let manual = presets::ManualPop3 {
         pop3_host: "127.0.0.1".to_owned(),
         pop3_port: port,
@@ -111,13 +101,13 @@ fn added(
         &Credential::Password(SecretText::new(password.to_owned())),
     ))
     .unwrap();
-    (store, secrets, dir)
+    (store, secrets)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_login_the_server_takes_passes() {
     let port = serve().await;
-    let (store, secrets, _dir) = added(port, Username::Literal("ada".to_owned()), "right");
+    let (store, secrets) = added(port, Username::Literal("ada".to_owned()), "right");
     check_sign_in(&store, "ada@example.test", secrets, now())
         .await
         .expect("the server takes this login");
@@ -126,7 +116,7 @@ async fn a_login_the_server_takes_passes() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_wrong_password_is_refused_in_the_servers_words() {
     let port = serve().await;
-    let (store, secrets, _dir) = added(port, Username::Literal("ada".to_owned()), "wrong");
+    let (store, secrets) = added(port, Username::Literal("ada".to_owned()), "wrong");
     let refused = check_sign_in(&store, "ada@example.test", secrets, now())
         .await
         .expect_err("the server refuses this password");
@@ -150,7 +140,7 @@ async fn a_wrong_password_is_refused_in_the_servers_words() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_full_address_as_user_name_is_told_to_try_without_the_domain() {
     let port = serve().await;
-    let (store, secrets, _dir) = added(port, Username::SameAsAddress, "right");
+    let (store, secrets) = added(port, Username::SameAsAddress, "right");
     let refused = check_sign_in(&store, "ada@example.test", secrets, now())
         .await
         .expect_err("this server wants `ada`, not the address");
@@ -169,7 +159,7 @@ async fn a_server_nobody_listens_on_is_unreachable_not_refused() {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         listener.local_addr().unwrap().port()
     };
-    let (store, secrets, _dir) = added(port, Username::Literal("ada".to_owned()), "right");
+    let (store, secrets) = added(port, Username::Literal("ada".to_owned()), "right");
     let failed = check_sign_in(&store, "ada@example.test", secrets, now())
         .await
         .expect_err("nothing answers");

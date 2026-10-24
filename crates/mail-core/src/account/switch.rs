@@ -92,15 +92,12 @@ mod tests {
     use super::*;
     use crate::account::Outcome;
     use crate::environment::Environment;
+    use crate::support_tests::now;
     use mail_domain::{MailboxRef, RemoteRef, SyncCursor};
     use mail_runtime::{AccountSecrets, Arrival, ClientRegistry};
     use mail_store::Store;
     use porter_core::{Credential, SecretText, UnixSeconds};
     use porter_secrets::MemorySecrets;
-
-    fn now() -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap()
-    }
 
     const ADDRESS: &str = "someone@contoso.onmicrosoft.com";
 
@@ -193,8 +190,7 @@ mod tests {
     /// Graph's scopes.
     #[test]
     fn switching_to_graph_keeps_the_account_and_its_mail_and_asks_for_a_sign_in() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        let store = mail_store::testing::in_memory();
         let secrets = MemorySecrets::default();
         let (account, message) = on_imap(&store, &secrets);
         let inbox = MailboxRef {
@@ -296,8 +292,7 @@ mod tests {
             mail_domain::presets::preset_for_issuer(Issuer::Google, "me@gmail.com", now()).unwrap();
         assert_eq!(graph_offer(&gmail.plan), None, "not Microsoft");
 
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::in_memory(dir.path()).unwrap();
+        let store = mail_store::testing::in_memory();
         let id = mail_domain::id::new_account_id();
         mail_store::testing::seed_account_plan(
             &store,

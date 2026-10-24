@@ -911,15 +911,10 @@ fn incoming_host(plan: &AccountPlan) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::support_tests::{now, pop3};
 
-    fn now() -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::from_timestamp(1_700_000_000, 0).unwrap()
-    }
-
-    fn store() -> (SqliteStore, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = SqliteStore::in_memory(dir.path()).unwrap();
-        (store, dir)
+    fn store() -> SqliteStore {
+        mail_store::testing::in_memory()
     }
 
     /// [`super::add`] with nothing in the environment and a store of secrets that is a test's.
@@ -949,22 +944,25 @@ mod tests {
         ))
     }
 
+    /// [`add`] of an address alone, over IMAP, with no client recorded.
+    fn add_address(store: &SqliteStore, address: &str) -> Result<Added, CoreError> {
+        add(
+            store,
+            address,
+            None,
+            false,
+            false,
+            crate::account::Receive::Imap,
+            &ClientRegistry::default(),
+            now(),
+        )
+    }
+
     fn list(store: &SqliteStore) -> Result<Vec<Listed>, CoreError> {
         mail_runtime::block_on(super::list(
             store,
             &porter_secrets::MemorySecrets::default(),
         ))
-    }
-
-    /// A campus server that offers only POP3, and logs in with a student number.
-    fn pop3() -> crate::account::Setup {
-        crate::account::Setup::Pop3(mail_domain::presets::ManualPop3 {
-            pop3_host: "pop.example.edu".to_owned(),
-            pop3_port: 995,
-            smtp_host: "smtp.example.edu".to_owned(),
-            smtp_port: 465,
-            login: Some("s1234567".to_owned()),
-        })
     }
 
     /// Re-running `account add` is the documented way to supply a client id or a password —
@@ -984,83 +982,21 @@ mod tests {
                 .to_string()
         }
 
-        #[test]
-        fn it_succeeds_and_says_what_it_did() {
-            let (store, _dir) = store();
-            add(
-                &store,
-                "someone@gmail.com",
-                None,
-                false,
-                false,
-                crate::account::Receive::Imap,
-                &ClientRegistry::default(),
-                now(),
-            )
-            .unwrap();
-            let out = add(
-                &store,
-                "someone@gmail.com",
-                None,
-                false,
-                false,
-                crate::account::Receive::Imap,
-                &ClientRegistry::default(),
-                now(),
-            )
-            .expect("re-running is what every message tells the user to do");
-            assert!(out.updated, "{out:?}");
-            assert_eq!(out.address, "someone@gmail.com");
-        }
-
         /// The account id is the keyring key. Minting a fresh one would orphan a credential the
-        /// user had already stored, so a working account would silently stop working.
+        /// user had already stored, so a working account would silently stop working. And there
+        /// is still exactly one of everything.
         #[test]
-        fn the_account_keeps_its_identity() {
-            let (store, _dir) = store();
-            add(
-                &store,
-                "someone@gmail.com",
-                None,
-                false,
-                false,
-                crate::account::Receive::Imap,
-                &ClientRegistry::default(),
-                now(),
-            )
-            .unwrap();
+        fn it_succeeds_says_so_and_keeps_the_one_account() {
+            let store = store();
+            add_address(&store, "someone@gmail.com").unwrap();
             let first = id_of(&store, "someone@gmail.com");
-            add(
-                &store,
-                "someone@gmail.com",
-                None,
-                false,
-                false,
-                crate::account::Receive::Imap,
-                &ClientRegistry::default(),
-                now(),
-            )
-            .unwrap();
-            assert_eq!(first, id_of(&store, "someone@gmail.com"));
-        }
-
-        /// And there is still exactly one of everything.
-        #[test]
-        fn nothing_is_duplicated() {
-            let (store, _dir) = store();
-            for _ in 0..3 {
-                add(
-                    &store,
-                    "someone@gmail.com",
-                    None,
-                    false,
-                    false,
-                    crate::account::Receive::Imap,
-                    &ClientRegistry::default(),
-                    now(),
-                )
-                .unwrap();
+            for _ in 0..2 {
+                let out = add_address(&store, "someone@gmail.com")
+                    .expect("re-running is what every message tells the user to do");
+                assert!(out.updated, "{out:?}");
+                assert_eq!(out.address, "someone@gmail.com");
             }
+            assert_eq!(first, id_of(&store, "someone@gmail.com"));
             let accounts: i64 = mail_store::testing::count(&store, "accounts");
             let identities: i64 = mail_store::testing::count(&store, "identities");
             let caps: i64 = mail_store::testing::count(&store, "account_caps");
@@ -1071,35 +1007,15 @@ mod tests {
         /// add` must not be the thing that quietly deletes it.
         #[test]
         fn a_signature_already_set_survives() {
-            let (store, _dir) = store();
-            add(
-                &store,
-                "someone@gmail.com",
-                None,
-                false,
-                false,
-                crate::account::Receive::Imap,
-                &ClientRegistry::default(),
-                now(),
-            )
-            .unwrap();
+            let store = store();
+            add_address(&store, "someone@gmail.com").unwrap();
             let account = store.list_accounts().unwrap().remove(0).id;
             let mut mine = store.identities(account).unwrap().remove(0);
             mine.signature = Some("Ada, sent from mailo".to_owned());
             mine.from.name = Some("Ada".to_owned());
             mail_store::testing::seed_identity(&store, &mine);
 
-            add(
-                &store,
-                "someone@gmail.com",
-                None,
-                false,
-                false,
-                crate::account::Receive::Imap,
-                &ClientRegistry::default(),
-                now(),
-            )
-            .unwrap();
+            add_address(&store, "someone@gmail.com").unwrap();
 
             let account = store.list_accounts().unwrap().remove(0).id;
             let kept = store.identities(account).unwrap().remove(0);
@@ -1146,18 +1062,8 @@ mod tests {
 
     #[test]
     fn an_unknown_domain_says_which_are_known() {
-        let (store, _dir) = store();
-        let err = add(
-            &store,
-            "someone@example.test",
-            None,
-            false,
-            false,
-            crate::account::Receive::Imap,
-            &ClientRegistry::default(),
-            now(),
-        )
-        .unwrap_err();
+        let store = store();
+        let err = add_address(&store, "someone@example.test").unwrap_err();
         assert!(err.to_string().contains("gmail.com"), "{err}");
         assert!(
             matches!(err.remedy(), Some(crate::Remedy::NameServers { .. })),
@@ -1171,18 +1077,8 @@ mod tests {
         // obvious. No client at hand is a registry without one, handed in on purpose here, and
         // no MAILO_OAUTH_CLIENT_ID: the useful thing then is the
         // exact command to run once they have one.
-        let (store, _dir) = store();
-        let out = add(
-            &store,
-            "someone@gmail.com",
-            None,
-            false,
-            false,
-            crate::account::Receive::Imap,
-            &ClientRegistry::default(),
-            now(),
-        )
-        .unwrap();
+        let store = store();
+        let out = add_address(&store, "someone@gmail.com").unwrap();
         assert!(
             matches!(
                 &out.outcome,
@@ -1202,11 +1098,11 @@ mod tests {
         // Some servers log in with a student or staff number, not the address. Getting that
         // wrong is a failed authentication with no explanation, so the CLI says which name it
         // will use.
-        let (store, _dir) = store();
+        let store = store();
         let out = add(
             &store,
             "s1234567@example.edu",
-            Some(&pop3()),
+            Some(&pop3(Some("s1234567"))),
             false,
             false,
             crate::account::Receive::Imap,
@@ -1225,11 +1121,11 @@ mod tests {
 
     #[test]
     fn adding_an_account_persists_its_plan_and_capabilities() {
-        let (store, _dir) = store();
+        let store = store();
         add(
             &store,
             "s1234567@example.edu",
-            Some(&pop3()),
+            Some(&pop3(Some("s1234567"))),
             false,
             false,
             crate::account::Receive::Imap,
@@ -1244,7 +1140,7 @@ mod tests {
 
     #[test]
     fn listing_nothing_is_an_empty_list() {
-        let (store, _dir) = store();
+        let store = store();
         assert!(list(&store).unwrap().is_empty());
     }
 
@@ -1255,19 +1151,9 @@ mod tests {
     /// server had already given.
     #[test]
     fn an_added_accounts_capabilities_are_asked_for_on_the_first_pass() {
-        let (store, _dir) = store();
+        let store = store();
         let address = "someone@contoso.onmicrosoft.com";
-        add(
-            &store,
-            address,
-            None,
-            false,
-            false,
-            crate::account::Receive::Imap,
-            &ClientRegistry::default(),
-            now(),
-        )
-        .unwrap();
+        add_address(&store, address).unwrap();
         let id = store
             .account_by_address(address)
             .unwrap()
@@ -1286,19 +1172,9 @@ mod tests {
     /// for Thunderbird's five Graph permissions; the address alone proves a tenant's.
     #[test]
     fn an_organisations_microsoft_account_is_added_over_graph() {
-        let (store, _dir) = store();
+        let store = store();
         let address = "someone@contoso.onmicrosoft.com";
-        let added = add(
-            &store,
-            address,
-            None,
-            false,
-            false,
-            crate::account::Receive::Imap,
-            &ClientRegistry::default(),
-            now(),
-        )
-        .unwrap();
+        let added = add_address(&store, address).unwrap();
         let plan = store
             .account_by_address(address)
             .unwrap()
@@ -1327,7 +1203,7 @@ mod tests {
     /// again to sign in, though discovery now offers Graph: only asking for Graph moves it.
     #[test]
     fn signing_an_imap_account_in_again_does_not_move_it_to_graph() {
-        let (store, _dir) = store();
+        let store = store();
         let address = "someone@contoso.onmicrosoft.com";
         let incoming = |store: &SqliteStore| {
             store

@@ -515,6 +515,14 @@ mod kept_styles {
                 &["<img"],
             ),
             (
+                // `\3c` is `<`: written back as `\<`, it ended the sheet in a browser's reading
+                // and left a live `<img onerror>` after it.
+                "an escaped < that would end the sheet",
+                "<style>\\3c/style>\\3c img src=x onerror=alert(1)></style><p>ok</p>",
+                &["<p>ok</p>", "\\3c /style>"],
+                &["\\<", "<img", "</style>\\"],
+            ),
+            (
                 "script and handlers still go",
                 "<p onclick=\"alert(1)\">ok</p><script>alert(2)</script><link rel=\"stylesheet\" href=\"https://tracker.test/a.css\">",
                 &["ok"],

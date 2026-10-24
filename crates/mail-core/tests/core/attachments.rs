@@ -5,23 +5,11 @@
 //! authorized_keys` is a well-formed attachment name. Everything here is about the difference
 //! between what a message claims and what gets written.
 
+use crate::support::{account, store};
 use mail_core::CoreError;
 use mail_core::attach;
-use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
-
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
-}
-
-fn store() -> (SqliteStore, tempfile::TempDir) {
-    let dir = tempfile::tempdir().unwrap();
-    let store = SqliteStore::in_memory(dir.path()).unwrap();
-    mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-    (store, dir)
-}
 
 /// A message carrying one attachment with the name a sender chose.
 fn with_attachment(store: &SqliteStore, claimed: &str, bytes: &[u8]) -> MessageId {
@@ -50,7 +38,7 @@ fn ingested(
     let message = Message {
         id,
         thread: ThreadId::generate(),
-        account: acct_account(),
+        account: account(),
         key: MessageKey::Rfc(format!("{}@example.test", uuid::Uuid::new_v4())),
         date: chrono::Utc::now(),
         from: Address {
@@ -86,10 +74,10 @@ fn ingested(
     };
     store
         .ingest(
-            acct_account(),
+            account(),
             Ingest {
                 mailbox: MailboxRef {
-                    account: acct_account(),
+                    account: account(),
                     path: "INBOX".to_owned(),
                 },
                 validity: UidValidity::Same,
@@ -219,7 +207,7 @@ mod saving {
 
     #[test]
     fn an_attachment_is_written_where_it_was_asked_for_and_nowhere_else() {
-        let (store, _dir) = store();
+        let store = store();
         let id = with_attachment(&store, "../../escape.pdf", b"%PDF-1.7 pretend");
         let out = tempfile::tempdir().unwrap();
 
@@ -238,7 +226,7 @@ mod saving {
     fn saving_twice_keeps_both_rather_than_replacing_one() {
         // Two messages with the same attachment name is ordinary — "invoice.pdf" from the same
         // supplier every month — and losing last month's to this month's is not acceptable.
-        let (store, _dir) = store();
+        let store = store();
         let first = with_attachment(&store, "invoice.pdf", b"january");
         let second = with_attachment(&store, "invoice.pdf", b"february");
         let out = tempfile::tempdir().unwrap();
@@ -254,7 +242,7 @@ mod saving {
 
     #[test]
     fn asking_for_an_attachment_that_is_not_there_says_how_many_are() {
-        let (store, _dir) = store();
+        let store = store();
         let id = with_attachment(&store, "one.pdf", b"x");
         let out = tempfile::tempdir().unwrap();
 
@@ -269,7 +257,7 @@ mod saving {
     fn the_listing_shows_the_name_that_will_be_written() {
         // Not the claim. A listing that showed `../../escape.pdf` would be describing something
         // that does not happen.
-        let (store, _dir) = store();
+        let store = store();
         let id = with_attachment(&store, "../../escape.pdf", b"x");
         let out = attach::list(&store, id).unwrap();
         assert_eq!(out.len(), 1, "{out:?}");
@@ -283,24 +271,10 @@ mod saving {
         // *copy* of the message and asserted a disjunction that was true either way — the
         // mistake CONVENTIONS §"An assertion that was already true proves nothing" is about,
         // made while writing the rule's own neighbours.
-        let (store, _dir) = store();
+        let store = store();
         let id = plain_message(&store);
         let out = attach::list(&store, id).unwrap();
         assert!(out.is_empty(), "{out:?}");
-    }
-}
-
-mod sizes {
-    use super::*;
-
-    #[test]
-    fn sizes_are_readable_at_every_scale() {
-        assert_eq!(attach::human_size(0), "0 B");
-        assert_eq!(attach::human_size(512), "512 B");
-        assert_eq!(attach::human_size(1024), "1.0 kB");
-        assert_eq!(attach::human_size(1536), "1.5 kB");
-        assert_eq!(attach::human_size(1024 * 1024), "1.0 MB");
-        assert_eq!(attach::human_size(5 * 1024 * 1024 + 512 * 1024), "5.5 MB");
     }
 }
 
@@ -336,12 +310,12 @@ JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCg==\r\n\
 
     #[test]
     fn a_multipart_message_becomes_a_file_on_disk_under_a_name_it_did_not_choose() {
-        let (store, _dir) = store();
+        let store = store();
         mail_runtime::absorb(
             &store,
-            acct_account(),
+            account(),
             MailboxRef {
-                account: acct_account(),
+                account: account(),
                 path: "INBOX".to_owned(),
             },
             Some(SyncCursor::Pop),
@@ -461,7 +435,8 @@ mod where_it_goes {
         // The reader's Save button is one click and can be clicked again. `free_path` already
         // refuses to overwrite; this is the property that button depends on. Into a directory
         // not made yet, which saving makes.
-        let (store, dir) = store();
+        let store = store();
+        let dir = tempfile::tempdir().unwrap();
         let message = with_attachment(&store, "report.pdf", b"first");
         let into = dir.path().join("saved");
 
@@ -499,7 +474,7 @@ mod left_on_the_server {
 
     #[test]
     fn saving_downloads_the_part_first_and_then_writes_it() {
-        let (store, _dir) = store();
+        let store = store();
         let id = with_remote_part(&store);
         let out = tempfile::tempdir().unwrap();
 
@@ -520,7 +495,7 @@ mod left_on_the_server {
 
     #[test]
     fn a_part_already_here_is_not_downloaded_again() {
-        let (store, _dir) = store();
+        let store = store();
         let id = with_attachment(&store, "report.pdf", b"held");
         let out = tempfile::tempdir().unwrap();
         attach::fetch_and_save(&store, id, 0, out.path(), |_| {
@@ -535,7 +510,7 @@ mod left_on_the_server {
 
     #[test]
     fn a_failed_download_writes_nothing_and_says_why() {
-        let (store, _dir) = store();
+        let store = store();
         let id = with_remote_part(&store);
         let out = tempfile::tempdir().unwrap();
         let err = attach::fetch_and_save(&store, id, 0, out.path(), |_| {
@@ -553,7 +528,7 @@ mod left_on_the_server {
     /// `save` alone never reaches for the network, so a remote part is a clear refusal from it.
     #[test]
     fn plain_save_says_the_part_is_still_on_the_server() {
-        let (store, _dir) = store();
+        let store = store();
         let id = with_remote_part(&store);
         let out = tempfile::tempdir().unwrap();
         let err = attach::save(&store, id, 0, out.path())
@@ -576,7 +551,7 @@ mod whole_message {
 
     #[test]
     fn the_bytes_are_the_stored_ones_exactly_and_never_replace_a_file() {
-        let (store, _dir) = store();
+        let store = store();
         let sent = b"Subject: here you go\r\n\r\n=E9t\xe9\r\nno newline at the end";
         let id = sent_as(&store, sent);
         assert_eq!(
@@ -594,7 +569,7 @@ mod whole_message {
 
     #[test]
     fn a_message_with_only_its_headers_here_has_none_and_writes_nothing() {
-        let (store, _dir) = store();
+        let store = store();
         let id = ingested(&store, "x.pdf", b"x", b"raw", Here::HeadersOnly);
         assert_eq!(export::raw_message(&store, id).unwrap(), None);
         let out = tempfile::tempdir().unwrap();

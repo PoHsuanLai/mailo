@@ -5,22 +5,8 @@
 //! `edge`); `mail-core`, `mail-runtime` and `mail-store` give back futures, and `mail-core` is
 //! handed the environment ([`mail_core::Environment`]) instead of reading it.
 
-use std::path::{Path, PathBuf};
-
-/// Every non-test `.rs` file under `dir`: not `tests.rs`, `*_tests.rs` or a `tests` directory.
-fn sources(dir: &Path, into: &mut Vec<PathBuf>) {
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        if path.is_dir() {
-            if name != "tests" {
-                sources(&path, into);
-            }
-        } else if name.ends_with(".rs") && name != "tests.rs" && !name.ends_with("_tests.rs") {
-            into.push(path);
-        }
-    }
-}
+use crate::support::sources;
+use std::path::Path;
 
 /// `file:line: text` for each code line of the library crate `krate` that holds one of `needles`:
 /// comments are not code, and a file's tests begin at its `#[cfg(test)]`.

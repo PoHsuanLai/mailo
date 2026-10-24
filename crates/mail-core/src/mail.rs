@@ -300,21 +300,20 @@ mod tests {
     use chrono::TimeZone;
     use porter_secrets::MemorySecrets;
 
-    fn handle() -> (Mail, tempfile::TempDir, tokio::runtime::Runtime) {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
+    fn handle() -> (Mail, tokio::runtime::Runtime) {
+        let store = Arc::new(mail_store::testing::in_memory());
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
         let mail = Mail::new(store, runtime.handle().clone())
             .with_secrets(Arc::new(MemorySecrets::default()));
-        (mail, dir, runtime)
+        (mail, runtime)
     }
 
     #[test]
     fn a_handle_carries_what_it_was_built_with_and_nothing_global() {
-        let (mail, _dir, _runtime) = handle();
+        let (mail, _runtime) = handle();
         assert_eq!(*mail.environment(), Environment::default());
         let given = Environment {
             password: Some("hunter2".to_owned()),
@@ -331,7 +330,7 @@ mod tests {
 
     #[test]
     fn the_clock_is_the_handles_own() {
-        let (mail, _dir, _runtime) = handle();
+        let (mail, _runtime) = handle();
         let noon = Utc.with_ymd_and_hms(2026, 1, 2, 12, 0, 0).unwrap();
         let clock = Arc::new(FixedClock::at(noon));
         let mail = mail.with_clock(clock.clone());
@@ -343,7 +342,7 @@ mod tests {
 
     #[test]
     fn a_handle_has_the_oauth_clients_it_is_handed_and_none_until_it_is() {
-        let (mail, _dir, _runtime) = handle();
+        let (mail, _runtime) = handle();
         // Nothing handed: no client at hand, whatever this machine has set up.
         let none = ClientRegistry::default();
         assert_eq!(mail.clients().unwrap(), none);

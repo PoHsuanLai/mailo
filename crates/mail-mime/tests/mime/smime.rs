@@ -1,9 +1,8 @@
 //! S/MIME (`plan.md` 10.16) on bytes: messages sealed and opened again, and messages built by
 //! hand the way other clients write them — BER, opaque signed-data, triple DES, AES-GCM, SHA-1 —
-//! against a throwaway certificate authority made in `smime_support`.
+//! against a throwaway certificate authority made in `support::smime`.
 
-use crate::smime_support;
-
+use crate::support::smime::*;
 use cms::content_info::{CmsVersion, ContentInfo};
 use cms::enveloped_data::{
     EncryptedContentInfo, EnvelopedData, KeyTransRecipientInfo, RecipientIdentifier, RecipientInfo,
@@ -17,7 +16,6 @@ use der::{Any, Decode, Encode};
 use mail_domain::*;
 use mail_mime::MimeError;
 use mail_mime::smime::{self, Cert, Identity, Keys, Sealing};
-use smime_support::*;
 use spki::AlgorithmIdentifierOwned;
 
 const ALICE: &str = "alice@example.test";
@@ -99,85 +97,80 @@ fn a_signed_message_is_good_for_its_sender_through_a_trusted_chain() {
 }
 
 #[test]
-fn a_signature_survives_line_ends_turned_to_lf_and_keeps_trailing_whitespace() {
-    let raw = signed_by_alice();
-    let lf: Vec<u8> = raw.iter().copied().filter(|b| *b != b'\r').collect();
+fn a_signature_survives_line_ends_turned_to_lf() {
+    let lf: Vec<u8> = signed_by_alice()
+        .into_iter()
+        .filter(|b| *b != b'\r')
+        .collect();
     let opened = opened_by(&lf, &[], &anchors());
     assert!(
         matches!(opened.verification, SmimeVerification::Good { .. }),
         "{:?}",
         opened.verification
     );
-    // A space taken off the end of a line is a change, and the signature says so.
-    let trimmed = String::from_utf8(raw.clone()).unwrap().replacen(
-        "Meet at noon.  \r\n",
-        "Meet at noon.\r\n",
-        1,
-    );
-    let opened = opened_by(trimmed.as_bytes(), &[], &anchors());
-    assert_eq!(
-        opened.verification,
-        SmimeVerification::Bad {
-            why: BadSignature::Altered,
-            coverage: Coverage::Whole
-        }
-    );
 }
 
+/// A changed word, and a space taken off the end of a line: both are changes, and the signature
+/// says so.
 #[test]
-fn a_tampered_body_is_bad_and_says_it_was_altered() {
-    let raw =
-        String::from_utf8(signed_by_alice())
-            .unwrap()
-            .replacen("Meet at noon.", "Meet at dawn.", 1);
-    let opened = opened_by(raw.as_bytes(), &[], &anchors());
-    assert_eq!(
-        opened.verification,
-        SmimeVerification::Bad {
-            why: BadSignature::Altered,
-            coverage: Coverage::Whole
-        }
-    );
+fn a_changed_body_is_bad_and_says_it_was_altered() {
+    let signed = String::from_utf8(signed_by_alice()).unwrap();
+    for (from, to) in [
+        ("Meet at noon.", "Meet at dawn."),
+        ("Meet at noon.  \r\n", "Meet at noon.\r\n"),
+    ] {
+        let raw = signed.replacen(from, to, 1);
+        let opened = opened_by(raw.as_bytes(), &[], &anchors());
+        assert_eq!(
+            opened.verification,
+            SmimeVerification::Bad {
+                why: BadSignature::Altered,
+                coverage: Coverage::Whole
+            },
+            "{to:?}"
+        );
+    }
 }
 
+/// A good signature by a certificate with one thing wrong with it names that thing.
 #[test]
-fn a_signature_from_a_certificate_for_someone_else_names_the_from_it_does_not_match() {
-    let raw = sealed(
-        Smime::Sign,
-        Some(&alice()),
-        &[],
-        &message("mallory@example.test", BOB, DATE),
-    );
-    let opened = opened_by(&raw, &[], &anchors());
-    assert_eq!(
-        opened.verification,
-        SmimeVerification::Doubtful {
-            signer: alice().cert.fingerprint(),
-            problems: vec![CertProblem::NotFrom {
-                from: "mallory@example.test".to_owned()
-            }],
-            coverage: Coverage::Whole,
-        }
-    );
-}
-
-#[test]
-fn an_expired_certificate_is_doubtful_and_says_when_it_expired() {
-    let mut person = Person::new("Old Alice", &[ALICE], 12, 1001);
-    person.valid = (at(2024, 1, 1), at(2025, 1, 1));
-    let old = identity(pki(), &person);
-    let raw = sealed(Smime::Sign, Some(&old), &[], &message(ALICE, BOB, DATE));
-    let opened = opened_by(&raw, &[], &anchors());
-    assert_eq!(
-        opened.verification,
-        SmimeVerification::Doubtful {
-            signer: old.cert.fingerprint(),
-            problems: vec![CertProblem::Expired {
-                not_after: at(2025, 1, 1)
-            }],
-            coverage: Coverage::Whole,
-        }
-    );
+fn a_signature_by_a_doubtful_certificate_names_what_is_wrong() {
+    let mut expired = Person::new("Old Alice", &[ALICE], 12, 1001);
+    expired.valid = (at(2024, 1, 1), at(2025, 1, 1));
+    let mut server = Person::new("Server", &[ALICE], 15, 1001);
+    server.purposes = Some(vec![SERVER_AUTH]);
+    let server = identity(pki(), &server);
+    // A certificate not for mail is not one to encrypt to either.
+    assert!(!server.cert.can_encrypt());
+    let cases = [
+        (
+            alice(),
+            "mallory@example.test",
+            CertProblem::NotFrom {
+                from: "mallory@example.test".to_owned(),
+            },
+        ),
+        (
+            identity(pki(), &expired),
+            ALICE,
+            CertProblem::Expired {
+                not_after: at(2025, 1, 1),
+            },
+        ),
+        (server, ALICE, CertProblem::NotForEmail),
+    ];
+    for (signer, from, problem) in cases {
+        let raw = sealed(Smime::Sign, Some(&signer), &[], &message(from, BOB, DATE));
+        let opened = opened_by(&raw, &[], &anchors());
+        assert_eq!(
+            opened.verification,
+            SmimeVerification::Doubtful {
+                signer: signer.cert.fingerprint(),
+                problems: vec![problem],
+                coverage: Coverage::Whole,
+            }
+        );
+    }
 }
 
 #[test]
@@ -220,24 +213,6 @@ fn a_chain_to_nothing_trusted_is_untrusted_until_the_user_trusts_a_certificate_i
         "a trusted end-entity certificate vouches for no one else: {:?}",
         opened.verification
     );
-}
-
-#[test]
-fn a_certificate_not_for_mail_is_doubtful() {
-    let mut person = Person::new("Server", &[ALICE], 15, 1001);
-    person.purposes = Some(vec![SERVER_AUTH]);
-    let server = identity(pki(), &person);
-    let raw = sealed(Smime::Sign, Some(&server), &[], &message(ALICE, BOB, DATE));
-    let opened = opened_by(&raw, &[], &anchors());
-    assert_eq!(
-        opened.verification,
-        SmimeVerification::Doubtful {
-            signer: server.cert.fingerprint(),
-            problems: vec![CertProblem::NotForEmail],
-            coverage: Coverage::Whole,
-        }
-    );
-    assert!(!server.cert.can_encrypt());
 }
 
 #[test]
@@ -579,22 +554,15 @@ fn a_signed_part_beside_unsigned_text_covers_only_part() {
     );
 }
 
-/// EnvelopedData to `to` with the content encrypted as `algorithm` says, built by hand the way
-/// another client might.
-fn envelope(to: &Cert, content: &[u8], algorithm: &str) -> Vec<u8> {
+/// EnvelopedData to `to` with the content encrypted in triple DES, built by hand the way an old
+/// client wrote it.
+fn triple_des_envelope(to: &Cert, content: &[u8]) -> Vec<u8> {
     use cbc::cipher::{BlockEncryptMut, KeyIvInit, block_padding::Pkcs7};
     let mut rng = rng(99);
-    let (oid, key, iv, ciphertext) = match algorithm {
-        "3des" => {
-            let key = [0x11u8; 24];
-            let iv = [0x22u8; 8];
-            let ct = cbc::Encryptor::<des::TdesEde3>::new_from_slices(&key, &iv)
-                .unwrap()
-                .encrypt_padded_vec_mut::<Pkcs7>(content);
-            ("1.2.840.113549.3.7", key.to_vec(), iv.to_vec(), ct)
-        }
-        _ => unreachable!(),
-    };
+    let (key, iv) = ([0x11u8; 24], [0x22u8; 8]);
+    let ciphertext = cbc::Encryptor::<des::TdesEde3>::new_from_slices(&key, &iv)
+        .unwrap()
+        .encrypt_padded_vec_mut::<Pkcs7>(content);
     let public = rsa::RsaPublicKey::from_public_key_der_for_test(to);
     let wrapped = public
         .encrypt(&mut rng, rsa::Pkcs1v15Encrypt, &key)
@@ -617,7 +585,7 @@ fn envelope(to: &Cert, content: &[u8], algorithm: &str) -> Vec<u8> {
         encrypted_content: EncryptedContentInfo {
             content_type: const_oid::ObjectIdentifier::new_unwrap("1.2.840.113549.1.7.1"),
             content_enc_alg: AlgorithmIdentifierOwned {
-                oid: const_oid::ObjectIdentifier::new_unwrap(oid),
+                oid: const_oid::ObjectIdentifier::new_unwrap("1.2.840.113549.3.7"),
                 parameters: Some(Any::from_der(&octets(&iv).to_der().unwrap()).unwrap()),
             },
             encrypted_content: Some(octets(&ciphertext)),
@@ -651,7 +619,7 @@ impl FromCert for rsa::RsaPublicKey {
 
 #[test]
 fn triple_des_is_read_in_old_mail_and_refused_in_new() {
-    let der = envelope(&bob().cert, INNER, "3des");
+    let der = triple_des_envelope(&bob().cert, INNER);
     let old_head = format!(
         "From: {ALICE}\r\nTo: {BOB}\r\nSubject: Old\r\nDate: Mon, 3 Mar 2014 09:00:00 +0000\r\n"
     );

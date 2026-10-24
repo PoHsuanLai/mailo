@@ -6,6 +6,7 @@
 
 use mail_pim::line::ContentLine;
 use mail_pim::vcard::{self, Card, CardKind, Email, Member, Name, Phone, Version};
+use proptest::prelude::*;
 
 const V21: &str = "BEGIN:VCARD\r\n\
 VERSION:2.1\r\n\
@@ -342,4 +343,51 @@ fn a_member_on_a_card_that_is_no_group_rides_along_unread() {
     let text = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:G\r\nMEMBER:mailto:x@example.test\r\n\
                 KIND:group\r\nEND:VCARD\r\n";
     assert_eq!(vcard::parse(text)[0].members, ["mailto:x@example.test"]);
+}
+
+/// A line a card might hold, well formed or not: the reader's own vocabulary, so the arbitrary
+/// text reaches past the first `BEGIN`.
+fn arb_card_line() -> impl Strategy<Value = String> {
+    prop_oneof![
+        any::<String>(),
+        prop::sample::select(vec![
+            "BEGIN:VCARD",
+            "END:VCARD",
+            "VERSION:2.1",
+            "VERSION:4.0",
+            "KIND:group",
+            "MEMBER:mailto:%zz",
+            "MEMBER:urn:uuid:",
+            "N:;;;;;;;",
+            "FN;ENCODING=QUOTED-PRINTABLE:=",
+            "FN;CHARSET=x-unknown;QUOTED-PRINTABLE:=E9=",
+            "EMAIL;PREF=99999999999:a@b",
+            "TEL;TYPE=\"cell:",
+            "PHOTO;ENCODING=BASE64:",
+            "X-A;LABEL=\"^\":v",
+            "item1.EMAIL:x",
+            " folded",
+            "=",
+        ])
+        .prop_map(str::to_owned),
+    ]
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    #[test]
+    fn arbitrary_text_is_read_and_written_without_a_panic(
+        lines in prop::collection::vec(arb_card_line(), 0..40),
+    ) {
+        let text = lines.join("\r\n");
+        let cards = vcard::parse(&text);
+        vcard::parse(&vcard::write_all(&cards));
+        vcard::parse_bytes(text.as_bytes());
+    }
+
+    #[test]
+    fn arbitrary_bytes_are_read_without_a_panic(bytes in prop::collection::vec(any::<u8>(), 0..2048)) {
+        vcard::parse_bytes(&bytes);
+    }
 }

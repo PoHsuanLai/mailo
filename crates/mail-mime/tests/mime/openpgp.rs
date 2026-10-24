@@ -4,11 +4,10 @@
 //! No fixture keys are checked in: each test makes its own with a seeded generator, so the keys
 //! are the same on every run and nothing secret sits in the repository pretending to be test data.
 
+use crate::support::{self, addr, sender};
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::id::new_account_id;
 use mail_domain::{
-    Address, Coverage, Draft, DraftId, Encryption, Identity, IdentityId, IsDefault, KeySource,
-    KeyTrust, OpenPgp, PreferEncrypt, ReceiptRequest, SendState, Verification,
+    Coverage, Draft, Encryption, KeySource, KeyTrust, OpenPgp, PreferEncrypt, Verification,
 };
 use mail_mime::openpgp::{
     self, Cert, Keys, KnownCert, Protection, ReadKey, Sealing, SecretCert, Unlocking, wkd,
@@ -25,53 +24,20 @@ fn rng(seed: u64) -> StdRng {
     StdRng::seed_from_u64(seed)
 }
 
-fn addr(email: &str) -> Address {
-    Address {
-        name: None,
-        email: email.to_owned(),
-    }
-}
-
-fn identity() -> Identity {
-    Identity {
-        id: IdentityId::generate(),
-        account: new_account_id(),
-        from: Address {
-            name: Some("Me".to_owned()),
-            email: "me@example.test".to_owned(),
-        },
-        reply_to: None,
-        signature: None,
-        default: IsDefault::Default,
-    }
-}
-
 fn draft(subject: &str, text: &str) -> Draft {
     Draft {
-        id: DraftId::generate(),
-        account: new_account_id(),
-        identity: IdentityId::generate(),
-        to: vec![addr("bea@example.test")],
-        cc: Vec::new(),
-        bcc: Vec::new(),
+        to: vec![addr(None, "bea@example.test")],
         subject: subject.to_owned(),
-        in_reply_to: None,
-        forward_of: None,
         text: text.to_owned(),
-        html: None,
-        attachments: Vec::new(),
-        receipt: ReceiptRequest::Unrequested,
-        openpgp: OpenPgp::None,
-        smime: mail_domain::Smime::None,
-        state: SendState::Editing,
         updated: at(),
+        ..support::draft()
     }
 }
 
 fn built(subject: &str, text: &str) -> Vec<u8> {
     build(
         &draft(subject, text),
-        &identity(),
+        &sender(Some("Me"), "me@example.test"),
         None,
         &[],
         Disclosure::HideBlind,
@@ -99,6 +65,22 @@ fn known(key: &SecretCert) -> KnownCert {
     KnownCert {
         cert: key.public(),
         trust: KeyTrust::Unverified,
+    }
+}
+
+/// Keys that check signatures by `signer` and decrypt nothing.
+fn verifying(signer: &SecretCert) -> Keys {
+    Keys {
+        certs: vec![known(signer)],
+        secrets: Vec::new(),
+    }
+}
+
+/// Keys that decrypt with `reader`'s and check no signature.
+fn decrypting(reader: &SecretCert) -> Keys {
+    Keys {
+        certs: Vec::new(),
+        secrets: vec![open_key(reader)],
     }
 }
 
@@ -213,14 +195,7 @@ fn a_signed_message_is_pgp_mime_with_the_content_as_its_first_part() {
     assert!(parts[1].contains("Content-Type: application/pgp-signature"));
     assert!(parts[1].contains("-----BEGIN PGP SIGNATURE-----"));
 
-    let opened = openpgp::open(
-        &sealed,
-        &Keys {
-            certs: vec![known(&me)],
-            secrets: Vec::new(),
-        },
-    )
-    .unwrap();
+    let opened = openpgp::open(&sealed, &verifying(&me)).unwrap();
     assert_eq!(opened.encryption, Encryption::NotEncrypted);
     assert_eq!(
         opened.verification,
@@ -252,14 +227,7 @@ fn restamping_the_date_after_signing_leaves_the_signature_good() {
     let stamped = restamp(&sealed, leaving);
     assert_ne!(stamped, sealed, "the restamp changed the bytes");
     assert_eq!(parse(&stamped).unwrap().date, Some(leaving));
-    let opened = openpgp::open(
-        &stamped,
-        &Keys {
-            certs: vec![known(&me)],
-            secrets: Vec::new(),
-        },
-    )
-    .unwrap();
+    let opened = openpgp::open(&stamped, &verifying(&me)).unwrap();
     assert!(
         matches!(opened.verification, Verification::Good { signer, .. } if signer == me.fingerprint()),
         "{:?}",
@@ -281,14 +249,7 @@ fn a_changed_signed_body_is_a_bad_signature() {
         .unwrap()
         .replace("send 10 to account 1", "send 99 to account 7")
         .into_bytes();
-    let opened = openpgp::open(
-        &tampered,
-        &Keys {
-            certs: vec![known(&me)],
-            secrets: Vec::new(),
-        },
-    )
-    .unwrap();
+    let opened = openpgp::open(&tampered, &verifying(&me)).unwrap();
     assert_eq!(
         opened.verification,
         Verification::Bad {
@@ -307,14 +268,7 @@ fn a_signature_by_a_key_not_held_names_the_key() {
         &mut rng(13),
     )
     .unwrap();
-    let opened = openpgp::open(
-        &sealed,
-        &Keys {
-            certs: vec![known(&key("someone-else", 14))],
-            secrets: Vec::new(),
-        },
-    )
-    .unwrap();
+    let opened = openpgp::open(&sealed, &verifying(&key("someone-else", 14))).unwrap();
     assert_eq!(
         opened.verification,
         Verification::UnknownKey {
@@ -373,7 +327,7 @@ fn an_encrypted_message_round_trips_through_build_and_parse_with_its_subject_pro
             "the protected subject replaces `...`"
         );
         assert_eq!(inside.text.unwrap().trim_end(), "meet at the usual place");
-        assert_eq!(inside.to, vec![addr("bea@example.test")]);
+        assert_eq!(inside.to, vec![addr(None, "bea@example.test")]);
     }
 }
 
@@ -387,14 +341,7 @@ fn encrypted_only_to_someone_else_says_so_and_names_their_keys() {
         &mut rng(20),
     )
     .unwrap();
-    let opened = openpgp::open(
-        &sealed,
-        &Keys {
-            certs: Vec::new(),
-            secrets: vec![open_key(&me)],
-        },
-    )
-    .unwrap();
+    let opened = openpgp::open(&sealed, &decrypting(&me)).unwrap();
     let Encryption::CannotDecrypt { to } = &opened.encryption else {
         panic!("{:?}", opened.encryption);
     };
@@ -426,18 +373,15 @@ fn a_locked_key_needs_its_passphrase_to_decrypt() {
         )
         .unwrap()
     };
-    assert_eq!(
-        with("").encryption,
-        Encryption::Locked {
-            key: mine.fingerprint()
-        }
-    );
-    assert_eq!(
-        with("nope").encryption,
-        Encryption::Locked {
-            key: mine.fingerprint()
-        }
-    );
+    for wrong in ["", "nope"] {
+        assert_eq!(
+            with(wrong).encryption,
+            Encryption::Locked {
+                key: mine.fingerprint()
+            },
+            "{wrong:?}"
+        );
+    }
     let opened = with("pw");
     assert_eq!(opened.encryption, Encryption::Decrypted);
     assert_eq!(text_of(&opened.message).trim_end(), "behind a passphrase");
@@ -488,14 +432,7 @@ fn a_signed_part_beside_an_unsigned_footer_covers_only_part() {
          --list\r\n{signed_type}\r\n\r\n{body}\r\n--list\r\nContent-Type: text/plain\r\n\r\n\
          To unsubscribe, write to the list.\r\n--list--\r\n"
     );
-    let opened = openpgp::open(
-        wrapped.as_bytes(),
-        &Keys {
-            certs: vec![known(&me)],
-            secrets: Vec::new(),
-        },
-    )
-    .unwrap();
+    let opened = openpgp::open(wrapped.as_bytes(), &verifying(&me)).unwrap();
     assert!(
         matches!(
             opened.verification,
@@ -535,14 +472,7 @@ fn inline_pgp_in_a_plain_text_body_is_read() {
         "From: me@example.test\r\nTo: me@example.test\r\nSubject: inline\r\n\
          Content-Type: text/plain; charset=us-ascii\r\n\r\n{armor}\r\n"
     );
-    let opened = openpgp::open(
-        inline.as_bytes(),
-        &Keys {
-            certs: Vec::new(),
-            secrets: vec![open_key(&me)],
-        },
-    )
-    .unwrap();
+    let opened = openpgp::open(inline.as_bytes(), &decrypting(&me)).unwrap();
     assert_eq!(opened.encryption, Encryption::Decrypted);
     assert!(text_of(&opened.message).contains("hidden words"));
     assert_eq!(
@@ -626,14 +556,7 @@ fn gossip_travels_inside_the_encryption_and_is_taken_off_what_is_shown() {
         !String::from_utf8_lossy(&sealed).contains("Autocrypt-Gossip"),
         "never outside"
     );
-    let opened = openpgp::open(
-        &sealed,
-        &Keys {
-            certs: Vec::new(),
-            secrets: vec![open_key(&bea)],
-        },
-    )
-    .unwrap();
+    let opened = openpgp::open(&sealed, &decrypting(&bea)).unwrap();
     let gossiped: Vec<(&str, _)> = opened
         .gossip
         .iter()

@@ -288,13 +288,10 @@ pub fn own_addresses(store: &SqliteStore) -> Result<Own, CoreError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::support_tests::account;
     use chrono::TimeZone;
-    use mail_domain::id::account_id_from_uuid;
-    use mail_domain::{Address, Body, MessageKey, Star};
 
-    fn acct_account() -> AccountId {
-        account_id_from_uuid(uuid::Uuid::from_u128(0xa1))
-    }
+    use mail_domain::{Address, Body, MessageKey, Star};
 
     fn at(hour: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(2026, 9, 24, hour, 0, 0).unwrap()
@@ -304,7 +301,7 @@ mod tests {
         Message {
             id: MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n)),
             thread: ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + n)),
-            account: acct_account(),
+            account: account(),
             key: MessageKey::Rfc(format!("m{n}@example.test")),
             date: at(12),
             from: Address {
@@ -423,16 +420,16 @@ mod tests {
         let a = message(1, ("Ada Lovelace", "ada@example.test"), "lunch on friday");
         let b = message(2, ("", "bob@example.test"), "  ");
         assert_eq!(
-            batch(acct_account(), &[&a, &b]),
+            batch(account(), &[&a, &b]),
             [
                 Notification {
-                    account: acct_account(),
+                    account: account(),
                     summary: "Ada Lovelace".to_owned(),
                     body: "lunch on friday".to_owned(),
                     opens: Opens::Thread(a.thread),
                 },
                 Notification {
-                    account: acct_account(),
+                    account: account(),
                     summary: "bob@example.test".to_owned(),
                     body: "(no subject)".to_owned(),
                     opens: Opens::Thread(b.thread),
@@ -440,9 +437,9 @@ mod tests {
             ]
         );
         let c = message(3, ("Cy", "cy@example.test"), "hi");
-        assert_eq!(batch(acct_account(), &[&a, &b, &c]).len(), 3);
+        assert_eq!(batch(account(), &[&a, &b, &c]).len(), 3);
         assert!(
-            batch(acct_account(), &[]).is_empty(),
+            batch(account(), &[]).is_empty(),
             "nothing arrived, nothing said"
         );
     }
@@ -465,9 +462,9 @@ mod tests {
             .collect();
         let refs: Vec<&Message> = all.iter().collect();
         assert_eq!(
-            batch(acct_account(), &refs),
+            batch(account(), &refs),
             [Notification {
-                account: acct_account(),
+                account: account(),
                 summary: "7 new messages".to_owned(),
                 // Ada sent three; the rest one each, in the order they came.
                 body: "From Ada, Newsletter, Bob and 2 others".to_owned(),
@@ -475,12 +472,12 @@ mod tests {
             }]
         );
         assert_eq!(
-            batch(acct_account(), &refs[..4])[0].body,
+            batch(account(), &refs[..4])[0].body,
             "From Ada, Newsletter, Bob",
             "four from three people names all three"
         );
         assert_eq!(
-            batch(acct_account(), &refs[..5])[0].body,
+            batch(account(), &refs[..5])[0].body,
             "From Ada, Newsletter, Bob and 1 other"
         );
     }

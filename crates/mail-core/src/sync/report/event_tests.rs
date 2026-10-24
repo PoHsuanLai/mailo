@@ -1,13 +1,11 @@
 use super::{AccountReport, Counts, PassEnd, Progress, Trouble as Found, outcome};
 use crate::fetch::{Count, Effect, Event, First, Link, Pause, Step, Trouble, step};
+use crate::support_tests::account;
 use mail_domain::Retry;
 use mail_domain::id::account_id_from_uuid;
 use porter_core::AccountId;
 use std::time::Duration;
 
-fn acct_account() -> AccountId {
-    account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f2"))
-}
 fn acct_other() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000f3"))
 }
@@ -18,7 +16,7 @@ fn secs(n: u64) -> Duration {
 
 fn finished(trouble: Vec<Found>) -> PassEnd {
     PassEnd::Finished(AccountReport {
-        account: acct_account(),
+        account: account(),
         address: "ada@example.test".to_owned(),
         counts: Counts::default(),
         trouble,
@@ -166,7 +164,7 @@ fn how_a_pass_ended_is_what_the_link_hears() {
         (
             "a failure to run keeps its decision and its kind of wait",
             PassEnd::Failed {
-                account: acct_account(),
+                account: account(),
                 address: "a".into(),
                 retry: Retry::After(secs(5)),
                 why: "cannot connect".into(),
@@ -182,7 +180,7 @@ fn how_a_pass_ended_is_what_the_link_hears() {
         (
             "cancelled",
             PassEnd::Cancelled {
-                account: acct_account(),
+                account: account(),
                 address: "a".into(),
             },
             Event::Cancel,
@@ -204,12 +202,12 @@ fn a_whole_run_is_read_for_the_account_that_asked() {
         offer: None,
     };
     assert_eq!(
-        outcome::<String>(Ok(vec![other.clone(), finished(vec![])]), acct_account()),
+        outcome::<String>(Ok(vec![other.clone(), finished(vec![])]), account()),
         Event::Finished { trouble: vec![] },
         "another account's end is not this one's"
     );
     assert_eq!(
-        outcome::<String>(Ok(vec![other]), acct_account()),
+        outcome::<String>(Ok(vec![other]), account()),
         Event::Finished { trouble: vec![] },
         "a run that left the account out had nothing to do for it"
     );
@@ -219,7 +217,7 @@ fn a_whole_run_is_read_for_the_account_that_asked() {
 fn a_run_that_could_not_happen_waits_and_backs_off_like_any_failure() {
     let event = outcome(
         Err::<Vec<PassEnd>, _>("cannot start the async runtime"),
-        acct_account(),
+        account(),
     );
     assert_eq!(
         event,
