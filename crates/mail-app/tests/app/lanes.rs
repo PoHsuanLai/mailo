@@ -47,3 +47,6 @@ mod triage;
 mod preferences;
 mod search;
 mod sidebar;
+
+// 15: the list as conversations or a message to a row.
+mod organise;

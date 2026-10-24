@@ -57,6 +57,7 @@ mod motion;
 mod move_to;
 mod no_account;
 mod ops;
+mod organise;
 mod original;
 mod page;
 mod pgp;

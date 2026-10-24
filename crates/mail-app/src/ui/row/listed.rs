@@ -17,12 +17,16 @@ use chrono::{DateTime, TimeZone, Utc};
 use ds::components::app::thread_height::ThreadLines;
 use ds::components::menus::item::item::MenuItem;
 use ds::prelude::*;
-use mail_domain::{Draft, DraftId, ReadState, SendState, ThreadId, ThreadSummary};
+use mail_domain::{Draft, DraftId, MessageId, ReadState, SendState, ThreadId, ThreadSummary};
 
 /// One row of the list.
 #[derive(Debug, Clone, PartialEq)]
 pub(in crate::ui) enum Listed {
     Thread(ThreadSummary),
+    /// One message, in a place listed a message to a row: the message as a conversation of one
+    /// (`mail_core::single::alone`), under its conversation's id, and which message it is. Its
+    /// menu is its conversation's, as its actions are.
+    Message(ThreadSummary, MessageId),
     Draft(Draft),
 }
 
@@ -45,6 +49,8 @@ pub(in crate::ui) struct RowModel {
 pub(in crate::ui) enum Opens {
     /// The conversation, as the click asks: opened, or picked with the others.
     Thread(ThreadId, Click),
+    /// One message of the conversation, opened alone: a plain click on a message's own row.
+    Message(ThreadId, MessageId),
     /// The draft, in the composer; one held for its time, on its page.
     Draft(DraftId),
 }
@@ -54,6 +60,7 @@ impl Listed {
     pub(in crate::ui) fn key(&self) -> String {
         match self {
             Listed::Thread(summary) => summary.id.to_string(),
+            Listed::Message(_, message) => message.to_string(),
             Listed::Draft(draft) => draft.id.to_string(),
         }
     }
@@ -61,7 +68,7 @@ impl Listed {
     /// The subject, or what stands for one.
     pub(in crate::ui) fn subject(&self) -> String {
         let subject = match self {
-            Listed::Thread(summary) => &summary.subject,
+            Listed::Thread(summary) | Listed::Message(summary, _) => &summary.subject,
             Listed::Draft(draft) => &draft.subject,
         };
         mail_domain::subject_or_none(subject).into_owned()
@@ -94,7 +101,7 @@ impl Listed {
         let subject = self.subject();
         let label = copy::aria::open_row(&subject);
         match self {
-            Listed::Thread(summary) => {
+            Listed::Thread(summary) | Listed::Message(summary, _) => {
                 // While a search is active the snippet is cut around its first match, and both
                 // lines mark.
                 let (subject_marks, snippet, snippet_marks) = match hit {
@@ -149,15 +156,23 @@ impl Listed {
     /// a draft's Delete Draft, or a held one's Cancel Sending.
     pub(in crate::ui) fn menu(&self, now: DateTime<Utc>) -> Vec<MenuItem<Pick>> {
         match self {
-            Listed::Thread(summary) => menu::rows(&menu::groups(summary), summary, now),
+            Listed::Thread(summary) | Listed::Message(summary, _) => {
+                menu::rows(&menu::groups(summary), summary, now)
+            }
             Listed::Draft(_) => menu::draft_rows(self.held().is_some()),
         }
     }
 
-    /// What `click` on the row opens. A draft is not picked with others: any click opens it.
+    /// What `click` on the row opens. A draft is not picked with others: any click opens it. A
+    /// message's plain click opens it alone; Ctrl and Shift pick its conversation, which is what
+    /// every action on the selection reaches.
     pub(in crate::ui) fn open(&self, click: Click) -> Opens {
         match self {
             Listed::Thread(summary) => Opens::Thread(summary.id, click),
+            Listed::Message(summary, message) => match click {
+                Click::Plain => Opens::Message(summary.id, *message),
+                Click::Toggle | Click::Range => Opens::Thread(summary.id, click),
+            },
             Listed::Draft(draft) => Opens::Draft(draft.id),
         }
     }

@@ -79,6 +79,8 @@ enum Slot {
     Top(ThreadId),
     /// A conversation in the date-ordered rows.
     Thread(ThreadId),
+    /// A message in the date-ordered rows, while the place lists a message to a row.
+    Message(MessageId),
     /// A band's title.
     Band(String),
     /// The heading over a search's top results.
@@ -89,6 +91,32 @@ enum Slot {
     Server(ThreadId),
 }
 
+/// A row of the date-ordered list: a conversation, or one message of it while the place lists a
+/// message to a row. Grouped as its summary is ([`group_list`]).
+struct Row {
+    summary: ThreadSummary,
+    message: Option<MessageId>,
+}
+
+impl std::borrow::Borrow<ThreadSummary> for Row {
+    fn borrow(&self) -> &ThreadSummary {
+        &self.summary
+    }
+}
+
+/// `threads` as rows, each with its message when `messages` names one for every row.
+fn rows_of(threads: Vec<ThreadSummary>, messages: &[MessageId]) -> Vec<Row> {
+    let singles = !messages.is_empty() && messages.len() == threads.len();
+    threads
+        .into_iter()
+        .enumerate()
+        .map(|(at, summary)| Row {
+            summary,
+            message: singles.then(|| messages[at]),
+        })
+        .collect()
+}
+
 /// The conversations and drafts for wherever the shell is looking.
 #[component]
 pub(super) fn ThreadList(
@@ -96,6 +124,8 @@ pub(super) fn ThreadList(
     pages: Signal<u32>,
     revision: Signal<u64>,
     threads: Memo<Vec<ThreadSummary>>,
+    /// Which message each of `threads` is, while the place lists a message to a row.
+    messages: Memo<Vec<MessageId>>,
     drafts: Memo<Vec<Draft>>,
     nothing: Memo<Nothing>,
     more: Memo<bool>,
@@ -184,17 +214,30 @@ pub(super) fn ThreadList(
     };
     let server_rows = found();
     let state = use_hook(super::motion::motion);
-    let shown = threads();
-    let keys: Vec<ThreadId> = shown.iter().map(|summary| summary.id).collect();
+    let shown = rows_of(threads(), &messages.read());
+    let keys: Vec<ThreadId> = shown.iter().map(|row| row.summary.id).collect();
     let picking = !shell.read().picked.chosen(&keys).is_empty();
-    // Picked, or open with nothing picked: asked of the shell against what is listed.
-    let selection_of = |id: ThreadId| {
-        if shell.read().is_selected(id, &keys) {
+    // Picked, or open with nothing picked: asked of the shell against what is listed. A
+    // message's row is the open one only while it is the message the reader shows.
+    let selection_of = |id: ThreadId, message: Option<MessageId>| {
+        let current = shell.read();
+        let selected = match message {
+            Some(message) if !current.picked.any(&keys) => {
+                current.open == Some(id) && current.focus == Some(message)
+            }
+            _ => current.is_selected(id, &keys),
+        };
+        if selected {
             Selection::Selected
         } else {
             Selection::Unselected
         }
     };
+    // Which conversation each listed message is of, for the keyboard's cursor to open one.
+    let of_message: std::collections::HashMap<MessageId, ThreadId> = shown
+        .iter()
+        .filter_map(|row| row.message.map(|message| (message, row.summary.id)))
+        .collect();
     if let Some(state) = state {
         let mut order = state.order;
         order.set(keys.clone());
@@ -240,10 +283,18 @@ pub(super) fn ThreadList(
             &mut items,
         );
     }
-    let mut mail_row = |slot: Slot, summary: ThreadSummary, items: &mut Vec<ListItem<Slot>>| {
-        let dress = dress_row(&summary);
-        let selection = selection_of(summary.id);
-        push_row(slot, Listed::Thread(summary), dress, selection, items);
+    let mut mail_row = |slot: Slot, row: Row, items: &mut Vec<ListItem<Slot>>| {
+        let dress = dress_row(&row.summary);
+        let selection = selection_of(row.summary.id, row.message);
+        let listed = match row.message {
+            Some(message) => Listed::Message(row.summary, message),
+            None => Listed::Thread(row.summary),
+        };
+        push_row(slot, listed, dress, selection, items);
+    };
+    let conversation = |summary: ThreadSummary| Row {
+        summary,
+        message: None,
     };
     let strip = top();
     if !strip.is_empty() {
@@ -252,7 +303,7 @@ pub(super) fn ThreadList(
             rsx! { div { class: "band", SectionHeader { title: copy::headers::TOP_RESULTS.to_owned() } } },
         ));
         for summary in strip {
-            mail_row(Slot::Top(summary.id), summary, &mut items);
+            mail_row(Slot::Top(summary.id), conversation(summary), &mut items);
         }
     }
     for band in group_list(
@@ -268,8 +319,12 @@ pub(super) fn ThreadList(
                 rsx! { div { class: "band", SectionHeader { title } } },
             ));
         }
-        for summary in band.threads {
-            mail_row(Slot::Thread(summary.id), summary, &mut items);
+        for row in band.threads {
+            let slot = match row.message {
+                Some(message) => Slot::Message(message),
+                None => Slot::Thread(row.summary.id),
+            };
+            mail_row(slot, row, &mut items);
         }
     }
     if !server_rows.is_empty() {
@@ -278,14 +333,23 @@ pub(super) fn ThreadList(
             rsx! { div { class: "band", SectionHeader { title: copy::headers::FROM_SERVER.to_owned() } } },
         ));
         for summary in server_rows {
-            mail_row(Slot::Server(summary.id), summary, &mut items);
+            mail_row(Slot::Server(summary.id), conversation(summary), &mut items);
         }
     }
-    let cursor = shell.read().open.map(Slot::Thread);
-    let open_slot = move |slot: Slot| {
-        if let Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) = slot {
-            shell.write().open(id);
+    let cursor = match (shell.read().open, shell.read().focus) {
+        (Some(_), Some(message)) if of_message.contains_key(&message) => {
+            Some(Slot::Message(message))
         }
+        (open, _) => open.map(Slot::Thread),
+    };
+    let open_slot = move |slot: Slot| match slot {
+        Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) => shell.write().open(id),
+        Slot::Message(message) => {
+            if let Some(id) = of_message.get(&message) {
+                shell.write().open_message(*id, message);
+            }
+        }
+        Slot::Draft(_) | Slot::Band(_) | Slot::TopHeading | Slot::ServerHeading => {}
     };
     // Windowed: only the rows near the viewport are mounted, so a folder of ten thousand draws as
     // cheaply as one of twenty. Each item's height is known before it is drawn — a mail or draft
@@ -454,7 +518,7 @@ pub(super) fn ThreadList(
                             // magnifier that brings up the search panel, or the search shown. The
                             // ⋯ closes the row: Group, Row Properties and Sync Now.
                             super::command::SearchBox { shell, pages }
-                            ListMore { shell, syncs: !quiet, side_hidden }
+                            ListMore { shell, revision, syncs: !quiet, side_hidden }
                         }
                     }
                 },

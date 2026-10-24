@@ -77,6 +77,34 @@ fn leave_key(thread: ThreadId, bodies: &super::unsubscribe::Bodies) -> String {
     format!("{thread}-{:x}", hasher.finish())
 }
 
+/// Mark `thread` read as it opens, where any of it is unread. Whether it was.
+fn read_whole(store: &SqliteStore, thread: ThreadId) -> bool {
+    let unread = store
+        .thread(thread)
+        .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread);
+    unread
+        && super::ops::resolve(store, thread, OpKind::MarkRead).is_some_and(|op| {
+            super::ops::perform(store, thread, op, super::clock::hours()).is_some()
+        })
+}
+
+/// Mark `message` read as it opens alone, where it is unread, and nothing else of `thread`.
+/// Whether it was.
+fn read_alone(store: &SqliteStore, thread: ThreadId, message: MessageId) -> bool {
+    let unread = store
+        .message(message)
+        .is_ok_and(|alone| alone.thread == thread && alone.read == ReadState::Unread);
+    unread
+        && mail_core::act::perform_on(
+            store,
+            thread,
+            Target::Messages(vec![message]),
+            Op::SetRead(ReadState::Read),
+            super::clock::hours(),
+        )
+        .is_some()
+}
+
 /// Where a reader is drawn: beside the list, or alone in a conversation's own window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(in crate::ui) enum ReaderIn {
@@ -90,13 +118,15 @@ pub(in crate::ui) enum ReaderIn {
 
 /// `revision` is the window's, moved when leaving a list queues a message, and whenever any
 /// window moves the store (`ui/revisions`), which draws the reader again; a reader drawn on its
-/// own has none.
+/// own has none. `only` is the one message to show, when it was opened from a list of single
+/// messages (`Shell::focus`); one that is not the conversation's shows the conversation whole.
 #[component]
 pub(super) fn Reader(
     thread: ThreadId,
     shell: Signal<Shell>,
     revision: Option<Signal<u64>>,
     #[props(default)] place: ReaderIn,
+    #[props(default)] only: Option<MessageId>,
     children: Element,
 ) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
@@ -155,19 +185,15 @@ pub(super) fn Reader(
     // Opening a conversation reads it: an unread one is marked read once it is drawn (on the
     // server too, where the server keeps flags), with no toast and no undo, and the list loses
     // its dot. The messages that were unread as it opened stay unfolded: the render gathered
-    // them into `unread` before this runs.
+    // them into `unread` before this runs. A message opened alone is the only one read.
     {
         let store = store.clone();
-        use_effect(use_reactive!(|thread| {
-            let unread = store
-                .thread(thread)
-                .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread);
-            if unread
-                && super::ops::resolve(&store, thread, OpKind::MarkRead).is_some_and(|op| {
-                    super::ops::perform(&store, thread, op, super::clock::hours()).is_some()
-                })
-                && let Some(mut revision) = revision
-            {
+        use_effect(use_reactive!(|thread, only| {
+            let read = match only {
+                Some(message) => read_alone(&store, thread, message),
+                None => read_whole(&store, thread),
+            };
+            if read && let Some(mut revision) = revision {
                 revision += 1;
             }
         }));
@@ -179,6 +205,7 @@ pub(super) fn Reader(
             }
         };
     };
+    let only = only.filter(|message| loaded.messages.contains(message));
     // Read here, in the render, so adding a trusted sender or changing the mode draws the reader
     // again with the images it now allows.
     let reading = settings
@@ -214,6 +241,7 @@ pub(super) fn Reader(
         .messages
         .iter()
         .rev()
+        .filter(|id| only.is_none_or(|alone| alone == **id))
         .filter_map(|id| store.message(*id).ok())
         .map(|message| {
             // A body decrypted without proof it is unchanged never loads remote content, and is
@@ -304,12 +332,18 @@ pub(super) fn Reader(
         .as_ref()
         .filter(|(found, _)| *found == leave_key)
         .map(|(_, offer)| offer.clone());
-    // An encrypted message's subject travels inside it; the outside says `...`.
+    // An encrypted message's subject travels inside it; the outside says `...`. A message shown
+    // alone is titled with its own.
+    let titled = match only {
+        Some(_) => shown.first().map(|(message, ..)| message.subject.clone()),
+        None => None,
+    }
+    .unwrap_or_else(|| loaded.summary.subject.clone());
     let subject = shown
         .iter()
-        .find(|(message, ..)| message.subject == loaded.summary.subject)
+        .find(|(message, ..)| message.subject == titled)
         .and_then(|(message, ..)| looks.opened_subject(message))
-        .unwrap_or_else(|| loaded.summary.subject.clone());
+        .unwrap_or(titled);
     // How many messages there are, and the moment their dates are written against: the newest
     // says everything in its header, the rest who and when.
     let count = shown.len();
