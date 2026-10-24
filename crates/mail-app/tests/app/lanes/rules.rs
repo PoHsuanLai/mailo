@@ -103,3 +103,36 @@ fn a_rule_made_in_settings_files_the_mail_it_matches() {
         ]
     );
 }
+
+/// Block Sender, from the reader's ⋯: a rule that files the sender's mail in Spam, first in the
+/// order, and the conversation in Spam now.
+#[test]
+fn block_sender_makes_a_rule_and_files_the_conversation_in_spam() {
+    use mail_core::Store as _;
+    use mail_domain::{Filter, MailboxRole, RuleAction, TextMatch};
+    let mut window = Window::open(|_| {});
+    let subject = super::window::INBOX[0].1;
+    let sender = super::look::conversation(&window.store, subject).from.email;
+    window.open_subject(subject);
+    window.click(&format!(
+        ".reader-head [*|aria-label=\"{}\"]",
+        copy::aria::MORE
+    ));
+    window.menu_item(copy::menus::BLOCK_SENDER);
+    window.until("the toast says the sender is blocked", |h| {
+        h.text_of(".ds-toast-body") == Some(copy::toasts::blocked(&sender))
+    });
+    let store = window.store.clone();
+    window.until("the conversation is in Spam", |_| {
+        super::look::conversation(&store, subject)
+            .mailboxes
+            .contains(MailboxRole::Spam)
+    });
+    let rules = window.store.rules(super::window::account()).unwrap();
+    let block = rules
+        .iter()
+        .find(|rule| rule.filter == Filter::From(TextMatch::Exact(sender.clone())))
+        .expect("a rule for the sender");
+    assert_eq!(block.actions, vec![RuleAction::Spam]);
+    assert!(rules.iter().all(|rule| rule.position >= block.position));
+}
