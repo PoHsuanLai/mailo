@@ -135,12 +135,13 @@ const STILL: Fraction = Fraction(702);
 
 impl Face {
     /// How much of the grace period has gone, for quire's ring, which shows what is left. `due` is
-    /// when the grace period ends, which a countdown drains towards. Every other face is drawn
-    /// as a ring with nothing gone, except a stopped one, which rests where it failed.
-    fn gone(&self, due: DateTime<Utc>, now: DateTime<Utc>) -> Fraction {
+    /// when the grace period ends, which a countdown drains towards from `grace` before it. Every
+    /// other face is drawn as a ring with nothing gone, except a stopped one, which rests where it
+    /// failed.
+    fn gone(&self, due: DateTime<Utc>, grace: chrono::TimeDelta, now: DateTime<Utc>) -> Fraction {
         match self.ring {
             Ring::Countdown => {
-                let grace = super::life::GRACE.num_milliseconds().max(1);
+                let grace = grace.num_milliseconds().max(1);
                 let left = (due - now).num_milliseconds().clamp(0, grace);
                 let share = (grace - left) * 1000 / grace;
                 Fraction(u16::try_from(share).unwrap_or(1000))
@@ -214,7 +215,7 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     ) else {
         return rsx! {};
     };
-    let progress = face.gone(out.due, now);
+    let progress = face.gone(out.due, out.grace, now);
     let operation = match state {
         Some(SendState::Sent { .. }) => Operation::Idle,
         _ => Operation::Running(token),

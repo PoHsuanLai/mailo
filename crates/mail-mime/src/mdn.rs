@@ -211,6 +211,9 @@ pub fn receipt(original: &[u8], reporting: &Reporting<'_>) -> Result<Posting, Mi
         mail_from: crate::build::mailbox(&reader.email),
         rcpt_to,
         message: bytes,
+        // A receipt or a meeting answer is about another message: a report on its own delivery
+        // is not something the person asked for.
+        delivery: mail_domain::DeliveryReport::Unrequested,
     })
 }
 

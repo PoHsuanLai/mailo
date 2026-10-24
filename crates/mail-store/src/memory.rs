@@ -1508,6 +1508,7 @@ impl Inner {
             raw,
             mail_from,
             rcpt_to,
+            delivery,
         } = intent
         {
             return Ok(Some(ProtoOp::Submit {
@@ -1515,6 +1516,7 @@ impl Inner {
                 raw: *raw,
                 mail_from: mail_from.clone(),
                 rcpt_to: rcpt_to.clone(),
+                delivery: *delivery,
             }));
         }
         if let RemoteIntent::Folder(work) = intent {

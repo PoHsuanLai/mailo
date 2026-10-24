@@ -35,6 +35,70 @@ pub enum Spelling {
     Off,
 }
 
+/// `compose.undo_send`: how long a message waits in the outbox after Send, which is how long its
+/// Undo is offered. `Off` queues it to leave at once, with no Undo to press.
+///
+/// Five seconds is the default, the grace the composer always had. Stored as the number of
+/// seconds with its unit, so the file reads as what it means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum UndoSend {
+    Off,
+    #[default]
+    #[serde(rename = "5s")]
+    #[word(slug = "5s", label = "5 seconds")]
+    Seconds5,
+    #[serde(rename = "10s")]
+    #[word(slug = "10s", label = "10 seconds")]
+    Seconds10,
+    #[serde(rename = "20s")]
+    #[word(slug = "20s", label = "20 seconds")]
+    Seconds20,
+    #[serde(rename = "30s")]
+    #[word(slug = "30s", label = "30 seconds")]
+    Seconds30,
+}
+
+impl UndoSend {
+    /// How long Undo has.
+    pub fn grace(self) -> chrono::TimeDelta {
+        chrono::TimeDelta::seconds(match self {
+            UndoSend::Off => 0,
+            UndoSend::Seconds5 => 5,
+            UndoSend::Seconds10 => 10,
+            UndoSend::Seconds20 => 20,
+            UndoSend::Seconds30 => 30,
+        })
+    }
+}
+
+/// `compose.format`: what a new message is written as. `Rich` sends the formatting with a plain
+/// copy beside it (`multipart/alternative`); `Plain` sends the plain text alone, `text/plain`
+/// with no HTML part, for lists and people who ask for nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum MessageFormat {
+    #[default]
+    #[word(label = "Rich text")]
+    Rich,
+    #[word(label = "Plain text")]
+    Plain,
+}
+
+/// `compose.reply_same_format`: whether a reply is written as the message it answers was, plain
+/// to plain and rich to rich, whatever `compose.format` says. On by default: a plain-text list
+/// is answered in plain text without anyone having to remember.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum ReplySameFormat {
+    #[default]
+    On,
+    Off,
+}
+
 /// `reading.brand_logos`: whether a sender's verified logo (BIMI) is looked up and shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]

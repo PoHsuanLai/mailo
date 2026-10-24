@@ -15,6 +15,7 @@ fn outgoing(when: When, due: DateTime<Utc>) -> Outgoing {
         draft: page.draft,
         due,
         when,
+        grace: chrono::TimeDelta::seconds(5),
         page,
         refused: None,
     }

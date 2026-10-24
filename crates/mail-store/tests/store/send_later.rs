@@ -49,6 +49,8 @@ fn draft() -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
         state: SendState::Editing,
         updated: at(0),
     }
@@ -71,6 +73,7 @@ fn schedule(store: &dyn Store, draft: &Draft, leaves: DateTime<Utc>) -> OutboxId
                 raw: BlobId::generate(),
                 mail_from: "me@example.test".to_owned(),
                 rcpt_to: vec!["you@example.test".to_owned()],
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &empty,
             leaves,

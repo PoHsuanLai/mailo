@@ -38,6 +38,16 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         ("window.provider_marks", pair("icons", "letters")),
         ("notifications.new_mail", pair("on", "off")),
         ("compose.spelling", pair("on", "off")),
+        (
+            "compose.undo_send",
+            KeyKind::Segmented {
+                variants: ["off", "5s", "10s", "20s", "30s"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            },
+        ),
+        ("compose.format", pair("rich", "plain")),
+        ("compose.reply_same_format", pair("on", "off")),
         ("reading.brand_logos", pair("on", "off")),
         ("reading.read_receipts", pair("never", "always")),
         (
@@ -291,4 +301,80 @@ fn a_change_over_a_damaged_file_is_refused_and_the_file_stays() {
         std::fs::read_to_string(mailo_dir(&dir).join("settings.toml")).unwrap(),
         body
     );
+}
+
+#[test]
+fn undo_send_starts_at_the_five_seconds_the_composer_had_and_each_word_is_its_wait() {
+    use super::UndoSend;
+    assert_eq!(
+        MailSettings::default().compose.undo_send,
+        UndoSend::Seconds5
+    );
+    let cases: [(UndoSend, &str, i64); 5] = [
+        (UndoSend::Off, "off", 0),
+        (UndoSend::Seconds5, "5s", 5),
+        (UndoSend::Seconds10, "10s", 10),
+        (UndoSend::Seconds20, "20s", 20),
+        (UndoSend::Seconds30, "30s", 30),
+    ];
+    for (word, stored, seconds) in cases {
+        assert_eq!(
+            toml::Value::try_from(word).unwrap(),
+            toml::Value::String(stored.to_owned()),
+            "{word:?}"
+        );
+        assert_eq!(
+            word.grace(),
+            chrono::TimeDelta::seconds(seconds),
+            "{word:?}"
+        );
+    }
+    let key = schema()
+        .key
+        .into_iter()
+        .find(|key| key.path.0 == "compose.undo_send")
+        .expect("compose.undo_send");
+    assert_eq!(key.labels.of("10s"), Some("10 seconds"));
+}
+
+#[test]
+fn a_reply_takes_its_original_s_format_only_while_reply_same_format_is_on() {
+    use super::{ComposeSettings, MessageFormat, ReplySameFormat};
+    let compose = |format, reply_same_format| ComposeSettings {
+        format,
+        reply_same_format,
+        ..ComposeSettings::default()
+    };
+    // (settings, the original's format, what is written)
+    type Case = (ComposeSettings, Option<MessageFormat>, MessageFormat);
+    let cases: [Case; 5] = [
+        (ComposeSettings::default(), None, MessageFormat::Rich),
+        (
+            ComposeSettings::default(),
+            Some(MessageFormat::Plain),
+            MessageFormat::Plain,
+        ),
+        (
+            compose(MessageFormat::Plain, ReplySameFormat::On),
+            Some(MessageFormat::Rich),
+            MessageFormat::Rich,
+        ),
+        (
+            compose(MessageFormat::Plain, ReplySameFormat::On),
+            None,
+            MessageFormat::Plain,
+        ),
+        (
+            compose(MessageFormat::Rich, ReplySameFormat::Off),
+            Some(MessageFormat::Plain),
+            MessageFormat::Rich,
+        ),
+    ];
+    for (settings, original, want) in cases {
+        assert_eq!(
+            settings.format_for(original),
+            want,
+            "{settings:?} answering {original:?}"
+        );
+    }
 }

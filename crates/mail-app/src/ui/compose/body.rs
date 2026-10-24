@@ -56,7 +56,9 @@ pub(in crate::ui) fn Body(
     let only_empty = matches!(read.session.doc.nodes.as_slice(),
         [Node::Para { runs, .. }] if runs.is_empty());
     let float = read.float.clone();
+    // Plain text carries no formatting, so there is none to offer.
     let bar = read.selection.is_some()
+        && read.format == crate::settings::MessageFormat::Rich
         && (focus() == EditFocus::In || matches!(read.float, Float::Link(_)));
     drop(read);
     let editable =

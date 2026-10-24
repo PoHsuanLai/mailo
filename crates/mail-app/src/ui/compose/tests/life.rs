@@ -33,7 +33,13 @@ fn an_autosave_taken_before_a_discard_does_not_bring_the_draft_back() {
     use super::super::life;
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
-    let page = life::load(&store, draft.id, &mut Vec::new()).expect("the draft's page");
+    let page = life::load(
+        &store,
+        draft.id,
+        &mut Vec::new(),
+        &crate::settings::ComposeSettings::default(),
+    )
+    .expect("the draft's page");
     let taken = life::stamp();
     life::discard(&store, draft.id).unwrap_or_else(|why| panic!("discard: {why}"));
     let saved = life::save_stamped(&store, &page, taken, Utc::now());
@@ -391,6 +397,49 @@ async fn a_sent_page_folds_away_on_quires_clock() {
         markup.contains("Sending in"),
         "the pill went with the page:\n{markup}"
     );
+}
+
+/// Send waits as long as `compose.undo_send` says, read from `settings.toml` when it is pressed.
+#[tokio::test]
+async fn send_waits_as_long_as_the_undo_send_setting_says() {
+    let (store, dir) = seeded();
+    let dirs = WindowDirs {
+        config: dir.path().join("config"),
+        state: dir.path().join("state"),
+    };
+    crate::settings::change(&crate::settings::root_for(&dirs.config), |settings| {
+        settings.compose.undo_send = crate::settings::UndoSend::Seconds30;
+    })
+    .unwrap_or_else(|why| panic!("{why}"));
+    let draft = fresh_draft(&store);
+    let (mut window, seen) = Window::open(store.clone(), draft.clone(), Some(dirs));
+    let mut page = window.page();
+    window.dom.in_runtime(|| {
+        let mut write = page.write();
+        write.to = vec![dana()];
+        type_text(&mut write, "See you then.");
+    });
+    window.render();
+    let pressed = Utc::now();
+    click(
+        &mut window.dom,
+        seen.one("aria-label", crate::ui::copy::controls::SEND),
+    );
+    let markup = window.render();
+    assert!(
+        markup.contains("Sending in 30 s"),
+        "the countdown is not the setting's:\n{markup}"
+    );
+    let due = |at: DateTime<Utc>| {
+        store
+            .outbox_due(acct_account(), at)
+            .map(|due| due.len())
+            .unwrap_or_else(|why| panic!("the outbox: {why}"))
+    };
+    // Still held where the five seconds the composer once had are long gone, and free to leave
+    // once the thirty are.
+    assert_eq!(due(pressed + chrono::TimeDelta::seconds(25)), 0);
+    assert_eq!(due(Utc::now() + chrono::TimeDelta::seconds(31)), 1);
 }
 
 #[tokio::test]

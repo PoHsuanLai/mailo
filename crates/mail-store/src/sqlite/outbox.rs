@@ -120,6 +120,7 @@ impl SqliteStore {
             raw,
             mail_from,
             rcpt_to,
+            delivery,
         } = intent
         {
             return Ok(Some(ProtoOp::Submit {
@@ -127,6 +128,7 @@ impl SqliteStore {
                 raw: *raw,
                 mail_from: mail_from.clone(),
                 rcpt_to: rcpt_to.clone(),
+                delivery: *delivery,
             }));
         }
         // Nor does folder work, which names mailboxes rather than messages.

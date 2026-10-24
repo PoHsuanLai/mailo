@@ -43,3 +43,22 @@ pub enum Keyword {
     /// RFC 3503 `$MDNSent`: a receipt for this message was sent or declined.
     MdnSent,
 }
+
+/// Whether a draft asks the servers that carry it to report its delivery: a delivery status
+/// notification (RFC 3461), as `NOTIFY=SUCCESS,FAILURE` on each `RCPT TO`.
+///
+/// Apart from [`ReceiptRequest`] because it is answered by different machines about a different
+/// event: a read receipt comes from the recipient's client when a person opens the message, and
+/// may never come; a delivery report comes from the receiving server when the message reaches the
+/// mailbox, whatever anyone does with it. Only a request: a submission server that does not offer
+/// `DSN` is sent the message without it, and nothing is said.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeliveryReport {
+    /// The default, and what every draft and outbox row stored before reports existed
+    /// deserializes as. The envelope carries no DSN parameters, and the server's own default
+    /// stands: a bounce on failure.
+    #[default]
+    Unrequested,
+    Requested,
+}

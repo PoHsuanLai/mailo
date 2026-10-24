@@ -16,7 +16,9 @@ use porter_core::AccountId;
 
 pub mod addresses;
 mod enclosed;
+mod format;
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
+pub use format::{Written, written_as};
 
 /// Read one identity, or the account's default, out of the `identities` table.
 ///
@@ -1156,6 +1158,7 @@ fn queue_inner(
             raw,
             mail_from: post.mail_from.clone(),
             rcpt_to: post.rcpt_to.clone(),
+            delivery: post.delivery,
         },
         // No undo. Unsending is not something the outbox can offer once the bytes are on
         // the wire, and a patch that pretended otherwise would revert something real.

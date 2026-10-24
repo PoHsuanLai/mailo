@@ -64,6 +64,13 @@ pub const SEND_LATER: &str = "Send Later";
 pub const REMIND_IF_NO_REPLY: &str = "Remind Me If No Reply";
 pub const SECURITY: &str = "Security";
 pub const SHOW_PLAIN_TEXT: &str = "Show Plain Text";
+/// ⋯ › Priority ▸, and its three choices, most urgent first.
+pub const PRIORITY: &str = "Priority";
+pub const PRIORITY_HIGH: &str = "High";
+pub const PRIORITY_NORMAL: &str = "Normal";
+pub const PRIORITY_LOW: &str = "Low";
+/// Asks the servers that carry the message to say when it is delivered, or why not.
+pub const REQUEST_DELIVERY_RECEIPT: &str = "Request Delivery Receipt";
 pub const SAVE_AS_TEMPLATE: &str = "Save as Template\u{2026}";
 pub const KEEP_FOR_LATER: &str = "Keep for Later";
 pub const DELETE_DRAFT: &str = "Delete Draft";

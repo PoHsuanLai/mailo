@@ -762,6 +762,8 @@ fn queued(graph_port: u16, registration: ClientEntry, graph: Credential) -> Send
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
         state: SendState::Editing,
         updated: t0(),
     };
@@ -784,6 +786,7 @@ fn queued(graph_port: u16, registration: ClientEntry, graph: Credential) -> Send
                 raw,
                 mail_from: post.mail_from.clone(),
                 rcpt_to: post.rcpt_to.clone(),
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &Patch {
                 id: ChangeId::generate(),

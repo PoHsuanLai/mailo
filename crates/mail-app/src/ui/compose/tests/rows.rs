@@ -269,6 +269,8 @@ fn send_menu_and_more_hold_every_choice_once() {
         titles(&more_items(&page)),
         [
             crate::ui::copy::menus::SECURITY,
+            crate::ui::copy::menus::PRIORITY,
+            crate::ui::copy::menus::REQUEST_DELIVERY_RECEIPT,
             "Show Plain Text",
             crate::ui::copy::menus::SAVE_AS_TEMPLATE,
             "—",
@@ -281,6 +283,59 @@ fn send_menu_and_more_hold_every_choice_once() {
     assert_eq!(page.plain, super::super::page::Fold::Open);
     assert_eq!(pick_more(&mut page, "keep"), More::Keep);
     assert_eq!(pick_more(&mut page, "delete"), More::Delete);
+    assert_eq!(page.float, Float::Closed);
+}
+
+/// ⋯ › Priority and Request Delivery Receipt: each pick is checked in the menu and lands on the
+/// draft the page saves, and Normal and a second press take them back off.
+#[test]
+fn priority_and_a_delivery_receipt_are_picked_from_more_and_saved_on_the_draft() {
+    let mut page = page_of("");
+    let base = draft_of("");
+    // What is checked under Priority ▸ and at the top of ⋯ (Security's own choices aside).
+    let checked = |page: &Page| -> Vec<String> {
+        let on = |item: &Line<String>| match item {
+            Line::Item { title, check, .. } if *check == Some(Check::On) => Some(title.clone()),
+            _ => None,
+        };
+        more_items(page)
+            .iter()
+            .flat_map(|item| match item {
+                Line::Submenu {
+                    title, children, ..
+                } if title == crate::ui::copy::menus::PRIORITY => {
+                    children.iter().filter_map(on).collect()
+                }
+                item => on(item).into_iter().collect::<Vec<_>>(),
+            })
+            .collect()
+    };
+    assert_eq!(checked(&page), [crate::ui::copy::menus::PRIORITY_NORMAL]);
+    let before = page.edits;
+
+    assert_eq!(pick_more(&mut page, "priority:high"), More::Done);
+    assert_eq!(pick_more(&mut page, "delivery"), More::Done);
+    assert_eq!(
+        checked(&page),
+        [
+            crate::ui::copy::menus::PRIORITY_HIGH,
+            crate::ui::copy::menus::REQUEST_DELIVERY_RECEIPT
+        ]
+    );
+    assert_eq!(
+        page.edits,
+        before + 2,
+        "the picks did not mark the page to save"
+    );
+    let saved = page.apply_to(&base, at(1));
+    assert_eq!(saved.priority, Priority::High);
+    assert_eq!(saved.delivery, DeliveryReport::Requested);
+
+    assert_eq!(pick_more(&mut page, "priority:normal"), More::Done);
+    assert_eq!(pick_more(&mut page, "delivery"), More::Done);
+    let saved = page.apply_to(&base, at(2));
+    assert_eq!(saved.priority, Priority::Normal);
+    assert_eq!(saved.delivery, DeliveryReport::Unrequested);
     assert_eq!(page.float, Float::Closed);
 }
 

@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, LoadRemoteImages, MessageFormat, NewMail, ProviderMarks, ReadReceipts,
+    ReplySameFormat, ServerSearch, Spelling, UndoSend,
 };
 
 use ds::prelude::Word;
@@ -73,9 +74,39 @@ pub struct ComposeSettings {
     #[settings(
         label = "Check spelling",
         help = "Underline misspelt words as you type.",
-        section = "Mail"
+        section = "Composing"
     )]
     pub spelling: Spelling,
+    #[settings(
+        label = "Undo send",
+        help = "How long a message waits after Send, so you can take it back.",
+        section = "Composing"
+    )]
+    pub undo_send: UndoSend,
+    #[settings(
+        label = "Message format",
+        help = "Plain text sends no formatting: the text alone, with no HTML part.",
+        section = "Composing"
+    )]
+    pub format: MessageFormat,
+    #[settings(
+        label = "Reply in the same format as the original",
+        help = "Answer plain text in plain text and rich text in rich text, whatever the message format says.",
+        section = "Composing"
+    )]
+    pub reply_same_format: ReplySameFormat,
+}
+
+impl ComposeSettings {
+    /// What a message is written as: `format`, except that a reply to a message whose format is
+    /// known is written as that message was while `reply_same_format` is on. `original` is
+    /// `None` for a message that answers nothing, and for one whose original's body is not here.
+    pub fn format_for(&self, original: Option<MessageFormat>) -> MessageFormat {
+        match (self.reply_same_format, original) {
+            (ReplySameFormat::On, Some(theirs)) => theirs,
+            _ => self.format,
+        }
+    }
 }
 
 /// `reading.*`: reading mail.
@@ -202,13 +233,19 @@ pub fn schema() -> Schema {
 /// written out: "From senders I trust" for `trusted`. The derive leaves every key's labels empty,
 /// and a Settings page shows a word without a label as itself.
 fn with_word_labels(mut key: KeySpec) -> KeySpec {
-    if key.path.0 == "reading.remote_images" {
-        key.labels = WordLabels(
-            LoadRemoteImages::ALL
+    fn labels<T: Word>() -> WordLabels {
+        WordLabels(
+            T::ALL
                 .iter()
                 .map(|word| (word.slug().to_owned(), word.label().to_owned()))
                 .collect(),
-        );
+        )
+    }
+    match key.path.0.as_str() {
+        "reading.remote_images" => key.labels = labels::<LoadRemoteImages>(),
+        "compose.undo_send" => key.labels = labels::<UndoSend>(),
+        "compose.format" => key.labels = labels::<MessageFormat>(),
+        _ => {}
     }
     key
 }

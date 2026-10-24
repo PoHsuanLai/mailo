@@ -40,6 +40,8 @@ struct Transcript {
     /// The most messages the server takes on one connection before it answers the next
     /// `MAIL FROM` with a 421 and closes, as a server that caps a session does. `None` for no cap.
     per_connection: Option<usize>,
+    /// Whether `EHLO` lists `DSN` (RFC 3461).
+    dsn: bool,
 }
 
 impl Transcript {
@@ -78,10 +80,10 @@ async fn serve(seen: Shared) -> u16 {
 async fn session(sock: tokio::net::TcpStream, seen: Shared) {
     let (read, mut write) = sock.into_split();
     let mut lines = BufReader::new(read).lines();
-    let cap = {
+    let (cap, dsn) = {
         let mut seen = seen.lock().unwrap();
         seen.connections += 1;
-        seen.per_connection
+        (seen.per_connection, seen.dsn)
     };
     let mut accepted = 0;
 
@@ -137,8 +139,10 @@ async fn session(sock: tokio::net::TcpStream, seen: Shared) {
         seen.lock().unwrap().commands.push(recorded);
 
         let reply = if upper.starts_with("EHLO") {
-            "250-smtp.example\r\n250-SIZE 35882577\r\n250-8BITMIME\r\n250 AUTH PLAIN LOGIN\r\n"
-                .to_owned()
+            let dsn = if dsn { "250-DSN\r\n" } else { "" };
+            format!(
+                "250-smtp.example\r\n250-SIZE 35882577\r\n250-8BITMIME\r\n{dsn}250 AUTH PLAIN LOGIN\r\n"
+            )
         } else if upper.starts_with("AUTH PLAIN") {
             "235 2.7.0 Accepted\r\n".to_owned()
         } else if upper.starts_with("MAIL FROM") && cap == Some(accepted) {
@@ -247,6 +251,8 @@ fn draft() -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
         state: SendState::Editing,
         updated: now(),
     }
@@ -291,6 +297,7 @@ fn queue(store: &SqliteStore, draft: &Draft, parent: Option<&Message>) {
                 raw,
                 mail_from: post.mail_from.clone(),
                 rcpt_to: post.rcpt_to.clone(),
+                delivery: post.delivery,
             },
             &Patch {
                 id: ChangeId::generate(),
@@ -518,6 +525,44 @@ fn accepted(seen: &Transcript) -> Vec<String> {
 /// How many of the commands the server heard begin with `verb`.
 fn heard(seen: &Transcript, verb: &str) -> usize {
     seen.commands.iter().filter(|c| c.starts_with(verb)).count()
+}
+
+/// A draft that asks for delivery reports has each `RCPT TO` ask for them where the server lists
+/// `DSN`, and is submitted without them, and without complaint, where it does not.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_delivery_receipt_reaches_rcpt_to_where_the_server_offers_dsn() {
+    for dsn in [true, false] {
+        let seen: Shared = Arc::new(Mutex::new(Transcript {
+            dsn,
+            ..Transcript::default()
+        }));
+        let port = serve(seen.clone()).await;
+        let it = open(port, 1);
+        let asking = Draft {
+            delivery: DeliveryReport::Requested,
+            ..it.draft.clone()
+        };
+        queue(&it.store, &asking, None);
+        let mut it = it;
+        let (_tx, mut cancel) = watch::channel(false);
+        let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+        assert_eq!(report.submitted, 1, "DSN offered: {dsn}: {report:?}");
+
+        let seen = seen.lock().unwrap();
+        let rcpt: Vec<&String> = seen
+            .commands
+            .iter()
+            .filter(|c| c.starts_with("RCPT TO"))
+            .collect();
+        assert!(!rcpt.is_empty(), "{:?}", seen.commands);
+        for command in rcpt {
+            assert_eq!(
+                command.contains(" NOTIFY=SUCCESS,FAILURE "),
+                dsn,
+                "DSN offered: {dsn}: {command}"
+            );
+        }
+    }
 }
 
 /// A drain of three messages signs in once and sends all three on that connection, then says

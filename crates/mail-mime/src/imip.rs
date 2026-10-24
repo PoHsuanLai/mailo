@@ -143,6 +143,9 @@ pub fn calendar_reply(original: &[u8], reply: &CalendarReply<'_>) -> Result<Post
         mail_from: crate::build::mailbox(&reply.from.email),
         rcpt_to: vec![to],
         message: bytes,
+        // A receipt or a meeting answer is about another message: a report on its own delivery
+        // is not something the person asked for.
+        delivery: mail_domain::DeliveryReport::Unrequested,
     })
 }
 

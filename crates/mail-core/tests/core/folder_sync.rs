@@ -805,6 +805,8 @@ mod sending_apart {
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
             smime: Smime::None,
+            priority: mail_domain::Priority::Normal,
+            delivery: mail_domain::DeliveryReport::Unrequested,
             state: SendState::Editing,
             updated: now(),
         };
@@ -827,6 +829,7 @@ mod sending_apart {
                     raw,
                     mail_from: post.mail_from.clone(),
                     rcpt_to: post.rcpt_to.clone(),
+                    delivery: mail_domain::DeliveryReport::Unrequested,
                 },
                 &Patch {
                     id: ChangeId::generate(),
