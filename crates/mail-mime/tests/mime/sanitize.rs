@@ -544,6 +544,22 @@ mod kept_styles {
         }
     }
 
+    /// A sender's element never carries one of mailo's own names (`mailo-inset`, the frame's
+    /// inset; `mailo-quote`, a folded quote), so the frame's rules for them reach only them:
+    /// such a class is dropped from the list it is in, and such an id, or a list of only such
+    /// classes, is dropped whole.
+    #[test]
+    fn a_sender_s_element_carries_none_of_mailo_s_own_names() {
+        let out = kept(
+            "<div class=\"lead MAILO-inset\" id=\"mailo-inset\">a</div>\
+             <p class=\"mailo-quote\" id=\"intro\">b</p><p class=\"mailorder\">c</p>",
+        );
+        assert!(out.contains("<div class=\"lead\">a</div>"), "{out}");
+        assert!(out.contains("<p id=\"intro\">b</p>"), "{out}");
+        assert!(out.contains("<p class=\"mailorder\">c</p>"), "{out}");
+        assert!(!out.to_ascii_lowercase().contains("mailo-"), "{out}");
+    }
+
     #[test]
     fn the_default_still_drops_the_sender_s_css() {
         let out = sanitize(
