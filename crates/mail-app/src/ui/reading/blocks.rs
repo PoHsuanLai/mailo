@@ -1,11 +1,22 @@
 //! The sandboxed frame displaying the message body.
 
+use chordkit::StandardAction;
+use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
+use ds::prelude::use_keys;
 use mail_domain::MessageId;
+use std::rc::Rc;
+
+use super::words;
 
 /// The sandboxed frame. `tag` is the frame's `data-frame-tag` (`Holder::tag`): on Blitz the
 /// network reads it to know which reader drew the frame and which message's consented images it
 /// may fetch, and an untagged frame fetches none (`ui/original/net.rs`).
+///
+/// The frame's words are its own document's to select ([`words`]): ⌘A with the keyboard in it
+/// selects them, and is not the window's ⌘A, which picks every conversation in the list. A right
+/// click on them puts the selection the last press let go of back, and hands its words to `asked`
+/// for the reader's Copy menu.
 #[component]
 pub(super) fn Sandbox(
     html: String,
@@ -20,6 +31,10 @@ pub(super) fn Sandbox(
     /// The message the frame shows, which a reply asks for its selection (`super::selection`).
     #[props(default)]
     message: Option<MessageId>,
+    /// The words a right click on the frame was on, for the reader's Copy menu, which takes
+    /// them; a frame drawn with no reader around it offers none.
+    #[props(default)]
+    asked: Option<Signal<Option<String>>>,
 ) -> Element {
     let height = use_signal(|| None::<f32>);
     let selections = use_hook(try_consume_context::<super::selection::Selections>);
@@ -39,6 +54,10 @@ pub(super) fn Sandbox(
         (true, Some(px)) => format!("height: {px}px;"),
         _ => String::new(),
     };
+    let keys = use_keys();
+    // The frame's node, and what was selected in it when the last left press let go.
+    let mut frame = use_signal(|| None::<Rc<MountedData>>);
+    let mut held = use_signal(|| None::<words::Held>);
     rsx! {
         iframe {
             class: "html",
@@ -46,15 +65,48 @@ pub(super) fn Sandbox(
             "data-fit": fit,
             style,
             onmounted: move |event: MountedEvent| {
+                let mounted = event.data();
+                frame.set(Some(mounted.clone()));
                 if let (Some(selections), Some(message)) = (&selections, message) {
-                    selections.hold(message, &event.data());
+                    selections.hold(message, &mounted);
                 }
                 if fit {
-                    super::fit::follow(event.data(), height);
+                    super::fit::follow(mounted.clone(), height);
                 }
                 if !plain {
-                    super::fit::shrink(event.data(), zoom);
+                    super::fit::shrink(mounted, zoom);
                 }
+            },
+            onpointerup: move |event: PointerEvent| {
+                if event.trigger_button() == Some(MouseButton::Primary) {
+                    let Some(mounted) = frame.peek().clone() else {
+                        return;
+                    };
+                    spawn(async move {
+                        held.set(words::selected(&mounted).await);
+                    });
+                }
+            },
+            onkeydown: move |event: KeyboardEvent| {
+                let said = crate::ui::actions::heard(keys, &event, false);
+                if said == Some(crate::ui::actions::Heard::Standard(StandardAction::SelectAll)) {
+                    event.stop_propagation();
+                    let Some(mounted) = frame.peek().clone() else {
+                        return;
+                    };
+                    spawn(async move {
+                        held.set(words::select_all(&mounted).await);
+                    });
+                }
+            },
+            oncontextmenu: move |_| {
+                let (Some(mut asked), Some(mounted), Some(words)) =
+                    (asked, frame.peek().clone(), held.peek().clone())
+                else {
+                    return;
+                };
+                asked.set(Some(words.text.clone()));
+                spawn(async move { words::reselect(&mounted, &words).await });
             },
             "data-frame-tag": tag,
             "sandbox": "",
@@ -72,6 +124,9 @@ pub(super) fn MessageView(
     #[props(default)] holder: Option<crate::ui::original::Holder>,
     #[props(default)] plain: bool,
     #[props(default)] fit: bool,
+    /// The words a right click on the frame was on (`Sandbox`).
+    #[props(default)]
+    asked: Option<Signal<Option<String>>>,
 ) -> Element {
     rsx! {
         Sandbox {
@@ -80,6 +135,7 @@ pub(super) fn MessageView(
             fit,
             message: Some(message_id),
             tag: holder.map(|holder| holder.tag(message_id)),
+            asked,
         }
     }
 }
