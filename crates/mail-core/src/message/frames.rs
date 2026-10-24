@@ -32,7 +32,8 @@ pub type Key = (BlobId, SanitizePolicy);
 pub type Unsealed = Arc<dyn Fn(&Message) -> Option<Parsed> + Send + Sync>;
 
 struct Entry {
-    body: FrameBody,
+    /// Shared, so a hit hands out the rendering rather than a copy of its html and images.
+    body: Arc<FrameBody>,
     bytes: usize,
     /// When it was last put or read, by [`Cache::tick`]: the smallest goes first.
     used: u64,
@@ -62,15 +63,15 @@ impl Cache {
         self.entries.len()
     }
 
-    fn get(&mut self, key: Key) -> Option<FrameBody> {
+    fn get(&mut self, key: Key) -> Option<Arc<FrameBody>> {
         self.tick += 1;
         let tick = self.tick;
         let entry = self.entries.get_mut(&key)?;
         entry.used = tick;
-        Some(entry.body.clone())
+        Some(Arc::clone(&entry.body))
     }
 
-    fn put(&mut self, key: Key, body: FrameBody) {
+    fn put(&mut self, key: Key, body: Arc<FrameBody>) {
         self.tick += 1;
         let used = self.tick;
         if let Some(gone) = self.entries.remove(&key) {
@@ -198,9 +199,9 @@ impl Frames {
         store: &SqliteStore,
         message: &Message,
         policy: SanitizePolicy,
-    ) -> FrameBody {
+    ) -> Arc<FrameBody> {
         let Some(key) = self.keyed(message, policy) else {
-            return self.uncached(store, message, policy);
+            return Arc::new(self.uncached(store, message, policy));
         };
         if let Some(had) = self.lock().get(key) {
             return had;
@@ -209,14 +210,15 @@ impl Frames {
         // when it was rendered from the blob: a seal opened since `keyed` looked would otherwise
         // leave plaintext under the blob's key, served once the key is locked again.
         let (body, source) = render(store, message, policy, &*self.unsealed);
+        let body = Arc::new(body);
         if source == Source::Stored {
-            self.lock().put(key, body.clone());
+            self.lock().put(key, Arc::clone(&body));
         }
         body
     }
 
     /// The cached rendering, if there is one. Never renders.
-    pub fn peek(&self, message: &Message, policy: SanitizePolicy) -> Option<FrameBody> {
+    pub fn peek(&self, message: &Message, policy: SanitizePolicy) -> Option<Arc<FrameBody>> {
         self.lock().get(self.keyed(message, policy)?)
     }
 
@@ -239,7 +241,7 @@ impl Frames {
         room: &mut u64,
         sent: &Sent,
         later: &mut Vec<(Message, SanitizePolicy)>,
-    ) -> Option<FrameBody> {
+    ) -> Option<Arc<FrameBody>> {
         let Some(key) = self.keyed(message, policy) else {
             return Some(self.rendered(store, message, policy));
         };
@@ -353,14 +355,14 @@ mod tests {
     use super::*;
     use mail_mime::RemoteImages;
 
-    fn html(n: usize) -> FrameBody {
-        FrameBody::Present {
+    fn html(n: usize) -> Arc<FrameBody> {
+        Arc::new(FrameBody::Present {
             html: "x".repeat(n),
             blocked_remote: false,
             fetches: Vec::new(),
             plain: false,
             inline: Vec::new(),
-        }
+        })
     }
 
     fn key(n: u8, remote_images: RemoteImages, version: u32) -> Key {

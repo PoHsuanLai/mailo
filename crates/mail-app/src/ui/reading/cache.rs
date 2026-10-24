@@ -116,7 +116,7 @@ mod tests {
         frames.warm_now(&store, &[thread], policy, || true);
         for message in messages.iter().filter(|m| m.body.raw().is_some()) {
             let had = frames.peek(message, policy).expect("warmed");
-            assert_eq!(had, frames.uncached(&store, message, policy));
+            assert_eq!(*had, frames.uncached(&store, message, policy));
         }
     }
 

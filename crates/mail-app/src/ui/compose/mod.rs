@@ -216,10 +216,22 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 )
             };
             if dirty && edits == last {
+                // Taken here and written on a blocking thread, so a slow disk never holds a
+                // frame. The next save is not asked for until this one is done, and a save on
+                // close or Send meanwhile is a later page, which this one does not overwrite.
                 let store = consume_context::<Arc<SqliteStore>>();
-                let saved = life::save(&store, &mut page.write(), chrono::Utc::now());
-                if let Err(why) = saved {
-                    page.write().notice = Some(why);
+                let (taken, stamp) = (page.peek().clone(), life::stamp());
+                let now = chrono::Utc::now();
+                let saved = tokio::task::spawn_blocking(move || {
+                    life::save_stamped(&store, &taken, stamp, now)
+                })
+                .await
+                .unwrap_or_else(|why| Err(why.to_string()));
+                match saved {
+                    // Clean only when nothing was typed while it was written.
+                    Ok(Some(_)) if page.peek().edits == edits => page.write().saved = Saved::Clean,
+                    Ok(_) => {}
+                    Err(why) => page.write().notice = Some(why),
                 }
             }
             last = edits;

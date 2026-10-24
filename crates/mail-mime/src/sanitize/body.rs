@@ -1,18 +1,22 @@
 //! The sender's `<body>` styling, which the sanitizer's fragment parse drops with the element:
 //! a newsletter's full-bleed ground is usually `<body bgcolor=…>` or `<body style=…>`. Read with
 //! html5ever's tokenizer (the first `body` start tag), written as one declaration list for the
-//! frame's own `<body style>`, and scrubbed like any other style.
+//! frame's own `<body style>`, and scrubbed like any other style. The tokenizer stops at that
+//! tag, and does not start when the markup has no `<body` in it to find.
 
 use super::css::{self, Context};
+use html5ever::TokenizerResult;
 use html5ever::buffer_queue::BufferQueue;
 use html5ever::tendril::StrTendril;
 use html5ever::tokenizer::{
     Tag, TagKind, TagToken, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 struct Sink {
     body: RefCell<Option<Tag>>,
+    /// Whether finding it pauses the tokenizer: not once `end` runs, which may not be paused.
+    pause: Cell<bool>,
 }
 
 impl TokenSink for Sink {
@@ -25,6 +29,11 @@ impl TokenSink for Sink {
             && self.body.borrow().is_none()
         {
             *self.body.borrow_mut() = Some(tag);
+            // Nothing after the first `<body>` is read: pause the tokenizer there, which hands
+            // `feed` back at once.
+            if self.pause.get() {
+                return TokenSinkResult::Script(());
+            }
         }
         TokenSinkResult::Continue
     }
@@ -46,6 +55,14 @@ fn colour(value: &str) -> Option<&str> {
 /// The first `<body>`'s `bgcolor`, `text` and `style`, as one scrubbed declaration list, or
 /// `None` when it has none of them.
 pub(super) fn body_style(html: &str) -> Option<String> {
+    // A body start tag is `<` and the name `body` in any case, so markup without that has none.
+    if !html
+        .as_bytes()
+        .windows(5)
+        .any(|it| it.eq_ignore_ascii_case(b"<body"))
+    {
+        return None;
+    }
     let mut tendril = StrTendril::new();
     tendril.push_slice(html);
     let queue = BufferQueue::default();
@@ -53,11 +70,15 @@ pub(super) fn body_style(html: &str) -> Option<String> {
     let tokenizer = Tokenizer::new(
         Sink {
             body: RefCell::new(None),
+            pause: Cell::new(true),
         },
         TokenizerOpts::default(),
     );
-    let _ = tokenizer.feed(&queue);
-    tokenizer.end();
+    // Paused at the tag when there was one; otherwise read to the end.
+    if let TokenizerResult::Done = tokenizer.feed(&queue) {
+        tokenizer.sink.pause.set(false);
+        tokenizer.end();
+    }
     let tag = tokenizer.sink.body.borrow_mut().take()?;
     let mut declarations = Vec::new();
     for attribute in &tag.attrs {

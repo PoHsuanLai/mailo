@@ -39,6 +39,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(in crate::ui) use delegate::Delegate;
+pub(crate) use external::on_write;
 pub(in crate::ui) use face::{CANNOT_LOAD, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use marks::sync_availability;

@@ -7,18 +7,22 @@
 //! forgets a count when its sender leaves the bus: a window that closed would take the badge with
 //! it while the mail stayed unread.
 //!
-//! Polled rather than pushed. The store is shared by the watch, the window and the command line,
-//! and what changes the count is any of them reading or archiving a message; one indexed
-//! `COUNT` every [`EVERY`] is the cheapest way to see all of those without teaching each of them
-//! to tell this thread. The count is said again every [`REPEAT`] even when it has not changed, so
-//! a dock that started after mailo, or restarted, learns it within that time.
+//! Read when the store is written to. The store is shared by the watch, the window and the command
+//! line, and what changes the count is any of them reading or archiving a message, each of which
+//! is a commit to the database's file or the `-wal` beside it; the system says when one is
+//! written to (`ui::on_write`, what the window hears another process's commits by), so the count
+//! is read then, at most once every [`EVERY`], and not at all while nothing is written. Without
+//! that word (a store in memory, or a system that will not watch the file) it is read every
+//! [`EVERY`]. The count is read and said again every [`REPEAT`] even when nothing was written,
+//! so a dock that started after mailo, or restarted, learns it within that time.
 
 use crate::launcher::{Badge, Unread, unread};
 use mail_core::Store;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-/// How often the count is read.
+/// How often the count is read at most, and always when the store's file cannot be watched.
 pub const EVERY: Duration = Duration::from_secs(2);
 
 /// How long a count that has not changed goes unsaid.
@@ -47,19 +51,25 @@ impl Beat {
 
 /// Keep this platform's launcher showing the unread count, for as long as the process runs. `None`
 /// when the platform has no launcher to tell. For `mailo watch`, which has no window of its own.
-pub fn keep_the_launchers_badge<S>(store: Arc<S>) -> Option<std::io::Result<()>>
+/// `file` is the database the store is in, when it is in one.
+pub fn keep_the_launchers_badge<S>(
+    store: Arc<S>,
+    file: Option<PathBuf>,
+) -> Option<std::io::Result<()>>
 where
     S: Store + Send + Sync + ?Sized + 'static,
 {
     let launcher = crate::launcher::platform()?;
-    Some(keep_the_badge(store, launcher.0, EVERY).map(|_| ()))
+    Some(keep_the_badge(store, file, launcher.0, EVERY).map(|_| ()))
 }
 
-/// Read the count every `every` and tell `badge` when it is due, on a thread of its own, for as
-/// long as the process runs. A read that fails (the database is busy, or gone) is skipped: the
-/// next one says it.
+/// Read the count when `file` (the store's database) has been written to, at most every `every`,
+/// and tell `badge` when it is due, on a thread of its own, for as long as the process runs. With
+/// no file to watch, read it every `every`. A read that fails (the database is busy, or gone) is
+/// skipped: the next one says it.
 pub fn keep_the_badge<S>(
     store: Arc<S>,
+    file: Option<PathBuf>,
     badge: Arc<dyn Badge>,
     every: Duration,
 ) -> std::io::Result<std::thread::JoinHandle<()>>
@@ -69,6 +79,13 @@ where
     std::thread::Builder::new()
         .name("mailo-badge".to_owned())
         .spawn(move || {
+            let (tx, written) = std::sync::mpsc::channel();
+            // Gone only with this thread, which is not a write to say anything about.
+            let watching = file.as_deref().and_then(|file| {
+                crate::ui::on_write(file, move || {
+                    let _ = tx.send(());
+                })
+            });
             let mut beat = Beat::default();
             loop {
                 if let Ok(count) = unread(
@@ -80,6 +97,13 @@ where
                     badge.show(count);
                 }
                 std::thread::sleep(every);
+                if watching.is_some() {
+                    // A write heard while sleeping is here already. Writes heard together are
+                    // one read; a watch that has ended answers at once, every `every`.
+                    if written.recv_timeout(REPEAT.saturating_sub(every)).is_ok() {
+                        while written.try_recv().is_ok() {}
+                    }
+                }
             }
         })
 }
