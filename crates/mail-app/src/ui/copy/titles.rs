@@ -42,6 +42,10 @@ pub const NOT_VERIFIED: &str = "Not Verified";
 pub const NOT_SAVED: &str = "The Change Wasn’t Saved";
 /// A key the Keyboard page cannot take for an action.
 pub const KEY_NOT_USED: &str = "That Key Can’t Be Used";
+/// "Check for mail when quit" that the system would not start at login, or stop starting.
+pub const LOGIN_ITEM_NOT_CHANGED: &str = "Login Items Weren’t Changed";
+/// "Check for mail when quit" that macOS keeps but waits for the person to allow.
+pub const ALLOW_LOGIN_ITEM: &str = "Allow mailo in Login Items";
 /// Remove Account that did not remove it.
 pub const NOT_REMOVED: &str = "The Account Wasn’t Removed";
 /// A rule or vacation reply kept here that its server did not take.

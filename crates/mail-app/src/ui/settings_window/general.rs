@@ -62,6 +62,7 @@ pub(super) const SECTIONS: [Section; 3] = [
         lines: &[
             Line::DefaultMail,
             Line::Key("notifications.new_mail"),
+            Line::Key(crate::settings::WHILE_QUIT),
             Line::Key("reading.read_receipts"),
             Line::Key("compose.spelling"),
             Line::Key("compose.copy_myself"),
@@ -142,8 +143,13 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
     let values =
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
     let mut failed = use_signal(|| None::<String>);
+    let mut login = use_signal(|| None::<(&'static str, String)>);
     let onedit = move |(path, value): (String, toml::Value)| {
-        failed.set(crate::ui::prefs::change_key(&path, value).err());
+        let changed = crate::ui::prefs::change_key(&path, value);
+        if changed.is_ok() && path == crate::settings::WHILE_QUIT {
+            login.set(follow_login_item());
+        }
+        failed.set(changed.err());
     };
     rsx! {
         Form {
@@ -179,6 +185,43 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
         if let Some(why) = failed() {
             Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| failed.set(None) }
         }
+        if let Some((title, why)) = login() {
+            Problem { title, why, onclose: move |()| login.set(None) }
+        }
+    }
+}
+
+/// Hand "Check for mail when quit", as it now stands, to the login item (`crate::login_item`),
+/// and say what came of it when there is something to say: a title and its message. A window
+/// with no login item (a test's, unless it hands a recorder) changes the setting alone.
+///
+/// A switch turned on that the system would not keep is turned off again, so it never says mail
+/// is checked when it is not. One turned off that the system would not let go of stays off: the
+/// person said off, and the message says the login item may still run.
+fn follow_login_item() -> Option<(&'static str, String)> {
+    use crate::login_item::{LoginItems, Registered, apply};
+    use crate::settings::WhileQuit;
+    let items = try_consume_context::<LoginItems>()?;
+    let wanted = crate::ui::prefs::current().sync.while_quit;
+    match (apply(&*items.0, wanted), wanted) {
+        (Ok(Some(Registered::NeedsApproval)), _) => Some((
+            copy::titles::ALLOW_LOGIN_ITEM,
+            copy::errors::ALLOW_LOGIN_ITEM.to_owned(),
+        )),
+        (Ok(_), _) => None,
+        (Err(why), WhileQuit::On) => {
+            let mut said = copy::errors::login_item_not_registered(&why);
+            if let Err(also) =
+                crate::ui::prefs::change(|settings| settings.sync.while_quit = WhileQuit::Off)
+            {
+                said = format!("{said} {also}");
+            }
+            Some((copy::titles::LOGIN_ITEM_NOT_CHANGED, said))
+        }
+        (Err(why), WhileQuit::Off) => Some((
+            copy::titles::LOGIN_ITEM_NOT_CHANGED,
+            copy::errors::login_item_not_removed(&why),
+        )),
     }
 }
 

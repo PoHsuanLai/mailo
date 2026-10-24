@@ -23,6 +23,14 @@ use std::sync::Arc;
 /// the app the desktop's intent router knows.
 pub const APP_ID: &str = crate::intents::APP;
 
+/// The main window's title, which the system's window lists show.
+const TITLE: &str = "mailo";
+
+/// The main window's size as it opens, the first time and each time it is opened again.
+fn size() -> ds_blitz::WindowSize {
+    ds_blitz::WindowSize::new(1200, 800)
+}
+
 /// Open the window on Blitz.
 ///
 /// The reader's Original frames are sealed documents whose network and links are mailo's
@@ -55,6 +63,11 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
             mail_core::notify::desktop::Desktop::connect_in_window(),
         ))
     });
+    // And the login item's switch, read as the window opens.
+    let while_quit = dirs
+        .as_ref()
+        .and_then(crate::ui::prefs::root_of)
+        .map(|root| crate::settings::load(&root).sync.while_quit);
     let original = Original::window();
     // How the window reaches the world for a sign-in, for keys and for a removal's keyring: the
     // real ones, here and only here. A test's root (`contexts`) has none of them, and a window
@@ -73,11 +86,28 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     let chosen = dirs
         .as_ref()
         .map(|dirs| crate::ui::keymap::load(&dirs.config).overrides());
-    let config = AppConfig::new("mailo", ds_blitz::WindowSize::new(1200, 800))
+    // On macOS the app goes on with no window open, checking for mail, until it is quit, and is
+    // the one that does whether a window is open or not (`crate::background`): its scheduler
+    // starts here, before the window, so the window finds it.
+    let stays = crate::background::stays_open(crate::background::Os::HERE);
+    if stays {
+        crate::background::start(store.clone(), crate::edge::profile().id().clone());
+    }
+    // How the app opens its main window again, from a thread that is not the window's.
+    let app = ds_blitz::AppHandle::new();
+    let config = AppConfig::new(TITLE, size())
+        .with_last_window(crate::background::last_window(crate::background::Os::HERE))
+        .with_handle(app.clone())
         .with_app_id(AppId(APP_ID.to_owned()))
         .with_net(original.net())
         .with_frame_links(original.links())
-        .with_contexts(window_contexts(store, look, Some(spaces), dirs, start))
+        .with_contexts(window_contexts(
+            store.clone(),
+            look,
+            Some(spaces),
+            dirs,
+            start,
+        ))
         .with_context(original.consent())
         .with_context(original.pill())
         .with_context(original.menus())
@@ -106,10 +136,52 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // The unread count on the dock or the Dash. Only the launched window has one; a test hands
     // its own recorder or none. With a `mailo watch` running (the session's sync daemon) the
     // watch is the one voice: it counts every account, and it keeps the count when this window
-    // closes, which a dock would otherwise forget along with this window's connection.
+    // closes, which a dock would otherwise forget along with this window's connection. On macOS
+    // the Dock tile is the app's, and the app is the one voice, on a thread of its own, whether
+    // a window is open or not and whoever watches: no other process can badge it.
     let config = match crate::launcher::platform() {
-        Some(launcher) if !mail_core::ipc::watching::running() => config.with_context(launcher),
+        Some(launcher) if stays => {
+            let kept = crate::session::keep_the_badge(
+                store.clone(),
+                store.file().map(Into::into),
+                launcher.0,
+                crate::session::EVERY,
+            );
+            if let Err(e) = kept {
+                eprintln!("the Dock's unread count is off: {e}");
+            }
+            config
+        }
+        Some(launcher) if !mail_core::ipc::watching::running(crate::edge::profile().id()) => {
+            config.with_context(launcher)
+        }
         _ => config,
+    };
+    // "Check for mail when quit": where the system keeps `mailo watch` to start at login. Only
+    // the launched app has one; a test's window has none, so no test registers a login item.
+    // Handed the switch as it stands once now, so an item made by a mailo since moved names the
+    // program where it is.
+    let config = match crate::login_item::platform() {
+        Some(items) => {
+            if while_quit == Some(crate::settings::WhileQuit::On) {
+                let kept = items.clone();
+                // Off the thread that draws: `launchctl` and SMAppService take their time.
+                let started = std::thread::Builder::new()
+                    .name("mailo-login-item".to_owned())
+                    .spawn(move || {
+                        if let Err(why) =
+                            crate::login_item::apply(&*kept.0, crate::settings::WhileQuit::On)
+                        {
+                            log::warn!("mail is not checked at login: {why}");
+                        }
+                    });
+                if let Err(why) = started {
+                    log::warn!("mail is not checked at login: {why}");
+                }
+            }
+            config.with_context(items)
+        }
+        None => config,
     };
     // Which application opens email links, and the system's question to make it mailo. Only an
     // installed mailo.app has one; a test's window has none, so no test changes the real handler.
@@ -117,9 +189,20 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         Some(handlers) => config.with_context(handlers),
         None => config,
     };
-    // Another program's ask to open a conversation here (a banner's click, `mailo open`).
+    // Another program's ask to open a conversation here (a banner's click, `mailo open`). On
+    // macOS one that comes with no main window open opens one again, as the Dock icon does.
     let config = match crate::handoff::serve(crate::edge::profile().id()) {
-        Some(requests) => config.with_context(requests),
+        Some(requests) => {
+            #[cfg(target_os = "macos")]
+            requests.open_with(move || {
+                app.open_window(
+                    ds_blitz::WindowSpec::new(TITLE, size()),
+                    super::ReopenedRoot,
+                )
+                .is_ok()
+            });
+            config.with_context(requests)
+        }
         None => config,
     };
     // A reminder that comes back is said on the desktop too, while notifications are on: the

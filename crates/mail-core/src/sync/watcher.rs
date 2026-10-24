@@ -83,6 +83,27 @@ impl SyncOps<'_> {
         tell: &dyn Fn(Watched),
         asked: Option<Asked>,
     ) -> Result<Vec<PassEnd>, CoreError> {
+        self.watch_until(notifier, tell, asked, None, End::WhenStuck)
+            .await
+    }
+
+    /// [`watch`](Self::watch), for a watch that is not a command: the one mailo.app runs in its
+    /// own process while it is open (`mail_app::background`).
+    ///
+    /// `accounts` moves when the accounts may have changed: each time, they are read again, so an
+    /// account added in a window of the same process is fetched on the watch's schedule from then
+    /// on, and one removed stops being. `mailo watch` reads them once and leaves a new one to the
+    /// next watch. `end` is when the run returns: [`End::WhenStuck`] for a command, which has
+    /// nothing left to do once every account is refused; [`End::Never`] for the app's, which a
+    /// sign-in in its window may bring back to life.
+    pub async fn watch_until(
+        &self,
+        notifier: Option<&dyn Notifier>,
+        tell: &dyn Fn(Watched),
+        asked: Option<Asked>,
+        accounts: Option<Asked>,
+        end: End,
+    ) -> Result<Vec<PassEnd>, CoreError> {
         let mail = self.0;
         // Read once up front: an unreadable registry is a reason not to start, where it would
         // otherwise fail every pass.
@@ -112,8 +133,9 @@ impl SyncOps<'_> {
         // tell the next watch about.
         let _ = tx.send(Note::Accounts(super::due::intervals(mail.store())));
         tokio::select! {
-            _ = scheduler.run(inbox, End::WhenStuck) => {}
-            () = answer(asked, mail.store(), tx) => {}
+            _ = scheduler.run(inbox, end) => {}
+            () = answer(asked, mail.store(), tx.clone()) => {}
+            () = follow(accounts, mail.store(), tx) => {}
         }
         let mut ends = host.ends.into_inner();
         // In the order the accounts are configured.
@@ -135,6 +157,18 @@ pub async fn answer(asked: Option<Asked>, store: &SqliteStore, tx: UnboundedSend
                 // The send fails only once the scheduler has stopped, and then nobody is left to ask.
                 let _ = tx.send(Note::Event(account, Event::Start(Trigger::Manual)));
             }
+        }
+    }
+    std::future::pending::<()>().await;
+}
+
+/// Tell the scheduler the accounts as they are now each time `accounts` moves. Never returns, as
+/// [`answer`] does not.
+pub async fn follow(accounts: Option<Asked>, store: &SqliteStore, tx: UnboundedSender<Note>) {
+    if let Some(mut accounts) = accounts {
+        while accounts.changed().await.is_ok() {
+            // The send fails only once the scheduler has stopped, and then nobody is left to tell.
+            let _ = tx.send(Note::Accounts(super::due::intervals(store)));
         }
     }
     std::future::pending::<()>().await;

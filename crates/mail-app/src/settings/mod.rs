@@ -20,7 +20,7 @@ mod words;
 
 pub use words::{
     BrandLogos, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, NewMail, ProviderMarks,
-    ReadReceipts, ServerSearch, Snippets, Spelling,
+    ReadReceipts, ServerSearch, Snippets, Spelling, WhileQuit,
 };
 
 use ds::prelude::Word;
@@ -182,6 +182,23 @@ pub struct SearchSettings {
     pub server_automatically: ServerSearch,
 }
 
+/// `sync.*`: checking for mail.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ds_settings::SettingsSchema)]
+#[serde(default)]
+#[settings(file = "mailo/settings.toml", domain = "sync", page = page())]
+pub struct SyncSettings {
+    #[settings(
+        label = "Check for mail when quit",
+        help = "Keep checking for new mail after mailo quits, from each time you log in.",
+        section = "Mail"
+    )]
+    pub while_quit: WhileQuit,
+}
+
+/// The schema path of [`SyncSettings::while_quit`], which the Settings sheet follows with the
+/// login item.
+pub const WHILE_QUIT: &str = "sync.while_quit";
+
 /// `mailo/settings.toml`, whole.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -191,6 +208,7 @@ pub struct MailSettings {
     pub compose: ComposeSettings,
     pub reading: ReadingSettings,
     pub search: SearchSettings,
+    pub sync: SyncSettings,
 }
 
 impl SettingsDoc for MailSettings {
@@ -206,6 +224,7 @@ pub fn schema() -> Schema {
         ComposeSettings::schema(),
         ReadingSettings::schema(),
         SearchSettings::schema(),
+        SyncSettings::schema(),
     ]
     .into_iter()
     .flat_map(|schema| schema.key)

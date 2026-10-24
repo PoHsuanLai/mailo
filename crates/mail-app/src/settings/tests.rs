@@ -60,6 +60,7 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
             KeyKind::List(Box::new(KeyKind::Text)),
         ),
         ("search.server_automatically", pair("on", "off")),
+        ("sync.while_quit", pair("on", "off")),
     ]
     .into_iter()
     .map(|(path, kind)| (path.to_owned(), kind))
