@@ -1,6 +1,6 @@
 //! Finding and reading: search, a conversation's text, and a conversation's preview.
 
-use super::{Provider, outcome};
+use super::{Provider, Shown, outcome};
 use crate::intents::APP;
 use crate::intents::wire::{
     AppRefusal, EntityId, EntityRef, Hit, Invocation, Label, Labelled, Outcome, Output, Preview,
@@ -144,7 +144,8 @@ impl Provider {
             return Err(AppRefusal::Unsupported);
         };
         let (_, thread) = self.loaded(id)?;
-        (self.opener.0)(thread, invocation.activation.as_deref()).map_err(AppRefusal::Failed)?;
+        (self.opener.0)(&Shown::Thread(thread), invocation.activation.as_deref())
+            .map_err(AppRefusal::Failed)?;
         Ok(outcome(None, None, None))
     }
 

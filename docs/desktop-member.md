@@ -71,6 +71,9 @@ declares three kinds, `mail.thread`, `mail.draft` and `mail.contact`, and these 
 | --- | --- | --- | --- |
 | `mail.thread.search` | read | `query`, in mailo's own search language | |
 | `mail.thread.read` | read | one conversation; the answer is its text, labelled untrusted mail | |
+| `mail.thread.open` | read (hidden) | one conversation, shown in the window: the launcher's Enter | |
+| `mail.contact.search` | read | `query`, a name or an address | |
+| `mail.contact.open` | read (hidden) | one person; a new message to them in the window: the launcher's Enter | |
 | `mail.thread.archive`, `star`, `unstar` | undoable write | conversations | token |
 | `mail.thread.label`, `unlabel` | undoable write | conversations, `label` (must exist) | token |
 | `mail.thread.snooze` | undoable write | conversations, `until` | token |

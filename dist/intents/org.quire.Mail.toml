@@ -11,10 +11,11 @@
 # same undo stack the window's Cmd+Z uses; sending is `outbound`, with its recipient declared as
 # the sink the router checks.
 #
-# Conversations are `indexed`: while the window runs it pushes the recent conversations to the
-# router's index (`crates/mail-app/src/intents/index.rs`), so the launcher finds them as the
-# person types without starting mailo. Drafts are not: they are found from the window. Mail's own
-# search box is the way to search what the mail says.
+# Conversations and contacts are `indexed`: while the window runs it pushes the recent
+# conversations and the address book to the router's index (`crates/mail-app/src/intents/index.rs`),
+# so the launcher finds them as the person types without starting mailo, and opens one by the
+# kind's `.open` action. Drafts are not: they are found from the window. Mail's own search box is
+# the way to search what the mail says.
 vocab = 1
 app = "org.quire.Mail"
 
@@ -44,7 +45,7 @@ label = "Contact"
 plural = "Contacts"
 icon = "person"
 class = "contacts"
-index = "not_indexed"
+index = "indexed"
 titles = { kind = "app_authored" }
 props = []
 
@@ -107,6 +108,23 @@ label = "Name or address"
 ty = { kind = "text", v = { max = 500, lines = "one" } }
 need = { kind = "required" }
 sink = "inert"
+
+# A new message to the person, in mailo's window: what the launcher's Enter on a contact hit
+# performs. Hidden from agents, which have no business opening windows.
+[[actions]]
+name = "mail.contact.open"
+label = "New Message"
+on = { kind = "one", v = "mail.contact" }
+effect = "read"
+classes = ["contacts"]
+undo = "not_undoable"
+reach = "hidden"
+latency = "quick"
+result = { kind = "nothing" }
+keys = { kind = "none" }
+lasting = "no"
+dry_run = "none"
+params = []
 
 # The conversation in mailo's window: what the launcher's Enter on a mail hit performs. Hidden
 # from agents, which have no business opening windows.
