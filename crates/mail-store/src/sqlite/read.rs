@@ -31,6 +31,19 @@ pub const SUMMARY_COLUMNS: &str = "thread, account, subject, snippet, from_name,
      participants, recipients, last_date, message_count, read, star, mailboxes, labels, \
      attachments, snooze, pin, mute, follow_up";
 
+/// [`SUMMARY_COLUMNS`], each qualified with `ts.`, for a query that names `thread_summary ts`
+/// beside another table.
+///
+/// Column by column, not by text replacement: a later column whose name ends in `thread` must
+/// not be rewritten along with `thread`.
+pub(super) fn qualified_summary_columns() -> String {
+    SUMMARY_COLUMNS
+        .split(',')
+        .map(|column| format!("ts.{}", column.trim()))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 impl SqliteStore {
     /// `db` is the connection the row came from, so the labels are read from the same world.
     pub(super) fn read_message(

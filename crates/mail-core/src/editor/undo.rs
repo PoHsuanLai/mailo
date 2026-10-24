@@ -127,6 +127,7 @@ impl Log {
     }
 
     /// Closed groups plus the burst still being typed.
+    #[cfg(test)]
     pub fn group_count(&self) -> usize {
         self.groups.len() + usize::from(self.open.is_some())
     }

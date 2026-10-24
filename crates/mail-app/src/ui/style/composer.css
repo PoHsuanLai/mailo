@@ -30,7 +30,6 @@
 }
 .c-line-k { justify-self: start; }
 .c-line-v { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-8); min-width: 0; }
-.c-line-v > .p-menu { flex-basis: 100%; }
 .c-pin { display: flex; flex: 1; min-width: 120px; position: relative; }
 .pinput { flex: 1; min-width: 120px; }
 /* "Cc" and "Bcc" at the To row's end: the last one's right edge is the pane's inset */
@@ -174,9 +173,7 @@
    what it read fill it rather than shrinking to their longest word. */
 .pick-time, .tpl-save { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-6); width: 260px; padding: var(--s-8); }
 .pick-field, .tpl-name, .remind-field { min-width: 0; width: 100%; }
-.p-menu { position: relative; }
 .pick-time .g { color: var(--ink-soft); }
-.pick-in { display: flex; align-items: center; gap: var(--s-6); min-width: 0; }
 
 .today-at.later { font-variant-numeric: tabular-nums; }
 .today-hint.refused { color: var(--danger); }

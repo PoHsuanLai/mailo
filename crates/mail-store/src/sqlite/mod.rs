@@ -434,7 +434,7 @@ impl Store for SqliteStore {
 
         let sql_text = format!(
             "SELECT {} FROM thread_summary ts WHERE {} AND {} ORDER BY {column} {dir}, ts.thread {dir} LIMIT ?",
-            read::SUMMARY_COLUMNS.replace("thread,", "ts.thread,"),
+            read::qualified_summary_columns(),
             compiled.where_clause,
             keyset,
         );

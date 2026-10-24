@@ -5130,7 +5130,6 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "p256",
  "pdfrum",
- "porter-client",
  "porter-core",
  "porter-provider",
  "porter-secrets",
@@ -5260,7 +5259,6 @@ dependencies = [
  "pkcs12",
  "pkcs5",
  "pkcs8",
- "porter-core",
  "proptest",
  "rand 0.8.8",
  "rsa",
@@ -5295,7 +5293,6 @@ dependencies = [
  "chrono-tz",
  "encoding_rs",
  "mail-domain",
- "porter-core",
  "roxmltree 0.21.1",
  "thiserror 2.0.21",
 ]
@@ -5380,7 +5377,6 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "chrono",
- "log",
  "mail-domain",
  "mail-store",
  "parking_lot",

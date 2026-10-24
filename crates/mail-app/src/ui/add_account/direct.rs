@@ -164,44 +164,36 @@ impl SignInDirectly for Real {
             // so it runs on a thread of its own, as the add-account sheet's sign-in does, and
             // this future waits for it. Dropping the future drops `stop`, which ends the sign-in
             // and frees its listener.
-            let (done, answer) = tokio::sync::oneshot::channel();
             let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-            let spawned = std::thread::Builder::new()
-                .name("mailo-sign-in".to_owned())
-                .spawn(move || {
-                    let ended = crate::edge::block_on(async {
-                        let saved = clients.saved();
-                        let environment = crate::edge::environment();
-                        let secrets = crate::edge::secrets();
-                        let browse = |url: &str| webbrowser::open(url);
-                        let profiles = mail_core::account::direct::Profiles::default();
-                        mail_core::account::sign_in_with(
-                            issuer,
-                            mode,
-                            mail_core::account::Direct {
-                                store: &store,
-                                secrets: secrets.as_ref(),
-                                saved: &saved,
-                                environment: &environment,
-                                browse: &browse,
-                                profiles: &profiles,
-                                wait: WAIT,
-                                now: Utc::now(),
-                            },
-                            async {
-                                let _ = stopped.await;
-                            },
-                        )
-                        .await
-                        .map(|added| added.address)
-                    });
-                    let _ = done.send(ended);
-                });
-            if let Err(why) = spawned {
-                return Err(SignInError::Network(why.to_string()));
-            }
             let _stop = stop;
-            answer.await.unwrap_or(Err(SignInError::Cancelled))
+            crate::edge::on_thread("mailo-sign-in", move || async move {
+                let saved = clients.saved();
+                let environment = crate::edge::environment();
+                let secrets = crate::edge::secrets();
+                let browse = |url: &str| webbrowser::open(url);
+                let profiles = mail_core::account::direct::Profiles::default();
+                mail_core::account::sign_in_with(
+                    issuer,
+                    mode,
+                    mail_core::account::Direct {
+                        store: &store,
+                        secrets: secrets.as_ref(),
+                        saved: &saved,
+                        environment: &environment,
+                        browse: &browse,
+                        profiles: &profiles,
+                        wait: WAIT,
+                        now: Utc::now(),
+                    },
+                    async {
+                        let _ = stopped.await;
+                    },
+                )
+                .await
+                .map(|added| added.address)
+            })
+            .await
+            .unwrap_or(Err(SignInError::Cancelled))
         })
     }
 }

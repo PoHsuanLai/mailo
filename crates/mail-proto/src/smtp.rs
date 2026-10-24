@@ -1411,12 +1411,12 @@ fn ehlo_cmd(name: &str) -> Vec<u8> {
     cmd(&format!("EHLO {name}"))
 }
 
-fn b64(bytes: &[u8]) -> String {
+pub(crate) fn b64(bytes: &[u8]) -> String {
     STANDARD.encode(bytes)
 }
 
 /// `\0 username \0 password`, as RFC 4616 defines the PLAIN initial response.
-fn plain_raw(user: &str, pass: &str) -> Vec<u8> {
+pub(crate) fn plain_raw(user: &str, pass: &str) -> Vec<u8> {
     let mut raw = Vec::with_capacity(user.len() + pass.len() + 2);
     raw.push(0);
     raw.extend_from_slice(user.as_bytes());
@@ -1605,27 +1605,16 @@ fn scrub_error(err: ProtoError, sub: &Submission) -> ProtoError {
     }
 }
 
-fn scrub_text(text: String, sub: &Submission) -> String {
-    let (prefix, mut rest) = if let Some(rest) = text.strip_prefix("transient ") {
-        ("transient ", rest.to_owned())
-    } else if let Some(rest) = text.strip_prefix("permanent ") {
-        ("permanent ", rest.to_owned())
-    } else {
-        ("", text)
-    };
+fn scrub_text(mut text: String, sub: &Submission) -> String {
     let mut secrets = secret_strings(sub);
     secrets.sort_by_key(|secret| std::cmp::Reverse(secret.len()));
     secrets.dedup();
     for secret in secrets {
         if !secret.is_empty() {
-            rest = rest.replace(&secret, "<redacted>");
+            text = text.replace(&secret, "<redacted>");
         }
     }
-    if prefix.is_empty() {
-        rest
-    } else {
-        format!("{prefix}{rest}")
-    }
+    text
 }
 
 fn secret_strings(sub: &Submission) -> Vec<String> {
@@ -1730,8 +1719,8 @@ mod tests {
             ..submission("Subject: x\r\n\r\nhi\r\n")
         };
         assert_eq!(
-            scrub_text("permanent 535 bad jmap-api-token-1".to_owned(), &sub),
-            "permanent 535 bad <redacted>"
+            scrub_text("535 bad jmap-api-token-1".to_owned(), &sub),
+            "535 bad <redacted>"
         );
     }
 

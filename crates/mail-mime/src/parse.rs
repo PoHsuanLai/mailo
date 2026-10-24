@@ -4,7 +4,7 @@ use crate::MimeError;
 use crate::block::{Delsp, Flowed};
 use chrono::{DateTime, Utc};
 use mail_domain::{Address, Inline, normalize_id};
-use mail_parser::{HeaderName, Message, MessageParser, MimeHeaders, PartType};
+use mail_parser::{HeaderName, HeaderValue, Message, MessageParser, MimeHeaders, PartType};
 use std::collections::HashSet;
 
 /// One part worth keeping: an attachment, or an image the HTML body references.
@@ -142,7 +142,7 @@ fn assemble(message: &Message<'_>, markers: Markers) -> Parsed {
     Parsed {
         content_language,
         charset,
-        rfc_message_id: first_id(message, HeaderName::MessageId),
+        rfc_message_id: ids(message, HeaderName::MessageId).next(),
         date: message_date(message),
         from: addresses(message, HeaderName::From).into_iter().next(),
         reply_to: addresses(message, HeaderName::ReplyTo),
@@ -152,7 +152,7 @@ fn assemble(message: &Message<'_>, markers: Markers) -> Parsed {
         subject: message.subject().unwrap_or("").to_owned(),
         // One slot. The last id is the immediate parent; threading appends this one value
         // after `references`, so an earlier id would point the reply at the wrong message.
-        in_reply_to: last_id(message, HeaderName::InReplyTo),
+        in_reply_to: ids(message, HeaderName::InReplyTo).last(),
         references: reference_ids(message),
         text,
         flowed,
@@ -197,55 +197,26 @@ fn addresses(message: &Message<'_>, name: HeaderName<'static>) -> Vec<Address> {
     out
 }
 
-/// Oldest first. An unusable id (empty after [`normalize_id`]) is absent, not stored.
-/// The first spelling of a repeated id wins, which keeps the oldest position.
+/// The ids a field holds, in order, each through [`normalize_id`]. An unusable id (empty after
+/// it) is absent.
+pub(crate) fn ids<'m>(
+    message: &'m Message<'_>,
+    name: HeaderName<'static>,
+) -> impl Iterator<Item = String> + 'm {
+    message
+        .header_values(name)
+        .filter_map(HeaderValue::as_text_list)
+        .flatten()
+        .map(|raw| normalize_id(raw))
+        .filter(|id| !id.is_empty())
+}
+
+/// Oldest first. The first spelling of a repeated id wins, which keeps the oldest position.
 fn reference_ids(message: &Message<'_>) -> Vec<String> {
-    let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for value in message.header_values(HeaderName::References) {
-        let Some(list) = value.as_text_list() else {
-            continue;
-        };
-        for raw in list {
-            let id = normalize_id(raw);
-            if id.is_empty() || !seen.insert(id.clone()) {
-                continue;
-            }
-            out.push(id);
-        }
-    }
-    out
-}
-
-fn first_id(message: &Message<'_>, name: HeaderName<'static>) -> Option<String> {
-    for value in message.header_values(name) {
-        let Some(list) = value.as_text_list() else {
-            continue;
-        };
-        for raw in list {
-            let id = normalize_id(raw);
-            if !id.is_empty() {
-                return Some(id);
-            }
-        }
-    }
-    None
-}
-
-fn last_id(message: &Message<'_>, name: HeaderName<'static>) -> Option<String> {
-    let mut last = None;
-    for value in message.header_values(name) {
-        let Some(list) = value.as_text_list() else {
-            continue;
-        };
-        for raw in list {
-            let id = normalize_id(raw);
-            if !id.is_empty() {
-                last = Some(id);
-            }
-        }
-    }
-    last
+    ids(message, HeaderName::References)
+        .filter(|id| seen.insert(id.clone()))
+        .collect()
 }
 
 /// Text and HTML come from the parts mail-parser chose as bodies. A `text/plain` or

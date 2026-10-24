@@ -73,8 +73,3 @@ pub fn block(store: &SqliteStore, account: AccountId, email: &str) -> Result<Blo
     store.put_rule(&rule)?;
     Ok(Blocked::Made(rule))
 }
-
-/// Take a block back: forget the rule it made.
-pub fn unblock(store: &SqliteStore, rule: RuleId) -> Result<(), CoreError> {
-    Ok(store.delete_rule(rule)?)
-}

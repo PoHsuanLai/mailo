@@ -94,7 +94,9 @@ pub(super) fn top_hits(
     if needles.is_empty() || k == 0 || window.is_empty() {
         return Ok(Vec::new());
     }
-    let (columns, score_at) = qualified_columns();
+    let columns = read::qualified_summary_columns();
+    // The score is the column after the summary's.
+    let score_at = read::SUMMARY_COLUMNS.split(',').count();
     // The MATCH drives, walking the term's doclist, and the window is a filter on it. The
     // unary `+` keeps that filter away from FTS5's planner: offered a rowid constraint as well,
     // FTS5 picks a rowid lookup, which is not a full-text query and has no `bm25`. Walking a
@@ -131,18 +133,6 @@ pub(super) fn top_hits(
         out.push((summary, score));
     }
     Ok(out)
-}
-
-/// The summary columns, each qualified with `ts.`, and the index of the column after them.
-///
-/// Column by column, not by text replacement: a later column whose name ends in `thread` must
-/// not be rewritten along with `thread`.
-fn qualified_columns() -> (String, usize) {
-    let qualified: Vec<String> = read::SUMMARY_COLUMNS
-        .split(',')
-        .map(|column| format!("ts.{}", column.trim()))
-        .collect();
-    (qualified.join(", "), qualified.len())
 }
 
 fn bound(params: &[SqlValue]) -> Vec<rusqlite::types::Value> {

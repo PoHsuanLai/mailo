@@ -3,7 +3,7 @@
 //! `tests/store/opened.rs` hold the two to each other.
 
 use super::SqliteStore;
-use super::read::SUMMARY_COLUMNS;
+use super::read::qualified_summary_columns;
 use super::row::from_time;
 use crate::StoreError;
 use chrono::{DateTime, Utc};
@@ -39,7 +39,7 @@ impl SqliteStore {
         let sql = format!(
             "SELECT {} FROM opened o JOIN thread_summary ts ON ts.thread = o.thread \
              ORDER BY o.opened_at DESC, o.thread",
-            SUMMARY_COLUMNS.replace("thread,", "ts.thread,"),
+            qualified_summary_columns(),
         );
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query([])?;

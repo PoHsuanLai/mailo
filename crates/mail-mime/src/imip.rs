@@ -10,8 +10,8 @@ use chrono::{DateTime, Utc};
 use mail_builder::MessageBuilder;
 use mail_builder::headers::content_type::ContentType;
 use mail_builder::mime::{BodyPart, MimePart};
-use mail_domain::{Address, DraftId, normalize_id};
-use mail_parser::{HeaderName, HeaderValue, MessageParser, MimeHeaders, PartType};
+use mail_domain::{Address, DraftId};
+use mail_parser::{HeaderName, MessageParser, MimeHeaders, PartType};
 
 /// The calendar object a message carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,14 +106,7 @@ pub fn calendar_reply(original: &[u8], reply: &CalendarReply<'_>) -> Result<Post
     let parent = MessageParser::new()
         .with_message_ids()
         .parse_headers(original)
-        .and_then(|headers| {
-            headers
-                .header_values(HeaderName::MessageId)
-                .filter_map(HeaderValue::as_text_list)
-                .flatten()
-                .map(|raw| normalize_id(raw))
-                .find(|id| !id.is_empty())
-        });
+        .and_then(|headers| crate::parse::ids(&headers, HeaderName::MessageId).next());
 
     let domain = reply
         .from

@@ -14,8 +14,8 @@ use mail_builder::MessageBuilder;
 use mail_builder::headers::address::Address as MailAddress;
 use mail_builder::headers::raw::Raw;
 use mail_builder::mime::{BodyPart, MimePart};
-use mail_domain::{Address, DraftId, Identity, normalize_id};
-use mail_parser::{HeaderName, HeaderValue, Message, MessageParser, MimeHeaders};
+use mail_domain::{Address, DraftId, Identity};
+use mail_parser::{HeaderName, Message, MessageParser, MimeHeaders};
 use std::fmt::Write as _;
 
 /// A message's request for a read receipt.
@@ -137,7 +137,7 @@ pub fn receipt(original: &[u8], reporting: &Reporting<'_>) -> Result<Posting, Mi
         .ok_or_else(|| MimeError::Unparseable("no RFC 5322 header was found".to_owned()))?;
 
     let reader = &reporting.reader.from;
-    let original_id = first_id(&message, HeaderName::MessageId);
+    let original_id = crate::parse::ids(&message, HeaderName::MessageId).next();
     let subject = message.subject().unwrap_or("").trim();
     let domain = reader
         .email
@@ -363,15 +363,6 @@ fn is_mailbox(email: &str) -> bool {
     email.split_once('@').is_some_and(|(local, domain)| {
         !local.is_empty() && !domain.is_empty() && !email.chars().any(char::is_control)
     })
-}
-
-fn first_id(message: &Message<'_>, name: HeaderName<'static>) -> Option<String> {
-    message
-        .header_values(name)
-        .filter_map(HeaderValue::as_text_list)
-        .flatten()
-        .map(|raw| normalize_id(raw))
-        .find(|id| !id.is_empty())
 }
 
 /// An unstructured field's value by name, trimmed, when present and not empty.

@@ -149,7 +149,7 @@ impl UndoStack {
 /// Only the kind of change the forward op sent: an archive that was local-only (no `remote`)
 /// has nothing to reverse on the server, and a thread's snooze never had a server half at all.
 /// `None` when the inverse changes nothing of that kind.
-pub fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIntent> {
+pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<RemoteIntent> {
     match remote {
         RemoteIntent::SetMailbox { .. } => {
             let mut by_role: BTreeMap<MailboxRole, Vec<MessageId>> = BTreeMap::new();

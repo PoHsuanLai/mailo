@@ -139,31 +139,26 @@ impl Seams {
                     // `sign_in` borrows a callback that is not `Sync`, so it runs on a thread of
                     // its own and the future waits for it. Dropping the future drops `stop`, which
                     // ends the sign-in and frees its listener.
-                    let (done, answer) = tokio::sync::oneshot::channel();
                     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-                    std::thread::spawn(move || {
-                        let ended = crate::edge::block_on(async {
-                            let saved = clients.saved();
-                            let client = mail_core::account::oauth_client(
-                                issuer,
-                                &crate::edge::environment(),
-                                &saved,
-                            )
-                            .ok_or_else(|| "no client id".to_owned())?;
-                            let on_url = |url: &str| urls(url);
-                            tokio::select! {
-                                signed = mail_core::account::authorize(&client, &scopes, &on_url, Utc::now()) => {
-                                    signed.map_err(|why| why.to_string())
-                                }
-                                _ = stopped => Err("cancelled".to_owned()),
-                            }
-                        });
-                        let _ = done.send(ended);
-                    });
                     let _stop = stop;
-                    answer
-                        .await
-                        .unwrap_or_else(|_| Err("the sign-in stopped".to_owned()))
+                    crate::edge::on_thread("mailo-sign-in", move || async move {
+                        let saved = clients.saved();
+                        let client = mail_core::account::oauth_client(
+                            issuer,
+                            &crate::edge::environment(),
+                            &saved,
+                        )
+                        .ok_or_else(|| "no client id".to_owned())?;
+                        let on_url = |url: &str| urls(url);
+                        tokio::select! {
+                            signed = mail_core::account::authorize(&client, &scopes, &on_url, Utc::now()) => {
+                                signed.map_err(|why| why.to_string())
+                            }
+                            _ = stopped => Err("cancelled".to_owned()),
+                        }
+                    })
+                    .await
+                    .unwrap_or_else(|| Err("the sign-in stopped".to_owned()))
                 })
             }),
             add: Arc::new(move |request| {

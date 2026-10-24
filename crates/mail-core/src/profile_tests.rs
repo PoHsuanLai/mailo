@@ -26,7 +26,7 @@ fn a_missing_registry_is_one_default_profile_and_writes_nothing() {
     assert!(only.id().is_default());
     assert_eq!(only.home(), Home::Legacy);
     assert_eq!(only.name(), None);
-    assert!(registry.pending_removals().is_empty());
+    assert!(registry.file.removing.is_empty());
     assert_eq!(listing(dir.path()), before);
 }
 
@@ -128,7 +128,7 @@ fn a_removal_is_remembered_until_it_is_finished_and_the_default_cannot_be_remove
     ));
     registry.begin_remove(work.id()).unwrap();
     let mut again = Registry::load(dir.path()).unwrap();
-    assert_eq!(again.pending_removals(), [work.id().clone()]);
+    assert_eq!(again.file.removing, [work.id().clone()]);
     assert!(
         again.get(work.id()).is_some(),
         "listed until the removal finishes"
@@ -136,7 +136,7 @@ fn a_removal_is_remembered_until_it_is_finished_and_the_default_cannot_be_remove
 
     again.finish_remove(work.id()).unwrap();
     let after = Registry::load(dir.path()).unwrap();
-    assert!(after.pending_removals().is_empty());
+    assert!(after.file.removing.is_empty());
     assert!(after.get(work.id()).is_none());
     assert_eq!(after.profiles().len(), 1);
 }
@@ -153,9 +153,7 @@ fn the_default_profile_is_the_install_in_place_and_another_has_a_folder() {
     };
     assert_eq!(default.db(&roots), Path::new("/data/mailo/mail.db"));
     assert_eq!(default.blobs(&roots), Path::new("/data/mailo/blobs"));
-    assert_eq!(default.settings_dir(&roots), Path::new("/config/mailo"));
     assert_eq!(default.signing_service(), "mailo");
-    assert_eq!(default.agent_name(), "mailo");
 
     let work = Profile {
         id: "0a1b2c3d".parse().unwrap(),
@@ -170,10 +168,5 @@ fn the_default_profile_is_the_install_in_place_and_another_has_a_folder() {
         work.blobs(&roots),
         Path::new("/data/mailo/profiles/0a1b2c3d/blobs")
     );
-    assert_eq!(
-        work.settings_dir(&roots),
-        Path::new("/data/mailo/profiles/0a1b2c3d/settings")
-    );
     assert_eq!(work.signing_service(), "mailo/0a1b2c3d");
-    assert_eq!(work.agent_name(), "mailo-0a1b2c3d");
 }

@@ -6,7 +6,7 @@
 //! `TempDir`; nothing reaches a server.
 
 use mail_core::auth::{Standing, results_of, standing};
-use mail_core::rules::block::{Blocked, block, condition, unblock};
+use mail_core::rules::block::{Blocked, block, condition};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_mime::Verdict;
@@ -170,7 +170,8 @@ fn blocking_makes_exactly_one_rule_and_unblocking_takes_it_back() {
     ));
     assert_eq!(store.rules(acct_account()).unwrap().len(), before.len() + 1);
 
-    unblock(&store, rule.id).unwrap();
+    // Taking a block back is forgetting the rule it made.
+    store.delete_rule(rule.id).unwrap();
     assert_eq!(store.rules(acct_account()).unwrap(), before);
 }
 
