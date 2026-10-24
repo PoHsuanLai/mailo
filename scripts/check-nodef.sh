@@ -24,7 +24,7 @@ cargo check -p mailo-mime --no-default-features --tests
 
 # Each crate's test doubles (`testing`) build with nothing else on: the runtime's without the
 # platform keyring and the bus, and the others' without whatever the workspace turns on for them.
-for crate in mail-domain mail-store mail-runtime mail-core; do
+for crate in mailo-domain mail-store mail-runtime mail-core; do
   echo "nodef: $crate --features testing"
   cargo check -p "$crate" --no-default-features --features testing
 done
