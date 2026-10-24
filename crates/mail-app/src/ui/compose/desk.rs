@@ -120,7 +120,7 @@ pub(in crate::ui) fn keep_page(mut desk: Desk, snapshot: Page) {
         Utc::now(),
     );
     if let Err(why) = parked {
-        eprintln!("park: {why}");
+        log::warn!("park: {why}");
     }
     save_today(desk);
 }

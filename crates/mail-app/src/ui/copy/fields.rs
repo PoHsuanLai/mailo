@@ -97,3 +97,28 @@ pub const DEFAULT_MAIL_APP: &str = "Default mail app";
 pub const THIS_APP: &str = "mailo";
 /// The application that opens email links, when there is none.
 pub const NO_MAIL_APP: &str = "None";
+
+// Settings › Vacation Reply's form.
+/// The switch, and its row.
+pub const VACATION_REPLY: &str = "Vacation reply";
+pub const AWAY_SUBJECT_EXAMPLE: &str = "Away until the 12th";
+/// The reply's body: its row, its accessible name and its placeholder.
+pub const REPLY: &str = "Reply";
+pub const REPLY_BODY: &str = "The reply’s text";
+pub const REPLY_TEXT: &str = "Reply text";
+/// The addresses the reply answers mail for.
+pub const ANSWERS_MAIL_TO: &str = "Answers mail to";
+/// When it starts and stops; `FROM` is the start's.
+pub const UNTIL: &str = "Until";
+pub const FROM_EXAMPLE: &str = "now, or 2026-10-08";
+pub const UNTIL_EXAMPLE: &str = "turned off, or monday";
+
+/// An account's page in Settings: the rows of its servers and sign-in, by what each is.
+pub mod account {
+    pub const RECEIVING: &str = "Receiving";
+    /// What POP3 does with what it downloads.
+    pub const DOWNLOADED_MAIL: &str = "Downloaded mail";
+    pub const SENDING: &str = "Sending";
+    pub const SIGNS_IN: &str = "Signs in";
+    pub const SENDS_AS: &str = "Sends as";
+}

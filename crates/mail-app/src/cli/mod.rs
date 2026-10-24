@@ -155,6 +155,10 @@ pub enum Command {
     Attached { draft: DraftId },
     /// Keep fetching until stopped, announcing new mail unless told not to.
     Watch { notify: WatchNotify },
+    /// `--help`: the usage, on stdout.
+    Help,
+    /// `--version`: the program's name and version.
+    Version,
     /// Answer the desktop's intent router for as long as the session lasts.
     Intents,
     /// `--write-schema <dir>`: write `mailo.settings.toml`, the schema the desktop's Settings
@@ -535,6 +539,10 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Some(other) => Err(format!("unknown option {other:?}\n\n{}", usage())),
         },
         "ping" => Ok(Command::Ping),
+        "--help" | "-h" | "help" => Ok(Command::Help),
+        "--version" | "-V" => Ok(Command::Version),
+        // The desktop's entry points: the router and packaging run them, so they work and the
+        // usage leaves them out.
         "intents" => Ok(Command::Intents),
         "--write-schema" => match &args[1..] {
             [dir] => Ok(Command::WriteSchema { dir: dir.into() }),
@@ -1410,12 +1418,7 @@ usage: mailo <command>
   watch [--no-notify]        keep fetching until stopped (IDLE where offered, else
                              polling); notifies of new unread inbox mail unless
                              --no-notify or `notify off`
-  intents                    answer the desktop's intent router (org.quire.Mail on the
-                             session bus) until the session ends; the router starts it
-                             on demand
   notify [on|off]            turn new-mail notifications on or off (default on)
-  --write-schema <dir>       write mailo.settings.toml, the schema the desktop's
-                             Settings app draws mailo's page from
   offline [<account> [on|off]]
                              keep every attachment of an account here too, fetched
                              a few each sync, largest last (default off); alone,
@@ -1425,8 +1428,15 @@ usage: mailo <command>
 
 options, before the command:
   --profile <id-or-name>     run over that profile's mail instead of the default's
+  -h, --help                 this list
+  -V, --version              the version of mailo
 "
     .to_owned()
+}
+
+/// What `--version` prints: the program's name and the version it was built as.
+pub fn version() -> String {
+    format!("mailo {}\n", env!("CARGO_PKG_VERSION"))
 }
 
 /// Run a command over `mail`, returning what to print.
@@ -1570,6 +1580,9 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         }
         Command::Watch { .. } => Err("watch is dispatched before this point".to_owned()),
         Command::Intents => Err("intents is dispatched before this point".to_owned()),
+        Command::Help | Command::Version => {
+            Err("help and version are dispatched before this point".to_owned())
+        }
         // Dispatched in main: it needs the network, an async runtime and a terminal to ask on.
         Command::AccountDiscover { .. } => {
             Err("account discover is dispatched before this point".to_owned())
@@ -1843,7 +1856,10 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
                 if let Err(err) = result
                     && !matches!(err, mail_core::provider::icon::IconError::Unmapped)
                 {
-                    eprintln!("provider icon: {provider:?}: {err}");
+                    log::warn!(
+                        "provider icon: {}: {err}",
+                        mail_core::provider::icon::file_stem(*provider)
+                    );
                 }
             }
             Ok(icons::report(&results))
@@ -2033,6 +2049,33 @@ mod tests {
                 "usage does not mention {name} ({needle:?}):\n{text}"
             );
         }
+    }
+
+    #[test]
+    fn help_and_version_are_commands_of_their_own() {
+        for words in [&["--help"][..], &["-h"], &["help"]] {
+            assert_eq!(parse(&args(words)), Ok(Command::Help), "{words:?}");
+        }
+        for words in [&["--version"][..], &["-V"]] {
+            assert_eq!(parse(&args(words)), Ok(Command::Version), "{words:?}");
+        }
+        assert_eq!(version(), format!("mailo {}\n", env!("CARGO_PKG_VERSION")));
+        let text = usage();
+        assert!(text.contains("-h, --help"), "{text}");
+        assert!(text.contains("-V, --version"), "{text}");
+    }
+
+    #[test]
+    fn the_desktops_entry_points_work_and_the_usage_leaves_them_out() {
+        // The router and packaging run these; a person reading the list has no use for them.
+        assert_eq!(parse(&args(&["intents"])), Ok(Command::Intents));
+        assert_eq!(
+            parse(&args(&["--write-schema", "out"])),
+            Ok(Command::WriteSchema { dir: "out".into() })
+        );
+        let text = usage();
+        assert!(!text.contains("intents"), "{text}");
+        assert!(!text.contains("--write-schema"), "{text}");
     }
 
     #[test]

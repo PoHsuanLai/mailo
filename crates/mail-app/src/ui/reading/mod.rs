@@ -581,7 +581,7 @@ fn ImagesHidden(shell: Signal<Shell>, offer: Option<String>) -> Element {
                         if let Err(why) = crate::ui::prefs::change(|settings| {
                             settings.reading.trust_images_from(&email);
                         }) {
-                            eprintln!("remote images: {why}");
+                            log::warn!("remote images: {why}");
                         }
                         // This conversation's images now, whatever the write did.
                         shell.write().show_remote_images = true;

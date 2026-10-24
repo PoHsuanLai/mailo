@@ -51,6 +51,14 @@ pub(in crate::ui) fn told(failure: impl Into<CoreError>) -> String {
     }
 }
 
+/// A failure whose own words are a library's, not a person's: the window says `said`, and the
+/// library's words go to the log with the place in the code that met them.
+#[track_caller]
+pub(in crate::ui) fn plainly(said: &str, why: impl std::fmt::Display) -> String {
+    log::warn!("{}: {why}", std::panic::Location::caller());
+    said.to_owned()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

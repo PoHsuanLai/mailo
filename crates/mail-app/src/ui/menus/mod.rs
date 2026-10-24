@@ -229,7 +229,7 @@ pub(super) fn SnoozeMenu(
                     }
                     // The vocabulary is fixed and the clock is the only other input, so this
                     // is "the year 262143 has no tomorrow".
-                    Err(why) => eprintln!("snooze: {why}"),
+                    Err(why) => log::warn!("snooze: {why}"),
                 }
             },
             // A pick closes the menu after it is heard; Choose Time… leaves its field up.

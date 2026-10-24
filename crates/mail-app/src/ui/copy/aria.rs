@@ -33,6 +33,8 @@ pub fn actions_for(name: &str) -> String {
 pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 pub const SAVE_AS_VIEW: &str = "Save as View";
 pub const EDIT_VIEW: &str = "Edit View";
+/// The Saved-view editor's button that forgets the view.
+pub const DELETE_VIEW: &str = "Delete View";
 pub const NEW_MESSAGE: &str = "New Message";
 pub const MORE: &str = "More";
 /// The menu the ⋯ opens.
@@ -112,4 +114,9 @@ pub const ACCOUNT_MENU: &str = "Account";
 /// A row of the list, which opens it: "Open Offsite plans".
 pub fn open_row(subject: &str) -> String {
     format!("Open {subject}")
+}
+
+/// A failed attachment's Try Again, naming the file.
+pub fn try_again_to_download(name: &str) -> String {
+    format!("Try again to download {name}")
 }

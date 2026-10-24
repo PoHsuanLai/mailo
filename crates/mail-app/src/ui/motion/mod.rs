@@ -62,16 +62,19 @@ impl Restore {
     pub(in crate::ui) fn put_back(&self, store: &SqliteStore) -> Result<(), String> {
         match self {
             Restore::Rule(rule) => {
-                mail_core::rules::manage::restore(store, rule).map_err(|e| e.to_string())
+                mail_core::rules::manage::restore(store, rule).map_err(not_put_back)
             }
-            Restore::Key(key) => {
-                mail_core::pgp::keys::restore(store, key).map_err(|e| e.to_string())
-            }
+            Restore::Key(key) => mail_core::pgp::keys::restore(store, key).map_err(not_put_back),
             Restore::Cert(cert) => {
-                mail_core::smime::certs::restore(store, cert).map_err(|e| e.to_string())
+                mail_core::smime::certs::restore(store, cert).map_err(not_put_back)
             }
         }
     }
+}
+
+/// What Undo says when the store would not take back what it deleted.
+fn not_put_back(why: impl std::fmt::Display) -> String {
+    crate::ui::remedy::plainly(crate::ui::copy::errors::NOT_KEPT_HERE, why)
 }
 
 /// quire's toast host, and what its buttons do: made by a component that lives as long as the

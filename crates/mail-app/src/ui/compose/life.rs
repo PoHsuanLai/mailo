@@ -229,7 +229,7 @@ pub(in crate::ui) fn queue_reminding(
     // already holds.
     if let Err(why) = mail_core::follow_up::after_queue(store, &queued, &post.message, remind, due)
     {
-        eprintln!("the reminder for {draft} was not kept: {why}");
+        log::warn!("the reminder for {draft} was not kept: {why}");
     }
     Ok(due)
 }

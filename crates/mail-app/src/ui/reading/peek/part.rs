@@ -50,7 +50,7 @@ pub(super) fn draw(
 ) -> Drawn {
     let stored = match store.message(message) {
         Ok(stored) => stored,
-        Err(why) => return Drawn::Said(copy::status::no_preview(&why.to_string())),
+        Err(why) => return unreadable(why),
     };
     let Some(attachment) = stored.attachments.get(index) else {
         return Drawn::Said(copy::status::NO_PREVIEW.to_owned());
@@ -60,7 +60,7 @@ pub(super) fn draw(
     };
     let head = match store.blobs().head(blob, route::HEAD) {
         Ok(head) => head,
-        Err(why) => return Drawn::Said(copy::status::no_preview(&why.to_string())),
+        Err(why) => return unreadable(why),
     };
     let read: fn(MessageId, &[u8], mail_core::when::Clock) -> Option<Sheet> =
         match route::own(&attachment.name, &head) {
@@ -80,8 +80,14 @@ pub(super) fn draw(
             || Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
             Drawn::Sheet,
         ),
-        Err(why) => Drawn::Said(copy::status::no_preview(&why.to_string())),
+        Err(why) => unreadable(why),
     }
+}
+
+/// A part the store could not read: the reason goes to the log, and Peek says only that.
+fn unreadable(why: impl std::fmt::Display) -> Drawn {
+    log::warn!("an attachment could not be read for its preview: {why}");
+    Drawn::Said(copy::status::no_preview(copy::status::UNREADABLE))
 }
 
 /// A picture or a PDF page `mail_core::preview` decodes; anything else is anyview's.
@@ -98,7 +104,7 @@ fn picture(store: &Arc<SqliteStore>, message: MessageId, index: usize, page: u32
         Err(Unshown::Refused(refusal)) => Drawn::Said(refusal.sentence()),
         Err(Unshown::NotHere) => Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned()),
         Err(Unshown::NotAPicture) => beyond_mailo(store, message, index),
-        Err(Unshown::Store(why)) => Drawn::Said(copy::status::no_preview(&why.to_string())),
+        Err(Unshown::Store(why)) => unreadable(why),
     }
 }
 
@@ -168,7 +174,7 @@ fn save(viewing: Viewing, toasts: Toasts) {
             crate::ui::downloads::Saving::quick().end(Some(&path), origin);
             super::super::fetch::saved_toast(&path)
         }
-        Err(why) => why.to_string(),
+        Err(why) => crate::ui::remedy::plainly(copy::errors::ATTACHMENT_NOT_SAVED, why),
     };
     if let Some(toasts) = toasts {
         toasts.push(said, None);
@@ -207,7 +213,8 @@ pub(super) fn open_in_app(viewing: Viewing) {
         .await
         .unwrap_or_else(|why| Err(why.to_string()));
         if let (Err(why), Some(toasts)) = (opened, toasts) {
-            toasts.push(why, None);
+            let said = crate::ui::remedy::plainly(copy::errors::ATTACHMENT_NOT_OPENED, why);
+            toasts.push(said, None);
         }
     });
 }
@@ -231,9 +238,7 @@ pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
             let drawn =
                 tokio::task::spawn_blocking(move || draw(&store, message, index, page, hours))
                     .await
-                    .unwrap_or_else(|error| {
-                        Drawn::Said(copy::status::no_preview(&error.to_string()))
-                    });
+                    .unwrap_or_else(unreadable);
             if let Drawn::Page(page) = &drawn {
                 let mut shell = shell;
                 let known = viewing_of(&shell.peek());

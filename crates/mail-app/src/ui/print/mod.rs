@@ -95,7 +95,7 @@ where
             mail_core::print::write_file_into(dir, &subject, SAVED_AS, &bytes).map_err(String::from)
         })
         .map_err(|why| {
-            eprintln!("save for printing: {why}");
+            log::warn!("save for printing: {why}");
             format!("Couldn’t save for printing: {why}")
         })
 }
@@ -410,7 +410,7 @@ mod native_print {
             })
             .await;
             let words = done.unwrap_or_else(|error| {
-                eprintln!("print: {error}");
+                log::warn!("print: {error}");
                 format!("Couldn\u{2019}t print: {error}")
             });
             tell_through(said, words);
@@ -445,7 +445,7 @@ mod native_print {
         match made {
             Ok((title, pdf)) => said((printer.dialog)(&pdf, &title)),
             Err(why) => {
-                eprintln!("print: {why}");
+                log::warn!("print: {why}");
                 format!("Couldn\u{2019}t print: {why}")
             }
         }
@@ -460,7 +460,7 @@ mod native_print {
                 format!("Opened in your PDF viewer: {}", path.display())
             }
             Err(why) => {
-                eprintln!("print: {why}");
+                log::warn!("print: {why}");
                 format!("Couldn\u{2019}t print: {why}")
             }
         }

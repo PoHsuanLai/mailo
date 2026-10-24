@@ -48,3 +48,20 @@ pub const MAKE_DEFAULT_MAIL: &str = "Make mailo Your Default Mail App?";
 /// Under [`MAKE_DEFAULT_MAIL`]: what changes, and where to change it back.
 pub const MAKE_DEFAULT_MAIL_BODY: &str =
     "Email links will open a new message in mailo. You can change this in Settings.";
+
+/// Asked on an account's page before Remove takes it from this computer.
+pub fn remove_account(address: &str) -> String {
+    format!("Remove {address}?")
+}
+/// What Remove takes and leaves: `mail` is how many messages are here, `server` what becomes of
+/// the server's copy ([`MAIL_STAYS_ON_SERVER`] or [`only_copy`]).
+pub fn remove_account_body(mail: &str, server: &str) -> String {
+    format!(
+        "Its {mail} on this computer, folders, rules and saved sign-in are removed. {server} Keys and certificates aren’t removed."
+    )
+}
+pub const MAIL_STAYS_ON_SERVER: &str = "Mail on the server isn’t deleted.";
+/// A POP3 server that deletes what it hands over has no copy left.
+pub fn only_copy(mail: &str) -> String {
+    format!("This server deletes mail once downloaded, so these {mail} are the only copy.")
+}

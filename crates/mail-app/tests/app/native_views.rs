@@ -336,7 +336,10 @@ fn rows_picked_in_a_view_archive_as_one_gesture_and_the_view_deletes_from_its_ed
         1,
         "the editor did not open on the view's grouping"
     );
-    press(&mut harness, &labelled("Delete view"));
+    press(
+        &mut harness,
+        &labelled(mail_app::ui::copy::aria::DELETE_VIEW),
+    );
     harness.advance(ms(600));
     assert_eq!(harness.count(&sheet), 0, "Delete left the sheet open");
     assert_eq!(store.views().unwrap(), Vec::<View>::new());

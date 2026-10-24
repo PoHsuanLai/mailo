@@ -188,7 +188,7 @@ pub(super) enum Seen {
 pub(super) fn see(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> Seen {
     let message = match store.message(message) {
         Ok(message) => message,
-        Err(why) => return Seen::Failed(why.to_string()),
+        Err(why) => return unreadable(why),
     };
     let Some(attachment) = message.attachments.get(index) else {
         return Seen::Failed(crate::ui::copy::status::no_attachment(index));
@@ -199,14 +199,14 @@ pub(super) fn see(store: &Arc<SqliteStore>, message: MessageId, index: usize) ->
     let blobs = store.blobs();
     let head = match blobs.head(blob, route::HEAD) {
         Ok(head) => head,
-        Err(why) => return Seen::Failed(why.to_string()),
+        Err(why) => return unreadable(why),
     };
     if route::hand(&attachment.name, &head) == Hand::Mailo {
         return Seen::Own;
     }
     let len = match blobs.size(blob) {
         Ok(len) => len,
-        Err(why) => return Seen::Failed(why.to_string()),
+        Err(why) => return unreadable(why),
     };
     let input = Input::new(
         file_name(&attachment.name),
@@ -221,6 +221,12 @@ pub(super) fn see(store: &Arc<SqliteStore>, message: MessageId, index: usize) ->
         Some(peeked) => Seen::Ready(peeked),
         None => Seen::Failed(crate::ui::copy::status::TOOK_TOO_LONG.to_owned()),
     }
+}
+
+/// A part the store could not read: the reason goes to the log, and the card says only that.
+fn unreadable(why: impl std::fmt::Display) -> Seen {
+    log::warn!("an attachment could not be read for anyview: {why}");
+    Seen::Failed(crate::ui::copy::status::UNREADABLE.to_owned())
 }
 
 /// The name anyview sniffs by: the sender's claim made safe to write, or "file" when nothing is left.

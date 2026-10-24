@@ -13,6 +13,7 @@ use porter_core::AccountId;
 
 use super::super::files::work::{grouped, messages};
 use crate::ui::copy;
+use crate::ui::remedy::plainly;
 
 pub(in crate::ui) use mail_core::rules::manage::{Draft, Step, conversations, labels};
 
@@ -34,7 +35,8 @@ pub(in crate::ui) fn listed(
     store: &SqliteStore,
     account: AccountId,
 ) -> Result<Vec<Listed>, String> {
-    let rules = manage::listed(store, account).map_err(|e| e.to_string())?;
+    let rules =
+        manage::listed(store, account).map_err(|why| plainly(copy::errors::NOT_READ_HERE, why))?;
     Ok(rules
         .into_iter()
         .map(|listed| Listed {
@@ -114,7 +116,7 @@ pub(in crate::ui) fn save<Tz: TimeZone>(
         SaveError::Taken { name } => format!("A rule called “{name}” already exists."),
         SaveError::Condition(why) => refusal(&why),
         SaveError::NoAction => "Add an action.".to_owned(),
-        SaveError::Store(why) => why.to_string(),
+        SaveError::Store(why) => plainly(copy::errors::NOT_KEPT_HERE, why),
     })
 }
 
@@ -125,7 +127,8 @@ pub(in crate::ui) fn reorder(
     id: RuleId,
     step: Step,
 ) -> Result<(), String> {
-    manage::reorder(store, account, id, step).map_err(|e| e.to_string())
+    manage::reorder(store, account, id, step)
+        .map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))
 }
 
 /// Turn a rule on or off. Off, it is kept and skipped, here and in the server's script.
@@ -134,12 +137,12 @@ pub(in crate::ui) fn switch(
     rule: &Rule,
     state: RuleState,
 ) -> Result<(), String> {
-    manage::switch(store, rule, state).map_err(|e| e.to_string())
+    manage::switch(store, rule, state).map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))
 }
 
 /// Forget a rule, returning what the toast says.
 pub(in crate::ui) fn delete(store: &SqliteStore, rule: &Rule) -> Result<String, String> {
-    manage::delete(store, rule).map_err(|e| e.to_string())?;
+    manage::delete(store, rule).map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))?;
     Ok(format!("Deleted the rule “{}”", rule.name))
 }
 
@@ -154,7 +157,8 @@ pub(in crate::ui) fn run(
     now: DateTime<Utc>,
     report: &(dyn Fn(usize) + Sync),
 ) -> Result<String, String> {
-    let ran = manage::run(store, rule, now, report).map_err(|e| e.to_string())?;
+    let ran = manage::run(store, rule, now, report)
+        .map_err(|why| plainly(copy::errors::RULE_STOPPED, why))?;
     let mut said = format!(
         "“{}” looked at {} and acted on {}.",
         rule.name,

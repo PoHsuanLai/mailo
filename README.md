@@ -64,7 +64,7 @@ cargo build --release
 `mailo` with no arguments opens the desktop window; anything else is the command line. One binary,
 one store — a separate CLI would drift from what the window does.
 
-Run `./target/release/mailo` with an unknown command to print the full list.
+Run `./target/release/mailo --help` to print the full list.
 
 Clicking a new-mail notification from `mailo watch` opens that conversation in the window that is
 running and raises it with the click's activation token (or starts the window, if none is running).

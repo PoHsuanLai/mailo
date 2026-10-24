@@ -69,3 +69,10 @@ pub fn graph_refused(name: &str, why: &str) -> String {
 pub fn shown_not_run(name: &str) -> String {
     format!("“{name}” is a program, so it’s shown in its folder rather than opened")
 }
+
+// Settings › Vacation Reply, kept.
+pub const VACATION_OFF: &str = "Vacation reply off.";
+/// The reply kept: its subject, and when it runs ([`super::status::vacation::runs`]).
+pub fn vacation_saved(subject: &str, runs: &str) -> String {
+    format!("Saved: “{subject}”, {runs}.")
+}

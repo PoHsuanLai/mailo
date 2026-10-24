@@ -61,7 +61,7 @@ fn save(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal<u
         store
             .put_view(&view)
             .map(|()| view)
-            .map_err(|e| e.to_string())
+            .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why))
     });
     match kept {
         Ok(view) => {
@@ -87,7 +87,10 @@ fn delete(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal
             revision += 1;
             crate::ui::host::Host::focus_app();
         }
-        Err(why) => edit(shell, |draft| draft.refused = Some(why.to_string())),
+        Err(why) => {
+            let said = crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why);
+            edit(shell, |draft| draft.refused = Some(said));
+        }
     }
 }
 
@@ -147,9 +150,9 @@ pub(in crate::ui) fn ViewSheet(
             div { class: "sheet-form",
                 Label { text: title, style: LabelStyle::Title }
                 FieldGroup {
-                    FieldRow { label: "Name", layout: RowLayout::Form,
+                    FieldRow { label: copy::fields::NAME, layout: RowLayout::Form,
                         TextField {
-                            label: "Name".to_owned(),
+                            label: copy::fields::NAME.to_owned(),
                             value: draft.name.clone(),
                             placeholder: "Receipts".to_owned(),
                             validity: name_refused,
@@ -213,10 +216,10 @@ pub(in crate::ui) fn ViewSheet(
                 div { class: "sheet-actions",
                     if editing {
                         Button {
-                            label: "Delete view".to_owned(),
+                            label: copy::controls::DELETE_VIEW.to_owned(),
                             icon: Icon::Trash,
                             common: Common {
-                                aria_label: Some("Delete view".to_owned()),
+                                aria_label: Some(copy::aria::DELETE_VIEW.to_owned()),
                                 ..Common::default()
                             },
                             onclick: on_primary(move || delete(shell, revision, pages)),
@@ -225,7 +228,7 @@ pub(in crate::ui) fn ViewSheet(
                     SheetClose { label: copy::controls::CANCEL, on_close: move |()| close(shell) }
                     Button {
                         answers: Answers::Return,
-                        label: "Save".to_owned(),
+                        label: copy::controls::SAVE.to_owned(),
                         common: Common {
                             aria_label: Some(format!("Save {}", title.to_lowercase())),
                             ..Common::default()

@@ -94,7 +94,7 @@ pub(super) fn open_composer(
         Writes::Draft(id) => shell.write().compose_id(store, id),
     };
     if let Err(why) = &opened {
-        eprintln!("compose: {why}");
+        log::warn!("compose: {why}");
     }
     opened
 }

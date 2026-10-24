@@ -29,7 +29,7 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
         let requests = requests.clone();
         move || {
             if !crate::handoff::hear_reopen(&requests) {
-                eprintln!("the Dock icon is not heard: no application delegate");
+                log::warn!("the Dock icon is not heard: no application delegate");
             }
         }
     });
@@ -45,9 +45,9 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
             while let Some(request) = queue.recv().await {
                 let token = match request {
                     Request::Thread { thread, token } => {
-                        // Said on stderr, which the session's journal keeps: the one trace of what
-                        // a click did to a window with no other way to ask it.
-                        eprintln!("opened conversation {thread}");
+                        // Logged: the one trace of what a click did to a window with no other way
+                        // to ask it.
+                        log::debug!("opened conversation {thread}");
                         super::open_thread(&mut shell.write(), thread);
                         token
                     }
@@ -59,16 +59,16 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
                         match saved {
                             Ok(super::Start::Compose(id)) => {
                                 if let Err(why) = shell.write().compose_id(&*store, id) {
-                                    eprintln!("compose: {why}");
+                                    log::warn!("compose: {why}");
                                 }
                             }
                             Ok(_) => {}
-                            Err(why) => eprintln!("{why}"),
+                            Err(why) => log::warn!("{why}"),
                         }
                         token
                     }
                     Request::Activate { token } => {
-                        eprintln!("asked to raise the window");
+                        log::debug!("asked to raise the window");
                         token
                     }
                 };

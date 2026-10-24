@@ -82,3 +82,9 @@ pub const EDIT_AS_CONDITIONS: &str = "Edit as Conditions";
 pub const MAKE_DEFAULT: &str = "Make Default";
 /// Declines the launch question for good; Settings › General still offers it.
 pub const NOT_NOW: &str = "Not Now";
+/// Settings › Vacation Reply: keeps the reply and puts it on the server.
+pub const KEEP_REPLY: &str = "Keep Reply";
+/// The Saved-view editor's button that forgets the view.
+pub const DELETE_VIEW: &str = "Delete View";
+/// Asks again for what did not work: a download, a sign-in.
+pub const TRY_AGAIN: &str = "Try Again";

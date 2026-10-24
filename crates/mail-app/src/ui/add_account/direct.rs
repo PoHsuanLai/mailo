@@ -351,7 +351,7 @@ impl Retry {
     /// The button's words.
     pub(in crate::ui) fn label(&self) -> &'static str {
         match self {
-            Retry::Direct { .. } => "Try Again",
+            Retry::Direct { .. } => crate::ui::copy::controls::TRY_AGAIN,
             Retry::Window(_) => "Use Add Account\u{2026}",
         }
     }
