@@ -5,6 +5,7 @@
 //! and queue them", never "open a connection". A send that depended on the network being up at
 //! the moment the user pressed the key would lose the message on a train.
 
+use crate::editor::plain_to_flowed;
 use crate::error::{CoreError, Logged, TimeError};
 use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
@@ -87,7 +88,7 @@ where
     let mut draft = Draft::reply_to(&original, &identity, scope, now);
     // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
     // a property of the draft — so the quoting happens here, where the renderer is.
-    draft.text = quoted(&signed(body, &identity), &original, zone);
+    draft.text = plain_to_flowed(&quoted(&signed(body, &identity), &original, zone));
     save(store, &draft)?;
     Ok(draft)
 }
@@ -148,7 +149,7 @@ where
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
-    draft.text = forwarded(&signed(body, &identity), &original, zone);
+    draft.text = plain_to_flowed(&forwarded(&signed(body, &identity), &original, zone));
     draft.attachments = carried(&original.attachments);
     Ok(draft)
 }
@@ -261,7 +262,7 @@ pub fn draft_new(
     draft.subject = subject.to_owned();
     // The signature, and nothing else. There is no original to quote and no header block to
     // write, which is the whole difference between this and the other two.
-    draft.text = signed(body, &identity);
+    draft.text = plain_to_flowed(&signed(body, &identity));
     save(store, &draft)?;
     Ok(draft)
 }
@@ -284,7 +285,7 @@ pub fn draft_mailto(
     draft.cc = link.cc.clone();
     draft.bcc = link.bcc.clone();
     draft.subject = link.subject.clone();
-    draft.text = signed(&link.body, &identity);
+    draft.text = plain_to_flowed(&signed(&link.body, &identity));
     save(store, &draft)?;
     Ok(draft)
 }
@@ -308,7 +309,7 @@ pub fn draft_exact(
     let mut draft = Draft::blank(&identity, now);
     draft.to = to.to_vec();
     draft.subject = subject.to_owned();
-    draft.text = body.to_owned();
+    draft.text = plain_to_flowed(body);
     save(store, &draft)?;
     Ok(draft)
 }

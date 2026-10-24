@@ -32,7 +32,7 @@ pub mod unsubscribe;
 pub use auth::{AuthResults, Check, Receiver, Verdict, authentication_results};
 pub use block::{
     Action, Block, Delsp, Dir, Document, Flowed, ImgSrc, Inlined, LINK_REL, LINK_TARGET, Limits,
-    ListKind, Reached, SafeUrl, Shape, Span, from_html, from_text, is_mapped, mapped_tags,
+    ListKind, Reached, SafeUrl, Shape, Span, from_html, from_text, is_mapped, mapped_tags, unflow,
 };
 pub use build::{Disclosure, Posting, build, posting};
 pub use error::{MboxError, MimeError, NotHttpsUrl, NotMailto, RecordError, UnsafeUrl};

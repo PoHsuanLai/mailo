@@ -3,6 +3,7 @@
 use crate::MimeError;
 use mail_builder::MessageBuilder;
 use mail_builder::headers::address::Address as MailAddress;
+use mail_builder::headers::content_type::ContentType;
 use mail_builder::mime::{BodyPart, MimePart};
 use mail_domain::{Address, BlobId, Draft, Identity, Message, ReceiptRequest, normalize_id};
 use std::collections::HashSet;
@@ -109,8 +110,17 @@ pub fn build(
         .from(mail_addr(&identity.from))
         .subject(draft.subject.as_str())
         .date(draft.updated.timestamp())
-        .message_id(message_id(draft, identity))
-        .text_body(draft.text.as_str());
+        .message_id(message_id(draft, identity));
+    // `Draft.text` is always `format=flowed` (RFC 3676): the editor writes it so, and text
+    // written any other way is made so before it is kept. Unlabelled, every soft break the
+    // editor made at 72 columns would read as a hard one.
+    builder.text_body = Some(MimePart::new(
+        ContentType::new("text/plain")
+            .attribute("charset", "utf-8")
+            .attribute("format", "flowed")
+            .attribute("delsp", "no"),
+        BodyPart::Text(draft.text.as_str().into()),
+    ));
 
     if let Some(reply_to) = &identity.reply_to {
         builder = builder.reply_to(mail_addr(reply_to));

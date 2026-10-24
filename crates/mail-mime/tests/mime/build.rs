@@ -511,3 +511,18 @@ mod enclosed_message {
         }
     }
 }
+
+/// The text part says it is flowed, so its soft breaks at 72 are not read as the sender's.
+#[test]
+fn the_text_part_is_labelled_flowed() {
+    let mut plain = draft(None, None);
+    plain.html = None;
+    let sent = posting(&plain, &identity(), None, &[]).unwrap();
+    let parsed = parse(&sent.message).unwrap();
+    assert_eq!(
+        parsed.flowed,
+        mail_mime::Flowed::Flowed {
+            delsp: mail_mime::Delsp::No
+        }
+    );
+}

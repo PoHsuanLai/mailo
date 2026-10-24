@@ -4,7 +4,7 @@
 mod flowed;
 mod html;
 
-pub use flowed::to_flowed;
+pub use flowed::{plain_to_flowed, to_flowed};
 pub use html::to_html;
 
 use mail_mime::{Block, Span};
