@@ -17,9 +17,11 @@ use ds_blitz::{AppConfig, AppId, RootContexts};
 use mail_core::SqliteStore;
 use std::sync::Arc;
 
-/// The desktop entry's name (`packaging/mailo.desktop`), which notifications name too: the
-/// Wayland `app_id` and X11 `WM_CLASS`, so the desktop matches the window to its entry.
-pub(in crate::ui) const APP_ID: &str = "mailo";
+/// The desktop entry's name (`packaging/org.quire.Mail.desktop`), which notifications name too:
+/// the Wayland `app_id` and X11 `WM_CLASS`, so the desktop matches the window to its entry. It is
+/// the intents app ([`crate::intents::APP`]) too, so the scope a launcher starts the window in names
+/// the app the desktop's intent router knows.
+pub const APP_ID: &str = crate::intents::APP;
 
 /// Open the window on Blitz.
 ///

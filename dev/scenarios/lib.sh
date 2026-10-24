@@ -147,7 +147,7 @@ install_mailo() {
     "$MAILO_REPO/dist/install.sh" --no-build)
   "${run[@]}" >"$OUT_DIR/install.log" 2>&1 || { cat "$OUT_DIR/install.log" >&2; return 1; }
   "${run[@]}" >"$OUT_DIR/install-again.log" 2>&1 || return 1
-  grep -q "unchanged: $PREFIX_DIR/share/applications/mailo.desktop" "$OUT_DIR/install-again.log"
+  grep -q "unchanged: $PREFIX_DIR/share/applications/org.quire.Mail.desktop" "$OUT_DIR/install-again.log"
 }
 
 # ---- the fake mail server ----
@@ -267,7 +267,7 @@ last_badge() {
   bus_py '
 last = ""
 for b in blocks:
-    if "LauncherEntry" in b and "string \"application://mailo.desktop\"" in b:
+    if "LauncherEntry" in b and "string \"application://org.quire.Mail.desktop\"" in b:
         m = re.search(r"string \"count\"\s+variant\s+int64 (\d+)", b)
         v = re.search(r"string \"count-visible\"\s+variant\s+boolean (\w+)", b)
         if m:
@@ -282,7 +282,7 @@ badge_senders() {
   bus_py '
 senders = set()
 for b in blocks:
-    if "LauncherEntry" in b and "application://mailo.desktop" in b:
+    if "LauncherEntry" in b and "application://org.quire.Mail.desktop" in b:
         m = re.search(r"sender=(\S+)", b)
         if m: senders.add(m.group(1))
 print(len(senders))'

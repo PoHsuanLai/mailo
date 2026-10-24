@@ -2,7 +2,10 @@
 # org.quire.Mail when something wants mailo to do an action (an agent archiving mail, a command
 # typed to `quire-do mail`); the bus starts `mailo intents`, which has no window and answers for
 # the name until the session ends. dist/install.sh writes this with @BIN@ replaced by where it put
-# the binary; the packages ship it with /usr/bin/mailo.
+# the binary; the packages ship it with /usr/bin/mailo. Where a systemd user manager runs the bus,
+# the provider is started as the unit `SystemdService=` names (dist/systemd), so it is a unit the
+# router can know; a bus without one runs `Exec` itself.
 [D-BUS Service]
 Name=org.quire.Mail
 Exec=@BIN@ intents
+SystemdService=org.quire.Mail.service

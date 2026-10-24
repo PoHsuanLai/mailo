@@ -145,9 +145,9 @@ Run `mailo` with an unknown command to print the full command list.
   mailo asks once whether to become the default mail app, and Settings > General shows the current
   handler with a Make Default button; the system confirms the change. A link opened while mailo is
   running is handed to that window. A copy run from a terminal is not a bundle and cannot be chosen.
-- **Linux:** the desktop entry (`packaging/mailo.desktop`, installed by the packages) registers the
+- **Linux:** the desktop entry (`packaging/org.quire.Mail.desktop`, installed by the packages) registers the
   handler. Choose it in your desktop's settings, or with
-  `xdg-mime default mailo.desktop x-scheme-handler/mailto`. A running window is reached over D-Bus.
+  `xdg-mime default org.quire.Mail.desktop x-scheme-handler/mailto`. A running window is reached over D-Bus.
 - **Windows:** the MSI registers mailo for `mailto:`; choose it in Default apps. There is no
   hand-off to a running window, so a link starts a new mailo.
 

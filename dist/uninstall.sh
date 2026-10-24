@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Remove what dist/install.sh put in place: the unit (disabled first), the desktop entry, the icon,
-# the intents manifest and its D-Bus service, the mail skill, and the binary. Your mail, settings
-# and keyring are not touched. Run as yourself; sudo asks once. Safe to run again.
+# Remove what dist/install.sh put in place: the units (the watch's disabled first), the desktop
+# entry, the icon, the intents manifest and its D-Bus service, the mail skill, and the binary. Your
+# mail, settings and keyring are not touched. Run as yourself; sudo asks once. Safe to run again.
 #
 #   dist/uninstall.sh --dry-run    print every step, change nothing
 #   dist/uninstall.sh              remove the system files
@@ -24,9 +24,11 @@ if manager_present; then
   if [ -e "$UNIT_DEST" ]; then asroot systemctl --global disable "$UNIT_NAME" || true; fi
 fi
 gone "$UNIT_DEST"
+gone "$PROVIDER_UNIT_DEST"
 
 step "3/3 the entry, the icon, the intents, the skill and the binary"
 gone "$DESKTOP_DEST"
+gone "$OLD_DESKTOP_DEST"
 for size in $ICON_SIZES; do
   gone "$(icon_dest "$size")"
 done

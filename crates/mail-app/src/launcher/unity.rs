@@ -21,8 +21,8 @@ pub const MEMBER: &str = "Update";
 /// is libunity's shape, under mailo's own name.
 pub const PATH: &str = "/com/canonical/unity/launcherentry/mailo";
 
-/// The desktop entry mailo installs (`packaging/mailo.desktop`), outside a Flatpak.
-pub const DESKTOP_ID: &str = "mailo";
+/// The desktop entry mailo installs (`packaging/org.quire.Mail.desktop`), outside a Flatpak.
+pub const DESKTOP_ID: &str = "org.quire.Mail";
 
 /// One `Update`: the arguments of the signal, before any bus has touched them.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +37,7 @@ pub struct Update {
 
 /// The desktop file id mailo's entry is installed under.
 ///
-/// Outside a sandbox, `mailo`. Inside a Flatpak, the entry is exported renamed to the app id
+/// Outside a sandbox, `org.quire.Mail`. Inside a Flatpak, the entry is exported renamed to the app id
 /// (`io.github.PoHsuanLai.mailo.desktop`, `packaging/flatpak`), and the sandbox names that id in
 /// `FLATPAK_ID`, which is what `flatpak_id` is. An empty one is no id.
 pub fn desktop_id(flatpak_id: Option<&str>) -> &str {
@@ -150,14 +150,14 @@ mod tests {
     #[test]
     fn the_entry_is_mailo_s_own_or_the_flatpak_s() {
         const CASES: &[(&str, Option<&str>, &str)] = &[
-            ("not sandboxed", None, "mailo"),
+            ("not sandboxed", None, "org.quire.Mail"),
             (
                 "in the Flatpak",
                 Some("io.github.PoHsuanLai.mailo"),
                 "io.github.PoHsuanLai.mailo",
             ),
-            ("an empty FLATPAK_ID", Some(""), "mailo"),
-            ("a blank one", Some("  "), "mailo"),
+            ("an empty FLATPAK_ID", Some(""), "org.quire.Mail"),
+            ("a blank one", Some("  "), "org.quire.Mail"),
         ];
         for &(name, flatpak, expect) in CASES {
             assert_eq!(desktop_id(flatpak), expect, "{name}");
@@ -197,7 +197,10 @@ mod tests {
             format!("{};{};", crate::handoff::NAME, crate::intents::APP),
             crate::intents::APP.to_owned(),
         );
-        for entry in ["packaging/mailo.desktop", "dist/mailo.desktop"] {
+        for entry in [
+            "packaging/org.quire.Mail.desktop",
+            "dist/org.quire.Mail.desktop",
+        ] {
             let text = std::fs::read_to_string(root.join(entry)).expect(entry);
             let key = |name: &str| {
                 text.lines()

@@ -27,11 +27,12 @@ depends = "$auto"
 recommends = "xdg-desktop-portal"
 assets = [
     ["target/release/mailo", "usr/bin/", "755"],
-    ["../../packaging/mailo.desktop", "usr/share/applications/", "644"],
+    ["../../packaging/org.quire.Mail.desktop", "usr/share/applications/", "644"],
     ["../../dist/intents/org.quire.Mail.toml", "usr/share/quire/intents/", "644"],
     ["../../dist/skills/mail/SKILL.md", "usr/share/quire/skills/mail/", "644"],
     ["../../dist/skills/mail/skill.toml", "usr/share/quire/skills/mail/", "644"],
     ["../../packaging/org.quire.Mail.service", "usr/share/dbus-1/services/", "644"],
+    ["../../packaging/systemd/org.quire.Mail.service", "usr/lib/systemd/user/", "644"],
     ["../../packaging/icons/hicolor/16x16/apps/mailo.png", "usr/share/icons/hicolor/16x16/apps/", "644"],
     ["../../packaging/icons/hicolor/32x32/apps/mailo.png", "usr/share/icons/hicolor/32x32/apps/", "644"],
     ["../../packaging/icons/hicolor/48x48/apps/mailo.png", "usr/share/icons/hicolor/48x48/apps/", "644"],
@@ -47,11 +48,12 @@ name = "mailo"
 summary = "A desktop mail client"
 assets = [
     { source = "target/release/mailo", dest = "/usr/bin/mailo", mode = "755" },
-    { source = "../../packaging/mailo.desktop", dest = "/usr/share/applications/mailo.desktop", mode = "644" },
+    { source = "../../packaging/org.quire.Mail.desktop", dest = "/usr/share/applications/org.quire.Mail.desktop", mode = "644" },
     { source = "../../dist/intents/org.quire.Mail.toml", dest = "/usr/share/quire/intents/org.quire.Mail.toml", mode = "644" },
     { source = "../../dist/skills/mail/SKILL.md", dest = "/usr/share/quire/skills/mail/SKILL.md", mode = "644" },
     { source = "../../dist/skills/mail/skill.toml", dest = "/usr/share/quire/skills/mail/skill.toml", mode = "644" },
     { source = "../../packaging/org.quire.Mail.service", dest = "/usr/share/dbus-1/services/org.quire.Mail.service", mode = "644" },
+    { source = "../../packaging/systemd/org.quire.Mail.service", dest = "/usr/lib/systemd/user/org.quire.Mail.service", mode = "644" },
     { source = "../../packaging/icons/hicolor/16x16/apps/mailo.png", dest = "/usr/share/icons/hicolor/16x16/apps/mailo.png", mode = "644" },
     { source = "../../packaging/icons/hicolor/32x32/apps/mailo.png", dest = "/usr/share/icons/hicolor/32x32/apps/mailo.png", mode = "644" },
     { source = "../../packaging/icons/hicolor/48x48/apps/mailo.png", dest = "/usr/share/icons/hicolor/48x48/apps/mailo.png", mode = "644" },

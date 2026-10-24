@@ -8,10 +8,10 @@
 #   dist/install.sh              do it
 #
 # Installs to /usr/local (binary, desktop entry, icon, intents manifest and its D-Bus service) and
-# /etc/systemd/user (the unit, enabled for graphical-session.target, so it starts in any session:
-# sill's, Plasma's, GNOME's). Not touched: your mail, ~/.config, the keyring, any other session's
-# files. dist/uninstall.sh undoes it. Next: log in (or `systemctl --user start mailo-watch`), then
-# add an account with `mailo account add you@example.org`.
+# /etc/systemd/user (the sync daemon's unit, enabled for graphical-session.target, so it starts in
+# any session; the intents provider's, which only the bus starts). Not touched: your mail,
+# ~/.config, the keyring, any other session's files. dist/uninstall.sh undoes it. Next: log in (or
+# `systemctl --user start mailo-watch`), then add an account with `mailo account add you@example.org`.
 #
 # MAILO_BIN names the binary to install instead of the release build. MAILO_PREFIX and
 # MAILO_UNIT_DIR redirect the destinations (the scenario scripts install into a scratch directory
@@ -47,7 +47,8 @@ fi
 
 step "3/5 the binary, the desktop entry, the icon and the intents"
 put 755 "$BUILT" "$BIN_DEST"
-put 644 "$DIST/mailo.desktop" "$DESKTOP_DEST"
+put 644 "$DIST/org.quire.Mail.desktop" "$DESKTOP_DEST"
+gone "$OLD_DESKTOP_DEST"
 for size in $ICON_SIZES; do
   put 644 "$(icon_src "$size")" "$(icon_dest "$size")"
 done
@@ -61,8 +62,12 @@ service_text >"$SERVICE_TMP"
 put 644 "$SERVICE_TMP" "$SERVICE_DEST"
 rm -f "$SERVICE_TMP"
 
-step "4/5 the sync daemon's user unit"
+step "4/5 the user units: the sync daemon's, and the one the bus starts the intents provider in"
 put 644 "$DIST/$UNIT_NAME" "$UNIT_DEST"
+PROVIDER_TMP="$(mktemp)"
+provider_unit_text >"$PROVIDER_TMP"
+put 644 "$PROVIDER_TMP" "$PROVIDER_UNIT_DEST"
+rm -f "$PROVIDER_TMP"
 
 step "5/5 caches and the user manager"
 if command -v update-desktop-database >/dev/null; then
@@ -75,7 +80,7 @@ else
 fi
 if command -v restorecon >/dev/null && [ -n "$SUDO" ]; then
   # shellcheck disable=SC2046 # one path per size
-  asroot restorecon -F "$BIN_DEST" "$DESKTOP_DEST" $(for size in $ICON_SIZES; do icon_dest "$size"; done) "$UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST" "$SKILL_DIR/SKILL.md" "$SKILL_DIR/skill.toml"
+  asroot restorecon -F "$BIN_DEST" "$DESKTOP_DEST" $(for size in $ICON_SIZES; do icon_dest "$size"; done) "$UNIT_DEST" "$PROVIDER_UNIT_DEST" "$INTENTS_DEST" "$SERVICE_DEST" "$SKILL_DIR/SKILL.md" "$SKILL_DIR/skill.toml"
 fi
 if manager_present; then
   # --global: every user's graphical-session.target wants the unit, whichever session starts it.

@@ -1,16 +1,23 @@
 [Desktop Entry]
 Type=Application
-Name=mailo
+Name=Mailo
 GenericName=Mail Client
 Comment=Read and send mail
-Exec=mailo %u
+# The app id the window sets (`APP_ID` in `ui/launch/native.rs`) is `org.quire.Mail`, the name of
+# this file and of the app in the intents manifest, so a launcher, a dock and a banner match the
+# window and the notifications to this entry, and the scope a launcher starts it in
+# (`app-<launcher>-org.quire.Mail-<n>.scope`) is the app the desktop's intent router knows.
+Exec=/usr/local/bin/mailo %u
 Icon=mailo
 Terminal=false
 Categories=Network;Email;
 MimeType=x-scheme-handler/mailto;
 Keywords=mail;email;imap;pop3;smtp;
 StartupNotify=true
-StartupWMClass=mailo
+StartupWMClass=org.quire.Mail
+# The id this entry had before it was named for the app: a shell carries pins, layout and history
+# kept under the old id over to this one.
+X-Flatpak-RenamedFrom=mailo.desktop;
 # Who this entry is on the session bus: the name the running window answers on (`handoff.rs`)
 # and the intents app (`dist/intents/org.quire.Mail.toml`), so the shell finds the app behind a
 # bus name or an intent without a table of its own.

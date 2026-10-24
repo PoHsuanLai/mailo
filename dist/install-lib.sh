@@ -12,7 +12,9 @@ ROOT="$(cd "$DIST/.." && pwd)"
 PREFIX="${MAILO_PREFIX:-/usr/local}"
 UNIT_DIR="${MAILO_UNIT_DIR:-/etc/systemd/user}"
 BIN_DEST="$PREFIX/bin/mailo"
-DESKTOP_DEST="$PREFIX/share/applications/mailo.desktop"
+DESKTOP_DEST="$PREFIX/share/applications/org.quire.Mail.desktop"
+# Where an earlier install put the entry, under the id it had before it was named for the app.
+OLD_DESKTOP_DEST="$PREFIX/share/applications/mailo.desktop"
 # The icon at each size it is drawn at: icon_src and icon_dest name one size's file.
 ICON_SIZES="16 32 48 64 128 256 512"
 icon_dest() { echo "$PREFIX/share/icons/hicolor/$1x$1/apps/mailo.png"; }
@@ -20,6 +22,8 @@ icon_dest() { echo "$PREFIX/share/icons/hicolor/$1x$1/apps/mailo.png"; }
 OLD_ICON_DEST="$PREFIX/share/icons/hicolor/scalable/apps/mailo.svg"
 UNIT_NAME=mailo-watch.service
 UNIT_DEST="$UNIT_DIR/$UNIT_NAME"
+# The unit the bus starts the intents provider in (`SystemdService=`): installed, never enabled.
+PROVIDER_UNIT_DEST="$UNIT_DIR/org.quire.Mail.service"
 # The intents manifest the desktop's router reads, and the D-Bus service that starts the provider
 # of it on demand: both under $PREFIX/share, which is on XDG_DATA_DIRS for /usr and /usr/local.
 INTENTS_DEST="$PREFIX/share/quire/intents/org.quire.Mail.toml"
@@ -41,6 +45,8 @@ DRY=0
 
 # service_text: the D-Bus service file, naming the binary where it was installed.
 service_text() { sed "s|@BIN@|$BIN_DEST|" "$DIST/org.quire.Mail.service.in"; }
+# provider_unit_text: the intents provider's user unit, naming the binary where it was installed.
+provider_unit_text() { sed "s|@BIN@|$BIN_DEST|" "$DIST/systemd/org.quire.Mail.service.in"; }
 
 # parse_flags "$@": --dry-run, and the extra flags a script allows ($EXTRA_FLAGS, space-separated).
 parse_flags() {
