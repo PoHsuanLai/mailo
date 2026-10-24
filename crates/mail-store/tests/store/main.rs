@@ -33,6 +33,7 @@ mod remove_account;
 mod rules;
 mod search;
 mod send_later;
+mod server_copies;
 mod server_drafts;
 mod signatures;
 mod singles;

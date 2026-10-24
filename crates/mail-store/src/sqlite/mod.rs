@@ -2,6 +2,7 @@
 
 mod accounts;
 mod contacts;
+mod copies;
 mod destroyed;
 mod draft;
 mod folders;
@@ -651,7 +652,12 @@ impl Store for SqliteStore {
         rows.map(|row| remote_from_columns(row?)).collect()
     }
 
-    fn unfetched_in(&self, mailbox: &MailboxRef, limit: u32) -> Result<Vec<RemoteRef>, StoreError> {
+    fn unfetched_in(
+        &self,
+        mailbox: &MailboxRef,
+        since: Option<DateTime<Utc>>,
+        limit: u32,
+    ) -> Result<Vec<RemoteRef>, StoreError> {
         // The address in this mailbox, one per message: a server may hold two copies of one
         // message in one folder, and one fetch fills both.
         let db = self.connection();
@@ -660,12 +666,19 @@ impl Store for SqliteStore {
              FROM remote_map r
              JOIN messages m ON m.id = r.message
              WHERE r.account = ?1 AND r.mailbox = ?2 AND m.body_raw IS NULL
+               AND (?4 IS NULL OR m.date >= ?4)
              GROUP BY m.id
              ORDER BY m.date DESC, m.id DESC
              LIMIT ?3",
         )?;
+        let since = since.map(row::from_time);
         let rows = stmt.query_map(
-            rusqlite::params![mailbox.account.to_string(), mailbox.path, i64::from(limit)],
+            rusqlite::params![
+                mailbox.account.to_string(),
+                mailbox.path,
+                i64::from(limit),
+                since
+            ],
             remote_columns,
         )?;
         rows.map(|row| remote_from_columns(row?)).collect()

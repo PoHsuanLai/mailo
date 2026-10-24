@@ -41,6 +41,7 @@ mod root;
 mod rows;
 mod signatures;
 mod spaces;
+mod syncing;
 
 pub(in crate::ui) use account::Seams as AccountSeams;
 pub(in crate::ui) use keys::with_value;

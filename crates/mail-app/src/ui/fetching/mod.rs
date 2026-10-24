@@ -289,10 +289,18 @@ fn announce_added(
 /// `revision` moves when a pass has stored something, and when an account comes or goes.
 pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
     let store = consume_context::<Arc<SqliteStore>>();
+    // Read again when the revision moves: an account come or gone, or its Check for New Mail
+    // changed on its page in Settings, which the window's config directory keeps.
     let accounts = use_memo(move || {
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
-        mail_core::sync::due::intervals(&store)
+        match try_consume_context::<crate::ui::appearance::WindowDirs>() {
+            Some(dirs) => mail_core::sync::due::intervals_with(
+                &store,
+                &mail_core::offline::load(&dirs.config),
+            ),
+            None => mail_core::sync::due::intervals(&store),
+        }
     });
     // Which accounts are pushed to, beside: a push relay set on an account's page changes it
     // without changing any interval, and the runner reads it again when told the accounts.

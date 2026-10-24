@@ -226,11 +226,16 @@ impl Store for MemoryStore {
         Ok(Thread { summary, messages })
     }
 
-    fn unfetched_in(&self, mailbox: &MailboxRef, limit: u32) -> Result<Vec<RemoteRef>, StoreError> {
+    fn unfetched_in(
+        &self,
+        mailbox: &MailboxRef,
+        since: Option<DateTime<Utc>>,
+        limit: u32,
+    ) -> Result<Vec<RemoteRef>, StoreError> {
         let inner = self.inner.borrow();
         let mut with_dates: Vec<(DateTime<Utc>, MessageId, RemoteRef)> = Vec::new();
         for m in inner.messages.values() {
-            if !matches!(m.body, mail_domain::Body::Absent) {
+            if !matches!(m.body, mail_domain::Body::Absent) || since.is_some_and(|at| m.date < at) {
                 continue;
             }
             let Some(row) = inner.remotes.iter().find(|row| {

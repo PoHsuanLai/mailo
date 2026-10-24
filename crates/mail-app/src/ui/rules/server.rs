@@ -71,6 +71,9 @@ pub(in crate::ui) fn configured(
         plan: row.plan.clone(),
         caps: super::super::ops::caps_here(store, row.id.clone(), now),
         keep: mail_core::offline::Keep::default(),
+        every: mail_core::offline::Every::default(),
+        window: mail_core::offline::Window::default(),
+        remove: mail_core::offline::Remove::default(),
     }
 }
 

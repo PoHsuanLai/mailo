@@ -28,6 +28,22 @@ enum Job {
     Body {
         remotes: Vec<RemoteRef>,
     },
+    /// The server's copies removed: each number checked, then `DELE`, then `QUIT`.
+    Remove,
+}
+
+/// Whether deleting a message here may remove the server's copy too.
+///
+/// [`ServerCopies::Kept`] unless the account says otherwise (`mail_core::offline::Remove`), which
+/// is what POP3 always did: the server keeps every message for as long as nothing else deletes
+/// it, and this client keeps its own copy beside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ServerCopies {
+    /// [`ProtoOp::Destroy`] is answered here alone.
+    #[default]
+    Kept,
+    /// [`ProtoOp::Destroy`] removes the server's copy of each message it names.
+    Removable,
 }
 
 /// Builds a session for one command walk.
@@ -59,6 +75,8 @@ pub struct Pop3Backend {
     /// `UIDL` and `LIST` collected during a survey, keyed by server message number.
     uidls: Vec<(u32, String)>,
     sizes: Vec<(u32, u64)>,
+    /// What [`ProtoOp::Destroy`] does to the server's copy.
+    copies: ServerCopies,
 }
 
 impl Pop3Backend {
@@ -75,7 +93,39 @@ impl Pop3Backend {
             job: Job::Idle,
             uidls: Vec::new(),
             sizes: Vec::new(),
+            copies: ServerCopies::Kept,
         }
+    }
+
+    /// The same, with the server's copies `copies`: removable for an account that removes them.
+    pub fn with_copies(mut self, copies: ServerCopies) -> Self {
+        self.copies = copies;
+        self
+    }
+
+    /// The walk that removes `remotes` from the server: each message's number in the last survey
+    /// checked against its UIDL, then `DELE`, and `QUIT`, which is when a POP3 server removes
+    /// what was marked (RFC 1939 §6). A message the survey did not list is not there to remove,
+    /// and is left out. `None` when none was listed.
+    fn removal(&self, remotes: &[RemoteRef]) -> Option<Vec<Pop3Command>> {
+        let mut commands = Vec::new();
+        for remote in remotes {
+            let RemoteRef::Pop { uidl } = remote else {
+                continue;
+            };
+            if let Some(number) = self.number_for(uidl) {
+                commands.push(Pop3Command::Check {
+                    number,
+                    uidl: uidl.clone(),
+                });
+                commands.push(Pop3Command::Dele(number));
+            }
+        }
+        if commands.is_empty() {
+            return None;
+        }
+        commands.push(Pop3Command::Quit);
+        Some(commands)
     }
 
     /// Everything learned by the last survey: UIDL, size, oldest first.
@@ -224,17 +274,31 @@ impl Backend for Pop3Backend {
                 self.job = Job::Idle;
                 Progress::Done(ProtoOutcome::Applied)
             }
-            // Deleted here only, and never with `DELE`. A POP3 message number names a message
-            // only within the session that listed it (RFC 1939 §7), and a walk's commands are
-            // fixed before it connects, so a `DELE` would name a number from an earlier session:
-            // after any other client deleted mail, the wrong message. The store keeps the UIDL as
-            // destroyed, so the next poll does not download the message again; the server keeps
-            // its copy for as long as the account's `LeaveOnServer` says, as it keeps every
-            // other message this client has read.
-            ProtoOp::Destroy { .. } => {
-                self.job = Job::Idle;
-                Progress::Done(ProtoOutcome::Applied)
-            }
+            // Deleted here only, unless the account removes the server's copies. The store keeps
+            // the UIDL as destroyed, so the next poll does not download the message again, and the
+            // server keeps its copy as it keeps every other message this client has read.
+            //
+            // Removed, each `DELE` is behind a `UIDL n` that names the message it must be: a POP3
+            // message number names a message only within the session that listed it (RFC 1939
+            // §7), and a walk's commands are fixed before it connects, so the number is from an
+            // earlier session and, after any other client deleted mail, may name another message.
+            // Checked, a session that finds that fails before its `QUIT`, and removes nothing.
+            ProtoOp::Destroy { remotes } => match self.copies {
+                ServerCopies::Kept => {
+                    self.job = Job::Idle;
+                    Progress::Done(ProtoOutcome::Applied)
+                }
+                ServerCopies::Removable => match self.removal(&remotes) {
+                    None => {
+                        self.job = Job::Idle;
+                        Progress::Done(ProtoOutcome::Applied)
+                    }
+                    Some(commands) => {
+                        self.job = Job::Remove;
+                        self.queue(Authenticate::First, commands)
+                    }
+                },
+            },
             ProtoOp::FetchStructure { .. } | ProtoOp::FetchSections { .. } => {
                 // `TOP` takes a line count, not a part: a POP3 message comes whole or not at
                 // all, so a large one is simply a large download.
@@ -347,6 +411,8 @@ impl Backend for Pop3Backend {
                     items: remotes.into_iter().zip(bodies).collect(),
                 })
             }
+            // Every `DELE` was accepted and `QUIT` answered: the server has removed them.
+            Job::Remove => Progress::Done(ProtoOutcome::Applied),
             Job::Body { remotes } => {
                 // Parsing into a Message needs ids the protocol cannot supply, so the raw bytes
                 // go back and the runtime assembles. That keeps mail-mime out of this crate and

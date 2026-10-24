@@ -77,7 +77,6 @@ fn each_kind_of_account_lists_its_servers_and_how_it_signs_in() {
             ),
             &[
                 "Receiving: POP3, pop.example.com:995, TLS",
-                "Downloaded mail: Deleted from the server",
                 "Sending: SMTP, smtp.example.com:587, not encrypted",
                 "Signs in: With a password, as s1234567",
             ],

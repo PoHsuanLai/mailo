@@ -56,3 +56,6 @@ mod organise;
 
 // 17: signatures, made in Settings and signing what is written.
 mod signatures;
+
+// 18: how an account is synced.
+mod syncing;

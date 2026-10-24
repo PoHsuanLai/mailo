@@ -59,6 +59,11 @@ pub const FIRST: Duration = Duration::from_secs(4);
 /// The interval an account is polled at when nothing says otherwise.
 const FALLBACK: Duration = Duration::from_secs(300);
 
+/// The interval of an account checked only when a person asks: no timer reaches it, and the
+/// scheduler starts no timed pass at it, not even the first one a window or a watch makes of
+/// every account. A person's Sync, a folder opened and a pass already asked for still run.
+pub const MANUALLY: Duration = Duration::MAX;
+
 /// A timer is set for a little after the time it is for, so that it never wakes a link a
 /// moment before the link would agree it is due.
 const SLACK: Duration = Duration::from_millis(250);
@@ -309,6 +314,9 @@ impl<'a> Scheduler<'a> {
         let Some(link) = self.links.get(&account).cloned() else {
             return;
         };
+        if event == Event::Start(Trigger::Poll) && self.every(&account) == MANUALLY {
+            return;
+        }
         // Where a `mailo watch` runs, the timers and the server's pushes are its to answer.
         match verdict(self.host.schedule(), &link, &event) {
             Verdict::Run => {}

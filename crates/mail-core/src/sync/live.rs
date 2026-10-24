@@ -23,6 +23,9 @@
 //! A Graph account with no relay is polled, as it always was; with one, it is waited on through
 //! the relay's WebSocket (`mail_runtime::graph::push`) at the floor of its poll interval, so the
 //! relay only brings new mail sooner, and a relay that cannot be reached leaves it polling.
+//!
+//! And only an account checked automatically ([`crate::offline::Every::Automatic`]): one the
+//! person set to an interval is polled at it, and one set to manually holds no connection at all.
 
 use super::report::Failure;
 use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
@@ -73,24 +76,37 @@ fn unsupported(why: &str) -> Lost {
 
 pub use mail_runtime::schedule::Hold;
 
-/// Whether the account's stored plan and capabilities can be waited on: see the table above.
+/// Whether the account's stored plan and capabilities can be waited on, and the person left it to
+/// be: see the table above.
 ///
 /// A Graph account is not here: whether it is pushed to is a setting the store holds, which
-/// [`pushing`] reads ([`super::graph_push::relayed`]).
+/// [`pushing_with`] reads ([`super::graph_push::relayed`]).
 pub fn pushes(account: &Configured) -> bool {
     matches!(
         account.plan.incoming,
         Incoming::Imap { .. } | Incoming::Jmap { .. }
     ) && matches!(account.caps.watch, WatchMode::Idle)
+        && account.every == crate::offline::Every::Automatic
 }
 
-/// Every account that can be waited on, as the store describes them now.
+/// Every account that can be waited on, as the store describes them now and the setting in the
+/// user's config directory chooses ([`pushing_with`]).
 pub fn pushing(store: &SqliteStore) -> Vec<AccountId> {
+    pushing_with(store, &crate::offline::load_default())
+}
+
+/// Every account that can be waited on, as the store describes them now and `kept` chooses.
+pub fn pushing_with(store: &SqliteStore, kept: &crate::offline::Kept) -> Vec<AccountId> {
     configured(store)
         .or_log_default("the accounts could not be read")
-        .iter()
-        .filter(|account| pushes(account) || super::graph_push::relayed(store, account))
-        .map(|account| account.id.clone())
+        .into_iter()
+        .map(|account| super::kept_as(account, kept))
+        .filter(|account| {
+            pushes(account)
+                || (account.every == crate::offline::Every::Automatic
+                    && super::graph_push::relayed(store, account))
+        })
+        .map(|account| account.id)
         .collect()
 }
 
