@@ -5178,6 +5178,7 @@ name = "mail-core"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",
+ "arboard",
  "base64 0.22.1",
  "chrono",
  "futures-util",

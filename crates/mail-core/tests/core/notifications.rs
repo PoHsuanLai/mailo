@@ -7,7 +7,7 @@
 
 use crate::support::account;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_core::notify::{self, Notification, Notifier, Opens};
+use mail_core::notify::{self, Clipboard, Notification, Notifier, Opens};
 use mail_core::sync;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
@@ -36,6 +36,16 @@ impl Notifier for Recorder {
 impl Recorder {
     fn seen(&self) -> Vec<Notification> {
         self.0.lock().unwrap().clone()
+    }
+}
+
+/// Every code copied, in order: the clipboard a test hands over, which never reaches the real one.
+#[derive(Debug, Default)]
+struct Copies(Mutex<Vec<String>>);
+
+impl Clipboard for Copies {
+    fn copy(&self, text: &str) {
+        self.0.lock().unwrap().push(text.to_owned());
     }
 }
 
@@ -97,6 +107,18 @@ fn the_floor_is_armed_once_and_a_restart_keeps_it() {
 
 /// A message as a header pass would have stored it.
 fn stored(store: &SqliteStore, n: u128, from: &str, date: DateTime<Utc>) -> MessageId {
+    stored_as(store, n, from, date, &format!("message {n}"), Body::Absent)
+}
+
+/// A message with this `subject` and `body`, as a pass would have stored it.
+fn stored_as(
+    store: &SqliteStore,
+    n: u128,
+    from: &str,
+    date: DateTime<Utc>,
+    subject: &str,
+    body: Body,
+) -> MessageId {
     let id = MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n));
     let message = Message {
         id,
@@ -112,7 +134,7 @@ fn stored(store: &SqliteStore, n: u128, from: &str, date: DateTime<Utc>) -> Mess
         to: Vec::new(),
         cc: Vec::new(),
         bcc: Vec::new(),
-        subject: format!("message {n}"),
+        subject: subject.to_owned(),
         in_reply_to: None,
         references: Vec::new(),
         rfc_message_id: None,
@@ -120,7 +142,7 @@ fn stored(store: &SqliteStore, n: u128, from: &str, date: DateTime<Utc>) -> Mess
         star: Star::Unstarred,
         mailbox: MailboxRole::Inbox,
         labels: Vec::new(),
-        body: Body::Absent,
+        body,
         attachments: Vec::new(),
     };
     store
@@ -153,7 +175,7 @@ fn an_accounts_first_backfill_raises_nothing() {
         })
         .collect();
     let recorder = Recorder::default();
-    let raised = notify::announce(&store, account(), &arrived, &recorder, watched).unwrap();
+    let raised = notify::announce(&store, account(), &arrived, &recorder, None, watched).unwrap();
     assert_eq!(raised, 0);
     assert!(recorder.seen().is_empty(), "{:?}", recorder.seen());
 
@@ -161,7 +183,7 @@ fn an_accounts_first_backfill_raises_nothing() {
     let later = watched + chrono::Duration::minutes(5);
     let new = stored(&store, 500, "bob@example.test", later);
     let mine = stored(&store, 501, "ME@example.test", later);
-    notify::announce(&store, account(), &[new, mine], &recorder, later).unwrap();
+    notify::announce(&store, account(), &[new, mine], &recorder, None, later).unwrap();
     let seen = recorder.seen();
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0].summary, "bob@example.test");
@@ -170,6 +192,81 @@ fn an_accounts_first_backfill_raises_nothing() {
         seen[0].opens,
         Opens::Thread(ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + 500)))
     );
+}
+
+/// A new message with a one-time code is announced by its code, and the code is copied as it is
+/// announced when a clipboard is handed over: from the subject of one whose body is not here,
+/// and from the HTML of one that has no plain part. The newest code is the one left copied.
+#[test]
+fn an_announcement_leads_with_the_code_and_copies_it_when_asked() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    with_account(&store, &plan(1));
+    let watched = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+    notify::floor::armed(&store, account(), watched).unwrap();
+    let later = watched + chrono::Duration::minutes(5);
+    let headers = stored_as(
+        &store,
+        600,
+        "no-reply@service.example",
+        later,
+        "482913 is your Example code",
+        Body::Absent,
+    );
+    let html = b"From: no-reply@bank.example\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+        <html><body><p>Your verification code is <b>771204</b>.</p></body></html>\r\n";
+    let raw = store.blobs().put(html).unwrap();
+    let html_only = stored_as(
+        &store,
+        601,
+        "no-reply@bank.example",
+        later,
+        "Sign in to your bank",
+        Body::Present { text: None, raw },
+    );
+    let plain = stored(&store, 602, "ada@example.test", later);
+
+    let recorder = Recorder::default();
+    let copies = Copies::default();
+    let raised = notify::announce(
+        &store,
+        account(),
+        &[headers, html_only, plain],
+        &recorder,
+        Some(&copies),
+        later,
+    )
+    .unwrap();
+    assert_eq!(raised, 3);
+    let seen = recorder.seen();
+    assert_eq!(seen[0].summary, "Your code: 482913");
+    assert_eq!(seen[0].code.as_deref(), Some("482913"));
+    assert_eq!(
+        seen[0].body,
+        "no-reply@service.example \u{b7} 482913 is your Example code"
+    );
+    assert_eq!(seen[1].summary, "Your code: 771204");
+    assert_eq!(seen[2].summary, "ada@example.test", "no code, no lead");
+    assert_eq!(seen[2].code, None);
+    assert_eq!(
+        *copies.0.lock().unwrap(),
+        ["771204"],
+        "the newest code, once"
+    );
+
+    // Without a clipboard the notification still leads with the code, and nothing is copied.
+    let quiet = Recorder::default();
+    let again = stored_as(
+        &store,
+        603,
+        "no-reply@service.example",
+        later,
+        "Your login code: 3907",
+        Body::Absent,
+    );
+    notify::announce(&store, account(), &[again], &quiet, None, later).unwrap();
+    assert_eq!(quiet.seen()[0].summary, "Your code: 3907");
+    assert_eq!(copies.0.lock().unwrap().len(), 1);
 }
 
 /// What the fake server holds: UID, raw bytes and flags, which a test adds to while the client
@@ -387,6 +484,7 @@ async fn watching<F: std::future::Future<Output = ()>>(
     let announce = sync::Announce::To {
         store,
         notifier: recorder,
+        copies: None,
     };
     let loop_ = async {
         loop {

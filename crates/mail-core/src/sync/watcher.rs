@@ -13,7 +13,7 @@ use crate::error::CoreError;
 use crate::fetch::{Event, Trigger};
 use crate::ipc::watching::Asked;
 use crate::mail::{Mail, SyncOps};
-use crate::notify::Notifier;
+use crate::notify::{Clipboard, Notifier};
 use chrono::{DateTime, Utc};
 use mail_runtime::schedule::{
     Change, Daemon, End, Host, ListenCall, Local, Lost, Note, PassCall, Passed, Schedule,
@@ -39,7 +39,12 @@ pub fn told(end: &PassEnd, announce: Announce<'_>, at: DateTime<Utc>, tell: &dyn
     let PassEnd::Finished(report) = end else {
         return;
     };
-    let Announce::To { store, notifier } = announce else {
+    let Announce::To {
+        store,
+        notifier,
+        copies,
+    } = announce
+    else {
         return;
     };
     if let Err(why) = crate::notify::announce(
@@ -47,6 +52,7 @@ pub fn told(end: &PassEnd, announce: Announce<'_>, at: DateTime<Utc>, tell: &dyn
         report.account.clone(),
         &report.counts.arrived,
         notifier,
+        copies,
         at,
     ) {
         tell(Watched::AnnounceFailed {
@@ -69,7 +75,8 @@ impl SyncOps<'_> {
     /// whose job is to stay open; the window is not that when it is closed, so this is.
     ///
     /// `notifier` is where what each pass fetches is announced: the desktop's
-    /// service in the binary, `None` for a watch that says nothing aloud.
+    /// service in the binary, `None` for a watch that says nothing aloud. `copies` is where an
+    /// announced message's one-time code is copied, for a person who asked for that.
     ///
     /// A watch has no end to return a report at, so each thing it would say is handed to `tell`
     /// as it happens ([`Watched`]) and the caller words it. It returns only once every account
@@ -80,6 +87,7 @@ impl SyncOps<'_> {
     pub async fn watch(
         &self,
         notifier: Option<&dyn Notifier>,
+        copies: Option<&dyn Clipboard>,
         tell: &dyn Fn(Watched),
         asked: Option<Asked>,
     ) -> Result<Vec<PassEnd>, CoreError> {
@@ -91,6 +99,7 @@ impl SyncOps<'_> {
             Some(notifier) => Announce::To {
                 store: mail.store(),
                 notifier,
+                copies,
             },
             None => Announce::Quietly,
         };

@@ -27,9 +27,10 @@ keyring = ["mail-runtime/keyring"]
 # On Linux, the account secrets in the Secret Service through oo7 (`mail-runtime`'s `oo7`).
 oo7 = ["mail-runtime/oo7"]
 # The desktop's notification service and the clicks on what it shows (`notify/desktop.rs`,
-# `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface. Without
-# it a watch announces through whatever `Notifier` it is handed, or nothing.
-desktop = ["dep:notify-rust", "dep:zbus"]
+# `notify/click.rs`): notify-rust, zbus for the signals notify-rust does not surface, and arboard
+# for the clipboard a code is copied to. Without it a watch announces through whatever `Notifier`
+# it is handed, and copies through whatever `Clipboard`, or neither.
+desktop = ["dep:notify-rust", "dep:zbus", "dep:arboard"]
 # A PDF attachment's pages for the preview (`preview.rs`), by pdfrum. Without it a PDF has no
 # preview ("could not be read") and everything else previews as before.
 pdf = ["dep:pdfrum"]
@@ -86,6 +87,10 @@ uuid = { workspace = true }
 # keyring's Secret Service store), `NSUserNotificationCenter` on macOS (mac-notification-sys) and
 # toasts on Windows (tauri-winrt-notification). MIT OR Apache-2.0, and so are both backends.
 notify-rust = { version = "4.18", optional = true }
+# The clipboard a one-time code is copied to, from a notification's Copy Code or as it is
+# announced (`notify/desktop.rs`). Already in the lock through the window's toolkit; no image
+# support, which a code does not need.
+arboard = { version = "3.6", optional = true, default-features = false }
 # `mailo contacts sync` takes a URL and hands it to the CardDAV client, which speaks `url`.
 url = "2"
 # A typed password is overwritten when it is dropped (`password.rs`). Already in the lock through

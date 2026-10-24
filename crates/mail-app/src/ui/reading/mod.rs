@@ -3,6 +3,7 @@ mod anyview;
 mod attachments;
 pub(super) mod blocks;
 mod cache;
+mod code;
 mod column;
 mod fetch;
 mod fit;
@@ -438,6 +439,13 @@ pub(super) fn Reader(
                             }),
                             message: message.clone(),
                             yours: yours.clone(),
+                        }
+                    }
+                    if fold != fold::Fold::Folded {
+                        code::CodeLine {
+                            key: "{message.id}-{message.body.raw():?}-code",
+                            message: message.id,
+                            body: message.body.raw(),
                         }
                     }
                     if fold != fold::Fold::Folded && blocked.as_ref().is_some_and(|blocked| blocked.id == message.id) {

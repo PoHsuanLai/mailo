@@ -73,6 +73,12 @@ pub fn sender_checks(said: &str) -> String {
     format!("Sender checks: {said}")
 }
 
+/// The quiet line under a message's header that carries a one-time code: the code, then Copy
+/// Code.
+pub fn one_time_code(code: &str) -> String {
+    format!("Code {code}")
+}
+
 /// The quiet line over a message whose remote images are held back; its actions follow it.
 pub const IMAGES_HIDDEN: &str = "Images hidden";
 

@@ -1,7 +1,8 @@
 //! What the reader finds out about one message beyond its body, and keeps so that opening it
 //! again costs a lookup: the checks the receiving server made of the sender, the invitation it
-//! carries, whether it asks for a read receipt, the thread's way out of its mailing list, and
-//! what OpenPGP or S/MIME made of it ([`seal`](super::seal)).
+//! carries, whether it asks for a read receipt, the one-time code in it ([`crate::otp`]), the
+//! thread's way out of its mailing list, and what OpenPGP or S/MIME made of it
+//! ([`seal`](super::seal)).
 //!
 //! Each of these is in the stored raw message, so finding it out reads a blob, and sometimes
 //! decrypts. They run on a blocking thread, for a message the reader has open and nowhere else,
@@ -35,6 +36,8 @@ const INVITES: usize = 128;
 const RECEIPTS: usize = 256;
 /// How many threads' list offers to keep. An offer is a few short strings.
 const LISTS: usize = 64;
+/// How many messages' one-time codes to keep. Each is a few characters.
+const CODES: usize = 128;
 
 /// What a thread's answers are a function of: its messages and the bytes each one has. A body
 /// that arrives, or a message that joins the thread, is a new key; nothing else changes it,
@@ -54,9 +57,11 @@ pub enum Read {
     List,
     /// A message opened as OpenPGP or S/MIME.
     Seal,
+    /// A message's one-time code.
+    Code,
 }
 
-const READS: usize = 5;
+const READS: usize = 6;
 
 /// An invitation a message carries, with what the user last answered it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +88,7 @@ pub struct Looks {
     invites: Found<Invited>,
     receipts: Found<Receipt>,
     lists: Mutex<Recent<ThreadId, (Bodies, Option<Offer>)>>,
+    codes: Found<String>,
     pub(super) seals: Mutex<Recent<MessageId, Kept>>,
     reads: [AtomicUsize; READS],
 }
@@ -113,6 +119,7 @@ impl Looks {
             invites: Mutex::new(Recent::new(INVITES)),
             receipts: Mutex::new(Recent::new(RECEIPTS)),
             lists: Mutex::new(Recent::new(LISTS)),
+            codes: Mutex::new(Recent::new(CODES)),
             seals: Mutex::new(Recent::new(seal::KEPT)),
             reads: Default::default(),
         }
@@ -206,6 +213,37 @@ impl Looks {
             InviteState::Shown { invite, answered } => Some(Invited { invite, answered }),
             InviteState::NotInvite | InviteState::Unknown => None,
         }
+    }
+
+    /// The code already found in `message` holding `body`, if it has been looked at. `Some(None)`
+    /// is a message that was looked at and carries none. Never reads the store.
+    pub fn code_cached(&self, message: MessageId, body: Option<BlobId>) -> Option<Option<String>> {
+        held(&self.codes)
+            .get(&message)
+            .filter(|(at, _)| *at == body)
+            .map(|(_, code)| code.clone())
+    }
+
+    /// [`code_cached`](Self::code_cached), else read from the store and remembered. A message
+    /// whose body is not here is read by its subject alone, and asked again when its body
+    /// arrives. This may read a blob: run it on a blocking thread, for a message the reader has
+    /// open.
+    pub fn code(
+        &self,
+        store: &SqliteStore,
+        message: MessageId,
+        body: Option<BlobId>,
+    ) -> Option<String> {
+        if let Some(had) = self.code_cached(message, body) {
+            return had;
+        }
+        self.count(Read::Code);
+        let code = store
+            .message(message)
+            .or_log("a message could not be read for its code")
+            .and_then(|stored| crate::otp::of_message(store, &stored));
+        held(&self.codes).put(message, (body, code.clone()));
+        code
     }
 
     /// The standings already found for every message in `key`, or `None` if any is missing.

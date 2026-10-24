@@ -54,6 +54,7 @@ pub(super) const SECTIONS: [Section; 2] = [
         lines: &[
             Line::DefaultMail,
             Line::Key("notifications.new_mail"),
+            Line::Key("notifications.copy_codes"),
             Line::Key("reading.read_receipts"),
             Line::Key("compose.spelling"),
             Line::Key("search.server_automatically"),
