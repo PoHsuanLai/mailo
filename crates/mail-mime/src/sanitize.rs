@@ -5,6 +5,7 @@ mod css;
 
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 /// Whether to let the message reach the network when it renders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -133,7 +134,46 @@ impl SafeHtml {
 /// assert_eq!(safe.blocked_remote(), 1);
 /// ```
 pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
-    let remote = policy.remote_images;
+    // What the filter saw is this call's alone: cleared before and taken after, on this thread,
+    // which is the one ammonia calls the filter on.
+    SEEN.with_borrow_mut(|seen| *seen = Seen::default());
+    let cleaned = builder(policy.styles, policy.remote_images)
+        .clean(html)
+        .to_string();
+    let seen = SEEN.with_borrow_mut(std::mem::take);
+    let (cleaned, body_style) = match policy.styles {
+        Styles::Kept => (css::scrub_style_elements(&cleaned), body::body_style(html)),
+        Styles::Dropped => (cleaned, None),
+    };
+    let mut safe = SafeHtml::new(cleaned, seen.blocked, seen.remote);
+    safe.body_style = body_style;
+    safe
+}
+
+/// What the attribute filter saw in one [`sanitize`]: the remote fetches it dropped, and the
+/// ones it kept, for `SafeHtml::remote_fetches`.
+#[derive(Debug, Default)]
+struct Seen {
+    blocked: u32,
+    remote: Vec<String>,
+}
+
+thread_local! {
+    /// The filter is shared by every call ([`builder`]) and must be `Send + Sync`, so what it
+    /// counts is kept per thread: a call cleans on its own thread from start to end.
+    static SEEN: std::cell::RefCell<Seen> = std::cell::RefCell::default();
+}
+
+/// The sanitizer for `styles` and `remote`, built once and shared: building one is a few dozen
+/// sets and maps, which cost more than cleaning a short reply. `SanitizePolicy::version` is not
+/// part of it, because it changes nothing the builder holds; it names the rules in a cache key.
+fn builder(styles: Styles, remote: RemoteImages) -> &'static ammonia::Builder<'static> {
+    static BUILT: [OnceLock<ammonia::Builder<'static>>; 4] = [const { OnceLock::new() }; 4];
+    let at = 2 * usize::from(styles == Styles::Kept) + usize::from(remote == RemoteImages::Allowed);
+    BUILT[at].get_or_init(|| build(styles, remote))
+}
+
+fn build(styles: Styles, remote: RemoteImages) -> ammonia::Builder<'static> {
     // Ammonia's defaults are an allowlist: script, style, iframe, object, embed, form,
     // input, button, base, meta, link, svg and every `on*` attribute are absent from it,
     // so they never reach the serializer. `style` stays off the list unless the policy keeps
@@ -142,22 +182,14 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
     // `url_schemes` is global, so it cannot express "cid always, http(s) only on images and
     // only when the reader opted in". The attribute filter applies that second rule to
     // attributes ammonia has already scheme-checked.
-    // Shared with the attribute filter, which ammonia calls while cleaning. An `AtomicU32`
-    // rather than a `Cell` because the filter must be `Send + Sync`.
-    let blocked = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
-    let counter = blocked.clone();
-    // What the filter kept that reaches the network, for `SafeHtml::remote_fetches`. A `Mutex`
-    // for the same reason: the filter is `Send + Sync`.
-    let kept_remote = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
-    let recorder = kept_remote.clone();
     let mut builder = ammonia::Builder::new();
-    if policy.styles == Styles::Kept {
+    if styles == Styles::Kept {
         builder
             .rm_clean_content_tags(&["style"])
             .add_tags(&["style", "font", "center"])
             .add_generic_attributes(&PRESENTATIONAL);
     }
-    let cleaned = builder
+    builder
         .url_schemes(HashSet::from(["http", "https", "mailto", "cid"]))
         .url_relative(ammonia::UrlRelative::Deny)
         .link_rel(Some("noopener noreferrer"))
@@ -175,40 +207,20 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
             if fetches_on_render(element, attribute) {
                 let kept = keep_fetched_url(value, remote);
                 if is_remote(value) {
-                    if kept.is_none() {
-                        counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    } else {
-                        let mut list = recorder
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner);
-                        if !list.iter().any(|seen| seen == value) {
-                            list.push(value.to_owned());
+                    SEEN.with_borrow_mut(|seen| {
+                        if kept.is_none() {
+                            seen.blocked += 1;
+                        } else if !seen.remote.iter().any(|it| it == value) {
+                            seen.remote.push(value.to_owned());
                         }
-                    }
+                    });
                 }
                 kept
             } else {
                 Some(Cow::Borrowed(value))
             }
-        })
-        .clean(html)
-        .to_string();
-    let (cleaned, body_style) = match policy.styles {
-        Styles::Kept => (css::scrub_style_elements(&cleaned), body::body_style(html)),
-        Styles::Dropped => (cleaned, None),
-    };
-    let remote_urls = std::mem::take(
-        &mut *kept_remote
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner),
-    );
-    let mut safe = SafeHtml::new(
-        cleaned,
-        blocked.load(std::sync::atomic::Ordering::Relaxed),
-        remote_urls,
-    );
-    safe.body_style = body_style;
-    safe
+        });
+    builder
 }
 
 /// Elements whose content a browser never draws as text, removed with everything in them.

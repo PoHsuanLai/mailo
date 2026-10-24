@@ -94,6 +94,7 @@ mod shell_tests;
 #[cfg(test)]
 mod tips_tests;
 
+pub(crate) use fetching::on_write;
 pub use launch::run;
 
 /// The window on Blitz, for a test to drive through `ds_harness::Harness`.

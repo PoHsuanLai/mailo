@@ -88,6 +88,24 @@ struct Written {
 
 /// Watch the database at `file`, and the `-wal` beside it, or `None` when this system will not.
 fn watch(file: &Path) -> Option<Written> {
+    let (tx, said) = unbounded_channel();
+    // Gone only when the window is, which is not a write to say anything about.
+    let watcher = on_write(file, move || {
+        let _ = tx.send(());
+    })?;
+    Some(Written {
+        _watcher: watcher,
+        said,
+    })
+}
+
+/// Call `said` whenever the database at `file`, or the `-wal` beside it, is written to, for as
+/// long as the watcher returned is kept; `None` when this system will not watch it. Also what
+/// keeps the launcher's count (`crate::session`) from asking when nothing was written.
+pub(crate) fn on_write(
+    file: &Path,
+    said: impl Fn() + Send + 'static,
+) -> Option<notify::RecommendedWatcher> {
     let name = file.file_name()?.to_owned();
     let mut wal = name.clone();
     wal.push("-wal");
@@ -95,7 +113,6 @@ fn watch(file: &Path) -> Option<Written> {
         Some(dir) if !dir.as_os_str().is_empty() => dir,
         _ => Path::new("."),
     };
-    let (tx, said) = unbounded_channel();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let ours = match event {
             // Reading is not committing, and the window's own readers read all the time.
@@ -110,16 +127,12 @@ fn watch(file: &Path) -> Option<Written> {
             Err(_) => true,
         };
         if ours {
-            // Gone only when the window is, which is not a write to say anything about.
-            let _ = tx.send(());
+            said();
         }
     })
     .ok()?;
     watcher.watch(dir, RecursiveMode::NonRecursive).ok()?;
-    Some(Written {
-        _watcher: watcher,
-        said,
-    })
+    Some(watcher)
 }
 
 /// Whether the store was written to before `every` passed. Writes heard together are one look.

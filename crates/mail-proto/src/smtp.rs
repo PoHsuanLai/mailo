@@ -1470,49 +1470,49 @@ fn crlf(message: &[u8]) -> Vec<u8> {
 /// A lone CR or LF is sent as CRLF ([`crlf`]). When the message does not already end on a line
 /// break, a CRLF is added first so the dot occupies a line of its own.
 fn data_lines(message: &[u8]) -> Vec<Vec<u8>> {
-    let message = crlf(message);
-    let mut lines = Vec::new();
-    let mut current = Vec::new();
-    let mut ended_on_break = false;
-    let mut i = 0;
-    while i < message.len() {
-        if message[i] == b'\n' {
-            lines.push(stuff_line(std::mem::take(&mut current)));
-            ended_on_break = true;
-            i += 1;
-            continue;
-        }
-        if message[i] == b'\r' && message.get(i + 1) == Some(&b'\n') {
-            lines.push(stuff_line(std::mem::take(&mut current)));
-            ended_on_break = true;
-            i += 2;
-            continue;
-        }
-        current.push(message[i]);
-        ended_on_break = false;
-        i += 1;
-    }
-    if !ended_on_break {
-        lines.push(stuff_line(current));
-    }
+    let mut lines: Vec<Vec<u8>> = message_lines(message).map(stuff_line).collect();
     lines.push(b".\r\n".to_vec());
     lines
 }
 
-fn stuff_line(line: Vec<u8>) -> Vec<u8> {
+/// The lines [`data_lines`] sends, without their breaks or stuffing: split at each CRLF, each
+/// lone LF and each lone CR, the breaks [`crlf`] makes CRLF, and the text after the last break
+/// when the message does not end on one (an empty message is one empty line).
+fn message_lines(message: &[u8]) -> impl Iterator<Item = &[u8]> {
+    let mut rest = Some(message);
+    std::iter::from_fn(move || {
+        let text = rest?;
+        let Some(at) = text.iter().position(|byte| matches!(byte, b'\r' | b'\n')) else {
+            rest = None;
+            return Some(text);
+        };
+        let width = if text[at..].starts_with(b"\r\n") {
+            2
+        } else {
+            1
+        };
+        let after = &text[at + width..];
+        rest = (!after.is_empty()).then_some(after);
+        Some(&text[..at])
+    })
+}
+
+fn stuff_line(line: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(line.len() + 3);
     if line.first() == Some(&b'.') {
         out.push(b'.');
     }
-    out.extend_from_slice(&line);
+    out.extend_from_slice(line);
     out.extend_from_slice(b"\r\n");
     out
 }
 
-/// Octets that will be sent, excluding the terminating dot line.
+/// Octets that will be sent, excluding the terminating dot line. Counted from the same lines
+/// [`data_lines`] sends, without copying them: the copy is made once, when `DATA` is answered.
 fn transmitted_octets(message: &[u8]) -> u64 {
-    let lines = data_lines(message);
-    let body: usize = lines.iter().rev().skip(1).map(Vec::len).sum();
+    let body: usize = message_lines(message)
+        .map(|line| usize::from(line.first() == Some(&b'.')) + line.len() + 2)
+        .sum();
     body as u64
 }
 
@@ -1799,6 +1799,27 @@ mod tests {
         assert_eq!(transmitted_octets(b"hello"), 7);
         assert_eq!(transmitted_octets(b".x\r\n"), 5);
         assert_eq!(transmitted_octets(b""), 2);
+    }
+
+    #[test]
+    fn the_size_counted_is_the_size_sent() {
+        let cases: &[&[u8]] = &[
+            b"",
+            b"\n",
+            b"\r",
+            b"\r\n",
+            b"a\rb",
+            b"a\r",
+            b"a\r\r\n.b",
+            b"\n\n.\n",
+            b".",
+            b"x\r\n.y\nz",
+        ];
+        for input in cases {
+            let lines = data_lines(input);
+            let sent: usize = lines[..lines.len() - 1].iter().map(Vec::len).sum();
+            assert_eq!(transmitted_octets(input), sent as u64, "input {input:?}");
+        }
     }
 
     #[test]

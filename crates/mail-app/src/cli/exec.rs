@@ -423,7 +423,9 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             eprintln!("Sync in an open window will not reach this watch: {why}");
         }
         // The unread count on the launcher, kept up whether or not a window is open.
-        if let Some(Err(e)) = crate::session::keep_the_launchers_badge(store.clone()) {
+        if let Some(Err(e)) =
+            crate::session::keep_the_launchers_badge(store.clone(), store.file().map(Into::into))
+        {
             eprintln!("the launcher's unread count is off: {e}");
         }
         println!("watching. Ctrl-C to stop.");

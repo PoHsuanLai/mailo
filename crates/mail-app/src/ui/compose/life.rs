@@ -8,6 +8,9 @@ use mail_core::SigningStore;
 use mail_core::compose::Leaves;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use super::page::List;
 use super::page::{Guard, Page, Phase, Saved, When, Wire};
@@ -49,10 +52,52 @@ pub(in crate::ui) fn save(
     page: &mut Page,
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
+    let edited = {
+        let mut written = written();
+        let edited = put(store, page, now)?;
+        // This page is the newest there is: nothing was taken after it.
+        written.insert(page.draft, stamp());
+        edited
+    };
+    page.saved = Saved::Clean;
+    Ok(edited)
+}
+
+/// A page taken now, to be written by [`save_stamped`]: each is later than every one before.
+pub(in crate::ui) fn stamp() -> u64 {
+    static STAMPS: AtomicU64 = AtomicU64::new(0);
+    STAMPS.fetch_add(1, Ordering::Relaxed) + 1
+}
+
+/// Write `page`, as it was when `stamp` was taken, to its draft, off the thread that draws:
+/// autosave's. `None` when a page taken later was written first, by a save of the page's own,
+/// which a page taken earlier must not undo. The page's dot is the caller's to clear.
+pub(in crate::ui) fn save_stamped(
+    store: &SqliteStore,
+    page: &Page,
+    stamp: u64,
+    now: DateTime<Utc>,
+) -> Result<Option<Draft>, String> {
+    let mut written = written();
+    if written.get(&page.draft).is_some_and(|last| *last > stamp) {
+        return Ok(None);
+    }
+    let edited = put(store, page, now)?;
+    written.insert(page.draft, stamp);
+    Ok(Some(edited))
+}
+
+/// The stamp of the page each draft was last written from. Held while a write is made, so writes
+/// of one draft go one at a time and in the order their pages were taken.
+fn written() -> MutexGuard<'static, BTreeMap<DraftId, u64>> {
+    static WRITTEN: Mutex<BTreeMap<DraftId, u64>> = Mutex::new(BTreeMap::new());
+    WRITTEN.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn put(store: &SqliteStore, page: &Page, now: DateTime<Utc>) -> Result<Draft, String> {
     let base = store.draft(page.draft).map_err(|e| e.to_string())?;
     let edited = page.apply_to(&base, now);
     mail_core::compose::save(store, &edited)?;
-    page.saved = Saved::Clean;
     Ok(edited)
 }
 

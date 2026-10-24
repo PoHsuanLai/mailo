@@ -209,7 +209,7 @@ pub(super) fn Reader(
     // and its cache entry are already per message and keyed by the policy (`cache`), and the
     // Original frames' consent lists each message's fetches apart (`ui/original`), so nothing
     // has to be shared between messages that would let one's allowance reach another.
-    let mut shown: Vec<(Message, Option<FrameBody>, bool, bool)> = loaded
+    let mut shown: Vec<(Message, Option<Arc<FrameBody>>, bool, bool)> = loaded
         .messages
         .iter()
         .rev()
@@ -256,7 +256,7 @@ pub(super) fn Reader(
     *embedded.borrow_mut() = shown
         .iter()
         .map(|(message, body, ..)| {
-            let images = body.as_ref().map(FrameBody::embedded).unwrap_or_default();
+            let images = body.as_deref().map(FrameBody::embedded).unwrap_or_default();
             (message.id, images.to_vec())
         })
         .collect();
@@ -284,7 +284,7 @@ pub(super) fn Reader(
                 .iter()
                 .filter(|(.., showing)| *showing)
                 .map(|(message, body, ..)| {
-                    let fetches = body.as_ref().map(FrameBody::frame_fetches);
+                    let fetches = body.as_deref().map(FrameBody::frame_fetches);
                     (message.id, fetches.unwrap_or_default().to_vec())
                 })
                 .collect()
@@ -458,7 +458,7 @@ pub(super) fn Reader(
                         }
                     }
                     if fold != fold::Fold::Folded {
-                        match body {
+                        match body.as_deref() {
                             // Being rendered off the thread: the frame's own box, so nothing moves
                             // when it lands.
                             None => rsx! {
@@ -476,8 +476,8 @@ pub(super) fn Reader(
                                 blocks::MessageView {
                                     holder: consent.as_ref().map(|(_, holder)| *holder),
                                     message_id: message.id,
-                                    html,
-                                    plain,
+                                    html: html.clone(),
+                                    plain: *plain,
                                     fit: at + 1 < count,
                                 }
                             },
