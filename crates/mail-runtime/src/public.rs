@@ -1,7 +1,7 @@
 //! Fetches a message or a sender's domain chose the address of, kept on the public internet.
 //!
-//! A remote image, a BIMI logo, a WKD key, a one-click unsubscribe and a discovery document are
-//! each fetched from where someone else said: the message's HTML, the sender's DNS, a header.
+//! A remote image, a BIMI logo, a WKD key and a one-click unsubscribe are each fetched from where
+//! someone else said: the message's HTML, the sender's DNS, a header.
 //! Pointed at `127.0.0.1`, a router's `192.168.1.1` or a cloud's `169.254.169.254`, such a fetch
 //! is the reader's machine making a request inside their own network on a stranger's behalf, and
 //! telling the stranger, by whether it loaded, what answered. So these clients reach public
@@ -10,7 +10,12 @@
 //! never reaches a resolver at all.
 //!
 //! The servers a person configured (IMAP, CardDAV, JMAP) are not fetched through here: one on
-//! their own network is theirs to choose.
+//! their own network is theirs to choose. Nor is account discovery, which starts from the
+//! person's own address: a self-hosted server at `192.168.1.10` or `mail.home.arpa` is the one
+//! they mean to find.
+//!
+//! These clients use no proxy. A proxy resolves the name itself, so behind one the resolver here
+//! would never be asked and the guard would be no guard.
 
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -59,7 +64,26 @@ fn v6_is_public(ip: Ipv6Addr) -> bool {
         || (first & 0xffc0) == 0xfec0
         || (first == 0x2001 && ip.segments()[1] == 0x0db8)
         // ::/96, IPv4-compatible, the old way of carrying a v4 address.
-        || ip.segments()[..6].iter().all(|s| *s == 0))
+        || ip.segments()[..6].iter().all(|s| *s == 0)
+        // 64:ff9b:1::/48, local-use NAT64 (RFC 8215), which is not globally reachable.
+        || ip.segments()[..3] == [0x64, 0xff9b, 1])
+        && carried_v4(ip).is_none_or(v4_is_public)
+}
+
+/// The IPv4 address a translated or tunnelled IPv6 address reaches: the last 32 bits of the
+/// well-known NAT64 prefix `64:ff9b::/96` (RFC 6052), and the 32 bits after `2002` in 6to4's
+/// `2002::/16` (RFC 3056). A router on the way delivers to that address, so it is what is public
+/// or not.
+fn carried_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
+    let s = ip.segments();
+    let v4 = |high: u16, low: u16| Ipv4Addr::from((u32::from(high) << 16) | u32::from(low));
+    if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+        Some(v4(s[6], s[7]))
+    } else if s[0] == 0x2002 {
+        Some(v4(s[1], s[2]))
+    } else {
+        None
+    }
 }
 
 /// Whether a host name is one that only ever names something on this machine or its network.
@@ -83,9 +107,9 @@ pub fn url_is_public(url: &reqwest::Url) -> bool {
 }
 
 /// `builder` with a resolver that keeps only the public addresses a name resolves to, and fails
-/// a name that has none.
+/// a name that has none, and with no proxy, which would resolve the name past that resolver.
 pub fn guarded(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
-    builder.dns_resolver(Arc::new(PublicOnly))
+    builder.dns_resolver(Arc::new(PublicOnly)).no_proxy()
 }
 
 /// The system's resolver, with every address that is not public dropped.
@@ -151,6 +175,14 @@ mod tests {
             ("::ffff:169.254.169.254", false),
             ("::ffff:8.8.8.8", true),
             ("::127.0.0.1", false),
+            // NAT64 and 6to4 reach the IPv4 address inside them.
+            ("64:ff9b::7f00:1", false),
+            ("64:ff9b::a9fe:a9fe", false),
+            ("64:ff9b::808:808", true),
+            ("64:ff9b:1::808:808", false),
+            ("2002:c0a8:101::1", false),
+            ("2002:7f00:1::1", false),
+            ("2002:808:808::1", true),
         ];
         for (ip, public) in cases {
             let parsed: IpAddr = ip.parse().unwrap();

@@ -142,18 +142,19 @@ fn fault(e: hickory_resolver::net::NetError) -> DnsFault {
 /// A client configured for fetching configuration documents: https only, [`PER_REQUEST`],
 /// redirects only to `https:`.
 ///
+/// Not kept to the public internet as [`crate::public`]'s clients are: discovery starts from the
+/// person's own address, and a self-hosted or split-horizon server on their network (a private
+/// address, a `.home.arpa` name) is the one they are adding.
+///
 /// A builder so a test can trust its own certificate and point names at a local listener;
 /// everything that makes the fetch safe is already set.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    crate::public::guarded(reqwest::Client::builder())
+    reqwest::Client::builder()
         .timeout(PER_REQUEST)
         .connect_timeout(PER_REQUEST)
         .https_only(true)
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= REDIRECTS
-                || attempt.url().scheme() != "https"
-                || !crate::public::url_is_public(attempt.url())
-            {
+            if attempt.previous().len() >= REDIRECTS || attempt.url().scheme() != "https" {
                 attempt.stop()
             } else {
                 attempt.follow()

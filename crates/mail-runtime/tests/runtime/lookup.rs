@@ -142,6 +142,25 @@ async fn a_redirect_to_plain_http_is_not_followed() {
     );
 }
 
+/// Discovery starts from the person's own address, so a redirect to a server on their own
+/// network (here this machine) is followed: a self-hosted server is the one they are adding.
+#[tokio::test]
+async fn a_redirect_to_a_server_on_the_person_s_own_network_is_followed() {
+    let (local, connected) = hang_up().await;
+    let local_port = local.port();
+    let (addr, _) = server(move |_| {
+        format!(
+            "HTTP/1.1 302 Found\r\nLocation: https://127.0.0.1:{local_port}/x.xml\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+        )
+    })
+    .await;
+    // The listener hangs up, so the fetch fails; that it was reached is the point.
+    let _ = trusting(addr)
+        .send(get("https://example.test/mail/config-v1.1.xml"))
+        .await;
+    assert_eq!(*connected.lock().unwrap(), 1, "the redirect was followed");
+}
+
 #[tokio::test]
 async fn a_document_over_the_limit_is_too_large() {
     let (addr, _) = server(|target| match target {

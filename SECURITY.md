@@ -33,9 +33,12 @@ code does about that, as of 0.1.0:
   network is scrubbed before a sender's styles are kept for the reader's frame.
 - **mailo's own fetches are HTTPS-only, with certificates checked:** server discovery, WKD key
   lookup, BIMI logos, CardDAV, one-click unsubscribe and allowed remote images. A remote image
-  named `http:` is asked for over `https:` at the same address. A shared resolver refuses
-  loopback, private, link-local and `.local` addresses, so a message cannot make mailo reach the
-  machine it runs on or the local network.
+  named `http:` is asked for over `https:` at the same address. For every fetch whose address a
+  message or a sender's domain chose (remote images, BIMI, WKD, unsubscribe), a shared resolver
+  refuses loopback, private, link-local and `.local` addresses, including those carried in
+  NAT64 and 6to4, and no proxy is used, so a message cannot make mailo reach the machine it runs
+  on or the local network. Server discovery starts from your own address, so it may reach a
+  server on your own network.
 - **Untrusted input is bounded.** Server responses (IMAP literals, JMAP event streams, POP3
   multi-line answers) and fetched bodies are read up to a fixed size.
 - **Secrets are kept in the OS keychain:** the login keychain on macOS, the Credential Manager on
@@ -44,7 +47,7 @@ code does about that, as of 0.1.0:
 - **Attachment names are not trusted.** A name chosen by the sender is reduced to one safe path
   component before anything is written, so a name like `../../x` cannot escape the folder.
 - **Files are private.** mailo's data, config and cache folders are mode 0700 and its database,
-  blobs and saved attachments 0600. On macOS a saved or opened attachment carries the quarantine
+  blobs, saved attachments and exports 0600. On macOS a saved or opened attachment carries the quarantine
   mark. A program or script is never opened from mailo; it is shown in its folder.
 - **Unauthenticated decryption is said so.** An S/MIME body decrypted from a mode without
   integrity (AES-CBC) keeps remote content blocked, and its status says it is not authenticated.
