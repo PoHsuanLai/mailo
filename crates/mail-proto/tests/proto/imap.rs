@@ -553,3 +553,92 @@ mod a_refused_login {
         );
     }
 }
+
+/// A session told to upgrade with STARTTLS does so before it signs in, asks for the capabilities
+/// again under TLS, and writes no credential to a server that will not upgrade.
+#[test]
+fn starttls_comes_before_the_password_or_nothing_does() {
+    let password = || ImapAuth {
+        username: "ada@example.test".to_owned(),
+        credential: Credential::Password(SecretText::new("hunter2".to_owned())),
+        sasl: vec![SaslMech::Plain],
+    };
+    let cases: &[(&str, &str)] = &[
+        (
+            "upgraded, then signed in",
+            "S: * OK [CAPABILITY IMAP4rev1 STARTTLS LOGINDISABLED] ready\n\
+             C: a001 STARTTLS\n\
+             S: a001 OK Begin TLS negotiation now\n\
+             TLS\n\
+             C: a002 CAPABILITY\n\
+             S: * CAPABILITY IMAP4rev1 AUTH=PLAIN\n\
+             S: a002 OK done\n\
+             C: a003 LOGIN \"ada@example.test\" \"hunter2\"\n\
+             S: a003 OK signed in\n\
+             DONE\n",
+        ),
+        (
+            "refused",
+            "S: * OK ready\n\
+             C: a001 STARTTLS\n\
+             S: a001 BAD unknown command\n\
+             FAIL Unsupported\n",
+        ),
+        (
+            "greeted signed in already",
+            "S: * PREAUTH ready\n\
+             FAIL Unsupported\n",
+        ),
+        (
+            "more said after the go-ahead",
+            "S: * OK ready\n\
+             C: a001 STARTTLS\n\
+             S64: YTAwMSBPSyBnbw0KKiBPSyBpbmplY3RlZA0K\n\
+             FAIL Malformed\n",
+        ),
+    ];
+    for (case, trace) in cases {
+        let mut s = ImapSession::new(password(), vec![ImapCommand::Login])
+            .unwrap()
+            .with_starttls("imap.example.test", 143);
+        let ended = replay(&mut s, trace);
+        assert_eq!(
+            matches!(ended, common::Ended::Done(_)),
+            *case == "upgraded, then signed in",
+            "{case}"
+        );
+    }
+}
+
+/// The capabilities heard before TLS are forgotten: a man in the middle could have written them.
+#[test]
+fn the_capabilities_said_before_starttls_are_forgotten() {
+    let mut s = session(vec![]).with_starttls("imap.example.test", 143);
+    let out = replay(
+        &mut s,
+        "S: * OK [CAPABILITY IMAP4rev1 STARTTLS AUTH=XOAUTH2 IDLE] ready\n\
+         C: a001 STARTTLS\n\
+         S: a001 OK go ahead\n\
+         TLS\n\
+         C: a002 CAPABILITY\n\
+         S: * CAPABILITY IMAP4rev1 AUTH=XOAUTH2\n\
+         S: a002 OK done\n\
+         DONE\n",
+    )
+    .unwrap();
+    assert!(!mail_proto::has_capability(&out.capabilities, "IDLE"));
+    assert!(!mail_proto::has_capability(&out.capabilities, "STARTTLS"));
+}
+
+/// A session resumed on a connection already open goes straight to its command: that connection
+/// was upgraded when it was opened, and a second `STARTTLS` on it is refused.
+#[test]
+fn a_resumed_session_does_not_upgrade_again() {
+    let mut s = session(vec![ImapCommand::Noop])
+        .with_starttls("imap.example.test", 143)
+        .resuming(mail_proto::Resume {
+            tags: 3,
+            ..mail_proto::Resume::default()
+        });
+    replay(&mut s, "C: a004 NOOP\nS: a004 OK done\nDONE\n").unwrap();
+}

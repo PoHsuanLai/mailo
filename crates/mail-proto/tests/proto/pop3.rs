@@ -283,3 +283,55 @@ fn retr_err_is_a_refusal_and_does_not_wait_for_a_dot() {
         "{err:?}"
     );
 }
+
+/// A session told to upgrade with STLS does so before it signs in, and writes no password to a
+/// server that will not upgrade or says more after agreeing to.
+#[test]
+fn stls_comes_before_the_password_or_nothing_does() {
+    let cases: &[(&str, &str, bool)] = &[
+        (
+            "upgraded, then signed in",
+            "S: +OK POP3 ready\n\
+             C: STLS\n\
+             S: +OK Begin TLS negotiation\n\
+             TLS\n\
+             C: CAPA\n\
+             S: +OK\n\
+             S: USER\n\
+             S: .\n\
+             C: USER student\n\
+             S: +OK\n\
+             C: PASS s3cret\n\
+             S: +OK signed in\n\
+             DONE\n",
+            true,
+        ),
+        (
+            "refused",
+            "S: +OK POP3 ready\n\
+             C: STLS\n\
+             S: -ERR not here\n\
+             FAIL Unsupported\n",
+            false,
+        ),
+        (
+            "more said after the go-ahead",
+            "S: +OK POP3 ready\n\
+             C: STLS\n\
+             S64: K09LIGdvDQorT0sgaW5qZWN0ZWQNCg==\n\
+             FAIL Malformed\n",
+            false,
+        ),
+    ];
+    for (case, trace, signs_in) in cases {
+        let mut session = Pop3Session::new(
+            USER,
+            PASS,
+            vec![Pop3Command::Capa, Pop3Command::User, Pop3Command::Pass],
+        )
+        .expect("fixture credentials")
+        .with_starttls("pop.example.test", 110);
+        let ended = replay(&mut session, trace);
+        assert_eq!(matches!(ended, common::Ended::Done(_)), *signs_in, "{case}");
+    }
+}
