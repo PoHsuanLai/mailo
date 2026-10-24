@@ -63,10 +63,11 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
     (33, include_str!("../migrations/0033_graph_push.sql")),
     (34, include_str!("../migrations/0034_signatures.sql")),
     (35, include_str!("../migrations/0035_account_prefs.sql")),
+    (36, include_str!("../migrations/0036_priority_delivery.sql")),
 ];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 35;
+pub const EXPECTED_VERSION: u32 = 36;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///

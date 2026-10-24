@@ -27,7 +27,7 @@ use crate::draft::Draft;
 use crate::folder::{Folder, FolderWork};
 use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
-use crate::receipt::Keyword;
+use crate::receipt::{DeliveryReport, Keyword};
 use crate::remote::MailboxRef;
 use crate::state::{FollowUp, MailboxRole, Membership, Mute, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
@@ -222,6 +222,9 @@ pub enum RemoteIntent {
         raw: BlobId,
         mail_from: String,
         rcpt_to: Vec<String>,
+        /// Whether the envelope asks for delivery reports, as the draft did when it was sent.
+        #[serde(default)]
+        delivery: DeliveryReport,
     },
     /// Create, rename, delete or follow a mailbox.
     ///

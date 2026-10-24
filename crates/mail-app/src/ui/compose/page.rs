@@ -3,9 +3,12 @@
 
 use std::collections::BTreeMap;
 
+use crate::settings::MessageFormat;
 use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
 use mail_core::when::Clock;
-use mail_domain::{Address, Draft, DraftId, IdentityId, ReceiptRequest, SignatureId};
+use mail_domain::{
+    Address, DeliveryReport, Draft, DraftId, IdentityId, Priority, ReceiptRequest, SignatureId,
+};
 use porter_core::AccountId;
 
 use mail_core::compose::doc_of;
@@ -164,7 +167,8 @@ pub(in crate::ui) enum Float {
     Signature,
     /// Send ▾: Send Later, Remind Me If No Reply and Ask for Read Receipt.
     SendMenu,
-    /// The foot's ⋯: Security, Show Plain Text, Save as Template…, Keep for Later, Delete Draft.
+    /// The foot's ⋯: Security, Priority, Request Delivery Receipt, Show Plain Text, Save as
+    /// Template…, Keep for Later, Delete Draft.
     More,
     /// The emoji picker, opened from the `/` menu at the caret.
     EmojiPicker,
@@ -267,6 +271,14 @@ pub(in crate::ui) struct Page {
     pub remind: super::remind::Remind,
     /// Whether the message asks its recipients for a read receipt.
     pub receipt: ReceiptRequest,
+    /// How urgent the message says it is: ⋯ › Priority.
+    pub priority: Priority,
+    /// Whether the submission asks for delivery reports: ⋯ › Request Delivery Receipt.
+    pub delivery: DeliveryReport,
+    /// What the message is written as. Plain sends the text alone, with no HTML part, and draws
+    /// no formatting bubble. Settled when the page opens (`life::load`), from `compose.format` and,
+    /// for a reply, the message it answers.
+    pub format: MessageFormat,
     /// How the message is signed or encrypted when it is sent: OpenPGP or S/MIME, never both.
     pub protection: super::protection::Protection,
     /// What stands between that and Send, in the warning bar.
@@ -338,6 +350,11 @@ impl Page {
             when: When::Now,
             remind: super::remind::Remind::Off,
             receipt: draft.receipt,
+            priority: draft.priority,
+            delivery: draft.delivery,
+            // A draft that kept HTML was written rich; one with none is settled by the caller,
+            // who knows the settings and what it answers.
+            format: MessageFormat::Rich,
             protection: super::protection::Protection::of(draft),
             seal_bar: super::seal::SealBar::Clear,
             attached,
@@ -383,12 +400,34 @@ impl Page {
             bcc: self.bcc.iter().map(address).collect(),
             subject: self.subject.clone(),
             text: mail_core::editor::to_flowed(doc),
-            html: Some(mail_core::editor::to_html(doc)),
+            html: match self.format {
+                MessageFormat::Rich => Some(mail_core::editor::to_html(doc)),
+                MessageFormat::Plain => None,
+            },
             receipt: self.receipt,
+            priority: self.priority,
+            delivery: self.delivery,
             openpgp: self.protection.openpgp(),
             smime: self.protection.smime(),
             updated: now,
             ..base.clone()
+        }
+    }
+
+    /// Ask for delivery reports, or stop asking.
+    pub(in crate::ui) fn toggle_delivery(&mut self) {
+        self.delivery = match self.delivery {
+            DeliveryReport::Unrequested => DeliveryReport::Requested,
+            DeliveryReport::Requested => DeliveryReport::Unrequested,
+        };
+        self.touch();
+    }
+
+    /// Say the message is this urgent.
+    pub(in crate::ui) fn set_priority(&mut self, priority: Priority) {
+        if self.priority != priority {
+            self.priority = priority;
+            self.touch();
         }
     }
 

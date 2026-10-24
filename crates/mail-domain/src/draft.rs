@@ -5,7 +5,8 @@ use crate::content::Address;
 use crate::id::{BlobId, DraftId, IdentityId, MessageId};
 use crate::message::Message;
 use crate::pgp::OpenPgp;
-use crate::receipt::ReceiptRequest;
+use crate::priority::Priority;
+use crate::receipt::{DeliveryReport, ReceiptRequest};
 use crate::retry::Retry;
 use crate::smime::Smime;
 use chrono::{DateTime, Utc};
@@ -98,6 +99,14 @@ pub struct Draft {
     /// `openpgp`: sending refuses a draft that asks both.
     #[serde(default)]
     pub smime: Smime,
+    /// How urgent the message says it is (`X-Priority` and `Importance`). Defaulted so drafts
+    /// persisted before priorities existed still load, as Normal, which writes neither header.
+    #[serde(default)]
+    pub priority: Priority,
+    /// Whether the submission asks the servers to report its delivery (RFC 3461). Defaulted so
+    /// drafts persisted before delivery reports existed still load, asking for none.
+    #[serde(default)]
+    pub delivery: DeliveryReport,
     pub state: SendState,
     pub updated: DateTime<Utc>,
 }
@@ -168,6 +177,8 @@ impl Draft {
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
             smime: Smime::None,
+            priority: Priority::Normal,
+            delivery: DeliveryReport::Unrequested,
             state: SendState::Editing,
             updated: now,
         }
@@ -201,6 +212,8 @@ impl Draft {
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
             smime: Smime::None,
+            priority: Priority::Normal,
+            delivery: DeliveryReport::Unrequested,
             state: SendState::Editing,
             updated: now,
         }
@@ -232,6 +245,8 @@ impl Draft {
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
             smime: Smime::None,
+            priority: Priority::Normal,
+            delivery: DeliveryReport::Unrequested,
             state: SendState::Editing,
             updated: now,
         }

@@ -503,6 +503,8 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
                  threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,
                  position INTEGER NOT NULL);
              CREATE INDEX views_position ON views(position);
+             ALTER TABLE drafts DROP COLUMN priority;
+             ALTER TABLE drafts DROP COLUMN delivery;
              DELETE FROM schema_version WHERE version >= 12;",
     )
     .expect("un-apply the migrations");

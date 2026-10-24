@@ -106,7 +106,7 @@ async fn command_comma_and_the_foot_menu_ask_for_the_settings_window() {
 }
 
 #[tokio::test]
-async fn general_draws_reading_then_mail_with_their_rows() {
+async fn general_draws_reading_then_mail_then_composing_with_their_rows() {
     let built = work();
     let (dom, _seen) = opened_on(&built, SettingsPage::General);
     let page = dioxus_ssr::render(&dom);
@@ -118,8 +118,12 @@ async fn general_draws_reading_then_mail_with_their_rows() {
         "Brand logos",
         "Mail",
         "Notifications",
-        "Check spelling",
         "Search server",
+        crate::ui::copy::headers::COMPOSING,
+        "Message format",
+        "Reply in the same format as the original",
+        "Undo send",
+        "Check spelling",
     ] {
         let at = page[from..]
             .find(&format!(">{label}<"))

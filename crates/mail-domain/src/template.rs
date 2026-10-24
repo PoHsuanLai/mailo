@@ -109,6 +109,10 @@ impl Template {
             receipt: self.receipt,
             openpgp: self.openpgp,
             smime: self.smime,
+            // How urgent a message is, and whether its delivery is reported, are said of one
+            // message as it goes out; a template is the words, kept for many.
+            priority: crate::priority::Priority::Normal,
+            delivery: crate::receipt::DeliveryReport::Unrequested,
             state: SendState::Editing,
             updated: now,
         }
@@ -155,6 +159,8 @@ mod tests {
             receipt: ReceiptRequest::Requested,
             openpgp: OpenPgp::SignAndEncrypt,
             smime: Smime::Sign,
+            priority: crate::priority::Priority::High,
+            delivery: crate::receipt::DeliveryReport::Requested,
             state: SendState::Sent {
                 at: at(8),
                 message: None,
@@ -198,6 +204,12 @@ mod tests {
             "never silently plain"
         );
         assert_eq!(started.smime, Smime::Sign, "never silently plain");
+        // Said of the one message the template was kept from, not of every message it starts.
+        assert_eq!(started.priority, crate::priority::Priority::Normal);
+        assert_eq!(
+            started.delivery,
+            crate::receipt::DeliveryReport::Unrequested
+        );
     }
 
     #[test]

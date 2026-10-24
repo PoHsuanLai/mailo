@@ -2,8 +2,8 @@
 //!
 //! Every choice about how the message goes out is one step away rather than a row drawn on every
 //! message (docs/design-language.md §2.1): Send ▾ holds Send Later, Remind Me If No Reply and Ask
-//! for Read Receipt; ⋯ holds Security, Show Plain Text, Save as Template…, Keep for Later and
-//! Delete Draft. A choice that is not the default is then said by its row (`props.rs`), whose
+//! for Read Receipt; ⋯ holds Security, Priority, Request Delivery Receipt, Show Plain Text, Save
+//! as Template…, Keep for Later and Delete Draft. A choice that is not the default is then said by its row (`props.rs`), whose
 //! menu sets it back. What the menus list and what a pick does are pure ([`send_items`], [`pick_send`],
 //! [`more_items`], [`pick_more`]), so the tests can say them without a window.
 
@@ -27,7 +27,7 @@ use super::remind::{PickRemind, pick_remind, remind_choices};
 use super::templates::{self, SAVE_KEY};
 use crate::ui::actions::{self, Own};
 use crate::ui::press::on_primary;
-use mail_domain::ReceiptRequest;
+use mail_domain::{DeliveryReport, Priority, ReceiptRequest};
 
 /// Send ▾'s keys: a Send Later choice is `later:` and the Sends key, a reminder `remind:` and its
 /// key, and the receipt [`receipt::KEY`].
@@ -36,6 +36,9 @@ const REMIND: &str = "remind:";
 
 /// ⋯'s keys. A Security choice is `security:` and the protection's key.
 const SECURITY: &str = "security:";
+/// A Priority choice is `priority:` and [`priority_key`].
+const PRIORITY: &str = "priority:";
+const DELIVERY: &str = "delivery";
 const PLAIN: &str = "plain";
 const KEEP: &str = "keep";
 const DELETE: &str = "delete";
@@ -123,8 +126,27 @@ pub(in crate::ui) fn pick_send(page: &mut Page, key: &str) {
     }
 }
 
-/// The foot's ⋯: Security ▸ (None, OpenPGP ▸, S/MIME ▸), Show Plain Text, Save as Template…, then
-/// Keep for Later (Esc) and Delete Draft, which has an undo.
+/// A priority's key under ⋯ › Priority, after [`PRIORITY`].
+fn priority_key(priority: Priority) -> &'static str {
+    match priority {
+        Priority::High => "high",
+        Priority::Normal => "normal",
+        Priority::Low => "low",
+    }
+}
+
+/// What ⋯ › Priority calls a priority.
+fn priority_name(priority: Priority) -> &'static str {
+    match priority {
+        Priority::High => copy::menus::PRIORITY_HIGH,
+        Priority::Normal => copy::menus::PRIORITY_NORMAL,
+        Priority::Low => copy::menus::PRIORITY_LOW,
+    }
+}
+
+/// The foot's ⋯: Security ▸ (None, OpenPGP ▸, S/MIME ▸), Priority ▸ (High, Normal, Low), Request
+/// Delivery Receipt, Show Plain Text, Save as Template…, then Keep for Later (Esc) and Delete
+/// Draft, which has an undo.
 pub(in crate::ui) fn more_items(page: &Page) -> Vec<Line<String>> {
     let check = |on: bool| if on { Check::On } else { Check::Off };
     let mut security = Vec::new();
@@ -152,6 +174,23 @@ pub(in crate::ui) fn more_items(page: &Page) -> Vec<Line<String>> {
             availability: Availability::Enabled,
             children: security,
         },
+        Line::Submenu {
+            title: copy::menus::PRIORITY.to_owned(),
+            image: None,
+            availability: Availability::Enabled,
+            children: Priority::ALL
+                .into_iter()
+                .map(|priority| {
+                    Line::new(
+                        format!("{PRIORITY}{}", priority_key(priority)),
+                        priority_name(priority),
+                    )
+                    .with_check(check(page.priority == priority))
+                })
+                .collect(),
+        },
+        Line::new(DELIVERY.to_owned(), copy::menus::REQUEST_DELIVERY_RECEIPT)
+            .with_check(check(page.delivery == DeliveryReport::Requested)),
         Line::new(PLAIN.to_owned(), copy::menus::SHOW_PLAIN_TEXT)
             .with_check(check(page.plain == Fold::Open)),
         Line::new(SAVE_KEY.to_owned(), copy::menus::SAVE_AS_TEMPLATE)
@@ -186,7 +225,20 @@ pub(in crate::ui) fn pick_more(page: &mut Page, key: &str) -> More {
         protection::pick(page, choice);
         return More::Done;
     }
+    if let Some(choice) = key.strip_prefix(PRIORITY) {
+        if let Some(priority) = Priority::ALL
+            .into_iter()
+            .find(|priority| priority_key(*priority) == choice)
+        {
+            page.set_priority(priority);
+        }
+        return More::Done;
+    }
     match key {
+        DELIVERY => {
+            page.toggle_delivery();
+            More::Done
+        }
         PLAIN => {
             page.plain = match page.plain {
                 Fold::Open => Fold::Folded,

@@ -18,8 +18,10 @@ use porter_core::AccountId;
 pub mod addresses;
 mod doc;
 mod enclosed;
+mod format;
 pub use doc::{doc_from_text, doc_of};
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
+pub use format::{Written, written_as};
 
 use crate::signature::{self, Placement};
 
@@ -1425,6 +1427,7 @@ fn queue_inner(
             raw,
             mail_from: post.mail_from.clone(),
             rcpt_to: post.rcpt_to.clone(),
+            delivery: post.delivery,
         },
         // No undo. Unsending is not something the outbox can offer once the bytes are on
         // the wire, and a patch that pretended otherwise would revert something real.

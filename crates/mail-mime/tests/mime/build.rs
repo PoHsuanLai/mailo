@@ -2,7 +2,8 @@
 
 use crate::support::{self, addr, at, emails, sender};
 use mail_domain::{
-    BlobId, Draft, Identity, Inline, Message, MessageId, PendingAttachment, ReceiptRequest,
+    BlobId, DeliveryReport, Draft, Identity, Inline, Message, MessageId, PendingAttachment,
+    Priority, ReceiptRequest,
 };
 use mail_mime::{Disclosure, MimeError, ReturnPath, build, parse, posting, receipt_asked};
 
@@ -362,6 +363,115 @@ fn a_draft_that_asks_for_a_receipt_says_so_and_one_that_does_not_does_not() {
     let plain = posting(&draft(None, None), &me, None, &[]).unwrap();
     assert!(!String::from_utf8_lossy(&plain.message).contains("Disposition-Notification-To"));
     assert_eq!(receipt_asked(&plain.message), None);
+}
+
+/// One priority's headers: what `X-Priority` and `Importance` say, or `None` for neither.
+struct PriorityCase {
+    priority: Priority,
+    expect: Option<(&'static str, &'static str)>,
+}
+
+const PRIORITIES: &[PriorityCase] = &[
+    PriorityCase {
+        priority: Priority::High,
+        expect: Some(("1", "high")),
+    },
+    PriorityCase {
+        priority: Priority::Normal,
+        expect: None,
+    },
+    PriorityCase {
+        priority: Priority::Low,
+        expect: Some(("5", "low")),
+    },
+];
+
+#[test]
+fn a_priority_is_written_both_ways_and_normal_writes_neither() {
+    let me = identity();
+    for case in PRIORITIES {
+        let mut draft = draft(None, None);
+        draft.priority = case.priority;
+        let sent = posting(&draft, &me, None, &[]).unwrap();
+        let text = String::from_utf8_lossy(&sent.message);
+        let header = |name: &str| {
+            text.split("\r\n\r\n")
+                .next()
+                .unwrap_or("")
+                .split("\r\n")
+                .filter_map(|line| line.split_once(": "))
+                .filter(|(field, _)| field.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.to_owned())
+                .collect::<Vec<_>>()
+        };
+        match case.expect {
+            Some((x_priority, importance)) => {
+                assert_eq!(
+                    header("X-Priority"),
+                    [x_priority],
+                    "{:?}: {text}",
+                    case.priority
+                );
+                assert_eq!(
+                    header("Importance"),
+                    [importance],
+                    "{:?}: {text}",
+                    case.priority
+                );
+            }
+            None => {
+                assert!(
+                    header("X-Priority").is_empty(),
+                    "{:?}: {text}",
+                    case.priority
+                );
+                assert!(
+                    header("Importance").is_empty(),
+                    "{:?}: {text}",
+                    case.priority
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_draft_with_no_html_goes_as_plain_text_alone() {
+    let me = identity();
+    let mut plain = draft(None, None);
+    plain.html = None;
+    let sent = posting(&plain, &me, None, &[]).unwrap();
+    let text = String::from_utf8_lossy(&sent.message).to_ascii_lowercase();
+    assert!(text.contains("content-type: text/plain"), "{text}");
+    assert!(!text.contains("text/html"), "{text}");
+    assert!(!text.contains("multipart/alternative"), "{text}");
+    let parsed = parse(&sent.message).unwrap();
+    assert_eq!(parsed.text.as_deref().map(str::trim_end), Some("thanks"));
+    assert_eq!(parsed.html, None);
+
+    // The same draft with its HTML is both, as the composer's rich text sends.
+    let rich = posting(&draft(None, None), &me, None, &[]).unwrap();
+    let text = String::from_utf8_lossy(&rich.message).to_ascii_lowercase();
+    assert!(text.contains("multipart/alternative"), "{text}");
+}
+
+#[test]
+fn a_delivery_report_is_asked_of_the_envelope_and_never_of_the_bytes() {
+    let me = identity();
+    // One part, so no boundary is drawn that could differ between the two builds.
+    let mut asking = draft(None, None);
+    asking.html = None;
+    asking.delivery = DeliveryReport::Requested;
+    let asked = posting(&asking, &me, None, &[]).unwrap();
+    assert_eq!(asked.delivery, DeliveryReport::Requested);
+    let unasked = Draft {
+        delivery: DeliveryReport::Unrequested,
+        ..asking.clone()
+    };
+    let plain = posting(&unasked, &me, None, &[]).unwrap();
+    assert_eq!(plain.delivery, DeliveryReport::Unrequested);
+    // Only the request differs: the message itself is byte for byte the same.
+    assert_eq!(asked.message, plain.message);
 }
 
 /// A message carried whole, as forwarding one as an attachment does. RFC 2046 §5.2.1 allows a

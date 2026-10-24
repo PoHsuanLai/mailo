@@ -137,11 +137,13 @@ pub(crate) fn unaddressed(intent: &RemoteIntent) -> Option<ProtoOp> {
             raw,
             mail_from,
             rcpt_to,
+            delivery,
         } => ProtoOp::Submit {
             draft: *draft,
             raw: *raw,
             mail_from: mail_from.clone(),
             rcpt_to: rcpt_to.clone(),
+            delivery: *delivery,
         },
         RemoteIntent::Folder(work) => ProtoOp::Folder(work.clone()),
         RemoteIntent::Append {

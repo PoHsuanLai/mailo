@@ -6,6 +6,7 @@
 
 use crate::id::{BlobId, DraftId};
 use crate::jmap_id::JmapEmailId;
+use crate::receipt::DeliveryReport;
 use crate::section::Section;
 use crate::state::MailboxRole;
 use chrono::{DateTime, Utc};
@@ -262,6 +263,11 @@ pub enum ProtoOp {
         /// parsed back out of the bytes would silently drop every blind recipient — on the
         /// retry, not on the first attempt, which is the worst way to find out.
         rcpt_to: Vec<String>,
+        /// Whether `RCPT TO` asks for delivery reports (RFC 3461 `NOTIFY`). Frozen with the rest,
+        /// and defaulted so an outbox row written before reports existed still loads, asking for
+        /// none.
+        #[serde(default)]
+        delivery: DeliveryReport,
     },
     /// Flag changes since a known point, without refetching anything else.
     ///

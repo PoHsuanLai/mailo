@@ -203,6 +203,8 @@ fn draft() -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
         state: SendState::Editing,
         updated: now(),
     }
@@ -258,6 +260,7 @@ fn compose(smtp: u16, imap: u16, sent_folder: bool) -> Sending {
                 raw,
                 mail_from: post.mail_from.clone(),
                 rcpt_to: post.rcpt_to.clone(),
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &Patch {
                 id: ChangeId::generate(),

@@ -272,6 +272,8 @@ fn draft() -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
         state: SendState::Failed {
             reason: "550 rejected".to_owned(),
             retry: Retry::After(Duration::from_secs(90)),
@@ -387,6 +389,7 @@ fn proto_ops() -> Vec<ProtoOp> {
                 "to@example.test".to_owned(),
                 "blind@example.test".to_owned(),
             ],
+            delivery: DeliveryReport::Unrequested,
         },
         ProtoOp::Expunge {
             remotes: vec![RemoteRef::Pop {
@@ -1672,6 +1675,22 @@ fixtures! {
             message_id: "00000000-0000-4000-8000-000000000009@example.test".to_owned(),
         },
     ],
+    // A draft's priority and its request for delivery reports, added after the files above were
+    // frozen: `draft.json` and the rest predate both and load as Normal, asking for none, and
+    // `proto_ops.json`'s submission predates the request it now carries.
+    "draft_priority.json" => Draft = Draft {
+        priority: Priority::High,
+        delivery: DeliveryReport::Requested,
+        ..draft()
+    },
+    "priorities.json" => Vec<Priority> = Priority::ALL.to_vec(),
+    "proto_ops_delivery.json" => Vec<ProtoOp> = vec![ProtoOp::Submit {
+        draft: DraftId::from_uuid(uuid(9)),
+        raw: BlobId::from_uuid(uuid(7)),
+        mail_from: "me@example.test".to_owned(),
+        rcpt_to: vec!["to@example.test".to_owned()],
+        delivery: DeliveryReport::Requested,
+    }],
 }
 
 fn cert_fingerprint() -> CertFingerprint {
@@ -1774,6 +1793,28 @@ fn a_draft_from_before_openpgp_loads_as_plain() {
     )
     .unwrap();
     assert_eq!(old.openpgp, OpenPgp::None);
+}
+
+#[test]
+fn a_draft_and_a_submission_from_before_priorities_ask_nothing() {
+    let old: Draft = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("draft_smime.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(old.priority, Priority::Normal);
+    assert_eq!(old.delivery, DeliveryReport::Unrequested);
+    let ops: Vec<ProtoOp> = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("proto_ops.json")).unwrap(),
+    )
+    .unwrap();
+    let delivery: Vec<DeliveryReport> = ops
+        .iter()
+        .filter_map(|op| match op {
+            ProtoOp::Submit { delivery, .. } => Some(*delivery),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(delivery, [DeliveryReport::Unrequested]);
 }
 
 /// `RemoteIntent` is not persisted today — `Store::enqueue` resolves it to a `ProtoOp` before

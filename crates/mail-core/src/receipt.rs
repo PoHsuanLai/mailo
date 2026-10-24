@@ -153,6 +153,7 @@ pub fn answer(
                 raw: frozen,
                 mail_from: post.mail_from.clone(),
                 rcpt_to: post.rcpt_to.clone(),
+                delivery: post.delivery,
             },
             &nothing_to_undo(),
             now,

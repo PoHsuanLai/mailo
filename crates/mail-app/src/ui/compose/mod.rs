@@ -151,7 +151,8 @@ fn Writing(draft: DraftId, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     let loaded = use_hook(|| {
         let store = consume_context::<Arc<SqliteStore>>();
         let mut parked = desk.parked;
-        let page = life::load(&store, draft, &mut parked.write());
+        let compose = crate::ui::prefs::current().compose;
+        let page = life::load(&store, draft, &mut parked.write(), &compose);
         desk::unpark(desk, draft);
         page
     });
@@ -420,19 +421,24 @@ fn send_page(
         secrets.as_ref(),
         &mut page.write(),
         anyway,
+        life::grace(),
         // The window's clock, which a reminder asked for here is later measured against.
         super::clock::now(),
         &chrono::Local,
         super::clock::hours(),
     );
     match sent {
-        Ok(Sent::Sealing { leaves, remind }) => {
+        Ok(Sent::Sealing {
+            leaves,
+            remind,
+            grace,
+        }) => {
             let draft = page.peek().draft;
             // Spawned from a press, which is where a task is polled.
             spawn(async move {
-                match seal_and_queue(store, draft, leaves, remind, passphrase).await {
+                match seal_and_queue(store, draft, (leaves, grace), remind, passphrase).await {
                     Ok(due) => {
-                        let sent = life::folded(&mut page.write(), due);
+                        let sent = life::folded(&mut page.write(), due, grace);
                         queued(page, desk, revision, folding, sent);
                     }
                     Err(Sealed::Locked { key, tried }) => {
@@ -526,7 +532,12 @@ fn queued(
     sent: Sent,
 ) {
     match sent {
-        Sent::Queued { draft, due, when } => {
+        Sent::Queued {
+            draft,
+            due,
+            when,
+            grace,
+        } => {
             let mut back = page.peek().clone();
             back.phase = Phase::Writing;
             back.guard = Guard::Clear;
@@ -534,6 +545,7 @@ fn queued(
                 draft,
                 due,
                 when,
+                grace,
                 page: back,
                 refused: None,
             };

@@ -235,6 +235,7 @@ fn submission_is_unsupported_not_silently_ignored() {
         raw: BlobId::generate(),
         mail_from: "ada@example.com".to_owned(),
         rcpt_to: vec!["bob@example.com".to_owned()],
+        delivery: mail_domain::DeliveryReport::Unrequested,
     });
     assert!(matches!(outcome, Progress::Failed(_)), "{outcome:?}");
 }
@@ -470,6 +471,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
         raw: BlobId::generate(),
         mail_from: "ada@example.com".to_owned(),
         rcpt_to: vec!["bob@example.com".to_owned()],
+        delivery: mail_domain::DeliveryReport::Unrequested,
     });
     assert!(
         matches!(unstaged, Progress::Failed(_)),
@@ -482,6 +484,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
             rcpt_to: vec!["bob@example.com".to_owned()],
             message: b"From: ada@example.com\r\nTo: bob@example.com\r\nSubject: hi\r\n\r\nbody\r\n"
                 .to_vec(),
+            delivery: mail_domain::DeliveryReport::Unrequested,
         })
         .unwrap();
 
@@ -507,6 +510,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
             raw: BlobId::generate(),
             mail_from: "ada@example.com".to_owned(),
             rcpt_to: vec!["bob@example.com".to_owned()],
+            delivery: mail_domain::DeliveryReport::Unrequested,
         }),
     };
     let outcome = replay(

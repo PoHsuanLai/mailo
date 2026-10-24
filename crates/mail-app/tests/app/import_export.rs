@@ -604,6 +604,8 @@ fn sync_never_touches_the_local_account() {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
     };
     store
         .apply(

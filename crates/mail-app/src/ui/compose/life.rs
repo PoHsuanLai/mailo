@@ -17,18 +17,24 @@ use super::page::{Guard, Page, Phase, Saved, When, Wire};
 use super::protection::Protection;
 use super::recipients::commit_typed;
 use super::seal::SealBar;
+use crate::settings::{ComposeSettings, MessageFormat};
 use crate::ui::today::Today;
 use mail_core::editor::missing_attachment;
 
-/// How long a send waits in the outbox before it may leave, which is how long Undo has.
-pub(in crate::ui) const GRACE: chrono::TimeDelta = chrono::TimeDelta::seconds(5);
+/// How long a send waits in the outbox before it may leave, which is how long Undo has: the
+/// person's `compose.undo_send`, read when Send is pressed, so a change in Settings counts from the
+/// next send and never moves one already counting down. `Off` is no wait at all.
+pub(in crate::ui) fn grace() -> chrono::TimeDelta {
+    crate::ui::prefs::current().compose.undo_send.grace()
+}
 
 /// The page for `draft`: the parked copy when there is one, exactly as it was left, else a page
-/// built from the stored draft.
+/// built from the stored draft, written as [`format_of`] says under `compose`.
 pub(in crate::ui) fn load(
     store: &SqliteStore,
     draft: DraftId,
     parked: &mut Vec<Page>,
+    compose: &ComposeSettings,
 ) -> Option<Page> {
     if let Some(at) = parked.iter().position(|page| page.draft == draft) {
         let mut page = parked.remove(at);
@@ -45,7 +51,30 @@ pub(in crate::ui) fn load(
     // Nobody is suggested until something is typed: the book is asked then, for that text.
     let mut page = Page::of(&stored, Vec::new(), attached);
     super::signoff::adopt(store, &mut page);
+    page.format = format_of(store, &stored, compose);
     Some(page)
+}
+
+/// What `draft` is written as. A draft that kept HTML was written rich and stays so. One with
+/// none has not been written by a rich composer: a new one, or one saved as plain text. It is
+/// written as `compose.format` says, or, for a reply while `compose.reply_same_format` is on, as
+/// the message it answers was, when that message's body is here to say.
+pub(in crate::ui) fn format_of(
+    store: &SqliteStore,
+    draft: &Draft,
+    compose: &ComposeSettings,
+) -> MessageFormat {
+    if draft.html.is_some() {
+        return MessageFormat::Rich;
+    }
+    let original = draft
+        .in_reply_to
+        .and_then(|answered| mail_core::compose::written_as(store, answered))
+        .map(|written| match written {
+            mail_core::compose::Written::Rich => MessageFormat::Rich,
+            mail_core::compose::Written::Plain => MessageFormat::Plain,
+        });
+    compose.format_for(original)
 }
 
 /// Write the page to its draft. The dot goes clean only when the store took it.
@@ -235,30 +264,37 @@ pub(in crate::ui) enum Anyway {
 pub(in crate::ui) enum Sent {
     /// A guard stopped it. Nothing was queued.
     Stopped,
-    /// Queued. It may leave at `due`; until then Undo takes it back.
+    /// Queued. It may leave at `due`; until then Undo takes it back. `grace` is how long Undo was
+    /// given, which the pill's ring counts down from.
     Queued {
         draft: DraftId,
         due: DateTime<Utc>,
         when: When,
+        grace: chrono::TimeDelta,
     },
     /// Saved and cleared to go, and to be signed or encrypted first. That reads the keyring and
     /// may ask for a passphrase, so the caller does it off the thread that draws, with
-    /// [`queue_reminding`]. `remind` is the reminder's time, if one was asked for.
+    /// [`queue_reminding`]. `remind` is the reminder's time, if one was asked for, and `grace` the
+    /// wait a send that leaves now was given when Send was pressed.
     Sealing {
         leaves: Leaves,
         remind: Option<DateTime<Utc>>,
+        grace: chrono::TimeDelta,
     },
 }
 
 /// Send, if the guards allow it: no recipients shakes the To row, a mentioned attachment with
 /// nothing attached shows the warning bar once, and a draft OpenPGP or S/MIME cannot sign or
 /// encrypt as it asks says why in the same bar. A plain draft is queued here, with `secrets` as
-/// the keyring; a draft to be sealed comes back as [`Sent::Sealing`].
+/// the keyring; a draft to be sealed comes back as [`Sent::Sealing`]. A send that leaves now waits
+/// `grace` first ([`grace`]).
+#[allow(clippy::too_many_arguments)]
 pub(in crate::ui) fn send<Tz: TimeZone>(
     store: &SqliteStore,
     secrets: &dyn SigningStore,
     page: &mut Page,
     anyway: Anyway,
+    grace: chrono::TimeDelta,
     now: DateTime<Utc>,
     zone: &Tz,
     clock: mail_core::when::Clock,
@@ -289,7 +325,7 @@ where
     let leaves = super::later::leaves(page.when, now, zone, clock)?;
     // And a reminder that would come before the message leaves, the same way.
     let leaving = match leaves {
-        Leaves::Now => now + GRACE,
+        Leaves::Now => now + grace,
         Leaves::At(at) => at,
     };
     let remind = page.remind.due(leaving, zone, clock)?;
@@ -300,7 +336,11 @@ where
             return Ok(Sent::Stopped);
         }
         page.seal_bar = SealBar::Sealing;
-        return Ok(Sent::Sealing { leaves, remind });
+        return Ok(Sent::Sealing {
+            leaves,
+            remind,
+            grace,
+        });
     }
     page.seal_bar = SealBar::Clear;
     let due = queue_reminding(
@@ -308,12 +348,12 @@ where
         secrets,
         &mail_core::pgp::no_passphrase,
         page.draft,
-        leaves,
+        (leaves, grace),
         remind,
         now,
     )
     .map_err(crate::ui::remedy::told)?;
-    Ok(folded(page, due))
+    Ok(folded(page, due, grace))
 }
 
 /// [`queue_reminding`] with no reminder, as the sealing tests queue.
@@ -326,10 +366,12 @@ pub(in crate::ui) fn queue(
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, mail_core::compose::SendError> {
-    queue_reminding(store, secrets, ask, draft, leaves, None, now)
+    let grace = chrono::TimeDelta::seconds(5);
+    queue_reminding(store, secrets, ask, draft, (leaves, grace), None, now)
 }
 
-/// Queue the saved draft to leave as `leaves` says, signed and encrypted as it asks, with `ask`
+/// Queue the saved draft to leave as `leaves` says, after `grace` when that is now, signed and
+/// encrypted as it asks, with `ask`
 /// for its OpenPGP key's passphrase. Returns when it may leave, or why not, typed: a key that
 /// stayed locked is [`mail_core::compose::SendError::locked`]. For a draft to be sealed this reads
 /// the keyring, and the window calls it on a blocking thread.
@@ -341,14 +383,14 @@ pub(in crate::ui) fn queue_reminding(
     secrets: &dyn SigningStore,
     ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
-    leaves: Leaves,
+    (leaves, grace): (Leaves, chrono::TimeDelta),
     remind: Option<DateTime<Utc>>,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, mail_core::compose::SendError> {
     let (queued, post, due) = match leaves {
-        // Right away is the grace period and Undo, as it always was.
+        // Right away is the grace period and Undo.
         Leaves::Now => {
-            let due = now + GRACE;
+            let due = now + grace;
             let (queued, post) =
                 mail_core::compose::queue_with(store, secrets, ask, draft, Leaves::Now, due)?;
             (queued, post, due)
@@ -369,8 +411,8 @@ pub(in crate::ui) fn queue_reminding(
     Ok(due)
 }
 
-/// The page once its draft is queued to leave at `due`: folding away.
-pub(in crate::ui) fn folded(page: &mut Page, due: DateTime<Utc>) -> Sent {
+/// The page once its draft is queued to leave at `due`, after `grace`: folding away.
+pub(in crate::ui) fn folded(page: &mut Page, due: DateTime<Utc>, grace: chrono::TimeDelta) -> Sent {
     page.seal_bar = SealBar::Clear;
     page.phase = Phase::Folding;
     page.float = super::page::Float::Closed;
@@ -378,6 +420,7 @@ pub(in crate::ui) fn folded(page: &mut Page, due: DateTime<Utc>) -> Sent {
         draft: page.draft,
         due,
         when: page.when,
+        grace,
     }
 }
 

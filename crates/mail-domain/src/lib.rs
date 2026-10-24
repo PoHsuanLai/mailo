@@ -23,6 +23,7 @@ pub mod op;
 pub mod parts;
 pub mod pgp;
 pub mod presets;
+pub mod priority;
 pub mod receipt;
 pub mod remote;
 pub mod retry;
@@ -69,7 +70,8 @@ pub use pgp::{
     Coverage, Encryption, Fingerprint, KeyId, KeySource, KeyTrust, OpenPgp, PgpKey, SecretHeld,
     Verification,
 };
-pub use receipt::{Keyword, ReceiptAnswer, ReceiptRequest};
+pub use priority::Priority;
+pub use receipt::{DeliveryReport, Keyword, ReceiptAnswer, ReceiptRequest};
 pub use remote::{
     FetchSince, JMAP_ALL, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag,
     UidValidity,
