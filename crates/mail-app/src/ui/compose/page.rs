@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 
 use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
 use mail_core::when::Clock;
-use mail_domain::{Address, Draft, DraftId, ReceiptRequest};
+use mail_domain::{Address, Draft, DraftId, IdentityId, ReceiptRequest};
 use porter_core::AccountId;
 
 use super::opening::doc_of;
@@ -245,6 +245,8 @@ pub(in crate::ui) struct Page {
     pub draft: DraftId,
     pub kind: PageKind,
     pub from: AccountId,
+    /// Which of the account's addresses the draft leaves from: its own or an alias.
+    pub identity: IdentityId,
     pub subject: String,
     pub to: Vec<Person>,
     pub cc: Vec<Person>,
@@ -317,6 +319,7 @@ impl Page {
             draft: draft.id,
             kind,
             from: draft.account.clone(),
+            identity: draft.identity,
             subject: draft.subject.clone(),
             to: draft.to.iter().map(person).collect(),
             cc_row: shown(&cc),

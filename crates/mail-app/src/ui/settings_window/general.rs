@@ -64,6 +64,7 @@ pub(super) const SECTIONS: [Section; 3] = [
             Line::Key("notifications.new_mail"),
             Line::Key("reading.read_receipts"),
             Line::Key("compose.spelling"),
+            Line::Key("compose.copy_myself"),
             Line::Key("search.server_automatically"),
         ],
     },

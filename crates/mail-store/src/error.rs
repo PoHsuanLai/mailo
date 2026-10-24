@@ -1,8 +1,8 @@
 //! Store failures.
 
 use mail_domain::{
-    CertFingerprint, DraftId, Fingerprint, MessageId, Retry, Retryable, RuleId, TemplateId,
-    ThreadId, ViewId,
+    CertFingerprint, DraftId, Fingerprint, IdentityId, MessageId, Retry, Retryable, RuleId,
+    TemplateId, ThreadId, ViewId,
 };
 use porter_core::AccountId;
 use std::time::Duration;
@@ -39,6 +39,12 @@ pub enum StoreError {
     /// Rule names are how rules are named on the command line, so one account has one of each.
     #[error("there is already a rule called {0:?}")]
     RuleNameTaken(String),
+    #[error("no such identity: {0}")]
+    NoIdentity(IdentityId),
+    /// An account sends as each of its addresses once, so a second identity with one is refused:
+    /// a From menu with the same address twice is a choice that is not one.
+    #[error("the account already sends as {0}")]
+    AddressTaken(String),
     #[error("no OpenPGP key {0}")]
     NoPgpKey(Fingerprint),
     #[error("no S/MIME certificate {0}")]
@@ -133,6 +139,8 @@ impl Retryable for StoreError {
             | StoreError::NoView(_)
             | StoreError::NoRule(_)
             | StoreError::RuleNameTaken(_)
+            | StoreError::NoIdentity(_)
+            | StoreError::AddressTaken(_)
             | StoreError::Conflict(_)
             | StoreError::NoAccount(_)
             | StoreError::NoPgpKey(_)

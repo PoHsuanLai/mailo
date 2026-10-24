@@ -47,3 +47,6 @@ mod triage;
 mod preferences;
 mod search;
 mod sidebar;
+
+// 15: who a message is from: the name, the aliases, the From.
+mod identity;

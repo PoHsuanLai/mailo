@@ -35,6 +35,11 @@ pub const MESSAGE_LIST: &str = "Message list";
 pub const ENCRYPTION: &str = "Encryption";
 /// An account's servers and sign-in, on its page in Settings: the one place a protocol is named.
 pub const SERVERS: &str = "Servers";
+/// An account's page in Settings: the name its mail goes out under, and the other addresses
+/// it sends as.
+pub const SENDING_AS: &str = "Sending as";
+/// The fields of one alias, or of one being added, on its account's page.
+pub const ALIAS: &str = "Alias";
 
 // ⌘K's sections, in the order it draws them.
 /// Where the person was: the conversations opened and the drafts put aside.

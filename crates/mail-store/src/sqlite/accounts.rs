@@ -247,6 +247,129 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// Add an identity to its account: an alias the account also sends as.
+    ///
+    /// [`StoreError::NoAccount`] when the account is not here, and [`StoreError::AddressTaken`]
+    /// when one of its identities already has the address, whatever its case; nothing is written
+    /// for either.
+    pub fn add_identity(&self, identity: &Identity) -> Result<(), StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let account = identity.account.to_string();
+        let known: Option<String> = tx
+            .query_row("SELECT id FROM accounts WHERE id = ?1", [&account], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        if known.is_none() {
+            return Err(StoreError::NoAccount(identity.account.clone()));
+        }
+        refuse_taken(&tx, &account, &identity.from.email, None)?;
+        tx.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
+                 is_default)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                identity.id.to_string(),
+                account,
+                identity.from.name,
+                identity.from.email,
+                reply_to_column(identity.reply_to.as_ref())?,
+                identity.signature,
+                to_json("Identity.is_default", &identity.default)?,
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Change who an identity says it is: its name and address, and where replies to it go.
+    ///
+    /// Its signature, its account and whether it is the default are not this call's.
+    /// [`StoreError::NoIdentity`] when there is no such identity, and
+    /// [`StoreError::AddressTaken`] when another identity of its account has the address.
+    pub fn edit_identity(
+        &self,
+        id: IdentityId,
+        from: &Address,
+        reply_to: Option<&Address>,
+    ) -> Result<(), StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let account: Option<String> = tx
+            .query_row(
+                "SELECT account FROM identities WHERE id = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(account) = account else {
+            return Err(StoreError::NoIdentity(id));
+        };
+        refuse_taken(&tx, &account, &from.email, Some(id))?;
+        tx.execute(
+            "UPDATE identities SET from_name = ?2, from_email = ?3, reply_to = ?4 WHERE id = ?1",
+            params![
+                id.to_string(),
+                from.name,
+                from.email,
+                reply_to_column(reply_to)?
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Remove an identity, handing what was written as it to its account's default.
+    ///
+    /// A draft or a template names the identity it is from, and that name is a foreign key: left
+    /// as it is, it would keep the row from going, and a draft whose identity is gone cannot be
+    /// sent. So they are moved to the default in the same transaction, which is the address a
+    /// person who removed an alias would expect them to leave from. The default itself is not
+    /// removed ([`StoreError::Conflict`]): an account without one has nothing to send as.
+    /// [`StoreError::NoIdentity`] when there is no such identity.
+    pub fn remove_identity(&self, id: IdentityId) -> Result<(), StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let gone = id.to_string();
+        let row: Option<(String, String)> = tx
+            .query_row(
+                "SELECT account, is_default FROM identities WHERE id = ?1",
+                [&gone],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let Some((account, default)) = row else {
+            return Err(StoreError::NoIdentity(id));
+        };
+        if json::<IsDefault>("Identity.is_default", &default)? == IsDefault::Default {
+            return Err(StoreError::Conflict(
+                format!("identity {id} is its account's default").into(),
+            ));
+        }
+        let heir: Option<String> = tx
+            .query_row(
+                "SELECT id FROM identities WHERE account = ?1 AND id != ?2
+                 ORDER BY is_default DESC, id LIMIT 1",
+                params![account, gone],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(heir) = heir {
+            tx.execute(
+                "UPDATE drafts SET identity = ?2 WHERE identity = ?1",
+                params![gone, heir],
+            )?;
+            tx.execute(
+                "UPDATE templates SET identity = ?2 WHERE identity = ?1",
+                params![gone, heir],
+            )?;
+        }
+        tx.execute("DELETE FROM identities WHERE id = ?1", [&gone])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     fn read_identities<P: rusqlite::Params>(
         &self,
         tail: &str,
@@ -458,6 +581,38 @@ impl SqliteStore {
         }
         Ok(out)
     }
+}
+
+/// [`StoreError::AddressTaken`] when an identity of `account` other than `except` already sends
+/// as `email`, compared as the lookups compare it: without case.
+fn refuse_taken(
+    db: &rusqlite::Connection,
+    account: &str,
+    email: &str,
+    except: Option<IdentityId>,
+) -> Result<(), StoreError> {
+    // No identity is the empty id, so with none to except every row is compared.
+    let except = except.map(|id| id.to_string()).unwrap_or_default();
+    let taken: Option<String> = db
+        .query_row(
+            "SELECT id FROM identities
+             WHERE account = ?1 AND lower(from_email) = lower(?2) AND id != ?3 LIMIT 1",
+            params![account, email.trim(), except],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match taken {
+        Some(_) => Err(StoreError::AddressTaken(email.trim().to_owned())),
+        None => Ok(()),
+    }
+}
+
+/// An identity's `reply_to` column: `NULL` for none, else the address as JSON, as
+/// [`SqliteStore::upsert_account`] writes it.
+fn reply_to_column(reply_to: Option<&Address>) -> Result<Option<String>, StoreError> {
+    reply_to
+        .map(|reply_to| to_json("Identity.reply_to", &Some(reply_to)))
+        .transpose()
 }
 
 /// Write the capabilities of an account, replacing what was observed before. The same row
