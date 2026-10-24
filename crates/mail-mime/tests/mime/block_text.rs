@@ -230,10 +230,17 @@ fn links(blocks: &[Block]) -> Vec<(String, String)> {
     out
 }
 
+/// A linkify case: what it is, the text, and each link's words and where it goes.
+type Linked = (
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str)],
+);
+
 #[test]
 fn addresses_in_plain_text_are_links() {
     let fixed = Flowed::Fixed;
-    let cases: &[(&str, &str, &[(&str, &str)])] = &[
+    let cases: &[Linked] = &[
         (
             "a bare https",
             "See https://a.test/x now",
