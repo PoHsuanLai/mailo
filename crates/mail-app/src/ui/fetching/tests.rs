@@ -411,3 +411,100 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
         "the other account is untouched"
     );
 }
+
+/// What a test's window was told to say aloud.
+#[derive(Default)]
+struct Recorder(Mutex<Vec<mail_core::notify::Notification>>);
+
+impl mail_core::notify::Notifier for Recorder {
+    fn show(&self, notification: &mail_core::notify::Notification) {
+        self.0.lock().unwrap().push(notification.clone());
+    }
+}
+
+/// A pass that stores one new message in the inbox, a minute after it started, and says so.
+fn arriving() -> Passer {
+    Passer(Arc::new(|store, started, account, _hooks| {
+        let id = MessageId::generate();
+        let message = Message {
+            id,
+            thread: ThreadId::generate(),
+            account: account.clone(),
+            key: MessageKey::Rfc("new@example.test".to_owned()),
+            date: started + chrono::TimeDelta::minutes(1),
+            from: Address {
+                name: Some("Bea".to_owned()),
+                email: "bea@example.test".to_owned(),
+            },
+            reply_to: vec![],
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: "Lunch?".to_owned(),
+            in_reply_to: None,
+            references: vec![],
+            rfc_message_id: None,
+            read: ReadState::Unread,
+            star: Star::Unstarred,
+            mailbox: MailboxRole::Inbox,
+            labels: vec![],
+            body: Body::Absent,
+            attachments: vec![],
+        };
+        store
+            .apply(
+                account.clone(),
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::MessageUpsert(Box::new(message))],
+                },
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(vec![PassEnd::Finished(AccountReport {
+            account,
+            address: "me@nowhere.example".to_owned(),
+            counts: Counts {
+                arrived: vec![id],
+                ..Counts::default()
+            },
+            trouble: vec![],
+        })])
+    }))
+}
+
+/// New mail a pass of the window's own fetched is said aloud, as `mailo watch` says it, and not
+/// once notifications are turned off, which counts from the next pass without a restart.
+#[tokio::test]
+async fn new_mail_the_window_fetched_is_announced_while_notifications_are_on() {
+    for on in [true, false] {
+        let (store, _dir) = account(true);
+        let recorder = Arc::new(Recorder::default());
+        dispatching();
+        let mut dom = VirtualDom::new(App)
+            .with_root_context(store)
+            .with_root_context(arriving())
+            .with_root_context(crate::ui::follow_up::Notices(recorder.clone()));
+        let seen = rebuild_into(&mut dom);
+        if !on {
+            dom.in_scope(ScopeId::APP, || {
+                crate::ui::prefs::change(|settings| {
+                    settings.notifications.new_mail = crate::settings::NewMail::Off;
+                })
+            })
+            .unwrap();
+        }
+        click(
+            &mut dom,
+            seen.one("aria-label", crate::ui::copy::aria::SYNC_NOW),
+        );
+        settle_quiet(&mut dom).await;
+        let said = recorder.0.lock().unwrap().clone();
+        if on {
+            assert_eq!(said.len(), 1, "{said:?}");
+            assert_eq!(said[0].summary, "Bea");
+            assert_eq!(said[0].body, "Lunch?");
+        } else {
+            assert!(said.is_empty(), "{said:?}");
+        }
+    }
+}

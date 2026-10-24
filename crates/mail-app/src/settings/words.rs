@@ -15,7 +15,7 @@ pub enum ProviderMarks {
     Letters,
 }
 
-/// `notifications.new_mail`: whether `mailo watch` says new mail on the desktop.
+/// `notifications.new_mail`: whether the window and `mailo watch` say new mail on the desktop.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
 #[word(case = snake)]
