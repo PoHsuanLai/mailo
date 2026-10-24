@@ -122,7 +122,9 @@ impl EventStream {
         match field {
             "event" => self.kind = value.to_owned(),
             "data" => {
-                self.held += value.len();
+                // And one for the line it is: an event of a million empty `data:` lines is a
+                // million lines held, and joined with a newline each.
+                self.held += value.len() + 1;
                 self.data.push(value.to_owned());
             }
             // `id` and `retry` steer a browser's reconnection; a watch reconnects on its own
@@ -214,13 +216,21 @@ mod tests {
         }
     }
 
+    /// Empty data lines are held too, each a line to keep and a newline to join it with.
+    #[test]
+    fn an_event_of_empty_data_lines_is_refused_past_the_limit() {
+        let lines = b"data:\n".repeat(MAX_EVENT + 1);
+        assert!(EventStream::new().feed(&lines).is_err());
+    }
+
     #[test]
     fn an_event_that_never_ends_is_refused_past_the_limit() {
         let line = vec![b'x'; MAX_EVENT + 1];
         assert!(EventStream::new().feed(&line).is_err(), "an unended line");
 
         let mut reader = EventStream::new();
-        let data = format!("data: {}\n", "x".repeat(MAX_EVENT / 4));
+        // Each line held is its value and the newline that joins it: four make the limit.
+        let data = format!("data: {}\n", "x".repeat(MAX_EVENT / 4 - 1));
         for _ in 0..4 {
             reader.feed(data.as_bytes()).unwrap();
         }
