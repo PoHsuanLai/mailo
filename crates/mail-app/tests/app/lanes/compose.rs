@@ -432,3 +432,121 @@ fn a_mailto_link_opens_the_window_on_its_composer_and_sends_nothing() {
     assert_eq!(drafts[0].state, SendState::Editing);
     assert!(queued(&store).is_empty());
 }
+
+/// A photo of soft gradients with a fine texture, `width` × `height`, as a JPEG.
+fn photo(width: u32, height: u32) -> Vec<u8> {
+    let picture = image::RgbImage::from_fn(width, height, |x, y| {
+        let grain = ((x * 7 + y * 13) % 17) as u8;
+        image::Rgb([
+            (x * 200 / width) as u8 + grain,
+            (y * 200 / height) as u8 + grain,
+            90 + grain,
+        ])
+    });
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgb8(picture)
+        .write_to(
+            &mut std::io::Cursor::new(&mut out),
+            image::ImageFormat::Jpeg,
+        )
+        .expect("a jpeg");
+    out
+}
+
+#[test]
+fn a_photo_past_what_the_server_takes_is_warned_of_before_send_and_goes_smaller() {
+    use mail_core::compose::{PictureSize, sized};
+    use mail_domain::human_size;
+    use mail_mime::base64_len;
+
+    // A server that takes about halfway between the photo as it is and the photo made small,
+    // in octets as it goes: the size its `SIZE` said at the last submission.
+    let beach = photo(1600, 1200);
+    let small = sized(&beach, PictureSize::Small).len() as u64;
+    let limit = (base64_len(beach.len() as u64) + base64_len(small)) / 2 + 8 * 1024;
+    let mut window = Window::open(|store| {
+        store
+            .put_send_limit(account(), Some(limit))
+            .expect("the limit is kept");
+    });
+
+    window.press(&[], Key::Char('c'), 1);
+    window.until("c opens a composer", |h| h.count(".cpage .c-body") == 1);
+    window.click(TO);
+    window.type_text("bea@example.test\n");
+    window.until("Bea is in To", |h| {
+        h.count(".c-props [*|data-row=to] .ds-chip") == 1
+    });
+    window.click(".c-title input");
+    window.type_text("The beach");
+
+    // Attached, it is weighed: Picture Size is offered at the strip, and the foot says the
+    // message is larger than its server takes, by how much, before Send is pressed.
+    window.answer(vec![window.file("beach.jpg", &beach)]);
+    window.click(&format!(
+        ".cpage [*|aria-label=\"{}\"]",
+        copy::controls::ATTACH
+    ));
+    let sizes = |name: &str| {
+        format!(
+            ".c-attached [*|aria-label=\"{}\"]",
+            copy::controls::picture_size(name)
+        )
+    };
+    let actual = sizes(copy::menus::PICTURES_ACTUAL);
+    window.until("Picture Size is offered", |h| h.count(&actual) == 1);
+    let banner = ".cpage .c-foot .ds-inline-banner";
+    window.until("the foot warns of the size", |h| h.count(banner) == 1);
+    let said = window.text(banner);
+    assert!(
+        said.contains(&human_size(limit)),
+        "the limit is not said: {said}"
+    );
+    assert!(
+        window.harness.count(&format!("{banner} button")) >= 1,
+        "no smaller size is offered: {said}"
+    );
+
+    // Send stops once, and offers Send Anyway; nothing is queued.
+    let anyway = format!("[*|aria-label=\"{}\"]", copy::controls::SEND_ANYWAY);
+    window.click(&send());
+    window.until("Send stops for the size", |h| h.count(&anyway) == 1);
+    assert!(
+        queued(&window.store).is_empty(),
+        "it was queued over the limit"
+    );
+
+    // Small: the warning goes, the strip says what goes with the location.
+    window.click(&actual);
+    window.until("Picture Size opens", |h| {
+        h.count(".ds-menu .ds-menu-item") == 4
+    });
+    press_menu_item(&mut window.harness, copy::menus::PICTURES_SMALL);
+    window.until("the warning goes", |h| {
+        h.count(banner) == 0 && h.count(&sizes(copy::menus::PICTURES_SMALL)) == 1
+    });
+    assert!(
+        window
+            .text(".c-attached")
+            .contains(copy::status::PICTURES_WITHOUT_LOCATION),
+        "{}",
+        window.text(".c-attached")
+    );
+
+    // Sent, the photo goes at 640 pixels, and the draft keeps it as it was attached.
+    window.click(&send());
+    window.until("the pill offers Undo", |h| h.count(UNDO) == 1);
+    let sent = queued(&window.store);
+    assert_eq!(sent.len(), 1, "not one submission");
+    let mail = parsed(&sent[0].raw);
+    assert_eq!(mail.attachments.len(), 1);
+    let went = image::load_from_memory(&mail.attachments[0].bytes).expect("a picture went");
+    assert_eq!((went.width(), went.height()), (640, 480));
+    let draft = window.store.draft(sent[0].draft).expect("the sent draft");
+    let kept = window
+        .store
+        .blobs()
+        .get(draft.attachments[0].blob)
+        .expect("the original is kept");
+    assert_eq!(kept, beach, "the draft's photo was changed");
+}

@@ -35,7 +35,8 @@ pub use block::{
     ListKind, Reached, SafeUrl, Shape, Span, from_html, from_text, is_mapped, mapped_tags, unflow,
 };
 pub use build::{
-    Disclosure, Posting, Resending, build, draft_copy, draft_message_id, posting, resent,
+    Disclosure, Posting, Resending, base64_len, build, draft_copy, draft_message_id, posting,
+    resent,
 };
 pub use error::{MboxError, MimeError, NotHttpsUrl, NotMailto, RecordError, UnsafeUrl};
 pub use graph::{GraphBody, GraphDraft, GraphImportance, graph_draft};

@@ -205,3 +205,9 @@ pub const DONT_TRUST: &str = "Don\u{2019}t Trust";
 
 /// The composer's Signature row: the choice that sends the message unsigned.
 pub const NO_SIGNATURE: &str = "None";
+
+// The composer's Picture Size: how large the pictures a message carries are sent.
+pub const PICTURES_SMALL: &str = "Small";
+pub const PICTURES_MEDIUM: &str = "Medium";
+pub const PICTURES_LARGE: &str = "Large";
+pub const PICTURES_ACTUAL: &str = "Actual Size";

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::settings::MessageFormat;
 use chrono::{DateTime, Datelike, Duration, NaiveTime, TimeZone, Utc};
+use mail_core::compose::PictureSize;
 use mail_core::when::Clock;
 use mail_domain::{
     Address, DeliveryReport, Draft, DraftId, IdentityId, Priority, ReceiptRequest, SignatureId,
@@ -173,6 +174,8 @@ pub(in crate::ui) enum Float {
     More,
     /// The emoji picker, opened from the `/` menu at the caret.
     EmojiPicker,
+    /// Picture Size, at the attachment strip: how large the pictures are sent.
+    Pictures,
     /// "Save as template…", with the name typed so far.
     SaveTemplate(String),
     /// "Start from a template": the templates, at the caret.
@@ -195,6 +198,8 @@ pub(in crate::ui) enum Guard {
     NoRecipient(u32),
     /// An attachment is mentioned and none is attached.
     Warn,
+    /// The message is larger than its server takes.
+    TooLarge,
 }
 
 /// Whether the page's changes are in the store. Never drawn: autosave is silent, and a save that
@@ -331,6 +336,12 @@ pub(in crate::ui) struct Page {
     pub attached: Vec<(String, String)>,
     /// The pictures the body's images are drawn from.
     pub images: Images,
+    /// How large the pictures it carries are sent. The draft keeps them as attached; this is
+    /// applied as the message is frozen at Send.
+    pub pictures: PictureSize,
+    /// How large the message is at each picture size, and the most its account sends, once its
+    /// files have been weighed: `None` until then, and the page says nothing of its size.
+    pub weight: Option<super::sizing::Measured>,
     pub session: Session,
     /// A selection that is not collapsed. The bubble shows while it is set.
     pub selection: Option<Range>,
@@ -418,6 +429,8 @@ impl Page {
             seal_bar: super::seal::SealBar::Clear,
             attached,
             images: Images::of(inline),
+            pictures: PictureSize::Actual,
+            weight: None,
             session: Session::with(doc_of(draft, inline)),
             selection: None,
             wire: Wire {

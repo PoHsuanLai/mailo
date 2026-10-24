@@ -243,8 +243,13 @@ pub(in crate::ui) fn send_again(store: &SqliteStore, resend: Resend) -> bool {
         secrets.as_ref(),
         &mail_core::pgp::no_passphrase,
         resend.draft,
-        // A time of its own: no grace is counted before it.
-        (Leaves::At(resend.at), chrono::TimeDelta::zero()),
+        // A time of its own: no grace is counted before it. The page that chose a picture size is
+        // gone by now: its pictures go as attached.
+        super::life::Going {
+            leaves: Leaves::At(resend.at),
+            grace: chrono::TimeDelta::zero(),
+            pictures: mail_core::compose::PictureSize::Actual,
+        },
         None,
         Utc::now(),
     )

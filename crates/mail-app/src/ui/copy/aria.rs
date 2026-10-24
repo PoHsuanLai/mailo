@@ -132,3 +132,6 @@ pub fn new_signature_for(address: &str) -> String {
 pub fn delete_signature(name: &str) -> String {
     format!("Delete Signature {name}")
 }
+
+/// The composer's menu of how large pictures are sent.
+pub const PICTURE_SIZE: &str = "Picture Size";

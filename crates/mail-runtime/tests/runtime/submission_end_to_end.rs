@@ -383,6 +383,8 @@ async fn a_queued_message_is_submitted_whole() {
         SendState::Queued,
         "precondition: the draft is queued"
     );
+    it.store.put_caps(acct_account(), &caps(), now()).unwrap();
+    assert_eq!(it.store.send_limit(acct_account()).unwrap(), None);
     let report = it
         .engine
         .drain_outbox(&mut cancel, now())
@@ -395,6 +397,12 @@ async fn a_queued_message_is_submitted_whole() {
         "report: nothing was submitted: {report:?}"
     );
     assert_eq!(report.outbox_settled, 1, "report: settled");
+    // The `SIZE` the server's `EHLO` named is kept, for the composer to measure against.
+    assert_eq!(
+        it.store.send_limit(acct_account()).unwrap(),
+        Some(35_882_577),
+        "the server's SIZE"
+    );
     assert_eq!(
         report.still_queued, 0,
         "report: a delivered message must not still be reported as waiting"
