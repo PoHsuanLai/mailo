@@ -1,7 +1,7 @@
 //! One folder's row, the menu under it, and what its picks do.
 
 use super::super::fetching;
-use super::super::menu::{Floating, menu_items};
+use super::super::menu::Floating;
 use super::super::move_to;
 use super::folder_act::{act, refused, renamed_path};
 use super::folder_parts::{NameField, Naming, Said, actions};
@@ -14,14 +14,11 @@ use crate::ui::view::{Source, folder_of};
 use dioxus::prelude::*;
 use ds::base::press::Press;
 use ds::base::vocab::RowState;
-use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
 use ds::components::controls::button_model::ButtonRole;
 use ds::components::lists::row::confirm::RowConfirm;
 use ds::components::lists::row::row::{Outline, RowMounted};
-use ds::components::menus::pop_up_button::{PopUpButton, PopUpKind};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use ds::style::tokens::control_size::ControlSize;
 use mail_core::SqliteStore;
 use mail_core::folder::Refusal;
 use mail_domain::{Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription};
@@ -29,8 +26,8 @@ use porter_core::AccountId;
 use std::sync::Arc;
 
 /// One folder and, beneath it, what it holds: quire's `Row`, a branch while it has children or
-/// something open under it. Its name chooses it, its ⋯ opens the folder's menu, and a
-/// right-click opens the same menu.
+/// something open under it, drawn as the places above it are, with a folder's glyph and the same
+/// unread badge. Its name chooses it, and a right-click opens the folder's menu.
 #[component]
 pub(super) fn FolderRow(
     node: Node,
@@ -241,35 +238,23 @@ pub(super) fn FolderRow(
         }
         _ => None,
     };
-    let overflow_path = node.path.clone();
-    let overflow_name = name.clone();
-    let accessory = rsx! {
-        if let Some(count) = count {
-            Badge {
-                content: BadgeContent::Number(u32::try_from(count).unwrap_or(u32::MAX)),
-                tone: BadgeTone::Quiet,
-                size: ControlSize::Small,
-            }
-        }
-        PopUpButton::<String> {
-            kind: PopUpKind::Overflow,
-            title: Some(copy::aria::actions_for(&overflow_name)),
-            size: ControlSize::Small,
-            items: menu_items("", &items, false),
-            onpick: { let account = account.clone(); move |key: String| {
-                note.set(None);
-                pick(wires, &key, account.clone(), overflow_path.clone(), delimiter);
-            } },
-        }
-    };
+    let accessory = count.map_or(Accessory::None, |count| {
+        Accessory::Badge(u32::try_from(count).unwrap_or(u32::MAX))
+    });
     let children = node.children.clone();
-    let common = tagged("place", node.path.clone());
+    // `data-folder` as well, which a place's row has not.
+    let place_tag = tagged("place", node.path.clone());
+    let common = Common {
+        data: [place_tag.data, tagged("folder", node.path.clone()).data].concat(),
+        ..place_tag
+    };
     let common = if dim { super::dimmed(common) } else { common };
     rsx! {
         Row {
+            leading: RowLeading::Icon(Icon::Folder),
             title: name.clone(),
             edit: editing,
-            accessory: Accessory::Slot(accessory),
+            accessory,
             confirm,
             state: RowState { selection, drop, ..RowState::default() },
             outline,

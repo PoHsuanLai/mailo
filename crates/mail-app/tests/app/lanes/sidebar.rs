@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use super::drive::{Drive, Key};
 use super::hands::menu_item;
 use super::row_menu::menu_names;
-use super::window::{Window, account, ms};
+use super::window::{Window, account};
 use crate::lanes::seed::ME;
 
 /// A folder of the account's, and another beside it.
@@ -175,18 +175,14 @@ fn the_sidebar_s_tiles_spaces_and_folders_answer_their_menus() {
     window.press(&[], Key::Escape, 1);
     window.until("the menu goes", |h| h.count(".ds-menu") == 0);
 
-    // A folder's rename, begun from its ⋯: Escape ends it, and so does going to another folder,
-    // and neither writes the name.
+    // A folder's rename, begun from its menu: Escape ends it, and so does going to another
+    // folder, and neither writes the name.
     let renaming = format!(
         ".ds-row input[*|aria-label=\"{}\"]",
         copy::fields::FOLDER_NAME
     );
     let begin = |window: &mut Window| {
-        let more = format!("[*|aria-label=\"{}\"]", copy::aria::actions_for(PROJECTS));
-        let at = window.centre(&more);
-        window.harness.pointer_move(at);
-        window.harness.advance(ms(300));
-        window.click(&more);
+        right_click(window, &format!(".ds-row[*|data-place=\"{PROJECTS}\"]"));
         menu_item(&mut window.harness, copy::menus::RENAME);
         window.until("the rename field has its name selected", |h| {
             h.count(".ds-menu") == 0

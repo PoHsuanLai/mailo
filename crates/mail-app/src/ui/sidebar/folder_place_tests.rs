@@ -191,9 +191,9 @@ fn row<'a>(page: &'a str, path: &str, _name: &str) -> &'a str {
     &page[start..end]
 }
 
-/// The count a row's badge shows: quire's badge label.
+/// The count a row's badge shows: quire's row count, as a place's row has it.
 fn count(row: &str) -> Option<&str> {
-    const LABEL: &str = "class=\"ds-badge-label\">";
+    const LABEL: &str = "class=\"ds-row-count\">";
     let text = &row[row.find(LABEL)? + LABEL.len()..];
     Some(&text[..text.find('<')?])
 }
