@@ -20,7 +20,9 @@ use crate::clients;
 use crate::error::Failure;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
-use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
+use porter_core::{
+    AccountId, Credential, GrantedScopes, SecretKey, SecretPurpose, SecretText, UnixSeconds,
+};
 use porter_oauth::{Renewal as Due, redeem_scope, refresh_scoped_detailed, renewal};
 use porter_provider::ClientEntry;
 use std::future::Future;
@@ -253,11 +255,23 @@ pub(crate) async fn refresh(
             // answered with something that is not OAuth, has refused nothing.
             exchange_failure("the issuer could not renew the sign-in", fault)
         })?;
+    let granted = granted(&tokens);
     Ok(Credential::OAuth {
         expires_at: tokens.expires_at(unix(now)),
         refresh: tokens.refresh_token.unwrap_or(presented),
         access: tokens.access_token,
+        granted,
     })
+}
+
+/// The scopes the issuer says `tokens` were granted, or unknown where its answer does not say.
+pub(crate) fn granted(tokens: &porter_oauth::TokenResponse) -> GrantedScopes {
+    let scopes = tokens.granted_scopes();
+    if scopes.is_empty() {
+        GrantedScopes::unknown()
+    } else {
+        GrantedScopes::of(scopes)
+    }
 }
 
 /// Bring a credential up to date before it is used, storing whatever comes back.
@@ -879,6 +893,7 @@ mod tests {
                 )),
                 refresh: SecretText::new("r".to_owned()),
                 expires_at: UnixSeconds(0),
+                granted: Default::default(),
             }
         };
         let tid = "0b5f3c2e-1d4a-4f6b-9c8d-7e6f5a4b3c2d";
@@ -894,6 +909,7 @@ mod tests {
             access: SecretText::new("EwBwA8l6BAAU-opaque".to_owned()),
             refresh: SecretText::new("r".to_owned()),
             expires_at: UnixSeconds(0),
+            granted: Default::default(),
         };
         assert_eq!(tenant_of(&opaque), None);
         assert_eq!(
@@ -909,6 +925,7 @@ mod tests {
             access: SecretText::new("a"),
             refresh: SecretText::new("the-refresh-token"),
             expires_at: UnixSeconds(now.timestamp() + seconds),
+            granted: Default::default(),
         };
         assert!(is_fresh(&oauth(30 * 60), now));
         assert!(is_fresh(&oauth(61), now));
@@ -927,6 +944,7 @@ mod tests {
             access: SecretText::new("ya29.secret-access"),
             refresh: SecretText::new("1//secret-refresh"),
             expires_at: UnixSeconds(0),
+            granted: Default::default(),
         });
         let rendered = format!("{held:?}");
         assert!(!rendered.contains("secret-access"), "{rendered}");

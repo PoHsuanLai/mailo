@@ -294,6 +294,7 @@ fn token(access: &str) -> Credential {
         access: SecretText::new(access.to_owned()),
         refresh: SecretText::new("r1".to_owned()),
         expires_at: UnixSeconds((now() + TimeDelta::try_hours(1).unwrap()).timestamp()),
+        granted: Default::default(),
     }
 }
 

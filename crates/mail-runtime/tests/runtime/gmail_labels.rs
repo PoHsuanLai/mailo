@@ -49,6 +49,7 @@ fn backend() -> ImapBackend {
                         expires_at: UnixSeconds(
                             (Utc.timestamp_opt(2_000_000_000, 0).unwrap()).timestamp(),
                         ),
+                        granted: Default::default(),
                     },
                     sasl: vec![SaslMech::XOauth2],
                 },

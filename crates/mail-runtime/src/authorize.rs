@@ -157,11 +157,12 @@ pub async fn sign_in_told(
             "issuer returned no refresh token; access_type=offline may have been ignored",
         ))));
     };
+    let granted = crate::tokens::granted(&tokens);
     Ok(Credential::OAuth {
         expires_at: tokens.expires_at(now),
         access: tokens.access_token,
         refresh,
-        granted: Default::default(),
+        granted,
     })
 }
 

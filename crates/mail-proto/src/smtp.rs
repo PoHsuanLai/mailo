@@ -2263,6 +2263,7 @@ mod tests {
             access: SecretText::new("tok"),
             refresh: SecretText::new("ref"),
             expires_at: UnixSeconds((chrono_expiry()).timestamp()),
+            granted: Default::default(),
         };
         assert_eq!(
             choose_mech(&offered, &[SaslMech::Plain, SaslMech::XOauth2], &token).unwrap(),
@@ -2339,6 +2340,7 @@ mod tests {
                 access: SecretText::new("tok"),
                 refresh: SecretText::new("ref"),
                 expires_at: UnixSeconds((chrono_expiry()).timestamp()),
+                granted: Default::default(),
             },
             sasl: vec![SaslMech::XOauth2],
         });

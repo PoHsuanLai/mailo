@@ -341,6 +341,7 @@ mod renewing_an_expired_sign_in {
             expires_at: UnixSeconds(
                 (now() + chrono::TimeDelta::try_minutes(minutes).unwrap()).timestamp(),
             ),
+            granted: Default::default(),
         }
     }
 
@@ -394,6 +395,7 @@ mod renewing_an_expired_sign_in {
                 access,
                 refresh,
                 expires_at,
+                ..
             } => {
                 assert_eq!(
                     access.expose(),

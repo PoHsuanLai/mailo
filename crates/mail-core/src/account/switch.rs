@@ -106,6 +106,7 @@ mod tests {
             access: SecretText::new(access.to_owned()),
             refresh: SecretText::new("refresh".to_owned()),
             expires_at: UnixSeconds(now().timestamp() + 3600),
+            granted: Default::default(),
         }
     }
 

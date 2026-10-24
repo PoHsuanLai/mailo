@@ -757,6 +757,7 @@ mod sending_apart {
             access: SecretText::new("imap-token".to_owned()),
             refresh: SecretText::new("refresh-token".to_owned()),
             expires_at: UnixSeconds(now().timestamp() + 3600),
+            granted: Default::default(),
         };
         for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
             mail_runtime::block_on(secrets.put(

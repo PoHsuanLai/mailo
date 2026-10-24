@@ -567,6 +567,7 @@ fn a_refused_sign_in_asks_for_reauthentication() {
         access: SecretText::new("ya29.token".to_owned()),
         refresh: SecretText::new("refresh".to_owned()),
         expires_at: UnixSeconds((at(9)).timestamp()),
+        granted: Default::default(),
     };
     let err = replay(
         &mut SieveSession::new(login(bearer), SieveJob::Status),

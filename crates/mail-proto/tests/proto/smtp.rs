@@ -74,6 +74,7 @@ fn oauth() -> Credential {
         access: SecretText::new(TOKEN),
         refresh: SecretText::new(REFRESH),
         expires_at: UnixSeconds((expires()).timestamp()),
+        granted: Default::default(),
     }
 }
 

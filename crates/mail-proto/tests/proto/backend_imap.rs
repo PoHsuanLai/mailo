@@ -50,6 +50,7 @@ fn backend(caps: AccountCaps) -> ImapBackend {
                             (chrono::DateTime::from_timestamp(2_000_000_000, 0).unwrap())
                                 .timestamp(),
                         ),
+                        granted: Default::default(),
                     },
                     sasl: vec![SaslMech::XOauth2],
                 },

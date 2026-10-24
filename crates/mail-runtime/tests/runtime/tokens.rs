@@ -329,6 +329,7 @@ fn token(access: &str, refresh: &str, expires_at: DateTime<Utc>) -> Credential {
         access: SecretText::new(access),
         refresh: SecretText::new(refresh),
         expires_at: UnixSeconds(expires_at.timestamp()),
+        granted: Default::default(),
     }
 }
 
