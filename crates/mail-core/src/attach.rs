@@ -41,7 +41,9 @@ pub fn safe_name(claimed: &str) -> String {
         .chars()
         // Control characters and NUL: a name containing a newline makes a terminal print
         // something other than what was written, and NUL truncates the name at the syscall.
-        .filter(|c| !c.is_control())
+        // And the invisible format characters: a right-to-left override shows `exe.pdf` for a
+        // name that ends `.exe`.
+        .filter(|c| !c.is_control() && !is_format(*c))
         // What Windows refuses in a name, `:` among them, which names a stream of another file.
         .map(|c| if WINDOWS_REFUSES.contains(c) { '_' } else { c })
         .collect();
@@ -57,6 +59,35 @@ pub fn safe_name(claimed: &str) -> String {
         return truncate_keeping_extension(&format!("_{cleaned}"));
     }
     truncate_keeping_extension(cleaned)
+}
+
+/// Whether `c` is a format character (Unicode's general category Cf, as of Unicode 15.1): one
+/// that is not drawn, but changes how what is around it is drawn or read.
+fn is_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{0600}'..='\u{0605}'
+            | '\u{061C}'
+            | '\u{06DD}'
+            | '\u{070F}'
+            | '\u{0890}'..='\u{0891}'
+            | '\u{08E2}'
+            | '\u{180E}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{206F}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+            | '\u{110BD}'
+            | '\u{110CD}'
+            | '\u{13430}'..='\u{1343F}'
+            | '\u{1BCA0}'..='\u{1BCA3}'
+            | '\u{1D173}'..='\u{1D17A}'
+            | '\u{E0001}'
+            | '\u{E0020}'..='\u{E007F}'
+    )
 }
 
 /// The characters Windows refuses in a file name.

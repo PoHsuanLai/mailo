@@ -178,6 +178,17 @@ mod names {
         ("numbered device", "com1.pdf", "_com1.pdf"),
         ("not a device", "console.txt", "console.txt"),
         ("not a numbered device", "com10.txt", "com10.txt"),
+        // Format characters, which are not drawn but change what is: an override that shows
+        // `invoice\u{202E}fdp.exe` as `invoiceexe.pdf`, a zero-width space, a byte-order mark.
+        (
+            "right-to-left override",
+            "invoice\u{202E}fdp.exe",
+            "invoicefdp.exe",
+        ),
+        ("isolates", "a\u{2066}b\u{2069}.txt", "ab.txt"),
+        ("zero width", "re\u{200B}port.pdf", "report.pdf"),
+        ("byte-order mark", "\u{FEFF}notes.md", "notes.md"),
+        ("tag characters", "x\u{E0041}.txt", "x.txt"),
     ];
 
     #[test]
