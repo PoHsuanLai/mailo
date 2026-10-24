@@ -16,7 +16,6 @@
 
 use crate::RuntimeError;
 use crate::error::Failure;
-#[cfg(unix)]
 use porter_core::{EndpointUrl, SecretText};
 use porter_oauth::ClientRegistry;
 use porter_provider::{
