@@ -11,7 +11,7 @@ use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
-use porter_core::{Credential, SecretKey, SecretPurpose};
+use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use porter_secrets::MemorySecrets;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -243,6 +243,23 @@ fn an_account_the_server_cannot_push_to_is_not_watched() {
 fn an_idle_account_is_one_that_pushes() {
     let store = configured(1, WatchMode::Idle);
     assert_eq!(live::pushing(&store), [account()]);
+}
+
+/// Pushed only while it is checked automatically: an interval the person chose is polled at, and
+/// manually holds no connection.
+#[test]
+fn an_idle_account_checked_on_its_own_terms_is_not_pushed_to() {
+    use mail_core::offline::{Every, Kept};
+    let store = configured(1, WatchMode::Idle);
+    let table: [(Every, &[AccountId]); 3] = [
+        (Every::Automatic, &[account()]),
+        (Every::Minutes(15), &[]),
+        (Every::Manually, &[]),
+    ];
+    for (every, want) in table {
+        let kept = Kept::default().with_every(account(), every);
+        assert_eq!(live::pushing_with(&store, &kept), want, "{every:?}");
+    }
 }
 
 fn caps(watch: WatchMode) -> AccountCaps {

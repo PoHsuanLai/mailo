@@ -12,7 +12,7 @@ pub mod pop3;
 pub mod smtp;
 
 pub use imap::{Found, ImapBackend, Searching};
-pub use pop3::Pop3Backend;
+pub use pop3::{Pop3Backend, ServerCopies};
 pub use smtp::SmtpBackend;
 
 /// Whether a command walk needs the account's authentication in front of it.

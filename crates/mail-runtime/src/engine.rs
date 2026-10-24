@@ -324,6 +324,10 @@ pub struct AccountEngine<B: Backend> {
     /// The connection to the submission server the last submission was accepted on, signed in
     /// and open for the next, until the drain it is part of ends.
     sending: Option<(Kept, mail_proto::Open)>,
+    /// The oldest a message may be dated and still have its body fetched by a body pass
+    /// ([`AccountEngine::downloading_since`]). `None`, every message, unless the account was set
+    /// to be downloaded only so far back.
+    since: Option<DateTime<Utc>>,
 }
 
 /// How long a kept connection waits for the next operation before a new one is opened instead.
@@ -406,6 +410,7 @@ impl<B: Backend> AccountEngine<B> {
             dial: None,
             kept: None,
             sending: None,
+            since: None,
         }
     }
 
@@ -460,6 +465,13 @@ impl<B: Backend> AccountEngine<B> {
     /// Send [`Outgoing::Graph`] mail somewhere other than Graph: a test's own listener.
     pub fn with_graph_url(mut self, url: impl Into<String>) -> Self {
         self.graph_url = url.into();
+        self
+    }
+
+    /// Fetch bodies in a body pass only for messages dated at `since` or later: an account
+    /// downloaded only so far back. What the window shows or opens is fetched whatever its age.
+    pub fn downloading_since(mut self, since: Option<DateTime<Utc>>) -> Self {
+        self.since = since;
         self
     }
 
@@ -2424,7 +2436,8 @@ impl<B: Backend> AccountEngine<B> {
         // protocol that cannot take one — is "size unknown" and sorts into the last band.
         let sizes: std::collections::HashMap<RemoteRef, u64> =
             self.surveyed().into_iter().collect();
-        let (order, first) = crate::wanted::backlog(self.store.as_ref(), mailbox, limit)?;
+        let (order, first) =
+            crate::wanted::backlog(self.store.as_ref(), mailbox, self.since, limit)?;
         let order = order
             .into_iter()
             .map(|remote| {
@@ -2446,6 +2459,40 @@ impl<B: Backend> AccountEngine<B> {
                 purpose,
             })
             .await
+    }
+}
+
+impl AccountEngine<mail_proto::backend::Pop3Backend> {
+    /// Remove the server's copies of `remotes` from a POP3 maildrop, for an account that removes
+    /// them (`mail_core::offline::Remove`), whose backend was built to
+    /// ([`mail_proto::backend::ServerCopies::Removable`]). How many went.
+    ///
+    /// Only what the last survey listed: a copy it did not list is gone already. Each is let go
+    /// of here first ([`SqliteStore::let_go_of`]), so the message stays held here alone, and the
+    /// next survey, which will not list it, does not read it as deleted elsewhere. Should the
+    /// server refuse, the next sync lists it again and finds the message it is by its identity.
+    pub async fn remove_copies(
+        &mut self,
+        remotes: Vec<RemoteRef>,
+        cancel: &mut Cancel,
+    ) -> Result<usize, RuntimeError> {
+        let listed: std::collections::HashSet<RemoteRef> = self
+            .surveyed()
+            .into_iter()
+            .map(|(remote, _)| remote)
+            .collect();
+        let going: Vec<RemoteRef> = remotes
+            .into_iter()
+            .filter(|remote| listed.contains(remote))
+            .collect();
+        if going.is_empty() {
+            return Ok(0);
+        }
+        self.store.let_go_of(self.account.clone(), &going)?;
+        let count = going.len();
+        self.run(ProtoOp::Destroy { remotes: going }, cancel)
+            .await?;
+        Ok(count)
     }
 }
 

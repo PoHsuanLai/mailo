@@ -15,7 +15,7 @@ fn a_graph_address_reads_back_as_graph_in_every_query() {
         (
             store.remote_refs(&mailbox("INBOX")).unwrap(),
             store.remotes_of(m.id).unwrap(),
-            store.unfetched_in(&mailbox("INBOX"), 10).unwrap(),
+            store.unfetched_in(&mailbox("INBOX"), None, 10).unwrap(),
         )
     });
     assert_eq!(sqlite, memory);

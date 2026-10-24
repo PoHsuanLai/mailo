@@ -47,3 +47,6 @@ mod triage;
 mod preferences;
 mod search;
 mod sidebar;
+
+// 15: how an account is synced.
+mod syncing;
