@@ -1658,6 +1658,21 @@ fixtures! {
     "smime_encryptions_authenticated.json" => Vec<SmimeEncryption> = vec![
         SmimeEncryption::DecryptedAuthenticated,
     ],
+    // Drafts kept on the server: the upload that replaces a draft's copy in Drafts, and the
+    // removal once it is sent or discarded, as the outbox rows that carry them.
+    "proto_ops_server_drafts.json" => Vec<ProtoOp> = vec![
+        ProtoOp::KeepDraft {
+            draft: DraftId::from_uuid(uuid(9)),
+            mailbox: MailboxRef { account: account(), path: "Drafts".to_owned() },
+            message_id: "00000000-0000-4000-8000-000000000009@example.test".to_owned(),
+            raw: BlobId::from_uuid(uuid(7)),
+        },
+        ProtoOp::DropDraft {
+            draft: DraftId::from_uuid(uuid(9)),
+            mailbox: MailboxRef { account: account(), path: "Drafts".to_owned() },
+            message_id: "00000000-0000-4000-8000-000000000009@example.test".to_owned(),
+        },
+    ],
 }
 
 fn cert_fingerprint() -> CertFingerprint {
@@ -1793,6 +1808,17 @@ fn remote_intent_round_trips() {
             label: l,
         },
         RemoteIntent::Destroy { messages: vec![m] },
+        RemoteIntent::KeepDraft {
+            draft: DraftId::generate(),
+            mailbox: mailbox_ref(),
+            message_id: "d@example.test".to_owned(),
+            raw: BlobId::generate(),
+        },
+        RemoteIntent::DropDraft {
+            draft: DraftId::generate(),
+            mailbox: mailbox_ref(),
+            message_id: "d@example.test".to_owned(),
+        },
     ] {
         let json = serde_json::to_value(&value).expect("serialize");
         assert!(

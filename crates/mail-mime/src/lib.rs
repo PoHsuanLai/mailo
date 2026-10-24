@@ -34,7 +34,7 @@ pub use block::{
     Action, Block, Delsp, Dir, Document, Flowed, ImgSrc, Inlined, LINK_REL, LINK_TARGET, Limits,
     ListKind, Reached, SafeUrl, Shape, Span, from_html, from_text, is_mapped, mapped_tags, unflow,
 };
-pub use build::{Disclosure, Posting, build, posting};
+pub use build::{Disclosure, Posting, build, draft_copy, draft_message_id, posting};
 pub use error::{MboxError, MimeError, NotHttpsUrl, NotMailto, RecordError, UnsafeUrl};
 pub use graph::{GraphBody, GraphDraft, GraphImportance, graph_draft};
 pub use imip::{CalendarPart, CalendarReply, calendar_part, calendar_reply};

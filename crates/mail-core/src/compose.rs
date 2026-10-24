@@ -868,13 +868,89 @@ pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError>
         return Err(CoreError::DraftQueued);
     }
     store.apply(
-        draft.account,
+        draft.account.clone(),
         &Patch {
             id: ChangeId::generate(),
             changes: vec![Change::DraftDelete(draft.id)],
         },
     )?;
+    // And off the server, where its copy was kept ([`keep_on_server`]). Discarded whatever
+    // becomes of that: the draft is gone here, and a copy left there is only a copy.
+    if let Some(mailbox) = drafts_on_server(store, &draft.account) {
+        mail_runtime::server_drafts::queue_drop(store, &draft, mailbox, Utc::now())
+            .or_log("the discarded draft's copy on the server was not queued to go");
+    }
     Ok(draft.subject)
+}
+
+/// Keep the draft's latest in the server's Drafts mailbox, in place of the copy kept there
+/// before, as Apple Mail and Thunderbird do: so a draft begun here can be finished on another
+/// device. Queued, like everything sent to a server ([`mail_runtime::server_drafts`]); an upload
+/// of it still waiting is replaced. Whether anything was queued.
+///
+/// Nothing, and no error, for a draft with nowhere to go: a POP3 or local account, or a server
+/// that named no Drafts folder, where uploading to a guessed path is how a copy lands somewhere
+/// nobody looks. Nothing for a Microsoft Graph account either, which makes a message from MIME
+/// only as a new draft with an id of its own, so there is no copy to replace; such a draft is
+/// this client's alone, as every draft was. Nothing for a draft on its way out, whose copy goes
+/// when it is sent. And nothing for a draft that asks to be encrypted, which is not put on a
+/// server in the clear; a copy kept before it asked goes when it is sent or discarded.
+///
+/// The copy names every addressee, `Bcc` included, as only the sender reads it, and carries the
+/// draft's own `Message-ID`, which is how the next upload finds it.
+pub fn keep_on_server(
+    store: &SqliteStore,
+    draft: DraftId,
+    now: DateTime<Utc>,
+) -> Result<bool, CoreError> {
+    let draft = store.draft(draft)?;
+    if draft.state != SendState::Editing || draft.openpgp.encrypts() || draft.smime.encrypts() {
+        return Ok(false);
+    }
+    let Some(mailbox) = drafts_on_server(store, &draft.account) else {
+        return Ok(false);
+    };
+    let Some(identity) = store.identity(draft.identity)? else {
+        return Ok(false);
+    };
+    let parent = draft
+        .in_reply_to
+        .and_then(|id| store.message(id).or_log("a message could not be read"));
+    let mut parts = Vec::with_capacity(draft.attachments.len());
+    for attachment in &draft.attachments {
+        let bytes = store
+            .blobs()
+            .get(attachment.blob)
+            .map_err(|e| CoreError::context(format!("attachment {}", attachment.name), e))?;
+        parts.push((attachment.blob, bytes));
+    }
+    let copy = mail_mime::draft_copy(&draft, &identity, parent.as_ref(), &parts)?;
+    let raw = store.blobs().put(&copy)?;
+    Ok(mail_runtime::server_drafts::queue_keep(
+        store, &draft, mailbox, raw, now,
+    )?)
+}
+
+/// The Drafts mailbox `account` keeps copies of drafts in on its server: the one its server
+/// named, on an IMAP or JMAP account. See [`keep_on_server`] for why no other.
+fn drafts_on_server(store: &SqliteStore, account: &AccountId) -> Option<MailboxRef> {
+    let stored = store
+        .account(account.clone())
+        .or_log("the account a draft is on could not be read")??;
+    let plan = stored
+        .plan
+        .or_log("the plan of the account a draft is on could not be read")?;
+    if !matches!(plan.incoming, Incoming::Imap { .. } | Incoming::Jmap { .. }) {
+        return None;
+    }
+    let caps = stored
+        .caps?
+        .or_log("the capabilities of the account a draft is on could not be read")?;
+    let path = caps.folders.path(MailboxRole::Drafts)?;
+    Some(MailboxRef {
+        account: account.clone(),
+        path: path.to_owned(),
+    })
 }
 
 /// Put the identity's signature beneath what was written.
@@ -1378,5 +1454,160 @@ mod carried_tests {
         ];
         let kept: Vec<String> = carried(&parts).into_iter().map(|p| p.name).collect();
         assert_eq!(kept, ["small.bin", "last.bin"]);
+    }
+}
+
+#[cfg(test)]
+mod server_copy_tests {
+    use super::*;
+    use crate::support_tests::{account, at, caps};
+
+    /// An account on `incoming` whose server lists the folders `roles`, with a draft begun on it.
+    fn writing(incoming: Incoming, roles: Vec<(String, MailboxRole)>) -> (SqliteStore, Draft) {
+        let store = mail_store::testing::in_memory();
+        let plan = AccountPlan {
+            address: "me@example.test".to_owned(),
+            incoming,
+            outgoing: Outgoing::Smtp {
+                host: "smtp.example.test".to_owned(),
+                port: 465,
+                tls: Tls::Implicit,
+            },
+            auth: AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        };
+        mail_store::testing::seed_account_plan(&store, account(), "me@example.test", &plan, None);
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            account(),
+            "me@example.test",
+            None,
+        );
+        let caps = AccountCaps {
+            folders: FolderRoles(roles),
+            ..caps()
+        };
+        mail_store::testing::seed_caps(&store, account(), &caps, at(0)).unwrap();
+        let to = [Address {
+            name: None,
+            email: "bea@example.test".to_owned(),
+        }];
+        let draft = draft_new(&store, account(), &to, "half a thought", "", at(1)).unwrap();
+        (store, draft)
+    }
+
+    fn imap() -> Incoming {
+        Incoming::Imap {
+            host: "imap.example.test".to_owned(),
+            port: 993,
+            tls: Tls::Implicit,
+        }
+    }
+
+    fn with_drafts() -> Vec<(String, MailboxRole)> {
+        vec![("Drafts".to_owned(), MailboxRole::Drafts)]
+    }
+
+    /// Everything queued, whenever it is due: a discard queues at the clock's now.
+    fn queued(store: &SqliteStore) -> Vec<ProtoOp> {
+        store
+            .outbox_due(account(), Utc::now() + chrono::TimeDelta::days(1))
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.op)
+            .collect()
+    }
+
+    #[test]
+    fn a_draft_on_an_imap_account_with_a_drafts_folder_is_queued_for_it_by_its_message_id() {
+        let (store, draft) = writing(imap(), with_drafts());
+        assert!(keep_on_server(&store, draft.id, at(2)).unwrap());
+        let ops = queued(&store);
+        let [
+            ProtoOp::KeepDraft {
+                draft: kept,
+                mailbox,
+                message_id,
+                raw,
+            },
+        ] = &ops[..]
+        else {
+            panic!("{ops:?}");
+        };
+        assert_eq!(*kept, draft.id);
+        assert_eq!(mailbox.path, "Drafts");
+        assert_eq!(*message_id, format!("{}@example.test", draft.id));
+        let bytes = String::from_utf8(store.blobs().get(*raw).unwrap()).unwrap();
+        assert!(
+            bytes.contains(&format!("Message-ID: <{message_id}>\r\n")),
+            "{bytes}"
+        );
+
+        // A second copy takes the first one's place in the outbox.
+        assert!(keep_on_server(&store, draft.id, at(3)).unwrap());
+        assert_eq!(queued(&store).len(), 1, "{:?}", queued(&store));
+    }
+
+    #[test]
+    fn discarding_the_draft_queues_its_copy_s_removal_in_place_of_the_upload() {
+        let (store, draft) = writing(imap(), with_drafts());
+        keep_on_server(&store, draft.id, at(2)).unwrap();
+        discard(&store, draft.id).unwrap();
+        let ops = queued(&store);
+        assert!(
+            matches!(&ops[..], [ProtoOp::DropDraft { draft: gone, .. }] if *gone == draft.id),
+            "{ops:?}"
+        );
+    }
+
+    #[test]
+    fn nothing_is_queued_where_there_is_no_drafts_folder_to_keep_a_copy_in() {
+        let pop3 = Incoming::Pop3 {
+            host: "pop.example.test".to_owned(),
+            port: 995,
+            tls: Tls::Implicit,
+            leave: LeaveOnServer::Keep,
+        };
+        // (incoming, the folders its server lists, why nothing goes)
+        let cases = [
+            (imap(), Vec::new(), "the server named no Drafts folder"),
+            (pop3, with_drafts(), "a maildrop has no folders"),
+            (
+                Incoming::Graph,
+                with_drafts(),
+                "Graph keeps no copy to replace",
+            ),
+        ];
+        for (incoming, roles, why) in cases {
+            let (store, draft) = writing(incoming, roles);
+            assert!(!keep_on_server(&store, draft.id, at(2)).unwrap(), "{why}");
+            discard(&store, draft.id).unwrap();
+            assert!(queued(&store).is_empty(), "{why}: {:?}", queued(&store));
+        }
+    }
+
+    #[test]
+    fn a_draft_that_asks_to_be_encrypted_is_not_put_on_the_server_in_the_clear() {
+        let (store, draft) = writing(imap(), with_drafts());
+        for (openpgp, smime) in [
+            (OpenPgp::Encrypt, Smime::None),
+            (OpenPgp::None, Smime::SignAndEncrypt),
+        ] {
+            save(
+                &store,
+                &Draft {
+                    openpgp,
+                    smime,
+                    ..draft.clone()
+                },
+            )
+            .unwrap();
+            assert!(!keep_on_server(&store, draft.id, at(2)).unwrap());
+            assert!(queued(&store).is_empty(), "{:?}", queued(&store));
+        }
     }
 }

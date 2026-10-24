@@ -165,8 +165,13 @@ fn touches(later: &mail_store::OutboxEntry, messages: &[MessageId], filing: &Pro
         | ProtoOp::AddKeyword { remotes, .. }
         | ProtoOp::Expunge { remotes }
         | ProtoOp::Destroy { remotes } => remotes.iter().any(|r| ours.contains(r)),
-        // A new message, a sent one, or a mailbox: none of them is a message already held.
-        ProtoOp::Append { .. } | ProtoOp::Submit { .. } | ProtoOp::Folder(_) => false,
+        // A new message, a sent one, a mailbox or a draft's copy on the server: none of them is
+        // a message already held.
+        ProtoOp::Append { .. }
+        | ProtoOp::Submit { .. }
+        | ProtoOp::Folder(_)
+        | ProtoOp::KeepDraft { .. }
+        | ProtoOp::DropDraft { .. } => false,
         _ => true,
     }
 }

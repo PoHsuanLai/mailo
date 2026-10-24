@@ -108,6 +108,74 @@ pub(crate) fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, mai
     Ok(subject)
 }
 
+/// How long a draft being written goes between copies kept on the server, at most one each: a
+/// copy is an upload of the whole message, attachments and all, and the server copy is for
+/// finishing the draft elsewhere, not a keystroke log. Closing or parking the page keeps one at
+/// once, whenever the last was.
+pub(in crate::ui) const KEEP_EVERY: chrono::TimeDelta = chrono::TimeDelta::seconds(30);
+
+/// When each draft's copy was last queued for the server, so autosave asks for one no more often
+/// than [`KEEP_EVERY`].
+#[derive(Debug, Default)]
+pub(in crate::ui) struct Kept(BTreeMap<DraftId, DateTime<Utc>>);
+
+/// Whether an autosave asks for a copy, or the page is going and one is kept regardless.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Keeping {
+    /// Autosave's: at most one per [`KEEP_EVERY`].
+    WhenDue,
+    /// Closing or parking the page: now.
+    Now,
+}
+
+impl Kept {
+    /// Whether a copy of `draft` is to be queued at `now`, noting that it is when it is.
+    pub(in crate::ui) fn due(
+        &mut self,
+        draft: DraftId,
+        now: DateTime<Utc>,
+        keeping: Keeping,
+    ) -> bool {
+        let due = keeping == Keeping::Now
+            || self
+                .0
+                .get(&draft)
+                .is_none_or(|last| now - *last >= KEEP_EVERY);
+        if due {
+            self.0.insert(draft, now);
+        }
+        due
+    }
+}
+
+/// Queue the draft's copy for the server's Drafts mailbox, as `keeping` says
+/// ([`mail_core::compose::keep_on_server`]), in place of one still waiting. Whether one was.
+///
+/// Under the lock the writes hold, so a copy is made of the draft as the last save left it, and
+/// never of one a discard has just taken away.
+pub(in crate::ui) fn keep_on_server(
+    store: &SqliteStore,
+    draft: DraftId,
+    now: DateTime<Utc>,
+    keeping: Keeping,
+) -> Result<bool, String> {
+    static KEPT: Mutex<Kept> = Mutex::new(Kept(BTreeMap::new()));
+    let _written = written();
+    let due = KEPT
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .due(draft, now, keeping);
+    if !due {
+        return Ok(false);
+    }
+    match mail_core::compose::keep_on_server(store, draft, now) {
+        Ok(queued) => Ok(queued),
+        // Discarded or sent from somewhere else meanwhile: there is nothing to keep.
+        Err(mail_core::CoreError::Store(mail_core::StoreError::NoDraft(_))) => Ok(false),
+        Err(why) => Err(why.to_string()),
+    }
+}
+
 fn put(store: &SqliteStore, page: &Page, now: DateTime<Utc>) -> Result<Draft, String> {
     let base = store.draft(page.draft).map_err(|e| e.to_string())?;
     let edited = page.apply_to(&base, now);
@@ -133,6 +201,12 @@ pub(in crate::ui) fn park(
         return discard(store, page.draft)
             .map(|_| ())
             .map_err(|e| e.to_string());
+    }
+    // Leaving the page keeps a copy on the server now, however recently autosave kept one.
+    if saved.is_ok()
+        && let Err(why) = keep_on_server(store, page.draft, now, Keeping::Now)
+    {
+        log::warn!("the draft's copy on the server was not queued: {why}");
     }
     let title = if page.subject.trim().is_empty() {
         "Draft".to_owned()

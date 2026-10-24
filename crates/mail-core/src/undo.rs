@@ -223,11 +223,16 @@ pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<R
         //
         // Nor, above all, a deletion forever: the server's copy is gone once it is sent, and
         // the window never offers one an undo (`crate::destroy`).
+        //
+        // A draft's copy on the server follows the draft, which has undo of its own: a discard
+        // taken back puts the draft here, and its next save puts a copy there again.
         RemoteIntent::Send { .. }
         | RemoteIntent::AddKeyword { .. }
         | RemoteIntent::Append { .. }
         | RemoteIntent::File { .. }
-        | RemoteIntent::Destroy { .. } => None,
+        | RemoteIntent::Destroy { .. }
+        | RemoteIntent::KeepDraft { .. }
+        | RemoteIntent::DropDraft { .. } => None,
     }
 }
 

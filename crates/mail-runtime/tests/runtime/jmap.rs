@@ -589,3 +589,86 @@ async fn a_search_the_server_cannot_answer_faithfully_is_not_sent() {
     assert!(matches!(said, Searched::Unsaid(_)), "{said:?}");
     assert!(s.fake.calls("Email/query").is_empty());
 }
+
+/// A draft's copy kept in Drafts as it changes, one at a time, and gone once it is dropped: the
+/// copies found by their Message-ID, and only those, in Drafts and nowhere else.
+#[tokio::test]
+async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_none() {
+    let mut s = setup().await;
+    let seeded = seed(&s.fake);
+    pass(&mut s).await;
+    let draft = DraftId::generate();
+    let message_id = format!("{draft}@example.test");
+    let drafts = MailboxRef {
+        account: acct_account(),
+        path: "Drafts".to_owned(),
+    };
+    let copy = |body: &str| {
+        format!(
+            "From: {USER}\r\nSubject: Unfinished\r\nMessage-ID: <{message_id}>\r\n\
+             Date: Mon, 01 Sep 2026 10:00:00 +0000\r\n\r\n{body}\r\n"
+        )
+    };
+    let nothing = || Patch {
+        id: ChangeId::generate(),
+        changes: vec![],
+    };
+    // The copies of this draft the server holds, as (mailboxes, keywords, bytes).
+    let copies = |fake: &Fake| {
+        let state = fake.state.lock().unwrap();
+        state
+            .emails
+            .iter()
+            .filter_map(|e| {
+                let raw = state.blobs.iter().find(|(b, _)| *b == e.blob)?.1.clone();
+                // A copy that is not UTF-8 is not one this test uploaded.
+                let raw = String::from_utf8(raw).ok()?;
+                raw.contains(&message_id)
+                    .then(|| (e.mailboxes.clone(), e.keywords.clone(), raw))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for body in ["first thoughts", "second thoughts"] {
+        let raw = s.store.blobs().put(copy(body).as_bytes()).unwrap();
+        s.store
+            .enqueue(
+                acct_account(),
+                RemoteIntent::KeepDraft {
+                    draft,
+                    mailbox: drafts.clone(),
+                    message_id: message_id.clone(),
+                    raw,
+                },
+                &nothing(),
+                now(),
+            )
+            .unwrap();
+        pass(&mut s).await;
+    }
+    let kept = copies(&s.fake);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    let (mailboxes, keywords, raw) = &kept[0];
+    assert_eq!(mailboxes, &vec!["mbD".to_owned()]);
+    assert!(keywords.contains(&"$draft".to_owned()), "{keywords:?}");
+    assert!(raw.contains("second thoughts"), "{raw}");
+    // Nothing of it is kept here as a message: the draft is the document.
+    assert!(by_message_id(&s.store, &message_id).is_none());
+
+    s.store
+        .enqueue(
+            acct_account(),
+            RemoteIntent::DropDraft {
+                draft,
+                mailbox: drafts,
+                message_id: message_id.clone(),
+            },
+            &nothing(),
+            now(),
+        )
+        .unwrap();
+    pass(&mut s).await;
+    assert!(copies(&s.fake).is_empty(), "{:?}", copies(&s.fake));
+    // Another client's draft in the same folder is not this one's to remove.
+    assert!(s.fake.state.lock().unwrap().email(&seeded[3]).is_some());
+}
