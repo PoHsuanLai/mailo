@@ -1006,8 +1006,8 @@ fn a_window_less_provider_is_looking_at_nothing() {
 #[cfg(not(any(target_os = "macos", windows)))]
 #[test]
 fn the_window_handoff_answers_from_inside_zbus_executor() {
-    let _taken: bool =
-        zbus::block_on(async { super::handed_to_window(thread_of(1), Some("token")) });
+    let shown = Shown::Thread(thread_of(1));
+    let _taken: bool = zbus::block_on(async { super::handed_to_window(&shown, Some("token")) });
 }
 
 /// What mail hands the desktop's index is keyed as the intents key the same kinds: a conversation
