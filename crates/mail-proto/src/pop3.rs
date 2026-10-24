@@ -149,6 +149,10 @@ impl fmt::Debug for Auth {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Phase {
     Greeting,
+    /// `STLS` was sent (RFC 2595 §4); waiting for its `+OK`.
+    Stls,
+    /// The server agreed to `STLS`, and the runtime is upgrading the connection.
+    AwaitTls,
     /// Waiting for a one-line `+OK` or `-ERR`.
     Single(Pop3Command),
     /// Waiting for the status line of a dot-terminated reply.
@@ -196,6 +200,10 @@ impl PartialEq for Buffer {
 impl Eq for Buffer {}
 
 impl Buffer {
+    fn is_empty(&self) -> bool {
+        self.pos == self.bytes.len()
+    }
+
     fn extend(&mut self, more: &[u8]) {
         self.bytes.extend_from_slice(more);
     }
@@ -236,6 +244,9 @@ struct State {
     buf: Buffer,
     replies: Vec<Pop3Reply>,
     wind_down: WindDown,
+    /// The server's name and port, when the connection is to be upgraded with `STLS` before
+    /// the first command ([`Pop3Session::with_starttls`]).
+    starttls: Option<(String, u16)>,
 }
 
 /// What [`step`] was just told.
@@ -244,7 +255,9 @@ enum Event {
     Bytes(Vec<u8>),
     Eof,
     Interrupt,
-    /// `TlsOpen` or `Woke`. The session never asks for either; keep reading.
+    /// The connection was upgraded, as [`Phase::AwaitTls`] asked.
+    TlsOpen,
+    /// `Woke`. The session never asks for it; keep reading.
     Continue,
 }
 
@@ -257,13 +270,16 @@ enum Action {
     Next(Pop3Reply),
     /// `QUIT` succeeded.
     Done(Pop3Reply),
+    /// `STLS` was agreed to: upgrade the connection before anything else is said.
+    StartTls,
     Fail(ProtoError),
 }
 
 /// A POP3 session that speaks only after the runtime has handed it a byte stream.
 ///
-/// TLS is the runtime's job, before [`Machine::start`]. Implicit POP3S (port 995)
-/// never appears here. `STLS` is not a command this session sends.
+/// TLS is the runtime's job: implicit POP3S (port 995) before [`Machine::start`], and
+/// `STLS` (RFC 2595) when [`Pop3Session::with_starttls`] asks for it, which this session sends
+/// and the runtime then performs on [`IoNeed::OpenTls`].
 ///
 /// `Out` is [`Vec<Pop3Reply>`] rather than one reply: [`Progress::Done`] happens
 /// once, at `QUIT` or when the queue runs out, and the caller needs every reply
@@ -319,8 +335,20 @@ impl Pop3Session {
                 buf: Buffer::default(),
                 replies: Vec::new(),
                 wind_down: WindDown::Run,
+                starttls: None,
             },
         })
+    }
+
+    /// The same session, upgrading the connection with `STLS` straight after the greeting,
+    /// before it signs in or sends anything else ([`mail_domain::Tls::StartTlsRequired`]).
+    ///
+    /// The upgrade is required, never opportunistic: a server that refuses it, or sends anything
+    /// after agreeing to it, ends the session before the password is written.
+    #[must_use]
+    pub fn with_starttls(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.state.starttls = Some((host.into(), port));
+        self
     }
 }
 
@@ -336,7 +364,8 @@ impl Machine for Pop3Session {
             IoReady::Bytes(bytes) => Event::Bytes(bytes),
             IoReady::Eof => Event::Eof,
             IoReady::Interrupt => Event::Interrupt,
-            IoReady::TlsOpen | IoReady::Woke => Event::Continue,
+            IoReady::TlsOpen => Event::TlsOpen,
+            IoReady::Woke => Event::Continue,
         };
         step(&mut self.state, &self.auth, event)
     }
@@ -357,7 +386,11 @@ fn step(state: &mut State, auth: &Auth, event: Event) -> Progress<Vec<Pop3Reply>
             state.wind_down = WindDown::QuitNext;
             pump(state, auth)
         }
-        Event::Continue => pump(state, auth),
+        Event::TlsOpen if state.phase == Phase::AwaitTls => {
+            state.starttls = None;
+            dispatch_next(state, auth)
+        }
+        Event::TlsOpen | Event::Continue => pump(state, auth),
     }
 }
 
@@ -392,8 +425,33 @@ fn pump(state: &mut State, auth: &Auth) -> Progress<Vec<Pop3Reply>> {
         match action {
             Action::Continue => {}
             Action::Next(reply) => {
+                let greeted = matches!(reply, Pop3Reply::Greeting(_));
                 state.replies.push(reply);
+                if greeted && state.starttls.is_some() {
+                    state.phase = Phase::Stls;
+                    return Progress::Need(vec![IoNeed::Write(b"STLS\r\n".to_vec()), IoNeed::Read]);
+                }
                 return dispatch_next(state, auth);
+            }
+            Action::StartTls => {
+                // Anything the server sent after its `+OK` came before TLS, so an attacker on
+                // the path may have written it to be read as said under TLS.
+                if !state.buf.is_empty() {
+                    state.phase = Phase::Closed;
+                    return Progress::Failed(ProtoError::Malformed(
+                        "the server sent more after agreeing to STLS".into(),
+                    ));
+                }
+                let Some((host, port)) = state.starttls.clone() else {
+                    state.phase = Phase::Closed;
+                    return Progress::Failed(ProtoError::Malformed("STLS without a server".into()));
+                };
+                state.phase = Phase::AwaitTls;
+                return Progress::Need(vec![IoNeed::OpenTls {
+                    host,
+                    port,
+                    mode: mail_domain::Tls::StartTlsRequired,
+                }]);
             }
             Action::Done(reply) => {
                 state.replies.push(reply);
@@ -430,6 +488,13 @@ fn dispatch_next(state: &mut State, auth: &Auth) -> Progress<Vec<Pop3Reply>> {
 fn decide(phase: Phase, line: &[u8]) -> (Phase, Action) {
     match phase {
         Phase::Greeting => decide_greeting(line),
+        Phase::Stls => decide_stls(line),
+        Phase::AwaitTls => (
+            Phase::Closed,
+            Action::Fail(ProtoError::Malformed(
+                "the server spoke while the connection was being secured".into(),
+            )),
+        ),
         Phase::Single(cmd) => decide_single(cmd, line),
         Phase::MultiStatus(cmd) => decide_multi_status(cmd, line),
         Phase::MultiBody { cmd, lines, held } => decide_multi_body(cmd, lines, held, line),
@@ -447,6 +512,17 @@ fn decide_greeting(line: &[u8]) -> (Phase, Action) {
             kind: Refusal::Permanent,
             text: bounded(&text),
         }),
+        Err(err) => Action::Fail(err),
+    };
+    (Phase::Closed, action)
+}
+
+fn decide_stls(line: &[u8]) -> (Phase, Action) {
+    let action = match status_of(line) {
+        Ok(Status::Ok(_)) => Action::StartTls,
+        Ok(Status::Err(text)) => {
+            Action::Fail(ProtoError::Unsupported(format!("STLS: {}", bounded(&text))))
+        }
         Err(err) => Action::Fail(err),
     };
     (Phase::Closed, action)
