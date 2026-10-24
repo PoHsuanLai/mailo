@@ -1,7 +1,7 @@
 //! An account's own page in Settings' Accounts pane, pushed over the list as System Settings
-//! pushes an Internet Account: whether all its mail is downloaded ([`super::offline`]), its
-//! servers and sign-in, its own keys and certificates (`pgp::keys`), and, last and alone,
-//! Remove Account….
+//! pushes an Internet Account: whether all its mail is downloaded ([`super::offline`]), the name
+//! it sends as and its aliases ([`sends_as`]), its servers and sign-in, its own keys and
+//! certificates (`pgp::keys`), and, last and alone, Remove Account….
 //!
 //! The servers are read, not edited: changing them is the Add account sheet's. Remove asks first
 //! in quire's alert, naming how much mail goes and whether the server still has it. Only the
@@ -12,6 +12,7 @@
 //! follow it, as they do for an account removed with `mailo account remove`. What the page says
 //! is [`words`]'s.
 
+mod sends_as;
 mod words;
 
 use crate::ui::appearance::WindowDirs;
@@ -232,6 +233,9 @@ pub(super) fn AccountPage(
                 FormSection {
                     super::offline::DownloadAll { row: row.clone() }
                 }
+            }
+            if !row.is_local() {
+                sends_as::SendsAs { account: account.clone(), revision }
             }
             FormSection { title: Some(copy::headers::SERVERS.to_owned()),
                 for line in words::settings(&row.plan) {

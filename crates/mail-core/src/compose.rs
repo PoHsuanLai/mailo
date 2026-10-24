@@ -82,9 +82,20 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let original = store.message(message)?;
-    let identity = identity_of(store, original.account.clone(), None)?;
+    let identity = identity_of(store, original.account.clone(), answering(store, &original))?;
 
     let mut draft = Draft::reply_to(&original, &identity, scope, now);
+    // `Draft::reply_to` drops the address it answers from; the account's other addresses are the
+    // person too, and a reply-all from an alias would otherwise copy their own address on it.
+    let own = store
+        .identities(original.account.clone())
+        .or_log_default("the account's identities could not be read");
+    let mine = |a: &Address| {
+        own.iter()
+            .any(|i| i.from.email.eq_ignore_ascii_case(&a.email))
+    };
+    draft.to.retain(|a| !mine(a));
+    draft.cc.retain(|a| !mine(a));
     // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
     // a property of the draft — so the quoting happens here, where the renderer is.
     draft.text = quoted(&signed(body, &identity), &original, zone);
@@ -144,7 +155,7 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let original = store.message(message)?;
-    let identity = identity_of(store, original.account.clone(), None)?;
+    let identity = identity_of(store, original.account.clone(), answering(store, &original))?;
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
@@ -349,6 +360,111 @@ pub fn identity_addressed(
                 .any(|a| a.email.eq_ignore_ascii_case(&identity.from.email))
         })
         .map(|identity| identity.id)
+}
+
+/// The identity of `original`'s account that a reply to it, or a forward of it, leaves from:
+/// the one that sent it, when it is the person's own, else the one it was addressed to; `None`,
+/// the account's default, when it reached none of them by name (a list, a Bcc).
+///
+/// Mail that came to an alias is answered from the alias, as Apple Mail and Thunderbird answer
+/// it: the person gave that address out, and an answer from another tells the correspondent an
+/// address they were not given and puts the next message in a folder the alias's rules do not
+/// see. The sender is asked first so that answering one's own sent message keeps its address.
+pub(crate) fn answering(store: &SqliteStore, original: &Message) -> Option<IdentityId> {
+    let own = store
+        .identities(original.account.clone())
+        .or_log("the account's identities could not be read")?;
+    // In the order the original names them, so mail To an alias and Cc the account's own
+    // address is answered from the alias it was written to.
+    std::iter::once(&original.from)
+        .chain(&original.to)
+        .chain(&original.cc)
+        .chain(&original.bcc)
+        .find_map(|addressed| {
+            own.iter()
+                .find(|identity| identity.from.email.eq_ignore_ascii_case(&addressed.email))
+        })
+        .map(|identity| identity.id)
+}
+
+/// Every identity a message can leave from, by account oldest first and within an account its
+/// own address first: what the composer's From offers.
+///
+/// Accounts as [`sending_accounts`] has them, so local folders are never one. An account whose
+/// identities cannot be read offers none rather than hiding every other account's.
+pub fn sending_identities(store: &SqliteStore) -> Vec<Identity> {
+    sending_accounts(store)
+        .into_iter()
+        .flat_map(|(_, account)| {
+            store
+                .identities(account)
+                .or_log_default("an account's identities could not be read")
+        })
+        .collect()
+}
+
+/// Move a draft to `identity`, and to its account: what picking an address in From does.
+///
+/// [`move_draft_to`]'s rule holds: the identity is read before anything is written, so one that
+/// is gone leaves the draft where it was. A draft already from it is returned as it is.
+pub fn move_draft_to_identity(
+    store: &SqliteStore,
+    draft: DraftId,
+    identity: IdentityId,
+    now: DateTime<Utc>,
+) -> Result<Draft, CoreError> {
+    let mut draft = store.draft(draft)?;
+    if draft.identity == identity {
+        return Ok(draft);
+    }
+    let Some(chosen) = store.identity(identity)? else {
+        return Err(CoreError::DraftIdentityGone { id: identity });
+    };
+    // A copy to the address it was from ([`copy_myself`]) follows it to the new one: the person
+    // wanted a copy, not a copy at the address they moved away from.
+    if let Some(was) = store.identity(draft.identity)? {
+        for list in [&mut draft.cc, &mut draft.bcc] {
+            for address in list.iter_mut() {
+                if address.email.eq_ignore_ascii_case(&was.from.email) {
+                    *address = chosen.from.clone();
+                }
+            }
+        }
+    }
+    draft.account = chosen.account;
+    draft.identity = chosen.id;
+    draft.updated = now;
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// Where [`copy_myself`] puts the sender's own address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Myself {
+    Cc,
+    Bcc,
+}
+
+/// Put the address `draft` leaves from on its Cc or Bcc, so a copy of the message comes back to
+/// the person who sent it, and save it. Nothing changes when the address is already on it.
+pub fn copy_myself(store: &SqliteStore, draft: DraftId, to: Myself) -> Result<Draft, CoreError> {
+    let mut draft = store.draft(draft)?;
+    let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
+    let already = draft
+        .to
+        .iter()
+        .chain(&draft.cc)
+        .chain(&draft.bcc)
+        .any(|a| a.email.eq_ignore_ascii_case(&identity.from.email));
+    if already {
+        return Ok(draft);
+    }
+    match to {
+        Myself::Cc => draft.cc.push(identity.from),
+        Myself::Bcc => draft.bcc.push(identity.from),
+    }
+    save(store, &draft)?;
+    Ok(draft)
 }
 
 /// The most a single message may carry, before base64 expands it.

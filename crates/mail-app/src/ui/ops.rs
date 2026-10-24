@@ -86,17 +86,38 @@ pub(super) fn open_composer(
                 shell.write().no_account = true;
                 return Err(why.clone());
             }
-            started.map(|draft| shell.write().compose(&draft))
+            started
+                .map(|draft| copied(store, draft))
+                .map(|draft| shell.write().compose(&draft))
         }
-        Writes::On(thread, composes) => {
-            start_composing(store, thread, composes).map(|draft| shell.write().compose(&draft))
-        }
+        Writes::On(thread, composes) => start_composing(store, thread, composes)
+            .map(|draft| copied(store, draft))
+            .map(|draft| shell.write().compose(&draft)),
         Writes::Draft(id) => shell.write().compose_id(store, id),
     };
     if let Err(why) = &opened {
         log::warn!("compose: {why}");
     }
     opened
+}
+
+/// `draft` with the person's own address on its Cc or Bcc, as `compose.copy_myself` asks; as it
+/// was when the setting is off, or when the copy could not be written (the message is still
+/// worth writing without it, and the composer shows its Cc and Bcc).
+fn copied(store: &SqliteStore, draft: Draft) -> Draft {
+    use crate::settings::CopyMyself;
+    let to = match crate::ui::prefs::current().compose.copy_myself {
+        CopyMyself::Off => return draft,
+        CopyMyself::Cc => mail_core::compose::Myself::Cc,
+        CopyMyself::Bcc => mail_core::compose::Myself::Bcc,
+    };
+    match mail_core::compose::copy_myself(store, draft.id, to) {
+        Ok(copied) => copied,
+        Err(why) => {
+            log::warn!("compose: the copy to myself was not added: {why}");
+            draft
+        }
+    }
 }
 
 pub(super) fn start_composing(

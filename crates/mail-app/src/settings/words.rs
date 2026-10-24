@@ -35,6 +35,19 @@ pub enum Spelling {
     Off,
 }
 
+/// `compose.copy_myself`: whether a message written here starts with the address it leaves from
+/// on its Cc or its Bcc, so a copy of what was sent comes back to the person, as Apple Mail's
+/// "Automatically Cc/Bcc myself" does. Off by default: most servers keep a Sent copy already.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum CopyMyself {
+    #[default]
+    Off,
+    Cc,
+    Bcc,
+}
+
 /// `reading.brand_logos`: whether a sender's verified logo (BIMI) is looked up and shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]

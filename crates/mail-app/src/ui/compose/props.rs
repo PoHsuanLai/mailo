@@ -47,7 +47,6 @@ use mail_core::provider::{provider, service_name};
 #[component]
 pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     let read = page.read();
-    let new = read.kind == PageKind::New;
     let cc = read.row_shown(List::Cc);
     let bcc = read.row_shown(List::Bcc);
     let guard = read.guard;
@@ -58,10 +57,10 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
     };
     let store = consume_context::<Arc<SqliteStore>>();
     // One address to send from is no choice: the row is drawn only when there is another.
-    let senders = mail_core::compose::sending_accounts(&store).len();
+    let senders = offered(&store, &page.read()).len();
     rsx! {
         div { class: "c-props",
-            if new && senders > 1 {
+            if senders > 1 {
                 FromRow { page, shell }
             }
             Line {
@@ -222,15 +221,42 @@ pub(super) fn ChoiceRow(
     }
 }
 
+/// The addresses the page's From offers: on a new message every address any account sends as,
+/// each account's own first and then its aliases; on a reply only those of the account it
+/// answers from, since the conversation is that account's.
+fn offered(store: &SqliteStore, page: &Page) -> Vec<mail_domain::Identity> {
+    let all = mail_core::compose::sending_identities(store);
+    match page.kind {
+        PageKind::New => all,
+        PageKind::Reply => all
+            .into_iter()
+            .filter(|identity| identity.account == page.from)
+            .collect(),
+    }
+}
+
 #[component]
 fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
-    let from = page.read().from.clone();
+    let chosen = page.read().identity;
     let open = page.read().float == Float::From;
+    let identities = offered(&store, &page.read());
     let rows = account_rows(&store);
     let marks = shell.read().appearance.marks;
-    let current = rows.iter().find(|row| row.id == from);
-    let address = current.map(|row| row.address.clone()).unwrap_or_default();
+    let account_of =
+        |identity: &mail_domain::Identity| rows.iter().find(|row| row.id == identity.account);
+    let current = identities.iter().find(|identity| identity.id == chosen);
+    // A draft from an address that is not offered still says where it leaves from.
+    let address = current.map_or_else(
+        || {
+            let from = page.read().from.clone();
+            rows.iter()
+                .find(|row| row.id == from)
+                .map(|row| row.address.clone())
+                .unwrap_or_default()
+        },
+        |identity| identity.from.email.clone(),
+    );
     // A provider's mark says which one only when the addresses are on more than one.
     let mut providers: Vec<&str> = rows
         .iter()
@@ -240,25 +266,25 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     providers.sort_unstable();
     providers.dedup();
     let via = current
+        .and_then(&account_of)
         .filter(|_| providers.len() > 1)
         .map(|row| provider(&row.plan));
-    // Local folders send nothing, so they are no From to choose.
-    let items: Vec<MenuItem> = rows
+    // Each address by itself, under the name it goes out with, or its service's when it has
+    // none. Local folders send nothing, and have no identity to offer.
+    let items: Vec<MenuItem> = identities
         .iter()
-        .filter(|row| !row.is_local())
-        .map(|row| MenuItem {
-            tile: Tile::Avatar {
-                letter: row
-                    .address
-                    .chars()
-                    .next()
-                    .unwrap_or('?')
-                    .to_ascii_uppercase(),
-                color: super::super::command::avatar_color(&row.address),
-            },
-            help: Some(service_name(&row.plan).to_owned()),
-            right: Right::Check(row.id == from),
-            ..MenuItem::plain(row.id.to_string(), row.address.clone())
+        .map(|identity| {
+            let email = &identity.from.email;
+            let service = account_of(identity).map(|row| service_name(&row.plan).to_owned());
+            MenuItem {
+                tile: Tile::Avatar {
+                    letter: email.chars().next().unwrap_or('?').to_ascii_uppercase(),
+                    color: super::super::command::avatar_color(email),
+                },
+                help: identity.from.display_name().map(str::to_owned).or(service),
+                right: Right::Check(identity.id == chosen),
+                ..MenuItem::plain(identity.id.to_string(), email.clone())
+            }
         })
         .collect();
     let mut value = use_signal(|| None::<MountedRef>);
@@ -306,25 +332,33 @@ fn close(mut page: Signal<Page>, was: &Float) {
     }
 }
 
-/// Move the draft to the account `key` names. Saved first, so nothing typed is read back over.
+/// Move the draft to the address `key` names, and to its account. Saved first, so nothing typed
+/// is read back over.
 fn move_to(mut page: Signal<Page>, key: &str) {
     let store = consume_context::<Arc<SqliteStore>>();
     let now = chrono::Utc::now();
     let mut write = page.write();
     write.float = Float::Closed;
-    let Some(account) = account_rows(&store)
+    let Some(identity) = offered(&store, &write)
         .into_iter()
-        .find(|row| row.id.to_string() == key)
-        .map(|row| row.id)
+        .find(|identity| identity.id.to_string() == key)
+        .map(|identity| identity.id)
     else {
         return;
     };
     let moved = super::life::save(&store, &mut write, now).and_then(|draft| {
-        mail_core::compose::move_draft_to(&store, draft.id, account, now)
+        mail_core::compose::move_draft_to_identity(&store, draft.id, identity, now)
             .map_err(crate::ui::remedy::told)
     });
     match moved {
-        Ok(draft) => write.from = draft.account,
+        Ok(draft) => {
+            // A copy to myself moved with the draft (`move_draft_to_identity`): the page shows
+            // where it now goes, or its next save would put the old address back.
+            write.cc = draft.cc.iter().map(super::page::person).collect();
+            write.bcc = draft.bcc.iter().map(super::page::person).collect();
+            write.from = draft.account;
+            write.identity = draft.identity;
+        }
         Err(why) => write.notice = Some(why),
     }
 }

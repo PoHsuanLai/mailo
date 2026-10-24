@@ -276,6 +276,8 @@ pub enum CoreError {
          at setup, so it has to be added again"
     )]
     NoIdentityToSendAs,
+    #[error("the account's own address stays: remove the account to stop sending as it")]
+    OwnAddressStays,
     #[error("no account {address}. This one has: {}", .known.join(", "))]
     NoSuchSender { address: String, known: Vec<String> },
     #[error(

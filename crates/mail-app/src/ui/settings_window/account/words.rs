@@ -49,7 +49,8 @@ fn issuer(issuer: Issuer) -> &'static str {
 }
 
 /// The account's settings as the page lists them, in order: receiving, what POP3 does with what
-/// it downloads, sending, signing in, and the addresses it sends as.
+/// it downloads, sending, and signing in. The addresses it sends as are their own group, which
+/// edits them (`sends_as`).
 pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
     let mut lines = Vec::new();
     let token = match &plan.incoming {
@@ -105,14 +106,6 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
             }
         },
     ));
-    let addresses: Vec<String> = plan
-        .identities
-        .iter()
-        .map(|identity| identity.from.to_string())
-        .collect();
-    if !addresses.is_empty() {
-        lines.push(line(row::SENDS_AS, addresses.join(", ")));
-    }
     lines
 }
 
