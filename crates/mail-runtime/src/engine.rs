@@ -946,8 +946,10 @@ impl<B: Backend> AccountEngine<B> {
     ///   message twice.
     /// - An IMAP account on any other SMTP server has a Sent mailbox and nobody filing into it,
     ///   so the client uploads the copy there (`APPEND`, RFC 3501 §6.3.11) when the server's
-    ///   `SPECIAL-USE` listing names one (RFC 6154). With none named, uploading to a guessed
-    ///   path is how a message lands somewhere nobody looks, so the copy is kept here.
+    ///   `SPECIAL-USE` listing names one (RFC 6154), or, with none, a folder at the top has a
+    ///   name every client takes for Sent (`Sent`, `Sent Items`: `mail_proto`'s folder roles).
+    ///   With neither, uploading to a guessed path is how a message lands somewhere nobody
+    ///   looks, so the copy is kept here.
     /// - A POP3 or local account has no Sent mailbox at all, whichever server sends for it, so
     ///   the copy is kept here: Graph's lands in a Sent Items a POP3 sync never reads.
     fn sent_copy(&self) -> SentCopy {
