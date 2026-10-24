@@ -19,7 +19,7 @@
 
 use mail_domain::SaslMech;
 use mail_proto::machine::{IoReady, Machine, Progress};
-use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
+use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session, Untagged};
 use porter_core::Credential;
 use porter_core::SecretText;
 use proptest::prelude::*;
@@ -178,4 +178,15 @@ fn an_overlong_literal_that_never_arrives_ends_rather_than_hangs() {
         ],
     );
     assert!(settled, "a truncated literal left the session waiting");
+}
+
+#[test]
+fn a_literal_counted_at_the_top_of_usize_is_none_rather_than_an_overflow() {
+    let raw = format!("* 1 FETCH (UID 1 BODY[] {{{}}}\r\nabc)\r\n", usize::MAX).into_bytes();
+    let untagged = Untagged {
+        during: 0,
+        text: String::new(),
+        raw,
+    };
+    assert_eq!(untagged.literal(), None);
 }

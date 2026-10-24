@@ -137,9 +137,11 @@ pub fn sanitize(html: &str, policy: SanitizePolicy) -> SafeHtml {
     // What the filter saw is this call's alone: cleared before and taken after, on this thread,
     // which is the one ammonia calls the filter on.
     SEEN.with_borrow_mut(|seen| *seen = Seen::default());
-    let cleaned = builder(policy.styles, policy.remote_images)
-        .clean(html)
-        .to_string();
+    let builder = builder(policy.styles, policy.remote_images);
+    // Twice: a removed element's children stay where it stood, which can leave markup a parser
+    // reads back as another tree (a `<table>` a dropped `<object>` left inside a `<p>`). The
+    // second pass cleans the tree that markup is, so what is returned reads back as itself.
+    let cleaned = builder.clean(&builder.clean(html).to_string()).to_string();
     let seen = SEEN.with_borrow_mut(std::mem::take);
     let (cleaned, body_style) = match policy.styles {
         Styles::Kept => (css::scrub_style_elements(&cleaned), body::body_style(html)),
