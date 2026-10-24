@@ -28,6 +28,14 @@ use std::time::Duration;
 /// being fetched.
 pub const POLLS_MISSED: u32 = 3;
 
+/// The least a polled account is allowed, however often it polls.
+///
+/// Three misses of a fifteen-second Graph poll is forty-five seconds, less than one slow pass
+/// over a large folder or a laptop's wake can take, and the line would say "Not updated since"
+/// about an account that is being fetched. Three minutes is what three missed polls were when
+/// Graph was polled every minute, and is still well inside what a person notices.
+pub const POLLED_AT_LEAST: Duration = Duration::from_secs(3 * 60);
+
 /// What an account the server pushes to is allowed past [`IDLE_REARM`] before it is stale: the
 /// pass that follows a re-issue, and a little more.
 pub const PUSH_SLACK: Duration = Duration::from_secs(10 * 60);
@@ -56,7 +64,7 @@ pub struct Pace {
 /// stale.
 pub fn allowance(watch: &WatchMode) -> Duration {
     match watch {
-        WatchMode::Poll { every } => every.saturating_mul(POLLS_MISSED),
+        WatchMode::Poll { every } => every.saturating_mul(POLLS_MISSED).max(POLLED_AT_LEAST),
         WatchMode::Idle => IDLE_REARM.saturating_add(PUSH_SLACK),
     }
 }
@@ -231,6 +239,21 @@ mod tests {
         for (name, finished, allowed, now, expected) in rows {
             assert_eq!(freshness(finished, allowed, now), expected, "{name}");
         }
+    }
+
+    /// An account polled every fifteen seconds is allowed three minutes, not forty-five seconds;
+    /// one polled every five is allowed its three intervals as before.
+    #[test]
+    fn a_fast_poll_is_allowed_a_floor_not_three_of_its_intervals() {
+        let graph = polled(mail_domain::presets::GRAPH_POLL_EVERY);
+        assert_eq!(graph, POLLED_AT_LEAST);
+        assert_eq!(freshness(Some(t(0)), graph, t(3)), Freshness::Current);
+        assert_eq!(
+            freshness(Some(t(0)), graph, t(4)),
+            Freshness::Stale { since: t(0) }
+        );
+        assert_eq!(polled(Duration::from_secs(60)), POLLED_AT_LEAST);
+        assert_eq!(polled(FIVE), FIVE * POLLS_MISSED);
     }
 
     #[test]

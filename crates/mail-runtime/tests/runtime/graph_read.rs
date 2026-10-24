@@ -312,6 +312,30 @@ struct Account {
 }
 
 fn account(port: u16) -> Account {
+    account_with(port, caps())
+}
+
+/// An engine as a pass makes one: a reader that knows nothing yet but `caps`.
+fn engine(
+    port: u16,
+    caps: AccountCaps,
+    store: &Arc<SqliteStore>,
+    secrets: &Arc<dyn AccountSecrets>,
+) -> AccountEngine<OverHttp> {
+    let reader = Reader::new(acct_account(), caps.clone())
+        .unwrap()
+        .at(me(port));
+    AccountEngine::new(
+        acct_account(),
+        plan(),
+        OverHttp::new(caps),
+        store.clone(),
+        secrets.clone(),
+    )
+    .with_graph_reader(reader)
+}
+
+fn account_with(port: u16, caps: AccountCaps) -> Account {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::in_memory(dir.path()).unwrap());
     mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
@@ -323,15 +347,7 @@ fn account(port: u16) -> Account {
         secrets.put(&key(SecretPurpose::OutgoingPassword), &token("graph-token")),
     )
     .unwrap();
-    let reader = Reader::new(acct_account(), caps()).unwrap().at(me(port));
-    let engine = AccountEngine::new(
-        acct_account(),
-        plan(),
-        OverHttp::new(caps()),
-        store.clone(),
-        secrets.clone(),
-    )
-    .with_graph_reader(reader);
+    let engine = engine(port, caps, &store, &secrets);
     Account {
         engine,
         store,
@@ -530,6 +546,96 @@ async fn a_graph_listing_with_no_inbox_is_an_error_and_nothing_is_kept() {
     assert!(
         it.store.folders(acct_account()).unwrap().is_empty(),
         "a listing with no inbox was kept"
+    );
+}
+
+/// Capabilities stored when Graph was polled every minute are asked again on the next pass,
+/// not a day later, and the listing sets the interval its folders allow; after that they are
+/// not asked again until the day is out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_interval_stored_when_graph_polled_every_minute_is_asked_again_at_once() {
+    let (port, _seen) = serve(inbox_script()).await;
+    let minute = AccountCaps {
+        watch: WatchMode::Poll {
+            every: std::time::Duration::from_secs(60),
+        },
+        observed_at: now(),
+        ..caps()
+    };
+    let mut it = account_with(port, minute);
+    assert!(it.engine.caps_are_stale(now()), "a minute, for six folders");
+    let (_tx, mut cancel) = cancel();
+    it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+
+    let stored: AccountCaps = it.store.account_caps(acct_account()).unwrap().unwrap();
+    assert_eq!(
+        stored.watch,
+        WatchMode::Poll {
+            every: presets::graph_poll_every(6)
+        }
+    );
+    assert_eq!(
+        stored.watch,
+        WatchMode::Poll {
+            every: presets::GRAPH_POLL_EVERY
+        }
+    );
+    assert!(!it.engine.caps_are_stale(now()), "settled by one refresh");
+    let next = engine(port, stored, &it.store, &it.secrets);
+    assert!(!next.caps_are_stale(now()), "and the next pass agrees");
+    assert!(next.caps_are_stale(now() + TimeDelta::try_days(2).unwrap()));
+}
+
+/// A pass over a folder with a stored delta link asks that link and nothing else: no listing
+/// of the folders to find the folder's id, though the reader is new and knows none. A pass
+/// every fifteen seconds is then one request a folder.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pass_that_resumes_asks_only_its_delta_link() {
+    let script: Script = Arc::new(|request: &Request, port: u16| {
+        if let Some(answer) = folders(request, port) {
+            return answer;
+        }
+        let delta = format!("{}/mailFolders/ID-PROJECTS/messages/delta", me(port));
+        match request.path() {
+            "/v1.0/me/mailFolders/ID-PROJECTS/messages/delta" => ok(json!({
+                "value": [],
+                "@odata.deltaLink": format!("{delta}?$deltatoken=p1"),
+            })),
+            _ => status("404 Not Found", r#"{"error":{"code":"ErrorItemNotFound"}}"#),
+        }
+    });
+    let (port, seen) = serve(script).await;
+    let mut it = account(port);
+    let (_tx, mut cancel) = cancel();
+    let projects = MailboxRef {
+        account: acct_account(),
+        path: "Projects".to_owned(),
+    };
+    it.engine
+        .sync(&projects, &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    assert!(
+        seen.lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.path() == "/v1.0/me/mailFolders"),
+        "the first pass looks the folder's id up"
+    );
+
+    seen.lock().unwrap().clear();
+    let mut next = engine(port, caps(), &it.store, &it.secrets);
+    next.sync(&projects, &mut cancel, now(), 200).await.unwrap();
+    let asked: Vec<String> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| r.target.clone())
+        .collect();
+    assert_eq!(
+        asked,
+        ["/v1.0/me/mailFolders/ID-PROJECTS/messages/delta?$deltatoken=p1"],
+        "one request, the stored link"
     );
 }
 

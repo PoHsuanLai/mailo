@@ -35,7 +35,9 @@
 //!
 //! There is no push. Graph's change notifications are delivered to a public HTTPS webhook,
 //! which a desktop client does not have, so an account that reads through Graph polls — every
-//! minute, which is cheap because a delta query with nothing to report returns nothing.
+//! fifteen seconds, or slower for a mailbox of many folders ([`mail_domain::presets::graph_poll_every`]).
+//! That is cheap because a pass that resumes asks each folder's stored delta link and nothing
+//! else, and a delta with nothing to report returns nothing.
 
 mod search;
 
@@ -49,6 +51,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, FetchSince, Folder, FolderRoles, FolderWork, Holds, Ingest, MailboxRole, ProtoOp,
     ReadState, RemoteRef, Retry, SpecialUse, Star, Subscription, SyncCursor, UidValidity,
+    WatchMode, presets::graph_poll_every,
 };
 use mail_proto::ProtoOutcome;
 use porter_core::AccountId;
@@ -147,10 +150,26 @@ impl Reader {
         &self.caps
     }
 
-    /// Date the capabilities: they were confirmed at `now`.
-    pub fn observed(&mut self, now: DateTime<Utc>) -> AccountCaps {
+    /// Date the capabilities: they were confirmed at `now`, on a mailbox of `folders` folders.
+    ///
+    /// The poll interval is set here too, from the folders, rather than kept from when the
+    /// account was added: what Graph offers is this client's to decide, and an interval stored
+    /// before it changed would otherwise stay for as long as the account does.
+    pub fn observed(&mut self, now: DateTime<Utc>, folders: usize) -> AccountCaps {
         self.caps.observed_at = now;
+        self.caps.watch = WatchMode::Poll {
+            every: graph_poll_every(folders),
+        };
         self.caps.clone()
+    }
+
+    /// Whether the capabilities poll slower than a mailbox of `folders` folders may: written
+    /// before the interval was shortened, so worth asking again before the day is out.
+    pub fn polls_behind(&self, folders: usize) -> bool {
+        match self.caps.watch {
+            WatchMode::Poll { every } => every > graph_poll_every(folders),
+            WatchMode::Idle => true,
+        }
     }
 
     /// Let the next delta walk go through at most `messages` before it stops.
@@ -297,12 +316,13 @@ impl Reader {
         token: &str,
     ) -> Result<Ingest, RuntimeError> {
         let path = mailbox.path.clone();
-        let first = self.first_delta(&path, token).await?;
+        // A pass that resumes asks the link it stored and nothing else: the folder's id is in
+        // it already, and looking the id up could cost a listing of every folder each pass.
         let (mut url, mut resumed) = match since {
             FetchSince::After {
                 cursor: SyncCursor::Graph { delta_link },
             } => (delta_link, true),
-            _ => (first.clone(), false),
+            _ => (self.first_delta(&path, token).await?, false),
         };
         let mut validity = UidValidity::Same;
         let mut ingest = Ingest {
@@ -328,7 +348,7 @@ impl Reader {
                 None if resumed => {
                     resumed = false;
                     validity = UidValidity::Reset;
-                    url = first.clone();
+                    url = self.first_delta(&path, token).await?;
                     seen = 0;
                     ingest.flags.clear();
                     ingest.gone.clear();
