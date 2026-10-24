@@ -53,7 +53,7 @@ impl JmapEngine {
         let call = query(
             &client.session.account,
             condition,
-            &mailboxes.unfollowed(),
+            &mailboxes.unsearched(),
             SERVER_HITS as u64,
             "q",
         );

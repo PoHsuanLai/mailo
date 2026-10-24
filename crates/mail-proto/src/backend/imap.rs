@@ -187,6 +187,7 @@ impl ImapBackend {
         remotes: &[RemoteRef],
         set: String,
         target: String,
+        marks: Vec<ImapCommand>,
     ) -> Progress<ProtoOutcome> {
         // Already where it is going: nothing to do, and nothing sent. The retry of a move split
         // per mailbox, interrupted after its first part, finds that part's messages in the
@@ -214,7 +215,11 @@ impl ImapBackend {
                 mailbox: target,
             },
         };
-        self.queue(vec![Self::select(source, Access::ReadWrite), action])
+        let mut commands = vec![Self::select(source, Access::ReadWrite)];
+        // Set before the move, so they travel with the message (RFC 6851 §3.3, and `COPY`).
+        commands.extend(marks);
+        commands.push(action);
+        self.queue(commands)
     }
 
     /// Delete `remotes` for good: the user's "Delete forever", from Trash or Spam.
@@ -561,7 +566,8 @@ impl Backend for ImapBackend {
                                 "filing into {role:?}: this server named no folder for it"
                             )));
                         };
-                        self.move_into(&source, &remotes, set, target)
+                        let marks = junk_marks(&self.caps, &source.path, role, &set);
+                        self.move_into(&source, &remotes, set, target, marks)
                     }
                 }
             }
@@ -588,7 +594,9 @@ impl Backend for ImapBackend {
                             },
                         ])
                     }
-                    ArchiveMeans::MoveToFolder(_) => self.move_into(&source, &remotes, set, folder),
+                    ArchiveMeans::MoveToFolder(_) => {
+                        self.move_into(&source, &remotes, set, folder, Vec::new())
+                    }
                 }
             }
             ProtoOp::FetchFlags {
@@ -1551,6 +1559,31 @@ fn role_folder(caps: &AccountCaps, archive: &str, role: MailboxRole) -> Option<S
         ),
         other => caps.folders.path(other).map(str::to_owned),
     }
+}
+
+/// What a move into or out of Junk says to the server's filter, and to other clients'
+/// (RFC 9051 §2.3.2, Apple Mail and Thunderbird read the same two): `$Junk` going in, `$NotJunk`
+/// coming out of the Junk folder, and the other one taken off. Any other move says nothing.
+fn junk_marks(caps: &AccountCaps, source: &str, role: MailboxRole, set: &str) -> Vec<ImapCommand> {
+    let from_junk = caps
+        .folders
+        .path(MailboxRole::Spam)
+        .is_some_and(|junk| same_folder(junk, source));
+    let (on, off) = match role {
+        MailboxRole::Spam => ("$Junk", "$NotJunk"),
+        _ if from_junk => ("$NotJunk", "$Junk"),
+        _ => return Vec::new(),
+    };
+    vec![
+        ImapCommand::UidStore {
+            set: set.to_owned(),
+            what: format!("+FLAGS ({on})"),
+        },
+        ImapCommand::UidStore {
+            set: set.to_owned(),
+            what: format!("-FLAGS ({off})"),
+        },
+    ]
 }
 
 /// Whether two paths name one mailbox: exactly, or `INBOX` in any case (RFC 9051 §5.1).

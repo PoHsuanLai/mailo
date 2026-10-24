@@ -77,6 +77,20 @@ pub fn filing_patch(
     if let Some(id) = target {
         patch.insert(format!("mailboxIds/{id}"), json!(true));
     }
+    // What the move says to the server's filter (RFC 8621 §4.1.1): `$junk` going into Junk, and
+    // `$notjunk` coming back to the inbox, since a message the person wants there is not junk
+    // whichever mailbox it comes from. Archiving or trashing one says nothing either way.
+    match role {
+        MailboxRole::Spam => {
+            patch.insert("keywords/$junk".to_owned(), json!(true));
+            patch.insert("keywords/$notjunk".to_owned(), Value::Null);
+        }
+        MailboxRole::Inbox => {
+            patch.insert("keywords/$junk".to_owned(), Value::Null);
+            patch.insert("keywords/$notjunk".to_owned(), json!(true));
+        }
+        _ => {}
+    }
     Ok(patch)
 }
 
