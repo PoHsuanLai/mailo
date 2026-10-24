@@ -13,3 +13,11 @@ pub fn serve() -> Option<Requests> {
 pub fn deliver(_thread: ThreadId, _token: Option<&str>) -> bool {
     false
 }
+
+pub fn deliver_mailto(_uri: &str, _token: Option<&str>) -> bool {
+    false
+}
+
+pub fn deliver_activate(_token: Option<&str>) -> bool {
+    false
+}

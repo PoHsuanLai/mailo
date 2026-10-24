@@ -64,35 +64,24 @@ fn main() {
         }
         None => None,
     };
-    // `mailo open <thread>` while a window is running hands the conversation to it and ends: a
-    // banner's click, or the person at a terminal, opens it where they are already reading. The
-    // click's activation token travels with it. No window running (or no bus) is the ordinary
-    // start below.
-    if let Some(mail_app::ui::Start::Thread(thread)) = &start
-        && mailto.is_none()
-        && mail_app::handoff::deliver(
-            *thread,
-            std::env::var("XDG_ACTIVATION_TOKEN").ok().as_deref(),
-        )
-    {
-        return;
-    }
-    // A second `mailo` with nothing to say raises the window that is running instead of opening
-    // another: macOS's launcher does the same for the app bundle, and this is the bare binary.
-    #[cfg(target_os = "macos")]
-    if matches!(start, Some(mail_app::ui::Start::Inbox))
-        && mailto.is_none()
-        && mail_app::handoff::deliver_activate()
-    {
-        return;
-    }
-    // `mailo mailto:…` while a window is running composes in it rather than opening another.
-    #[cfg(target_os = "macos")]
-    if mailto.is_some()
-        && args
+    // A second `mailo` hands what it was asked to the window that is running and ends, with the
+    // click's activation token: `mailo open <thread>` (a banner's click, or the person at a
+    // terminal) opens the conversation there, `mailo mailto:…` composes there, and a bare `mailo`
+    // raises it, as macOS's launcher does for the app bundle. No window running (or no bus) is the
+    // ordinary start below.
+    let token = std::env::var("XDG_ACTIVATION_TOKEN").ok();
+    let token = token.as_deref();
+    let handed = match (&start, &mailto) {
+        (_, Some(_)) => args
             .first()
-            .is_some_and(|uri| mail_app::handoff::deliver_mailto(uri))
-    {
+            .is_some_and(|uri| mail_app::handoff::deliver_mailto(uri, token)),
+        (Some(mail_app::ui::Start::Thread(thread)), None) => {
+            mail_app::handoff::deliver(*thread, token)
+        }
+        (Some(mail_app::ui::Start::Inbox), None) => mail_app::handoff::deliver_activate(token),
+        _ => false,
+    };
+    if handed {
         return;
     }
     let command = if start.is_some() {

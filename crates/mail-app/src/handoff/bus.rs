@@ -104,20 +104,49 @@ pub fn serve() -> Option<Requests> {
 /// when a window took it; false when none is running (or there is no bus), and then the caller
 /// opens a window of its own.
 pub fn deliver(thread: ThreadId, token: Option<&str>) -> bool {
+    open(&uri_of(thread), token)
+}
+
+/// Ask the running window to open a composer on the `mailto:` link `uri`. True when one took it.
+pub fn deliver_mailto(uri: &str, token: Option<&str>) -> bool {
+    open(uri, token)
+}
+
+/// Ask the running window to raise itself. True when one did; false when none is running.
+pub fn deliver_activate(token: Option<&str>) -> bool {
+    call("Activate", &(platform_data(token),))
+}
+
+/// `Open` of the one `uri` on the window's object.
+fn open(uri: &str, token: Option<&str>) -> bool {
+    call("Open", &(vec![uri], platform_data(token)))
+}
+
+/// The `platform_data` a call carries: the activation `token`, when there is one.
+fn platform_data(token: Option<&str>) -> HashMap<&str, Value<'_>> {
+    let mut data = HashMap::new();
+    if let Some(token) = token {
+        data.insert("activation-token", Value::from(token));
+    }
+    data
+}
+
+/// Call `method` of `org.freedesktop.Application` on the running window. False when there is no
+/// bus or no window owns the name.
+fn call<B>(method: &str, body: &B) -> bool
+where
+    B: serde::Serialize + zbus::zvariant::DynamicType,
+{
     let Ok(connection) = Connection::session() else {
         return false;
     };
-    let mut platform_data: HashMap<&str, Value<'_>> = HashMap::new();
-    if let Some(token) = token {
-        platform_data.insert("activation-token", Value::from(token));
-    }
     connection
         .call_method(
             Some(NAME),
             PATH,
             Some("org.freedesktop.Application"),
-            "Open",
-            &(vec![uri_of(thread)], platform_data),
+            method,
+            body,
         )
         .is_ok()
 }
@@ -140,5 +169,13 @@ mod tests {
         assert_eq!(token_of(data("activation-token", Value::from(7u32))), None);
         assert_eq!(token_of(data("other", Value::from("xdg-1"))), None);
         assert_eq!(token_of(HashMap::new()), None);
+    }
+
+    #[test]
+    fn a_call_carries_the_activation_token_only_when_there_is_one() {
+        let data = platform_data(Some("xdg-1"));
+        assert_eq!(data.len(), 1);
+        assert_eq!(data.get("activation-token"), Some(&Value::from("xdg-1")));
+        assert!(platform_data(None).is_empty());
     }
 }
