@@ -165,10 +165,8 @@ async fn a_word_lists_newest_first_under_its_top_results() {
     let page = window
         .typed("cursors", |page| page.contains(TOP_RESULTS))
         .await;
-    assert!(
-        !page.contains(crate::ui::copy::headers::NEWEST_FIRST),
-        "the list is headed"
-    );
+    // The heading the matches once had, gone with its constant: the order says it.
+    assert!(!page.contains("Newest first"), "the list is headed");
     let (_, rows) = page
         .split_once(TOP_RESULTS)
         .expect("the strip has its heading");
