@@ -10,6 +10,7 @@
 //! to do instead: attaching a rebuilt one would send a stand-in with empty attachments, under
 //! the original's name.
 
+use crate::editor::plain_to_flowed;
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
@@ -61,7 +62,7 @@ pub fn draft_forward_attached(
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
-    draft.text = signed(body, &identity);
+    draft.text = plain_to_flowed(&signed(body, &identity));
     draft.attachments.push(PendingAttachment {
         name: eml_name(&original.subject),
         mime: ENCLOSED.to_owned(),

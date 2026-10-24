@@ -128,7 +128,15 @@ pub fn graph_draft(message: &[u8], rcpt_to: &[String]) -> Result<GraphDraft, Mim
 
     let body = match (parsed.html, parsed.text) {
         (Some(html), _) => GraphBody::Html(html),
-        (None, text) => GraphBody::Text(text.unwrap_or_default()),
+        (None, text) => {
+            // No text part is an empty body.
+            let text = text.unwrap_or_default();
+            // Graph keeps a plain body as it is given, so a flowed one is joined first.
+            GraphBody::Text(match parsed.flowed {
+                crate::Flowed::Flowed { delsp } => crate::unflow(&text, delsp),
+                crate::Flowed::Fixed => text,
+            })
+        }
     };
 
     Ok(GraphDraft {
