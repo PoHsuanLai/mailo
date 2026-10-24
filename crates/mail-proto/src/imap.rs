@@ -36,6 +36,12 @@ use std::fmt;
 /// grow the client's memory until it is killed.
 pub const MAX_RESPONSE: usize = 256 * 1024 * 1024;
 
+/// The most the answers to one command may hold together, as the transcript keeps them: a whole
+/// batch of bodies in one `UID FETCH`, with room to spare. A server that keeps sending responses,
+/// each under [`MAX_RESPONSE`], before it completes the command is refused at this rather than let
+/// the transcript grow the client's memory until it is killed.
+pub const MAX_TRANSCRIPT: usize = 1024 * 1024 * 1024;
+
 /// How a mailbox is opened (RFC 3501 sections 6.3.1 and 6.3.2).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
@@ -388,6 +394,10 @@ pub struct ImapSession {
     transcript: ImapTranscript,
     counter: u32,
     max_response: usize,
+    /// The most the answers to one command may hold ([`MAX_TRANSCRIPT`] unless
+    /// [`Self::with_max_transcript`] set another), and how much the one outstanding holds.
+    max_transcript: usize,
+    held: usize,
     /// On a connection an earlier session finished on, so there is no greeting to wait for.
     resumed: bool,
     /// The mailbox the connection has selected, and how: from the last `SELECT` or `EXAMINE`
@@ -454,6 +464,8 @@ impl ImapSession {
             transcript: ImapTranscript::default(),
             counter: 0,
             max_response: MAX_RESPONSE,
+            max_transcript: MAX_TRANSCRIPT,
+            held: 0,
             resumed: false,
             selected: None,
         })
@@ -464,6 +476,14 @@ impl ImapSession {
     #[must_use]
     pub fn with_max_response(mut self, bytes: usize) -> Self {
         self.max_response = bytes;
+        self
+    }
+
+    /// The same session, failing when the answers to one command hold more than `bytes`
+    /// together rather than more than [`MAX_TRANSCRIPT`].
+    #[must_use]
+    pub fn with_max_transcript(mut self, bytes: usize) -> Self {
+        self.max_transcript = bytes;
         self
     }
 
@@ -566,6 +586,7 @@ impl ImapSession {
             )));
         }
         let tag = self.next_tag();
+        self.held = 0;
         if let ImapCommand::Search { keys } = &command {
             let mut parts =
                 match crate::search::imap::command(&tag, keys, &self.transcript.capabilities) {
@@ -858,11 +879,14 @@ impl ImapSession {
                     Phase::Running { index, .. } => *index,
                     _ => 0,
                 };
-                self.transcript.untagged.push(Untagged {
+                let kept = Untagged {
                     during,
                     text: String::from_utf8_lossy(&raw).trim_end().to_owned(),
                     raw,
-                });
+                };
+                if let Some(failed) = self.keep(kept) {
+                    return failed;
+                }
                 continue;
             }
 
@@ -901,6 +925,22 @@ impl ImapSession {
                 return progress;
             }
         }
+    }
+
+    /// Keep `untagged` in the transcript, unless the answers to the command outstanding would then
+    /// hold more than the session's limit: then the session fails, and that is the answer.
+    fn keep(&mut self, untagged: Untagged) -> Option<Progress<ImapTranscript>> {
+        self.held = self
+            .held
+            .saturating_add(untagged.raw.len() + untagged.text.len());
+        if self.held > self.max_transcript {
+            return Some(self.fail(ProtoError::Malformed(format!(
+                "the answers to one command grew past {} bytes",
+                self.max_transcript
+            ))));
+        }
+        self.transcript.untagged.push(untagged);
+        None
     }
 
     /// Ask for more of a response that has not ended, unless it is already over the session's
@@ -1007,11 +1047,13 @@ impl ImapSession {
                     _ => 0,
                 };
                 let news = is_news(&text);
-                self.transcript.untagged.push(Untagged {
+                if let Some(failed) = self.keep(Untagged {
                     during,
                     text,
                     raw: bytes,
-                });
+                }) {
+                    return Some(failed);
+                }
 
                 // The half of IDLE's contract that was documented and not implemented. `IDLE`
                 // "parks until the server says something or the caller interrupts", and only

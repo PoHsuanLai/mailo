@@ -355,6 +355,26 @@ fn a_response_past_the_limit_is_refused() {
     assert!(err.to_string().contains("64 bytes"), "{err}");
 }
 
+/// Responses each well under the limit, but without end before the command completes, are
+/// refused once together they pass the session's limit for one command.
+#[test]
+fn answers_to_one_command_past_the_limit_are_refused() {
+    let mut endless = session(vec![ImapCommand::Noop, ImapCommand::Noop]).with_max_transcript(200);
+    // The first command's answers count for it alone.
+    let mut trace = "S: * OK ready\nC: a001 NOOP\n".to_owned();
+    for _ in 0..8 {
+        trace.push_str("S: * 1 EXISTS\n");
+    }
+    trace.push_str("S: a001 OK done\nC: a002 NOOP\n");
+    // 22 bytes kept for each: the tenth passes 200.
+    for _ in 0..10 {
+        trace.push_str("S: * 1 EXISTS\n");
+    }
+    trace.push_str("FAIL Malformed\n");
+    let err = replay(&mut endless, &trace).unwrap_err();
+    assert!(err.to_string().contains("200 bytes"), "{err}");
+}
+
 /// XOAUTH2 with a password credential is a configuration error, not something to attempt.
 #[test]
 fn xoauth2_without_an_oauth_credential_is_unsupported() {
