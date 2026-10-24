@@ -313,9 +313,8 @@ jobs:
           path: target/wix/*.msi
           if-no-files-found: error
 
-  # Dependency licences. The allow-list in deny.toml is the machine-readable half of
-  # docs/licensing-references.md: a dependency whose licence is not on it fails here rather than
-  # being noticed later by somebody reading Cargo.lock.
+  # Dependency licences: a dependency whose licence is not on deny.toml's allow-list fails here
+  # rather than being noticed later by somebody reading Cargo.lock.
   licences:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -324,3 +323,14 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check licenses
+
+  # Security advisories (RustSec) against Cargo.lock: a new one fails here; the known ones are
+  # listed in deny.toml with why each does not reach mailo.
+  advisories:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories

@@ -3,6 +3,23 @@
 # The allow-list is the machine-readable half of docs/licensing-references.md. A dependency whose
 # licence is not listed fails CI rather than being noticed later by someone reading Cargo.lock.
 
+# Known advisories (RustSec). Each ignore says why it does not reach mailo; a new one fails CI.
+[advisories]
+# Unmaintained crates deep in the tree are reported by `cargo audit`; only a direct dependency's
+# fails here, since only that one is ours to replace.
+unmaintained = "workspace"
+yanked = "warn"
+ignore = [
+    # Marvin: RSA decryption's timing. No fixed rsa exists. mailo decrypts on the person's own
+    # machine, one message at a time, with no oracle a remote party can time.
+    { id = "RUSTSEC-2023-0071", reason = "no fix; decryption is local and offers no timing oracle" },
+    # zip 8's `extract` to a folder (SUID bits, symlinks out, permissions through links). anyview
+    # reads one entry by name into memory and never extracts to disk. Gone with anyview on zip 9.
+    { id = "RUSTSEC-2026-0367", reason = "zip extract to disk is never called (anyview reads entries in memory)" },
+    { id = "RUSTSEC-2026-0368", reason = "zip extract to disk is never called (anyview reads entries in memory)" },
+    { id = "RUSTSEC-2026-0369", reason = "zip extract to disk is never called (anyview reads entries in memory)" },
+]
+
 [licenses]
 allow = [
     "MIT",
