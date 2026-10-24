@@ -741,12 +741,29 @@ fn an_attachment_costs_what_base64_len_says() {
             Disclosure::Full,
         )
         .unwrap_or_else(|err| panic!("{len}: {err}"))
-        .len() as u64
     };
-    let empty = built(0);
+    // Boundaries are drawn at random and are not all one length, so they are taken out of what is
+    // measured: two builds of one shape draw each as often.
+    let measured = |len: usize| {
+        let bytes = built(len);
+        let text = String::from_utf8_lossy(&bytes);
+        let mut boundaries: Vec<&str> = text
+            .split("boundary=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        boundaries.sort_unstable();
+        boundaries.dedup();
+        let drawn: usize = boundaries
+            .iter()
+            .map(|boundary| text.matches(boundary).count() * boundary.len())
+            .sum();
+        (bytes.len() - drawn) as u64
+    };
+    let empty = measured(0);
     for len in [1_usize, 2, 3, 56, 57, 58, 114, 1000, 70_000] {
         assert_eq!(
-            built(len) - empty,
+            measured(len) - empty,
             base64_len(len as u64),
             "an attachment of {len} octets"
         );
