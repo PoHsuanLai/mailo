@@ -258,7 +258,7 @@ pub enum Node {
 
 impl Node {
     /// A paragraph of `kind` whose runs are normalized.
-    pub fn para(kind: ParaKind, runs: Vec<Run>) -> Self {
+    pub(crate) fn para(kind: ParaKind, runs: Vec<Run>) -> Self {
         let mut runs = runs;
         normalize_runs(&mut runs);
         Self::Para { kind, runs }

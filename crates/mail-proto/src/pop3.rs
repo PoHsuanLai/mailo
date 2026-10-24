@@ -17,6 +17,7 @@
 //! else. [`Debug`] prints `<redacted>`.
 
 use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
+use crate::smtp::{b64, plain_raw};
 use std::collections::VecDeque;
 use std::fmt;
 
@@ -702,7 +703,7 @@ fn encode(cmd: &Pop3Command, auth: &Auth) -> Vec<u8> {
         }
         Pop3Command::AuthPlain => {
             out.extend_from_slice(b"AUTH PLAIN ");
-            let initial = sasl_plain(&auth.username, &auth.password);
+            let initial = b64(&plain_raw(&auth.username, &auth.password));
             out.extend_from_slice(initial.as_bytes());
         }
         Pop3Command::Stat => out.extend_from_slice(b"STAT"),
@@ -725,43 +726,6 @@ fn encode(cmd: &Pop3Command, auth: &Auth) -> Vec<u8> {
         Pop3Command::Quit => out.extend_from_slice(b"QUIT"),
     }
     out.extend_from_slice(b"\r\n");
-    out
-}
-
-/// SASL PLAIN initial response: base64(`\0` username `\0` password).
-/// The authorization identity is empty, so the server uses the username.
-fn sasl_plain(username: &str, password: &str) -> String {
-    let mut raw = Vec::with_capacity(username.len() + password.len() + 2);
-    raw.push(0);
-    raw.extend_from_slice(username.as_bytes());
-    raw.push(0);
-    raw.extend_from_slice(password.as_bytes());
-    base64_encode(&raw)
-}
-
-fn base64_encode(data: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    let mut index = 0;
-    while index < data.len() {
-        let b0 = u32::from(data[index]);
-        let b1 = u32::from(data.get(index + 1).copied().unwrap_or(0));
-        let b2 = u32::from(data.get(index + 2).copied().unwrap_or(0));
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(char::from(TABLE[((n >> 18) & 0x3f) as usize]));
-        out.push(char::from(TABLE[((n >> 12) & 0x3f) as usize]));
-        if index + 1 < data.len() {
-            out.push(char::from(TABLE[((n >> 6) & 0x3f) as usize]));
-        } else {
-            out.push('=');
-        }
-        if index + 2 < data.len() {
-            out.push(char::from(TABLE[(n & 0x3f) as usize]));
-        } else {
-            out.push('=');
-        }
-        index += 3;
-    }
     out
 }
 
@@ -813,27 +777,22 @@ fn clip(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        Action, Buffer, MAX_LINE_BYTES, MAX_REPLY_BYTES, Phase, Pop3Command, Pop3Reply,
-        Pop3Session, base64_encode, decide, interpret_stat, sasl_plain, unstuff,
+        Action, Auth, Buffer, MAX_LINE_BYTES, MAX_REPLY_BYTES, Phase, Pop3Command, Pop3Reply,
+        Pop3Session, decide, encode, interpret_stat, unstuff,
     };
     use crate::machine::Refusal;
     use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError};
 
     #[test]
-    fn base64_matches_known_vectors() {
-        let cases: &[(&[u8], &str)] = &[
-            (b"", ""),
-            (b"M", "TQ=="),
-            (b"Ma", "TWE="),
-            (b"Man", "TWFu"),
-            (b"hello", "aGVsbG8="),
-            (b"\0user\0pass", "AHVzZXIAcGFzcw=="),
-        ];
-        for (input, want) in cases {
-            assert_eq!(base64_encode(input), *want);
-        }
-        assert_eq!(sasl_plain("user", "pass"), "AHVzZXIAcGFzcw==");
-        assert_eq!(sasl_plain("student", "s3cret"), "AHN0dWRlbnQAczNjcmV0");
+    fn auth_plain_is_the_rfc4616_initial_response() {
+        let auth = Auth {
+            username: "user".into(),
+            password: "pass".into(),
+        };
+        assert_eq!(
+            encode(&Pop3Command::AuthPlain, &auth),
+            b"AUTH PLAIN AHVzZXIAcGFzcw==\r\n"
+        );
     }
 
     #[test]

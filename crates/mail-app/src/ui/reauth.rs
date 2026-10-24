@@ -243,9 +243,8 @@ impl Reauth {
         answered.write().insert(account.clone());
         let mut revision = self.revision;
         dioxus::core::spawn_forever(async move {
-            let (done, answer) = tokio::sync::oneshot::channel();
             let switching = account.clone();
-            std::thread::spawn(move || {
+            let answer = crate::edge::on_thread("mailo-graph", move || async move {
                 let environment = crate::edge::environment();
                 let secrets = crate::edge::secrets();
                 let saved = crate::edge::clients().saved();
@@ -254,7 +253,7 @@ impl Reauth {
                         log::warn!("the browser would not open the Microsoft sign-in: {why}");
                     }
                 };
-                let switched = crate::edge::block_on(mail_core::account::switch_to_graph(
+                mail_core::account::switch_to_graph(
                     &store,
                     switching,
                     chrono::Utc::now(),
@@ -266,22 +265,23 @@ impl Reauth {
                         on_url: &browse,
                         signed: None,
                     },
-                ));
-                // The window that asked may have closed; then nobody is left to tell.
-                let _ = done.send(switched.map(|added| added.outcome).map_err(String::from));
+                )
+                .await
+                .map(|added| added.outcome)
+                .map_err(String::from)
             });
             let said = match answer.await {
-                Ok(Ok(mail_core::account::Outcome::SignedIn { .. })) => {
+                Some(Ok(mail_core::account::Outcome::SignedIn { .. })) => {
                     revision += 1;
                     fetching.signed_in(account);
                     copy::toasts::graph_signed_in(&name)
                 }
-                Ok(Ok(_)) => {
+                Some(Ok(_)) => {
                     revision += 1;
                     copy::toasts::graph_waits(&name)
                 }
-                Ok(Err(why)) => copy::toasts::graph_refused(&name, &why),
-                Err(_) => copy::toasts::graph_refused(&name, ""),
+                Some(Err(why)) => copy::toasts::graph_refused(&name, &why),
+                None => copy::toasts::graph_refused(&name, ""),
             };
             crate::ui::motion::tell(
                 said.trim_end().to_owned(),

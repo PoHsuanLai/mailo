@@ -9,7 +9,7 @@
 
 use crate::error::Logged;
 use mail_domain::{Body, Message};
-use mail_mime::SanitizePolicy;
+use mail_mime::{SanitizePolicy, escape_html};
 use mail_store::SqliteStore;
 
 /// What the reader displays for one message body in its sandboxed frame.
@@ -231,23 +231,6 @@ fn plain_frame(text: &str) -> FrameBody {
         plain: true,
         inline: Vec::new(),
     }
-}
-
-fn escape_html(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        match ch {
-            '&' => out.push_str("&amp;"),
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            '\n' | '\t' => out.push(ch),
-            c if c.is_control() => {}
-            c => out.push(c),
-        }
-    }
-    out
 }
 
 #[cfg(test)]

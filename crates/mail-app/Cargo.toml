@@ -93,7 +93,6 @@ tempfile = "3"
 porter-core.workspace = true
 porter-provider.workspace = true
 porter-service.workspace = true
-porter-client.workspace = true
 # `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.
 porter-secrets.workspace = true
 # The desktop's notifications and PDF previews are mail-core features the window and the watch use;

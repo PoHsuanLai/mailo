@@ -196,7 +196,7 @@ where
         "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; \
          img-src data:; style-src 'unsafe-inline'\">\n",
     );
-    let _ = writeln!(out, "<title>{}</title>", escape(title));
+    let _ = writeln!(out, "<title>{}</title>", escape_html(title));
     out.push_str("<style>\n");
     out.push_str(CSS);
     if !options.style.is_empty() {
@@ -211,17 +211,20 @@ where
     let _ = writeln!(
         out,
         "<p class=\"printed\">{}</p>",
-        escape(labels.printed).replace("{when}", &escape(&when(now, zone, options.twelve_hour)))
+        escape_html(labels.printed).replace(
+            "{when}",
+            &escape_html(&when(now, zone, options.twelve_hour))
+        )
     );
     if left_out && let Some(note) = options.missing_note {
-        let _ = writeln!(out, "<p class=\"paper-note\">{}</p>", escape(note));
+        let _ = writeln!(out, "<p class=\"paper-note\">{}</p>", escape_html(note));
     }
     if sheets.len() > 1 {
         let _ = writeln!(
             out,
             "<h1 class=\"thread\">{} <span class=\"count\">{}</span></h1>",
-            escape(title),
-            escape(
+            escape_html(title),
+            escape_html(
                 &labels
                     .thread_count
                     .replace("{n}", &sheets.len().to_string())
@@ -373,7 +376,7 @@ where
     } else {
         subject
     };
-    let _ = writeln!(out, "<h2>{}</h2>", escape(subject));
+    let _ = writeln!(out, "<h2>{}</h2>", escape_html(subject));
     out.push_str("<table>\n");
     row(
         out,
@@ -399,8 +402,8 @@ fn row(out: &mut String, label: &str, value: &str) {
     let _ = writeln!(
         out,
         "<tr><th>{}</th><td>{}</td></tr>",
-        escape(label),
-        escape(value)
+        escape_html(label),
+        escape_html(value)
     );
 }
 
@@ -461,7 +464,7 @@ fn document(sheet: &Sheet<'_>) -> Option<Document> {
 
 fn body(out: &mut String, sheet: &Sheet<'_>, labels: &Labels<'_>) {
     let Some(document) = document(sheet) else {
-        let _ = writeln!(out, "<p class=\"note\">{}</p>", escape(labels.no_body));
+        let _ = writeln!(out, "<p class=\"note\">{}</p>", escape_html(labels.no_body));
         return;
     };
     out.push_str("<div class=\"body\">\n");
@@ -471,7 +474,7 @@ fn body(out: &mut String, sheet: &Sheet<'_>, labels: &Labels<'_>) {
     blocks(out, &document.blocks, sheet.remote, labels);
     out.push_str("</div>\n");
     if document.reached != Reached::Nothing {
-        let _ = writeln!(out, "<p class=\"note\">{}</p>", escape(labels.cut_off));
+        let _ = writeln!(out, "<p class=\"note\">{}</p>", escape_html(labels.cut_off));
     }
 }
 
@@ -525,7 +528,7 @@ fn one_block(out: &mut String, block: &Block, remote: Remote<'_>, labels: &Label
             out.push_str("</blockquote>\n");
         }
         Block::Code { text, .. } => {
-            let _ = writeln!(out, "<pre>{}</pre>", escape(text));
+            let _ = writeln!(out, "<pre>{}</pre>", escape_html(text));
         }
         Block::Table { head, rows } => {
             let _ = writeln!(out, "<table{KEEP}>");
@@ -635,8 +638,8 @@ fn draw(out: &mut String, uri: &str, alt: &str, (width, height): (Option<u32>, O
     let _ = write!(
         out,
         "<p{KEEP}><img src=\"{}\" alt=\"{}\"",
-        escape(uri),
-        escape(alt)
+        escape_html(uri),
+        escape_html(alt)
     );
     if let Some(width) = width {
         let _ = write!(out, " width=\"{width}\"");
@@ -660,7 +663,12 @@ fn missing(out: &mut String, alt: &str, host: Option<&str>, labels: &Labels<'_>)
     let from = host
         .map(|host| labels.image_host.replace("{host}", host))
         .unwrap_or_default();
-    let _ = writeln!(out, "{MISSING}{}{}]</p>", escape(&what), escape(&from));
+    let _ = writeln!(
+        out,
+        "{MISSING}{}{}]</p>",
+        escape_html(&what),
+        escape_html(&from)
+    );
 }
 
 /// A lone link. On paper a link cannot be followed, so its address is printed beside it.
@@ -668,16 +676,16 @@ fn button(out: &mut String, label: &str, url: &str) {
     let _ = writeln!(
         out,
         "<p class=\"button\"><a href=\"{}\">{}</a> <span class=\"url\">&lt;{}&gt;</span></p>",
-        escape(url),
-        escape(label),
-        escape(url)
+        escape_html(url),
+        escape_html(label),
+        escape_html(url)
     );
 }
 
 fn inline(out: &mut String, spans: &[Span]) {
     for span in spans {
         match span {
-            Span::Text(text) => out.push_str(&escape(text)),
+            Span::Text(text) => out.push_str(&escape_html(text)),
             Span::Strong(inner) => {
                 out.push_str("<strong>");
                 inline(out, inner);
@@ -689,10 +697,10 @@ fn inline(out: &mut String, spans: &[Span]) {
                 out.push_str("</em>");
             }
             Span::Code(text) => {
-                let _ = write!(out, "<code>{}</code>", escape(text));
+                let _ = write!(out, "<code>{}</code>", escape_html(text));
             }
             Span::Link { url, spans } => {
-                let _ = write!(out, "<a href=\"{}\">", escape(url.as_str()));
+                let _ = write!(out, "<a href=\"{}\">", escape_html(url.as_str()));
                 inline(out, spans);
                 out.push_str("</a>");
             }
@@ -713,7 +721,7 @@ fn attachments(out: &mut String, message: &Message, labels: &Labels<'_>) {
     let _ = writeln!(
         out,
         "<section class=\"attachments\"{KEEP}>\n<strong>{}</strong>\n<ul>",
-        escape(&labels.attachments.replace("{n}", &listed.len().to_string()))
+        escape_html(&labels.attachments.replace("{n}", &listed.len().to_string()))
     );
     for part in listed {
         let name = part.name.trim();
@@ -725,15 +733,15 @@ fn attachments(out: &mut String, message: &Message, labels: &Labels<'_>) {
         let _ = writeln!(
             out,
             "<li>{} <span class=\"size\">({})</span></li>",
-            escape(name),
-            escape(&human_size(part.size))
+            escape_html(name),
+            escape_html(&human_size(part.size))
         );
     }
     out.push_str("</ul>\n</section>\n");
 }
 
 /// Text made safe for both element content and a double-quoted attribute.
-fn escape(text: &str) -> String {
+pub fn escape_html(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for ch in text.chars() {
         match ch {

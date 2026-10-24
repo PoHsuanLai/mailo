@@ -46,7 +46,7 @@ pub use mdn::{
     Human, OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, Words, receipt, receipt_asked,
 };
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
-pub use print::{Labels, Options, Pages, Remote, Sheet, print_with, remote_images};
+pub use print::{Labels, Options, Pages, Remote, Sheet, escape_html, print_with, remote_images};
 pub use reconstruct::{decode_part, left_on_server, reconstruct, sections_for};
 pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, Styles, sanitize};
 pub use script::{Script, script_of};

@@ -21,11 +21,8 @@ pub const THIS_WEEK: &str = "This week";
 pub const OLDER: &str = "Older";
 pub const UNREAD: &str = "Unread";
 pub const READ: &str = "Read";
-pub const NO_LABEL: &str = "No label";
 /// A search's best matches, over the rest.
 pub const TOP_RESULTS: &str = "Top results";
-/// The rest of a search's matches, under its top results.
-pub const NEWEST_FIRST: &str = "Newest first";
 /// What a search of the server found that the list does not hold: the band's header and the
 /// chip on each of its rows.
 pub const FROM_SERVER: &str = "Server";

@@ -56,6 +56,12 @@ impl<'a> Blobs<'a> {
 /// would make every unrelated query read it.
 const INLINE_MAX: usize = 32 * 1024;
 
+/// Where a blob's bytes are: in its row, or in the file at a path relative to the root.
+enum Found {
+    Inline(Vec<u8>),
+    File(String),
+}
+
 /// The blob store rooted at a directory.
 #[derive(Debug, Clone)]
 pub(crate) struct BlobStore {
@@ -114,27 +120,12 @@ impl BlobStore {
 
     /// Read the bytes behind `id`.
     pub(crate) fn get(&self, db: &Connection, id: BlobId) -> Result<Vec<u8>, StoreError> {
-        let row: Option<(Option<String>, Option<Vec<u8>>)> = db
-            .query_row(
-                "SELECT path, inline FROM blobs WHERE id = ?1",
-                params![id.to_string()],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(StoreError::db)?;
-
-        match row {
-            Some((_, Some(inline))) => Ok(inline),
-            Some((Some(rel), None)) => {
+        match self.find(db, id, None)? {
+            Found::Inline(inline) => Ok(inline),
+            Found::File(rel) => {
                 let full = self.resolve(&rel)?;
                 fs::read(&full).map_err(|e| StoreError::Blob(rel, e.to_string()))
             }
-            // The CHECK constraint forbids it, but a corrupted row must not panic.
-            Some((None, None)) => Err(StoreError::Blob(
-                id.to_string(),
-                "row has neither path nor inline bytes".to_owned(),
-            )),
-            None => Err(StoreError::Blob(id.to_string(), "no such blob".to_owned())),
         }
     }
 
@@ -146,17 +137,9 @@ impl BlobStore {
         id: BlobId,
         limit: usize,
     ) -> Result<Vec<u8>, StoreError> {
-        let row: Option<(Option<String>, Option<Vec<u8>>)> = db
-            .query_row(
-                "SELECT path, substr(inline, 1, ?2) FROM blobs WHERE id = ?1",
-                params![id.to_string(), limit as i64],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .optional()
-            .map_err(StoreError::db)?;
-        match row {
-            Some((_, Some(inline))) => Ok(inline),
-            Some((Some(rel), None)) => {
+        match self.find(db, id, Some(limit))? {
+            Found::Inline(inline) => Ok(inline),
+            Found::File(rel) => {
                 let full = self.resolve(&rel)?;
                 let file = fs::File::open(&full)
                     .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
@@ -165,11 +148,37 @@ impl BlobStore {
                     .map_err(|e| StoreError::Blob(rel, e.to_string()))?;
                 Ok(head)
             }
+        }
+    }
+
+    /// Where the bytes behind `id` are, with at most the first `limit` of them when they are in
+    /// the row.
+    fn find(&self, db: &Connection, id: BlobId, limit: Option<usize>) -> Result<Found, StoreError> {
+        let pair = |r: &rusqlite::Row<'_>| Ok((r.get(0)?, r.get(1)?));
+        let key = id.to_string();
+        let row: Option<(Option<String>, Option<Vec<u8>>)> = match limit {
+            None => db.query_row(
+                "SELECT path, inline FROM blobs WHERE id = ?1",
+                params![key],
+                pair,
+            ),
+            Some(limit) => db.query_row(
+                "SELECT path, substr(inline, 1, ?2) FROM blobs WHERE id = ?1",
+                params![key, limit as i64],
+                pair,
+            ),
+        }
+        .optional()
+        .map_err(StoreError::db)?;
+        match row {
+            Some((_, Some(inline))) => Ok(Found::Inline(inline)),
+            Some((Some(rel), None)) => Ok(Found::File(rel)),
+            // The CHECK constraint forbids it, but a corrupted row must not panic.
             Some((None, None)) => Err(StoreError::Blob(
-                id.to_string(),
+                key,
                 "row has neither path nor inline bytes".to_owned(),
             )),
-            None => Err(StoreError::Blob(id.to_string(), "no such blob".to_owned())),
+            None => Err(StoreError::Blob(key, "no such blob".to_owned())),
         }
     }
 

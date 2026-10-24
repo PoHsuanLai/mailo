@@ -9,6 +9,8 @@
 //!
 //! - [`block_on`] waits for a future on the application's runtime. It is for threads that are
 //!   not async: calling it from a task of that same runtime panics, as `block_on` always does.
+//! - [`on_thread`] runs a future that is not `Send` on a thread of its own, and is awaited from
+//!   the window.
 //! - [`install_environment`] records what `main` decided; until it does, the environment is
 //!   empty, which is what a test wants.
 //! - [`install_profile`] records whose mail the process is over; until it does, that is the
@@ -49,6 +51,29 @@ pub fn runtime() -> &'static Runtime {
 /// Wait for `work` on the application's runtime, from a thread that is not async.
 pub fn block_on<T>(work: impl Future<Output = T>) -> T {
     runtime().block_on(work)
+}
+
+/// Run the future `work` makes on a thread of its own, waiting on the application's runtime
+/// there, and wait for its output.
+///
+/// For work that borrows something not `Send` (a sign-in's browser callback) across a wait, so
+/// cannot be a task. `None` when the thread could not start or ended without an answer.
+pub async fn on_thread<T, F>(name: &str, work: impl FnOnce() -> F + Send + 'static) -> Option<T>
+where
+    F: Future<Output = T>,
+    T: Send + 'static,
+{
+    let (done, answer) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name(name.to_owned())
+        .spawn(move || {
+            // The future that asked may have been dropped; then nobody is left to tell.
+            let _ = done.send(block_on(work()));
+        })
+        // A thread that could not start is an answer that never comes.
+        .ok()?;
+    // A sender dropped without a send is a thread that panicked.
+    answer.await.ok()
 }
 
 /// Records what the process was started with. Only the first call counts.
@@ -265,6 +290,19 @@ mod tests {
             .collect();
         let got: Vec<i32> = threads.into_iter().map(|t| t.join().unwrap()).collect();
         assert_eq!(got, [0, 2, 4, 6]);
+    }
+
+    #[test]
+    fn work_on_a_thread_of_its_own_is_awaited_from_another_runtime() {
+        let local = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let got = local.block_on(on_thread("mailo-test", || {
+            // Not `Send`: the thread makes it and waits on it.
+            let held = std::rc::Rc::new(21);
+            async move { *held * 2 }
+        }));
+        assert_eq!(got, Some(42));
     }
 
     #[test]

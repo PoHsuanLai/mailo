@@ -192,32 +192,12 @@ impl Profile {
         self.data_dir(roots).join("blobs")
     }
 
-    /// The directory its own settings are in: the ones about its accounts (which are kept
-    /// offline, server search, which senders' images and logos are trusted). The settings about
-    /// the program (`settings.toml`, appearance, keyboard, `spaces.json`) are app-wide and stay
-    /// in the config directory whichever Profile is open.
-    pub fn settings_dir(&self, roots: &Roots) -> PathBuf {
-        match self.home() {
-            Home::Legacy => roots.config.clone(),
-            Home::Folder => self.data_dir(roots).join("settings"),
-        }
-    }
-
     /// The keyring service its signing keys are kept under: `mailo` for the default Profile, as
     /// before, and `mailo/<id>` for another, so one key in two Profiles is two entries.
     pub fn signing_service(&self) -> String {
         match self.home() {
             Home::Legacy => "mailo".to_owned(),
             Home::Folder => format!("mailo/{}", self.id),
-        }
-    }
-
-    /// The name of its agent, the one process that holds its store: `mailo` for the default
-    /// Profile, as before, and `mailo-<id>` for another.
-    pub fn agent_name(&self) -> String {
-        match self.home() {
-            Home::Legacy => "mailo".to_owned(),
-            Home::Folder => format!("mailo-{}", self.id),
         }
     }
 }
@@ -414,11 +394,6 @@ impl Registry {
         self.file.profiles.retain(|p| &p.id != id);
         self.file.removing.retain(|r| r != id);
         self.save()
-    }
-
-    /// The Profiles whose removal began and did not finish, to be finished.
-    pub fn pending_removals(&self) -> &[ProfileId] {
-        &self.file.removing
     }
 }
 

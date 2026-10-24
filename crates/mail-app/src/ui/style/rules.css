@@ -3,7 +3,7 @@
 .rules-field { width: 18rem; max-width: 100%; }
 .rules-progress { width: 10rem; }
 /* The Keyboard page: an action's keys, side by side in its row. */
-.kb-keys, .kb-key { display: inline-flex; align-items: center; gap: var(--s-6); }
+.kb-key { display: inline-flex; align-items: center; gap: var(--s-6); }
 /* A line of a rule's "When all of these match" or "Do" group: a condition's menus and value, an
    action, or the line that adds one. As tall and inset as a row of the group, with the group's
    hairline from its text above every line after the first. */

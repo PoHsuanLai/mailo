@@ -29,8 +29,3 @@ pub use smtp::{
     Advertised, Authentication, EhloExtensions, ReplyText, SignIn, SizeLimit, SmtpReply,
     SmtpSession, Submission,
 };
-
-#[cfg(test)]
-mod tests {
-    // The replay harness lives in tests/common/mod.rs; see tests/traces/FORMAT.md.
-}

@@ -196,7 +196,7 @@ pub fn load(
 }
 
 /// Whether an image of `width` × `height` is decoded to preview it.
-pub fn decodable(width: u32, height: u32) -> bool {
+pub(crate) fn decodable(width: u32, height: u32) -> bool {
     width > 0
         && height > 0
         && width <= MAX_SIDE
