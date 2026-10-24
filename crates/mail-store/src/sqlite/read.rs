@@ -9,6 +9,7 @@ use mail_domain::{
     ThreadSummary,
 };
 use rusqlite::{Connection, Row, params};
+use std::collections::HashMap;
 
 /// The `to`/`cc`/`bcc`/`reply_to` bundle, stored as one JSON column.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
@@ -51,45 +52,9 @@ impl SqliteStore {
         db: &Connection,
         row: &Row<'_>,
     ) -> Result<Message, StoreError> {
-        let recipients: Recipients = json("Message.recipients", &row.get::<_, String>(7)?)?;
         let id = MessageId::from_uuid(uuid("MessageId", &row.get::<_, String>(0)?)?);
         let labels = self.labels_of(db, id)?;
-        Ok(Message {
-            id,
-            thread: ThreadId::from_uuid(uuid("ThreadId", &row.get::<_, String>(1)?)?),
-            account: mail_domain::id::account_id_from_uuid(uuid(
-                "AccountId",
-                &row.get::<_, String>(2)?,
-            )?),
-            key: json::<MessageKey>("MessageKey", &row.get::<_, String>(3)?)?,
-            date: time("Message.date", &row.get::<_, String>(4)?)?,
-            from: Address {
-                name: row.get::<_, Option<String>>(5)?,
-                email: row.get::<_, String>(6)?,
-            },
-            reply_to: recipients.reply_to,
-            to: recipients.to,
-            cc: recipients.cc,
-            bcc: recipients.bcc,
-            subject: row.get::<_, String>(8)?,
-            in_reply_to: row.get::<_, Option<String>>(9)?,
-            references: json("Message.references", &row.get::<_, String>(10)?)?,
-            rfc_message_id: row.get::<_, Option<String>>(11)?,
-            read: json("ReadState", &row.get::<_, String>(12)?)?,
-            star: json("Star", &row.get::<_, String>(13)?)?,
-            mailbox: json::<MailboxRole>("MailboxRole", &row.get::<_, String>(14)?)?,
-            labels,
-            // A NULL body_raw is headers-only, which is a normal state after a POP3 TOP
-            // pass or an IMAP envelope fetch — not a corrupt row.
-            body: match row.get::<_, Option<String>>(16)? {
-                Some(raw) => Body::Present {
-                    text: row.get::<_, Option<String>>(15)?,
-                    raw: BlobId::from_uuid(uuid("BlobId", &raw)?),
-                },
-                None => Body::Absent,
-            },
-            attachments: json::<Vec<Attachment>>("attachments", &row.get::<_, String>(17)?)?,
-        })
+        message_from(id, row, labels)
     }
 
     pub(super) fn read_summary(&self, row: &Row<'_>) -> Result<ThreadSummary, StoreError> {
@@ -180,11 +145,57 @@ impl SqliteStore {
     ) -> Result<Vec<Message>, StoreError> {
         let sql =
             format!("SELECT {MESSAGE_COLUMNS} FROM messages WHERE thread = ?1 ORDER BY date, id");
+        let mut labels = self.labels_in(db, thread)?;
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![thread.to_string()])?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
-            out.push(self.read_message(db, row)?);
+            let id = MessageId::from_uuid(uuid("MessageId", &row.get::<_, String>(0)?)?);
+            // A message with no labels has no rows, and so no entry.
+            let held = labels.remove(&id).unwrap_or_default();
+            out.push(message_from(id, row, held)?);
+        }
+        Ok(out)
+    }
+
+    /// The labels of every message in a thread, in one query rather than one per message.
+    ///
+    /// Each message's in the order `labels_of` gives, so a message reads the same either way.
+    fn labels_in(
+        &self,
+        db: &Connection,
+        thread: ThreadId,
+    ) -> Result<HashMap<MessageId, Vec<LabelId>>, StoreError> {
+        let mut stmt = db.prepare_cached(
+            "SELECT ml.message, ml.label FROM message_labels ml
+             JOIN messages m ON m.id = ml.message
+             WHERE m.thread = ?1 ORDER BY ml.label",
+        )?;
+        let rows = stmt.query_map(params![thread.to_string()], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut out: HashMap<MessageId, Vec<LabelId>> = HashMap::new();
+        for row in rows {
+            let (message, label) = row?;
+            out.entry(MessageId::from_uuid(uuid("MessageId", &message)?))
+                .or_default()
+                .push(LabelId::from_uuid(uuid("LabelId", &label)?));
+        }
+        Ok(out)
+    }
+
+    /// The ids of a thread's messages, oldest first: the order `messages_of` reads them in.
+    fn message_ids_of(
+        &self,
+        db: &Connection,
+        thread: ThreadId,
+    ) -> Result<Vec<MessageId>, StoreError> {
+        let mut stmt =
+            db.prepare_cached("SELECT id FROM messages WHERE thread = ?1 ORDER BY date, id")?;
+        let rows = stmt.query_map(params![thread.to_string()], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for text in rows {
+            out.push(MessageId::from_uuid(uuid("MessageId", &text?)?));
         }
         Ok(out)
     }
@@ -223,13 +234,50 @@ impl SqliteStore {
     pub(super) fn load_thread(&self, id: ThreadId) -> Result<Thread, StoreError> {
         let db = self.reader();
         let summary = self.summary_of(&db, id)?;
-        let messages = self
-            .messages_of(&db, id)?
-            .into_iter()
-            .map(|m| m.id)
-            .collect();
+        let messages = self.message_ids_of(&db, id)?;
         Ok(Thread { summary, messages })
     }
+}
+
+/// A message from a `MESSAGE_COLUMNS` row whose id is already decoded, with its labels.
+fn message_from(id: MessageId, row: &Row<'_>, labels: Vec<LabelId>) -> Result<Message, StoreError> {
+    let recipients: Recipients = json("Message.recipients", &row.get::<_, String>(7)?)?;
+    Ok(Message {
+        id,
+        thread: ThreadId::from_uuid(uuid("ThreadId", &row.get::<_, String>(1)?)?),
+        account: mail_domain::id::account_id_from_uuid(uuid(
+            "AccountId",
+            &row.get::<_, String>(2)?,
+        )?),
+        key: json::<MessageKey>("MessageKey", &row.get::<_, String>(3)?)?,
+        date: time("Message.date", &row.get::<_, String>(4)?)?,
+        from: Address {
+            name: row.get::<_, Option<String>>(5)?,
+            email: row.get::<_, String>(6)?,
+        },
+        reply_to: recipients.reply_to,
+        to: recipients.to,
+        cc: recipients.cc,
+        bcc: recipients.bcc,
+        subject: row.get::<_, String>(8)?,
+        in_reply_to: row.get::<_, Option<String>>(9)?,
+        references: json("Message.references", &row.get::<_, String>(10)?)?,
+        rfc_message_id: row.get::<_, Option<String>>(11)?,
+        read: json("ReadState", &row.get::<_, String>(12)?)?,
+        star: json("Star", &row.get::<_, String>(13)?)?,
+        mailbox: json::<MailboxRole>("MailboxRole", &row.get::<_, String>(14)?)?,
+        labels,
+        // A NULL body_raw is headers-only, which is a normal state after a POP3 TOP
+        // pass or an IMAP envelope fetch — not a corrupt row.
+        body: match row.get::<_, Option<String>>(16)? {
+            Some(raw) => Body::Present {
+                text: row.get::<_, Option<String>>(15)?,
+                raw: BlobId::from_uuid(uuid("BlobId", &raw)?),
+            },
+            None => Body::Absent,
+        },
+        attachments: json::<Vec<Attachment>>("attachments", &row.get::<_, String>(17)?)?,
+    })
 }
 
 impl From<rusqlite::Error> for StoreError {

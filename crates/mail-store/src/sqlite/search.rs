@@ -52,7 +52,8 @@ pub(super) fn terms_with_prefix(
     };
     params.push(SqlValue::Int(i64::try_from(limit).unwrap_or(i64::MAX)));
 
-    let mut stmt = db.prepare(sql)?;
+    // Cached: this runs on every keystroke in the search box, with one of two texts.
+    let mut stmt = db.prepare_cached(sql)?;
     let rows = stmt.query_map(rusqlite::params_from_iter(bound(&params)), |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
     })?;

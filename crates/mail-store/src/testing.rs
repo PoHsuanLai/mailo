@@ -490,6 +490,11 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              DROP TABLE secrets_adopted;
              DROP TABLE opened;
              DROP TABLE account_passes;
+             DROP INDEX messages_thread_order;
+             CREATE INDEX messages_thread ON messages(thread);
+             DROP INDEX thread_summary_subject;
+             DROP INDEX thread_summary_from;
+             DROP INDEX thread_summary_pin;
              CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
                  filter TEXT NOT NULL, sort TEXT NOT NULL, group_by TEXT,
                  threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,

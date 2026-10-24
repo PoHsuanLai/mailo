@@ -20,21 +20,24 @@ impl SqliteStore {
         let tx = db.unchecked_transaction()?;
         for message in messages {
             let held: Option<i64> = db
-                .query_row(
-                    "SELECT 1 FROM messages WHERE id = ?1 AND account = ?2",
-                    params![message.to_string(), account.to_string()],
-                    |r| r.get(0),
-                )
+                .prepare_cached("SELECT 1 FROM messages WHERE id = ?1 AND account = ?2")?
+                .query_row(params![message.to_string(), account.to_string()], |r| {
+                    r.get(0)
+                })
                 .optional()?;
             if held.is_none() {
                 return Err(StoreError::NoMessage(*message));
             }
             // The first search to bring it stands; a later one found it here.
-            db.execute(
+            db.prepare_cached(
                 "INSERT OR IGNORE INTO found_on_server (message, account, found_at)
                  VALUES (?1, ?2, ?3)",
-                params![message.to_string(), account.to_string(), now.to_rfc3339()],
-            )?;
+            )?
+            .execute(params![
+                message.to_string(),
+                account.to_string(),
+                now.to_rfc3339()
+            ])?;
         }
         tx.commit()?;
         Ok(())

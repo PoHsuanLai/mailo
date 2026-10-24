@@ -23,13 +23,15 @@ impl SqliteStore {
         outbox: OutboxId,
     ) -> Result<(), StoreError> {
         let (mailbox, uidvalidity, uid, uidl) = crate::remote_row::columns(remote);
-        self.connection().execute(
-            "INSERT INTO destroyed (account, mailbox, uidvalidity, uid, uidl, message, outbox)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             ON CONFLICT (account, mailbox, COALESCE(uidvalidity, -1),
-                          COALESCE(uid, -1), COALESCE(uidl, ''))
-             DO UPDATE SET message = excluded.message, outbox = excluded.outbox",
-            params![
+        self.connection()
+            .prepare_cached(
+                "INSERT INTO destroyed (account, mailbox, uidvalidity, uid, uidl, message, outbox)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT (account, mailbox, COALESCE(uidvalidity, -1),
+                              COALESCE(uid, -1), COALESCE(uidl, ''))
+                 DO UPDATE SET message = excluded.message, outbox = excluded.outbox",
+            )?
+            .execute(params![
                 account.to_string(),
                 mailbox,
                 uidvalidity,
@@ -37,8 +39,7 @@ impl SqliteStore {
                 uidl,
                 message.to_string(),
                 outbox.as_i64()
-            ],
-        )?;
+            ])?;
         Ok(())
     }
 
@@ -81,11 +82,18 @@ impl SqliteStore {
         remote: &RemoteRef,
     ) -> Result<(), StoreError> {
         let (mailbox, uidvalidity, uid, uidl) = crate::remote_row::columns(remote);
-        self.connection().execute(
-            "DELETE FROM destroyed WHERE account = ?1 AND mailbox = ?2
-             AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
-            params![account.to_string(), mailbox, uidvalidity, uid, uidl],
-        )?;
+        self.connection()
+            .prepare_cached(
+                "DELETE FROM destroyed WHERE account = ?1 AND mailbox = ?2
+                 AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
+            )?
+            .execute(params![
+                account.to_string(),
+                mailbox,
+                uidvalidity,
+                uid,
+                uidl
+            ])?;
         Ok(())
     }
 
@@ -111,11 +119,13 @@ impl SqliteStore {
     ) -> Result<(), StoreError> {
         let (mailbox, uidvalidity, uid, uidl) = crate::remote_row::columns(to);
         let (was_mailbox, was_uidvalidity, was_uid, was_uidl) = crate::remote_row::columns(from);
-        self.connection().execute(
-            "UPDATE OR REPLACE destroyed SET mailbox = ?6, uidvalidity = ?7, uid = ?8, uidl = ?9
-             WHERE account = ?1 AND mailbox = ?2
-             AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
-            params![
+        self.connection()
+            .prepare_cached(
+                "UPDATE OR REPLACE destroyed SET mailbox = ?6, uidvalidity = ?7, uid = ?8, uidl = ?9
+                 WHERE account = ?1 AND mailbox = ?2
+                 AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
+            )?
+            .execute(params![
                 account.to_string(),
                 was_mailbox,
                 was_uidvalidity,
@@ -125,8 +135,7 @@ impl SqliteStore {
                 uidvalidity,
                 uid,
                 uidl
-            ],
-        )?;
+            ])?;
         Ok(())
     }
 
