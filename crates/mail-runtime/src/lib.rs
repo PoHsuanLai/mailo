@@ -28,6 +28,7 @@ pub mod reparse;
 pub mod schedule;
 pub mod search;
 pub mod sending;
+pub mod server_drafts;
 pub mod sieve;
 pub mod signing_store;
 pub mod smime;

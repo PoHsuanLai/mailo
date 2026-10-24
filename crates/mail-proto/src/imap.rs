@@ -14,13 +14,17 @@
 //! - **Sequence numbers renumber under you.** An untagged `EXPUNGE` shifts every later
 //!   sequence number, which is how a client deletes the wrong message. Nothing here hands a
 //!   sequence number to a caller; UIDs are the only identity that leaves this module.
-//! - **`\Deleted` and `EXPUNGE` serve one purpose only.** Gmail routes `EXPUNGE` through a
+//! - **`\Deleted` and `EXPUNGE` serve two purposes only.** Gmail routes `EXPUNGE` through a
 //!   per-account setting that may be `deleteForever` and cannot be read over IMAP, so nothing
-//!   here moves or cleans up by expunging. The one use is the user's own "Delete forever" of mail
+//!   here moves or cleans up by expunging. One use is the user's own "Delete forever" of mail
 //!   in the Trash or Spam folder (`ProtoOp::Destroy`), where deleting for good is the point:
 //!   `UID STORE +FLAGS.SILENT (\Deleted)` then `UID EXPUNGE` of the same UIDs (RFC 4315), behind
-//!   a [`ImapCommand::RequireCapability`] guard for `UIDPLUS`. A bare `EXPUNGE` does not exist
-//!   here, because it removes every `\Deleted` message in the mailbox, other clients' included.
+//!   a [`ImapCommand::RequireCapability`] guard for `UIDPLUS`. The other is this client's own
+//!   copies of a draft in the Drafts folder, replaced or sent (`ProtoOp::KeepDraft`,
+//!   `ProtoOp::DropDraft`): the same two commands, on the UIDs a search for the draft's
+//!   `Message-ID` found, and the expunge left out without `UIDPLUS`. A bare `EXPUNGE` does not
+//!   exist here, because it removes every `\Deleted` message in the mailbox, other clients'
+//!   included.
 
 use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use crate::mutf7;
@@ -130,10 +134,29 @@ pub enum ImapCommand {
     /// `UID EXPUNGE <set>` (RFC 4315 §2.1): expunge exactly these UIDs, and no other message
     /// marked `\Deleted` in the mailbox. Only after `\Deleted` was set on the same set for a
     /// "Delete forever" in Trash or Spam, and only behind [`ImapCommand::RequireCapability`] for
-    /// `UIDPLUS`; see the module note.
+    /// `UIDPLUS`; or as [`ImapCommand::UidExpungeFound`] decides. See the module note.
     UidExpunge {
         set: String,
     },
+    /// `UID STORE <found> <what>`, where `found` is every UID the last
+    /// [`ImapCommand::UidSearch`] before it in the walk found; nothing at all when it found none.
+    ///
+    /// Decided inside the walk for the reason [`ImapCommand::RequireEmpty`] is: what to act on is
+    /// what the search on this connection answered, and a later walk on another would ask again
+    /// and might be answered differently. Only the search's own `* SEARCH` lines are read, so
+    /// nothing a message says can add a UID to the set.
+    UidStoreFound {
+        what: String,
+    },
+    /// `UID EXPUNGE <found>`, for the same UIDs as [`ImapCommand::UidStoreFound`], where the
+    /// server has `UIDPLUS` or IMAP4rev2; nothing at all where it has neither, or the search
+    /// found none.
+    ///
+    /// Not a refusal without them, unlike a walk behind [`ImapCommand::RequireCapability`]: the
+    /// UIDs are this client's own copies of a draft, marked `\Deleted` already, and are left so
+    /// for the server or another client to expunge. A bare `EXPUNGE`, which would take every
+    /// other `\Deleted` message in the mailbox with them, is never the way round it.
+    UidExpungeFound,
     /// Sends nothing: the walk stops with [`ProtoError::Unsupported`] unless the capabilities this
     /// session has seen include one of these atoms.
     ///
@@ -573,6 +596,23 @@ impl ImapSession {
                 }),
             };
         }
+        // Acted on what the search before it found, or passed over.
+        let command = match command {
+            ImapCommand::UidStoreFound { what } => match self.found_before(index) {
+                Some(set) => ImapCommand::UidStore { set, what },
+                None => return self.issue(index + 1),
+            },
+            ImapCommand::UidExpungeFound => match self.found_before(index) {
+                Some(set)
+                    if has_capability(&self.transcript.capabilities, "UIDPLUS")
+                        || has_capability(&self.transcript.capabilities, "IMAP4rev2") =>
+                {
+                    ImapCommand::UidExpunge { set }
+                }
+                _ => return self.issue(index + 1),
+            },
+            other => other,
+        };
         if let ImapCommand::RequireCapability(any) = &command {
             if any
                 .iter()
@@ -636,6 +676,34 @@ impl ImapSession {
             },
         };
         Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
+    }
+
+    /// The UIDs the last [`ImapCommand::UidSearch`] before `index` found, as a set; `None` when
+    /// there was no such search or it found nothing.
+    fn found_before(&self, index: usize) -> Option<String> {
+        let search = (0..index)
+            .rev()
+            .find(|at| matches!(self.commands.get(*at), Some(ImapCommand::UidSearch { .. })))?;
+        let uids: Vec<String> = self
+            .transcript
+            .untagged
+            .iter()
+            .filter(|u| u.during == search)
+            .filter_map(|u| {
+                let text = u.text.trim();
+                let rest = text
+                    .get(..8)
+                    .filter(|head| head.eq_ignore_ascii_case("* SEARCH"))
+                    .map(|_| &text[8..])?;
+                (rest.is_empty() || rest.starts_with(' ')).then_some(rest)
+            })
+            .flat_map(str::split_whitespace)
+            // A number past a UID's range is not a UID the server could have given.
+            .filter_map(|n| n.parse::<u32>().ok())
+            .filter(|uid| *uid > 0)
+            .map(|uid| uid.to_string())
+            .collect();
+        (!uids.is_empty()).then(|| uids.join(","))
     }
 
     /// Whether a literal of `len` bytes may be sent without waiting for `+` (RFC 7888).
@@ -750,6 +818,12 @@ impl ImapSession {
             // Never rendered: `issue` either passes over it or stops the walk.
             ImapCommand::RequireCapability(_) | ImapCommand::RequireUidValidity(_) => {
                 return Err(ProtoError::Malformed("a guard is not a command".to_owned()));
+            }
+            // Never rendered: `issue` writes what the search found in its place, or passes over it.
+            ImapCommand::UidStoreFound { .. } | ImapCommand::UidExpungeFound => {
+                return Err(ProtoError::Malformed(
+                    "a command on what a search found is decided in the walk".to_owned(),
+                ));
             }
             ImapCommand::UidCopy { set, mailbox } => {
                 check_set(set)?;

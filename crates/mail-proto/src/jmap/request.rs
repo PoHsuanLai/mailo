@@ -134,6 +134,32 @@ pub fn email_query(
     }
 }
 
+/// `Email/query` for the copies of a draft in `drafts`: every email there whose `Message-ID`
+/// header holds `<message_id>` (RFC 8621 §4.4.1, `header`).
+///
+/// No limit and no sort: a draft has one copy, or a few where an upload was cut off before its
+/// answer, and each is to be found.
+pub fn draft_query(
+    account: &JmapAccountId,
+    drafts: &JmapMailboxId,
+    message_id: &str,
+    id: &str,
+) -> Call {
+    let mut args = base(account);
+    args.insert(
+        "filter".to_owned(),
+        json!({
+            "inMailbox": drafts,
+            "header": ["Message-ID", format!("<{message_id}>")],
+        }),
+    );
+    Call {
+        name: "Email/query",
+        args: Value::Object(args),
+        id: id.to_owned(),
+    }
+}
+
 /// The count of followed emails alone: [`email_query`] with nothing listed.
 pub fn total_query(account: &JmapAccountId, unfollowed: &[JmapMailboxId], id: &str) -> Call {
     email_query(account, unfollowed, 0, 0, id)

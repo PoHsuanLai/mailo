@@ -250,6 +250,29 @@ pub enum RemoteIntent {
         date: Option<DateTime<Utc>>,
         raw: BlobId,
     },
+    /// Keep a copy of a draft in the server's Drafts mailbox, in place of any copy put there
+    /// before, so the draft can be finished on another device.
+    ///
+    /// Addresses no message this client holds: the copy is never brought in as one, and the
+    /// copies it replaces are found on the server by `message_id`, which a draft keeps however
+    /// often it is rebuilt. Resolves to the identical [`crate::ProtoOp::KeepDraft`]; a second
+    /// upload of the same draft queued while one waits takes its place in the outbox.
+    KeepDraft {
+        draft: DraftId,
+        mailbox: MailboxRef,
+        /// The draft's `Message-ID`, without angle brackets.
+        message_id: String,
+        raw: BlobId,
+    },
+    /// Remove a draft's copies from the server's Drafts mailbox, once it is sent or discarded.
+    /// Resolves to the identical [`crate::ProtoOp::DropDraft`], and takes the place of any upload
+    /// of the draft still waiting.
+    DropDraft {
+        draft: DraftId,
+        mailbox: MailboxRef,
+        /// The draft's `Message-ID`, without angle brackets.
+        message_id: String,
+    },
 }
 
 /// The result of applying an [`Op`], or of planning a folder change with [`crate::folder::plan`].

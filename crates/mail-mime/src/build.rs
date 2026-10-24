@@ -92,7 +92,38 @@ pub fn build(
     if draft.to.is_empty() && draft.cc.is_empty() && draft.bcc.is_empty() {
         return Err(MimeError::NoRecipients);
     }
+    write(draft, identity, in_reply_to, parts, disclosure)
+}
 
+/// The bytes of `draft` as a copy for the server's Drafts mailbox: every addressee named, `Bcc`
+/// included, since only the sender reads it there ([`Disclosure::Full`]).
+///
+/// No recipient is needed, unlike [`build`]: a draft is often kept before anyone is addressed,
+/// and that is the copy another device finishes. Its `Message-ID` is [`draft_message_id`], the
+/// same in every copy, which is what finds the earlier ones to replace.
+pub fn draft_copy(
+    draft: &Draft,
+    identity: &Identity,
+    in_reply_to: Option<&Message>,
+    parts: &[(BlobId, Vec<u8>)],
+) -> Result<Vec<u8>, MimeError> {
+    write(draft, identity, in_reply_to, parts, Disclosure::Full)
+}
+
+/// The `Message-ID` every message built from `draft` carries, without angle brackets: the same
+/// however often the draft is rebuilt, and the same when it is sent.
+pub fn draft_message_id(draft: &Draft, identity: &Identity) -> String {
+    message_id(draft, identity)
+}
+
+/// [`build`] without the check for a recipient.
+fn write(
+    draft: &Draft,
+    identity: &Identity,
+    in_reply_to: Option<&Message>,
+    parts: &[(BlobId, Vec<u8>)],
+    disclosure: Disclosure,
+) -> Result<Vec<u8>, MimeError> {
     let mut resolved = Vec::with_capacity(draft.attachments.len());
     for attachment in &draft.attachments {
         let bytes = parts

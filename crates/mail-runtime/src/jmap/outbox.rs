@@ -3,7 +3,8 @@
 //!
 //! Each operation is one request. Flags, filing, labels and keywords are `Email/set` patches;
 //! an upload is `Email/import`; a send is an import and an `EmailSubmission/set` together;
-//! folder work is `Mailbox/set`. Destroying an email is done for one reason only — the user
+//! folder work is `Mailbox/set`; a draft's copy in Drafts is an `Email/query` for the copies
+//! already there, an import and an `Email/set` destroying those found. Destroying an email is done for one reason only — the user
 //! deleted it forever from Trash or Junk — and is checked against the server's own view before
 //! it is asked for.
 
@@ -91,6 +92,12 @@ impl JmapEngine {
                             now,
                         );
                         report.submitted += 1;
+                        // Its copy in Drafts goes, at the next drain. Sent whatever becomes of it.
+                        if let Err(e) = self.drop_draft_copies(draft, now) {
+                            report.needs_attention.push(format!(
+                                "sent, but its draft may still be in Drafts on the server: {e}"
+                            ));
+                        }
                     }
                     report.outbox_settled += 1;
                 }
@@ -137,6 +144,33 @@ impl JmapEngine {
     fn mark_draft(&self, draft: mail_domain::DraftId, state: SendState, now: DateTime<Utc>) {
         // As in `AccountEngine::mark_draft`: a draft deleted while queued is nobody's concern.
         crate::engine::note_state(self.store.set_send_state(draft, &state, now));
+    }
+
+    /// Queue the removal of a sent draft's copies from the server's Drafts mailbox
+    /// ([`crate::server_drafts`]), where the server has one.
+    fn drop_draft_copies(
+        &self,
+        draft: mail_domain::DraftId,
+        now: DateTime<Utc>,
+    ) -> Result<(), RuntimeError> {
+        let Some(path) = self.mailboxes.as_ref().and_then(|m| {
+            m.id_for_role(MailboxRole::Drafts)
+                .and_then(|drafts| m.path(drafts))
+        }) else {
+            return Ok(());
+        };
+        let draft = match self.store.draft(draft) {
+            Ok(draft) => draft,
+            // Deleted while it was on its way: nothing here names its copies any more.
+            Err(mail_store::StoreError::NoDraft(_)) => return Ok(()),
+            Err(e) => return Err(e.into()),
+        };
+        let mailbox = MailboxRef {
+            account: self.account.clone(),
+            path,
+        };
+        crate::server_drafts::queue_drop(&self.store, &draft, mailbox, now)?;
+        Ok(())
     }
 
     /// Keep a message this client just uploaded, at the id the server gave it.
@@ -267,6 +301,23 @@ impl JmapEngine {
                 self.submit(&client, &mailboxes, raw, &mail_from, &rcpt_to, leaving)
                     .await
             }
+            ProtoOp::KeepDraft {
+                mailbox,
+                message_id,
+                raw,
+                ..
+            } => {
+                self.draft_copy(&client, &mailboxes, &mailbox, &message_id, Some(raw))
+                    .await
+            }
+            ProtoOp::DropDraft {
+                mailbox,
+                message_id,
+                ..
+            } => {
+                self.draft_copy(&client, &mailboxes, &mailbox, &message_id, None)
+                    .await
+            }
             ProtoOp::Folder(work) => {
                 let args = jmap::folder_work(&work, &mailboxes)?;
                 let call = jmap::mailbox_set(&account, args, "f");
@@ -370,6 +421,67 @@ impl JmapEngine {
             )));
         }
         Ok(found.into_iter().map(|e| e.id).collect())
+    }
+
+    /// Put `raw` in the Drafts mailbox at `mailbox` in place of the draft's copies already there
+    /// ([`ProtoOp::KeepDraft`]), or with no `raw` only remove them ([`ProtoOp::DropDraft`]).
+    ///
+    /// As over IMAP: the copies are found by the draft's `Message-ID` first (`Email/query`, with
+    /// `Email/get` of where each is), the new copy imported with `$draft` and `$seen`, and then
+    /// those found destroyed, so a request cut off part way leaves a copy too many and never none.
+    /// Only an email in Drafts and nowhere else is destroyed: one another client has since filed
+    /// anywhere else is not a draft any more. A Drafts mailbox gone since this was queued leaves
+    /// nothing to keep a copy in, and nothing is done.
+    async fn draft_copy(
+        &self,
+        client: &Client,
+        mailboxes: &jmap::Mailboxes,
+        mailbox: &MailboxRef,
+        message_id: &str,
+        raw: Option<BlobId>,
+    ) -> Result<ProtoOutcome, RuntimeError> {
+        let Some(drafts) = mailboxes.id_for_path(&mailbox.path).cloned() else {
+            return Ok(ProtoOutcome::Applied);
+        };
+        if mailboxes.id_for_role(MailboxRole::Drafts) != Some(&drafts) {
+            return Err(permanent(format!(
+                "{:?} is not the server's Drafts mailbox, so no draft was kept in it",
+                mailbox.path
+            )));
+        }
+        let account = &client.session.account;
+        let calls = [
+            jmap::draft_query(account, &drafts, message_id, "q"),
+            jmap::email_get(
+                account,
+                Ids::ResultOf {
+                    call: "q".to_owned(),
+                    name: "Email/query",
+                    path: "/ids",
+                },
+                &["id", "mailboxIds"],
+                "g",
+            ),
+        ];
+        let responses = client.call(&[CORE, MAIL], &calls).await?;
+        let found: Vec<JmapEmailId> =
+            EmailSummary::parse_list(responses.answer("g", "Email/get")?)?
+                .into_iter()
+                .filter(|e| !e.mailbox_ids.is_empty() && e.mailbox_ids.iter().all(|m| *m == drafts))
+                .map(|e| e.id)
+                .collect();
+        if let Some(raw) = raw {
+            let bytes = self.store.blobs().get(raw)?;
+            let blob = client.upload(bytes).await?;
+            let keywords = [SystemFlag::Draft, SystemFlag::Seen].map(|f| keyword_of(&f));
+            let call = jmap::email_import(account, &blob, &drafts, &keywords, None, "i");
+            let responses = client.call(&[CORE, MAIL], &[call]).await?;
+            let result = SetResult::parse(responses.answer("i", "Email/import")?)?;
+            if let Some(e) = result.first_refusal("keeping the draft on the server") {
+                return Err(e.into());
+            }
+        }
+        self.set(client, Vec::new(), found).await
     }
 
     /// Send one frozen message: upload it, import it into Drafts, submit it.

@@ -653,6 +653,24 @@ fn matches(state: &State, email: &Email, filter: &Value) -> bool {
             "notKeyword" => !email.keywords.iter().any(|k| k.to_lowercase() == text),
             "text" => raw.contains(&text),
             "from" | "to" | "cc" | "subject" => header(key).contains(&text),
+            // `[name]` asks that the header be there, `[name, value]` that it hold the value.
+            "header" => {
+                let pair: Vec<String> = value
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_lowercase)
+                            .collect()
+                    })
+                    // Not an array: no name to match, which the match below answers false.
+                    .unwrap_or_default();
+                match &pair[..] {
+                    [name] => headers(raw.as_bytes()).iter().any(|(n, _)| n == name),
+                    [name, want] => header(name).contains(want.as_str()),
+                    _ => false,
+                }
+            }
             // Anything else is not something this fake can answer.
             _ => false,
         }

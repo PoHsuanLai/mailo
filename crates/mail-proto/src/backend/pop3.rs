@@ -242,6 +242,12 @@ impl Backend for Pop3Backend {
                     "fetching part of a message over POP3".to_owned(),
                 ))
             }
+            // A maildrop has no Drafts folder, so a draft's copy has nowhere to be: the draft
+            // here is the whole of it. Never queued for a POP3 account; this is the backstop.
+            ProtoOp::KeepDraft { .. } | ProtoOp::DropDraft { .. } => {
+                self.job = Job::Idle;
+                Progress::Done(ProtoOutcome::Applied)
+            }
             ProtoOp::FetchFlags { .. } => {
                 // POP3 has no flags on the server at all — read and starred live only here — so
                 // there is nothing to sweep for and nothing to reconcile.

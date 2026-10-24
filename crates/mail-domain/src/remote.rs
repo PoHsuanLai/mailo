@@ -227,7 +227,8 @@ pub enum ProtoOp {
         remotes: Vec<RemoteRef>,
         keyword: crate::receipt::Keyword,
     },
-    /// Upload a message into a mailbox: a draft to the Drafts folder, or imported mail.
+    /// Upload a message into a mailbox: imported mail, or the copy of a sent message. A draft's
+    /// copy in Drafts is [`ProtoOp::KeepDraft`], which also replaces the copy before it.
     ///
     /// `flags` and `date` are the message's own, said explicitly rather than derived from the
     /// destination: a draft is `\Draft \Seen` because it is a draft, and an imported message
@@ -330,6 +331,35 @@ pub enum ProtoOp {
     },
     /// Create, rename, delete or follow a mailbox. IMAP only.
     Folder(crate::folder::FolderWork),
+    /// Put `raw`, a draft's latest bytes, in the Drafts mailbox at `mailbox`, and remove the
+    /// copies of it already there.
+    ///
+    /// The copies are found by `message_id`, which is the draft's own and the same in every
+    /// copy, rather than by where an earlier upload said it landed: a server need not say
+    /// (`APPENDUID` is optional, and some that list `UIDPLUS` never send it), and an upload cut
+    /// off before its answer leaves a copy nobody was told of. Found first, then the upload,
+    /// then those found removed, so a failure part way leaves a copy too many and never none;
+    /// the next upload finds the extra one and removes it with the rest.
+    ///
+    /// On IMAP the removal is `UID STORE +FLAGS.SILENT (\Deleted)` and `UID EXPUNGE` of exactly
+    /// the UIDs found, in a folder the server lists as Drafts; without `UIDPLUS` the old copies
+    /// are left marked `\Deleted`, and never taken with a bare `EXPUNGE`. On JMAP `Email/query`,
+    /// `Email/import` and `Email/set` `destroy`. Nothing is kept here: the copy is the server's.
+    KeepDraft {
+        draft: DraftId,
+        mailbox: MailboxRef,
+        /// The draft's `Message-ID`, without angle brackets.
+        message_id: String,
+        raw: BlobId,
+    },
+    /// Remove every copy of a draft from the Drafts mailbox at `mailbox`: it was sent, or
+    /// discarded. Found and removed as [`ProtoOp::KeepDraft`] removes the copies it replaces.
+    DropDraft {
+        draft: DraftId,
+        mailbox: MailboxRef,
+        /// The draft's `Message-ID`, without angle brackets.
+        message_id: String,
+    },
 }
 
 #[cfg(test)]

@@ -30,8 +30,8 @@ pub use error::MethodError;
 pub use mailbox::{DELIMITER, JmapMailbox, JmapRole, Mailboxes};
 pub use push::{Event, EventKind, EventStream, StateChange};
 pub use request::{
-    Call, Ids, blob_ids, email_changes, email_get, email_import, email_query, email_set,
-    identity_get, mailbox_changes, mailbox_get, mailbox_set, request, total_query,
+    Call, Ids, blob_ids, draft_query, email_changes, email_get, email_import, email_query,
+    email_set, identity_get, mailbox_changes, mailbox_get, mailbox_set, request, total_query,
 };
 pub use response::Responses;
 pub use session::{Limits, Session, Submission};

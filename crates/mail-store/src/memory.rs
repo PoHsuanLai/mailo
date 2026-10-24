@@ -1463,6 +1463,21 @@ impl Inner {
             Ok(!self.refs_for(account.clone(), &[m])?.is_empty()
                 || self.unplaced.contains_key(&(account.clone(), m)))
         })?;
+        // As `SqliteStore::queue`: a draft's upload still waiting is stale, and goes.
+        if let Some(draft) = crate::dispatch::draft_copy_of(intent) {
+            let stale: Vec<OutboxId> = self
+                .outbox
+                .iter()
+                .filter(|(_, row)| {
+                    row.account == account
+                        && matches!(&row.op, ProtoOp::KeepDraft { draft: queued, .. } if *queued == draft)
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            for id in stale {
+                self.drop_entry(id);
+            }
+        }
         let id = OutboxId::from_i64(self.next_outbox);
         self.next_outbox += 1;
         // As `SqliteStore::queue`: kept before the caller removes the messages.
@@ -1503,36 +1518,8 @@ impl Inner {
         intent: &RemoteIntent,
     ) -> Result<Option<ProtoOp>, StoreError> {
         // Mirrors SqliteStore::resolve_intent: a submission addresses no existing message.
-        if let RemoteIntent::Send {
-            draft,
-            raw,
-            mail_from,
-            rcpt_to,
-        } = intent
-        {
-            return Ok(Some(ProtoOp::Submit {
-                draft: *draft,
-                raw: *raw,
-                mail_from: mail_from.clone(),
-                rcpt_to: rcpt_to.clone(),
-            }));
-        }
-        if let RemoteIntent::Folder(work) = intent {
-            return Ok(Some(ProtoOp::Folder(work.clone())));
-        }
-        if let RemoteIntent::Append {
-            mailbox,
-            flags,
-            date,
-            raw,
-        } = intent
-        {
-            return Ok(Some(ProtoOp::Append {
-                mailbox: mailbox.clone(),
-                flags: flags.clone(),
-                date: *date,
-                raw: *raw,
-            }));
+        if let Some(op) = crate::dispatch::unaddressed(intent) {
+            return Ok(Some(op));
         }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
@@ -1541,9 +1528,11 @@ impl Inner {
             | RemoteIntent::File { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. }
             | RemoteIntent::Destroy { messages } => messages,
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                unreachable!("handled above")
-            }
+            RemoteIntent::Send { .. }
+            | RemoteIntent::Folder(_)
+            | RemoteIntent::Append { .. }
+            | RemoteIntent::KeepDraft { .. }
+            | RemoteIntent::DropDraft { .. } => unreachable!("handled above"),
         };
         let remotes = self.refs_for(account.clone(), messages)?;
         if remotes.is_empty()
@@ -1581,9 +1570,11 @@ impl Inner {
                 }
             }
             RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                unreachable!("handled above")
-            }
+            RemoteIntent::Send { .. }
+            | RemoteIntent::Folder(_)
+            | RemoteIntent::Append { .. }
+            | RemoteIntent::KeepDraft { .. }
+            | RemoteIntent::DropDraft { .. } => unreachable!("handled above"),
         }))
     }
 
@@ -1684,8 +1675,9 @@ impl Inner {
         settle: Settle,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
+        // As `SqliteStore::settle`: a draft's upload replaced while it ran has no row to settle.
         if !self.outbox.contains_key(&id) {
-            return Err(StoreError::db(format!("no such outbox entry: {id}")));
+            return Ok(());
         }
         match settle {
             Settle::Ok => {

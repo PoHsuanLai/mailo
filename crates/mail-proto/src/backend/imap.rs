@@ -291,6 +291,67 @@ impl ImapBackend {
         ])
     }
 
+    /// Put `raw` in the Drafts folder at `mailbox` in place of the copies of the draft whose
+    /// `Message-ID` is `message_id` already there ([`ProtoOp::KeepDraft`]), or with no `raw`
+    /// only remove them ([`ProtoOp::DropDraft`]).
+    ///
+    /// The folder must be the one the server lists as Drafts, as Trash or Spam must be for a
+    /// deletion forever: this marks messages `\Deleted`, and nowhere else is that this client's
+    /// to do. Then, on one connection: `CAPABILITY`, so the session knows what the server offers
+    /// once signed in; `SELECT`; `UID SEARCH HEADER Message-ID`, which finds the copies already
+    /// there, by the draft's own id rather than by UIDs an earlier upload was told, since a
+    /// server need not say where an upload landed (`APPENDUID`) and an upload cut off before its
+    /// answer leaves a copy nobody was told of; the `APPEND`; and `UID STORE +FLAGS.SILENT
+    /// (\Deleted)` and `UID EXPUNGE` of exactly the UIDs the search found, which are decided in
+    /// the walk ([`ImapCommand::UidStoreFound`]). Found before the upload, so the new copy is
+    /// never among them; removed after it, so a walk cut off part way leaves a copy too many,
+    /// which the next one finds, and never none.
+    ///
+    /// Without `UIDPLUS` (or IMAP4rev2) the old copies are marked and not expunged, and the walk
+    /// still succeeds: they are this client's own, and are left for the server or a client that
+    /// expunges the folder. A bare `EXPUNGE` would take other clients' `\Deleted` mail with them.
+    fn draft_copy(
+        &mut self,
+        mailbox: &MailboxRef,
+        message_id: &str,
+        raw: Option<Vec<u8>>,
+    ) -> Progress<ProtoOutcome> {
+        if self.caps.folders.role(&mailbox.path) != Some(MailboxRole::Drafts) {
+            return Progress::Failed(ProtoError::Unsupported(format!(
+                "keeping a draft outside the Drafts folder: the server does not list {} as \
+                 Drafts, so nothing was sent",
+                mailbox.path
+            )));
+        }
+        let Some(criteria) = draft_search(message_id) else {
+            return Progress::Failed(ProtoError::Malformed(format!(
+                "{message_id:?} is not a Message-ID this client gives a draft"
+            )));
+        };
+        let mut commands = vec![
+            ImapCommand::Capability,
+            Self::select(mailbox, Access::ReadWrite),
+            ImapCommand::UidSearch { criteria },
+        ];
+        if let Some(raw) = raw {
+            commands.push(ImapCommand::Append {
+                mailbox: mailbox.path.clone(),
+                flags: [SystemFlag::Draft, SystemFlag::Seen]
+                    .iter()
+                    .map(|f| wire_flag(*f).to_owned())
+                    .collect(),
+                date: None,
+                raw,
+            });
+        }
+        commands.push(ImapCommand::UidStoreFound {
+            what: "+FLAGS.SILENT (\\Deleted)".to_owned(),
+        });
+        commands.push(ImapCommand::UidExpungeFound);
+        self.job = Job::Applied;
+        self.queue(commands)
+    }
+
     /// One `UID FETCH` over a batch, on one authenticated connection.
     ///
     /// A batch rather than one message per operation: a connection authenticates once and then
@@ -701,6 +762,24 @@ impl Backend for ImapBackend {
             ProtoOp::Submit { .. } => Progress::Failed(ProtoError::Unsupported(
                 "submission is a separate backend".to_owned(),
             )),
+            ProtoOp::KeepDraft {
+                mailbox,
+                message_id,
+                ..
+            } => {
+                // Staged as an `Append`'s bytes are: the op names a blob.
+                let Some(body) = self.staged.take() else {
+                    return Progress::Failed(ProtoError::Malformed(
+                        "a draft was not staged: call stage() with its bytes".to_owned(),
+                    ));
+                };
+                self.draft_copy(&mailbox, &message_id, Some(body))
+            }
+            ProtoOp::DropDraft {
+                mailbox,
+                message_id,
+                ..
+            } => self.draft_copy(&mailbox, &message_id, None),
         }
     }
 
@@ -1011,6 +1090,18 @@ impl Backend for ImapBackend {
     fn stage_append(&mut self, raw: Vec<u8>) {
         self.staged = Some(raw);
     }
+}
+
+/// `HEADER Message-ID "<id>"`: the search that finds a draft's copies by the id every one of
+/// them carries. `None` for an id that is not one this client gives a draft, which is ASCII with
+/// one `@` and nothing that could close the quoted string or the brackets.
+fn draft_search(message_id: &str) -> Option<String> {
+    let fits = !message_id.is_empty()
+        && message_id.matches('@').count() == 1
+        && message_id
+            .bytes()
+            .all(|b| b.is_ascii_graphic() && !matches!(b, b'"' | b'\\' | b'<' | b'>'));
+    fits.then(|| format!("HEADER Message-ID \"<{message_id}>\""))
 }
 
 /// The wire spelling of a keyword. `$`-prefixed keywords are the registered ones (RFC 5788).

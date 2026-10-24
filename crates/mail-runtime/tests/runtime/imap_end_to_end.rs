@@ -1657,93 +1657,9 @@ mod watching {
     }
 }
 
-/// Uploading a draft, which `ProtoOp::Append` was written for and nothing called.
+/// Uploading a message, through the outbox. A draft's copy in Drafts is `server_drafts.rs`'s.
 mod appending {
     use super::*;
-
-    fn draft() -> Draft {
-        Draft {
-            id: DraftId::generate(),
-            account: acct_account(),
-            identity: IdentityId::generate(),
-            to: vec![Address {
-                name: None,
-                email: "ada@example.test".to_owned(),
-            }],
-            cc: vec![],
-            bcc: vec![],
-            subject: "half a thought".to_owned(),
-            in_reply_to: None,
-            forward_of: None,
-            text: "to be continued".to_owned(),
-            html: None,
-            attachments: vec![],
-            receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: mail_domain::Smime::None,
-            state: SendState::Editing,
-            updated: now(),
-        }
-    }
-
-    const RAW: &[u8] = b"From: me@example.test\r\n\
-Subject: half a thought\r\n\
-\r\n\
-to be continued\r\n\
-.a line that starts with a dot\r\n";
-
-    /// One upload, and what the server got: one append to the Drafts folder, the literal byte
-    /// for byte, and the flags that keep it a draft and read.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_draft_is_appended_to_drafts_byte_for_byte_flagged_draft_and_seen() {
-        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-        let (port, _v, _p, _f, appended) = serve_appending(seen.clone(), Fault::None).await;
-        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
-        let (_tx, mut cancel) = watch::channel(false);
-
-        // The Drafts path comes from the server, not from a guess, so discovery runs first.
-        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
-
-        let uploaded = it
-            .engine
-            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
-            .await
-            .expect("the append succeeds");
-        assert!(
-            uploaded,
-            "drafts folder: the server named a Drafts folder and nothing used it"
-        );
-
-        let stored = appended.lock().unwrap().clone();
-        assert_eq!(
-            stored.len(),
-            1,
-            "drafts folder: nothing was appended: {:?}",
-            seen.lock().unwrap().commands
-        );
-        // A literal is framed by a byte count, not by a terminator, so a body containing a line
-        // that begins with a dot — or a CRLF, or anything else — must survive untouched. A count
-        // that disagrees with what follows desynchronises the connection entirely.
-        assert_eq!(
-            stored[0].as_bytes(),
-            RAW,
-            "byte for byte: the literal was altered in transit"
-        );
-
-        // Without \\Draft the message shows up as ordinary mail in the folder; without \\Seen the
-        // user's own unfinished note arrives as unread mail on every device they own.
-        let append = seen
-            .lock()
-            .unwrap()
-            .commands
-            .iter()
-            .find(|c| c.to_uppercase().starts_with("APPEND"))
-            .cloned()
-            .expect("an APPEND was sent");
-        assert!(append.contains("\\Draft"), "flags: {append}");
-        assert!(append.contains("\\Seen"), "flags: {append}");
-        assert!(append.contains("Drafts"), "drafts folder: {append}");
-    }
 
     /// An import's upload: queued in the outbox, sent by the drain with its own flags and date,
     /// and kept here at the address `APPENDUID` gave it, so a second import finds it held.
@@ -1811,27 +1727,6 @@ kept for years\r\n";
                 .outbox_due(acct_account(), now())
                 .unwrap()
                 .is_empty()
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn an_account_with_no_drafts_folder_says_so_rather_than_guessing() {
-        // Uploading into a path nobody confirmed is how a message lands somewhere the user will
-        // never look. `caps()` has an empty FolderRoles and no discovery has run.
-        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-        let (port, _v, _p, _f, appended) = serve_appending(seen, Fault::None).await;
-        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
-        let (_tx, mut cancel) = watch::channel(false);
-
-        let uploaded = it
-            .engine
-            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
-            .await
-            .expect("no folder is not an error");
-        assert!(!uploaded, "a folder was invented");
-        assert!(
-            appended.lock().unwrap().is_empty(),
-            "something was uploaded anyway"
         );
     }
 }

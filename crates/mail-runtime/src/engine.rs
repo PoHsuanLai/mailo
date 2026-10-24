@@ -635,7 +635,7 @@ impl<B: Backend> AccountEngine<B> {
         // An upload's bytes are a blob, and reading one is this crate's to do. Staged here, per
         // attempt, rather than by the caller: a retry after a renewed sign-in runs this again,
         // and bytes staged once would already have been spent by the first attempt.
-        if let ProtoOp::Append { raw, .. } = &op {
+        if let ProtoOp::Append { raw, .. } | ProtoOp::KeepDraft { raw, .. } = &op {
             let bytes = self.store.blobs().get(*raw)?;
             self.backend.stage_append(bytes);
         }
@@ -1070,7 +1070,7 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<SyncReport, RuntimeError> {
         let (mut report, mut again) = self.drain_pass(cancel, now).await?;
         // A copy queued by a submission goes in the same call, unless something failed: the Sent
-        // copy of a message is not left waiting for the next pass.
+        // copy of a message is not left waiting for the next pass, nor its draft in Drafts.
         while again {
             let (later, more) = self.drain_pass(cancel, now).await?;
             report.absorb(later);
@@ -1080,7 +1080,8 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// One walk through what is due. The flag says a submission in it queued an upload of its
-    /// sent copy and nothing stopped the walk, so another is worth making at once.
+    /// sent copy, or the removal of its draft's copy, and nothing stopped the walk, so another is
+    /// worth making at once.
     async fn drain_pass(
         &mut self,
         cancel: &mut Cancel,
@@ -1186,6 +1187,14 @@ impl<B: Backend> AccountEngine<B> {
                         copy_queued |= matches!(copy, SentCopy::Upload(_));
                         self.mark_draft(draft, SendState::Sent { at: now, message }, now);
                         report.submitted += 1;
+                        // Sent, so its copy in Drafts on the server goes, in this drain as the
+                        // Sent copy does. Sent whatever becomes of that, as above.
+                        match self.drop_draft_copies(draft, now) {
+                            Ok(queued) => copy_queued |= queued,
+                            Err(e) => report.needs_attention.push(format!(
+                                "sent, but its draft may still be in Drafts on the server: {e}"
+                            )),
+                        }
                     }
                     report.outbox_settled += 1;
                 }
@@ -1468,40 +1477,32 @@ impl<B: Backend> AccountEngine<B> {
                 .unwrap_or(false)
     }
 
-    /// Upload a draft into the server's Drafts folder.
-    ///
-    /// Without this a draft exists on one machine. That is the difference between a mail client
-    /// and a mail client you can start a reply on and finish from a phone, and it is what
-    /// `ProtoOp::Append` is for.
-    ///
-    /// The folder comes from the server's own `SPECIAL-USE` reply where there is one. An account
-    /// whose capabilities name no Drafts folder is not an error and not a guess: uploading into
-    /// a path nobody confirmed is how a message lands somewhere the user will never look, so
-    /// this reports that there was nowhere to put it and leaves the draft local.
-    pub async fn upload_draft(
-        &mut self,
-        draft: &mail_domain::Draft,
-        raw: Vec<u8>,
-        cancel: &mut Cancel,
+    /// Queue the removal of a sent draft's copies from the server's Drafts folder
+    /// ([`crate::server_drafts`]), where this account keeps them: an IMAP account whose server
+    /// names a Drafts folder. Whether anything was queued.
+    fn drop_draft_copies(
+        &self,
+        draft: mail_domain::DraftId,
+        now: DateTime<Utc>,
     ) -> Result<bool, RuntimeError> {
+        // A Graph account reads through `self.graph`, and keeps no copy there.
+        if !matches!(self.plan.incoming, Incoming::Imap { .. }) || self.graph.is_some() {
+            return Ok(false);
+        }
         let Some(path) = self.folder_for(MailboxRole::Drafts) else {
             return Ok(false);
         };
-        // Not a result: the draft itself is not read here, only the bytes made from it.
-        let _ = draft;
-        // Stored, so the op names bytes that exist: `run_once` reads them back to stage them.
-        let raw = self.store.blobs().put(&raw)?;
-        let op = ProtoOp::Append {
-            mailbox: MailboxRef {
-                account: self.account.clone(),
-                path,
-            },
-            flags: vec![SystemFlag::Draft, SystemFlag::Seen],
-            date: None,
-            raw,
+        let draft = match self.store.draft(draft) {
+            Ok(draft) => draft,
+            // Deleted while it was on its way: nothing here names its copies any more.
+            Err(mail_store::StoreError::NoDraft(_)) => return Ok(false),
+            Err(e) => return Err(e.into()),
         };
-        self.run(op, cancel).await?;
-        Ok(true)
+        let mailbox = MailboxRef {
+            account: self.account.clone(),
+            path,
+        };
+        crate::server_drafts::queue_drop(&self.store, &draft, mailbox, now)
     }
 
     /// The server's path for a role, where it told us one.
