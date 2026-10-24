@@ -436,3 +436,23 @@ fn only_the_composer_s_styles_come_back_from_html() {
     ];
     assert_eq!(nodes, expected);
 }
+
+/// An indented paragraph wrapped in `format=flowed` carries its spaces on its first line only: a
+/// reader joins each soft-wrapped piece straight on, so spaces leading the rest would land inside
+/// the paragraph.
+#[test]
+fn a_wrapped_indented_paragraph_is_led_on_its_first_line_only() {
+    let long = "word ".repeat(30);
+    let flowed = to_flowed(&doc_of(vec![deep(ParaKind::Paragraph, long.trim_end(), 2)]));
+    let mut lines = flowed.lines();
+    assert!(
+        lines.next().is_some_and(
+            |line| line.starts_with("        ") && line.trim_start().starts_with("word")
+        ),
+        "{flowed:?}"
+    );
+    assert!(
+        lines.all(|line| !line.starts_with(' ')),
+        "the rest join straight on: {flowed:?}"
+    );
+}

@@ -8,7 +8,8 @@
 //! - writes a quote as `>` then one space, which is itself the stuffing, then the text; a quote
 //!   at a deeper level as one `>` for each level, then the space;
 //! - writes a nested list item two spaces in for each level, and an indented paragraph four;
-//!   the space-stuffing keeps them.
+//!   the space-stuffing keeps them. Only the first piece of a wrapped line carries them, as only
+//!   it carries a list marker: a reader of `format=flowed` joins the rest straight on.
 //!
 //! Text with no space to break at (a long URL, a line of Chinese or Japanese) is not broken
 //! at 72: breaking it would add a newline, or with a soft break a space, that the author did
@@ -79,7 +80,8 @@ enum Lead<'a> {
     Item(&'a str),
     /// Every line is quoted, as many levels deep as this.
     Quoted(usize),
-    /// Every line starts with these spaces, then is stuffed.
+    /// Every hard line starts with these spaces, then is stuffed; its soft-wrapped pieces after
+    /// the first are plain.
     Indented(&'a str),
 }
 
@@ -195,11 +197,9 @@ fn flow_text(text: &str, lead: Lead<'_>) -> String {
         let lines = wrap(segment, budget.max(1));
         let last = lines.len().saturating_sub(1);
         for (index, line) in lines.into_iter().enumerate() {
-            let first = match lead {
-                Lead::Indented(spaces) => spaces,
-                _ if index == 0 => marker,
-                _ => "",
-            };
+            // Only a line's first piece is led: a soft break joins the next piece straight on, so
+            // spaces leading it would land inside the paragraph when it is read back.
+            let first = if index == 0 { marker } else { "" };
             let full = format!("{first}{line}");
             let full = if index == last { hard(&full) } else { full };
             out.push(match lead {
