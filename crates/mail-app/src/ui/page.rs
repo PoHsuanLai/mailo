@@ -1,7 +1,8 @@
 //! Group and Row Properties, applied to the loaded page only, and the list toolbar's ⋯ that
-//! holds them with Sync Now.
+//! holds them with Organise by Conversation and Sync Now.
 //!
-//! Neither asks the store for a different query.
+//! Neither of the first two asks the store for a different query. Organise by Conversation does:
+//! it is the place's own choice ([`super::organise`]), and a message to a row is another list.
 
 use ds::prelude::*;
 use std::collections::BTreeMap;
@@ -17,21 +18,23 @@ use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
-use mail_domain::ThreadSummary;
+use mail_domain::{ThreadSummary, Threading};
+use std::borrow::Borrow;
 
-/// One band of the loaded page.
-pub(super) struct Band {
+/// One band of the loaded page: its rows, each a conversation's summary or something that holds
+/// one (a message to a row holds its own, beside which message it is).
+pub(super) struct Band<T = ThreadSummary> {
     pub title: Option<String>,
-    pub threads: Vec<ThreadSummary>,
+    pub threads: Vec<T>,
 }
 
 /// Group `threads` the way the page menu says. The input order is the list order.
-pub(super) fn group_page<Tz: TimeZone>(
-    threads: Vec<ThreadSummary>,
+pub(super) fn group_page<T: Borrow<ThreadSummary>, Tz: TimeZone>(
+    threads: Vec<T>,
     by: PageGroup,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Vec<Band>
+) -> Vec<Band<T>>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -44,14 +47,14 @@ where
     }
 }
 
-pub(super) fn by_key(
-    threads: Vec<ThreadSummary>,
+pub(super) fn by_key<T: Borrow<ThreadSummary>>(
+    threads: Vec<T>,
     key: impl Fn(&ThreadSummary) -> String,
-) -> Vec<Band> {
+) -> Vec<Band<T>> {
     let mut order: Vec<String> = Vec::new();
-    let mut bands: BTreeMap<String, Vec<ThreadSummary>> = BTreeMap::new();
+    let mut bands: BTreeMap<String, Vec<T>> = BTreeMap::new();
     for thread in threads {
-        let name = key(&thread);
+        let name = key(thread.borrow());
         if !bands.contains_key(&name) {
             order.push(name.clone());
         }
@@ -66,11 +69,11 @@ pub(super) fn by_key(
         .collect()
 }
 
-pub(super) fn date_bands<Tz: TimeZone>(
-    threads: Vec<ThreadSummary>,
+pub(super) fn date_bands<T: Borrow<ThreadSummary>, Tz: TimeZone>(
+    threads: Vec<T>,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Vec<Band>
+) -> Vec<Band<T>>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -81,7 +84,7 @@ where
     let today_date = now.with_timezone(zone).date_naive();
     for thread in threads {
         let days = today_date
-            .signed_duration_since(thread.last_date.with_timezone(zone).date_naive())
+            .signed_duration_since(thread.borrow().last_date.with_timezone(zone).date_naive())
             .num_days();
         if days <= 0 {
             today.push(thread);
@@ -101,7 +104,7 @@ where
     ])
 }
 
-pub(super) fn titled<const N: usize>(bands: [(&str, Vec<ThreadSummary>); N]) -> Vec<Band> {
+pub(super) fn titled<T, const N: usize>(bands: [(&str, Vec<T>); N]) -> Vec<Band<T>> {
     bands
         .into_iter()
         .filter(|(_, threads)| !threads.is_empty())
@@ -117,6 +120,8 @@ pub(super) fn titled<const N: usize>(bands: [(&str, Vec<ThreadSummary>); N]) -> 
 pub(super) enum More {
     /// Band the loaded page by date, or stop.
     GroupByDate,
+    /// List conversations, or a message to a row, in the place shown ([`super::organise`]).
+    Conversations,
     /// Show or hide a part of every row, by its key in [`PageParts::part_mut`].
     Part(&'static str),
     /// Fetch what the list shows.
@@ -127,12 +132,15 @@ fn check(on: bool) -> Check {
     if on { Check::On } else { Check::Off }
 }
 
-/// The ⋯'s rows: Group by Date with a check while the page is banded, then the snippets' and
-/// the labels' Show or Hide (a pick switches it and leaves the menu up, so both can be), then
-/// Sync Now with what the sync mark says under it. `sync` is `None` while the sidebar, which
-/// holds the mark, is shown, and with only local folders in view.
+/// The ⋯'s rows: Group by Date with a check while the page is banded, Organise by Conversation
+/// with a check while the place lists conversations (`organise` is `None` where the place
+/// offers no choice), then the snippets' and the labels' Show or Hide (a pick switches it and
+/// leaves the menu up, so both can be), then Sync Now with what the sync mark says under it.
+/// `sync` is `None` while the sidebar, which holds the mark, is shown, and with only local
+/// folders in view.
 pub(super) fn more_items(
     group: PageGroup,
+    organise: Option<Threading>,
     parts: PageParts,
     sync: Option<String>,
 ) -> Vec<MenuItem<More>> {
@@ -144,6 +152,14 @@ pub(super) fn more_items(
         MenuItem::new(More::GroupByDate, copy::menus::GROUP_BY_DATE)
             .with_image(MenuImage::Icon(Icon::Group))
             .with_check(check(group == PageGroup::Date)),
+    ];
+    if let Some(threading) = organise {
+        rows.push(
+            MenuItem::new(More::Conversations, copy::menus::ORGANISE_BY_CONVERSATION)
+                .with_check(check(threading == Threading::Threaded)),
+        );
+    }
+    rows.extend([
         MenuItem::Separator,
         toggle(
             "snippet",
@@ -157,7 +173,7 @@ pub(super) fn more_items(
             copy::menus::SHOW_LABELS,
             copy::menus::HIDE_LABELS,
         ),
-    ];
+    ]);
     if let Some(said) = sync {
         let item = MenuItem::new(More::Sync, copy::menus::SYNC_NOW)
             .with_image(MenuImage::Icon(Icon::Refresh));
@@ -183,13 +199,19 @@ fn kept(edit: impl FnOnce(&mut crate::settings::WindowSettings)) {
 /// settings ([`kept`]), so every window opens with them. Sync Now is the sidebar's sync mark's press, so it is here only while the
 /// sidebar is hidden; `syncs` is false with only local folders in view.
 #[component]
-pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bool>) -> Element {
+pub(super) fn ListMore(
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    syncs: bool,
+    side_hidden: Signal<bool>,
+) -> Element {
     let open = shell.read().page_menu == PageMenu::More;
     let mut tool = use_signal(|| None::<MountedRef>);
     let line = use_status(shell);
     let items = if open {
         let sync = (syncs && side_hidden()).then(|| line.map(|line| line.text).unwrap_or_default());
-        more_items(shell.read().group, shell.read().parts, sync)
+        let organise = shell.read().organises().then(|| shell.read().threading());
+        more_items(shell.read().group, organise, shell.read().parts, sync)
     } else {
         Vec::new()
     };
@@ -238,6 +260,10 @@ pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bo
                             written.group
                         };
                         kept(|window| window.group_by_date = group.into());
+                    }
+                    More::Conversations => {
+                        shell.write().page_menu = PageMenu::Closed;
+                        super::organise::turn(shell, revision);
                     }
                     // The menu stays up for the next toggle (`AfterPick::KeepOpen`).
                     More::Part(key) => {
@@ -365,15 +391,31 @@ mod tests {
             ),
         ];
         for (group, sync, want) in cases {
-            let rows = read(&more_items(group, parts, sync.map(str::to_owned)));
+            let rows = read(&more_items(group, None, parts, sync.map(str::to_owned)));
             assert_eq!(rows, want, "{group:?} {sync:?}");
+        }
+        // Where the place offers it, Organise by Conversation follows Group by Date, checked
+        // while the place lists conversations.
+        for (threading, want) in [
+            (Threading::Threaded, "✓Organise by Conversation"),
+            (
+                Threading::Single,
+                crate::ui::copy::menus::ORGANISE_BY_CONVERSATION,
+            ),
+        ] {
+            let rows = read(&more_items(PageGroup::None, Some(threading), parts, None));
+            assert_eq!(
+                rows[..3],
+                [crate::ui::copy::menus::GROUP_BY_DATE, want, "-"],
+                "{threading:?}"
+            );
         }
         // A part hidden is offered back, and each part's pick leaves the menu up.
         let hidden = PageParts {
             snippet: RowPart::Hidden,
             chips: RowPart::Hidden,
         };
-        let rows = more_items(PageGroup::None, hidden, None);
+        let rows = more_items(PageGroup::None, None, hidden, None);
         assert_eq!(
             read(&rows)[2..],
             [

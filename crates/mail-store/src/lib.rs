@@ -52,8 +52,8 @@ pub use offline::{Offline, RemotePart};
 pub use opened::OPENED_KEPT;
 pub use passes::{PassFailed, Passes};
 pub use sql::{SqlFilter, SqlValue, compile};
-pub use sqlite::Freed;
 pub use sqlite::SqliteStore;
+pub use sqlite::{Freed, MessageRow};
 pub use term::Term;
 
 pub use error::StoreError;

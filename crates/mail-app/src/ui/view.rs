@@ -550,6 +550,14 @@ pub struct Shell {
     /// What the user typed in the search box.
     pub search: String,
     pub open: Option<ThreadId>,
+    /// The one message of the open conversation the reader shows, when it was opened from a list
+    /// of single messages ([`Self::threading`]). `None` shows the conversation whole. Belongs to
+    /// the open conversation: [`Self::open`], [`Self::select`] and [`Self::close`] drop it.
+    pub focus: Option<MessageId>,
+    /// The places listed a message to a row, by [`mail_core::view::place_key`]: the window's
+    /// `window.single_messages`, which the window keeps in step with the file. A saved view keeps
+    /// its own choice in the view ([`mail_core::view::threading_of`]).
+    pub single: Vec<String>,
     /// The sidebar list the open thread was opened from, if one was. The sidebar has one
     /// selected row: that list's row for the thread while this holds, the place otherwise.
     pub from_side: Option<SideList>,
@@ -735,6 +743,8 @@ impl Default for Shell {
             selected: 0,
             search: String::new(),
             open: None,
+            focus: None,
+            single: Vec::new(),
             from_side: None,
             picked: Picked::none(),
             show_remote_images: false,
@@ -834,6 +844,28 @@ impl Shell {
         }
     }
 
+    /// Whether the list shows conversations or a message to a row: the place's own choice
+    /// ([`mail_core::view::threading_of`]). A search lists conversations whatever the place
+    /// says, since it replaces the place ([`Self::query`]).
+    pub fn threading(&self) -> Threading {
+        match self.places.get(self.selected) {
+            Some(place) if self.search.trim().is_empty() => {
+                mail_core::view::threading_of(place, &self.single)
+            }
+            _ => Threading::Threaded,
+        }
+    }
+
+    /// Whether the place shown offers Organise by Conversation: it lists mail by a filter, and
+    /// no search has replaced it.
+    pub fn organises(&self) -> bool {
+        self.search.trim().is_empty()
+            && self
+                .places
+                .get(self.selected)
+                .is_some_and(mail_core::view::organises)
+    }
+
     /// What the list pane should show.
     ///
     /// A search box with anything in it always means threads, even while Drafts is selected:
@@ -842,6 +874,11 @@ impl Shell {
     pub fn listing(&self, limit: u32) -> Listing {
         if !self.search.trim().is_empty() {
             return Listing::Threads(self.query(limit));
+        }
+        // A place kept a message to a row lists its messages, the inbox too: the follow-ups
+        // that came back are conversations, and sit on top of the conversations' list only.
+        if self.threading() == Threading::Single {
+            return Listing::Messages(self.query(limit));
         }
         match self.places.get(self.selected).map(|p| &p.source) {
             Some(Source::Drafts) => Listing::Drafts,
@@ -893,6 +930,7 @@ impl Shell {
         if index < self.places.len() {
             self.selected = index;
             self.open = None;
+            self.focus = None;
             self.from_side = None;
             // What was picked was picked in the old list.
             self.picked = Picked::none();
@@ -906,10 +944,18 @@ impl Shell {
     /// selection in any list, and a Shift range measures from it next.
     pub fn open(&mut self, thread: ThreadId) {
         self.open = Some(thread);
+        self.focus = None;
         self.from_side = None;
         self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
         self.preview = None;
+    }
+
+    /// Open `message` alone, from its row in a list of single messages: its conversation is the
+    /// one open, picked as [`Self::open`] picks it, and the reader shows that message.
+    pub fn open_message(&mut self, thread: ThreadId, message: MessageId) {
+        self.open(thread);
+        self.focus = Some(message);
     }
 
     /// Open a thread from its row in one of the sidebar's lists: that row is then the sidebar's
@@ -936,6 +982,7 @@ impl Shell {
     /// [`Self::select`] do. A remote image is a read receipt.
     pub fn close(&mut self) {
         self.open = None;
+        self.focus = None;
         self.from_side = None;
         self.show_remote_images = false;
         self.preview = None;
@@ -1177,6 +1224,9 @@ pub fn op_for_selection(shortcut: Shortcut, summaries: &[ThreadSummary]) -> Opti
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Listing {
     Threads(Query),
+    /// The place's messages, a message to a row ([`mail_core::single`]): Organise by
+    /// Conversation turned off for it.
+    Messages(Query),
     /// The inbox: its query, under the conversations whose follow-up reminder came back with no
     /// reply, on the accounts `scope` narrows to ([`mail_core::follow_up::returned`]).
     Inbox {
@@ -1460,6 +1510,43 @@ mod listing_tests {
         assert_eq!(shell.listing(50), Listing::Waiting { scope: None });
         shell.search = "invoice".to_owned();
         assert!(matches!(shell.listing(50), Listing::Threads(_)));
+    }
+
+    /// A place kept a message to a row lists its messages, the inbox without its returned
+    /// reminders; a search lists conversations whatever the place says, and a place that is not
+    /// mail by a filter keeps its own list. A message opened alone is let go with the place.
+    #[test]
+    fn a_place_kept_a_message_to_a_row_lists_messages() {
+        let mut shell = Shell {
+            single: vec!["place:Inbox".to_owned(), "place:Waiting".to_owned()],
+            ..Shell::default()
+        };
+        let inbox = shell.query(50);
+        assert_eq!(shell.threading(), Threading::Single);
+        assert_eq!(shell.listing(50), Listing::Messages(inbox));
+        shell.search = "invoice".to_owned();
+        assert_eq!(shell.threading(), Threading::Threaded);
+        assert!(matches!(shell.listing(50), Listing::Threads(_)));
+        assert!(!shell.organises(), "a search offers no choice");
+        shell.search.clear();
+
+        let thread = ThreadId::generate();
+        let message = MessageId::generate();
+        shell.open_message(thread, message);
+        assert_eq!((shell.open, shell.focus), (Some(thread), Some(message)));
+        shell.open(thread);
+        assert_eq!(shell.focus, None, "opened whole");
+        shell.open_message(thread, message);
+
+        let waiting = shell
+            .places
+            .iter()
+            .position(|p| p.source == Source::Waiting)
+            .expect("there is a Waiting place");
+        shell.select(waiting);
+        assert_eq!(shell.focus, None, "let go with the place");
+        assert!(!shell.organises());
+        assert_eq!(shell.listing(50), Listing::Waiting { scope: None });
     }
 
     #[test]

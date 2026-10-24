@@ -181,6 +181,10 @@ fn run_action(
             side_hidden.set(!side_hidden());
             close(shell);
         }
+        CommandId::Conversations => {
+            close(shell);
+            super::organise::turn(shell, *revision);
+        }
         CommandId::AddAccount => {
             close(shell);
             super::add_account::open();

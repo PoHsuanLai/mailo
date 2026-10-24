@@ -572,7 +572,6 @@ fn view() -> View {
         },
         group_by: Some(GroupKey::Property(Property::From)),
         threading: Threading::Threaded,
-        shown: vec![Property::Date, Property::Subject, Property::Attachments],
         hover: vec![OpKind::Archive, OpKind::Reply, OpKind::Forward],
     }
 }

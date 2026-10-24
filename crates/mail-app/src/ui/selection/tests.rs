@@ -226,3 +226,12 @@ fn what_is_picked_is_read_through_the_list() {
         Picked::none()
     );
 }
+
+/// A conversation listed a message to a row has a row per message; picking it picks it once.
+#[test]
+fn a_conversation_listed_twice_is_chosen_once() {
+    let ([a, b, ..], _) = ids();
+    let listed = [a, b, a];
+    let picked = Picked::all(&listed);
+    assert_eq!(picked.chosen(&listed), [a, b]);
+}

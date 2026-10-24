@@ -10,16 +10,17 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
     Attachments, GroupKey, LabelId, MailboxRole, Pin, Property, ReadState, Star, ThreadSummary,
 };
+use std::borrow::Borrow;
 use std::collections::BTreeMap;
 
 /// Group `threads` the way the list is grouped now ([`crate::ui::view::Shell::grouping`]).
-pub(super) fn group_list<Tz: TimeZone>(
-    threads: Vec<ThreadSummary>,
+pub(super) fn group_list<T: Borrow<ThreadSummary>, Tz: TimeZone>(
+    threads: Vec<T>,
     by: &Grouping,
     names: &BTreeMap<LabelId, String>,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Vec<Band>
+) -> Vec<Band<T>>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -29,13 +30,13 @@ where
     }
 }
 
-fn saved_bands<Tz: TimeZone>(
-    threads: Vec<ThreadSummary>,
+fn saved_bands<T: Borrow<ThreadSummary>, Tz: TimeZone>(
+    threads: Vec<T>,
     key: &GroupKey,
     names: &BTreeMap<LabelId, String>,
     now: DateTime<Utc>,
     zone: &Tz,
-) -> Vec<Band>
+) -> Vec<Band<T>>
 where
     Tz::Offset: std::fmt::Display,
 {
@@ -73,13 +74,13 @@ where
 }
 
 /// The ones `is` holds for under `yes`, then the rest under `no`; an empty band is not drawn.
-fn two(
-    threads: Vec<ThreadSummary>,
+fn two<T: Borrow<ThreadSummary>>(
+    threads: Vec<T>,
     yes: &str,
     no: &str,
     is: impl Fn(&ThreadSummary) -> bool,
-) -> Vec<Band> {
-    let (held, rest): (Vec<_>, Vec<_>) = threads.into_iter().partition(|t| is(t));
+) -> Vec<Band<T>> {
+    let (held, rest): (Vec<_>, Vec<_>) = threads.into_iter().partition(|t| is(t.borrow()));
     titled([(yes, held), (no, rest)])
 }
 

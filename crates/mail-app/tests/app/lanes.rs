@@ -50,3 +50,6 @@ mod sidebar;
 
 // 15: who a message is from: the name, the aliases, the From.
 mod identity;
+
+// 16: the list as conversations or a message to a row.
+mod organise;

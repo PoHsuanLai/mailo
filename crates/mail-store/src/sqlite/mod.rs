@@ -23,6 +23,8 @@ mod reparse;
 mod row;
 mod rules;
 mod search;
+mod singles;
+pub use singles::MessageRow;
 mod smime;
 mod template;
 mod views;

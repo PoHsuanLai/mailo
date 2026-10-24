@@ -34,6 +34,7 @@ mod rules;
 mod search;
 mod send_later;
 mod server_drafts;
+mod singles;
 mod smime_certs;
 mod sort_indexes;
 mod sqlite_capabilities;

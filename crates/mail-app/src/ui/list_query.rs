@@ -11,7 +11,7 @@ use super::list_search::{Listed, Request, listed};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_core::SqliteStore;
-use mail_domain::{ThreadId, ThreadSummary};
+use mail_domain::{MessageId, ThreadId, ThreadSummary};
 use std::sync::Arc;
 
 /// The list's answer, split into what each part of the pane reads.
@@ -19,6 +19,9 @@ use std::sync::Arc;
 pub(super) struct ListView {
     /// The rows: the place, or a search's matches newest first.
     pub threads: Memo<Vec<ThreadSummary>>,
+    /// Which message each row is, row for row, while the place lists a message to a row; empty
+    /// while it lists conversations.
+    pub messages: Memo<Vec<MessageId>>,
     /// A search's "Top results" strip.
     pub top: Memo<Vec<ThreadSummary>>,
     pub marking: Memo<super::list_search::Marking>,
@@ -94,6 +97,7 @@ pub(super) fn use_list(
     });
     ListView {
         threads: use_memo(move || drawn.read().threads.clone()),
+        messages: use_memo(move || drawn.read().messages.clone()),
         top: use_memo(move || drawn.read().top.clone()),
         marking: use_memo(move || drawn.read().marking.clone()),
         paging: use_memo(move || pages() > reached()),
@@ -102,8 +106,16 @@ pub(super) fn use_list(
 }
 
 /// Whether drawing `next` over `was` would take a row out of the list: a conversation in either
-/// part of `was` that `next` does not hold.
+/// part of `was` that `next` does not hold, or, a message to a row, a message. Turning
+/// Organise by Conversation on or off makes every row another row.
 fn drops_rows(was: &Listed, next: &Listed) -> bool {
+    if !was.messages.is_empty() || !next.messages.is_empty() {
+        return was
+            .messages
+            .iter()
+            .any(|message| !next.messages.contains(message))
+            || (was.messages.is_empty() && !was.threads.is_empty());
+    }
     let kept = |id: &ThreadId| {
         next.threads
             .iter()
@@ -135,6 +147,7 @@ mod tests {
     fn listing(threads: &[ThreadSummary], top: &[ThreadSummary]) -> Listed {
         Listed {
             threads: threads.to_vec(),
+            messages: Vec::new(),
             top: top.to_vec(),
             marking: Default::default(),
         }
@@ -156,6 +169,20 @@ mod tests {
             &listing(std::slice::from_ref(&a), std::slice::from_ref(&b))
         ));
         // A search that keeps one of them drops the other.
-        assert!(drops_rows(&was, &listing(&[a, c], &[])));
+        assert!(drops_rows(&was, &listing(&[a.clone(), c], &[])));
+
+        // A message to a row: a message that leaves is a row that leaves, whatever its
+        // conversation, and turning conversations on or off replaces every row.
+        let single = |messages: &[u128]| Listed {
+            messages: messages
+                .iter()
+                .map(|n| MessageId::from_uuid(uuid::Uuid::from_u128(*n)))
+                .collect(),
+            ..listing(&vec![a.clone(); messages.len()], &[])
+        };
+        assert!(!drops_rows(&single(&[1, 2]), &single(&[1, 2, 3])));
+        assert!(drops_rows(&single(&[1, 2]), &single(&[1])));
+        assert!(drops_rows(&was, &single(&[1])));
+        assert!(drops_rows(&single(&[1]), &was));
     }
 }

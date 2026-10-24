@@ -311,6 +311,15 @@ pub(super) fn App() -> Element {
         }
     });
 
+    // The places kept a message to a row (`window.single_messages`): the list's ⋯ writes them,
+    // and another window may.
+    use_effect(move || {
+        let single = prefs.read().window.single_messages.clone();
+        if shell.peek().single != single {
+            shell.write().single = single;
+        }
+    });
+
     // Provider marks are a setting (`window.provider_marks`), which detent may change while the
     // window is open.
     use_effect(move || {
@@ -374,6 +383,7 @@ pub(super) fn App() -> Element {
     // afterwards, and for a search only once the box is still (`list_query`).
     let ListView {
         threads,
+        messages,
         top,
         marking,
         paging,
@@ -601,9 +611,22 @@ pub(super) fn App() -> Element {
         let open = shell.read().open;
         match action {
             Shortcut::Next | Shortcut::Previous => {
-                let ids: Vec<ThreadId> = threads().iter().map(|t| t.id).collect();
-                if let Some(id) = mail_core::view::step(open, &ids, action == Shortcut::Next) {
-                    shell.write().open(id);
+                let forward = action == Shortcut::Next;
+                let singles = messages();
+                let rows = threads();
+                if !singles.is_empty() && singles.len() == rows.len() {
+                    // A message to a row: the cursor moves by message, and opens each alone.
+                    let here = shell.read().focus.filter(|_| open.is_some());
+                    if let Some(next) = mail_core::view::step(here, &singles, forward)
+                        && let Some(at) = singles.iter().position(|m| *m == next)
+                    {
+                        shell.write().open_message(rows[at].id, next);
+                    }
+                } else {
+                    let ids: Vec<ThreadId> = rows.iter().map(|t| t.id).collect();
+                    if let Some(id) = mail_core::view::step(open, &ids, forward) {
+                        shell.write().open(id);
+                    }
                 }
             }
             Shortcut::ExtendNext | Shortcut::ExtendPrevious => {
@@ -620,7 +643,9 @@ pub(super) fn App() -> Element {
                     compose::park_current(desk, shell);
                     revision += 1;
                 } else {
-                    shell.write().open = None;
+                    let mut write = shell.write();
+                    write.open = None;
+                    write.focus = None;
                 }
             }
             Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
@@ -685,7 +710,7 @@ pub(super) fn App() -> Element {
                 label: "List and reader",
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
-                        shell, pages, revision, threads, drafts, nothing, more,
+                        shell, pages, revision, threads, messages, drafts, nothing, more,
                         marking, top, paging, side_hidden, question: asked,
                     }
                 })],

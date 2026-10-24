@@ -196,6 +196,7 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
     (CommandId::Empty(Bin::Spam), "action:empty-spam"),
     (CommandId::TidyUp, "action:tidy-up"),
     (CommandId::Sidebar, "action:sidebar"),
+    (CommandId::Conversations, "action:conversations"),
     (CommandId::AddAccount, "action:add-account"),
     (CommandId::Import, "action:import"),
     (CommandId::Export, "action:export"),

@@ -86,12 +86,12 @@ pub(super) fn ListRow(
     // The row's menu, and the point it was asked for at.
     let mut row_menu = use_signal(|| None::<Rect>);
     let thread = match &listed {
-        Listed::Thread(summary) => Some(summary.clone()),
+        Listed::Thread(summary) | Listed::Message(summary, _) => Some(summary.clone()),
         Listed::Draft(_) => None,
     };
     let draft = match &listed {
         Listed::Draft(draft) => Some(draft.id),
-        Listed::Thread(_) => None,
+        Listed::Thread(_) | Listed::Message(..) => None,
     };
     let subject = listed.subject();
     let menu_rows = listed.menu(chrono::Utc::now());
@@ -179,6 +179,7 @@ pub(super) fn ListRow(
                     };
                     match open_on.open(click) {
                         Opens::Thread(id, click) => shell.write().click(id, click, &drawn_order()),
+                        Opens::Message(id, message) => shell.write().open_message(id, message),
                         Opens::Draft(id) => {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let _ = open_composer(&store, shell, Writes::Draft(id));
