@@ -303,15 +303,22 @@ pub(super) fn icon_of(name: &str) -> Icon {
 }
 
 fn open_file(path: PathBuf, onclose: EventHandler<()>) {
+    use crate::ui::copy::errors::FILE_NOT_OPENED;
     let open = opener().open;
     let said = motion();
     onclose.call(());
     // Forever, not this list's: the list closes as the file opens.
     dioxus::core::spawn_forever(async move {
-        let done = tokio::task::spawn_blocking(move || open(&path)).await;
-        if let Some(why) = failed(done, crate::ui::copy::errors::FILE_NOT_OPENED) {
-            tell_through(said, why);
-        }
+        let done = tokio::task::spawn_blocking(move || {
+            open(&path).map_err(|why| super::open::not_opened(&path, FILE_NOT_OPENED, why))
+        })
+        .await;
+        let said_it = match done {
+            Ok(Ok(())) => return,
+            Ok(Err(said_it)) => said_it,
+            Err(error) => crate::ui::remedy::plainly(FILE_NOT_OPENED, error),
+        };
+        tell_through(said, said_it);
     });
 }
 

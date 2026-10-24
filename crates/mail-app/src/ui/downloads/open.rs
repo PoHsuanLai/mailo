@@ -19,8 +19,7 @@ pub(in crate::ui) fn open(path: &Path) -> Result<(), String> {
     if !path.exists() {
         return Err(gone(path));
     }
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
-    if let Some(name) = name.filter(|name| mail_core::attach::runs_when_opened(name)) {
+    if let Some(name) = runs_when_opened(path) {
         reveal(path)?;
         return Err(crate::ui::copy::toasts::shown_not_run(&name));
     }
@@ -33,6 +32,25 @@ pub(in crate::ui) fn open(path: &Path) -> Result<(), String> {
         return Ok(());
     }
     run(opener(path))
+}
+
+/// `path`'s name, when it names a program or a script, which [`open`] shows in its folder
+/// rather than runs.
+fn runs_when_opened(path: &Path) -> Option<String> {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+    name.filter(|name| mail_core::attach::runs_when_opened(name))
+}
+
+/// What the window says when [`open`] did not open `path`: its own sentence when it showed a
+/// program in its folder rather than ran it, which is no failure to hide; otherwise `said`, with
+/// the opener's words in the log.
+#[track_caller]
+pub(in crate::ui) fn not_opened(path: &Path, said: &str, why: String) -> String {
+    if runs_when_opened(path).is_some() {
+        why
+    } else {
+        crate::ui::remedy::plainly(said, why)
+    }
 }
 
 /// Show `path` in the file manager, selected where the desktop can do that; its folder opened

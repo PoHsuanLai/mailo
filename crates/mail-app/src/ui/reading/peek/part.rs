@@ -203,17 +203,20 @@ pub(super) fn open_in_app(viewing: Viewing) {
     let store = consume_context::<Arc<SqliteStore>>();
     let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
     spawn(async move {
+        let not_opened =
+            |why: String| crate::ui::remedy::plainly(copy::errors::ATTACHMENT_NOT_OPENED, why);
         let opened = tokio::task::spawn_blocking(move || {
-            let dir = open_dir(viewing.message).map_err(|why| why.to_string())?;
-            std::fs::create_dir_all(&dir).map_err(|why| why.to_string())?;
+            let dir = open_dir(viewing.message).map_err(|why| not_opened(why.to_string()))?;
+            std::fs::create_dir_all(&dir).map_err(|why| not_opened(why.to_string()))?;
             let path = mail_core::attach::save(&store, viewing.message, viewing.index, &dir)
-                .map_err(|why| why.to_string())?;
-            crate::ui::downloads::open_file(&path)
+                .map_err(|why| not_opened(why.to_string()))?;
+            crate::ui::downloads::open_file(&path).map_err(|why| {
+                crate::ui::downloads::not_opened(&path, copy::errors::ATTACHMENT_NOT_OPENED, why)
+            })
         })
         .await
-        .unwrap_or_else(|why| Err(why.to_string()));
-        if let (Err(why), Some(toasts)) = (opened, toasts) {
-            let said = crate::ui::remedy::plainly(copy::errors::ATTACHMENT_NOT_OPENED, why);
+        .unwrap_or_else(|why| Err(not_opened(why.to_string())));
+        if let (Err(said), Some(toasts)) = (opened, toasts) {
             toasts.push(said, None);
         }
     });
