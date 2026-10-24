@@ -30,3 +30,8 @@ pub use smtp::{
     Advertised, Authentication, EhloExtensions, Open, ReplyText, SignIn, SizeLimit, SmtpReply,
     SmtpSession, Submission,
 };
+
+/// The README's examples, compiled and run as doctests.
+#[doc = include_str!("../README.md")]
+#[cfg(doctest)]
+pub struct ReadmeDoctests;

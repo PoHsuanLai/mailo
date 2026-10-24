@@ -88,3 +88,8 @@ pub use template::Template;
 pub use threading::{ThreadInput, normalize_id, thread};
 pub use view::{Cursor, GroupKey, Page, PageReq, Property, Query, Sort, SortDir, View, ViewKind};
 pub use words::{NO_SUBJECT, human_size, subject_or_none};
+
+/// The README's examples, compiled and run as doctests.
+#[doc = include_str!("../README.md")]
+#[cfg(doctest)]
+pub struct ReadmeDoctests;

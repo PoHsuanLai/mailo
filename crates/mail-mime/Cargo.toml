@@ -4,6 +4,13 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Email messages in and out: MIME parsing and building, HTML sanitizing for display, mbox, read receipts, and optional OpenPGP and S/MIME."
+readme = "README.md"
+keywords = ["email", "mime", "sanitize", "openpgp", "smime"]
+categories = ["email", "parser-implementations", "encoding"]
 
 [dependencies]
 mail-domain.workspace = true
@@ -67,10 +74,10 @@ signature = { version = "2", optional = true }
 zeroize = { version = "1", optional = true }
 
 [features]
-# Everything on, as a library's users expect; a consumer of the parser, the sanitizer and the
-# builder alone (`default-features = false`) takes none of the crypto stack, which is about twenty
-# crates. Each dependent that signs, seals or reads a certificate names the feature it uses.
-default = ["openpgp", "smime"]
+# Nothing on: the parser, the sanitizer and the builder take none of the crypto stack, which is
+# about twenty crates. A dependent that signs, seals or reads a certificate names the feature it
+# uses.
+default = []
 # OpenPGP (`openpgp/`): keys, signing, sealing, opening, Web Key Directory.
 openpgp = ["dep:pgp", "dep:rand", "dep:sha1", "dep:smallvec"]
 # S/MIME (`smime/`) and what reads a certificate with it: the BIMI mark certificate (`bimi::vmc`).

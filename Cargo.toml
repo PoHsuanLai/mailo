@@ -15,6 +15,9 @@ members = [
 [workspace.package]
 edition = "2024"
 license = "MIT OR Apache-2.0"
+authors = ["Po Hsuan Lai"]
+repository = "https://github.com/PoHsuanLai/mailo"
+homepage = "https://github.com/PoHsuanLai/mailo"
 # 1.85 is what the 2024 edition needs; 1.89 is what `std::fs::File::try_lock` needs, and the
 # daemon's "one per user" rule is built on it (`mail_app::ipc::bind`). The alternative was a
 # dependency — `fs4` or `rustix` — for a two-line call that std now has, on a release from
@@ -27,10 +30,10 @@ rust-version = "1.92"
 latchkey    = { git = "https://github.com/PoHsuanLai/latchkey", rev = "b10ae1b8c49c55cce2c5affde8f5db76edb66ab4" }
 mail-appkit = { path = "crates/mail-appkit" }
 mail-core   = { path = "crates/mail-core", default-features = false }
-mail-domain = { path = "crates/mail-domain" }
-mail-mime   = { path = "crates/mail-mime", default-features = false }
-mail-pim    = { path = "crates/mail-pim" }
-mail-proto  = { path = "crates/mail-proto" }
+mail-domain = { path = "crates/mail-domain", version = "0.1.0" }
+mail-mime   = { path = "crates/mail-mime", version = "0.1.0", default-features = false }
+mail-pim    = { path = "crates/mail-pim", version = "0.1.0" }
+mail-proto  = { path = "crates/mail-proto", version = "0.1.0" }
 mail-runtime = { path = "crates/mail-runtime", default-features = false }
 mail-store  = { path = "crates/mail-store" }
 # The accounts system's vocabulary, pinned by git rev like quire (porter is public). mailo names its
