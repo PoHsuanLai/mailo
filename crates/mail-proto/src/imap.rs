@@ -381,6 +381,21 @@ pub struct ImapSession {
     transcript: ImapTranscript,
     counter: u32,
     max_response: usize,
+    /// On a connection an earlier session finished on, so there is no greeting to wait for.
+    resumed: bool,
+}
+
+/// What a session that finished leaves for the next one on its connection.
+///
+/// The capabilities, because the next session decides on them (`LITERAL+`, a search charset)
+/// and would otherwise know none until it asked; the tags, because each command on a
+/// connection has a tag of its own (RFC 9051 §2.2.1).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Resume {
+    /// The capability atoms the earlier session last heard, as [`ImapTranscript::capabilities`].
+    pub capabilities: Vec<String>,
+    /// How many tags the connection has used.
+    pub tags: u32,
 }
 
 impl ImapSession {
@@ -402,6 +417,7 @@ impl ImapSession {
             transcript: ImapTranscript::default(),
             counter: 0,
             max_response: MAX_RESPONSE,
+            resumed: false,
         })
     }
 
@@ -411,6 +427,20 @@ impl ImapSession {
     pub fn with_max_response(mut self, bytes: usize) -> Self {
         self.max_response = bytes;
         self
+    }
+
+    /// This session, on a connection an earlier one finished on: greeted and signed in already,
+    /// so it begins with its first command, tagged after the earlier session's last.
+    pub fn resuming(mut self, from: Resume) -> Self {
+        self.transcript.capabilities = from.capabilities;
+        self.counter = from.tags;
+        self.resumed = true;
+        self
+    }
+
+    /// How many tags the connection has used, this session's and any it resumed from.
+    pub fn tags(&self) -> u32 {
+        self.counter
     }
 
     /// Capabilities seen so far.
@@ -961,6 +991,10 @@ impl Machine for ImapSession {
     type Out = ImapTranscript;
 
     fn start(&mut self) -> Progress<ImapTranscript> {
+        // Resumed, the greeting was an earlier session's to read.
+        if self.resumed {
+            return self.issue(0);
+        }
         // The server speaks first. Reading rather than writing is the whole difference between
         // this and a protocol where the client opens.
         Progress::Need(vec![IoNeed::Read])

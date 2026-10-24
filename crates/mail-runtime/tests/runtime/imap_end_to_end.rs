@@ -112,6 +112,8 @@ struct ServerState {
 #[derive(Debug, Default)]
 struct Seen {
     commands: Vec<String>,
+    /// How many connections the client opened.
+    connections: usize,
 }
 
 type Shared = Arc<Mutex<Seen>>;
@@ -179,6 +181,7 @@ async fn session(
         flags,
         appended,
     } = state;
+    seen.lock().unwrap().connections += 1;
     if sock
         .write_all(b"* OK [CAPABILITY IMAP4rev1] server ready\r\n")
         .await
@@ -258,6 +261,10 @@ async fn session(
             } else if upper.starts_with("ENABLE") {
                 format!("* ENABLED QRESYNC\r\n{tag} OK enabled\r\n")
             } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
+                // What the mailbox holds as it is selected, as a real server reports it, and
+                // not as it was when the connection opened: the client keeps one for a pass.
+                drop = maildrop();
+                drop.truncate(present.load(Ordering::SeqCst));
                 let validity = validity.load(Ordering::SeqCst);
                 // Asked to resynchronise, a QRESYNC server says what went: here, whatever has
                 // been taken out of the maildrop, and then a range far above any UID it ever
@@ -636,6 +643,88 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
         "a password account tried XOAUTH2: {:?}",
         seen.commands
     );
+}
+
+/// A whole pass over two mailboxes — the reachability check, capabilities and folders, then for
+/// each its survey, headers, flags and bodies — goes on one connection, signed in once, with a
+/// `SELECT` or `EXAMINE` between the mailboxes. Each operation used to open its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pass_over_two_mailboxes_signs_in_once_on_one_connection() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity) = serve(seen.clone(), Fault::None).await;
+    let mut it = engine(port, tempfile::tempdir().unwrap());
+    let (_tx, mut cancel) = watch::channel(false);
+    let sent = MailboxRef {
+        account: acct_account(),
+        path: "Sent".to_owned(),
+    };
+
+    it.engine.reachable().await.unwrap();
+    it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
+    let mut bodies_fetched = 0;
+    for mailbox in [inbox(), sent] {
+        let report = it
+            .engine
+            .sync(&mailbox, &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        assert_eq!(report.headers_fetched, 2, "{report:?}");
+        it.engine.sweep(&mailbox, &mut cancel, now()).await.unwrap();
+        let bodies = it
+            .engine
+            .fetch_bodies(&mailbox, &mut cancel, now(), 100)
+            .await
+            .unwrap();
+        bodies_fetched += bodies.bodies_fetched;
+    }
+    // The fixture's Sent holds the inbox's two messages, already whole by then.
+    assert_eq!(bodies_fetched, 2);
+    it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.connections, 1, "{:?}", seen.commands);
+    let logins = seen.commands.iter().filter(|c| *c == "LOGIN").count();
+    assert_eq!(logins, 1, "{:?}", seen.commands);
+    let selects = seen
+        .commands
+        .iter()
+        .filter(|c| c.contains("\"Sent\""))
+        .count();
+    assert!(selects > 0, "Sent was never selected: {:?}", seen.commands);
+}
+
+/// A connection the server drops partway through an operation is not kept: the next operation
+/// opens a new one and signs in there, and goes on.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn after_a_dropped_connection_the_next_operation_opens_another() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity) = serve(seen.clone(), Fault::DropDuringFetch).await;
+    let mut it = engine(port, tempfile::tempdir().unwrap());
+    let (_tx, mut cancel) = watch::channel(false);
+
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    assert_eq!(seen.lock().unwrap().connections, 1);
+    // Dies partway through the body: reported in the report, as before.
+    let bodies = it
+        .engine
+        .fetch_bodies(&inbox(), &mut cancel, now(), 100)
+        .await
+        .unwrap();
+    assert_eq!(bodies.bodies_fetched, 0, "{bodies:?}");
+    let bodies = it
+        .engine
+        .fetch_bodies(&inbox(), &mut cancel, now(), 100)
+        .await
+        .unwrap();
+    assert_eq!(bodies.bodies_fetched, 2, "{bodies:?}");
+
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.connections, 2, "{:?}", seen.commands);
+    let logins = seen.commands.iter().filter(|c| *c == "LOGIN").count();
+    assert_eq!(logins, 2, "{:?}", seen.commands);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

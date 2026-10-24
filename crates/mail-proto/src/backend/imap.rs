@@ -8,7 +8,7 @@ mod search;
 pub use search::{Found, Searching};
 
 use super::folders::{already_so, folder_commands, listing, roles};
-use crate::imap::{Access, ImapCommand, ImapSession};
+use crate::imap::{Access, ImapCommand, ImapSession, Resume};
 use crate::machine::{Backend, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome};
 use mail_domain::{
     AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderWork, Ingest, MailboxRef,
@@ -91,6 +91,12 @@ pub struct ImapBackend {
     /// fetch" cannot be answered by asking the store.
     survey: Vec<(RemoteRef, u64)>,
     job: Job,
+    /// What the last session left its connection with, when it finished cleanly.
+    left: Option<Resume>,
+    /// Whether the next operation goes on that connection ([`Backend::resume`]).
+    resuming: bool,
+    /// What the operation under way resumes from, until its session is built.
+    going_on: Option<Resume>,
 }
 
 impl ImapBackend {
@@ -103,6 +109,9 @@ impl ImapBackend {
             staged: None,
             survey: Vec::new(),
             job: Job::Idle,
+            left: None,
+            resuming: false,
+            going_on: None,
         }
     }
 
@@ -119,9 +128,19 @@ impl ImapBackend {
         auth: Authenticate,
         commands: Vec<ImapCommand>,
     ) -> Progress<ProtoOutcome> {
+        // Resumed, the connection is signed in already, and signing in twice is refused.
+        let going_on = self.going_on.take();
+        let auth = match going_on {
+            Some(_) => Authenticate::No,
+            None => auth,
+        };
         let session = match (self.build)(auth, commands) {
             Ok(session) => session,
             Err(e) => return Progress::Failed(e),
+        };
+        let session = match going_on {
+            Some(from) => session.resuming(from),
+            None => session,
         };
         self.session = Some(session);
         match self.session.as_mut().expect("just assigned").start() {
@@ -295,7 +314,24 @@ impl ImapBackend {
 }
 
 impl Backend for ImapBackend {
+    fn resume(&mut self, op: &ProtoOp) -> bool {
+        // `ENABLE` is for a connection with no mailbox selected yet (RFC 5161 §3.1), and one
+        // an earlier operation used may have one.
+        let enables = matches!(
+            op,
+            ProtoOp::ListRemote { since: Some(_), .. } if self.caps.condstore == Condstore::Qresync
+        );
+        self.resuming = (self.left.is_some() || self.going_on.is_some()) && !enables;
+        self.resuming
+    }
+
     fn begin(&mut self, op: ProtoOp) -> Progress<ProtoOutcome> {
+        // Only the operation `resume` was asked about goes on the earlier connection; any other
+        // has a new one, greeted and signed in afresh. One before it that sent nothing left the
+        // connection as it found it.
+        let resuming = std::mem::take(&mut self.resuming);
+        let left = self.left.take().or_else(|| self.going_on.take());
+        self.going_on = left.filter(|_| resuming);
         match op {
             ProtoOp::FetchCaps => {
                 self.job = Job::Caps;
@@ -666,6 +702,8 @@ impl Backend for ImapBackend {
         let transcript = match session.feed(ready) {
             Progress::Need(needs) => return Progress::Need(needs),
             Progress::Failed(e) => {
+                // Whatever the connection is in the middle of now, no operation goes on it.
+                self.left = None;
                 return match &self.job {
                     // The server refused because what was asked is already true: the folder
                     // exists, or is already gone. That is the outcome the user wanted, and
@@ -677,7 +715,13 @@ impl Backend for ImapBackend {
                     _ => Progress::Failed(e),
                 };
             }
-            Progress::Done(transcript) => transcript,
+            Progress::Done(transcript) => {
+                self.left = Some(Resume {
+                    capabilities: transcript.capabilities.clone(),
+                    tags: session.tags(),
+                });
+                transcript
+            }
         };
 
         match std::mem::replace(&mut self.job, Job::Idle) {
