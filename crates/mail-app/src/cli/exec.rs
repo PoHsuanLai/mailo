@@ -395,16 +395,23 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
     if let Command::Watch { notify } = &command {
-        let notifications = match notify {
-            super::WatchNotify::Never => mail_core::notify::Setting::Off,
-            super::WatchNotify::AsSet => mail_core::notify::Setting::from(
+        let set = match notify {
+            super::WatchNotify::Never => None,
+            super::WatchNotify::AsSet => Some(
                 crate::settings::person_root()
                     .map(|root| crate::settings::load(&root))
+                    // No settings file is the defaults, as everywhere.
                     .unwrap_or_default()
-                    .notifications
-                    .new_mail,
+                    .notifications,
             ),
         };
+        let notifications = set.as_ref().map_or(mail_core::notify::Setting::Off, |set| {
+            mail_core::notify::Setting::from(set.new_mail)
+        });
+        // Only for a watch that announces: a code is copied as it is said, never in silence.
+        let copy_codes = set
+            .as_ref()
+            .is_some_and(|set| set.copy_codes == crate::settings::CopyCodes::On);
         // One watch per user: a second would announce every message twice. A unit that starts
         // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
         let watching = match mail_core::ipc::watching::claim(crate::edge::profile().id()) {
@@ -451,11 +458,14 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             }
             mail_core::notify::Setting::Off => None,
         };
+        // The desktop's clipboard, for a person who asked for each new code to be copied.
+        let clipboard = mail_core::notify::desktop::SystemClipboard;
+        let copies: Option<&dyn mail_core::notify::Clipboard> = copy_codes.then_some(&clipboard);
         // A Sync asked for at the watch's door (`ipc::watching`) is a pass now, here.
         let asked = Some(watching.asked());
         // Only ends when every account has stopped for a reason worth stopping for — a
         // credential the server refused, which no amount of retrying fixes.
-        let ends = crate::edge::block_on(mail.sync().watch(notifier, &say, asked))
+        let ends = crate::edge::block_on(mail.sync().watch(notifier, copies, &say, asked))
             .map_err(super::remedy::error)?;
         print!("{}", super::sync::run_text(&store, &ends));
         return Err("stopped watching; nothing left to watch".to_owned());
