@@ -96,7 +96,7 @@ impl Provider {
             Utc::now(),
         );
         if let Err(why) = queued {
-            let _ = compose::discard(&self.store, draft.id);
+            let _ = crate::ui::discard_draft(&self.store, draft.id);
             return Err(AppRefusal::Failed(why.to_string()));
         }
         Ok(outcome(
@@ -188,7 +188,7 @@ impl Provider {
                 )
                 .map(|_| draft.id)
                 .map_err(|why| {
-                    let _ = compose::discard(&self.store, draft.id);
+                    let _ = crate::ui::discard_draft(&self.store, draft.id);
                     why.to_string()
                 })
             });
@@ -197,7 +197,7 @@ impl Provider {
                 Err(why) => {
                     for draft in queued {
                         if compose::unsend(&self.store, draft, Utc::now()).is_ok() {
-                            let _ = compose::discard(&self.store, draft);
+                            let _ = crate::ui::discard_draft(&self.store, draft);
                         }
                     }
                     return Err(AppRefusal::Failed(why));
@@ -255,7 +255,7 @@ impl Provider {
 
     /// Discard a draft an action made.
     pub(super) fn discard(&self, draft: DraftId) -> Result<(), UndoFault> {
-        compose::discard(&self.store, draft)
+        crate::ui::discard_draft(&self.store, draft)
             .map(drop)
             .map_err(|_| UndoFault::Gone)
     }

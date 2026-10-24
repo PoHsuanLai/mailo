@@ -64,6 +64,8 @@ use seal::{BarAct, SealBar, SealWarn, Sealed, seal_and_queue};
 
 pub(in crate::ui) use desk::{Desk, park_current, reopen, show_queued, use_desk};
 pub(in crate::ui) use later::{cancel_scheduled, scheduled, send_again};
+/// Discarding a draft, for every caller in this process: the window's and the intents'.
+pub(crate) use life::discard as discard_draft;
 pub(in crate::ui) use page::Page;
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
@@ -584,7 +586,7 @@ fn deleted(
     store: &SqliteStore,
     stored: Draft,
 ) -> Result<mail_core::undo::Undo, mail_core::CoreError> {
-    mail_core::compose::discard(store, stored.id)?;
+    life::discard(store, stored.id)?;
     Ok(mail_core::undo::Undo {
         said: crate::ui::copy::toasts::DRAFT_DELETED.to_owned(),
         thread: None,

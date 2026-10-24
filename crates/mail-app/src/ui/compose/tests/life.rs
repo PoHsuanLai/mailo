@@ -26,6 +26,21 @@ fn queued(store: &SqliteStore) -> usize {
         .len()
 }
 
+/// An autosave already under way when the draft is discarded (from Drafts, a template, an
+/// action) does not write it back.
+#[test]
+fn an_autosave_taken_before_a_discard_does_not_bring_the_draft_back() {
+    use super::super::life;
+    let (store, _dir) = seeded();
+    let draft = fresh_draft(&store);
+    let page = life::load(&store, draft.id, &mut Vec::new()).expect("the draft's page");
+    let taken = life::stamp();
+    life::discard(&store, draft.id).unwrap_or_else(|why| panic!("discard: {why}"));
+    let saved = life::save_stamped(&store, &page, taken, Utc::now());
+    assert!(matches!(saved, Ok(None)), "{saved:?}");
+    assert!(store.draft(draft.id).is_err(), "the draft came back");
+}
+
 #[tokio::test]
 async fn send_with_nobody_to_send_to_queues_nothing_and_marks_the_to_field_invalid() {
     let (store, _dir) = seeded();

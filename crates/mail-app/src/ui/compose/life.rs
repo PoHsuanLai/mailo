@@ -94,6 +94,20 @@ fn written() -> MutexGuard<'static, BTreeMap<DraftId, u64>> {
     WRITTEN.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Discard `draft` from the store, as every discard in this process does: under the lock the
+/// writes hold, so an autosave already writing finishes first, and recorded as written by a page
+/// taken now, so an autosave of a page taken before the discard is refused ([`save_stamped`]'s
+/// `None`) rather than writing the draft back.
+///
+/// The record stays: dropped, it would let that autosave through. A page taken after it, as
+/// one is after the discard's Undo puts the draft back, is later and writes as ever.
+pub(crate) fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, mail_core::CoreError> {
+    let mut written = written();
+    let subject = mail_core::compose::discard(store, draft)?;
+    written.insert(draft, stamp());
+    Ok(subject)
+}
+
 fn put(store: &SqliteStore, page: &Page, now: DateTime<Utc>) -> Result<Draft, String> {
     let base = store.draft(page.draft).map_err(|e| e.to_string())?;
     let edited = page.apply_to(&base, now);
@@ -116,7 +130,7 @@ pub(in crate::ui) fn park(
     if saved.as_ref().is_ok_and(Draft::untouched) {
         parked.retain(|kept| kept.draft != page.draft);
         today.unpark(&page.draft);
-        return mail_core::compose::discard(store, page.draft)
+        return discard(store, page.draft)
             .map(|_| ())
             .map_err(|e| e.to_string());
     }

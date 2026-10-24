@@ -201,7 +201,7 @@ pub(in crate::ui) fn start_from(
 ) -> Result<Draft, String> {
     let to: Vec<_> = page.to.iter().map(address).collect();
     let started = mail_core::template::start(store, template, &to, now)?;
-    mail_core::compose::discard(store, page.draft)?;
+    super::life::discard(store, page.draft)?;
     Ok(started)
 }
 
