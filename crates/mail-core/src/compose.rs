@@ -149,7 +149,7 @@ where
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
     draft.text = forwarded(&signed(body, &identity), &original, zone);
-    draft.attachments = carried(&original);
+    draft.attachments = carried(&original.attachments);
     Ok(draft)
 }
 
@@ -159,19 +159,24 @@ where
 /// A picture the HTML embeds by `cid:` is not one, since the forward goes as text. A part still
 /// on the server is left behind, as is one past the budget: the forward is still worth sending
 /// without it, and the composer shows what it carries.
-fn carried(original: &Message) -> Vec<PendingAttachment> {
+///
+/// Only a part kept counts against the budget: one left behind takes nothing of it, so a smaller
+/// part after it still goes.
+fn carried(attachments: &[Attachment]) -> Vec<PendingAttachment> {
     let mut total = 0u64;
-    original
-        .attachments
+    attachments
         .iter()
         .filter(|a| a.inline == Inline::Attached)
         .filter_map(|a| {
             let blob = a.blob()?;
-            total = total.saturating_add(a.size);
-            (total <= ATTACHMENT_BUDGET).then(|| PendingAttachment {
-                name: a.name.clone(),
-                mime: a.mime.clone(),
-                blob,
+            let with = total.saturating_add(a.size);
+            (with <= ATTACHMENT_BUDGET).then(|| {
+                total = with;
+                PendingAttachment {
+                    name: a.name.clone(),
+                    mime: a.mime.clone(),
+                    blob,
+                }
             })
         })
         .collect()
@@ -1229,4 +1234,32 @@ pub fn drafts(store: &SqliteStore) -> Result<Vec<Draft>, CoreError> {
 
 fn addresses(list: &[Address]) -> String {
     Address::join(list)
+}
+
+#[cfg(test)]
+mod carried_tests {
+    use super::*;
+
+    fn part(name: &str, size: u64) -> Attachment {
+        Attachment {
+            name: name.to_owned(),
+            mime: "application/octet-stream".to_owned(),
+            size,
+            content: PartContent::Held(BlobId::generate()),
+            inline: Inline::Attached,
+        }
+    }
+
+    /// A part too large for what is left of the budget is left behind and takes none of it: a
+    /// smaller one after it still goes.
+    #[test]
+    fn a_part_left_behind_does_not_count_against_the_ones_after_it() {
+        let parts = [
+            part("small.bin", ATTACHMENT_BUDGET / 4),
+            part("huge.bin", ATTACHMENT_BUDGET),
+            part("last.bin", ATTACHMENT_BUDGET / 4),
+        ];
+        let kept: Vec<String> = carried(&parts).into_iter().map(|p| p.name).collect();
+        assert_eq!(kept, ["small.bin", "last.bin"]);
+    }
 }
