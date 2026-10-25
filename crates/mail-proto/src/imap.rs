@@ -796,9 +796,11 @@ impl ImapSession {
             // the password goes base64-encoded, so one in any script arrives as typed, where
             // LOGIN's quoted string is 7-bit (RFC 3501 §4.3) and an accented letter in it is
             // the server's to refuse. One round trip either way.
+            // IMAP4rev2 takes an initial response without naming SASL-IR (RFC 9051 §6.2.2).
             ImapCommand::Login
                 if offers_sasl(&self.transcript.capabilities, "PLAIN")
-                    && has_capability(&self.transcript.capabilities, "SASL-IR") =>
+                    && (has_capability(&self.transcript.capabilities, "SASL-IR")
+                        || has_capability(&self.transcript.capabilities, "IMAP4rev2")) =>
             {
                 let Credential::Password(password) = &self.auth.credential else {
                     return Err(ProtoError::Unsupported(

@@ -644,7 +644,6 @@ fn a_resumed_session_does_not_upgrade_again() {
     replay(&mut s, "C: a004 NOOP\nS: a004 OK done\nDONE\n").unwrap();
 }
 
-
 /// A server offering SASL PLAIN with an initial response is signed in to with it, and the
 /// password, accents and all, goes base64-encoded; one that does not is sent `LOGIN`.
 #[test]
@@ -662,6 +661,14 @@ fn a_password_goes_by_sasl_plain_where_the_server_offers_it() {
              S: a001 OK signed in\n\
              DONE\n",
         ),
+        // IMAP4rev2 implies SASL-IR.
+        (
+            "hunter2",
+            "S: * OK [CAPABILITY IMAP4rev2 AUTH=PLAIN] ready\n\
+             C: a001 AUTHENTICATE PLAIN AGFkYUBleGFtcGxlLnRlc3QAaHVudGVyMg==\n\
+             S: a001 OK signed in\n\
+             DONE\n",
+        ),
         (
             "hunter2",
             "S: * OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\n\
@@ -673,5 +680,27 @@ fn a_password_goes_by_sasl_plain_where_the_server_offers_it() {
     for (password, trace) in cases {
         let mut s = ImapSession::new(with(password), vec![ImapCommand::Login]).unwrap();
         replay(&mut s, trace).unwrap();
+    }
+}
+
+/// A `NO` to `AUTHENTICATE PLAIN` is a refused password, as one to `LOGIN` is, whatever words
+/// the server gives it.
+#[test]
+fn a_refused_sasl_plain_is_a_refused_password() {
+    let auth = ImapAuth {
+        username: "ada@example.test".to_owned(),
+        credential: Credential::Password(SecretText::new("hunter2".to_owned())),
+        sasl: vec![SaslMech::Plain],
+    };
+    let mut s = ImapSession::new(auth, vec![ImapCommand::Login]).unwrap();
+    match replay(
+        &mut s,
+        "S: * OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=PLAIN] ready\n\
+         C: a001 AUTHENTICATE PLAIN AGFkYUBleGFtcGxlLnRlc3QAaHVudGVyMg==\n\
+         S: a001 NO Login failed\n\
+         FAIL\n",
+    ) {
+        common::Ended::Failed(ProtoError::AuthRejected(_)) => {}
+        other => panic!("should be a refused password: {other:?}"),
     }
 }
