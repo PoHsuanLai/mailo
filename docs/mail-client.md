@@ -180,7 +180,10 @@ Each leaves the app working.
    **a.** The list: `Conversations` (a place's query, the returned and waiting lists, history, a
    search) answers `Found`, the rows with what a search found on top; the window keeps the
    question it drew and says whether a new one is another list or a deeper page.
-   **b.** The reader: `Live<ThreadView>`.
+   **b.** The reader: `Conversation(ThreadId)` answers the conversation with its messages, or
+   `None` once it is gone. The list's top and the open conversation's neighbours are kept read
+   (`use_warming`), so opening one is a lookup; a value for another conversation is never drawn
+   under this one. Marking read on open stays a write in the window until c.
    **c.** Writes through `act`, with the overlay.
 3. Fetching moves into the client: the scheduler, the background watch and the outbox. The
    shared `Revisions` retires for store data.

@@ -156,5 +156,7 @@ impl Query for Counts {
     }
 }
 
+mod conversation;
 mod conversations;
+pub use conversation::{Conversation, Messages};
 pub use conversations::{Conversations, Found, How, Search};

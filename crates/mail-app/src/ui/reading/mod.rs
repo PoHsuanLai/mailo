@@ -26,6 +26,8 @@ use ds::components::content::avatar::{
 };
 use ds::components::content::label::LabelStyle;
 use ds::prelude::*;
+use mail_client::Snapshot;
+use mail_client::query::Conversation;
 use mail_core::message::{FrameBody, ON_THE_FRAME, Sent};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -88,6 +90,15 @@ pub(in crate::ui) enum ReaderIn {
     Window,
 }
 
+/// A conversation that is no longer there.
+fn gone() -> Element {
+    rsx! {
+        div { class: "reader-empty",
+            EmptyState { title: "Conversation gone" }
+        }
+    }
+}
+
 /// `revision` is the window's, moved when leaving a list queues a message, and whenever any
 /// window moves the store (`ui/revisions`), which draws the reader again; a reader drawn on its
 /// own has none.
@@ -100,6 +111,7 @@ pub(super) fn Reader(
     children: Element,
 ) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
+    let read = super::live::use_live(use_reactive!(|thread| Conversation(thread)));
     let frames = use_frames();
     let looks = use_looks();
     // The store may have moved under this conversation, here or in another window.
@@ -172,12 +184,15 @@ pub(super) fn Reader(
             }
         }));
     }
-    let Ok(loaded) = store.thread(thread) else {
-        return rsx! {
-            div { class: "reader-empty",
-                EmptyState { title: "Conversation gone" }
-            }
-        };
+    // The conversation as the client keeps it read. A value for another conversation (the last
+    // one's, shown while this one is read) is never drawn under this one.
+    let snapshot = read();
+    let held = snapshot.value().cloned();
+    let loaded = match held.as_deref() {
+        Some(Some(loaded)) if loaded.summary.id == thread => loaded,
+        Some(None) if matches!(snapshot, Snapshot::Ready { .. }) => return gone(),
+        _ if matches!(snapshot, Snapshot::Failed { .. }) => return gone(),
+        _ => return rsx! { div { class: "reader-empty" } },
     };
     // Read here, in the render, so adding a trusted sender or changing the mode draws the reader
     // again with the images it now allows.
@@ -214,7 +229,7 @@ pub(super) fn Reader(
         .messages
         .iter()
         .rev()
-        .filter_map(|id| store.message(*id).ok())
+        .cloned()
         .map(|message| {
             // A body decrypted without proof it is unchanged never loads remote content, and is
             // offered no button to: the seal's line says why (`Looks::opened_may_load_remote`).
