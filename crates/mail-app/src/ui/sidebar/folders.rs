@@ -1,9 +1,9 @@
 //! The Folders section: an account's own mailboxes, nested, and what can be done to them.
 //!
 //! Each folder is quire's `Row` in a source list: a parent is an outline branch that opens and
-//! closes as its triangle asks, its name chooses it, and its ⋯ or a right-click opens quire's
-//! menu. A new folder is named in a row of its own under the folder it goes in; a rename is
-//! written in the name's own place.
+//! closes as its triangle asks, its name chooses it, and a right-click opens quire's menu. A new
+//! folder is named in a row of its own under the folder it goes in; a rename is written in the
+//! name's own place.
 
 use super::super::menu::{Floating, MenuItem};
 use super::folder_parts::{Naming, Said, item};
@@ -31,7 +31,7 @@ pub(super) struct Spot {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Open {
     Closed,
-    /// The ⋯ menu on one folder.
+    /// The right-click menu on one folder.
     Actions(Spot),
     /// Which account a new top-level folder goes on, when the scope holds several.
     Accounts,

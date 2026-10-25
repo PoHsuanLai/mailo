@@ -119,7 +119,7 @@ pub(super) fn NameField(
     }
 }
 
-/// The ⋯ menu's items for `node`.
+/// The folder menu's items for `node`.
 pub(super) fn actions(node: &Node) -> Vec<MenuItem> {
     let new = item("new", Icon::Plus, copy::menus::NEW_FOLDER_INSIDE, None);
     match node.kind {

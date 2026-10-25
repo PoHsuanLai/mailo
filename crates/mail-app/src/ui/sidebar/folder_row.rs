@@ -180,8 +180,7 @@ pub(super) fn FolderRow(
         }
         Said { wires, account: Some(account.clone()), path: Some(node.path.clone()) }
     };
-    // A right-click opens the folder's menu against the row; the ⋯ in the row is its own
-    // `PopUpButton` of the same items.
+    // A right-click opens the folder's menu against the row, which has no ⋯ of its own.
     let menus = match now.clone() {
         Open::Actions(at) if at == spot => rsx! {
             Floating {
@@ -284,7 +283,7 @@ fn close(mut open: Signal<Open>, still: impl Fn(&Open) -> bool) {
     }
 }
 
-/// What a pick in a folder's ⋯ menu does.
+/// What a pick in a folder's menu does.
 fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Option<char>) {
     let mut open = wires.open;
     let spot = Spot {

@@ -331,8 +331,7 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     let (store, _dir) = imap_store();
     let mut dom = VirtualDom::new(App).with_root_context(store);
     let seen = rebuild_into(&mut dom);
-    // The ⋯ is quire's `PopUpButton`, which opens against its own mounted element; a document
-    // with no renderer never reports one, so the same menu is asked for by a right-click.
+    // A folder's menu is its right-click, as a place's is.
     let mut seen = right_click(&mut dom, seen.folder("Projects"));
     // quire's menu floats in the root's overlay, drawn on the render after it is asked for.
     for _ in 0..8 {
@@ -373,7 +372,7 @@ async fn the_menu_and_the_field_are_the_shared_ones_and_styled() {
     assert!(offences.is_empty(), "the markup lint: {offences:#?}");
 }
 
-/// The window with `Projects`' ⋯ menu open and its Rename picked, and the rename field.
+/// The window with `Projects`' menu open and its Rename picked, and the rename field.
 async fn renaming_projects() -> (VirtualDom, ElementId, Arc<SqliteStore>, tempfile::TempDir) {
     let (store, dir) = imap_store();
     let mut dom = VirtualDom::new(App).with_root_context(store.clone());
