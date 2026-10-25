@@ -97,6 +97,8 @@ pub(crate) struct Shared {
     inline: bool,
     /// For an inline client, the commits not acted on yet ([`Client::settle`]).
     heard: Mutex<Option<Receiver<Committed>>>,
+    /// One more each time values were marked stale, by a commit here or another process's.
+    moved: tokio::sync::watch::Sender<u64>,
     /// How the external watch is woken: by a write to the store's file, or to stop.
     pub(crate) external: Mutex<Option<std::sync::mpsc::Sender<()>>>,
 }
@@ -136,9 +138,8 @@ impl Client {
     }
 
     /// A client that reads on the thread that asks, at once, and starts no thread: for a test,
-    /// whose first look at a value should find it read. What the store commits
-    /// is acted on at [`Client::settle`].
-    #[cfg(feature = "testing")]
+    /// whose first look at a value should find it read, and for a caller with no thread to spare.
+    /// What the store commits is acted on at [`Client::settle`].
     pub fn inline(store: Arc<SqliteStore>, clock: Arc<dyn Clock>) -> Client {
         let heard = store.subscribe();
         let shared = Arc::new(Shared::new(store, clock, true));
@@ -198,6 +199,13 @@ impl Client {
         self.0.shared.invalidate(topics);
     }
 
+    /// Told each time the store has changed, here or in another process: for what still reads
+    /// the store itself rather than through a [`Live`], to read again. Commits that come together
+    /// are told once.
+    pub fn moved(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.0.shared.moved.subscribe()
+    }
+
     /// Whether nothing is waiting to be read or being read.
     pub fn idle(&self) -> bool {
         self.0.shared.busy.load(Ordering::Acquire) == 0
@@ -205,7 +213,6 @@ impl Client {
 
     /// For an inline client: act on every commit made since the last time, here. Nothing for a
     /// client with threads of its own, which does that by itself.
-    #[cfg(feature = "testing")]
     pub fn settle(&self) {
         let shared = &self.0.shared;
         let topics = shared
@@ -279,6 +286,7 @@ impl Shared {
             stopping: AtomicBool::new(false),
             inline,
             heard: Mutex::new(None),
+            moved: tokio::sync::watch::Sender::new(0),
             external: Mutex::new(None),
         }
     }
@@ -310,6 +318,7 @@ impl Shared {
 
     /// Mark stale every value held that reads any of `topics`.
     pub(crate) fn invalidate(&self, topics: Topics) {
+        self.moved.send_modify(|moved| *moved += 1);
         let stale: Vec<Arc<dyn Job>> = {
             let mut registry = self.registry.lock();
             registry.every.retain(|job| job.strong_count() > 0);

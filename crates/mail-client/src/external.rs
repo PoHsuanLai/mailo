@@ -106,7 +106,7 @@ fn look(shared: &Shared, written: &Receiver<()>, watched: bool) {
 
 /// Call `said` whenever the database at `file`, or the `-wal` beside it, is written to, for as
 /// long as the watcher returned is kept; `None` when this system will not watch it.
-pub(crate) fn on_write(
+pub fn on_write(
     file: &Path,
     said: impl Fn() + Send + 'static,
 ) -> Option<notify::RecommendedWatcher> {

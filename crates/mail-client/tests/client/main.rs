@@ -391,3 +391,19 @@ fn a_stopped_client_reads_nothing_more() {
     assert_eq!(query.runs(), 1);
     assert_eq!(value(&views).as_deref(), Some(&0));
 }
+
+#[test]
+fn a_change_anywhere_is_told_to_whoever_follows_the_store() {
+    let (store, dir) = on_disk();
+    let client = client(&store);
+    let moved = client.moved();
+    let at = *moved.borrow();
+
+    store.put_view(&view("Here")).unwrap();
+    until("a commit here told", || *moved.borrow() > at);
+
+    let at = *moved.borrow();
+    let other = SqliteStore::open(dir.path().join("mail.db"), dir.path().join("blobs")).unwrap();
+    other.put_view(&view("There")).unwrap();
+    until("another process's commit told", || *moved.borrow() > at);
+}

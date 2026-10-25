@@ -17,5 +17,6 @@ pub mod query;
 
 pub use client::{Client, ClientConfig};
 pub use error::ClientError;
+pub use external::on_write;
 pub use live::{Live, Query, Snapshot};
 pub use mail_store::{Generation, Topics};

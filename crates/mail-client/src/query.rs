@@ -6,7 +6,7 @@
 
 use crate::{ClientError, Query, Topics};
 use chrono::{DateTime, Utc};
-use mail_domain::{Filter, Folder, Incoming, Label, ServerLabels, View};
+use mail_domain::{AccountPlan, Filter, Folder, Incoming, Label, ServerLabels, View};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
@@ -19,6 +19,8 @@ pub struct Accounts;
 pub struct Account {
     pub id: AccountId,
     pub address: String,
+    /// How the account reaches its server, or `None` when the stored plan could not be read.
+    pub plan: Option<AccountPlan>,
     /// Mail kept on this computer and never synced.
     pub local: bool,
     pub mailboxes: Mailboxes,
@@ -63,7 +65,9 @@ impl Query for Accounts {
             .list_accounts()?
             .into_iter()
             .map(|account| {
-                let incoming = account.plan.as_ref().ok().map(|plan| &plan.incoming);
+                // A plan that does not parse is no plan here, and the account keeps its folders.
+                let plan = account.plan.ok();
+                let incoming = plan.as_ref().map(|plan| &plan.incoming);
                 let local = matches!(incoming, Some(Incoming::Local));
                 let mailboxes = match incoming {
                     Some(Incoming::Pop3 { .. } | Incoming::Local) => Mailboxes::One,
@@ -79,6 +83,7 @@ impl Query for Accounts {
                 Account {
                     id: account.id,
                     address: account.address,
+                    plan,
                     local,
                     mailboxes,
                 }
