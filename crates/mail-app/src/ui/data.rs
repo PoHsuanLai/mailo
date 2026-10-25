@@ -8,8 +8,8 @@ pub(super) const PAGE: u32 = 100;
 
 /// The conversations a listing asks for.
 ///
-/// Shared by the blocking task and the first frame's fallback, for the reason `count_badges` is:
-/// two copies would be two chances to disagree about what the list contains.
+/// Shared by the blocking task and the first frame's fallback: two copies would be two chances to
+/// disagree about what the list contains.
 pub(super) fn list_for(
     store: &SqliteStore,
     listing: Listing,
@@ -31,28 +31,6 @@ pub(super) fn list_for(
         Listing::History { scope } => mail_core::history::listed(store, scope.as_ref(), now),
         Listing::Drafts | Listing::Scheduled => Vec::new(),
     }
-}
-
-/// One count per place, for the sidebar's badges.
-///
-/// A free function rather than a closure, because it is called from two places: once on a
-/// blocking thread, and once on the render thread for the first frame, when there is no answer
-/// yet. Two copies of it would be two chances for them to disagree about what a badge counts.
-pub(super) fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> Vec<Option<u64>> {
-    let now = chrono::Utc::now();
-    filters
-        .iter()
-        .map(|filter| match store.count(filter.as_ref()?, now) {
-            Ok(0) => None,
-            Ok(n) => Some(n),
-            // No badge rather than a wrong one, but said: a count that fails every time is a
-            // store to look at, not a place with nothing unread.
-            Err(why) => {
-                log::warn!("a sidebar count failed: {why}");
-                None
-            }
-        })
-        .collect()
 }
 
 /// One account as the sidebar draws it: the id, the address, and the plan the provider comes from.
@@ -183,6 +161,21 @@ mod badge_tests {
     use crate::ui::view::{Listing, Shell, Source, default_places, scoped_badge};
     use mail_domain::{ReadState, ThreadSummary};
     use std::collections::BTreeSet;
+
+    /// What the client counts for `filter`, the way the sidebar asks for a badge: none for none.
+    fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> Vec<Option<u64>> {
+        use mail_client::Query as _;
+        let asked: Vec<Filter> = filters.iter().flatten().cloned().collect();
+        let counted = mail_client::query::Counts(asked)
+            .run(store, chrono::Utc::now())
+            .expect("counted");
+        filters
+            .iter()
+            .map(|filter| {
+                mail_client::query::Counts::of(&counted, filter.as_ref()?).filter(|n| *n > 0)
+            })
+            .collect()
+    }
 
     /// The rows `shell` lists for the place it has selected, when that place lists threads.
     fn listed(

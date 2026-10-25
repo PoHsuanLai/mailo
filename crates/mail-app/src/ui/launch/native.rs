@@ -169,8 +169,19 @@ fn window_contexts(
     start: crate::ui::Start,
 ) -> RootContexts {
     let looks = crate::ui::reading::looks();
+    // The one client every window reads mail through, over the store every writer here writes
+    // to — the windows, the background watch — so a commit by any of them reaches every window.
+    let client = mail_client::Client::open(store.clone(), mail_client::ClientConfig::default());
+    // The accounts and saved views read before the first window asks, so its first frame has its
+    // places: kept for as long as the windows are, by their root.
+    let primed = Primed {
+        _accounts: client.live(mail_client::query::Accounts),
+        _views: client.live(mail_client::query::Views),
+    };
     let mut contexts = RootContexts::new()
         .with(store)
+        .with(client)
+        .with(primed)
         .with(look)
         .with(start)
         // The one cache of rendered bodies every reader and the warming share, and the one set
@@ -184,6 +195,13 @@ fn window_contexts(
         Some(dirs) => contexts.with(dirs),
         None => contexts,
     }
+}
+
+/// Values the client reads before a window asks for them, held so they stay read.
+#[derive(Clone, Debug)]
+struct Primed {
+    _accounts: mail_client::Live<Vec<mail_client::query::Account>>,
+    _views: mail_client::Live<Vec<mail_domain::View>>,
 }
 
 /// The launched window's root, with its watch on the desktop's settings, for a test that changes

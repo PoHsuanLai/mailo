@@ -104,6 +104,8 @@ porter-secrets.workspace = true
 mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
 mail-domain.workspace = true
 mail-store.workspace = true
+# What the window reads mail through: values already read, kept read as the store changes.
+mail-client.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
 mail-mime = { workspace = true, features = ["openpgp", "smime"] }
 mail-proto.workspace = true

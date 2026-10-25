@@ -11,13 +11,14 @@ mod sync;
 mod tile_menu;
 mod tiles;
 
-pub(super) use self::folder_act::folder_places;
+pub(super) use self::folder_act::{folder_places, known_labels};
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
 use self::panes::{Favourites, PlaceList, counts};
 pub(in crate::ui) use self::panes::{hex_colour, place_icon};
-use self::tiles::{AccountTiles, tile_rows};
+use self::tiles::{AccountTiles, tile_filter, tile_rows};
 use crate::ui::copy;
+use crate::ui::live::use_live;
 use crate::ui::space::{Handle, Mail};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -71,15 +72,45 @@ pub(super) fn Places(
         let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
         counts(&store, spaces.read().current())
     });
-    // The Space's account tiles, read again as mail arrives or the Space's accounts change.
-    let tiled = use_memo(move || {
-        let _ = revision();
-        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
-        tile_rows(&store, spaces.read().current())
+    // Every account with its folders and labels, kept read by the client.
+    let accounts = use_live(|| mail_client::query::Accounts);
+    // Each tile's unread, counted as the client counts anything: read again as mail arrives.
+    let tile_counts = use_live(move || {
+        mail_client::query::Counts(
+            spaces
+                .read()
+                .current()
+                .payload
+                .accounts
+                .iter()
+                .cloned()
+                .map(tile_filter)
+                .collect(),
+        )
     });
-    // The accounts the Folders section is for. A memo, so a keystroke in the search box — a
-    // shell change — does not read the folders again.
+    // The Space's account tiles, as the Space's accounts change or their counts do.
+    let tiled = use_memo(move || {
+        let accounts = accounts.read();
+        let counts = tile_counts.read();
+        tile_rows(
+            accounts
+                .value()
+                .map_or(&[][..], |accounts| accounts.as_slice()),
+            counts.value().map(|counted| counted.as_ref()),
+            spaces.read().current(),
+        )
+    });
+    // The accounts the Folders and Labels sections are for. A memo, so a keystroke in the search
+    // box — a shell change — lays out neither again.
     let in_scope = use_memo(move || scope(&shell.read()));
+    // The labels drawn: only those of the accounts in scope.
+    let drawn = use_memo(move || {
+        accounts
+            .read()
+            .value()
+            .map(|accounts| folder_act::labels_in(accounts, &in_scope()))
+            .unwrap_or_default()
+    });
     // Whether a message is waiting for its time on this Space's accounts: the Scheduled place is
     // drawn only then. Read again as a send is scheduled or taken back.
     let desk = try_use_context::<crate::ui::compose::Desk>();
@@ -93,9 +124,11 @@ pub(super) fn Places(
     });
     let show = use_signal(|| Show::Followed);
     let folders = use_memo(move || {
-        let _ = revision();
-        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
-        arrange(&folder_act::load(&store, &in_scope()), show())
+        let accounts = accounts.read();
+        let accounts = accounts
+            .value()
+            .map_or(&[][..], |accounts| accounts.as_slice());
+        arrange(&folder_act::load(accounts, &in_scope()), show())
     });
     let folded = folders
         .read()
@@ -149,7 +182,7 @@ pub(super) fn Places(
             div { class: "slide", oncontextmenu: space_menu,
                 AccountTiles { shell, pages, handle, rows: tiled() }
                 Favourites { shell, pages, space: space.clone(), counted: counts_now }
-                PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
+                PlaceList { shell, pages, badges, folded, drawn: drawn(), scheduled: scheduled() }
                 if let Some(section) = folders() {
                     FolderList { shell, pages, badges, revision, section, show }
                 }
@@ -180,6 +213,8 @@ pub(super) fn Places(
         }
     }
 }
+#[cfg(test)]
+mod client_tests;
 #[cfg(test)]
 mod folder_place_tests;
 #[cfg(test)]

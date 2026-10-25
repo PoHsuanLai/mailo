@@ -162,6 +162,8 @@ pub(super) fn PlaceList(
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
     folded: Vec<LabelId>,
+    /// The labels of the accounts in scope: no other account's label is drawn.
+    drawn: Vec<LabelId>,
     /// Whether a message is waiting for its time in this Space, which is when Scheduled is drawn.
     scheduled: bool,
 ) -> Element {
@@ -186,7 +188,7 @@ pub(super) fn PlaceList(
         .enumerate()
         .skip(split)
         .filter(|(_, place)| match &place.source {
-            Source::Mail(Filter::HasLabel(id)) => !folded.contains(id),
+            Source::Mail(Filter::HasLabel(id)) => drawn.contains(id) && !folded.contains(id),
             _ => false,
         })
         .map(|(index, place)| (index, place.name.clone()))

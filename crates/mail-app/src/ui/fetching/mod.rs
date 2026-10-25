@@ -39,7 +39,6 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(in crate::ui) use delegate::Delegate;
-pub(crate) use external::on_write;
 pub(in crate::ui) use face::{CANNOT_LOAD, HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use marks::sync_availability;
@@ -299,7 +298,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
         move || schedule::initial(&store, &accounts.peek(), Utc::now())
     });
     let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
-    external::use_external_changes(revision, store.clone());
+    external::use_external_changes(revision);
     let ops = use_signal(BTreeMap::new);
     let folders = use_signal(BTreeMap::new);
     let offers = use_signal(BTreeMap::new);

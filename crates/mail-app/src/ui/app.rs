@@ -1,10 +1,11 @@
 use super::actions::{self, Heard};
 use super::compose::{self, SendPill};
-use super::data::{PAGE, accounts, count_badges};
+use super::data::{PAGE, accounts};
 use super::frame;
 use super::intent::{Intent, Scope, intent, on_thread};
 use super::list::ThreadList;
 use super::list_query::{ListView, use_list};
+use super::live::use_live;
 use super::ops::{Writes, open_composer};
 use super::reading::{ReaderIn, reading_column};
 use super::sidebar::Places;
@@ -13,8 +14,8 @@ use super::window_core::{use_window_core, use_window_desk};
 use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
 use crate::ui::view::{
-    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, folder_filter, nothing_to_show,
-    places_with, scoped_badge,
+    Appearance, Listing, PageMenu, Peek, Shell, Shortcut, nothing_to_show, places_with,
+    scoped_badge,
 };
 use chordkit::StandardAction;
 use dioxus::prelude::*;
@@ -131,27 +132,52 @@ pub(super) fn App() -> Element {
     // reads them again. `settings.toml` needs nothing here: the window's root watches it.
     let desk = use_window_desk(core, shell, spaces, Some(handle), today_list, dirs.clone());
     let mut seen_open = use_signal(|| None::<mail_domain::ThreadId>);
-    let mut label_ids = use_signal(Vec::<mail_domain::LabelId>::new);
-    // The server folders that are places, after the labels, as `view::places_with` orders them.
-    let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
-    // The saved views, after the folders, as `view::places_with` orders them.
-    let mut saved_views = use_signal(Vec::<View>::new);
-    // The first frame cannot wait for the effect below: a chip's name is a lookup, and a
-    // lookup against an empty list draws an empty chip.
+    // Every account with its folders and labels, and the saved views, kept read by the client:
+    // the places are made of them.
+    let every = use_live(|| mail_client::query::Accounts);
+    let views = use_live(|| mail_client::query::Views);
+    // The labels, folders and saved views the places are made of, as they stand. Equal values
+    // are not news, so a reading that changed nothing redraws nothing.
+    let known = use_memo(move || {
+        every
+            .read()
+            .value()
+            .map(|accounts| super::sidebar::known_labels(accounts))
+            .unwrap_or_default()
+    });
+    let folder_refs = use_memo(move || {
+        every
+            .read()
+            .value()
+            .map(|accounts| super::sidebar::folder_places(accounts))
+            .unwrap_or_default()
+    });
+    let saved_views = use_memo(move || {
+        views
+            .read()
+            .value()
+            .map(|views| views.as_ref().clone())
+            .unwrap_or_default()
+    });
+    // The first frame has the places when the client already has the accounts read (the
+    // program reads them before the window opens): a chip's name is a lookup, and a lookup
+    // against an empty list draws an empty chip.
     use_hook(|| {
         let store = consume_context::<Arc<SqliteStore>>();
-        let known = mail_core::query::known_labels(&store);
-        let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
-        label_ids.set(ids);
-        let folders = super::sidebar::folder_places(&store);
-        let views = store.views().unwrap_or_default();
-        let places = places_with(&known, &folders, &views);
-        folder_refs.set(folders);
-        saved_views.set(views);
         let mut write = shell.write();
-        write.labels = known;
-        write.places = places;
+        if every.peek().value().is_some() {
+            write.labels = known.peek().clone();
+            write.places = places_with(&known.peek(), &folder_refs.peek(), &saved_views.peek());
+        }
         write.accounts = mail_core::compose::sending_accounts(&store);
+    });
+
+    // A client that reads on the thread that draws (a test's window, given only a store) acts on
+    // what was committed when the revision moves; the program's own client does that by itself.
+    let client = super::live::use_client();
+    use_effect(move || {
+        let _ = revision();
+        client.settle();
     });
 
     // Mail that only arrives when you press a button is mail you miss: every account's link, the
@@ -162,102 +188,54 @@ pub(super) fn App() -> Element {
     // The unread count on the dock or the Dash, when the window was launched with one.
     super::launcher_count::use_launcher_count(revision, shell);
 
-    // One count per place, recomputed after any write. `Store::count` answers each in a single
-    // indexed query, which is why the sidebar can afford to ask on every revision.
-    // Resolved once. The sidebar's places are fixed after construction, so what each badge
-    // counts never changes — only the answer does.
-    // Mailbox badges are fixed. Label badges join them when the label list changes, which is
-    // a signal of its own so a keystroke — a shell change — does not recount.
     // The accounts the list is showing. A memo of its own, so only a change of Space reaches the
     // counts, never a keystroke.
     let badge_scope = use_memo(move || shell.read().account_filter());
+    // What each place's badge counts, in the order of the places drawn. A memo, so a keystroke
+    // (a shell change that leaves the places as they are) asks nothing again.
     let badge_filters = use_memo(move || {
         let scope = badge_scope();
-        let mut filters: Vec<Option<Filter>> = crate::ui::view::default_places()
+        shell
+            .read()
+            .places
             .iter()
             .map(|place| scoped_badge(&place.source, scope.clone()))
-            .collect();
-        for id in label_ids.read().iter() {
-            filters.push(Some(mail_core::view::scoped(
-                scope.clone(),
-                Filter::And(vec![Filter::HasLabel(*id), Filter::Read(ReadState::Unread)]),
-            )));
-        }
-        for (_, mailbox) in folder_refs.read().iter() {
-            filters.push(scoped_badge(
-                &Source::Mail(folder_filter(mailbox)),
-                scope.clone(),
-            ));
-        }
-        for view in saved_views.read().iter() {
-            filters.push(scoped_badge(
-                &Source::Saved(Box::new(view.clone())),
-                scope.clone(),
-            ));
-        }
-        filters
+            .collect::<Vec<Option<Filter>>>()
+    });
+    // The counts, kept by the client and read again as mail arrives or changes, off the thread
+    // that draws.
+    let counted = use_live(move || {
+        mail_client::query::Counts(badge_filters().into_iter().flatten().collect())
+    });
+    // Each place's badge: the count of its own filter, found by the filter, so an answer read
+    // for another list of places never puts a count on the wrong row. None until counted, and
+    // none for nothing unread.
+    let badges = use_memo(move || {
+        let counted = counted.read();
+        let counted = counted.value();
+        badge_filters()
+            .iter()
+            .map(|filter| {
+                let filter = filter.as_ref()?;
+                mail_client::query::Counts::of(counted?, filter).filter(|n| *n > 0)
+            })
+            .collect::<Vec<Option<u64>>>()
     });
 
-    // Depends on `revision` and the badge filters, not on `shell`. It used to read `shell`,
-    // which subscribes a memo to *every* change of it — so each keystroke in the search box
-    // re-ran one indexed count per place.
-    let counted: Resource<Vec<Option<u64>>> = use_resource(move || {
-        let _ = revision();
-        let filters = badge_filters();
-        let store = consume_context::<Arc<SqliteStore>>();
-        async move {
-            tokio::task::spawn_blocking(move || count_badges(&store, &filters))
-                .await
-                .unwrap_or_default()
-        }
-    });
-    // And the answer for the very first frame, computed here because there is not one yet.
-    //
-    // A bare resource is empty until it resolves, so without this the window would open on an
-    // empty mailbox and stay empty, since a task spawned from a component body is never polled.
-    // Falling back to the synchronous answer costs one query on the first frame and nothing
-    // afterwards: once the resource has a value it keeps it across restarts, so a search never
-    // drops back to computing on this thread.
-    let badges = use_memo(move || match counted.read().as_ref() {
-        Some(counts) => counts.clone(),
-        None => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            count_badges(&store, &badge_filters())
-        }
-    });
-
-    // The label names the search box can resolve. Re-read after every write, because a sync
-    // that ingests a new Gmail label should make `label:` find it without a restart — and
-    // written back only when it has actually changed, so an unrelated revision does not
-    // invalidate the list below.
+    // The label names the search box can resolve, as the client reads them: a sync that ingests
+    // a new Gmail label makes `label:` find it without a restart. Written back only when it has
+    // actually changed, so an unrelated reading does not invalidate the list below.
     use_effect(move || {
-        let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
-        let known = mail_core::query::known_labels(&store);
-        let ids: Vec<mail_domain::LabelId> = known.iter().map(|(_, id)| *id).collect();
-        if label_ids.peek().as_slice() != ids.as_slice() {
-            label_ids.set(ids);
+        // Not before both are read: the places of an account list not read yet are not "no
+        // labels", and the chosen place must not be lost to them.
+        if every.read().value().is_none() || views.read().value().is_none() {
+            return;
         }
+        let known = known();
+        let folders = folder_refs();
+        let views = saved_views();
         if shell.peek().labels != known {
             shell.write().labels = known.clone();
-        }
-        // The same shape for the same reason: the From row needs the list, and an account added
-        // in a terminal should reach the open window without a restart.
-        let sending = mail_core::compose::sending_accounts(&store);
-        if shell.peek().accounts != sending {
-            shell.write().accounts = sending;
-        }
-        // Folders the same way: a folder made, renamed or listed for the first time is a place
-        // at once.
-        let folders = super::sidebar::folder_places(&store);
-        if *folder_refs.peek() != folders {
-            folder_refs.set(folders.clone());
-        }
-        // And saved views: one kept from the editor is already drawn (`saved::show_kept`), so
-        // this finds nothing to change unless a view came from elsewhere.
-        let views = store.views().unwrap_or_default();
-        if *saved_views.peek() != views {
-            saved_views.set(views.clone());
         }
         let next = places_with(&known, &folders, &views);
         if shell.peek().places != next {
@@ -274,6 +252,17 @@ pub(super) fn App() -> Element {
             let mut write = shell.write();
             write.places = next;
             write.selected = selected;
+        }
+    });
+
+    // The accounts the From row can send from: an account added in a terminal reaches the open
+    // window without a restart.
+    use_effect(move || {
+        let _ = revision();
+        let store = consume_context::<Arc<SqliteStore>>();
+        let sending = mail_core::compose::sending_accounts(&store);
+        if shell.peek().accounts != sending {
+            shell.write().accounts = sending;
         }
     });
 

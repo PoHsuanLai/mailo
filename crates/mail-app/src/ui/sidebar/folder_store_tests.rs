@@ -87,7 +87,10 @@ fn add_pop(store: &SqliteStore) {
 
 fn drawn(store: &SqliteStore) -> String {
     arrange(
-        &load(store, &crate::ui::space::Scope::Accounts(vec![acct_imap()])),
+        &load(
+            &crate::ui::live::read_now(store, mail_client::query::Accounts),
+            &crate::ui::space::Scope::Accounts(vec![acct_imap()]),
+        ),
         Show::Followed,
     )
     .map(|section| shape(&section.trees[0].nodes))
