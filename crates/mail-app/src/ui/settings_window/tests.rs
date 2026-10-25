@@ -138,7 +138,7 @@ fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
         .iter()
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
-            super::general::Line::Key(path) => Some(*path),
+            super::general::Line::Key(path) | super::general::Line::Folder(path) => Some(*path),
             super::general::Line::TrustedSenders | super::general::Line::DefaultMail => None,
         })
         .collect();
@@ -426,5 +426,51 @@ async fn trusting_senders_with_none_yet_says_there_are_none() {
     assert!(
         page.contains(crate::ui::copy::empty::NO_TRUSTED_SENDERS),
         "{page}"
+    );
+}
+
+/// General's folder row: Choose… writes the folder the dialog answered as the one Save writes
+/// into, and Use Downloads puts the default back. The dialog is the test's: no real one opens.
+#[tokio::test]
+async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
+    use crate::ui::pick::{Ask, Dialogs};
+    let built = work();
+    let folder = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
+    let (dialogs, asked) = Dialogs::answering(vec![folder.path().to_path_buf()]);
+    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    dom.provide_root_context(dialogs);
+    assert_eq!(stored(&built).attachments.downloads_folder, "", "before");
+
+    let mut seen = click(&mut dom, seen.one("id", super::general::CHOOSE_FOLDER_ID));
+    let wanted = folder.path().display().to_string();
+    crate::ui::fixtures::settle_until(
+        &mut dom,
+        &mut seen,
+        std::time::Duration::from_millis(150),
+        std::time::Duration::from_secs(10),
+        |_| stored(&built).attachments.downloads_folder == wanted,
+    )
+    .await;
+    assert_eq!(
+        asked
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .map(|(ask, _)| *ask)
+            .collect::<Vec<_>>(),
+        [Ask::Folder]
+    );
+    let seen = seen.merge(drain_seen(&mut dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains(&wanted),
+        "the row does not show the folder: {page}"
+    );
+
+    click(&mut dom, seen.one("id", super::general::USE_DOWNLOADS_ID));
+    assert_eq!(
+        stored(&built).attachments.downloads_folder,
+        "",
+        "after Use Downloads"
     );
 }

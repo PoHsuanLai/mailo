@@ -641,6 +641,8 @@ pub(super) fn App() -> Element {
     // a conversation nobody answered comes back to the top of the inbox (`mail_core::follow_up`).
     super::follow_up::use_reminders(revision);
     super::follow_up::use_snooze_wake(revision);
+    // The copies Open wrote, removed once their message is deleted when the setting says so.
+    super::downloads::unedited::use_remove_unedited(revision);
 
     let peek = shell.read().peek;
     let frame_class = if side_hidden() { "app no-side" } else { "app" };

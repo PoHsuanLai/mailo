@@ -6,8 +6,11 @@
 //! before its extension, which stays.
 //!
 //! Save writes a part that is already here; Download fetches one still on the server and then
-//! writes it. The name is the one the file will be written under. There is no file chooser: it
-//! lands in the downloads directory, and a toast says which folder.
+//! writes it. The name is the one the file will be written under. Save asks nothing: it lands in
+//! the downloads folder (`attachments.downloads_folder`, else the system's), and a toast says
+//! which. A tile's right click offers Save to…, which asks for a folder first; Save All… writes
+//! every part into one folder it asks for, in one go, with one toast. A name already taken in the
+//! folder gets " (2)" and on (`mail_core::attach::write_new`): nothing is written over.
 //!
 //! Each tile's progress is a `mail_core::fetch::Download`: Running turns its button Busy, Saved
 //! says so in a toast, Failed says why under the strip until it is dismissed or tried again.
@@ -18,11 +21,13 @@
 
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Bezel;
-use ds::host::measure::{RectProbe, use_rect};
+use ds::components::menus::item::item::MenuItem;
+use ds::host::measure::{Anchor, RectProbe, use_rect};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dioxus::prelude::*;
@@ -36,10 +41,34 @@ use super::fetch::{self, Again};
 use super::thumb::Thumb;
 use crate::ui::common::classed;
 use crate::ui::copy;
+use crate::ui::pick::{Ask, choose};
 use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::Shell;
 
 type Downloads = Signal<HashMap<usize, Download>>;
+
+/// One part to save: where it is in the message, where its bytes are, and its name.
+#[derive(Debug, Clone, PartialEq)]
+struct Part {
+    index: usize,
+    kept: Kept,
+    name: String,
+}
+
+/// What a tile's right click offers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pick {
+    Save,
+    SaveTo,
+    SaveAll,
+}
+
+/// The right click's menu: where it opened, and on which part.
+#[derive(Debug, Clone, PartialEq)]
+struct Held {
+    at: Point,
+    part: Part,
+}
 
 /// The strip for one message. Each tile's download is its own state, kept here by index.
 #[component]
@@ -60,6 +89,23 @@ pub(super) fn Attachments(
             .map(|m| fetch::account_address(&store, m.account))
             .unwrap_or_default()
     });
+    let mut menu = use_signal(|| None::<Held>);
+    let mut picked = use_signal(|| None::<(Pick, Part)>);
+    let parts: Vec<Part> = rows
+        .iter()
+        .map(|row| Part {
+            index: row.index,
+            kept: row.kept,
+            name: row.name.clone(),
+        })
+        .collect();
+    let all = Saver {
+        looks: looks.clone(),
+        message,
+        body,
+        downloads,
+        toasts,
+    };
     let mut tiles = Vec::new();
     let mut failures = Vec::new();
     for row in &rows {
@@ -93,8 +139,22 @@ pub(super) fn Attachments(
                 false,
             ),
         };
+        let held_part = Part {
+            index,
+            kept,
+            name: name.clone(),
+        };
         tiles.push(rsx! {
             div { key: "{index}", class: "att-tile", role: "listitem",
+                oncontextmenu: move |event: MouseEvent| {
+                    event.prevent_default();
+                    event.stop_propagation();
+                    let at = event.client_coordinates();
+                    menu.set(Some(Held {
+                        at: Point { x: Px(at.x as f32), y: Px(at.y as f32) },
+                        part: held_part.clone(),
+                    }));
+                },
                 {face}
                 div {
                     class: "att-text",
@@ -112,7 +172,8 @@ pub(super) fn Attachments(
                     common: Common { aria_label: Some(format!("{label} {name}")), ..Common::default() },
                     availability: if busy { Availability::Busy } else { Availability::Enabled },
                     onclick: super::super::press::on_primary(move || {
-                        start(&saved_looks, message, body, index, kept, &saved_name, downloads, toasts);
+                        let dir = crate::ui::files::save_dir();
+                        start(&saved_looks, message, body, index, kept, &saved_name, downloads, toasts, dir);
                     }),
                 }
             }
@@ -131,7 +192,8 @@ pub(super) fn Attachments(
                                 label: crate::ui::copy::controls::TRY_AGAIN,
                                 common: Common { aria_label: Some(crate::ui::copy::aria::try_again_to_download(&name)), ..Common::default() },
                                 onclick: super::super::press::on_primary(move || {
-                                    start(&again_looks, message, body, index, kept, &again_name, downloads, toasts);
+                                    let dir = crate::ui::files::save_dir();
+                                    start(&again_looks, message, body, index, kept, &again_name, downloads, toasts, dir);
                                 }),
                             }
                         }),
@@ -154,12 +216,199 @@ pub(super) fn Attachments(
             });
         }
     }
+    let several = parts.len() > 1;
+    let busy = downloads
+        .read()
+        .values()
+        .any(|state| matches!(state, Download::Running { .. }));
+    // A pick from a tile's menu is carried out here, not in the menu: the menu closes on the
+    // pick, and the dialog and the save it starts are tasks that must outlive it.
+    use_effect({
+        let all = all.clone();
+        let parts = parts.clone();
+        move || {
+            let Some((pick, part)) = picked() else {
+                return;
+            };
+            picked.set(None);
+            match pick {
+                Pick::Save => all.save(part, crate::ui::files::save_dir()),
+                Pick::SaveTo => all.save_to(part),
+                Pick::SaveAll => all.save_all_to(parts.clone()),
+            }
+        }
+    });
     rsx! {
         div { class: "attachments",
+            if several {
+                div { class: "att-head",
+                    Button {
+                        bezel: Bezel::Inline,
+                        label: copy::controls::SAVE_ALL,
+                        availability: if busy { Availability::Busy } else { Availability::Enabled },
+                        common: Common { id: Some(format!("{SAVE_ALL_ID}-{message}")), ..Common::default() },
+                        onclick: super::super::press::on_primary({
+                            let parts = parts.clone();
+                            move || all.save_all_to(parts.clone())
+                        }),
+                    }
+                }
+            }
             div { class: "att-strip", role: "list", aria_label: "Attachments", {tiles.into_iter()} }
             {failures.into_iter()}
+            if let Some(held) = menu() {
+                TileMenu { held, several, menu, picked }
+            }
         }
     }
+}
+
+/// The element id Save All… carries, before its message's id.
+pub(in crate::ui) const SAVE_ALL_ID: &str = "att-save-all";
+
+/// A tile's right click: Save (or Download), Save to…, and Save All… when there are several.
+#[component]
+fn TileMenu(
+    held: Held,
+    several: bool,
+    mut menu: Signal<Option<Held>>,
+    mut picked: Signal<Option<(Pick, Part)>>,
+) -> Element {
+    let save = match held.part.kept {
+        Kept::Here | Kept::Opened => copy::menus::SAVE,
+        Kept::OnServer => copy::menus::DOWNLOAD,
+    };
+    let mut items = vec![
+        MenuItem::new(Pick::Save, save),
+        MenuItem::new(Pick::SaveTo, copy::menus::SAVE_TO),
+    ];
+    if several {
+        items.push(MenuItem::Separator);
+        items.push(MenuItem::new(Pick::SaveAll, copy::menus::SAVE_ALL));
+    }
+    let part = held.part.clone();
+    rsx! {
+        Menu::<Pick> {
+            placement: MenuPlacement::Context,
+            anchor: Anchor::Point(held.at),
+            items,
+            common: Common { aria_label: Some(copy::aria::attachment_menu(&held.part.name)), ..Common::default() },
+            onpick: move |pick: Pick| {
+                picked.set(Some((pick, part.clone())));
+                menu.set(None);
+            },
+            onclose: move |()| menu.set(None),
+        }
+    }
+}
+
+/// What saving any of one message's parts needs, from the strip.
+#[derive(Clone)]
+struct Saver {
+    looks: Arc<Looks>,
+    message: MessageId,
+    body: Option<BlobId>,
+    downloads: Downloads,
+    toasts: Toasts,
+}
+
+impl Saver {
+    /// Save `part` into `dir`, as its tile's button does.
+    fn save(&self, part: Part, dir: PathBuf) {
+        start(
+            &self.looks,
+            self.message,
+            self.body,
+            part.index,
+            part.kept,
+            &part.name,
+            self.downloads,
+            self.toasts,
+            dir,
+        );
+    }
+
+    /// Ask for a folder, then save `part` into it.
+    fn save_to(&self, part: Part) {
+        let saver = self.clone();
+        choose(
+            Ask::Folder,
+            Some(crate::ui::files::save_dir()),
+            move |folders| {
+                if let Some(dir) = folders.into_iter().next() {
+                    saver.save(part, dir);
+                }
+            },
+        );
+    }
+
+    /// Ask for a folder, then save every one of `parts` into it.
+    fn save_all_to(&self, parts: Vec<Part>) {
+        let saver = self.clone();
+        choose(
+            Ask::Folder,
+            Some(crate::ui::files::save_dir()),
+            move |folders| {
+                if let Some(dir) = folders.into_iter().next() {
+                    save_all(&saver, parts, dir);
+                }
+            },
+        );
+    }
+}
+
+/// Write every one of `parts` into `dir`, one after another off the thread that draws, and say
+/// how many in one toast. A part already being saved is passed over; one that fails says why
+/// under the strip, as its own Save would.
+fn save_all(saver: &Saver, parts: Vec<Part>, dir: PathBuf) {
+    let downloads = saver.downloads;
+    let begun: Vec<(Part, crate::ui::downloads::Saving)> = parts
+        .into_iter()
+        .filter(|part| {
+            send(downloads, part.index, DownloadEvent::Start) == Some(DownloadEffect::Begin)
+        })
+        .map(|part| {
+            let saving = saving_for(&part);
+            (part, saving)
+        })
+        .collect();
+    if begun.is_empty() {
+        return;
+    }
+    let store = consume_context::<Arc<SqliteStore>>();
+    let looks = saver.looks.clone();
+    let fetchers = fetch::fetchers();
+    let (message, body, toasts) = (saver.message, saver.body, saver.toasts);
+    let wanted: Vec<Part> = begun.iter().map(|(part, _)| part.clone()).collect();
+    spawn(async move {
+        let done = tokio::task::spawn_blocking(move || {
+            let saved: Vec<Result<PathBuf, String>> = wanted
+                .iter()
+                .map(|part| write(&store, &looks, &fetchers, message, body, part, &dir))
+                .collect();
+            (saved, crate::ui::downloads::origin(&store, message))
+        })
+        .await;
+        let (saved, origin) = match done {
+            Ok((saved, origin)) => (saved, origin),
+            Err(error) => {
+                let why = stopped_early(&error);
+                (begun.iter().map(|_| Err(why.clone())).collect(), None)
+            }
+        };
+        let mut written = Vec::new();
+        for ((part, saving), result) in begun.into_iter().zip(saved) {
+            if let Some(path) = finish(downloads, part.index, saving, result, origin.clone()) {
+                written.push(path);
+            }
+        }
+        let folder = written
+            .first()
+            .and_then(|path| fetch::folder_of(path).map(str::to_owned));
+        if let (Some(toasts), Some(folder)) = (toasts, folder) {
+            toasts.push(copy::toasts::saved_all(written.len(), &folder), None);
+        }
+    });
 }
 
 /// A tile's name: the stem, cut short where it does not fit, then the extension. The whole name is
@@ -232,7 +481,7 @@ fn send(mut downloads: Downloads, index: usize, event: DownloadEvent) -> Option<
 
 type Toasts = Option<ds::stack::toast_hub::ToastHub>;
 
-/// Begin saving one row: from a press, which is where a task is polled.
+/// Begin saving one row into `dir`: from a press, which is where a task is polled.
 #[allow(clippy::too_many_arguments)]
 fn start(
     looks: &Arc<Looks>,
@@ -243,67 +492,103 @@ fn start(
     name: &str,
     downloads: Downloads,
     toasts: Toasts,
+    dir: PathBuf,
 ) {
     if send(downloads, index, DownloadEvent::Start) != Some(DownloadEffect::Begin) {
         return;
     }
-    // What is on the server takes a while, and shows in Downloads while it does.
-    let saving = match kept {
-        Kept::OnServer => crate::ui::downloads::Saving::begin(name),
-        Kept::Here | Kept::Opened => crate::ui::downloads::Saving::quick(),
+    let part = Part {
+        index,
+        kept,
+        name: name.to_owned(),
     };
+    let saving = saving_for(&part);
     let store = consume_context::<Arc<SqliteStore>>();
     let looks = looks.clone();
     let fetchers = fetch::fetchers();
-    let dir = crate::ui::files::save_dir();
     spawn(async move {
         // `spawn_blocking`, not this task: a fetch waits on the application's runtime
         // (`edge::block_on`), and `Runtime::block_on` inside an async context panics.
         let done = tokio::task::spawn_blocking(move || {
-            let saved = match kept {
-                Kept::Here => {
-                    mail_core::attach::save(&store, message, index, &dir).map_err(String::from)
-                }
-                Kept::Opened => {
-                    super::super::pgp::save_attachment(&looks, message, body, index, &dir)
-                }
-                Kept::OnServer => fetch::fetch_then_save(&store, &fetchers, message, index, &dir),
-            };
+            let saved = write(&store, &looks, &fetchers, message, body, &part, &dir);
             (saved, crate::ui::downloads::origin(&store, message))
         })
         .await;
-        let (done, origin) = match done {
-            Ok((saved, origin)) => (Ok(saved), origin),
-            Err(error) => (Err(error), None),
+        let (saved, origin) = match done {
+            Ok((saved, origin)) => (saved, origin),
+            Err(error) => (Err(stopped_early(&error)), None),
         };
-        saving.end(
-            done.as_ref().ok().and_then(|saved| saved.as_deref().ok()),
-            origin,
-        );
-        let event = match done {
-            Ok(Ok(path)) => DownloadEvent::Saved(path),
-            Ok(Err(why)) => DownloadEvent::Failed {
-                retry: Retry::Now,
-                why,
-            },
-            Err(error) => DownloadEvent::Failed {
-                retry: Retry::Now,
-                why: format!("it stopped early: {error}"),
-            },
-        };
-        let saved = match &event {
-            DownloadEvent::Saved(path) => Some(fetch::saved_toast(path)),
-            _ => None,
-        };
-        send(downloads, index, event);
-        if let Some(text) = saved {
-            // The notice is the outcome; the row has nothing more to say.
-            send(downloads, index, DownloadEvent::Dismiss);
-            if let Some(toasts) = toasts {
-                toasts.push(text, None);
-            }
+        if let Some(path) = finish(downloads, index, saving, saved, origin)
+            && let Some(toasts) = toasts
+        {
+            toasts.push(fetch::saved_toast(&path), None);
         }
     });
+}
+
+/// Why a save's task ended with no answer.
+fn stopped_early(error: &tokio::task::JoinError) -> String {
+    format!("it stopped early: {error}")
+}
+
+/// How a part's save reports to Downloads: what is on the server takes a while, and shows there
+/// while it does.
+fn saving_for(part: &Part) -> crate::ui::downloads::Saving {
+    match part.kept {
+        Kept::OnServer => crate::ui::downloads::Saving::begin(part.name.clone()),
+        Kept::Here | Kept::Opened => crate::ui::downloads::Saving::quick(),
+    }
+}
+
+/// Write `part` into `dir`, fetching it first when it is still on the server. Blocking.
+fn write(
+    store: &Arc<SqliteStore>,
+    looks: &Looks,
+    fetchers: &fetch::Fetchers,
+    message: MessageId,
+    body: Option<BlobId>,
+    part: &Part,
+    dir: &Path,
+) -> Result<PathBuf, String> {
+    match part.kept {
+        Kept::Here => {
+            mail_core::attach::save(store, message, part.index, dir).map_err(String::from)
+        }
+        Kept::Opened => super::super::pgp::save_attachment(looks, message, body, part.index, dir),
+        Kept::OnServer => fetch::fetch_then_save(store, fetchers, message, part.index, dir),
+    }
+}
+
+/// A row's save is over: Downloads is told, and the row moves to Saved (said in a toast by the
+/// caller, so its notice is dismissed here) or Failed. Returns the file written.
+fn finish(
+    downloads: Downloads,
+    index: usize,
+    saving: crate::ui::downloads::Saving,
+    saved: Result<PathBuf, String>,
+    origin: Option<crate::ui::downloads::Origin>,
+) -> Option<PathBuf> {
+    // Downloads lists only a file written; why one was not is the row's to say.
+    saving.end(saved.as_deref().ok(), origin);
+    match saved {
+        Ok(path) => {
+            send(downloads, index, DownloadEvent::Saved(path.clone()));
+            // The notice is the outcome; the row has nothing more to say.
+            send(downloads, index, DownloadEvent::Dismiss);
+            Some(path)
+        }
+        Err(why) => {
+            send(
+                downloads,
+                index,
+                DownloadEvent::Failed {
+                    retry: Retry::Now,
+                    why,
+                },
+            );
+            None
+        }
+    }
 }
 
 #[cfg(test)]

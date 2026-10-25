@@ -20,6 +20,7 @@ use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::ListStyle;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::tokens::control_size::ControlSize;
 use ds_settings::schema::{Help, KeySpec};
 
 /// One row of General.
@@ -31,6 +32,9 @@ pub(super) enum Line {
     TrustedSenders,
     /// Which application opens email links, with Make Default (`crate::ui::default_mail`).
     DefaultMail,
+    /// The schema's text key at this path, holding a folder: drawn as the folder, with Choose…
+    /// to pick another in the system's dialog, and Use Downloads to go back to the default.
+    Folder(&'static str),
 }
 
 /// A group of General: its header, and its rows in the order drawn.
@@ -47,6 +51,8 @@ pub(super) const SECTIONS: [Section; 2] = [
             Line::Key("reading.remote_images"),
             Line::TrustedSenders,
             Line::Key("reading.brand_logos"),
+            Line::Folder("attachments.downloads_folder"),
+            Line::Key("attachments.remove_unedited"),
         ],
     },
     Section {
@@ -149,6 +155,12 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
                                 None => rsx! {},
                             },
                             Line::DefaultMail => rsx! { crate::ui::default_mail::DefaultMailRow {} },
+                            Line::Folder(path) => match key_at(path) {
+                                Some(spec) => rsx! {
+                                    FolderRow { key: "{path}", value: value_of(&values, &spec), spec, onedit }
+                                },
+                                None => rsx! {},
+                            },
                             Line::TrustedSenders => rsx! {
                                 List::<String> {
                                     label: copy::titles::TRUSTED_SENDERS,
@@ -172,6 +184,57 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
         }
     }
 }
+
+/// A folder key's row: the folder Save writes into now (the default's when the key is empty),
+/// Choose… to pick another, and Use Downloads while one is chosen.
+#[component]
+fn FolderRow(
+    spec: KeySpec,
+    value: toml::Value,
+    onedit: EventHandler<(String, toml::Value)>,
+) -> Element {
+    // A value that is not text is no folder: the default's.
+    let chosen = value.as_str().unwrap_or_default().trim().to_owned();
+    let shown = crate::ui::files::save_dir();
+    let path = spec.path.0.clone();
+    let reset = path.clone();
+    rsx! {
+        FieldRow { label: TextLine::from(spec.label.0.clone()),
+            Label { text: shown.display().to_string(), common: crate::ui::common::classed("truncate") }
+            Button {
+                label: copy::controls::CHOOSE_FOLDER,
+                size: ControlSize::Small,
+                common: Common {
+                    aria_label: Some(copy::aria::CHOOSE_DOWNLOADS_FOLDER.to_owned()),
+                    id: Some(CHOOSE_FOLDER_ID.to_owned()),
+                    ..Common::default()
+                },
+                onclick: on_primary(move || {
+                    let path = path.clone();
+                    crate::ui::pick::choose(crate::ui::pick::Ask::Folder, Some(shown.clone()), move |folders| {
+                        if let Some(folder) = folders.into_iter().next() {
+                            onedit.call((path, toml::Value::String(folder.display().to_string())));
+                        }
+                    });
+                }),
+            }
+            if !chosen.is_empty() {
+                Button {
+                    label: copy::controls::USE_DOWNLOADS,
+                    size: ControlSize::Small,
+                    common: Common { id: Some(USE_DOWNLOADS_ID.to_owned()), ..Common::default() },
+                    onclick: on_primary(move || onedit.call((reset.clone(), toml::Value::String(String::new())))),
+                }
+            }
+        }
+    }
+}
+
+/// The Choose… of the folder Save writes into.
+pub const CHOOSE_FOLDER_ID: &str = "general-choose-downloads";
+
+/// The Use Downloads of the folder Save writes into.
+pub const USE_DOWNLOADS_ID: &str = "general-use-downloads";
 
 /// The senders whose images load, a row each with its Remove.
 #[component]

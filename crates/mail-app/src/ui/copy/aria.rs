@@ -120,3 +120,11 @@ pub fn open_row(subject: &str) -> String {
 pub fn try_again_to_download(name: &str) -> String {
     format!("Try again to download {name}")
 }
+
+/// An attachment tile's menu, naming the file.
+pub fn attachment_menu(name: &str) -> String {
+    format!("Actions for {name}")
+}
+
+/// Settings' Choose… for the folder Save writes into.
+pub const CHOOSE_DOWNLOADS_FOLDER: &str = "Choose Folder for Attachments";

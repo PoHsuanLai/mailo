@@ -88,6 +88,8 @@ article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 32
 .html[*|data-plain="true"] { background: var(--surface); }
 .attachments { margin: var(--s-13) 0 0; display: grid; gap: var(--s-8); }
 /* Under the body, one strip of tiles: a preview over the name and the size, then Save. */
+/* Save All… over the strip, at its end, when there is more than one part. */
+.att-head { display: flex; justify-content: flex-end; }
 .att-strip { display: flex; flex-wrap: nowrap; gap: var(--s-10); overflow-x: auto; padding-bottom: var(--s-2); }
 .att-tile {
   flex: none; width: 120px; display: flex; flex-direction: column; align-items: center; gap: var(--s-4);

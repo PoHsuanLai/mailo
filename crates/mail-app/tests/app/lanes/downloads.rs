@@ -262,3 +262,155 @@ fn a_long_name_is_cut_short_inside_its_tile() {
         );
     }
 }
+
+const SAVE_ALL_SUBJECT: &str = "Both copies of the minutes";
+/// Two parts that claim one name, and one whose claimed name climbs out of the folder.
+const CLAIMED: [&str; 3] = ["minutes.txt", "minutes.txt", "../../escape.txt"];
+
+fn with_three_parts(store: &mail_core::SqliteStore) {
+    let parts: String = CLAIMED
+        .iter()
+        .enumerate()
+        .map(|(n, name)| {
+            format!(
+                "--mix\r\nContent-Type: text/plain; charset=UTF-8; name=\"{name}\"\r\n\
+                 Content-Disposition: attachment; filename=\"{name}\"\r\n\r\npart {n}\r\n"
+            )
+        })
+        .collect();
+    let raw = format!(
+        "From: Grace Hopper <grace@example.test>\r\nTo: Me <me@example.test>\r\n\
+         Subject: {SAVE_ALL_SUBJECT}\r\nDate: {}\r\nMessage-ID: <minutes1@example.test>\r\n\
+         MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"mix\"\r\n\r\n\
+         --mix\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\nBoth are attached.\r\n\
+         {parts}--mix--\r\n",
+        hours_ago(0)
+    );
+    deliver(store, "minutes1", &raw);
+}
+
+/// Save All… asks for a folder and writes every part into it in one go: a name already taken
+/// there, or taken by the part before, gets " (2)" and on, and nothing is written over; a name
+/// that climbs out of the folder is written inside it. The plain Save folder is not touched.
+#[test]
+fn save_all_writes_every_part_into_the_folder_chosen() {
+    let mut window = Window::open(with_three_parts);
+    let chosen = tempfile::tempdir().expect("a folder to choose");
+    std::fs::write(chosen.path().join("minutes.txt"), b"already here").expect("a file there");
+    window.answer(vec![chosen.path().to_path_buf()]);
+
+    window.open_subject(SAVE_ALL_SUBJECT);
+    window.until("the reader shows the three tiles", |h| {
+        h.count(".reader .att-tile") == 3
+    });
+    window.click(".reader .att-head .ds-button");
+    let written = |name: &str| chosen.path().join(name);
+    window.until("every part is written into the folder", |_| {
+        written("minutes (3).txt").exists() && written("escape.txt").exists()
+    });
+
+    assert_eq!(
+        window.asked(),
+        [mail_app::ui::native::DialogAsk::Folder],
+        "Save All asked for something other than a folder"
+    );
+    // (file, what it holds)
+    let want = [
+        ("minutes.txt", "already here"),
+        ("minutes (2).txt", "part 0"),
+        ("minutes (3).txt", "part 1"),
+        ("escape.txt", "part 2"),
+    ];
+    for (name, holds) in want {
+        let text = std::fs::read_to_string(written(name)).unwrap_or_default();
+        assert_eq!(text.trim_end(), holds, "{name}");
+    }
+    let mut names: Vec<String> = std::fs::read_dir(chosen.path())
+        .expect("the folder")
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(
+        names,
+        [
+            "escape.txt",
+            "minutes (2).txt",
+            "minutes (3).txt",
+            "minutes.txt"
+        ]
+    );
+    assert!(
+        !chosen
+            .path()
+            .parent()
+            .is_some_and(|up| up.join("escape.txt").exists()),
+        "a part was written outside the folder"
+    );
+    let saves = std::fs::read_dir(window.saves())
+        .expect("the saves folder")
+        .count();
+    assert_eq!(saves, 0, "Save All wrote into the plain Save folder");
+}
+
+/// Right-click a tile, wait for its menu, and pick its `n`th row.
+fn tile_menu(window: &mut Window, tile: usize, n: usize) {
+    use super::drive::Drive as _;
+    let at = window.centre(&format!(
+        ".reader .att-strip > .att-tile:nth-child({tile}) .att-text"
+    ));
+    window
+        .harness
+        .press(at, ds::base::press::PointerButton::Secondary);
+    window.until("the tile's menu opens", |h| {
+        h.count(".ds-menu .ds-menu-item") > 0
+    });
+    pick(window, n);
+}
+
+/// A tile's Save to… asks for a folder and writes that part alone into it; its Save writes into
+/// the folder chosen in Settings rather than the system's Downloads.
+#[test]
+fn save_to_asks_for_a_folder_and_save_follows_the_setting() {
+    let folder = tempfile::tempdir().expect("the folder Save is set to");
+    let set = folder.path().to_path_buf();
+    let mut window = Window::open_with(
+        chrono::Utc::now(),
+        with_three_parts,
+        move |dir, contexts| {
+            let settings = mail_app::settings::root_for(&dir.join("config"));
+            mail_app::settings::change(&settings, |settings| {
+                settings.attachments.downloads_folder = set.display().to_string();
+            })
+            .expect("the setting is written");
+            contexts
+        },
+    );
+    let chosen = tempfile::tempdir().expect("a folder to choose");
+    window.answer(vec![chosen.path().to_path_buf()]);
+    window.open_subject(SAVE_ALL_SUBJECT);
+    window.until("the reader shows the three tiles", |h| {
+        h.count(".reader .att-tile") == 3
+    });
+
+    // Save to…, the menu's second row, on the third tile.
+    tile_menu(&mut window, 3, 2);
+    let escaped = chosen.path().join("escape.txt");
+    window.until("the part is written into the folder chosen", |_| {
+        escaped.exists()
+    });
+    assert_eq!(window.asked(), [mail_app::ui::native::DialogAsk::Folder]);
+    let count = |dir: &std::path::Path| std::fs::read_dir(dir).expect("a folder").count();
+    assert_eq!(count(chosen.path()), 1, "Save to… wrote more than its part");
+
+    // Save, the tile's own button, on the first: into the folder Settings names.
+    window.click(".reader .att-strip > .att-tile:nth-child(1) > .ds-button");
+    let saved = folder.path().join("minutes.txt");
+    window.until("the part is saved into the folder set", |_| saved.exists());
+    assert_eq!(
+        count(window.saves().as_path()),
+        0,
+        "Save ignored the setting"
+    );
+    assert_eq!(window.asked().len(), 1, "Save asked for a folder");
+}
