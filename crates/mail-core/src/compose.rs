@@ -1002,6 +1002,18 @@ pub fn save(store: &SqliteStore, draft: &Draft) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// The plain drafts and templates an older build stored, their text written as flowed text with
+/// every line hard, so a line ending in a space is not joined to the next once it goes out
+/// labelled `format=flowed`. Migration 0038 queues them; each is rewritten once. Returns how
+/// many.
+pub fn reflow_stored(store: &SqliteStore) -> Result<usize, CoreError> {
+    let queued = store.reflow_queue()?;
+    for (kept, text) in &queued {
+        store.reflowed(*kept, &plain_to_flowed(text))?;
+    }
+    Ok(queued.len())
+}
+
 /// Delete a draft.
 ///
 /// There was no way to do this anywhere in the application. The composer's "Discard" only closed
@@ -1862,5 +1874,67 @@ mod server_copy_tests {
         mail_store::testing::seed_caps(&store, account(), &gmail, at(0)).unwrap();
         assert!(!keep_on_server(&store, draft.id, at(2)).unwrap());
         assert!(queued(&store).is_empty(), "{:?}", queued(&store));
+    }
+}
+
+#[cfg(test)]
+mod reflow_tests {
+    use super::*;
+    use crate::support_tests::{account, at};
+
+    /// A plain draft an older build kept, with its text as it was written, and queued as
+    /// migration 0038 queues it.
+    fn kept_plain(store: &SqliteStore, text: &str) -> DraftId {
+        let identity = Identity {
+            id: IdentityId::generate(),
+            account: account(),
+            from: Address {
+                name: None,
+                email: "me@example.test".to_owned(),
+            },
+            reply_to: None,
+            signature: None,
+            default: IsDefault::Default,
+        };
+        mail_store::testing::seed_account(store, account(), "me@example.test");
+        mail_store::testing::seed_identity(store, &identity);
+        let draft = Draft::blank(&identity, at(1));
+        save(store, &draft).unwrap();
+        let db = store.raw_connection();
+        db.execute(
+            "UPDATE drafts SET body_text = ?2, body_html = NULL WHERE id = ?1",
+            [draft.id.to_string(), text.to_owned()],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO drafts_to_reflow (draft) VALUES (?1)",
+            [draft.id.to_string()],
+        )
+        .unwrap();
+        draft.id
+    }
+
+    /// Sent as `format=flowed` as it was kept, a line ending in a space would join the next
+    /// and a leading space would be taken for stuffing.
+    #[test]
+    fn a_plain_draft_kept_before_flowed_text_is_rewritten_once() {
+        let store = mail_store::testing::in_memory();
+        let id = kept_plain(
+            &store,
+            "Dear Ada, \nthe numbers:\n  12\nFrom here on\n> quoted \n-- \nBea",
+        );
+        assert_eq!(reflow_stored(&store).unwrap(), 1);
+        let text = store.draft(id).unwrap().text;
+        assert_eq!(
+            text,
+            "Dear Ada,\nthe numbers:\n   12\n From here on\n> quoted\n-- \nBea"
+        );
+        assert_eq!(
+            mail_mime::unflow(&text, mail_mime::Delsp::No),
+            "Dear Ada,\nthe numbers:\n  12\nFrom here on\n> quoted\n-- \nBea",
+            "and reads back as it was written"
+        );
+        assert_eq!(reflow_stored(&store).unwrap(), 0, "once");
+        assert_eq!(store.draft(id).unwrap().text, text);
     }
 }

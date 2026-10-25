@@ -23,6 +23,11 @@ const MESSAGE: &str = "00000000-0000-4000-8000-0000000000f1";
 const SIGNED: &str = "00000000-0000-4000-8000-0000000000b1";
 const BLANK: &str = "00000000-0000-4000-8000-0000000000b2";
 const UNSIGNED: &str = "00000000-0000-4000-8000-0000000000b3";
+/// The drafts 0038's case writes: plain, and with HTML.
+const PLAIN_DRAFT: &str = "00000000-0000-4000-8000-0000000000d1";
+const RICH_DRAFT: &str = "00000000-0000-4000-8000-0000000000d2";
+/// The plain template 0038's case writes.
+const PLAIN_TEMPLATE: &str = "00000000-0000-4000-8000-0000000000c1";
 /// A second message, for the cases that need one beside [`MESSAGE`].
 const OTHER: &str = "00000000-0000-4000-8000-0000000000f2";
 
@@ -770,6 +775,71 @@ const CASES: &[Case] = &[
             drop(db);
             store.delete_signature(only.id).unwrap();
             assert_eq!(store.identity(id(SIGNED)).unwrap().unwrap().signature, None);
+        },
+    },
+    Case {
+        // A plain draft an older build kept has its text as written, which is not flowed text,
+        // so it is queued to be rewritten, as is a plain template; one with HTML the composer
+        // wrote, as flowed text.
+        migration: "0038_reflow_drafts",
+        from: 37,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO identities (id, account, from_name, from_email, is_default)
+                 VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
+                [SIGNED, ACCOUNT],
+            )
+            .unwrap();
+            for (id, text, html) in [
+                (PLAIN_DRAFT, "Dear Ada, \nFrom here", None),
+                (RICH_DRAFT, "Dear Bea,", Some("<p>Dear Bea,</p>")),
+            ] {
+                db.execute(
+                    r#"INSERT INTO drafts (id, account, identity, recipients, subject,
+                           in_reply_to, forward_of, body_text, body_html, attachments, state,
+                           updated_at)
+                       VALUES (?1, ?2, ?3, '{"to":[],"cc":[],"bcc":[]}', 'Plans', NULL, NULL,
+                           ?4, ?5, '[]', '{"kind":"editing"}',
+                           '2023-01-02T00:00:00.000000000Z')"#,
+                    rusqlite::params![id, ACCOUNT, SIGNED, text, html],
+                )
+                .unwrap();
+            }
+            db.execute(
+                r#"INSERT INTO templates (id, account, identity, name, recipients, subject,
+                       body_text, body_html, attachments, receipt, updated_at)
+                   VALUES (?1, ?2, ?3, 'Weekly', '{"to":[],"cc":[],"bcc":[]}', 'Plans',
+                       ' indented', NULL, '[]', '"unrequested"',
+                       '2023-01-02T00:00:00.000000000Z')"#,
+                [PLAIN_TEMPLATE, ACCOUNT, SIGNED],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            use mail_domain::{DraftId, TemplateId};
+            use mail_store::Kept;
+            let store = open();
+            let draft = DraftId::from_uuid(PLAIN_DRAFT.parse().unwrap());
+            let template = TemplateId::from_uuid(PLAIN_TEMPLATE.parse().unwrap());
+            assert_eq!(
+                store.reflow_queue().unwrap(),
+                vec![
+                    (Kept::Draft(draft), "Dear Ada, \nFrom here".to_owned()),
+                    (Kept::Template(template), " indented".to_owned()),
+                ]
+            );
+            store
+                .reflowed(Kept::Draft(draft), "Dear Ada,\n From here")
+                .unwrap();
+            store
+                .reflowed(Kept::Template(template), "  indented")
+                .unwrap();
+            drop(store);
+            let store = open();
+            assert_eq!(store.reflow_queue().unwrap(), vec![], "it runs once");
+            assert_eq!(store.draft(draft).unwrap().text, "Dear Ada,\n From here");
+            assert_eq!(store.template(template).unwrap().text, "  indented");
         },
     },
 ];

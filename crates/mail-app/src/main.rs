@@ -153,6 +153,10 @@ fn main() {
     if let Err(e) = mail_runtime::reparse_queued(&store) {
         eprintln!("could not re-read stored headers: {e}");
     }
+    // Plain drafts kept before every draft's text was flowed text are made so, once.
+    if let Err(e) = mail_core::compose::reflow_stored(&store) {
+        eprintln!("could not rewrite stored drafts as flowed text: {e}");
+    }
     // OpenPGP keys kept before their dates were recorded have them read from their bytes, once.
     if let Err(e) = mail_runtime::pgp::date_keys(&store) {
         eprintln!("could not read the dates of stored OpenPGP keys: {e}");

@@ -21,6 +21,8 @@ mod pgp;
 mod placed;
 mod read;
 mod receipt;
+mod reflow;
+pub use reflow::Kept;
 mod reparse;
 mod row;
 mod rules;
