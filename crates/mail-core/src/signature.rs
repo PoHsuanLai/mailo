@@ -150,14 +150,18 @@ fn named(name: &str) -> String {
 
 /// `draft` with its signature made `next`, or taken off with `None`, its text and HTML written
 /// again from the document; `draft` as it was when that changes nothing. `known` are the
-/// signatures it may have now, which are its identity's.
+/// signatures it may have now, which are its identity's, and `inline` the pictures its body shows
+/// (`crate::compose::inline_parts`), which the document written again keeps.
+///
+/// A draft with no HTML is plain text, and stays so: only one that had HTML has it written again.
 pub fn resigned(
     draft: &Draft,
     known: &[Signature],
     next: Option<&Signature>,
     placement: Placement,
+    inline: &[mail_mime::ParsedPart],
 ) -> Draft {
-    let mut doc = doc_of(draft);
+    let mut doc = doc_of(draft, inline);
     let Some((op, _)) = swap(&doc, known, next, placement) else {
         return draft.clone();
     };
@@ -166,7 +170,7 @@ pub fn resigned(
     }
     Draft {
         text: to_flowed(&doc),
-        html: Some(to_html(&doc)),
+        html: draft.html.as_ref().map(|_| to_html(&doc)),
         ..draft.clone()
     }
 }
@@ -196,7 +200,13 @@ pub fn send_as(
         account,
         identity: next.id,
         updated: now,
-        ..resigned(&had, &known, signature.as_ref(), Placement::default())
+        ..resigned(
+            &had,
+            &known,
+            signature.as_ref(),
+            Placement::default(),
+            &crate::compose::inline_parts(store, &had),
+        )
     };
     save(store, &moved)?;
     Ok(moved)

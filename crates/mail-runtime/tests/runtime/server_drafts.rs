@@ -297,6 +297,8 @@ fn draft() -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: Smime::None,
+        priority: Priority::Normal,
+        delivery: DeliveryReport::Unrequested,
         state: SendState::Editing,
         updated: now(),
     }
@@ -506,6 +508,7 @@ async fn a_draft_kept_twice_leaves_one_copy_and_sending_it_removes_that_copy() {
                 raw,
                 mail_from: post.mail_from.clone(),
                 rcpt_to: post.rcpt_to.clone(),
+                delivery: post.delivery,
             },
             &Patch {
                 id: ChangeId::generate(),

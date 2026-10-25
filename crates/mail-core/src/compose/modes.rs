@@ -8,8 +8,10 @@
 //! is no draft at all: the original goes again as it is, so there is nothing to edit.
 
 use super::enclosed::sent_bytes_of;
-use super::{carried, identity_addressed, identity_of, quoted, quoting, save, signed};
-use crate::error::CoreError;
+use super::{answering, carried, identity_addressed, identity_of, quoted, quoting, save, signed};
+use crate::editor::plain_to_flowed;
+use crate::error::{CoreError, Logged};
+use crate::signature::{self, Placement};
 use chrono::{DateTime, Local, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -41,16 +43,22 @@ pub fn draft_answer(
     to: Answer,
     quote: Quote<'_>,
     now: DateTime<Utc>,
+    placement: Placement,
 ) -> Result<Draft, CoreError> {
-    draft_answer_in(store, message, to, quote, "", now, &Local)
+    draft_answer_in(store, message, to, quote, "", now, &Local, placement)
 }
 
-/// Create and persist an answer to `message`: addressed `to`, `body` (signed) above the quote,
-/// and `quote` of the original beneath its attribution line.
+/// Create and persist an answer to `message`: addressed `to`, `body` above the quote, `quote` of
+/// the original beneath its attribution line, and the identity's default signature for replies
+/// where `placement` puts it, above the quote or at the end.
+///
+/// It leaves from the address the original reached ([`super::answering`]), and none of the
+/// account's own addresses is copied on it.
 ///
 /// [`super::draft_reply_in`] is this with [`Quote::Whole`]. A reply to the list is refused, with
 /// [`CoreError::NoListPost`], for a message that names no list address; one whose body has not
 /// been fetched cannot say, and is refused as not fetched.
+#[allow(clippy::too_many_arguments)]
 pub fn draft_answer_in<Tz: chrono::TimeZone>(
     store: &SqliteStore,
     message: MessageId,
@@ -59,12 +67,14 @@ pub fn draft_answer_in<Tz: chrono::TimeZone>(
     body: &str,
     now: DateTime<Utc>,
     zone: &Tz,
+    placement: Placement,
 ) -> Result<Draft, CoreError>
 where
     Tz::Offset: std::fmt::Display,
 {
     let original = store.message(message)?;
-    let identity = identity_of(store, original.account.clone(), None)?;
+    let identity = identity_of(store, original.account.clone(), answering(store, &original))?;
+    let signature = signature::default_for(store, identity.id, SignatureUse::Replies)?;
 
     let mut draft = match to {
         Answer::Scope(scope) => Draft::reply_to(&original, &identity, scope, now),
@@ -79,15 +89,29 @@ where
             draft
         }
     };
+    // `Draft::reply_to` drops the address it answers from; the account's other addresses are the
+    // person too, and a reply-all from an alias would otherwise copy their own address on it.
+    let own = store
+        .identities(original.account.clone())
+        .or_log_default("the account's identities could not be read");
+    let mine = |a: &Address| {
+        own.iter()
+            .any(|i| i.from.email.eq_ignore_ascii_case(&a.email))
+    };
+    draft.to.retain(|a| !mine(a));
+    draft.cc.retain(|a| !mine(a));
     // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
     // a property of the draft — so the quoting happens here, where the renderer is.
-    let body = signed(body, &identity);
-    draft.text = match quote {
+    let quote_under = |above: &str| match quote {
         Quote::Selection(selected) if !selected.trim().is_empty() => {
-            quoting(&body, &original, Some(selected.trim_end()), zone)
+            quoting(above, &original, Some(selected.trim_end()), zone)
         }
-        Quote::Whole | Quote::Selection(_) => quoted(&body, &original, zone),
+        Quote::Whole | Quote::Selection(_) => quoted(above, &original, zone),
     };
+    draft.text = plain_to_flowed(&match placement {
+        Placement::AboveQuote => quote_under(&signed(body, signature.as_ref())),
+        Placement::BelowQuote => signed(&quote_under(body), signature.as_ref()),
+    });
     save(store, &draft)?;
     Ok(draft)
 }
@@ -138,7 +162,8 @@ pub fn draft_again(
         text: Some(text), ..
     } = &original.body
     {
-        draft.text = text.clone();
+        // `Draft.text` is flowed text, however it was written.
+        draft.text = plain_to_flowed(text);
     }
     draft.attachments = carried(&original.attachments);
     save(store, &draft)?;
@@ -212,6 +237,7 @@ pub fn redirect(
             raw,
             mail_from: post.mail_from,
             rcpt_to: post.rcpt_to.clone(),
+            delivery: post.delivery,
         },
         // Nothing to undo: the outbox cannot take back bytes once they are on the wire.
         &Patch {

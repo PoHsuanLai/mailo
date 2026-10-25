@@ -206,7 +206,12 @@ fn start_reply(
         Some((message, text)) => (*message, Quote::Selection(text)),
         None => (newest(store, thread)?, Quote::Whole),
     };
-    mail_core::compose::draft_answer(store, target, to, quote, chrono::Utc::now())
+    // Where the signature goes is the person's setting: under the quoted original unless asked.
+    let placement = super::prefs::current()
+        .compose
+        .signature_above_quote
+        .placement();
+    mail_core::compose::draft_answer(store, target, to, quote, chrono::Utc::now(), placement)
         .map_err(String::from)
 }
 

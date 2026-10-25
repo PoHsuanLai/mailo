@@ -327,7 +327,7 @@ fn a_flowed_text_draft_opens_as_its_paragraphs() {
         html: None,
         ..Draft::blank(&mail_domain::testing::identity(), at(0))
     };
-    let doc = super::opening::doc_of(&draft);
+    let doc = mail_core::compose::doc_of(&draft, &[]);
     let paras: Vec<String> = doc
         .nodes
         .iter()

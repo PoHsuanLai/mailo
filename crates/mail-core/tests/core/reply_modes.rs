@@ -8,6 +8,7 @@ use crate::support::account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::CoreError;
 use mail_core::compose::{self, Answer, Quote};
+use mail_core::signature::Placement;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
 
@@ -184,6 +185,7 @@ fn a_reply_to_a_selection_quotes_only_what_was_selected() {
         "",
         at(10),
         &Utc,
+        Placement::default(),
     )
     .unwrap();
     assert_eq!(quoted(&selected.text), ["one o'clock"]);
@@ -204,6 +206,7 @@ fn a_reply_to_a_selection_quotes_only_what_was_selected() {
         "",
         at(10),
         &Utc,
+        Placement::default(),
     )
     .unwrap();
     assert_eq!(
@@ -224,7 +227,15 @@ fn a_reply_to_the_list_goes_to_its_list_post_address_and_nobody_else() {
             ..Stored::default()
         },
     );
-    let draft = compose::draft_answer(&store, id, Answer::List, Quote::Whole, at(10)).unwrap();
+    let draft = compose::draft_answer(
+        &store,
+        id,
+        Answer::List,
+        Quote::Whole,
+        at(10),
+        Placement::default(),
+    )
+    .unwrap();
     assert_eq!(emails(&draft.to), ["rust@lists.example.test"]);
     assert!(draft.cc.is_empty() && draft.bcc.is_empty());
     assert_eq!(draft.subject, "Re: lunch on friday");
@@ -250,7 +261,14 @@ fn a_reply_to_the_list_goes_to_its_list_post_address_and_nobody_else() {
         );
         assert!(
             matches!(
-                compose::draft_answer(&store, plain, Answer::List, Quote::Whole, at(10)),
+                compose::draft_answer(
+                    &store,
+                    plain,
+                    Answer::List,
+                    Quote::Whole,
+                    at(10),
+                    Placement::default()
+                ),
                 Err(CoreError::NoListPost)
             ),
             "{extra:?}"

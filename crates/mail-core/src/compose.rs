@@ -128,30 +128,16 @@ fn reply_in<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let original = store.message(message)?;
-    let identity = identity_of(store, original.account.clone(), answering(store, &original))?;
-    let signature = signature::default_for(store, identity.id, SignatureUse::Replies)?;
-
-    let mut draft = Draft::reply_to(&original, &identity, scope, now);
-    // `Draft::reply_to` drops the address it answers from; the account's other addresses are the
-    // person too, and a reply-all from an alias would otherwise copy their own address on it.
-    let own = store
-        .identities(original.account.clone())
-        .or_log_default("the account's identities could not be read");
-    let mine = |a: &Address| {
-        own.iter()
-            .any(|i| i.from.email.eq_ignore_ascii_case(&a.email))
-    };
-    draft.to.retain(|a| !mine(a));
-    draft.cc.retain(|a| !mine(a));
-    // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
-    // a property of the draft — so the quoting happens here, where the renderer is.
-    draft.text = plain_to_flowed(&match placement {
-        Placement::AboveQuote => quoted(&signed(body, signature.as_ref()), &original, zone),
-        Placement::BelowQuote => signed(&quoted(body, &original, zone), signature.as_ref()),
-    });
-    save(store, &draft)?;
-    Ok(draft)
+    draft_answer_in(
+        store,
+        message,
+        Answer::Scope(scope),
+        Quote::Whole,
+        body,
+        now,
+        zone,
+        placement,
+    )
 }
 
 /// Create and persist a forward of `message`, addressed to `to`.
