@@ -33,6 +33,29 @@ pub fn system() -> &'static [CertificateDer<'static>] {
     })
 }
 
+/// The system's authorities that can be roots, read once per process.
+///
+/// One rustls refuses as a root (a malformed or unsupported certificate in the bundle) is left
+/// out here, not only where a store is built: reqwest under rustls takes any DER in
+/// `Certificate::from_der` and only fails at `build()`, so a single such certificate in the
+/// system's bundle would leave no HTTP client at all.
+pub fn usable_system() -> &'static [CertificateDer<'static>] {
+    static USABLE: OnceLock<Vec<CertificateDer<'static>>> = OnceLock::new();
+    USABLE.get_or_init(|| {
+        let usable: Vec<_> = system().iter().filter(|der| usable(der)).cloned().collect();
+        let unusable = system().len() - usable.len();
+        if unusable > 0 {
+            log::debug!("{unusable} system certificates are not usable as roots");
+        }
+        usable
+    })
+}
+
+/// Whether rustls takes `der` as a root.
+fn usable(der: &CertificateDer<'_>) -> bool {
+    RootCertStore::empty().add(der.clone()).is_ok()
+}
+
 /// The bundled roots and the system's, for a TLS connection to a server an account is set up
 /// with.
 pub fn server_roots() -> Arc<RootCertStore> {
@@ -42,10 +65,7 @@ pub fn server_roots() -> Arc<RootCertStore> {
             let mut roots = RootCertStore {
                 roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
             };
-            let (_, unusable) = roots.add_parsable_certificates(system().iter().cloned());
-            if unusable > 0 {
-                log::debug!("{unusable} system certificates are not usable as roots");
-            }
+            roots.add_parsable_certificates(usable_system().iter().cloned());
             Arc::new(roots)
         })
         .clone()
@@ -54,9 +74,17 @@ pub fn server_roots() -> Arc<RootCertStore> {
 /// `builder`, also trusting the system's authorities: for an HTTP client that reaches a server
 /// an account is set up with. reqwest keeps its bundled roots alongside.
 pub fn trusting_system(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
-    system()
-        .iter()
-        // One reqwest cannot read is skipped, as `server_roots` skips one rustls cannot.
+    trusting(builder, usable_system())
+}
+
+/// `builder`, also trusting each of `ders` that rustls takes as a root; the rest are skipped,
+/// since one it refuses would fail the client's `build()`.
+fn trusting(
+    builder: reqwest::ClientBuilder,
+    ders: &[CertificateDer<'_>],
+) -> reqwest::ClientBuilder {
+    ders.iter()
+        .filter(|der| usable(der))
         .filter_map(|der| reqwest::Certificate::from_der(der.as_ref()).ok())
         .fold(builder, reqwest::ClientBuilder::add_root_certificate)
 }
@@ -69,5 +97,24 @@ mod tests {
     #[test]
     fn the_bundled_roots_are_always_there() {
         assert!(server_roots().len() >= webpki_roots::TLS_SERVER_ROOTS.len());
+    }
+
+    /// A certificate rustls cannot use, among the system's, still leaves a client to build:
+    /// reqwest takes any DER and would fail only at `build()`.
+    #[test]
+    fn an_unusable_certificate_is_left_out_of_the_client() {
+        let garbage = CertificateDer::from(vec![0x30, 0x03, 0x02, 0x01, 0x00]);
+        assert!(!usable(&garbage));
+        assert!(
+            trusting(reqwest::Client::builder(), &[garbage])
+                .build()
+                .is_ok()
+        );
+    }
+
+    /// Every system certificate kept is one rustls takes.
+    #[test]
+    fn the_usable_system_certificates_are_all_roots() {
+        assert!(usable_system().iter().all(usable));
     }
 }
