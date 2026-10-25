@@ -9,7 +9,7 @@ use super::Mailboxes;
 use super::field::{malformed, object};
 use super::mailbox::DELIMITER;
 use crate::{ProtoError, Refusal};
-use mail_domain::{FolderWork, Keyword, MailboxRole, ReadState, Star, Subscription};
+use mail_domain::{FolderWork, JmapMailboxId, Keyword, MailboxRole, ReadState, Star, Subscription};
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
@@ -60,6 +60,30 @@ pub fn filing_patch(
             "the server lists no mailbox for {role:?}"
         )));
     }
+    Ok(moved_into(target, mailboxes))
+}
+
+/// The patch that files an email into the folder spelled `path` here, as "Move to…" does: into
+/// that mailbox, and out of Inbox, Archive, Trash and Junk, as [`filing_patch`] moves it.
+///
+/// Labels and Sent stay, for the reasons they stay on archiving, and because that is the move
+/// as it is made locally: the message is filed out of the inbox and gains the folder's label,
+/// keeping every label it had.
+///
+/// A folder no mailbox answers to is refused, permanently: filing into a mailbox that does not
+/// exist is not something to retry, and the local move is undone instead.
+pub fn file_patch(path: &str, mailboxes: &Mailboxes) -> Result<Map<String, Value>, ProtoError> {
+    let target = mailboxes
+        .id_for_path(path)
+        .ok_or_else(|| ProtoError::Refused {
+            kind: Refusal::Permanent,
+            text: format!("the server has no mailbox called {path:?}"),
+        })?;
+    Ok(moved_into(Some(target), mailboxes))
+}
+
+/// Into `target`, when there is one, and out of every other mailbox an email is moved between.
+fn moved_into(target: Option<&JmapMailboxId>, mailboxes: &Mailboxes) -> Map<String, Value> {
     let mut patch = Map::new();
     for moving in [
         MailboxRole::Inbox,
@@ -77,7 +101,7 @@ pub fn filing_patch(
     if let Some(id) = target {
         patch.insert(format!("mailboxIds/{id}"), json!(true));
     }
-    Ok(patch)
+    patch
 }
 
 /// The patch that adds and removes labels, by the path each mailbox is spelled with here.

@@ -1,11 +1,11 @@
 //! Draining the outbox to a JMAP server: the same operations, in the same order, with the same
 //! settle and undo rules as [`crate::AccountEngine::drain_outbox`].
 //!
-//! Each operation is one request. Flags, filing, labels and keywords are `Email/set` patches;
-//! an upload is `Email/import`; a send is an import and an `EmailSubmission/set` together;
-//! folder work is `Mailbox/set`. Destroying an email is done for one reason only — the user
-//! deleted it forever from Trash or Junk — and is checked against the server's own view before
-//! it is asked for.
+//! Each operation is one request. Flags, filing, moving to a folder, labels and keywords are
+//! `Email/set` patches; an upload is `Email/import`; a send is an import and an
+//! `EmailSubmission/set` together; folder work is `Mailbox/set`. Destroying an email is done for
+//! one reason only — the user deleted it forever from Trash or Junk — and is checked against the
+//! server's own view before it is asked for.
 
 use super::{Client, JmapEngine, email_ids};
 use crate::{RuntimeError, SyncReport};
@@ -211,6 +211,18 @@ impl JmapEngine {
                     self.refresh_mailboxes(Utc::now()).await?
                 };
                 let update = patch_each(&remotes, jmap::labels_patch(&add, &remove, &mailboxes)?);
+                self.set(&client, update, Vec::new()).await
+            }
+            ProtoOp::File { remotes, folder } => {
+                // A folder made here a moment ago is not in the list this engine holds yet, as
+                // with a label: look again before refusing.
+                let mailboxes = if mailboxes.id_for_path(&folder).is_some() {
+                    mailboxes
+                } else {
+                    self.mailboxes = None;
+                    self.refresh_mailboxes(Utc::now()).await?
+                };
+                let update = patch_each(&remotes, jmap::file_patch(&folder, &mailboxes)?);
                 self.set(&client, update, Vec::new()).await
             }
             ProtoOp::AddKeyword { remotes, keyword } => {
