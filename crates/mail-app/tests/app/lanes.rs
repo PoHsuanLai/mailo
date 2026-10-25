@@ -47,3 +47,4 @@ mod triage;
 mod preferences;
 mod search;
 mod sidebar;
+mod sidebar_scope;

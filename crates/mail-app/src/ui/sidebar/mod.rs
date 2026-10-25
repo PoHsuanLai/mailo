@@ -97,6 +97,13 @@ pub(super) fn Places(
         let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
         arrange(&folder_act::load(&store, &in_scope()), show())
     });
+    // The scope's labels, which are the ones the Labels section draws. Read again as labels come
+    // and go, and as the Space or the pressed tile changes.
+    let labelled = use_memo(move || {
+        let _ = revision();
+        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+        folder_act::labels_in(&store, &in_scope())
+    });
     let folded = folders
         .read()
         .as_ref()
@@ -149,7 +156,7 @@ pub(super) fn Places(
             div { class: "slide", oncontextmenu: space_menu,
                 AccountTiles { shell, pages, handle, rows: tiled() }
                 Favourites { shell, pages, space: space.clone(), counted: counts_now }
-                PlaceList { shell, pages, badges, folded, scheduled: scheduled() }
+                PlaceList { shell, pages, badges, labelled: labelled(), folded, scheduled: scheduled() }
                 if let Some(section) = folders() {
                     FolderList { shell, pages, badges, revision, section, show }
                 }

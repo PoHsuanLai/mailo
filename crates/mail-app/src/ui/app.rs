@@ -1,6 +1,6 @@
 use super::actions::{self, Heard};
 use super::compose::{self, SendPill};
-use super::data::{PAGE, accounts, count_badges};
+use super::data::{Counted, PAGE, accounts, count_badges, matched};
 use super::frame;
 use super::intent::{Intent, Scope, intent, on_thread};
 use super::list::ThreadList;
@@ -201,14 +201,21 @@ pub(super) fn App() -> Element {
     // Depends on `revision` and the badge filters, not on `shell`. It used to read `shell`,
     // which subscribes a memo to *every* change of it — so each keystroke in the search box
     // re-ran one indexed count per place.
-    let counted: Resource<Vec<Option<u64>>> = use_resource(move || {
+    //
+    // Each answer carries the filters it counted, so the badges below can tell an answer for
+    // another list of places from one for this list.
+    let counted: Resource<Counted> = use_resource(move || {
         let _ = revision();
         let filters = badge_filters();
         let store = consume_context::<Arc<SqliteStore>>();
         async move {
-            tokio::task::spawn_blocking(move || count_badges(&store, &filters))
-                .await
-                .unwrap_or_default()
+            tokio::task::spawn_blocking(move || {
+                let counts = count_badges(&store, &filters);
+                (filters, counts)
+            })
+            .await
+            // A count that panicked draws no badges until the next revision counts again.
+            .unwrap_or_default()
         }
     });
     // And the answer for the very first frame, computed here because there is not one yet.
@@ -218,11 +225,20 @@ pub(super) fn App() -> Element {
     // Falling back to the synchronous answer costs one query on the first frame and nothing
     // afterwards: once the resource has a value it keeps it across restarts, so a search never
     // drops back to computing on this thread.
-    let badges = use_memo(move || match counted.read().as_ref() {
-        Some(counts) => counts.clone(),
-        None => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            count_badges(&store, &badge_filters())
+    //
+    // The badges are by place, index for index, and the last answer may be for another list: a
+    // label came or went, or an account was removed, and the new answer has not landed. Read by
+    // position it put each count on the row that moved into its place, so each badge keeps the
+    // count of its own filter until then, and a place the last answer did not count has none.
+    let badges = use_memo(move || {
+        let filters = badge_filters();
+        match counted.read().as_ref() {
+            Some((counted_for, counts)) if *counted_for == filters => counts.clone(),
+            Some((counted_for, counts)) => matched(&filters, counted_for, counts),
+            None => {
+                let store = consume_context::<Arc<SqliteStore>>();
+                count_badges(&store, &filters)
+            }
         }
     });
 

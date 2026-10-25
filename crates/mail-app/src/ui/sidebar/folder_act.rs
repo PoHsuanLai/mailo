@@ -57,6 +57,27 @@ pub(in crate::ui) fn folder_places(store: &SqliteStore) -> Vec<(String, MailboxR
     placed(&load(store, &crate::ui::space::Scope::All))
 }
 
+/// The labels of every account in `scope`: the ones the Labels section draws.
+///
+/// The places hold every account's labels, as they hold every account's folders, so a label's
+/// place and its badge keep their index whatever the Space; the Space, or the pressed tile,
+/// narrows which of them are drawn. Without it a Space whose accounts were all taken out still
+/// listed every other account's labels.
+pub(in crate::ui) fn labels_in(
+    store: &SqliteStore,
+    scope: &crate::ui::space::Scope,
+) -> Vec<mail_domain::LabelId> {
+    account_rows(store)
+        .into_iter()
+        .filter(|row| scope.shows(row.id.clone()))
+        .flat_map(|row| {
+            // An account whose labels cannot be read draws none, and the others still draw.
+            store.labels(row.id).unwrap_or_default()
+        })
+        .map(|label| label.id)
+        .collect()
+}
+
 /// A change that happened: what the toast says, and how to take it back, when it can be.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Done {

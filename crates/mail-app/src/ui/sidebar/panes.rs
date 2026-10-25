@@ -161,6 +161,8 @@ pub(super) fn PlaceList(
     shell: Signal<Shell>,
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
+    /// The labels of the accounts in scope. The places hold every account's.
+    labelled: Vec<LabelId>,
     folded: Vec<LabelId>,
     /// Whether a message is waiting for its time in this Space, which is when Scheduled is drawn.
     scheduled: bool,
@@ -180,13 +182,14 @@ pub(super) fn PlaceList(
         .filter(|(_, place)| saved_of(place).is_some())
         .map(|(index, place)| (index, place.name.clone()))
         .collect();
-    // A label that is also a mailbox is drawn once, under Folders. See `folder_tree::arrange`.
+    // Only the scope's labels, as Folders draws only the scope's folders. A label that is also a
+    // mailbox is drawn once, under Folders. See `folder_tree::arrange`.
     let labels: Vec<(usize, String)> = places
         .iter()
         .enumerate()
         .skip(split)
         .filter(|(_, place)| match &place.source {
-            Source::Mail(Filter::HasLabel(id)) => !folded.contains(id),
+            Source::Mail(Filter::HasLabel(id)) => labelled.contains(id) && !folded.contains(id),
             _ => false,
         })
         .map(|(index, place)| (index, place.name.clone()))

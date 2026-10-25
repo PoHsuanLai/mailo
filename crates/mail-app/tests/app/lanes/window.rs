@@ -332,6 +332,14 @@ impl Window {
         deliver(&watch, uidl, raw);
     }
 
+    /// Another connection to the store, as `mailo` in a terminal opens: the window hears of
+    /// what it writes by the store's data version.
+    pub fn second_connection(&self) -> SqliteStore {
+        let dir = self.dir.path();
+        SqliteStore::open(dir.join("mail.db"), dir.join("blobs"))
+            .expect("a second connection to the store")
+    }
+
     /// Write `bytes` as `name` in a scratch directory a dialog can answer with.
     pub fn file(&self, name: &str, bytes: &[u8]) -> PathBuf {
         let path = self.dir.path().join("files").join(name);
