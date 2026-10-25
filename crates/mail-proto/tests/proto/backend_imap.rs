@@ -1304,7 +1304,10 @@ fn junk_marks_travel_with_a_move_into_and_out_of_junk() {
         ServerLabels::LocalOnly,
         ArchiveMeans::MoveToFolder("Archive".to_owned()),
     );
-    roles.folders = FolderRoles(vec![("Junk".to_owned(), MailboxRole::Spam)]);
+    roles.folders = FolderRoles(vec![
+        ("Junk".to_owned(), MailboxRole::Spam),
+        ("Trash".to_owned(), MailboxRole::Trash),
+    ]);
     let cases: &[(&str, &str, MailboxRole, &str, &str)] = &[
         (
             "not junk",
@@ -1315,12 +1318,20 @@ fn junk_marks_travel_with_a_move_into_and_out_of_junk() {
         ),
         ("junk", "INBOX", MailboxRole::Spam, "Junk", "$Junk/$NotJunk"),
         ("archived", "INBOX", MailboxRole::Archive, "Archive", ""),
+        // Out of Junk but not to the inbox: no word on whether it was junk.
         (
             "archived out of junk",
             "Junk",
             MailboxRole::Archive,
             "Archive",
-            "$NotJunk/$Junk",
+            "",
+        ),
+        (
+            "trashed out of junk",
+            "Junk",
+            MailboxRole::Trash,
+            "Trash",
+            "",
         ),
     ];
     for (name, from, role, to, marks) in cases {
@@ -1356,4 +1367,38 @@ fn junk_marks_travel_with_a_move_into_and_out_of_junk() {
             "{name}"
         );
     }
+}
+
+/// A server that refuses the junk keywords (Exchange answers `BAD` to `$Junk`) still has the
+/// message moved: the STOREs only inform, and their refusal is passed over.
+#[test]
+fn a_refused_junk_mark_does_not_cancel_the_move() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.folders = FolderRoles(vec![("Junk".to_owned(), MailboxRole::Spam)]);
+    let trace = "S: * OK ready\n\
+         C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+         S: a001 OK logged in\n\
+         C: a002 SELECT \"INBOX\"\n\
+         S: a002 OK [READ-WRITE] SELECT completed\n\
+         C: a003 UID STORE 5 +FLAGS ($Junk)\n\
+         S: a003 BAD Command Argument Error. 11\n\
+         C: a004 UID STORE 5 -FLAGS ($NotJunk)\n\
+         S: a004 NO keywords are not kept here\n\
+         C: a005 UID MOVE 5 \"Junk\"\n\
+         S: a005 OK moved\n\
+         DONE\n";
+    let mut driven = Driven::new(
+        password_backend(roles),
+        ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 5)],
+            role: MailboxRole::Spam,
+        },
+    );
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Moved(_)
+    ));
 }

@@ -291,6 +291,7 @@ impl ImapBackend {
             ImapCommand::UidStore {
                 set: set.clone(),
                 what: "+FLAGS.SILENT (\\Deleted)".to_owned(),
+                tolerate: false,
             },
             ImapCommand::UidExpunge { set },
         ])
@@ -533,12 +534,14 @@ impl Backend for ImapBackend {
                     commands.push(ImapCommand::UidStore {
                         set: set.clone(),
                         what: format!("+FLAGS ({})", add.join(" ")),
+                        tolerate: false,
                     });
                 }
                 if !remove.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set,
                         what: format!("-FLAGS ({})", remove.join(" ")),
+                        tolerate: false,
                     });
                 }
                 self.job = Job::Applied;
@@ -559,6 +562,7 @@ impl Backend for ImapBackend {
                     ImapCommand::UidStore {
                         set,
                         what: format!("+FLAGS ({})", keyword_atom(keyword)),
+                        tolerate: false,
                     },
                 ])
             }
@@ -579,12 +583,14 @@ impl Backend for ImapBackend {
                     commands.push(ImapCommand::UidStore {
                         set: set.clone(),
                         what: format!("+X-GM-LABELS ({})", quoted_labels(&add)),
+                        tolerate: false,
                     });
                 }
                 if !remove.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set,
                         what: format!("-X-GM-LABELS ({})", quoted_labels(&remove)),
+                        tolerate: false,
                     });
                 }
                 self.job = Job::Applied;
@@ -606,6 +612,7 @@ impl Backend for ImapBackend {
                             commands.push(ImapCommand::UidStore {
                                 set: set.clone(),
                                 what: format!("+X-GM-LABELS ({label})"),
+                                tolerate: false,
                             });
                         }
                         // Back to the inbox is `\Inbox` added and nothing taken away. Taking it
@@ -615,6 +622,7 @@ impl Backend for ImapBackend {
                             commands.push(ImapCommand::UidStore {
                                 set,
                                 what: "-X-GM-LABELS (\\Inbox)".to_owned(),
+                                tolerate: false,
                             });
                         }
                         self.queue(commands)
@@ -648,10 +656,12 @@ impl Backend for ImapBackend {
                             ImapCommand::UidStore {
                                 set: set.clone(),
                                 what: format!("+X-GM-LABELS ({})", quoted_labels(&[folder])),
+                                tolerate: false,
                             },
                             ImapCommand::UidStore {
                                 set,
                                 what: "-X-GM-LABELS (\\Inbox)".to_owned(),
+                                tolerate: false,
                             },
                         ])
                     }
@@ -1654,7 +1664,12 @@ fn role_folder(caps: &AccountCaps, archive: &str, role: MailboxRole) -> Option<S
 
 /// What a move into or out of Junk says to the server's filter, and to other clients'
 /// (RFC 9051 §2.3.2, Apple Mail and Thunderbird read the same two): `$Junk` going in, `$NotJunk`
-/// coming out of the Junk folder, and the other one taken off. Any other move says nothing.
+/// coming out of the Junk folder to the inbox, and the other one taken off. Any other move, an
+/// archive or a trash out of Junk among them, says nothing: that is no word on whether it was
+/// junk.
+///
+/// Each is a STORE that only informs: one the server refuses (Exchange answers `BAD` to a
+/// keyword it does not keep) is passed over, and the move goes on.
 fn junk_marks(caps: &AccountCaps, source: &str, role: MailboxRole, set: &str) -> Vec<ImapCommand> {
     let from_junk = caps
         .folders
@@ -1662,17 +1677,19 @@ fn junk_marks(caps: &AccountCaps, source: &str, role: MailboxRole, set: &str) ->
         .is_some_and(|junk| same_folder(junk, source));
     let (on, off) = match role {
         MailboxRole::Spam => ("$Junk", "$NotJunk"),
-        _ if from_junk => ("$NotJunk", "$Junk"),
+        MailboxRole::Inbox if from_junk => ("$NotJunk", "$Junk"),
         _ => return Vec::new(),
     };
     vec![
         ImapCommand::UidStore {
             set: set.to_owned(),
             what: format!("+FLAGS ({on})"),
+            tolerate: true,
         },
         ImapCommand::UidStore {
             set: set.to_owned(),
             what: format!("-FLAGS ({off})"),
+            tolerate: true,
         },
     ]
 }

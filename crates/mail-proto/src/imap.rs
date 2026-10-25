@@ -84,6 +84,10 @@ pub enum ImapCommand {
     UidStore {
         set: String,
         what: String,
+        /// A `NO` or `BAD` to it is passed over and the walk goes on: for a keyword that only
+        /// informs (`$Junk`), which some servers refuse (Exchange answers `BAD`), and which must
+        /// not cancel the move it travels with.
+        tolerate: bool,
     },
     /// `UID SEARCH <criteria>`.
     UidSearch {
@@ -654,7 +658,11 @@ impl ImapSession {
         // Acted on what the search before it found, or passed over.
         let command = match command {
             ImapCommand::UidStoreFound { what } => match self.found_before(index) {
-                Some(set) => ImapCommand::UidStore { set, what },
+                Some(set) => ImapCommand::UidStore {
+                    set,
+                    what,
+                    tolerate: false,
+                },
                 None => return self.issue(index + 1),
             },
             ImapCommand::UidExpungeFound => match self.found_before(index) {
@@ -871,7 +879,7 @@ impl ImapSession {
                 check_set(set)?;
                 format!("UID FETCH {set} {items}")
             }
-            ImapCommand::UidStore { set, what } => {
+            ImapCommand::UidStore { set, what, .. } => {
                 check_set(set)?;
                 format!("UID STORE {set} {what}")
             }
@@ -1205,6 +1213,13 @@ impl ImapSession {
                         {
                             return Some(self.fail(refusal));
                         }
+                        Some(self.issue(index + 1))
+                    }
+                    _ if matches!(
+                        self.commands.get(index),
+                        Some(ImapCommand::UidStore { tolerate: true, .. })
+                    ) =>
+                    {
                         Some(self.issue(index + 1))
                     }
                     imap_proto::Status::No => {
