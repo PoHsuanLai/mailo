@@ -116,6 +116,11 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             crate::ui::reading::peek_key(shell, keys, &event);
             return;
         }
+        // Escape closes ⌘F's bar first, as in the first window.
+        if key == "Escape" && shell.read().find.is_some() && shell.read().composing.is_none() {
+            crate::ui::reading::find::close(shell);
+            return;
+        }
         let typing = shell.read().composing.is_some();
         let heard = actions::heard(keys, &event, typing);
         let intent = intent(heard, Scope::Window);
@@ -128,11 +133,22 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         ) {
             return;
         }
-        if intent == Some(Intent::Print) {
-            if let Some(job) = crate::ui::print::job_for(Some(thread)) {
-                crate::ui::print::print(job);
+        match intent {
+            Some(Intent::Print) => {
+                if let Some(job) = crate::ui::print::job_for(Some(thread)) {
+                    crate::ui::print::print(job);
+                }
+                return;
             }
-            return;
+            Some(Intent::Find) => {
+                crate::ui::reading::find::open(shell);
+                return;
+            }
+            Some(Intent::FindStep(step)) => {
+                crate::ui::reading::find::step(shell, step);
+                return;
+            }
+            _ => {}
         }
         // The mail keys and Esc; a chord of the main window's (search, Spaces) is not this one's.
         let Some(Intent::Mail(action)) = intent else {

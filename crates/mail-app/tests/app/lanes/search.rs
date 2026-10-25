@@ -1,9 +1,10 @@
 //! Lane 15: searching. ⌘K puts the keyboard in the search panel, where typed letters are its
 //! query and not shortcuts, the first Escape empties it and the second gives the keyboard back;
-//! the toolbar's magnifier brings it up too, what is typed filters the rows, and Ctrl-F brings
-//! it up over an open conversation. A search kept with Save as View is a place in the sidebar,
-//! grouped as it was saved, and is deleted from its editor. A search that finds nothing here
-//! offers the server, which is asked only when that is pressed, or at once when Settings says so.
+//! the toolbar's magnifier brings it up too, what is typed filters the rows, and ⌘K brings it
+//! up over an open conversation, where ⌘F finds in the conversation instead (`find`). A search
+//! kept with Save as View is a place in the sidebar, grouped as it was saved, and is deleted
+//! from its editor. A search that finds nothing here offers the server, which is asked only
+//! when that is pressed, or at once when Settings says so.
 
 use mail_app::ui::copy;
 use mail_app::ui::native::ServerSearcher;
@@ -207,10 +208,10 @@ fn the_search_panel_filters_the_list_saves_a_view_and_offers_the_server() {
         h.count(".list .ds-thread") == INBOX.len() && h.count(".ds-search-card") == 0
     });
 
-    // Ctrl-F over an open conversation.
+    // ⌘K over an open conversation.
     window.open_subject(INBOX[0].1);
-    window.press(&[PRIMARY], Key::Char('f'), 1);
-    window.until("Ctrl-F brings it up", |h| h.is_focused(FIELD));
+    window.press(&[PRIMARY], Key::Char('k'), 1);
+    window.until("⌘K brings it up", |h| h.is_focused(FIELD));
     window.press(&[], Key::Escape, 2);
 
     // Two read, two not; then in:inbox kept as a view, grouped unread first.

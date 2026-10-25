@@ -5,6 +5,7 @@ pub(super) mod blocks;
 mod cache;
 mod column;
 mod fetch;
+pub(in crate::ui) mod find;
 mod fit;
 mod fold;
 mod header;
@@ -102,6 +103,8 @@ pub(super) fn Reader(
     let store = use_context::<Arc<SqliteStore>>();
     let frames = use_frames();
     let looks = use_looks();
+    // ⌘F's frames, which every message's frame below joins (`find`).
+    let found = find::use_find(shell);
     // The store may have moved under this conversation, here or in another window.
     if let Some(revision) = revision {
         let _ = revision();
@@ -254,6 +257,7 @@ pub(super) fn Reader(
         })
         .collect();
     shown.reverse();
+    found.order(shown.iter().map(|(message, ..)| message.id).collect());
     *embedded.borrow_mut() = shown
         .iter()
         .map(|(message, body, ..)| {
@@ -391,6 +395,9 @@ pub(super) fn Reader(
     rsx! {
         div { class: "reader-head",
             div { class: "head-row",
+                if shell.read().find.is_some() {
+                    find::FindBar { shell }
+                }
                 span { class: "spacer" }
                 div { class: "bar-tools",
                     if let Some(revision) = revision {

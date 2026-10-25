@@ -160,6 +160,24 @@ const FRAME_INK_DARK: &str = "#ececec";
 const FRAME_PAPER: &str = "#ffffff";
 const FRAME_CODE_GROUND: &str = "#f5f5f5";
 const FRAME_LINK: &str = "#0066cc";
+/// ⌘F's marks: every match, and the one it is on, as a browser's find colours them.
+const FRAME_FOUND: &str = "#ffe066";
+const FRAME_FOUND_CURRENT: &str = "#ff9632";
+
+/// The attribute of the `<mark>` ⌘F puts around each match in a frame's document, and takes out
+/// again (`mail-app`'s `reading/find.rs`): empty on every match, `current` on the one it is on.
+pub const FOUND_MARK: &str = "data-mailo-find";
+/// [`FOUND_MARK`]'s value on the match ⌘F is on.
+pub const FOUND_CURRENT: &str = "current";
+
+/// How ⌘F's marks are drawn, over whatever the sender's sheets say of `mark`: the find colour
+/// under the text's own ink, the match it is on stronger. Both frames' sheets end with it.
+fn found_sheet() -> String {
+    format!(
+        "mark[{FOUND_MARK}] {{ background: {FRAME_FOUND} !important; color: {FRAME_INK} !important; }} \
+         mark[{FOUND_MARK}=\"{FOUND_CURRENT}\"] {{ background: {FRAME_FOUND_CURRENT} !important; }}"
+    )
+}
 
 /// What an HTML message's document starts from before the sender's own sheets: a browser's
 /// defaults, as a mail client's are, with quotes, code and headings drawn as the composer draws
@@ -187,8 +205,9 @@ fn html_sheet() -> String {
          pre {{ background: {FRAME_CODE_GROUND}; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }} \
          h2 {{ font-size: 1.3em; line-height: 1.25; margin: .9em 0 .35em; }} \
          h3 {{ font-size: 1.15em; margin: .8em 0 .3em; }} h4 {{ font-size: 1em; margin: .7em 0 .3em; }} \
-         a {{ color: {FRAME_LINK}; }} {}",
-        super::quote::sheet(FRAME_INK_SOFT)
+         a {{ color: {FRAME_LINK}; }} {} {}",
+        super::quote::sheet(FRAME_INK_SOFT),
+        found_sheet()
     )
 }
 
@@ -202,8 +221,9 @@ fn plain_sheet() -> String {
          line-height: {FRAME_TEXT_LINE}; color: {FRAME_INK}; white-space: pre-wrap; \
          overflow-wrap: anywhere; }} {} \
          @media (prefers-color-scheme: dark) {{ body {{ color: {FRAME_INK_DARK}; }} \
-         details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }}",
-        super::quote::sheet(FRAME_INK_SOFT)
+         details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }} {}",
+        super::quote::sheet(FRAME_INK_SOFT),
+        found_sheet()
     )
 }
 
@@ -296,6 +316,20 @@ mod tests {
                 && html.contains("<blockquote>Ten?</blockquote></div></details>"),
             "{html}"
         );
+    }
+
+    /// Either frame draws ⌘F's marks over the sender's own `mark`, the current one apart.
+    #[test]
+    fn both_sheets_draw_the_marks_find_puts_in() {
+        for sheet in [html_sheet(), plain_sheet()] {
+            assert!(
+                sheet.ends_with(&found_sheet())
+                    && found_sheet()
+                        .contains("mark[data-mailo-find] { background: #ffe066 !important;")
+                    && found_sheet().contains("mark[data-mailo-find=\"current\"]"),
+                "{sheet}"
+            );
+        }
     }
 
     #[test]

@@ -49,7 +49,10 @@ First public release.
 
 ### Search and rules
 
-- Full-text search over the local store, with server-side search where the protocol has it.
+- Full-text search over the local store, with server-side search where the protocol has it,
+  on ⌘K.
+- Find in the open conversation on ⌘F: matches marked in each message, plain or HTML, counted,
+  and stepped through with Enter and ⌘G.
 - Rules run in mailo; where the server has ManageSieve, rules and an away reply can be pushed to it.
 - Tidy Up for the inbox.
 

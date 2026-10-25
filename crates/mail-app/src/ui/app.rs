@@ -483,6 +483,12 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // Escape closes ⌘F's bar before it closes anything behind it (its field closes it
+        // itself, and keeps the key).
+        if key == "Escape" && shell.read().find.is_some() && shell.read().composing.is_none() {
+            super::reading::find::close(shell);
+            return;
+        }
         let typing_now = in_a_field() || shell.read().composing.is_some();
         // What the press asks, from chordkit's keymap with the user's keys over it: a standard
         // action (⌘F, ⌘P, ⌘Z), one of mailo's chords (⌘K, ⌘1), or a mail key (j, e, #).
@@ -524,6 +530,14 @@ pub(super) fn App() -> Element {
             }
             Some(Intent::Search) => {
                 super::command::summon(shell);
+                return;
+            }
+            Some(Intent::Find) => {
+                super::reading::find::open(shell);
+                return;
+            }
+            Some(Intent::FindStep(step)) => {
+                super::reading::find::step(shell, step);
                 return;
             }
             Some(Intent::Settings) => {

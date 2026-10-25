@@ -17,12 +17,36 @@ pub(super) fn Sandbox(
     /// takes the room left instead.
     #[props(default)]
     fit: bool,
+    /// The message the frame draws, for ⌘F to look through (`super::find`), which a frame drawn
+    /// with no reader around it is not.
+    #[props(default)]
+    message: Option<MessageId>,
 ) -> Element {
     let height = use_signal(|| None::<f32>);
     // A sender's page wider than the frame is drawn smaller to fit it (`super::fit::shrink`); a
     // plain-text message wraps to the frame and is never wider.
     let zoom = use_signal(|| 1.0_f32);
     let html = super::fit::zoomed(&html, zoom());
+    let found = use_hook(try_consume_context::<super::find::Frames>);
+    // A new document in the frame (a zoom to fit is one) holds none of what ⌘F marked.
+    {
+        let found = found.clone();
+        use_effect(use_reactive!(|html| {
+            // Read for its changes alone: each is a new document.
+            let _ = html;
+            if let Some(found) = &found {
+                found.changed();
+            }
+        }));
+    }
+    {
+        let found = found.clone();
+        use_drop(move || {
+            if let (Some(found), Some(message)) = (found, message) {
+                found.gone(message);
+            }
+        });
+    }
     let style = match (fit, height()) {
         (true, Some(px)) => format!("height: {px}px;"),
         _ => String::new(),
@@ -34,6 +58,9 @@ pub(super) fn Sandbox(
             "data-fit": fit,
             style,
             onmounted: move |event: MountedEvent| {
+                if let (Some(found), Some(message)) = (&found, message) {
+                    found.drawn(message, event.data());
+                }
                 if fit {
                     super::fit::follow(event.data(), height);
                 }
@@ -64,6 +91,7 @@ pub(super) fn MessageView(
             plain,
             fit,
             tag: holder.map(|holder| holder.tag(message_id)),
+            message: Some(message_id),
         }
     }
 }

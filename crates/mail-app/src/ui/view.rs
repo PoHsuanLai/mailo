@@ -602,6 +602,51 @@ pub struct Shell {
     /// Peek, over the window: an attachment or a link's card. `None` is closed. Belongs to the
     /// open thread: [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
     pub preview: Option<Preview>,
+    /// ⌘F's bar over the open conversation. `None` is closed. Belongs to the open thread, as
+    /// Peek does.
+    pub find: Option<Finding>,
+}
+
+/// ⌘F, while its bar is open: what is typed and the match it is on, and how many matches the
+/// reader counted for what is typed, which Enter and ⌘G step through.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Finding {
+    pub find: mail_core::search::Find,
+    pub total: usize,
+    /// Whether [`Self::total`] was counted for what is typed now, and not before the last key.
+    pub counted: bool,
+}
+
+impl Finding {
+    /// The match it is on, below [`Self::total`]; `None` when there is none.
+    pub fn at(&self) -> Option<usize> {
+        self.find.at(self.total)
+    }
+
+    /// The next or previous match, wrapping at either end.
+    pub fn step(&mut self, step: mail_core::search::Step) {
+        self.find.step(step, self.total);
+    }
+
+    /// The reader counted `total` matches of `query`; nothing changes when something else has
+    /// been typed since. Whether anything changed.
+    pub fn found(&mut self, query: &str, total: usize) -> bool {
+        if self.find.query != query || (self.counted && self.total == total) {
+            return false;
+        }
+        self.total = total;
+        self.counted = true;
+        true
+    }
+
+    /// What was typed is now `query`: counted again from the first match.
+    pub fn retype(&mut self, query: String) {
+        if self.find.query != query {
+            self.find = mail_core::search::Find { query, current: 0 };
+            self.total = 0;
+            self.counted = false;
+        }
+    }
 }
 
 /// A message being edited, as the widgets hold it.
@@ -720,6 +765,7 @@ impl Default for Shell {
             no_account: false,
             undo: mail_core::undo::UndoStack::default(),
             preview: None,
+            find: None,
         }
     }
 }
@@ -855,6 +901,7 @@ impl Shell {
             // Consent is per thread, so changing what is shown revokes it.
             self.show_remote_images = false;
             self.preview = None;
+            self.find = None;
         }
     }
 
@@ -866,6 +913,7 @@ impl Shell {
         self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
         self.preview = None;
+        self.find = None;
     }
 
     /// Open a thread from its row in one of the sidebar's lists: that row is then the sidebar's
@@ -895,6 +943,7 @@ impl Shell {
         self.from_side = None;
         self.show_remote_images = false;
         self.preview = None;
+        self.find = None;
     }
 
     /// A click on a conversation's row, among the listed `ids`: a plain one opens it, Ctrl
@@ -2059,5 +2108,61 @@ mod viewing_tests {
             shell.select(1);
             assert_eq!(shell.preview, None, "select: {preview:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod finding_tests {
+    use super::{Finding, Shell};
+    use mail_core::search::Step;
+    use mail_domain::ThreadId;
+
+    #[test]
+    fn a_find_counts_what_is_typed_now_and_steps_round_it() {
+        let mut finding = Finding::default();
+        finding.retype("report".to_owned());
+        assert!(
+            !finding.found("repo", 9),
+            "a count for what was typed before"
+        );
+        assert!(!finding.counted);
+        assert!(finding.found("report", 3));
+        assert!(!finding.found("report", 3), "the same count twice");
+        assert_eq!(finding.at(), Some(0));
+        finding.step(Step::Previous);
+        assert_eq!(
+            finding.at(),
+            Some(2),
+            "back from the first wraps to the last"
+        );
+        finding.step(Step::Next);
+        assert_eq!(finding.at(), Some(0));
+        finding.step(Step::Next);
+        finding.retype("report".to_owned());
+        assert_eq!(
+            finding.at(),
+            Some(1),
+            "the same words typed again move nothing"
+        );
+        finding.retype("reports".to_owned());
+        assert_eq!((finding.at(), finding.counted), (None, false));
+    }
+
+    #[test]
+    fn the_find_belongs_to_the_open_conversation() {
+        let thread = ThreadId::generate();
+        let found = || Some(Finding::default());
+        let mut shell = Shell::default();
+        shell.open(thread);
+        shell.find = found();
+        shell.open(ThreadId::generate());
+        assert_eq!(shell.find, None, "open");
+        shell.find = found();
+        shell.close();
+        assert_eq!(shell.find, None, "close");
+        shell.open(thread);
+        shell.find = found();
+        shell.select(1);
+        assert_eq!(shell.find, None, "select");
     }
 }
