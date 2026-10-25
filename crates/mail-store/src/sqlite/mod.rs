@@ -422,6 +422,12 @@ impl SqliteStore {
         self.changes.subscribe()
     }
 
+    /// How many connections read beside the writer: none for an in-memory database. What a
+    /// caller that reads on threads of its own sizes them by, leaving one free.
+    pub fn reader_count(&self) -> usize {
+        self.readers.len()
+    }
+
     /// The generation of the last commit this store has said it made. Read before a read
     /// begins, it is a commit that read is sure to see.
     pub fn generation(&self) -> Generation {

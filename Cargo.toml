@@ -8,6 +8,7 @@ members = [
   "crates/mail-store",
   "crates/mail-runtime",
   "crates/mail-core",
+  "crates/mail-client",
   "crates/mail-appkit",
   "crates/mail-app",
 ]
@@ -29,6 +30,7 @@ rust-version = "1.92"
 # The per-user agent lifecycle, its own repo since 2026-10-07 (split from crates/latchkey here).
 latchkey    = { git = "https://github.com/PoHsuanLai/latchkey", rev = "b10ae1b8c49c55cce2c5affde8f5db76edb66ab4" }
 mail-appkit = { path = "crates/mail-appkit" }
+mail-client = { path = "crates/mail-client" }
 mail-core   = { path = "crates/mail-core", default-features = false }
 mail-domain = { package = "mailo-domain", path = "crates/mail-domain", version = "0.1.0" }
 mail-mime   = { package = "mailo-mime", path = "crates/mail-mime", version = "0.1.0", default-features = false }

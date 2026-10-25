@@ -1,0 +1,46 @@
+[package]
+name = "mail-client"
+# The app side: I/O and policy, not a library for others.
+publish = false
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Mail as values that are already read, and kept read as the store changes"
+repository = "https://github.com/PoHsuanLai/mailo"
+authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
+
+# Between `mail-core` and whatever draws. A caller asks this crate for a value and is handed one
+# that is already there; the reading happens on threads of the client's own, and is done again
+# when the store says what it touched (`mail_store::changes`). Logic only: it draws nothing and
+# words nothing (no dioxus, no ds: `scripts/check-boundary.sh`).
+
+[features]
+# What a front end's tests build a client with (`Client::inline`): off in the program.
+testing = ["mail-store/testing"]
+
+[dependencies]
+mail-core.workspace = true
+mail-domain.workspace = true
+mail-store.workspace = true
+porter-core.workspace = true
+chrono.workspace = true
+log.workspace = true
+thiserror.workspace = true
+parking_lot = "0.12"
+# Only the watch channel a `Live` is followed through, so an `async` front end can await a change
+# without the client running a runtime of its own.
+tokio = { version = "1", features = ["sync"] }
+# Another process's commits are heard by watching the store's file (`external`). The version the app already locks.
+notify = "8.2"
+
+[dev-dependencies]
+mail-client = { path = ".", features = ["testing"] }
+mail-store = { workspace = true, features = ["testing"] }
+tempfile = "3"
+uuid.workspace = true
+# To await a change in a test (`Live::changed`).
+tokio = { version = "1", features = ["rt", "time", "sync"] }
+
+[lints]
+workspace = true

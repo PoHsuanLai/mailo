@@ -5175,6 +5175,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "mail-client"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "log",
+ "mail-client",
+ "mail-core",
+ "mail-store",
+ "mailo-domain",
+ "notify",
+ "parking_lot",
+ "porter-core",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "mail-core"
 version = "0.1.0"
 dependencies = [
