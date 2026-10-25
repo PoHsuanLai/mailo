@@ -19,7 +19,9 @@
 //! The looking goes on, every [`STEADY`], for whatever the system does not say (a platform that
 //! reports a write late, or not at all when it does not grow the file), and every [`LOOK`] when
 //! the file could not be watched. Heard while the writer is busy, the look cannot read the data
-//! version; it looks again every [`OWED`] until it can.
+//! version; it looks again every [`OWED`] until it can. A write is heard as it reaches the file,
+//! which can be before its commit is told to other connections, so a heard write that moved
+//! nothing is looked at once more, [`OWED`] later.
 //!
 //! Until 2026-10 this lived in the app (`ui/fetching/external.rs`).
 
@@ -41,12 +43,15 @@ const LOOK: Duration = Duration::from_millis(30);
 /// How often to look while the system says when the store is written to.
 const STEADY: Duration = Duration::from_secs(15);
 
-/// How soon to look again after hearing a write while the writer was busy.
+/// How soon to look again after hearing a write that this look could not tell had committed.
 const OWED: Duration = Duration::from_millis(50);
 
 /// Start looking, on a thread of its own, or `None` for a store with no file.
 pub(crate) fn start(shared: Arc<Shared>) -> Option<JoinHandle<()>> {
     let file = shared.store().file()?.to_owned();
+    // Taken here, before the client is handed to anyone: a commit made once it is is one the
+    // looking will see moved. Taken on the thread, it could miss one made before the thread ran.
+    let seen = shared.store().data_version();
     let (tx, rx) = channel();
     *shared.external.lock() = Some(tx.clone());
     let watcher = on_write(&file, move || {
@@ -58,7 +63,7 @@ pub(crate) fn start(shared: Arc<Shared>) -> Option<JoinHandle<()>> {
         .spawn(move || {
             // Kept for as long as the looking goes on: dropped, it stops saying.
             let kept = watcher;
-            look(&shared, &rx, kept.is_some());
+            look(&shared, &rx, kept.is_some(), seen);
         })
         .ok()
 }
@@ -71,9 +76,8 @@ pub(crate) fn wake(shared: &Shared) {
     }
 }
 
-fn look(shared: &Shared, written: &Receiver<()>, watched: bool) {
+fn look(shared: &Shared, written: &Receiver<()>, watched: bool, mut seen: Option<i64>) {
     let store: &SqliteStore = shared.store();
-    let mut seen = store.data_version();
     let mut owed = false;
     while !shared.stopping() {
         let every = match (owed, watched) {
@@ -94,10 +98,16 @@ fn look(shared: &Shared, written: &Receiver<()>, watched: bool) {
             return;
         }
         let now = store.data_version();
-        // A busy writer answers nothing this time. Having heard a write, look again soon rather
-        // than at the next look; otherwise the next look will do.
-        owed = now.is_none() && (owed || heard);
-        if now.is_some() && now != seen {
+        let moved = now.is_some() && now != seen;
+        // Having heard a write, look again soon rather than at the next look when this look
+        // could not tell: the writer was busy and answered nothing, or the write was heard
+        // before it was committed — the commit itself is told to other connections through the
+        // shared memory beside the file, which the system says nothing about.
+        owed = match now {
+            None => owed || heard,
+            Some(_) => heard && !moved,
+        };
+        if moved {
             seen = now;
             shared.invalidate(Topics::ALL);
         }
