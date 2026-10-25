@@ -65,6 +65,18 @@ impl Window {
         self.until(text, landed).await
     }
 
+    /// Return in the panel's field with no row lit: the panel goes and the search stays the
+    /// list's, shown across its header. Waits until `landed` holds.
+    async fn put_away(&mut self, text: &str, landed: impl Fn(&str) -> bool) -> String {
+        crate::ui::fixtures::chord(
+            &mut self.dom,
+            "Enter",
+            dioxus::html::input_data::keyboard_types::Modifiers::empty(),
+            self.search,
+        );
+        self.until(text, landed).await
+    }
+
     /// Render until `landed` holds, doing the window's pending work in between.
     ///
     /// Bounded in the paused clock's time, not the wall's: while the list is being fetched on
@@ -105,14 +117,15 @@ fn subjects(page: &str) -> Vec<String> {
         .collect()
 }
 
-/// The list bar's notes: what fetching says and the search's scope, alike.
+/// What the end of the search shown across the list's header says: where it looked, or why it
+/// could not be run.
 fn notes(page: &str) -> Vec<String> {
-    let bar = page
-        .split_once(r#"class="list-head""#)
-        .and_then(|(_, rest)| rest.split_once(r#"class="bar-tools""#))
-        .map(|(bar, _)| bar)
+    let head = page
+        .split_once(r#"class="list-head"#)
+        .and_then(|(_, rest)| rest.split_once(r#"class="list""#))
+        .map(|(head, _)| head)
         .unwrap_or_default();
-    bar.split("class=\"ds-label status")
+    head.split("class=\"search-scope")
         .skip(1)
         .filter_map(|rest| rest.split_once('>'))
         .filter_map(|(_, rest)| rest.split_once('<'))
@@ -215,9 +228,15 @@ async fn clearing_the_box_gives_the_place_back() {
 #[tokio::test(start_paused = true)]
 async fn a_bare_pattern_runs_over_this_page_and_its_marks_say_so() {
     let mut window = window();
+    // Narrowed by a word, it is a search.
+    let page = window
+        .typed("re:/^Re: / keyset", |page| subjects(page).len() == 1)
+        .await;
+    assert_eq!(subjects(&page).len(), 1, "{:?}", subjects(&page));
+
     let page = window
         .typed("re:/^Re: /", |page| {
-            page.contains(r#"<mark class="ds-mark">Re:</mark>"#)
+            page.contains(r#"<mark class="ds-mark">Re:</mark>"#) && subjects(page).len() == 2
         })
         .await;
     assert_eq!(
@@ -227,33 +246,26 @@ async fn a_bare_pattern_runs_over_this_page_and_its_marks_say_so() {
             r#"<mark class="ds-mark">Re:</mark> Re: Keyset cursors, not offsets"#,
         ],
     );
-    // The marks show what the pattern matched; the bar adds no words.
-    assert!(notes(&page).is_empty(), "{:?}", notes(&page));
-
-    // Narrowed by a word, it is a search again.
+    // The marks show what the pattern matched; the search shown says it looked only here.
     let page = window
-        .typed("re:/^Re: / keyset", |page| subjects(page).len() == 1)
+        .put_away("re:/^Re: /", |page| !notes(page).is_empty())
         .await;
-    assert_eq!(subjects(&page).len(), 1, "{:?}", subjects(&page));
+    assert_eq!(notes(&page), ["on this page of Inbox"]);
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_broken_pattern_is_the_regex_message_in_the_bar_and_no_rows() {
+async fn a_broken_pattern_says_why_in_the_header_and_lists_no_rows() {
     let mut window = window();
+    window
+        .typed("re:/(/", |page| subjects(page).is_empty())
+        .await;
     let page = window
-        .typed("re:/(/", |page| {
-            page.contains(r#"class="ds-label status bad""#)
+        .put_away("re:/(/", |page| {
+            page.contains(r#"class="search-scope bad""#)
         })
         .await;
-    let own = regex::Regex::new(&String::from("("))
-        .expect_err("an unclosed group")
-        .to_string();
     assert!(subjects(&page).is_empty(), "{:?}", subjects(&page));
-    assert!(
-        page.contains(r#"class="ds-label status bad""#) && notes(&page).contains(&own),
-        "the bar did not carry {own:?}: {:?}",
-        notes(&page)
-    );
+    assert_eq!(notes(&page), ["unclosed group"]);
 }
 
 fn summary(subject: &str, snippet: &str) -> ThreadSummary {

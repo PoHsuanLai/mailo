@@ -67,7 +67,8 @@ impl Request {
     }
 }
 
-/// How the list came to be what it is. The list bar says so when that is not obvious.
+/// How the list came to be what it is: the end of the search shown in the list's header says
+/// where it looked (`list::searched`).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) enum Scope {
     /// Not a search: the place's list.
@@ -75,8 +76,8 @@ pub(super) enum Scope {
     Place,
     /// Searched: the matches in date order, under their top results.
     Searched,
-    /// A bare pattern, over the rows the place had loaded. Not said: the marks show what it
-    /// matched.
+    /// A bare pattern, over the rows the place had loaded: the marks show what it matched, and the
+    /// header says it looked only there.
     OverPage,
     /// The pattern did not compile. The `regex` crate's own message.
     Invalid(String),
@@ -90,16 +91,6 @@ pub(super) struct Marking {
     /// The line the store was asked, under [`Scope::Searched`]: what "Search … on the server"
     /// asks the server. Empty otherwise.
     pub line: String,
-}
-
-impl Marking {
-    /// The note the list bar shows, when there is one.
-    pub(super) fn note(&self) -> Option<String> {
-        match &self.scope {
-            Scope::Place | Scope::Searched | Scope::OverPage => None,
-            Scope::Invalid(why) => Some(why.clone()),
-        }
-    }
 }
 
 /// The rows, the top results above them, and how to mark both.

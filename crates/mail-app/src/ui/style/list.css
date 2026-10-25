@@ -11,10 +11,34 @@
 /* A long place name gives way to the tools: it fades out (quire's `.ds-truncate`), never under
    a button. */
 .list-title > * { min-width: 0; overflow: hidden; white-space: nowrap; }
-/* The toolbar's search, after its tools, where the Mac keeps it: the magnifier, or the search
-   shown and its clear. The words give way to the tools, cut at the end of the button. */
+/* The toolbar's search, after its tools, where the Mac keeps it: the magnifier. */
 .list-head .bar { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
-.list-head .bar .search-shown { min-width: 0; max-width: 168px; overflow: hidden; }
+/* While a search narrows the list it is the header: the search as the panel's field shows it
+   (the field's face at its weight, the operators as its chips, a leading magnifier), at the
+   toolbar's height, across the header; where it looks at its end, quiet, or in the danger ink
+   when it cannot be run; then Save as View and the ×. The words take the room between and give
+   way first, faded at the end of it, then a long reason why it cannot be run. */
+.list-head.searching { gap: var(--s-4); }
+.search-face {
+  display: flex; align-items: center; gap: var(--s-8); flex: 1 1 auto; min-width: 0;
+  box-sizing: border-box; height: var(--ctl-h-l); padding: 0 var(--s-12) 0 var(--s-10);
+  border-radius: var(--r-pill); cursor: text;
+  background: linear-gradient(var(--fill-btn), var(--fill-btn)), var(--surface);
+}
+.search-face:hover { background: linear-gradient(var(--hover-wash), var(--hover-wash)), linear-gradient(var(--fill-btn), var(--fill-btn)), var(--surface); }
+.search-glyph { display: inline-flex; align-items: center; flex: none; color: var(--ink-faint); }
+.search-terms {
+  display: flex; align-items: center; gap: var(--s-6); flex: 1 1 auto; min-width: 0;
+  overflow: hidden; white-space: nowrap;
+  mask-image: linear-gradient(to right, var(--ink) calc(100% - 1.5em), transparent);
+}
+.search-terms > * { flex: none; }
+.search-words { font-size: var(--fs-reading); font-weight: var(--fw-shell-field); color: var(--ink); }
+.search-scope {
+  flex: none; white-space: nowrap;
+  font-size: var(--fs-meta); color: var(--ink-faint);
+}
+.search-scope.bad { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; color: var(--danger); }
 /* The search panel: quire's search card hangs from a line across the window a little way down from
    its top, centred under it, as Spotlight sits on the screen. The card and its rows are quire's
    (`.ds-search-card`); this is only the line. */

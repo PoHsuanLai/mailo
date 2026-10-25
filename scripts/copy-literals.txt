@@ -29,7 +29,7 @@ crates/mail-app/src/ui/add_account/host.rs 1
 crates/mail-app/src/ui/add_account/map.rs 8
 crates/mail-app/src/ui/add_account/mod.rs 1
 crates/mail-app/src/ui/add_account/provider.rs 2
-crates/mail-app/src/ui/command/bar.rs 3
+crates/mail-app/src/ui/command/bar.rs 1
 crates/mail-app/src/ui/command/items.rs 2
 crates/mail-app/src/ui/command/mod.rs 2
 crates/mail-app/src/ui/command/spotlight.rs 1

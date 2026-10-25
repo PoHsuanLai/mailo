@@ -18,7 +18,7 @@ mod spotlight;
 mod suggest;
 mod templates;
 
-pub(in crate::ui) use bar::SearchBox;
+pub(in crate::ui) use bar::{Affordance, SearchBox, SearchHead, affordance, clear};
 #[cfg(test)]
 pub(in crate::ui) use bar::{BOX_LABEL, CLEAR_LABEL};
 pub(in crate::ui) use items::{CommandId, avatar_color, entry_of};

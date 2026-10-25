@@ -23,7 +23,7 @@ use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
 use ds::components::app::thread_height::{ThreadLines, thread_card_gap, thread_card_height};
 use ds::components::chrome::toolbar::view::Toolbar;
-use ds::components::content::label::{Label, LabelRole, LabelStyle};
+use ds::components::content::label::{Label, LabelStyle};
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::components::lists::virtual_list::{RowHeight, VirtualList};
 use ds::components::overlays::empty_state::EmptyForm;
@@ -158,8 +158,6 @@ pub(super) fn ThreadList(
         })
         .unwrap_or_default();
     let link_refs: Vec<&Link> = links.iter().collect();
-    let search_note = marking.read().note();
-    let invalid = matches!(marking.read().scope, Scope::Invalid(_));
     let accounts = rows();
     let highlight = marking.read().highlight.clone();
     // A row names its account only while the list shows more than one.
@@ -187,6 +185,30 @@ pub(super) fn ThreadList(
     let shown = threads();
     let keys: Vec<ThreadId> = shown.iter().map(|summary| summary.id).collect();
     let picking = !shell.read().picked.chosen(&keys).is_empty();
+    // What the header is: the selection's while anything is picked, else the search's while one
+    // narrows the list and the panel is down, else the place's own.
+    let head = if picking {
+        Head::Picking
+    } else {
+        match super::command::affordance(&shell.read().search, &shell.read().bar) {
+            super::command::Affordance::Searching(_) => {
+                let listed = shell.read().listed_scope();
+                let looked: Vec<String> = accounts
+                    .iter()
+                    .filter(|row| listed.shows(row.id.clone()))
+                    .map(AccountRow::shown)
+                    .collect();
+                Head::Searching(searched(
+                    &marking.read().scope,
+                    &place,
+                    &looked,
+                    accounts.len(),
+                ))
+            }
+            super::command::Affordance::Idle => Head::Idle,
+        }
+    };
+    let head_class = head.class();
     // Picked, or open with nothing picked: asked of the shell against what is listed.
     let selection_of = |id: ThreadId| {
         if shell.read().is_selected(id, &keys) {
@@ -374,11 +396,12 @@ pub(super) fn ThreadList(
             // The list's header is quire's 52 px `Toolbar`: the place's title, New Message, the
             // search and a ⋯ for the rest (`page::ListMore`). How fresh the mail is, and any
             // warning, is the sidebar's sync mark's to say. While anything listed is picked, the
-            // bar is the selection's: its count and its actions, and nothing else.
+            // bar is the selection's: its count and its actions, and nothing else. While a search
+            // narrows the list it is the search's: the search across it, Save as View and the ×.
             Toolbar::<()> {
                 onpick: move |_| {},
                 center: rsx! {
-                    div { class: if picking { "list-head picking" } else { "list-head" },
+                    div { class: head_class,
                         // The sidebar's own toggle lives in its footer, which is gone with it.
                         if side_hidden() {
                             Button {
@@ -392,69 +415,12 @@ pub(super) fn ThreadList(
                                 onclick: on_primary(move || side_hidden.set(false)),
                             }
                         }
-                        if picking {
-                            PickBar { shell, revision, threads }
-                        } else {
-                            div { class: "list-title",
-                                Label { text: place.clone(), style: LabelStyle::Title, common: classed("truncate") }
-                            }
-                            if let Some(said) = search_note {
-                                Label {
-                                    text: said,
-                                    role: LabelRole::Tertiary,
-                                    style: LabelStyle::Footnote,
-                                    common: classed(if invalid { "status bad" } else { "status" }),
-                                }
-                            }
-                            div { class: "bar-tools",
-                                // Trash and Spam alone: everything in them, deleted forever, once asked.
-                                super::destroy::EmptyButton { shell }
-                                // A search can be kept as a view, and a view shown can be changed.
-                                if !shell.read().search.trim().is_empty() {
-                                    Button {
-                                        bezel: Bezel::Toolbar,
-                                        size: ControlSize::Large,
-                                        image: ImagePosition::Only,
-                                        label: copy::aria::SAVE_AS_VIEW,
-                                        icon: Some(IconSource::Glyph(Icon::Plus)),
-                                        title: Some(copy::tooltips::SAVE_AS_VIEW.to_owned()),
-                                        onclick: on_primary(move || {
-                                            let search = shell.peek().search.clone();
-                                            super::views::open_new(shell, &search);
-                                        }),
-                                    }
-                                } else if let Some(view) = shell.read().saved_view().cloned() {
-                                    Button {
-                                        bezel: Bezel::Toolbar,
-                                        size: ControlSize::Large,
-                                        image: ImagePosition::Only,
-                                        label: copy::aria::EDIT_VIEW,
-                                        icon: Some(IconSource::Glyph(Icon::Settings)),
-                                        title: Some(copy::tooltips::EDIT_VIEW.to_owned()),
-                                        onclick: on_primary(move || super::views::open_edit(shell, &view)),
-                                    }
-                                }
-                                Button {
-                                    bezel: Bezel::Toolbar,
-                                    size: ControlSize::Large,
-                                    image: ImagePosition::Only,
-                                    label: copy::aria::NEW_MESSAGE,
-                                    icon: Some(IconSource::Glyph(Icon::Pen)),
-                                    title: Some(copy::tooltips::NEW_MESSAGE.to_owned()),
-                                    title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::New),
-                                    onclick: on_primary(move || {
-                                        let store = consume_context::<Arc<SqliteStore>>();
-                                        if open_composer(&store, shell, Writes::New).is_ok() {
-                                            revision += 1;
-                                        }
-                                    }),
-                                }
-                            }
-                            // The search, at the toolbar's trailing end where the Mac keeps it: a
-                            // magnifier that brings up the search panel, or the search shown. The
-                            // ⋯ closes the row: Group, Row Properties and Sync Now.
-                            super::command::SearchBox { shell, pages }
-                            ListMore { shell, syncs: !quiet, side_hidden }
+                        match head {
+                            Head::Picking => rsx! { PickBar { shell, revision, threads } },
+                            Head::Searching(Said { text, bad }) => rsx! {
+                                super::command::SearchHead { shell, pages, scope: text, bad }
+                            },
+                            Head::Idle => rsx! { PlaceTools { shell, revision, place: place.clone(), syncs: !quiet, side_hidden } },
                         }
                     }
                 },
@@ -506,6 +472,135 @@ pub(super) fn ThreadList(
             Toast { shell, revision }
             Ghost {}
         }
+    }
+}
+
+/// What the list's header holds.
+#[derive(Debug, Clone, PartialEq)]
+enum Head {
+    /// The place's title and tools, and the magnifier.
+    Idle,
+    /// The selection's count and actions.
+    Picking,
+    /// The search that narrows the list, and where it looks.
+    Searching(Said),
+}
+
+impl Head {
+    fn class(&self) -> &'static str {
+        match self {
+            Head::Idle => "list-head",
+            Head::Picking => "list-head picking",
+            Head::Searching(_) => "list-head searching",
+        }
+    }
+}
+
+/// Where a search looks, as the end of the search shown says it, or why it cannot be run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Said {
+    text: String,
+    /// The search cannot be run: said in the danger ink.
+    bad: bool,
+}
+
+/// Where a search the list answered as `scope` looked. A search looks through every account in
+/// view, whatever place is selected, so it is named by the one account `looked` at when the list
+/// shows one of the `all` there are, and is all mail otherwise. A bare pattern matches only the
+/// rows `place` had loaded; a pattern that does not compile says why ([`reason`]).
+fn searched(scope: &Scope, place: &str, looked: &[String], all: usize) -> Said {
+    let text = match (scope, looked) {
+        (Scope::Invalid(why), _) => {
+            return Said {
+                text: reason(why),
+                bad: true,
+            };
+        }
+        (Scope::OverPage, _) => copy::status::searched_page_of(place),
+        (Scope::Place | Scope::Searched, [one]) if all > 1 => copy::status::searched_in(one),
+        (Scope::Place | Scope::Searched, _) => copy::status::SEARCHED_ALL_MAIL.to_owned(),
+    };
+    Said { text, bad: false }
+}
+
+/// Why a pattern does not compile, in the few words the end of the search has room for: the
+/// `regex` crate's message draws the pattern and a caret over several lines and says why on its
+/// last ("error: unclosed group").
+fn reason(why: &str) -> String {
+    let last = why
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty());
+    let last = last.unwrap_or(why.trim());
+    last.strip_prefix("error:")
+        .unwrap_or(last)
+        .trim()
+        .to_owned()
+}
+
+/// The header's own contents while nothing is picked and no search narrows the list: the place's
+/// title, its tools, the magnifier and the ⋯ that closes the row.
+#[component]
+fn PlaceTools(
+    shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    place: String,
+    syncs: bool,
+    side_hidden: Signal<bool>,
+) -> Element {
+    rsx! {
+        div { class: "list-title",
+            Label { text: place, style: LabelStyle::Title, common: classed("truncate") }
+        }
+        div { class: "bar-tools",
+            // Trash and Spam alone: everything in them, deleted forever, once asked.
+            super::destroy::EmptyButton { shell }
+            // A search being typed can be kept as a view, and a view shown can be changed.
+            if !shell.read().search.trim().is_empty() {
+                Button {
+                    bezel: Bezel::Toolbar,
+                    size: ControlSize::Large,
+                    image: ImagePosition::Only,
+                    label: copy::aria::SAVE_AS_VIEW,
+                    icon: Some(IconSource::Glyph(Icon::Plus)),
+                    title: Some(copy::tooltips::SAVE_AS_VIEW.to_owned()),
+                    onclick: on_primary(move || {
+                        let search = shell.peek().search.clone();
+                        super::views::open_new(shell, &search);
+                    }),
+                }
+            } else if let Some(view) = shell.read().saved_view().cloned() {
+                Button {
+                    bezel: Bezel::Toolbar,
+                    size: ControlSize::Large,
+                    image: ImagePosition::Only,
+                    label: copy::aria::EDIT_VIEW,
+                    icon: Some(IconSource::Glyph(Icon::Settings)),
+                    title: Some(copy::tooltips::EDIT_VIEW.to_owned()),
+                    onclick: on_primary(move || super::views::open_edit(shell, &view)),
+                }
+            }
+            Button {
+                bezel: Bezel::Toolbar,
+                size: ControlSize::Large,
+                image: ImagePosition::Only,
+                label: copy::aria::NEW_MESSAGE,
+                icon: Some(IconSource::Glyph(Icon::Pen)),
+                title: Some(copy::tooltips::NEW_MESSAGE.to_owned()),
+                title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::New),
+                onclick: on_primary(move || {
+                    let store = consume_context::<Arc<SqliteStore>>();
+                    if open_composer(&store, shell, Writes::New).is_ok() {
+                        revision += 1;
+                    }
+                }),
+            }
+        }
+        // The search, at the toolbar's trailing end where the Mac keeps it: a magnifier that
+        // brings up the search panel. The ⋯ closes the row: Group, Row Properties and Sync Now.
+        super::command::SearchBox { shell }
+        ListMore { shell, syncs, side_hidden }
     }
 }
 
