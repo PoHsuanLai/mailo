@@ -169,11 +169,11 @@ pub(super) fn ReaderMore(
     let id = summary.id;
     // Asked through the alert's own phase, so Unsubscribe's sending state is the alert's.
     let mut leaving = use_signal(|| Phase::Closed);
-    let items = rows(
+    let items = with_keys(rows(
         &reader_groups(&summary, &toolbar, peek.is_some(), leave.is_some()),
         &summary,
         chrono::Utc::now(),
-    );
+    ));
     let done = move |()| further.set(Further::None);
     rsx! {
         Button {
@@ -207,6 +207,8 @@ pub(super) fn ReaderMore(
                             further.set(Further::Unsubscribe);
                         }
                         Pick::Download => download(id),
+                        Pick::Headers => super::source::ask(shell, id, super::Raw::Headers),
+                        Pick::Source => super::source::ask(shell, id, super::Raw::Source),
                         // A draft's, never offered here.
                         Pick::DeleteDraft | Pick::CancelSending => {}
                     }
@@ -231,6 +233,35 @@ pub(super) fn ReaderMore(
             (Further::View | Further::None, _) => rsx! {},
         }
     }
+}
+
+/// `items` with the chords of those that have one of mailo's own (Show All Headers, View Source)
+/// beside them, as the window's keymap has them now.
+fn with_keys(
+    items: Vec<ds::components::menus::item::item::MenuItem<Pick>>,
+) -> Vec<ds::components::menus::item::item::MenuItem<Pick>> {
+    use crate::ui::actions::{Own, tip_own};
+    use ds::components::menus::item::item::MenuItem as Row;
+    items
+        .into_iter()
+        .map(|item| {
+            let own = match &item {
+                Row::Item {
+                    value: Pick::Headers,
+                    ..
+                } => Some(Own::ShowHeaders),
+                Row::Item {
+                    value: Pick::Source,
+                    ..
+                } => Some(Own::ViewSource),
+                _ => None,
+            };
+            match own.and_then(tip_own) {
+                Some(tip) => item.with_key(tip),
+                None => item,
+            }
+        })
+        .collect()
 }
 
 /// What saving a conversation's messages came to.

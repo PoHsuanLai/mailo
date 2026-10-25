@@ -43,6 +43,11 @@ pub(in crate::ui) enum Pick {
     /// Unsubscribe…: the popover that says what leaving the list will do. The reader's ⋯ only,
     /// and only while the conversation offers a way out.
     Unsubscribe,
+    /// Show All Headers: the newest message's header lines as they came, in a sheet. The reader's
+    /// ⋯ only.
+    Headers,
+    /// View Source: the newest message whole as it came, in a sheet. The reader's ⋯ only.
+    Source,
     /// Delete Draft, with an undo. A draft's row only.
     DeleteDraft,
     /// Cancel Sending: a message held for its time goes back to being a draft. Its row only.
@@ -93,7 +98,8 @@ pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
 /// already holds (`toolbar`, its Reply, Archive and Delete), with the quieter actions that are
 /// the reader's alone (Mute beside Pin, Mark as Spam where the conversation can be), View first
 /// where the reader is a pane (`view`), Unsubscribe… with what takes the conversation away while
-/// its list offers a way out (`leave`), and Print and Download last.
+/// its list offers a way out (`leave`), Print and Download, and last the message as it came:
+/// Show All Headers and View Source.
 pub(in crate::ui) fn reader_groups(
     summary: &ThreadSummary,
     toolbar: &[OpKind],
@@ -120,7 +126,10 @@ pub(in crate::ui) fn reader_groups(
                 .collect::<Vec<_>>()
         }))
         .filter(|group| !group.is_empty())
-        .chain([vec![Pick::Print, Pick::Download]])
+        .chain([
+            vec![Pick::Print, Pick::Download],
+            vec![Pick::Headers, Pick::Source],
+        ])
         .collect()
 }
 
@@ -133,6 +142,8 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::Print => menus::PRINT,
         Pick::View => menus::VIEW,
         Pick::Unsubscribe => menus::UNSUBSCRIBE,
+        Pick::Headers => menus::SHOW_ALL_HEADERS,
+        Pick::Source => menus::VIEW_SOURCE,
         Pick::DeleteDraft => menus::DELETE_DRAFT,
         Pick::CancelSending => menus::CANCEL_SENDING,
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
@@ -146,6 +157,8 @@ fn icon(pick: Pick) -> Icon {
         Pick::Print => Icon::Printer,
         Pick::View => Icon::Panel,
         Pick::Unsubscribe => Icon::LogOut,
+        Pick::Headers => Icon::ListTree,
+        Pick::Source => Icon::FileCode,
         Pick::DeleteDraft => Icon::Trash,
         Pick::CancelSending => Icon::X,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
@@ -412,6 +425,8 @@ mod tests {
                 m::MARK_AS_SPAM,
                 m::PRINT,
                 m::DOWNLOAD,
+                m::SHOW_ALL_HEADERS,
+                m::VIEW_SOURCE,
                 m::VIEW,
                 crate::ui::window::OPEN_NAME,
             ] {
@@ -445,6 +460,9 @@ mod tests {
                 "-",
                 m::PRINT,
                 m::DOWNLOAD,
+                "-",
+                m::SHOW_ALL_HEADERS,
+                m::VIEW_SOURCE,
             ]
         );
     }
@@ -485,7 +503,7 @@ mod tests {
             assert_eq!(found, *want, "{case}: {groups:?}");
             assert_eq!(
                 groups.last().map(Vec::as_slice),
-                Some(&[Pick::Print, Pick::Download][..]),
+                Some(&[Pick::Headers, Pick::Source][..]),
                 "{case}"
             );
         }
@@ -494,16 +512,21 @@ mod tests {
     }
 
     #[test]
-    fn print_and_download_are_the_reader_s_last_group_and_not_the_row_s() {
+    fn print_download_and_the_source_end_the_reader_s_menu_and_not_the_row_s() {
         let inbox = summary(|_| {});
         let reader = reader_groups(&inbox, &[], false, false);
         assert_eq!(
-            reader.last().map(Vec::as_slice),
-            Some(&[Pick::Print, Pick::Download][..])
+            reader[reader.len() - 2..],
+            [
+                vec![Pick::Print, Pick::Download],
+                vec![Pick::Headers, Pick::Source]
+            ]
         );
         let row = groups(&inbox);
         assert!(
-            !row.iter().flatten().any(|pick| *pick == Pick::Download),
+            !row.iter()
+                .flatten()
+                .any(|pick| matches!(pick, Pick::Download | Pick::Headers | Pick::Source)),
             "{row:?}"
         );
     }

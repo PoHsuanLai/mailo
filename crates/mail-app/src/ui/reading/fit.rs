@@ -9,8 +9,10 @@
 //!
 //! Every message's page, the last one's too, is also kept no wider than its frame: one a sender
 //! laid out wider than the pane is drawn smaller to fit it ([`shrink`]), as Mail does, rather
-//! than cut at its right edge.
+//! than cut at its right edge. It is drawn at the reader's text size (`reading.text_zoom`, ⌘+ and
+//! ⌘−) by the same zoom, so a larger size makes a page larger only until it fills its frame.
 
+use dioxus::core::Task;
 use dioxus::prelude::*;
 use dioxus_native_dom::NodeHandle;
 use ds::base::time::clock::sleep;
@@ -44,13 +46,15 @@ fn content_height(frame: &MountedData) -> Option<f32> {
 /// frame's right edge cuts what is left over instead.
 const LEAST: f32 = 0.4;
 
-/// The zoom that fits `frame`'s document to the frame's width: the frame's width over the
-/// document's own (a newsletter laid out for 800 px, its tables and pictures fixed at that width,
-/// in a narrower pane), and 1 when it fits, so a pane widened while the page is still read lets
-/// it grow back. The document's width is read in its own pixels, whatever zoom it is drawn at
-/// now, so a read taken before a new zoom has landed asks for the same one. `None` when it is not
-/// laid out.
-fn fitting(frame: &MountedData) -> Option<f32> {
+/// The zoom `frame`'s document is drawn at for a person who asked for its text at `text` (the
+/// reader's text size, 1 for its own): `text`, unless the document would then be wider than the
+/// frame (a newsletter laid out for 800 px, its tables and pictures fixed at that width, in a
+/// narrower pane), when it is the frame's width over the document's own, so a larger text size
+/// grows a page only until it fills the frame, and a pane widened while the page is still read
+/// lets it grow back. The document's width is read in its own pixels, whatever zoom it is drawn
+/// at now, so a read taken before a new zoom has landed asks for the same one. `None` when it is
+/// not laid out.
+fn fitting(frame: &MountedData, text: f32) -> Option<f32> {
     let handle = frame.downcast::<NodeHandle>()?;
     let doc = handle.try_doc()?;
     let width = doc.get_node(handle.node_id())?.final_layout().size.width;
@@ -64,11 +68,17 @@ fn fitting(frame: &MountedData) -> Option<f32> {
     if width <= 0.0 {
         return None;
     }
-    Some(if own > width + 1.0 {
-        (width / own).max(LEAST)
+    Some(fitted(own, width, text))
+}
+
+/// The zoom a document `own` pixels wide is drawn at in a frame `width` wide, its text asked for
+/// at `text`: `text` while that fits, else what fits, but never under [`LEAST`].
+fn fitted(own: f32, width: f32, text: f32) -> f32 {
+    if own * text > width + 1.0 {
+        (width / own).max(LEAST).min(text)
     } else {
-        1.0
-    })
+        text
+    }
 }
 
 /// How wide `doc` is laid out, in its pixels as drawn: its widest box under `<body>`, and the
@@ -114,24 +124,25 @@ fn laid_width(doc: &blitz_dom::BaseDocument) -> Option<f32> {
     Some(widest + insets)
 }
 
-/// Keep `zoom` at what fits `frame`'s document to its width, as Mail shrinks a message laid out
-/// wider than its pane rather than cut its right edge, while its pictures may still widen it.
-pub(super) fn shrink(frame: Rc<MountedData>, mut zoom: Signal<f32>) {
+/// Keep `zoom` at the text size `text` where the page fits `frame`'s width, else at what fits,
+/// as Mail shrinks a message laid out wider than its pane rather than cut its right edge, while
+/// its pictures may still widen it.
+pub(super) fn shrink(frame: Rc<MountedData>, mut zoom: Signal<f32>, text: f32) -> Task {
     spawn(async move {
         for _ in 0..READS {
-            if let Some(next) = fitting(&frame)
+            if let Some(next) = fitting(&frame, text)
                 && (next - *zoom.peek()).abs() >= 0.01
             {
                 zoom.set(next);
             }
             sleep(EVERY).await;
         }
-    });
+    })
 }
 
 /// `html`, the frame's document, drawn at `zoom`: unchanged at 1.
 pub(super) fn zoomed(html: &str, zoom: f32) -> String {
-    if zoom >= 1.0 {
+    if (zoom - 1.0).abs() < 0.001 {
         return html.to_owned();
     }
     html.replacen(
@@ -142,7 +153,7 @@ pub(super) fn zoomed(html: &str, zoom: f32) -> String {
 }
 
 /// Keep `height` at `frame`'s content height while it may still change.
-pub(super) fn follow(frame: Rc<MountedData>, mut height: Signal<Option<f32>>) {
+pub(super) fn follow(frame: Rc<MountedData>, mut height: Signal<Option<f32>>) -> Task {
     spawn(async move {
         for _ in 0..READS {
             if let Some(read) = content_height(&frame)
@@ -152,12 +163,12 @@ pub(super) fn follow(frame: Rc<MountedData>, mut height: Signal<Option<f32>>) {
             }
             sleep(EVERY).await;
         }
-    });
+    })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::zoomed;
+    use super::{LEAST, fitted, zoomed};
 
     const PAGE: &str =
         "<!DOCTYPE html><html><head><style>p {}</style></head><body><p>Hi</p></body></html>";
@@ -170,5 +181,26 @@ mod tests {
             "<!DOCTYPE html><html><head><style>p {}</style><style>html { zoom: 0.681; }</style>\
              </head><body><p>Hi</p></body></html>"
         );
+        assert!(zoomed(PAGE, 1.25).contains("<style>html { zoom: 1.250; }</style></head>"));
+    }
+
+    /// The text size a person asked for, unless the page would then be wider than its frame:
+    /// then what fits, never under the least.
+    #[test]
+    fn a_larger_text_grows_a_page_only_until_it_fills_its_frame() {
+        // (case, the page's own width, the frame's, the text size, the zoom drawn)
+        let cases = [
+            ("fits at its size", 500.0, 600.0, 1.0, 1.0),
+            ("fits larger", 400.0, 600.0, 1.5, 1.5),
+            ("grows to the frame", 500.0, 600.0, 1.5, 1.2),
+            ("wider at its size", 800.0, 600.0, 1.0, 0.75),
+            ("wider, larger, still fits", 800.0, 600.0, 2.0, 0.75),
+            ("smaller text fits", 800.0, 600.0, 0.5, 0.5),
+            ("far too wide", 3000.0, 600.0, 1.0, LEAST),
+        ];
+        for (case, own, width, text, want) in cases {
+            let got = fitted(own, width, text);
+            assert!((got - want).abs() < 1e-4, "{case}: {got}");
+        }
     }
 }

@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, LoadRemoteImages, MarkRead, MarkReadDelay, NewMail, PreferPlainText, ProviderMarks,
+    ReadReceipts, ServerSearch, Spelling, TextZoom, ZoomStep,
 };
 
 use ds::prelude::Word;
@@ -112,6 +113,34 @@ pub struct ReadingSettings {
         section = "Reading"
     )]
     pub trusted_image_senders: Vec<String>,
+    #[settings(
+        label = "Prefer plain text",
+        help = "Show a message's plain-text version instead of its formatted one, when it has one.",
+        section = "Reading"
+    )]
+    pub prefer_plain_text: PreferPlainText,
+    #[settings(
+        label = "Mark as read",
+        help = "When a conversation you open stops being unread.",
+        section = "Reading"
+    )]
+    pub mark_read: MarkRead,
+    #[settings(
+        label = "Mark as read after",
+        help = "How long a conversation is shown before it is marked read, when that waits.",
+        section = "Reading"
+    )]
+    pub mark_read_delay: MarkReadDelay,
+    /// Set from the reader with Bigger, Smaller and Actual Size; the desktop's Settings app draws
+    /// it as a slider.
+    #[settings(
+        label = "Message text size",
+        help = "How large a message's text is drawn. Bigger and Smaller in the reader change it.",
+        section = "Reading",
+        range = "50..=300",
+        unit = "%"
+    )]
+    pub text_zoom: TextZoom,
 }
 
 impl ReadingSettings {
@@ -202,15 +231,22 @@ pub fn schema() -> Schema {
 /// written out: "From senders I trust" for `trusted`. The derive leaves every key's labels empty,
 /// and a Settings page shows a word without a label as itself.
 fn with_word_labels(mut key: KeySpec) -> KeySpec {
-    if key.path.0 == "reading.remote_images" {
-        key.labels = WordLabels(
-            LoadRemoteImages::ALL
-                .iter()
-                .map(|word| (word.slug().to_owned(), word.label().to_owned()))
-                .collect(),
-        );
-    }
+    let labels = match key.path.0.as_str() {
+        "reading.remote_images" => labels_of(LoadRemoteImages::ALL),
+        "reading.mark_read" => labels_of(MarkRead::ALL),
+        "reading.mark_read_delay" => labels_of(MarkReadDelay::ALL),
+        _ => return key,
+    };
+    key.labels = WordLabels(labels);
     key
+}
+
+/// Each of `words` as stored, with the words a person reads for it.
+fn labels_of<W: Word>(words: &[W]) -> std::collections::BTreeMap<String, String> {
+    words
+        .iter()
+        .map(|word| (word.slug().to_owned(), word.label().to_owned()))
+        .collect()
 }
 
 /// The config root a mailo config directory stands for: `~/.config/mailo` is `~/.config`, the

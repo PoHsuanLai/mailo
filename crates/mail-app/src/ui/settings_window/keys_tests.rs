@@ -1,4 +1,4 @@
-use super::{Control, Pair, control_of, value_of, with_value, word_label};
+use super::{Control, Pair, control_of, shown, value_of, with_value, word_label};
 use ds_settings::schema::KeyKind;
 
 fn words(list: &[&str]) -> Vec<String> {
@@ -109,4 +109,27 @@ fn a_value_is_read_and_set_by_its_path() {
         value_of(&again, &spelling),
         toml::Value::String("on".to_owned())
     );
+}
+
+#[test]
+fn a_number_is_shown_in_its_unit() {
+    let percent = KeyKind::Bounded {
+        min: 50,
+        max: 300,
+        unit: Some("%".to_owned()),
+    };
+    let bare = KeyKind::Bounded {
+        min: 0,
+        max: 9,
+        unit: None,
+    };
+    // (kind, value, shown)
+    let cases = [
+        (&percent, toml::Value::Integer(125), "125%"),
+        (&bare, toml::Value::Integer(3), "3"),
+        (&KeyKind::Text, toml::Value::String("x".to_owned()), "\"x\""),
+    ];
+    for (kind, value, want) in cases {
+        assert_eq!(shown(kind, &value), want, "{kind:?}");
+    }
 }

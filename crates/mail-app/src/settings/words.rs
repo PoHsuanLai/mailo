@@ -78,6 +78,112 @@ pub enum ReadReceipts {
     Always,
 }
 
+/// `reading.prefer_plain_text`: whether a message that carries a plain-text body beside its HTML
+/// is shown as the plain text. One with only either body shows that one, whatever this says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum PreferPlainText {
+    On,
+    #[default]
+    Off,
+}
+
+/// `reading.mark_read`: when an unread conversation the reader shows is marked read.
+///
+/// `OnOpen` is the default, and what opening one always did. `AfterDelay` waits
+/// `reading.mark_read_delay` while it stays shown, and moving on before then leaves it unread;
+/// `Never` leaves it to Mark as Read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum MarkRead {
+    #[default]
+    #[word(label = "On Open")]
+    OnOpen,
+    #[word(label = "After a Delay")]
+    AfterDelay,
+    Never,
+}
+
+/// `reading.mark_read_delay`: how long a conversation is shown before it is marked read, under
+/// [`MarkRead::AfterDelay`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum MarkReadDelay {
+    #[default]
+    #[word(label = "2 Seconds")]
+    Two,
+    #[word(label = "5 Seconds")]
+    Five,
+    #[word(label = "10 Seconds")]
+    Ten,
+}
+
+impl MarkReadDelay {
+    /// The wait itself.
+    pub fn duration(self) -> std::time::Duration {
+        std::time::Duration::from_secs(match self {
+            MarkReadDelay::Two => 2,
+            MarkReadDelay::Five => 5,
+            MarkReadDelay::Ten => 10,
+        })
+    }
+}
+
+/// `reading.text_zoom`: how large a message's text is drawn, in percent of its own size. Set
+/// with Bigger, Smaller and Actual Size (⌘+, ⌘− and ⌘0), a step at a time ([`TextZoom::stepped`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TextZoom(pub u16);
+
+/// A step of the text's size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoomStep {
+    Bigger,
+    Smaller,
+    ActualSize,
+}
+
+impl TextZoom {
+    /// The sizes a step goes between, as a browser's: from half size to three times.
+    pub const LADDER: [u16; 12] = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 300];
+    /// The least and the most the setting takes; a file's value past either is held at it.
+    pub const LEAST: u16 = 50;
+    pub const MOST: u16 = 300;
+
+    /// The size after `step`: the next rung up or down the ladder (a size between rungs goes to
+    /// the nearest one past it), held at either end, or 100 for Actual Size.
+    pub fn stepped(self, step: ZoomStep) -> TextZoom {
+        let at = self.0.clamp(Self::LEAST, Self::MOST);
+        let rung = match step {
+            ZoomStep::ActualSize => 100,
+            ZoomStep::Bigger => Self::LADDER
+                .into_iter()
+                .find(|rung| *rung > at)
+                .unwrap_or(Self::MOST),
+            ZoomStep::Smaller => Self::LADDER
+                .into_iter()
+                .rev()
+                .find(|rung| *rung < at)
+                .unwrap_or(Self::LEAST),
+        };
+        TextZoom(rung)
+    }
+
+    /// The size as a factor of the text's own, held to the setting's range.
+    pub fn factor(self) -> f32 {
+        f32::from(self.0.clamp(Self::LEAST, Self::MOST)) / 100.0
+    }
+}
+
+impl Default for TextZoom {
+    fn default() -> Self {
+        TextZoom(100)
+    }
+}
+
 /// `search.server_automatically`: whether a search is asked of the server without the button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
@@ -86,6 +192,15 @@ pub enum ServerSearch {
     On,
     #[default]
     Off,
+}
+
+impl From<PreferPlainText> for mail_core::message::Prefer {
+    fn from(plain: PreferPlainText) -> Self {
+        match plain {
+            PreferPlainText::On => mail_core::message::Prefer::Plain,
+            PreferPlainText::Off => mail_core::message::Prefer::Html,
+        }
+    }
 }
 
 impl From<NewMail> for mail_core::notify::Setting {

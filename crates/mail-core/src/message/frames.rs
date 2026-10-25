@@ -11,7 +11,7 @@
 //! (a future spawned from a render is never polled). The cache is a value the front-end owns
 //! and hands to whoever renders, not a process global: two of them share nothing.
 
-use super::frame::{FrameBody, Source, render};
+use super::frame::{FrameBody, Prefer, Source, render};
 use crate::error::Logged;
 use mail_domain::{BlobId, Message, ThreadId};
 use mail_mime::{Parsed, SanitizePolicy};
@@ -23,8 +23,8 @@ use std::sync::{Arc, Mutex};
 /// How much rendered html to keep, in bytes. A long newsletter is a few hundred kilobytes.
 const BUDGET: usize = 32 * 1024 * 1024;
 
-/// What a rendering is cached under.
-pub type Key = (BlobId, SanitizePolicy);
+/// What a rendering is cached under: the bytes, the policy, and which body was preferred.
+pub type Key = (BlobId, SanitizePolicy, Prefer);
 
 /// The body OpenPGP or S/MIME opened a message to, when it has been opened. Such a message is
 /// not cached: its rendering is a function of more than the blob, and of a key that may be
@@ -145,6 +145,9 @@ pub struct Frames {
     cache: Mutex<Cache>,
     /// Bumped by every [`Frames::warm`], so that only the newest one keeps going.
     warming: AtomicU64,
+    /// Which body a message with both is shown as: the reader's setting, set by the front-end
+    /// ([`Frames::prefer`]) and part of every key.
+    prefer: Mutex<Prefer>,
 }
 
 impl std::fmt::Debug for Frames {
@@ -171,7 +174,19 @@ impl Frames {
             unsealed,
             cache: Mutex::new(Cache::new(budget)),
             warming: AtomicU64::new(0),
+            prefer: Mutex::new(Prefer::default()),
         }
+    }
+
+    /// Show a message that has both bodies as `prefer` from now on. What was rendered under
+    /// the other choice stays cached under it, so switching back is a lookup.
+    pub fn prefer(&self, prefer: Prefer) {
+        *self.prefer.lock().unwrap_or_else(|held| held.into_inner()) = prefer;
+    }
+
+    /// Which body a message that has both is shown as now.
+    pub fn preferred(&self) -> Prefer {
+        *self.prefer.lock().unwrap_or_else(|held| held.into_inner())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Cache> {
@@ -186,7 +201,7 @@ impl Frames {
         message: &Message,
         policy: SanitizePolicy,
     ) -> FrameBody {
-        render(store, message, policy, &*self.unsealed).0
+        render(store, message, policy, self.preferred(), &*self.unsealed).0
     }
 
     /// What `message` renders to under `policy`, from the cache when it has been rendered before.
@@ -209,7 +224,7 @@ impl Frames {
         // Rendered outside the lock: a parse and a sanitize must not hold up a lookup. Kept only
         // when it was rendered from the blob: a seal opened since `keyed` looked would otherwise
         // leave plaintext under the blob's key, served once the key is locked again.
-        let (body, source) = render(store, message, policy, &*self.unsealed);
+        let (body, source) = render(store, message, policy, key.2, &*self.unsealed);
         let body = Arc::new(body);
         if source == Source::Stored {
             self.lock().put(key, Arc::clone(&body));
@@ -227,7 +242,7 @@ impl Frames {
         if (self.unsealed)(message).is_some() {
             return None;
         }
-        Some((message.body.raw()?, policy))
+        Some((message.body.raw()?, policy, self.preferred()))
     }
 
     /// What `message` renders to under `policy`, if it can be had on this frame: from the cache,
@@ -373,6 +388,7 @@ mod tests {
                 version,
                 ..SanitizePolicy::FRAME
             },
+            Prefer::Html,
         )
     }
 
@@ -391,6 +407,18 @@ mod tests {
         // The same bytes under another policy, or the same policy at another version, is a miss.
         assert_eq!(cache.get(key(1, RemoteImages::Allowed, 1)), None);
         assert_eq!(cache.get(key(1, RemoteImages::Blocked, 2)), None);
+        // And so is which body was preferred.
+        let (blob, policy, _) = key(1, RemoteImages::Blocked, 1);
+        assert_eq!(cache.get((blob, policy, Prefer::Plain)), None);
+    }
+
+    /// The preference the front-end sets is the one every key is made with.
+    #[test]
+    fn the_preferred_body_keys_what_is_cached() {
+        let frames = Frames::plain();
+        assert_eq!(frames.preferred(), Prefer::Html);
+        frames.prefer(Prefer::Plain);
+        assert_eq!(frames.preferred(), Prefer::Plain);
     }
 
     #[test]

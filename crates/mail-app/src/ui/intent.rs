@@ -8,7 +8,9 @@
 use super::actions::{Heard, Own};
 use super::motion::act_kind;
 use super::ops::{Composes, Writes, open_composer};
+use super::reading::Raw;
 use super::view::{Shell, Shortcut};
+use crate::settings::ZoomStep;
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use mail_core::SqliteStore;
@@ -35,6 +37,10 @@ pub(in crate::ui) enum Intent {
     Settings,
     SelectAll,
     OpenInWindow,
+    /// ⌘+, ⌘− and ⌘0: the reader's text a size bigger, smaller, or its own.
+    Zoom(ZoomStep),
+    /// ⇧⌘H and ⌥⌘R: the open conversation's newest message as it came.
+    Raw(Raw),
     /// A mail key, Esc, ⌘N (as [`Shortcut::Compose`]) or Move to Trash (as [`Shortcut::Trash`]).
     Mail(Shortcut),
 }
@@ -53,6 +59,11 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
         Heard::Standard(StandardAction::SelectAll) => Intent::SelectAll,
         Heard::Standard(StandardAction::New) => Intent::Mail(Shortcut::Compose),
         Heard::Own(Own::OpenInWindow) => Intent::OpenInWindow,
+        Heard::Standard(StandardAction::Bigger) => Intent::Zoom(ZoomStep::Bigger),
+        Heard::Standard(StandardAction::Smaller) => Intent::Zoom(ZoomStep::Smaller),
+        Heard::Standard(StandardAction::ActualSize) => Intent::Zoom(ZoomStep::ActualSize),
+        Heard::Own(Own::ShowHeaders) => Intent::Raw(Raw::Headers),
+        Heard::Own(Own::ViewSource) => Intent::Raw(Raw::Source),
         // Move to Trash (⌘⌫, or Delete in CUA) trashes what is open, as `#` does; a field keeps
         // the press for itself.
         Heard::Standard(StandardAction::MoveToTrash) if scope != Scope::Typing => {
@@ -61,7 +72,9 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
         _ => return None,
     };
     let allowed = match (scope, chosen) {
-        (_, Intent::Print) => true,
+        (_, Intent::Print | Intent::Zoom(_)) => true,
+        (Scope::Window, Intent::Raw(_)) => true,
+        (Scope::Typing, Intent::Raw(_)) => false,
         (Scope::Window, Intent::Mail(action)) => !matches!(
             action,
             Shortcut::Next
@@ -177,6 +190,32 @@ mod tests {
             (standard(StandardAction::MoveToTrash), Typing, None),
             (own(Own::Send), List, None),
             (standard(StandardAction::Undo), List, None),
+            (
+                standard(StandardAction::Bigger),
+                List,
+                Some(Zoom(ZoomStep::Bigger)),
+            ),
+            (
+                standard(StandardAction::Smaller),
+                Window,
+                Some(Zoom(ZoomStep::Smaller)),
+            ),
+            (
+                standard(StandardAction::ActualSize),
+                Typing,
+                Some(Zoom(ZoomStep::ActualSize)),
+            ),
+            (
+                own(Own::ShowHeaders),
+                List,
+                Some(Intent::Raw(crate::ui::reading::Raw::Headers)),
+            ),
+            (
+                own(Own::ViewSource),
+                Window,
+                Some(Intent::Raw(crate::ui::reading::Raw::Source)),
+            ),
+            (own(Own::ViewSource), Typing, None),
         ];
         for (heard, scope, want) in table {
             assert_eq!(intent(heard, scope), want, "{heard:?} in {scope:?}");

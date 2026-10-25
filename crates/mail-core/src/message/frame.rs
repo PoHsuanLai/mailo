@@ -69,6 +69,17 @@ impl FrameBody {
     }
 }
 
+/// Which of a message's bodies its frame shows when it carries both an HTML and a plain-text one
+/// (a `multipart/alternative`). One with only either shows that one, whatever this says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Prefer {
+    /// The HTML, as the sender laid it out.
+    #[default]
+    Html,
+    /// The plain text the sender wrote beside it.
+    Plain,
+}
+
 /// What a rendering was made from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -90,6 +101,7 @@ pub fn render(
     store: &SqliteStore,
     message: &Message,
     policy: SanitizePolicy,
+    prefer: Prefer,
     unsealed: &dyn Fn(&Message) -> Option<mail_mime::Parsed>,
 ) -> (FrameBody, Source) {
     match &message.body {
@@ -102,14 +114,31 @@ pub fn render(
             let Some(parsed) = parsed else {
                 return (plain_frame(text.as_deref().unwrap_or("")), source);
             };
-            let body = if let Some(html) = parsed.html.as_deref() {
-                html_frame(html, &parsed, policy)
-            } else {
-                let shown = parsed.text.as_deref().or(text.as_deref()).unwrap_or("");
-                plain_frame(shown)
-            };
-            (body, source)
+            (
+                chosen_frame(&parsed, text.as_deref(), policy, prefer),
+                source,
+            )
         }
+    }
+}
+
+/// The frame for `parsed`: its HTML, unless `prefer` asks for the plain text and the message has
+/// some to show; else its text, or `stored`, the text kept beside the blob. A text part of only
+/// whitespace is no text to prefer: the sender put everything in the HTML.
+fn chosen_frame(
+    parsed: &mail_mime::Parsed,
+    stored: Option<&str>,
+    policy: SanitizePolicy,
+    prefer: Prefer,
+) -> FrameBody {
+    let text = parsed
+        .text
+        .as_deref()
+        .filter(|text| !text.trim().is_empty());
+    match (parsed.html.as_deref(), prefer, text) {
+        (Some(_), Prefer::Plain, Some(text)) => plain_frame(text),
+        (Some(html), ..) => html_frame(html, parsed, policy),
+        (None, ..) => plain_frame(parsed.text.as_deref().or(stored).unwrap_or("")),
     }
 }
 
@@ -296,6 +325,59 @@ mod tests {
                 && html.contains("<blockquote>Ten?</blockquote></div></details>"),
             "{html}"
         );
+    }
+
+    /// Which body a frame shows, by what the message carries and what the reader prefers: the
+    /// plain text only where it is asked for and there is some.
+    #[test]
+    fn plain_text_is_shown_only_where_it_is_preferred_and_there_is_some() {
+        let alternative = "MIME-Version: 1.0\r\n\
+             Content-Type: multipart/alternative; boundary=\"b\"\r\n\r\n\
+             --b\r\nContent-Type: text/plain\r\n\r\nPlain words\r\n\
+             --b\r\nContent-Type: text/html\r\n\r\n<p>Rich words</p>\r\n--b--\r\n";
+        let blank_text = "MIME-Version: 1.0\r\n\
+             Content-Type: multipart/alternative; boundary=\"b\"\r\n\r\n\
+             --b\r\nContent-Type: text/plain\r\n\r\n \r\n\
+             --b\r\nContent-Type: text/html\r\n\r\n<p>Rich words</p>\r\n--b--\r\n";
+        let html_only = "MIME-Version: 1.0\r\nContent-Type: text/html\r\n\r\n<p>Rich words</p>\r\n";
+        let text_only = "Content-Type: text/plain\r\n\r\nPlain words\r\n";
+        // (case, message, preferred, shown as plain text, the words shown)
+        let cases = [
+            ("both, html", alternative, Prefer::Html, false, "Rich words"),
+            (
+                "both, plain",
+                alternative,
+                Prefer::Plain,
+                true,
+                "Plain words",
+            ),
+            ("blank text", blank_text, Prefer::Plain, false, "Rich words"),
+            ("html only", html_only, Prefer::Plain, false, "Rich words"),
+            (
+                "text only, html",
+                text_only,
+                Prefer::Html,
+                true,
+                "Plain words",
+            ),
+            (
+                "text only, plain",
+                text_only,
+                Prefer::Plain,
+                true,
+                "Plain words",
+            ),
+        ];
+        for (case, raw, prefer, plain_wanted, words) in cases {
+            let parsed = mail_mime::parse(raw.as_bytes()).expect("a message");
+            let FrameBody::Present { html, plain, .. } =
+                chosen_frame(&parsed, None, SanitizePolicy::FRAME, prefer)
+            else {
+                panic!("{case}: a frame is present");
+            };
+            assert_eq!(plain, plain_wanted, "{case}");
+            assert!(html.contains(words), "{case}: {html}");
+        }
     }
 
     #[test]

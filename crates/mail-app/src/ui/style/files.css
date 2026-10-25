@@ -7,6 +7,15 @@
 .tidy-sheet { display: flex; flex-direction: column; min-width: 0; }
 .tidy-title { padding: var(--s-20) var(--s-20) 0; }
 .tidy-sheet > .sheet-actions { padding: 0 var(--s-20) var(--s-20); }
+/* A message's headers or its source: the title, a line about what is left out, the text as it
+   came in the code face, selectable and scrolling inside the sheet, then the buttons. */
+.raw-sheet { display: flex; flex-direction: column; gap: var(--s-12); padding: var(--s-20); min-width: 0; width: 640px; max-width: 100%; box-sizing: border-box; }
+.raw-text {
+  max-height: 60vh; overflow: auto; padding: var(--s-10) var(--s-12); box-sizing: border-box;
+  font-family: var(--font-code); font-size: var(--fs-meta); line-height: var(--lh-read); color: var(--ink);
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: text;
+  background: var(--surface-2); border: var(--hair) solid var(--line-soft); border-radius: var(--r-tiny);
+}
 .sheet-path { display: flex; align-items: center; gap: var(--s-6); min-width: 0; width: 100%; }
 .sheet-path-field { flex: 1; min-width: 0; }
 .sheet-actions {

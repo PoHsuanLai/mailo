@@ -24,6 +24,10 @@ pub const ATTACH: &str = "Attach";
 pub const CANCEL: &str = "Cancel";
 /// A dialog's one button, which closes it.
 pub const OK: &str = "OK";
+/// The message source sheet's way out.
+pub const DONE: &str = "Done";
+/// The message source sheet: put all of what it shows on the clipboard.
+pub const COPY_ALL: &str = "Copy All";
 /// Opens the window on the defaults in place of settings files that cannot be read.
 pub const USE_DEFAULTS: &str = "Use Defaults";
 /// Ends mailo, leaving unreadable settings files as they are.

@@ -79,6 +79,11 @@ pub(in crate::ui) enum Own {
     AddBcc,
     /// Shift+Enter: the open conversation in a window of its own.
     OpenInWindow,
+    /// ⇧⌘H, as in Apple Mail: the open conversation's newest message's header lines.
+    ShowHeaders,
+    /// ⌥⌘R: its whole source, the raw message. Apple Mail's ⌥⌘U is the list's Unread filter
+    /// here, and ⌥⌘S is the same chord as strikethrough's on Windows.
+    ViewSource,
 }
 
 /// Each [`Own`] action with its id and its default chords. `Primary` is ⌘ or Ctrl.
@@ -94,6 +99,8 @@ const OWN: &[(Own, &str, &[&str])] = &[
     (Own::AddCc, "mail.add-cc", &["Alt+Primary+C"]),
     (Own::AddBcc, "mail.add-bcc", &["Alt+Primary+B"]),
     (Own::OpenInWindow, "mail.open-in-window", &["Shift+Enter"]),
+    (Own::ShowHeaders, "mail.show-headers", &["Shift+Primary+H"]),
+    (Own::ViewSource, "mail.view-source", &["Alt+Primary+R"]),
 ];
 
 /// What a key press asks of a mailo window.

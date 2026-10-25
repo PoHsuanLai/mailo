@@ -602,6 +602,9 @@ pub struct Shell {
     /// Peek, over the window: an attachment or a link's card. `None` is closed. Belongs to the
     /// open thread: [`Self::open`], [`Self::close`] and [`Self::select`] drop it.
     pub preview: Option<Preview>,
+    /// A message's header lines or its whole source, in a sheet over the window. `None` is
+    /// closed. Belongs to the open thread, as [`Self::preview`] does.
+    pub raw: Option<crate::ui::reading::RawAsked>,
 }
 
 /// A message being edited, as the widgets hold it.
@@ -720,6 +723,7 @@ impl Default for Shell {
             no_account: false,
             undo: mail_core::undo::UndoStack::default(),
             preview: None,
+            raw: None,
         }
     }
 }
@@ -855,6 +859,7 @@ impl Shell {
             // Consent is per thread, so changing what is shown revokes it.
             self.show_remote_images = false;
             self.preview = None;
+            self.raw = None;
         }
     }
 
@@ -866,6 +871,7 @@ impl Shell {
         self.picked = Picked::clicked(thread);
         self.show_remote_images = false;
         self.preview = None;
+        self.raw = None;
     }
 
     /// Open a thread from its row in one of the sidebar's lists: that row is then the sidebar's
@@ -895,6 +901,7 @@ impl Shell {
         self.from_side = None;
         self.show_remote_images = false;
         self.preview = None;
+        self.raw = None;
     }
 
     /// A click on a conversation's row, among the listed `ids`: a plain one opens it, Ctrl

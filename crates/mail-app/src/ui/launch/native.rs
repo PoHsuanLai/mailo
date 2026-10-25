@@ -83,6 +83,11 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_app_id(AppId(APP_ID.to_owned()))
         .with_net(original.net())
         .with_frame_links(original.links())
+        // ⌘+, ⌘− and ⌘0 are the reader's text size (`reading.text_zoom`), as in Mail, kept in
+        // the settings: blitz-shell would otherwise zoom the whole window on them before the
+        // window hears them, and forget it at the next launch. Its Alt+D, Alt+H and Alt+T
+        // overlays go with them, which leaves those keys to the window too.
+        .with_shell_keys(ds_blitz::ShellKeys::App)
         .with_contexts(window_contexts(store, look, Some(spaces), dirs, start))
         .with_context(original.consent())
         .with_context(original.pill())

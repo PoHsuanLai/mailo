@@ -79,7 +79,13 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
     // A memo, so that only a change of the open conversation counts, not every keystroke the
     // shell sees.
     let open = use_memo(move || shell.read().open);
+    // Warmed as the reader will look them up: with the body the settings prefer, and again when
+    // that changes.
+    let settings = use_hook(try_consume_context::<Signal<crate::settings::MailSettings>>);
     use_effect(move || {
+        if let Some(settings) = settings {
+            frames.prefer(settings.read().reading.prefer_plain_text.into());
+        }
         let list: Vec<ThreadId> = threads.read().iter().map(|thread| thread.id).collect();
         let order = ahead(open(), &list, FIRST_SCREEN);
         // The same order is what a body pass fetches first, with the open conversation ahead of

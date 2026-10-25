@@ -97,6 +97,10 @@ pub const FORWARD: &str = "Forward";
 pub const MOVE_TO: &str = "Move to…";
 pub const DOWNLOAD: &str = "Download";
 pub const PRINT: &str = "Print…";
+/// The reader's ⋯ and a message's own menu: the message's header lines as they came.
+pub const SHOW_ALL_HEADERS: &str = "Show All Headers";
+/// The reader's ⋯ and a message's own menu: the whole message as it came, headers and body.
+pub const VIEW_SOURCE: &str = "View Source";
 pub const VIEW: &str = "View";
 /// The reader's ⋯, when the conversation's list offers a way out: it asks before it acts.
 pub const UNSUBSCRIBE: &str = "Unsubscribe…";

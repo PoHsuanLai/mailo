@@ -47,6 +47,10 @@ pub(super) const SECTIONS: [Section; 2] = [
             Line::Key("reading.remote_images"),
             Line::TrustedSenders,
             Line::Key("reading.brand_logos"),
+            Line::Key("reading.prefer_plain_text"),
+            Line::Key("reading.mark_read"),
+            Line::Key("reading.mark_read_delay"),
+            Line::Key("reading.text_zoom"),
         ],
     },
     Section {
