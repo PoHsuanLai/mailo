@@ -159,10 +159,23 @@ pub(super) fn act(
 /// gesture is that their undos are kept together (`UndoStack::push_all`). A row that no longer
 /// belongs to the list leaves with it: quire's `List` plays that exit.
 pub(super) fn act_all(
+    store: &SqliteStore,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    ops: Vec<(ThreadId, Op)>,
+) -> usize {
+    act_saying(store, shell, revision, ops, None)
+}
+
+/// [`act_all`], its toast saying `instead` rather than what the ops did, when there is more to
+/// say than the op: the toast goes up once the ops are done, so words put up before then would
+/// be replaced by the op's own.
+pub(in crate::ui) fn act_saying(
     _store: &SqliteStore,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     ops: Vec<(ThreadId, Op)>,
+    instead: Option<String>,
 ) -> usize {
     if ops.is_empty() {
         return 0;
@@ -192,7 +205,7 @@ pub(super) fn act_all(
             .copied()
             .collect();
         hiding.settle(Some(generation), &refused);
-        performed(motion, shell, revision, done, hours)
+        performed(motion, shell, revision, done, hours, instead)
     })
     .unwrap_or(count)
 }
@@ -205,6 +218,7 @@ fn performed(
     mut revision: Signal<u64>,
     done: Vec<(ThreadId, Op, Undo)>,
     hours: mail_core::when::Clock,
+    instead: Option<String>,
 ) -> usize {
     let count = done.len();
     let said = match done.as_slice() {
@@ -212,6 +226,7 @@ fn performed(
         [(_, op, _), _, ..] => mail_core::undo::said_of(op, count, &chrono::Local, hours),
         [(_, _, undo)] => undo.said.clone(),
     };
+    let said = instead.unwrap_or(said);
     let undos = done.into_iter().map(|(.., undo)| undo).collect();
     revision += 1;
     if record_through(motion, shell, undos, said).is_none() {
