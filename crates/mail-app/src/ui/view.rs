@@ -479,6 +479,8 @@ pub enum Further {
     Label,
     /// Move To's folders.
     Move,
+    /// Copy To's folders.
+    Copy,
 }
 
 /// Where a further menu was asked for, which is where it is drawn.

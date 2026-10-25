@@ -192,6 +192,8 @@ fn kind_strips_the_payload() {
         (Op::SetFollowUp(FollowUp::Inactive), OpKind::FollowUp),
         // Filing leaves the inbox the way archiving does.
         (Op::File(LABEL_B), OpKind::Archive),
+        // Copying leaves the row where it is, with one more place: a label.
+        (Op::Copy(LABEL_B), OpKind::AddLabel),
         (Op::Destroy, OpKind::Destroy),
     ];
     for (op, expected) in CASES {
@@ -1061,6 +1063,7 @@ fn arb_op() -> impl Strategy<Value = Op> {
         arb_mute().prop_map(Op::SetMute),
         arb_follow_up().prop_map(Op::SetFollowUp),
         arb_label().prop_map(Op::File),
+        arb_label().prop_map(Op::Copy),
     ]
 }
 
@@ -1153,6 +1156,60 @@ fn filing_queues_one_intent_naming_each_message_once() {
             "{:?}",
             caps.archive
         );
+    }
+}
+
+/// A copy labels the messages that lack the folder's label and moves none of them; the server
+/// is asked to copy exactly those, and only where it has a notion of folders at all.
+#[test]
+fn copying_labels_what_lacks_the_folder_and_moves_nothing() {
+    let messages = mixed_thread();
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+    let target = Target::Threads(vec![THREAD]);
+    let folders = account_caps(
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        ServerLabels::LocalOnly,
+    );
+    let applied = Op::Copy(LABEL_B).apply(&target, &thread, &messages, &folders, now());
+    // m3 has the label already: copying it there again is nothing to do here or there.
+    assert_eq!(
+        applied.forward.changes,
+        vec![
+            Change::MessageLabel(mid(1), LABEL_B, Membership::In),
+            Change::MessageLabel(mid(2), LABEL_B, Membership::In),
+        ]
+    );
+    assert_eq!(
+        applied.inverse.changes,
+        vec![
+            Change::MessageLabel(mid(1), LABEL_B, Membership::Out),
+            Change::MessageLabel(mid(2), LABEL_B, Membership::Out),
+        ]
+    );
+    assert_eq!(
+        applied.remote,
+        Some(RemoteIntent::Copy {
+            messages: vec![mid(1), mid(2)],
+            label: LABEL_B,
+        })
+    );
+    // (case, capabilities, whether the server is told)
+    let cases = [
+        (
+            "labels",
+            account_caps(ArchiveMeans::DropInbox, ServerLabels::Supported),
+            true,
+        ),
+        (
+            "nowhere to copy to",
+            account_caps(ArchiveMeans::LocalOnly, ServerLabels::LocalOnly),
+            false,
+        ),
+    ];
+    for (case, caps, told) in cases {
+        let applied = Op::Copy(LABEL_B).apply(&target, &thread, &messages, &caps, now());
+        assert_eq!(applied.remote.is_some(), told, "{case}");
+        assert_eq!(applied.forward.changes.len(), 2, "{case}");
     }
 }
 

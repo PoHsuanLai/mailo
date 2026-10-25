@@ -85,6 +85,15 @@ pub enum Op {
     /// archive. It has no undo: the server's copy is gone once it is sent, and its inverse is
     /// empty.
     Destroy,
+    /// Into the folder this label names as well, leaving it where it is: the label added and
+    /// nothing else, which is a copy where mailboxes are labels, and what a `COPY` into that
+    /// folder leaves behind locally everywhere else.
+    ///
+    /// A copy of a message is not a second message here. The server's copy has the same
+    /// identity ([`crate::MessageKey`]) as the original, so the sync that finds it maps its
+    /// address to the message this client already holds, as a message in two IMAP folders is
+    /// one message with two addresses.
+    Copy(LabelId),
 }
 
 /// An operation with its payload stripped: "which action", without "that action's arguments".
@@ -250,6 +259,14 @@ pub enum RemoteIntent {
         date: Option<DateTime<Utc>>,
         raw: BlobId,
     },
+    /// Copy messages into the folder a label names, leaving them where they are.
+    ///
+    /// Resolved by the store to [`crate::ProtoOp::Copy`] with the label's name, which is the
+    /// folder's path, as [`RemoteIntent::File`] is.
+    Copy {
+        messages: Vec<MessageId>,
+        label: LabelId,
+    },
 }
 
 /// The result of applying an [`Op`], or of planning a folder change with [`crate::folder::plan`].
@@ -321,6 +338,7 @@ impl Op {
             Op::SetStar(star) => set_star(&selected, *star),
             Op::Label(label, membership) => set_label(&selected, *label, *membership),
             Op::File(label) => file_into(&selected, *label),
+            Op::Copy(label) => set_label(&selected, *label, Membership::In),
             Op::Destroy => destroy(&selected),
             Op::SetSnooze(snooze) => {
                 let prior = thread.summary.snooze;
@@ -460,6 +478,16 @@ impl Op {
                     })
                 }
             },
+            // As filing: a server with no notion of where a message is has nowhere to copy it.
+            Op::Copy(label) => match caps.archive {
+                ArchiveMeans::LocalOnly => None,
+                ArchiveMeans::DropInbox | ArchiveMeans::MoveToFolder(_) => {
+                    Some(RemoteIntent::Copy {
+                        messages,
+                        label: *label,
+                    })
+                }
+            },
             // Whatever the account files locally, the server holds the message until it is told:
             // left there, the next sync would bring it back into Trash.
             Op::Destroy => Some(RemoteIntent::Destroy { messages }),
@@ -488,6 +516,8 @@ impl Op {
             Op::Destroy => OpKind::Destroy,
             // Filing is archiving into a named place: the row leaves the inbox the same way.
             Op::File(_) => OpKind::Archive,
+            // Copying is labelling with a folder: the row stays, and gains a place.
+            Op::Copy(_) => OpKind::AddLabel,
         }
     }
 }

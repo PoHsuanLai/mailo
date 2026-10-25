@@ -153,6 +153,7 @@ impl SqliteStore {
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
+            | RemoteIntent::Copy { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. }
             | RemoteIntent::Destroy { messages } => messages,
             RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
@@ -190,6 +191,13 @@ impl SqliteStore {
             RemoteIntent::File { label, .. } => {
                 match self.label_names(std::slice::from_ref(label))?.pop() {
                     Some(folder) => ProtoOp::File { remotes, folder },
+                    None => return Ok(None),
+                }
+            }
+            // As filing: the label's name is the folder's path.
+            RemoteIntent::Copy { label, .. } => {
+                match self.label_names(std::slice::from_ref(label))?.pop() {
+                    Some(folder) => ProtoOp::Copy { remotes, folder },
                     None => return Ok(None),
                 }
             }

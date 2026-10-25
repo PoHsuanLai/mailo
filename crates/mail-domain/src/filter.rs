@@ -84,6 +84,9 @@ pub enum Filter {
     ///   out of every folder at once (see [`Filed`]);
     /// - no move of it into another folder ([`crate::Op::File`]) is still queued.
     ///
+    /// A copy of it into the mailbox that is still queued ([`crate::Op::Copy`]) stands for an
+    /// address there until the server answers, weighed by the other two the same way.
+    ///
     /// The address is server truth and is never changed optimistically — it is what the
     /// outbox addresses the message by. The other two are the local intent laid over it, the
     /// way [`Filter::InMailbox`] carries it: a message moved out of a folder view leaves the
@@ -194,13 +197,36 @@ impl Placed {
         roles: &crate::FolderRoles,
         moving: &[String],
     ) -> Vec<Placed> {
+        Placed::of_message_copied(role, addresses, roles, moving, Vec::new())
+    }
+
+    /// [`Placed::of_message`], and a place in each of `copying`, the folders a copy still
+    /// queued for the message is putting it in ([`crate::Op::Copy`]).
+    ///
+    /// Listed there from the moment it is copied, as a move takes it out of the folder it leaves
+    /// at once, and until the server has answered: then by the address the server gave the
+    /// copy, or, where it gave none, from the sync of that folder that finds it. Whether it is
+    /// filed as held is the message's, weighed against the addresses it has; a place it is only
+    /// being copied to is not one of them.
+    pub fn of_message_copied(
+        role: MailboxRole,
+        addresses: Vec<MailboxRef>,
+        roles: &crate::FolderRoles,
+        moving: &[String],
+        copying: Vec<MailboxRef>,
+    ) -> Vec<Placed> {
         let filed = if addresses.iter().any(|m| roles.filed_as(&m.path) == role) {
             Filed::AsHeld
         } else {
             Filed::Away
         };
+        let arriving: Vec<MailboxRef> = copying
+            .into_iter()
+            .filter(|to| !addresses.contains(to))
+            .collect();
         addresses
             .into_iter()
+            .chain(arriving)
             .map(|mailbox| {
                 let leaving = if moving.iter().any(|to| *to != mailbox.path) {
                     Leaving::Elsewhere

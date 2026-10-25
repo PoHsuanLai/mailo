@@ -808,6 +808,85 @@ async fn a_move_takes_the_new_id_graph_gives_the_message() {
     assert_eq!(patched.path(), "/v1.0/me/messages/G2-ARCHIVED");
 }
 
+/// A copy is `POST …/copy` into the folder's id, and the copy Graph makes, a message with an id of
+/// its own, is kept as one more address of the message copied: the original stays where it is.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_copy_posts_the_copy_and_keeps_the_original_and_the_copy() {
+    let (port, seen) = serve(Arc::new(|request, port| {
+        if request.method == "POST" && request.path().ends_with("/copy") {
+            return Answer {
+                status: "201 Created",
+                headers: String::new(),
+                body: json!({ "id": "G2-COPY", "parentFolderId": "ID-PROJECTS" }).to_string(),
+            };
+        }
+        inbox_script()(request, port)
+    }))
+    .await;
+    let mut it = account(port);
+    let (_tx, mut cancel) = cancel();
+    it.engine.refresh_folders(&mut cancel, now()).await.unwrap();
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+    let message = held(&it.store, 2).unwrap();
+    let before = it.store.remotes_of(message.id).unwrap();
+    let projects = Label {
+        id: LabelId::generate(),
+        account: acct_account(),
+        name: "Projects".to_owned(),
+        color: None,
+        origin: LabelOrigin::Provider,
+    };
+    it.store
+        .apply(
+            acct_account(),
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::LabelUpsert(projects.clone())],
+            },
+        )
+        .unwrap();
+    queue(
+        &it.store,
+        RemoteIntent::Copy {
+            messages: vec![message.id],
+            label: projects.id,
+        },
+    );
+    let drained = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+    assert_eq!(drained.outbox_settled, 1, "{:?}", drained.needs_attention);
+
+    let copies: Vec<Request> = seen
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|r| r.method == "POST" && r.path().ends_with("/copy"))
+        .cloned()
+        .collect();
+    assert_eq!(copies.len(), 1);
+    assert_eq!(copies[0].path(), "/v1.0/me/messages/G2/copy");
+    assert_eq!(copies[0].json(), json!({ "destinationId": "ID-PROJECTS" }));
+    let mut want = before.clone();
+    want.push(RemoteRef::Graph {
+        mailbox: "Projects".to_owned(),
+        id: "G2-COPY".to_owned(),
+    });
+    let mut after = it.store.remotes_of(message.id).unwrap();
+    after.sort_by_key(|r| format!("{r:?}"));
+    want.sort_by_key(|r| format!("{r:?}"));
+    assert_eq!(after, want, "the original and its copy, one message");
+    assert!(
+        !seen
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|r| r.path().ends_with("/move")),
+        "a copy moved the message"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_second_move_queued_before_the_first_went_uses_the_id_the_first_returned() {
     // Graph gives a moved message a new id, and the old one then names nothing. Both moves are

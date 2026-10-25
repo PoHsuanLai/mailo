@@ -63,6 +63,11 @@ enum Job {
         remotes: Vec<RemoteRef>,
         target: String,
     },
+    /// A copy of `remotes` into `target`, whose answer may say where each copy landed.
+    Copying {
+        remotes: Vec<RemoteRef>,
+        target: String,
+    },
     /// An upload into `mailbox`, whose completion may say where it landed.
     Appending {
         mailbox: String,
@@ -215,6 +220,38 @@ impl ImapBackend {
             },
         };
         self.queue(vec![Self::select(source, Access::ReadWrite), action])
+    }
+
+    /// Copy `remotes`, all in `source`, into `target` with `UID COPY`, leaving them where they
+    /// are.
+    ///
+    /// Nothing is sent for a copy into the folder it is in: `COPY` would put a second copy of
+    /// the message beside it, which nobody asked for.
+    fn copy_into(
+        &mut self,
+        source: &MailboxRef,
+        remotes: &[RemoteRef],
+        set: String,
+        target: String,
+    ) -> Progress<ProtoOutcome> {
+        if same_folder(&source.path, &target) {
+            return Progress::Done(ProtoOutcome::Applied);
+        }
+        self.job = Job::Copying {
+            remotes: remotes
+                .iter()
+                .filter(|r| matches!(r, RemoteRef::Imap { mailbox, .. } if *mailbox == source.path))
+                .cloned()
+                .collect(),
+            target: target.clone(),
+        };
+        self.queue(vec![
+            Self::select(source, Access::ReadOnly),
+            ImapCommand::UidCopy {
+                set,
+                mailbox: target,
+            },
+        ])
     }
 
     /// Delete `remotes` for good: the user's "Delete forever", from Trash or Spam.
@@ -589,6 +626,29 @@ impl Backend for ImapBackend {
                         ])
                     }
                     ArchiveMeans::MoveToFolder(_) => self.move_into(&source, &remotes, set, folder),
+                }
+            }
+            ProtoOp::Copy { remotes, folder } => {
+                let Some(set) = uid_set(&remotes) else {
+                    return Progress::Done(ProtoOutcome::Applied);
+                };
+                let source = mailbox_of(&remotes, self.account.clone());
+                match &self.caps.archive {
+                    ArchiveMeans::LocalOnly => Progress::Done(ProtoOutcome::Applied),
+                    // Gmail: the folder is a label, and a copy into it is the label added. A
+                    // `COPY` would do the same, under a UID in a mailbox this client does not
+                    // sync; the label is how the folder is listed here.
+                    ArchiveMeans::DropInbox => {
+                        self.job = Job::Applied;
+                        self.queue(vec![
+                            Self::select(&source, Access::ReadWrite),
+                            ImapCommand::UidStore {
+                                set,
+                                what: format!("+X-GM-LABELS ({})", quoted_labels(&[folder])),
+                            },
+                        ])
+                    }
+                    ArchiveMeans::MoveToFolder(_) => self.copy_into(&source, &remotes, set, folder),
                 }
             }
             ProtoOp::FetchFlags {
@@ -994,6 +1054,14 @@ impl Backend for ImapBackend {
                     .chain(transcript.completed.iter().map(|done| done.text.as_str()))
                     .find_map(copyuid);
                 Progress::Done(ProtoOutcome::Moved(landed_at(remotes, &target, landed)))
+            }
+            // In the tagged `OK`, as for a `UID COPY` standing in for a move.
+            Job::Copying { remotes, target } => {
+                let landed = transcript
+                    .completed
+                    .iter()
+                    .find_map(|done| copyuid(&done.text));
+                Progress::Done(ProtoOutcome::Copied(landed_at(remotes, &target, landed)))
             }
             Job::Applied | Job::Folder(_) => Progress::Done(ProtoOutcome::Applied),
             Job::Watching => Progress::Done(ProtoOutcome::Woken),

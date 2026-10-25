@@ -394,6 +394,20 @@ pub trait Store {
     fn remap(&self, account: AccountId, from: &RemoteRef, to: &RemoteRef)
     -> Result<(), StoreError>;
 
+    /// The server copied a message and gave the copy an address: `to` names it too, beside
+    /// `from`.
+    ///
+    /// A copy is the same message in one more place ([`mail_domain::Op::Copy`]), so it is kept
+    /// as one more address of the message `from` names, and the sync that lists `to` finds it
+    /// held rather than storing it again. Nothing happens if `from` is not held, and if a sync
+    /// already mapped `to`, it stays as it is.
+    fn copied(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError>;
+
     /// The server moved a message and did not say where: `remote` no longer addresses it.
     ///
     /// Only the address goes; the message, its flags and its role stay as they are, and the

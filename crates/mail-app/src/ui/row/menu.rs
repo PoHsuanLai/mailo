@@ -54,7 +54,7 @@ fn op(kind: OpKind) -> Pick {
 }
 
 /// The menu for `summary`, a rule between each group, in the Mac's order: answer it; mark it;
-/// put it off or file it away; take it out of the list.
+/// put it off, file it away or copy it elsewhere; take it out of the list.
 ///
 /// Each pair is on the side the conversation needs: Mark as Read or Unread, Star or Unstar, Pin
 /// or Unpin. Archive is Move to Inbox (Not Spam in Spam) once the conversation is out of the
@@ -84,6 +84,7 @@ pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
             op(OpKind::Snooze),
             op(OpKind::AddLabel),
             Pick::Press(Pressed::MoveTo),
+            Pick::Press(Pressed::CopyTo),
         ],
         file.into_iter().chain([bin]).map(op).collect(),
     ]
@@ -136,6 +137,7 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::DeleteDraft => menus::DELETE_DRAFT,
         Pick::CancelSending => menus::CANCEL_SENDING,
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
+        Pick::Press(Pressed::CopyTo) => menus::COPY_TO,
         Pick::Press(Pressed::Op(kind)) => menus::offered(says(kind, summary, now)),
     }
 }
@@ -149,6 +151,7 @@ fn icon(pick: Pick) -> Icon {
         Pick::DeleteDraft => Icon::Trash,
         Pick::CancelSending => Icon::X,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
+        Pick::Press(Pressed::CopyTo) => Icon::Copy,
         Pick::Press(Pressed::Op(kind)) => op_icon(kind),
     }
 }
@@ -279,6 +282,7 @@ mod tests {
                     m::SNOOZE,
                     m::LABEL,
                     m::MOVE_TO,
+                    m::COPY_TO,
                     "-",
                     m::ARCHIVE,
                     m::MOVE_TO_TRASH,
@@ -299,6 +303,7 @@ mod tests {
                     m::SNOOZE,
                     m::LABEL,
                     m::MOVE_TO,
+                    m::COPY_TO,
                     "-",
                     m::MOVE_TO_INBOX,
                     m::DELETE_FOREVER,
@@ -319,6 +324,7 @@ mod tests {
                     m::SNOOZE,
                     m::LABEL,
                     m::MOVE_TO,
+                    m::COPY_TO,
                     "-",
                     m::NOT_SPAM,
                     m::MOVE_TO_TRASH,
@@ -339,6 +345,7 @@ mod tests {
                     m::SNOOZE,
                     m::LABEL,
                     m::MOVE_TO,
+                    m::COPY_TO,
                     "-",
                     m::MOVE_TO_TRASH,
                 ],
@@ -440,6 +447,7 @@ mod tests {
                 m::SNOOZE,
                 m::LABEL,
                 m::MOVE_TO,
+                m::COPY_TO,
                 "-",
                 m::MARK_AS_SPAM,
                 "-",

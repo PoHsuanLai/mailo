@@ -547,8 +547,10 @@ impl<B: Backend> AccountEngine<B> {
                 Ok(outcome) => {
                     // Answered, whatever recording where it went says next.
                     progress.answered.push(part);
-                    if let ProtoOutcome::Moved(moved) = outcome {
-                        self.moved(&moved, into.as_deref())?;
+                    match outcome {
+                        ProtoOutcome::Moved(moved) => self.moved(&moved, into.as_deref())?,
+                        ProtoOutcome::Copied(copied) => self.copied(&copied)?,
+                        _ => {}
                     }
                 }
                 Err(e) => {
@@ -704,6 +706,9 @@ impl<B: Backend> AccountEngine<B> {
         let moves = reader.take_moves();
         for (from, to) in moves {
             self.store.remap(self.account.clone(), &from, &to)?;
+        }
+        for (from, to) in reader.take_copies() {
+            self.store.copied(self.account.clone(), &from, &to)?;
         }
         outcome
     }
@@ -1148,8 +1153,12 @@ impl<B: Backend> AccountEngine<B> {
                 Ok(outcome) => {
                     // Before the settle, so the next entry, addressed as it is reached, finds
                     // the message where the move put it.
-                    if let ProtoOutcome::Moved(moved) = &outcome {
-                        self.moved(moved, into.as_deref())?;
+                    match &outcome {
+                        ProtoOutcome::Moved(moved) => self.moved(moved, into.as_deref())?,
+                        // Before the settle too: the copy stops being listed by the queued entry
+                        // as it settles, and from then on by the address the server gave it.
+                        ProtoOutcome::Copied(copied) => self.copied(copied)?,
+                        _ => {}
                     }
                     self.store.outbox_settle(id, Settle::Ok, now)?;
                     if let (Some(upload), ProtoOutcome::Appended { remote }) = (upload, outcome) {
@@ -1314,6 +1323,17 @@ impl<B: Backend> AccountEngine<B> {
             match &one.to {
                 Some(to) => self.store.remap(self.account.clone(), &one.from, to)?,
                 None => self.store.unmap(self.account.clone(), &one.from, into)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Keep the address each copy was given, beside the message it is a copy of. A copy whose
+    /// address the server did not say is found by the next sync of its folder, by identity.
+    fn copied(&self, copied: &[Moved]) -> Result<(), RuntimeError> {
+        for one in copied {
+            if let Some(to) = &one.to {
+                self.store.copied(self.account.clone(), &one.from, to)?;
             }
         }
         Ok(())

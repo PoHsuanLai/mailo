@@ -95,11 +95,27 @@ pub const REPLY: &str = "Reply";
 pub const REPLY_ALL: &str = "Reply All";
 pub const FORWARD: &str = "Forward";
 pub const MOVE_TO: &str = "Move to…";
+/// Into another folder of the account as well, and left where it is.
+pub const COPY_TO: &str = "Copy to…";
 pub const DOWNLOAD: &str = "Download";
 pub const PRINT: &str = "Print…";
 pub const VIEW: &str = "View";
 /// The reader's ⋯, when the conversation's list offers a way out: it asks before it acts.
 pub const UNSUBSCRIBE: &str = "Unsubscribe…";
+
+// The pick lists Move to… and Copy to… open: each one's name, which its field shares.
+pub const MOVE_TO_LIST: &str = "Move to";
+pub const COPY_TO_LIST: &str = "Copy to";
+
+/// Copy to…'s folders, under the account's address: a copy goes to another folder of the same
+/// account, never to another account.
+pub fn copy_within(address: &str) -> String {
+    if address.is_empty() {
+        "This Account’s Folders".to_owned()
+    } else {
+        format!("Folders in {address}")
+    }
+}
 
 /// The word for the side of an action a conversation is offered.
 pub fn offered(say: mail_core::view::Say) -> &'static str {

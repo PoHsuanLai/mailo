@@ -83,9 +83,11 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
         // `(account, mailbox)` columns, then each message by primary key — and tests each
         // thread against the result, rather than probing `remote_map` once per thread.
         Filter::InFolder(mailbox) => {
-            params.push(SqlValue::Text(mailbox.account.to_string()));
-            params.push(SqlValue::Text(mailbox.path.clone()));
-            format!("(ts.thread IN ({IN_FOLDER}))")
+            for _ in 0..2 {
+                params.push(SqlValue::Text(mailbox.account.to_string()));
+                params.push(SqlValue::Text(mailbox.path.clone()));
+            }
+            format!("(ts.thread IN ({IN_FOLDER} UNION {COPYING_IN}))")
         }
         Filter::From(m) => like_either("ts.from_email", "ts.from_name", m, params),
         Filter::To(m) => {
@@ -154,6 +156,29 @@ const IN_FOLDER: &str = "SELECT m.thread FROM remote_map r \
      AND NOT EXISTS (SELECT 1 FROM pending_changes p JOIN outbox o ON o.id = p.outbox \
          WHERE p.message = m.id AND json_extract(o.op, '$.kind') = 'file' \
          AND json_extract(o.op, '$.v.folder') <> r.mailbox)";
+
+/// The threads with a message a queued copy is putting in one mailbox, for [`Filter::InFolder`]
+/// beside [`IN_FOLDER`]: the copy stands for an address there until the server answers
+/// (`Placed::of_message_copied`). Binds the account, then the path, as `IN_FOLDER` does.
+///
+/// The other two conditions are `IN_FOLDER`'s, with the copy's folder where the address's
+/// mailbox was: filed as one of the addresses the message has, and no move of it elsewhere
+/// queued.
+const COPYING_IN: &str = "SELECT m.thread FROM outbox k \
+     JOIN pending_changes q ON q.outbox = k.id \
+     JOIN messages m ON m.id = q.message \
+     WHERE k.account = ? AND json_extract(k.op, '$.kind') = 'copy' \
+     AND json_extract(k.op, '$.v.folder') = ? \
+     AND EXISTS (SELECT 1 FROM remote_map h WHERE h.message = m.id \
+         AND json_extract(m.mailbox, '$') = CASE \
+             WHEN upper(h.mailbox) = 'INBOX' THEN 'inbox' \
+             ELSE COALESCE((SELECT json_extract(f.value, '$[1]') \
+                 FROM account_caps c, json_each(c.caps, '$.folders') f \
+                 WHERE c.account = h.account AND json_extract(f.value, '$[0]') = h.mailbox \
+                 ORDER BY f.key LIMIT 1), 'archive') END) \
+     AND NOT EXISTS (SELECT 1 FROM pending_changes p JOIN outbox o ON o.id = p.outbox \
+         WHERE p.message = m.id AND json_extract(o.op, '$.kind') = 'file' \
+         AND json_extract(o.op, '$.v.folder') <> json_extract(k.op, '$.v.folder'))";
 
 fn combine(
     children: &[Filter],

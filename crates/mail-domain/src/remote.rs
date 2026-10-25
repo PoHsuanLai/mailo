@@ -330,6 +330,16 @@ pub enum ProtoOp {
     },
     /// Create, rename, delete or follow a mailbox. IMAP only.
     Folder(crate::folder::FolderWork),
+    /// Copy messages into the folder at `folder`, leaving them where they are: `UID COPY` on
+    /// IMAP, the label added where mailboxes are labels (Gmail, JMAP), and `POST …/copy` on
+    /// Microsoft Graph.
+    ///
+    /// Each message is named by one address. Copying every address a message has would put as
+    /// many copies in the folder as the message has places.
+    Copy {
+        remotes: Vec<RemoteRef>,
+        folder: String,
+    },
 }
 
 #[cfg(test)]

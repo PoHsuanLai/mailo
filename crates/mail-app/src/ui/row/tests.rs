@@ -73,6 +73,7 @@ async fn a_right_click_on_a_row_lists_every_action_it_has() {
             menus::SNOOZE,
             menus::LABEL,
             menus::MOVE_TO,
+            menus::COPY_TO,
             menus::ARCHIVE,
             menus::MOVE_TO_TRASH,
         ]

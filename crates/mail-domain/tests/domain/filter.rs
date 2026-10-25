@@ -1015,6 +1015,62 @@ fn in_folder_matches_a_message_held_there_and_filed_as_held() {
     }
 }
 
+/// A copy still queued into a folder lists the message there, as an address would: filed as the
+/// addresses it has, and not while a move of it elsewhere is queued too.
+#[test]
+fn a_queued_copy_lists_the_message_in_its_folder() {
+    use mail_domain::{FolderRoles, MailboxRef, Placed};
+    let at = |path: &str| MailboxRef {
+        account: acct_account_a(),
+        path: path.to_owned(),
+    };
+    let roles = FolderRoles::default();
+    let inbox = at("INBOX");
+    let projects = at("Projects");
+    // (case, role, addresses, moves queued, listed in Projects once copied there)
+    type Case<'a> = (&'a str, MailboxRole, Vec<MailboxRef>, Vec<String>, bool);
+    let cases: Vec<Case> = vec![
+        (
+            "in the inbox, copied",
+            MailboxRole::Inbox,
+            vec![inbox.clone()],
+            vec![],
+            true,
+        ),
+        (
+            "and a move elsewhere queued after it",
+            MailboxRole::Inbox,
+            vec![inbox.clone()],
+            vec!["Elsewhere".to_owned()],
+            false,
+        ),
+        // Trashed here: filed as none of its addresses, so in none of its folders.
+        (
+            "in Trash here",
+            MailboxRole::Trash,
+            vec![inbox.clone()],
+            vec![],
+            false,
+        ),
+    ];
+    let s = summary(|_| {});
+    for (case, role, addresses, moving, want) in cases {
+        let none = Placed::of_message(role, addresses.clone(), &roles, &moving);
+        let copied =
+            Placed::of_message_copied(role, addresses, &roles, &moving, vec![projects.clone()]);
+        let fits = |folders: &[Placed]| {
+            Filter::InFolder(projects.clone()).fit(&MatchCtx {
+                summary: &s,
+                corpus: None,
+                folders,
+                now: now(),
+            })
+        };
+        assert!(!fits(&none), "{case}: listed with no copy queued");
+        assert_eq!(fits(&copied), want, "{case}");
+    }
+}
+
 /// Saved views are stored as JSON. A new clause is a new tag, and every old one reads as before.
 #[test]
 fn in_folder_is_an_additive_clause_in_a_saved_view() {

@@ -1,9 +1,9 @@
 //! Draining the outbox to a JMAP server: the same operations, in the same order, with the same
 //! settle and undo rules as [`crate::AccountEngine::drain_outbox`].
 //!
-//! Each operation is one request. Flags, filing, labels and keywords are `Email/set` patches;
-//! an upload is `Email/import`; a send is an import and an `EmailSubmission/set` together;
-//! folder work is `Mailbox/set`. Destroying an email is done for one reason only — the user
+//! Each operation is one request. Flags, filing, labels, copies and keywords are `Email/set`
+//! patches; an upload is `Email/import`; a send is an import and an `EmailSubmission/set`
+//! together; folder work is `Mailbox/set`. Destroying an email is done for one reason only — the user
 //! deleted it forever from Trash or Junk — and is checked against the server's own view before
 //! it is asked for.
 
@@ -211,6 +211,19 @@ impl JmapEngine {
                     self.refresh_mailboxes(Utc::now()).await?
                 };
                 let update = patch_each(&remotes, jmap::labels_patch(&add, &remove, &mailboxes)?);
+                self.set(&client, update, Vec::new()).await
+            }
+            // A copy within one account is the same email in one more mailbox: that mailbox
+            // added to its `mailboxIds`, and none taken away.
+            ProtoOp::Copy { remotes, folder } => {
+                let add = [folder];
+                let mailboxes = if mailboxes.id_for_path(&add[0]).is_some() {
+                    mailboxes
+                } else {
+                    self.mailboxes = None;
+                    self.refresh_mailboxes(Utc::now()).await?
+                };
+                let update = patch_each(&remotes, jmap::labels_patch(&add, &[], &mailboxes)?);
                 self.set(&client, update, Vec::new()).await
             }
             ProtoOp::AddKeyword { remotes, keyword } => {

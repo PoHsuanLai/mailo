@@ -3,7 +3,7 @@
 //! conversation, is [`Shell::further`]; every way out of a menu clears it.
 
 use super::{LabelMenu, SnoozeMenu};
-use crate::ui::move_to::MoveMenu;
+use crate::ui::move_to::{Gesture, MoveMenu};
 use crate::ui::view::{Further, Opened, Shell};
 use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
@@ -45,6 +45,17 @@ pub(in crate::ui) fn FurtherMenus(
                 revision,
                 anchor,
                 placed,
+                on_close: move |_| shell.write().further = None,
+            }
+        },
+        Further::Copy => rsx! {
+            MoveMenu {
+                thread: id,
+                shell,
+                revision,
+                anchor,
+                placed,
+                gesture: Gesture::Copy,
                 on_close: move |_| shell.write().further = None,
             }
         },

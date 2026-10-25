@@ -10,6 +10,7 @@ mod common;
 
 mod backend_imap;
 mod backend_imap_append;
+mod backend_imap_copy;
 mod backend_imap_destroy;
 mod backend_imap_folders;
 mod backend_imap_search;

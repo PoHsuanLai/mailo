@@ -2,7 +2,8 @@
 //! around it; a Space's name opens the Space's menu only on a right click, where Edit Space… asks
 //! for its page in Settings and Delete Space… asks first, Escape keeping the Space; a folder's
 //! rename ends with Escape, or by going to another folder, writing nothing; a hidden sidebar
-//! comes back from the head of the list.
+//! comes back from the head of the list. Copy to… puts a conversation in a folder of its account
+//! and leaves it where it was, so both list it, and Ctrl-Z takes the copy back.
 
 use ds::base::press::PointerButton;
 use mail_app::ui::appearance::WindowDirs;
@@ -10,13 +11,13 @@ use mail_app::ui::copy;
 use mail_app::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
 use mail_app::ui::space::{self, Mail};
 use mail_core::{SqliteStore, Store};
-use mail_domain::{Folder, Holds, Subscription, presets};
+use mail_domain::{AccountCaps, ArchiveMeans, Folder, Holds, ProtoOp, Subscription, presets};
 use std::sync::{Arc, Mutex};
 
-use super::drive::{Drive, Key};
+use super::drive::{Drive, Key, PRIMARY};
 use super::hands::menu_item;
-use super::row_menu::menu_names;
-use super::window::{Window, account, ms};
+use super::row_menu::{menu_names, row_action};
+use super::window::{INBOX, Window, account, ms, row_of};
 use crate::lanes::seed::ME;
 
 /// A folder of the account's, and another beside it.
@@ -230,4 +231,85 @@ fn the_sidebar_s_tiles_spaces_and_folders_answer_their_menus() {
     window.until("the sidebar comes back", |h| {
         h.count(&show) == 0 && h.rect(".side").is_some_and(|r| r.size.width.0 > 100.0)
     });
+}
+
+/// [`with_folders`], once a sync has found the account's server files into folders: a copy into
+/// one is something the server is told.
+fn filing_into_folders(store: &SqliteStore) {
+    with_folders(store);
+    let caps = AccountCaps {
+        archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        ..mail_core::sync::caps_of(store, account()).expect("the capabilities")
+    };
+    store
+        .put_caps(account(), &caps, chrono::Utc::now())
+        .expect("the capabilities");
+}
+
+/// The copies waiting for the server, by folder.
+fn copies(window: &Window) -> Vec<String> {
+    let far = chrono::Utc::now() + chrono::Duration::days(3650);
+    window
+        .store
+        .outbox_due(account(), far)
+        .expect("the outbox reads")
+        .into_iter()
+        .filter_map(|entry| match entry.op {
+            ProtoOp::Copy { folder, .. } => Some(folder),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn copy_to_lists_a_conversation_in_the_folder_and_where_it_was_and_undo_takes_the_copy_back() {
+    let mut window = Window::open(filing_into_folders);
+    let subject = INBOX[1].1;
+    window.until("the inbox lists it", |h| row_of(h, subject).is_some());
+    let inbox = window.subjects();
+
+    // Copy to…, from the row's menu: the account's own folders, under its address.
+    let row = format!(
+        ".list .ds-list-item[*|aria-posinset=\"{}\"]",
+        row_of(&window.harness, subject).unwrap_or_default()
+    );
+    row_action(&mut window.harness, &row, copy::menus::COPY_TO);
+    window.until("Copy to offers the account's folders", |h| {
+        h.count(".ds-pick-list") == 1 && h.count(".ds-pick-list-rows .ds-row") == 2
+    });
+    let offered = window.text(".ds-pick-list");
+    assert!(
+        offered.contains(&copy::menus::copy_within(ME)),
+        "it does not say whose folders these are: {offered}"
+    );
+    window.type_text(&format!("{PROJECTS}\n"));
+    window.until("the copy is queued and the picker gone", |h| {
+        h.count(".ds-pick-list") == 0
+    });
+    assert_eq!(
+        copies(&window),
+        [PROJECTS],
+        "the server was not asked to copy it"
+    );
+    assert_eq!(
+        window.subjects(),
+        inbox,
+        "the copy took it out of the inbox"
+    );
+
+    // Projects lists it now, beside the inbox.
+    window.click(&format!(".ds-row[*|data-place=\"{PROJECTS}\"]"));
+    window.until("Projects lists the copy", |h| {
+        row_of(h, subject).is_some() && h.count(".list .ds-list-item") == 1
+    });
+
+    // Ctrl-Z: out of Projects, and the server never hears of it.
+    window.press(&[PRIMARY], Key::Char('z'), 1);
+    window.until("the undo takes it out of Projects", |h| {
+        row_of(h, subject).is_none()
+    });
+    assert!(
+        copies(&window).is_empty(),
+        "the copy is still queued after its undo"
+    );
 }

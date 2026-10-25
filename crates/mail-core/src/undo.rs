@@ -221,12 +221,18 @@ pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<R
         // The undo puts it back here; a filing the server has been sent stays filed there, and
         // one still waiting is taken out of the outbox by the window's undo (`ui::ops`).
         //
+        // Nor a copy, for the same reason: the copy's address arrives with that folder's next
+        // sync, or with the server's answer. The undo takes it out of the folder here, and one
+        // still waiting is taken out of the outbox as a filing is; a copy the server has made
+        // stays there, as a filing does.
+        //
         // Nor, above all, a deletion forever: the server's copy is gone once it is sent, and
         // the window never offers one an undo (`crate::destroy`).
         RemoteIntent::Send { .. }
         | RemoteIntent::AddKeyword { .. }
         | RemoteIntent::Append { .. }
         | RemoteIntent::File { .. }
+        | RemoteIntent::Copy { .. }
         | RemoteIntent::Destroy { .. } => None,
     }
 }
@@ -294,6 +300,7 @@ where
         Op::SetFollowUp(FollowUp::Returned { .. }) => "No reply yet".to_owned(),
         Op::SetFollowUp(FollowUp::Inactive) => "Reminder cleared".to_owned(),
         Op::File(_) => "Moved to folder".to_owned(),
+        Op::Copy(_) => "Copied to folder".to_owned(),
         Op::Destroy => "Deleted forever".to_owned(),
     }
 }
