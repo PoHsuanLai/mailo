@@ -14,10 +14,12 @@ pub mod error;
 pub mod filter;
 pub mod folder;
 pub mod hex;
+pub mod hue;
 pub mod id;
 pub mod ingest;
 pub mod invite;
 pub mod jmap_id;
+pub mod keyword;
 pub mod message;
 pub mod op;
 pub mod parts;
@@ -52,6 +54,7 @@ pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch,
 pub use folder::{
     Folder, FolderContents, FolderCtx, FolderWork, Holds, NonEmpty, SpecialUse, Subscription,
 };
+pub use hue::{FLAG_BIT_KEYWORDS, Hue};
 pub use id::{
     BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, TemplateId,
     ThreadId, ViewId,
@@ -61,6 +64,7 @@ pub use invite::{Attendance, InviteAnswer};
 pub use jmap_id::{
     JmapAccountId, JmapBlobId, JmapEmailId, JmapIdentityId, JmapMailboxId, JmapThreadId,
 };
+pub use keyword::{THUNDERBIRD_TAGS, keyword_label, label_keyword};
 pub use message::{Message, MessageKey, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;

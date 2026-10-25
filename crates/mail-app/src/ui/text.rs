@@ -106,6 +106,7 @@ mod tests {
             rfc_message_id: Some("rows@example.test".to_owned()),
             read: ReadState::Unread,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: Vec::new(),
             body: Body::Absent,

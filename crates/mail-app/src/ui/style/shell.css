@@ -96,3 +96,7 @@
 
 /* A sheet hangs from the card's top edge, which is the window's: the window is flush. */
 .in-card { top: 0; }
+/* A label's row in the sidebar wears its colour on its tag (list.css names the colours), and its
+   editor is the colour's row of swatches. */
+.label-hue { display: inline-flex; align-items: center; color: var(--warn); }
+.label-editor { display: grid; gap: var(--s-6); padding: var(--s-8); }

@@ -59,6 +59,10 @@ pub fn delete_selected_forever(count: usize) -> String {
 pub const CLEAR_THE_SELECTION: &str = "Clear the selection";
 /// The paperclip on a row whose conversation carries files.
 pub const HAS_ATTACHMENTS: &str = "Has Attachments";
+/// The flag before the reader's subject: "Flagged Orange".
+pub fn flagged(hue: mail_domain::Hue) -> String {
+    format!("Flagged {}", super::menus::hue(hue))
+}
 
 /// The contact editor's Save, for the person it names.
 pub fn save_contact(address: &str) -> String {

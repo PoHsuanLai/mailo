@@ -129,6 +129,7 @@ pub fn message_of(change: &Change) -> Option<MessageId> {
     match change {
         Change::MessageRead(m, _)
         | Change::MessageStar(m, _)
+        | Change::MessageFlag(m, _)
         | Change::MessageMailbox(m, _)
         | Change::MessageLabel(m, _, _)
         | Change::MessageDelete(m) => Some(*m),

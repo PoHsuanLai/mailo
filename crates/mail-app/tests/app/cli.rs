@@ -62,6 +62,7 @@ fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir, ThreadId) {
                 ReadState::Read
             },
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: vec![],
             // The second message has headers only, which is the normal mid-sync state and the

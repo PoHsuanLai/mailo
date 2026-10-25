@@ -9,6 +9,7 @@ mod concurrency;
 mod contacts;
 mod destroy;
 mod drafts;
+mod flags;
 mod fold_table;
 mod folders;
 mod follow_up;

@@ -156,6 +156,82 @@ impl ImapBackend {
     ///
     /// `EXAMINE` rather than `SELECT` wherever possible: a read-only selection cannot set
     /// `\Recent` or implicitly expunge, and fetching should never have a side effect.
+    /// Whether the server keeps keywords on its messages: Gmail does, and so does a server
+    /// whose `PERMANENTFLAGS` lists `\*`. Elsewhere a keyword may be refused, or kept for the
+    /// session and lost, so none is written and none is read for a meaning.
+    fn keeps_keywords(&self) -> bool {
+        matches!(
+            self.caps.labels,
+            ServerLabels::Supported | ServerLabels::Keywords
+        )
+    }
+
+    /// Labels by name, as keywords on `remotes`: each name's keyword added or taken away. A
+    /// name with no keyword is a label kept here alone, and is left out.
+    fn store_label_keywords(
+        &mut self,
+        remotes: &[RemoteRef],
+        add: &[String],
+        remove: &[String],
+    ) -> Progress<ProtoOutcome> {
+        let keywords = |names: &[String]| -> Vec<String> {
+            names
+                .iter()
+                .filter_map(|name| mail_domain::label_keyword(name))
+                .collect()
+        };
+        let (add, remove) = (keywords(add), keywords(remove));
+        let Some(set) = uid_set(remotes).filter(|_| !add.is_empty() || !remove.is_empty()) else {
+            return Progress::Done(ProtoOutcome::Applied);
+        };
+        let mailbox = mailbox_of(remotes, self.account.clone());
+        let mut commands = vec![Self::select(&mailbox, Access::ReadWrite)];
+        if !add.is_empty() {
+            commands.push(ImapCommand::UidStore {
+                set: set.clone(),
+                what: format!("+FLAGS ({})", add.join(" ")),
+            });
+        }
+        if !remove.is_empty() {
+            commands.push(ImapCommand::UidStore {
+                set,
+                what: format!("-FLAGS ({})", remove.join(" ")),
+            });
+        }
+        self.job = Job::Applied;
+        self.queue(commands)
+    }
+
+    /// Each surveyed message's flag colour, where the server keeps keywords to say it with.
+    fn flag_colors(&self, rows: &[Surveyed]) -> Vec<(RemoteRef, mail_domain::Hue)> {
+        if !self.keeps_keywords() {
+            return Vec::new();
+        }
+        rows.iter()
+            .map(|row| (row.remote.clone(), row.hue))
+            .collect()
+    }
+
+    /// Each surveyed message's labels, read from its keywords, where labels are keywords. Every
+    /// message, those with none included: the list is complete, and a message with no keyword
+    /// left has had its last label taken away.
+    fn keyword_labels(&self, rows: &[Surveyed]) -> Vec<(RemoteRef, Vec<String>)> {
+        if !matches!(self.caps.labels, ServerLabels::Keywords) {
+            return Vec::new();
+        }
+        rows.iter()
+            .map(|row| {
+                let names = row
+                    .keywords
+                    .iter()
+                    .filter_map(|keyword| mail_domain::keyword_label(keyword))
+                    .map(|(name, _)| name)
+                    .collect();
+                (row.remote.clone(), names)
+            })
+            .collect()
+    }
+
     fn select(mailbox: &MailboxRef, access: Access) -> ImapCommand {
         ImapCommand::Select {
             mailbox: mailbox.path.clone(),
@@ -349,7 +425,22 @@ impl Backend for ImapBackend {
                 // Ask, authenticate, ask again. Gmail's pre-auth list omits CONDSTORE, MOVE and
                 // SPECIAL-USE, so believing the first answer reports a far less capable server
                 // than it is.
-                self.queue(vec![ImapCommand::Capability, ImapCommand::Capability])
+                //
+                // Then select the inbox, read-write, for its `PERMANENTFLAGS`: whether the server
+                // keeps keywords it has not seen before (`\*`) decides whether labels can be
+                // keywords. `EXAMINE` will not do: a read-only mailbox keeps no flags at all, and
+                // says so with an empty list.
+                self.queue(vec![
+                    ImapCommand::Capability,
+                    ImapCommand::Capability,
+                    Self::select(
+                        &MailboxRef {
+                            account: self.account.clone(),
+                            path: "INBOX".to_owned(),
+                        },
+                        Access::ReadWrite,
+                    ),
+                ])
             }
             ProtoOp::ListFolders => {
                 self.job = Job::Folders;
@@ -458,7 +549,14 @@ impl Backend for ImapBackend {
                 }
                 match star {
                     Some(mail_domain::Star::Starred) => add.push("\\Flagged"),
-                    Some(mail_domain::Star::Unstarred) => remove.push("\\Flagged"),
+                    // The colour goes with the flag, as Apple Mail clears it: a star set again
+                    // later, by any client, is a red one.
+                    Some(mail_domain::Star::Unstarred) => {
+                        remove.push("\\Flagged");
+                        if self.keeps_keywords() {
+                            remove.extend(mail_domain::FLAG_BIT_KEYWORDS);
+                        }
+                    }
                     None => {}
                 }
                 let mailbox = mailbox_of(&remotes, self.account.clone());
@@ -473,6 +571,35 @@ impl Backend for ImapBackend {
                     commands.push(ImapCommand::UidStore {
                         set,
                         what: format!("-FLAGS ({})", remove.join(" ")),
+                    });
+                }
+                self.job = Job::Applied;
+                self.queue(commands)
+            }
+            ProtoOp::SetFlag { remotes, hue } => {
+                let Some(set) = uid_set(&remotes) else {
+                    return Progress::Done(ProtoOutcome::Applied);
+                };
+                // A server that keeps no keywords keeps the flag, and the colour stays here.
+                let (bits, clear) = if self.keeps_keywords() {
+                    hue.flag_keywords()
+                } else {
+                    (Vec::new(), Vec::new())
+                };
+                let mailbox = mailbox_of(&remotes, self.account.clone());
+                let mut add = vec!["\\Flagged"];
+                add.extend(bits);
+                let mut commands = vec![
+                    Self::select(&mailbox, Access::ReadWrite),
+                    ImapCommand::UidStore {
+                        set: set.clone(),
+                        what: format!("+FLAGS ({})", add.join(" ")),
+                    },
+                ];
+                if !clear.is_empty() {
+                    commands.push(ImapCommand::UidStore {
+                        set,
+                        what: format!("-FLAGS ({})", clear.join(" ")),
                     });
                 }
                 self.job = Job::Applied;
@@ -501,6 +628,9 @@ impl Backend for ImapBackend {
                 add,
                 remove,
             } => {
+                if matches!(self.caps.labels, ServerLabels::Keywords) {
+                    return self.store_label_keywords(&remotes, &add, &remove);
+                }
                 if !matches!(self.caps.labels, ServerLabels::Supported) {
                     return Progress::Done(ProtoOutcome::Applied);
                 }
@@ -760,6 +890,8 @@ impl Backend for ImapBackend {
                 };
                 caps.labels = if seen("X-GM-EXT-1") {
                     ServerLabels::Supported
+                } else if crate::imap::keeps_new_keywords(&transcript.untagged) {
+                    ServerLabels::Keywords
                 } else {
                     ServerLabels::LocalOnly
                 };
@@ -806,6 +938,7 @@ impl Backend for ImapBackend {
                     }),
                     messages: Vec::new(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
                     gone: Vec::new(),
@@ -819,6 +952,7 @@ impl Backend for ImapBackend {
                     cursor: None,
                     messages: Vec::new(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
                     gone: Vec::new(),
@@ -842,6 +976,8 @@ impl Backend for ImapBackend {
                             uidnext,
                             modseq,
                         }),
+                        flag_colors: self.flag_colors(&changed),
+                        label_names: self.keyword_labels(&changed),
                         flags: changed
                             .into_iter()
                             .map(|row| (row.remote, row.read, row.star))
@@ -882,14 +1018,19 @@ impl Backend for ImapBackend {
                         .iter()
                         .map(|row| (row.remote.clone(), row.read, row.star))
                         .collect(),
+                    flag_colors: self.flag_colors(&seen),
                     labels: Vec::new(),
                     // Only where the server has them. Everywhere else this is empty and the
-                    // store does nothing, which is what "labels are local" means on POP3.
-                    label_names: seen
-                        .iter()
-                        .filter(|row| !row.labels.is_empty())
-                        .map(|row| (row.remote.clone(), row.labels.clone()))
-                        .collect(),
+                    // store does nothing, which is what "labels are local" means on POP3. As
+                    // keywords, every message's list, read from its keywords.
+                    label_names: match self.caps.labels {
+                        ServerLabels::Keywords => self.keyword_labels(&seen),
+                        ServerLabels::Supported | ServerLabels::LocalOnly => seen
+                            .iter()
+                            .filter(|row| !row.labels.is_empty())
+                            .map(|row| (row.remote.clone(), row.labels.clone()))
+                            .collect(),
+                    },
                     gone: Vec::new(),
                 })))
             }
@@ -919,14 +1060,17 @@ impl Backend for ImapBackend {
                 // The same parser the survey uses. The header fetch asks for `FLAGS`, so they
                 // are already on the wire; not reading them here is what left every message
                 // unread until a later sweep happened to revisit it.
-                let flags = parse_fetches(
+                let rows = parse_fetches(
                     &transcript.untagged,
                     &mailbox_of(&remotes, self.account.clone()).path,
                     uidvalidity_of(&remotes),
-                )
-                .into_iter()
-                .map(|row| (row.remote, row.read, row.star))
-                .collect();
+                );
+                let flag_colors = self.flag_colors(&rows);
+                let label_names = self.keyword_labels(&rows);
+                let flags = rows
+                    .into_iter()
+                    .map(|row| (row.remote, row.read, row.star))
+                    .collect();
                 Progress::Done(ProtoOutcome::Fetched {
                     items: remotes
                         .into_iter()
@@ -936,6 +1080,8 @@ impl Backend for ImapBackend {
                         })
                         .collect(),
                     flags,
+                    flag_colors,
+                    label_names,
                 })
             }
             Job::Structure { remotes } => {
@@ -1029,6 +1175,10 @@ struct Surveyed {
     star: mail_domain::Star,
     /// Gmail's user labels, empty everywhere else. See [`user_labels`].
     labels: Vec<String>,
+    /// Every keyword in `FLAGS`: the flags that are not system flags.
+    keywords: Vec<String>,
+    /// The flag colour the keywords spell ([`mail_domain::Hue::from_keywords`]).
+    hue: mail_domain::Hue,
 }
 
 /// The UIDVALIDITY a batch of references carries, so re-parsed rows key to the same rows.
@@ -1132,6 +1282,12 @@ fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) 
         let flags = flag_list(&text);
         out.push(Surveyed {
             labels: user_labels(&text),
+            hue: mail_domain::Hue::from_keywords(&flags),
+            keywords: flags
+                .iter()
+                .filter(|f| !f.starts_with('\\'))
+                .cloned()
+                .collect(),
             remote: RemoteRef::Imap {
                 mailbox: mailbox.to_owned(),
                 // The mailbox's own UIDVALIDITY, not zero. `remote_map` keys on it, so a

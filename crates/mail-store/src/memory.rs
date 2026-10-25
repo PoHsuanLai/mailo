@@ -1042,6 +1042,11 @@ impl Inner {
                     message.star = *star;
                 }
             }
+            Change::MessageFlag(id, hue) => {
+                if let Some(message) = self.messages.get_mut(id) {
+                    message.flag = *hue;
+                }
+            }
             Change::MessageMailbox(id, role) => {
                 if let Some(message) = self.messages.get_mut(id) {
                     message.mailbox = *role;
@@ -1224,6 +1229,17 @@ impl Inner {
                 self.write_change(&star_change)?;
                 changes.push(read_change);
                 changes.push(star_change);
+                if let Some(thread) = self.thread_of(id) {
+                    touched.insert(thread);
+                }
+            }
+        }
+
+        for (remote, hue) in &ingest.flag_colors {
+            if let Some(id) = self.message_by_remote(account.clone(), remote) {
+                let change = Change::MessageFlag(id, *hue);
+                self.write_change(&change)?;
+                changes.push(change);
                 if let Some(thread) = self.thread_of(id) {
                     touched.insert(thread);
                 }
@@ -1536,6 +1552,7 @@ impl Inner {
         }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
+            | RemoteIntent::SetFlag { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
@@ -1559,6 +1576,7 @@ impl Inner {
                 read: *read,
                 star: *star,
             },
+            RemoteIntent::SetFlag { hue, .. } => ProtoOp::SetFlag { remotes, hue: *hue },
             RemoteIntent::SetMailbox { role, .. } => ProtoOp::SetMailbox {
                 remotes,
                 role: *role,

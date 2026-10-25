@@ -246,6 +246,7 @@ fn ingest_one(b: &Both) -> MessageId {
             message: message.clone(),
         }],
         flags: vec![],
+        flag_colors: Vec::new(),
         labels: vec![],
         label_names: Vec::new(),
         gone: vec![],

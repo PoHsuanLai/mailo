@@ -328,6 +328,7 @@ mod tests {
             rfc_message_id: Some("original@example.test".to_owned()),
             read: ReadState::Unread,
             star: Star::Unstarred,
+            flag: crate::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: Vec::new(),
             body: Body::Present {

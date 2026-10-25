@@ -133,6 +133,12 @@ impl EmailSummary {
         }
     }
 
+    /// The flag's colour, from Apple Mail's keywords, which JMAP carries as it carries any
+    /// other ([`mail_domain::Hue::from_keywords`]).
+    pub fn hue(&self) -> mail_domain::Hue {
+        mail_domain::Hue::from_keywords(&self.keywords)
+    }
+
     fn has_keyword(&self, keyword: &str) -> bool {
         self.keywords
             .iter()

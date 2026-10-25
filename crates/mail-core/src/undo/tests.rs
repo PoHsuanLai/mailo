@@ -77,6 +77,63 @@ fn the_server_is_told_the_reverse_of_what_it_was_told() {
     );
 }
 
+/// A colour undone goes back to what each message wore: unflagged, or flagged in the colour it
+/// had. An unflagging undone puts the colour back with the flag, which the server lost with it.
+#[test]
+fn a_flag_colour_is_taken_back_to_what_it_was() {
+    let a = MessageId::generate();
+    let orange = RemoteIntent::SetFlag {
+        messages: vec![a],
+        hue: Hue::Orange,
+    };
+    let was_unflagged = patch(vec![
+        Change::MessageStar(a, Star::Unstarred),
+        Change::MessageFlag(a, Hue::Red),
+    ]);
+    assert_eq!(
+        reverse_intent(&orange, &was_unflagged),
+        Some(RemoteIntent::SetFlags {
+            messages: vec![a],
+            read: None,
+            star: Some(Star::Unstarred),
+        })
+    );
+    let was_blue = patch(vec![Change::MessageFlag(a, Hue::Blue)]);
+    assert_eq!(
+        reverse_intent(&orange, &was_blue),
+        Some(RemoteIntent::SetFlag {
+            messages: vec![a],
+            hue: Hue::Blue,
+        })
+    );
+
+    let unflag = RemoteIntent::SetFlags {
+        messages: vec![a],
+        read: None,
+        star: Some(Star::Unstarred),
+    };
+    let was_green = patch(vec![
+        Change::MessageStar(a, Star::Starred),
+        Change::MessageFlag(a, Hue::Green),
+    ]);
+    assert_eq!(
+        reverse_intent(&unflag, &was_green),
+        Some(RemoteIntent::SetFlag {
+            messages: vec![a],
+            hue: Hue::Green,
+        })
+    );
+    // A red flag is plain `\Flagged`, back as a star.
+    assert_eq!(
+        reverse_intent(&unflag, &patch(vec![Change::MessageStar(a, Star::Starred)])),
+        Some(RemoteIntent::SetFlags {
+            messages: vec![a],
+            read: None,
+            star: Some(Star::Starred),
+        })
+    );
+}
+
 #[test]
 fn the_stack_forgets_the_oldest_past_its_depth() {
     let mut stack = UndoStack::default();

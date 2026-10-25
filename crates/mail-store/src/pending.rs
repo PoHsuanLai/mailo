@@ -26,6 +26,18 @@ pub(crate) fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)>
                 (*id, changes)
             })
             .collect(),
+        RemoteIntent::SetFlag { messages, hue } => messages
+            .iter()
+            .map(|id| {
+                (
+                    *id,
+                    vec![
+                        Change::MessageStar(*id, mail_domain::Star::Starred),
+                        Change::MessageFlag(*id, *hue),
+                    ],
+                )
+            })
+            .collect(),
         RemoteIntent::SetMailbox { messages, role } => messages
             .iter()
             .map(|id| (*id, vec![Change::MessageMailbox(*id, *role)]))

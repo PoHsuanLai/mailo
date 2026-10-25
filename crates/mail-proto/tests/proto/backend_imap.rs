@@ -1070,6 +1070,8 @@ fn qresync_is_believed_only_alongside_condstore() {
              C: a003 CAPABILITY\n\
              S: * CAPABILITY {advertised}\n\
              S: a003 OK done\n\
+             C: a004 SELECT \"INBOX\"\n\
+             S: a004 OK [READ-WRITE] done\n\
              DONE\n"
         );
         let mut driven = Driven::new(

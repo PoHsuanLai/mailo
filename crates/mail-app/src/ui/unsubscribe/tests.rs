@@ -71,6 +71,7 @@ fn put(store: &SqliteStore, sender: &str, headers: &str, held: Held) -> ThreadId
         rfc_message_id: Some(rfc.clone()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: match held {
@@ -99,6 +100,7 @@ fn put(store: &SqliteStore, sender: &str, headers: &str, held: Held) -> ThreadId
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 gone: vec![],

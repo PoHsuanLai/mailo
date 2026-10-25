@@ -273,6 +273,7 @@ mod a_reader_that_is_not_the_writer {
                         message,
                     }],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: Vec::new(),
                     gone: vec![],

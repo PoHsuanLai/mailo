@@ -4,9 +4,9 @@ use super::SqliteStore;
 use super::row::{json, time, uuid};
 use crate::StoreError;
 use mail_domain::{
-    Address, Attachment, Attachments, BlobId, Body, FollowUp, LabelId, MailboxRole, MailboxSet,
-    Message, MessageId, MessageKey, Mute, Pin, ReadState, Snooze, Star, Thread, ThreadId,
-    ThreadSummary,
+    Address, Attachment, Attachments, BlobId, Body, FollowUp, Hue, LabelId, MailboxRole,
+    MailboxSet, Message, MessageId, MessageKey, Mute, Pin, ReadState, Snooze, Star, Thread,
+    ThreadId, ThreadSummary,
 };
 use rusqlite::{Connection, Row, params};
 use std::collections::HashMap;
@@ -26,11 +26,11 @@ pub struct Recipients {
 
 pub const MESSAGE_COLUMNS: &str = "id, thread, account, msg_key, date, from_name, from_email, \
      recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox, body_text, \
-     body_raw, attachments";
+     body_raw, attachments, flag";
 
 pub const SUMMARY_COLUMNS: &str = "thread, account, subject, snippet, from_name, from_email, \
      participants, recipients, last_date, message_count, read, star, mailboxes, labels, \
-     attachments, snooze, pin, mute, follow_up";
+     attachments, snooze, pin, mute, follow_up, flag";
 
 /// [`SUMMARY_COLUMNS`], each qualified with `ts.`, for a query that names `thread_summary ts`
 /// beside another table.
@@ -76,6 +76,7 @@ impl SqliteStore {
             message_count: row.get::<_, i64>(9)? as u32,
             read: json::<ReadState>("ReadState", &row.get::<_, String>(10)?)?,
             star: json::<Star>("Star", &row.get::<_, String>(11)?)?,
+            flag: json::<Hue>("Hue", &row.get::<_, String>(19)?)?,
             mailboxes: json::<MailboxSet>("MailboxSet", &row.get::<_, String>(12)?)?,
             labels: json::<Vec<LabelId>>("labels", &row.get::<_, String>(13)?)?,
             attachments: json::<Attachments>("Attachments", &row.get::<_, String>(14)?)?,
@@ -265,6 +266,7 @@ fn message_from(id: MessageId, row: &Row<'_>, labels: Vec<LabelId>) -> Result<Me
         rfc_message_id: row.get::<_, Option<String>>(11)?,
         read: json("ReadState", &row.get::<_, String>(12)?)?,
         star: json("Star", &row.get::<_, String>(13)?)?,
+        flag: json("Hue", &row.get::<_, String>(18)?)?,
         mailbox: json::<MailboxRole>("MailboxRole", &row.get::<_, String>(14)?)?,
         labels,
         // A NULL body_raw is headers-only, which is a normal state after a POP3 TOP

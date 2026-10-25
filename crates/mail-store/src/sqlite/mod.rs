@@ -10,6 +10,7 @@ pub use forget::Freed;
 mod found;
 mod groups;
 mod invite;
+mod keywords;
 mod offline;
 mod opened;
 mod outbox;
@@ -731,6 +732,7 @@ impl Store for SqliteStore {
         caps: &AccountCaps,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
+        let was_keywords = self.labels_as_keywords(account.clone())?;
         self.connection().execute(
             "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(account) DO UPDATE SET
@@ -741,6 +743,9 @@ impl Store for SqliteStore {
                 row::from_time(now),
             ],
         )?;
+        if caps.labels == mail_domain::ServerLabels::Keywords && !was_keywords {
+            self.push_keyword_labels(account, now)?;
+        }
         Ok(())
     }
 

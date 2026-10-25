@@ -80,6 +80,7 @@ fn stored(
         rfc_message_id: Some(rfc_id),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -107,6 +108,7 @@ fn stored(
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 gone: vec![],

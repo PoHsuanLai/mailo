@@ -262,9 +262,13 @@ pub struct AccountCaps {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerLabels {
+    /// Mailboxes are labels: Gmail's `X-GM-LABELS`, JMAP's mailboxes.
     Supported,
     /// Labels exist only in our store. Every POP3 account, and IMAP servers without keywords.
     LocalOnly,
+    /// An IMAP server with folders and no labels, whose `PERMANENTFLAGS` lists `\*`: a label is
+    /// a keyword on the message ([`crate::label_keyword`]). Folders stay folders.
+    Keywords,
 }
 
 /// Where conversation grouping comes from. JWZ runs either way, so POP3 and IMAP share one

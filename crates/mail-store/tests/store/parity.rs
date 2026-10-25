@@ -347,6 +347,7 @@ fn build(specs: &[Spec]) -> Both {
             cursor: None,
             messages,
             flags: Vec::new(),
+            flag_colors: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
             gone: Vec::new(),

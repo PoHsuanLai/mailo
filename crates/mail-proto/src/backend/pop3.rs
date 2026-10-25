@@ -132,6 +132,7 @@ impl Pop3Backend {
             cursor: Some(SyncCursor::Pop),
             messages: Vec::new(),
             flags: Vec::new(),
+            flag_colors: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
             gone: Vec::new(),
@@ -216,6 +217,7 @@ impl Backend for Pop3Backend {
             // Everything below has no POP3 representation. Confirming immediately is correct
             // rather than a stub: the local change IS the whole change.
             ProtoOp::SetFlags { .. }
+            | ProtoOp::SetFlag { .. }
             | ProtoOp::SetMailbox { .. }
             | ProtoOp::SetLabels { .. }
             | ProtoOp::File { .. }
@@ -338,6 +340,8 @@ impl Backend for Pop3Backend {
                 Progress::Done(ProtoOutcome::Fetched {
                     // POP3 has no server-side flags; read and starred live only here.
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
+                    label_names: Vec::new(),
                     items: remotes.into_iter().zip(bodies).collect(),
                 })
             }
@@ -355,6 +359,8 @@ impl Backend for Pop3Backend {
                 Progress::Done(ProtoOutcome::Fetched {
                     // POP3 has no server-side flags; read and starred live only here.
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
+                    label_names: Vec::new(),
                     items: remotes.into_iter().zip(bodies).collect(),
                 })
             }

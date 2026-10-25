@@ -3,8 +3,8 @@
 
 use mail_domain::id::new_account_id;
 use mail_domain::{
-    FolderWork, JmapEmailId, JmapMailboxId, MailboxRole, NonEmpty, ReadState, SpecialUse, Star,
-    Subscription,
+    FolderWork, Hue, JmapEmailId, JmapMailboxId, MailboxRole, NonEmpty, ReadState, SpecialUse,
+    Star, Subscription,
 };
 use mail_proto::jmap::{self, *};
 use mail_proto::{ProtoError, Refusal};
@@ -429,7 +429,24 @@ fn patches_name_only_what_changed() {
     let m = mailboxes();
     assert_eq!(
         Value::Object(flags_patch(Some(ReadState::Read), Some(Star::Unstarred))),
-        json!({ "keywords/$seen": true, "keywords/$flagged": null })
+        // Unflagged, the colour goes too, as Apple Mail clears it.
+        json!({
+            "keywords/$seen": true,
+            "keywords/$flagged": null,
+            "keywords/$MailFlagBit0": null,
+            "keywords/$MailFlagBit1": null,
+            "keywords/$MailFlagBit2": null,
+        })
+    );
+    // An orange flag: bit 0 set, the other two cleared, so a purple flag before it is gone.
+    assert_eq!(
+        Value::Object(flag_patch(Hue::Orange)),
+        json!({
+            "keywords/$flagged": true,
+            "keywords/$MailFlagBit0": true,
+            "keywords/$MailFlagBit1": null,
+            "keywords/$MailFlagBit2": null,
+        })
     );
     assert_eq!(
         Value::Object(flags_patch(Some(ReadState::Unread), None)),

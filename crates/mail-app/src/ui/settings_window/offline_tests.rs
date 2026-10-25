@@ -71,6 +71,7 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
         rfc_message_id: Some("large@example.com".to_owned()),
         read: ReadState::Read,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -109,6 +110,7 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: vec![],
                 gone: vec![],

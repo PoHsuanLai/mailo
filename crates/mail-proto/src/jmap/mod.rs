@@ -36,7 +36,8 @@ pub use request::{
 pub use response::Responses;
 pub use session::{Limits, Session, Submission};
 pub use set::{
-    SetError, SetResult, filing_patch, flags_patch, folder_work, keyword_patch, labels_patch,
+    SetError, SetResult, filing_patch, flag_patch, flags_patch, folder_work, keyword_patch,
+    labels_patch,
 };
 pub use submit::{Filed, Identity, Sent, choose_identity, submission, submitted};
 pub use template::expand;

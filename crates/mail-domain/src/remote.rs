@@ -330,6 +330,13 @@ pub enum ProtoOp {
     },
     /// Create, rename, delete or follow a mailbox. IMAP only.
     Folder(crate::folder::FolderWork),
+    /// Flag messages in a colour. On IMAP `\Flagged` with Apple Mail's colour keywords set and
+    /// the others cleared ([`crate::Hue::flag_keywords`]); on JMAP the same keywords; on Graph,
+    /// which has no colours, the flag alone.
+    SetFlag {
+        remotes: Vec<RemoteRef>,
+        hue: crate::hue::Hue,
+    },
 }
 
 #[cfg(test)]

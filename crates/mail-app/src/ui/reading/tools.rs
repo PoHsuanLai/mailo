@@ -207,8 +207,8 @@ pub(super) fn ReaderMore(
                             further.set(Further::Unsubscribe);
                         }
                         Pick::Download => download(id),
-                        // A draft's, never offered here.
-                        Pick::DeleteDraft | Pick::CancelSending => {}
+                        // A draft's, never offered here; Flag ▸ only opens its colours.
+                        Pick::DeleteDraft | Pick::CancelSending | Pick::Flags => {}
                     }
                 },
                 onclose: move |_| open.set(false),

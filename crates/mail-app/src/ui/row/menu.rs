@@ -24,8 +24,9 @@ use ds::components::menus::item::item::{MenuImage, MenuItem};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
+use ds::style::tokens::tag_colour::TagColour;
 use mail_core::view::{offers, says};
-use mail_domain::{OpKind, ReadState, Star, ThreadSummary};
+use mail_domain::{Hue, OpKind, ReadState, Star, ThreadSummary};
 
 /// A row of the menu.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,9 @@ pub(in crate::ui) enum Pick {
     DeleteDraft,
     /// Cancel Sending: a message held for its time goes back to being a draft. Its row only.
     CancelSending,
+    /// Flag ▸: the seven colours and Clear Flag, a submenu ([`flag_rows`]). Never picked itself:
+    /// its rows are [`Pressed::Flag`].
+    Flags,
 }
 
 fn op(kind: OpKind) -> Pick {
@@ -57,9 +61,10 @@ fn op(kind: OpKind) -> Pick {
 /// put it off or file it away; take it out of the list.
 ///
 /// Each pair is on the side the conversation needs: Mark as Read or Unread, Star or Unstar, Pin
-/// or Unpin. Archive is Move to Inbox (Not Spam in Spam) once the conversation is out of the
-/// inbox, and nothing in a place mail is only filed in, as Sent. Move to Trash is Delete Forever…
-/// for a conversation already in Trash, which asks first.
+/// or Unpin. Flag ▸ beside them picks the flag's colour. Archive is Move to Inbox (Not Spam in
+/// Spam) once the conversation is out of the inbox, and nothing in a place mail is only filed in,
+/// as Sent. Move to Trash is Delete Forever… for a conversation already in Trash, which asks
+/// first.
 pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
     let read = match summary.read {
         ReadState::Unread => OpKind::MarkRead,
@@ -79,7 +84,7 @@ pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
     };
     vec![
         vec![op(OpKind::Reply), op(OpKind::ReplyAll), op(OpKind::Forward)],
-        vec![op(read), op(star), op(OpKind::Pin)],
+        vec![op(read), op(star), Pick::Flags, op(OpKind::Pin)],
         vec![
             op(OpKind::Snooze),
             op(OpKind::AddLabel),
@@ -135,6 +140,9 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::Unsubscribe => menus::UNSUBSCRIBE,
         Pick::DeleteDraft => menus::DELETE_DRAFT,
         Pick::CancelSending => menus::CANCEL_SENDING,
+        Pick::Flags => menus::FLAG,
+        Pick::Press(Pressed::Flag(Some(hue))) => menus::hue(hue),
+        Pick::Press(Pressed::Flag(None)) => menus::CLEAR_FLAG,
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
         Pick::Press(Pressed::Op(kind)) => menus::offered(says(kind, summary, now)),
     }
@@ -148,9 +156,47 @@ fn icon(pick: Pick) -> Icon {
         Pick::Unsubscribe => Icon::LogOut,
         Pick::DeleteDraft => Icon::Trash,
         Pick::CancelSending => Icon::X,
+        Pick::Flags | Pick::Press(Pressed::Flag(_)) => Icon::Star,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
         Pick::Press(Pressed::Op(kind)) => op_icon(kind),
     }
+}
+
+/// quire's dot for a flag's colour: the tag colour of the same name.
+pub(in crate::ui) fn swatch(hue: Hue) -> TagColour {
+    match hue {
+        Hue::Red => TagColour::Red,
+        Hue::Orange => TagColour::Orange,
+        Hue::Yellow => TagColour::Yellow,
+        Hue::Green => TagColour::Green,
+        Hue::Blue => TagColour::Blue,
+        Hue::Purple => TagColour::Purple,
+        Hue::Gray => TagColour::Gray,
+    }
+}
+
+/// The Flag submenu for `summary`: Apple Mail's seven colours, the one it wears checked, then
+/// Clear Flag while it is flagged.
+pub(in crate::ui) fn flag_rows(summary: &ThreadSummary) -> Vec<MenuItem<Pick>> {
+    let worn = (summary.star == Star::Starred).then_some(summary.flag);
+    let mut out: Vec<MenuItem<Pick>> = Hue::ALL
+        .into_iter()
+        .map(|hue| {
+            let row = MenuItem::new(Pick::Press(Pressed::Flag(Some(hue))), menus::hue(hue))
+                .with_image(MenuImage::Swatch(swatch(hue)));
+            if worn == Some(hue) {
+                row.with_check(Check::On)
+            } else {
+                row
+            }
+        })
+        .collect();
+    if worn.is_some() {
+        let clear = Pick::Press(Pressed::Flag(None));
+        out.push(MenuItem::Separator);
+        out.push(MenuItem::new(clear, menus::CLEAR_FLAG));
+    }
+    out
 }
 
 /// The groups as quire's menu rows, a rule between each group, named for `summary` at `now`.
@@ -165,6 +211,15 @@ pub(in crate::ui) fn rows(
             out.push(MenuItem::Separator);
         }
         for pick in group {
+            if *pick == Pick::Flags {
+                out.push(MenuItem::Submenu {
+                    title: menus::FLAG.to_owned(),
+                    image: Some(MenuImage::Icon(icon(*pick))),
+                    availability: Availability::Enabled,
+                    children: flag_rows(summary),
+                });
+                continue;
+            }
             out.push(
                 MenuItem::new(*pick, name(*pick, summary, now))
                     .with_image(MenuImage::Icon(icon(*pick))),
@@ -240,7 +295,7 @@ mod tests {
         rows(groups, summary, now())
             .into_iter()
             .map(|row| match row {
-                MenuItem::Item { title, .. } => title,
+                MenuItem::Item { title, .. } | MenuItem::Submenu { title, .. } => title,
                 _ => "-".to_owned(),
             })
             .collect()
@@ -274,6 +329,7 @@ mod tests {
                     "-",
                     m::MARK_AS_READ,
                     m::STAR,
+                    m::FLAG,
                     m::PIN,
                     "-",
                     m::SNOOZE,
@@ -294,6 +350,7 @@ mod tests {
                     "-",
                     m::MARK_AS_UNREAD,
                     m::UNSTAR,
+                    m::FLAG,
                     m::PIN,
                     "-",
                     m::SNOOZE,
@@ -314,6 +371,7 @@ mod tests {
                     "-",
                     m::MARK_AS_READ,
                     m::STAR,
+                    m::FLAG,
                     m::PIN,
                     "-",
                     m::SNOOZE,
@@ -334,6 +392,7 @@ mod tests {
                     "-",
                     m::MARK_AS_READ,
                     m::STAR,
+                    m::FLAG,
                     m::PIN,
                     "-",
                     m::SNOOZE,
@@ -434,6 +493,7 @@ mod tests {
                 "-",
                 m::MARK_AS_UNREAD,
                 m::STAR,
+                m::FLAG,
                 m::PIN,
                 m::MUTE,
                 "-",
@@ -506,6 +566,57 @@ mod tests {
             !row.iter().flatten().any(|pick| *pick == Pick::Download),
             "{row:?}"
         );
+    }
+
+    /// Flag ▸ lists Apple Mail's seven colours, the worn one checked, and Clear Flag only while
+    /// the conversation is flagged; each row presses its colour.
+    #[test]
+    fn the_flag_submenu_offers_the_seven_colours_and_clears_a_flag() {
+        let worn = |rows: &[MenuItem<Pick>]| -> Vec<(String, bool)> {
+            rows.iter()
+                .map(|row| match row {
+                    MenuItem::Item { title, check, .. } => {
+                        (title.clone(), *check == Some(Check::On))
+                    }
+                    _ => ("-".to_owned(), false),
+                })
+                .collect()
+        };
+        let colours = |checked: Option<Hue>| -> Vec<(String, bool)> {
+            Hue::ALL
+                .into_iter()
+                .map(|hue| (m::hue(hue).to_owned(), checked == Some(hue)))
+                .collect()
+        };
+        let plain = summary(|_| {});
+        assert_eq!(worn(&flag_rows(&plain)), colours(None));
+        let orange = summary(|s| {
+            s.star = Star::Starred;
+            s.flag = Hue::Orange;
+        });
+        let mut want = colours(Some(Hue::Orange));
+        want.push(("-".to_owned(), false));
+        want.push((m::CLEAR_FLAG.to_owned(), false));
+        assert_eq!(worn(&flag_rows(&orange)), want);
+        let picks: Vec<Pick> = flag_rows(&orange)
+            .into_iter()
+            .filter_map(|row| match row {
+                MenuItem::Item { value, .. } => Some(value),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(picks[1], Pick::Press(Pressed::Flag(Some(Hue::Orange))));
+        assert_eq!(picks.last(), Some(&Pick::Press(Pressed::Flag(None))));
+        let submenu =
+            rows(&groups(&orange), &orange, now())
+                .into_iter()
+                .find_map(|row| match row {
+                    MenuItem::Submenu {
+                        title, children, ..
+                    } => Some((title, children)),
+                    _ => None,
+                });
+        assert_eq!(submenu, Some((m::FLAG.to_owned(), flag_rows(&orange))));
     }
 
     #[test]

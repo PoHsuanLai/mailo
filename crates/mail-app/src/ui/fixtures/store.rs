@@ -72,6 +72,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
         rfc_message_id: Some("m1@example.test".to_owned()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -99,6 +100,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 gone: vec![],
@@ -232,6 +234,7 @@ pub(in crate::ui) fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
                 ReadState::Unread
             },
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: vec![],
             body: Body::Present {
@@ -259,6 +262,7 @@ pub(in crate::ui) fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
                         message,
                     }],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: Vec::new(),
                     gone: vec![],
@@ -307,6 +311,7 @@ pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) 
         rfc_message_id: Some("quarterly@example.test".to_owned()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -351,6 +356,7 @@ pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) 
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 gone: vec![],

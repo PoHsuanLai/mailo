@@ -75,6 +75,7 @@ fn fill(store: &SqliteStore, count: i64) {
                     ReadState::Read
                 },
                 star: Star::Unstarred,
+                flag: mail_domain::Hue::Red,
                 mailbox: MailboxRole::Inbox,
                 labels: vec![],
                 body: Body::Present {
@@ -102,6 +103,7 @@ fn fill(store: &SqliteStore, count: i64) {
                     cursor: Some(SyncCursor::Pop),
                     messages,
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: Vec::new(),
                     gone: vec![],
@@ -307,6 +309,7 @@ mod ingest_throughput {
                 rfc_message_id: Some(key.clone()),
                 read: ReadState::Unread,
                 star: Star::Unstarred,
+                flag: mail_domain::Hue::Red,
                 mailbox: MailboxRole::Inbox,
                 labels: vec![],
                 body: Body::Present {
@@ -331,6 +334,7 @@ mod ingest_throughput {
             cursor: Some(SyncCursor::Pop),
             messages,
             flags: vec![],
+            flag_colors: Vec::new(),
             labels: vec![],
             label_names: Vec::new(),
             gone: vec![],

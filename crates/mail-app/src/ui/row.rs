@@ -142,10 +142,15 @@ pub(super) fn ListRow(
         }
         None => rsx! {},
     };
+    // The star wears the flag's colour (list.css), red included.
+    let flag = thread
+        .as_ref()
+        .filter(|summary| summary.star == Star::Starred)
+        .map(|summary| summary.flag.as_str());
     let open_on = listed.clone();
     let id = thread.as_ref().map(|summary| summary.id);
     rsx! {
-        div { key: "{listed.key()}", class: "row", role: "none",
+        div { key: "{listed.key()}", class: "row", role: "none", "data-flag": flag,
             onmounted: move |event: MountedEvent| row_box.set(Some(MountedRef(event.data()))),
             oncontextmenu: move |event: MouseEvent| {
                 event.prevent_default();

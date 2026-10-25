@@ -1174,15 +1174,14 @@ mod round_trip {
 
     /// Star the newest thread locally, exactly as a hover button does.
     fn star(store: &SqliteStore, caps: &AccountCaps) -> ThreadId {
+        act(store, caps, Op::SetStar(Star::Starred))
+    }
+
+    /// Apply `op` to the newest thread locally and queue what it asks of the server.
+    fn act(store: &SqliteStore, caps: &AccountCaps, op: Op) -> ThreadId {
         let (id, messages) = thread_of(store);
         let loaded = store.thread(id).unwrap();
-        let applied = Op::SetStar(Star::Starred).apply(
-            &Target::Threads(vec![id]),
-            &loaded,
-            &messages,
-            caps,
-            now(),
-        );
+        let applied = op.apply(&Target::Threads(vec![id]), &loaded, &messages, caps, now());
         store.apply(acct_account(), &applied.forward).unwrap();
         if let Some(intent) = applied.remote {
             store
@@ -1238,6 +1237,86 @@ mod round_trip {
             is_starred(&it.store, thread),
             "server truth un-starred what the user starred"
         );
+    }
+
+    /// A flag's colour, on a server that keeps keywords: Orange is stored as Apple Mail stores
+    /// it, read back as orange, and a colour another client set is read as its colour.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_flag_colour_is_stored_as_keywords_and_read_back_from_them() {
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _validity, _present, flags) = serve_flags(seen.clone(), Fault::None).await;
+        let keywords = AccountCaps {
+            labels: ServerLabels::Keywords,
+            ..caps()
+        };
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), keywords.clone());
+        let (_tx, mut cancel) = watch::channel(false);
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+
+        let thread = act(&it.store, &keywords, Op::Flag(Hue::Orange));
+        let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+        assert_eq!(report.outbox_settled, 1, "{report:?}");
+        let stores: Vec<String> = seen
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|c| c.to_uppercase().starts_with("UID STORE"))
+            .cloned()
+            .collect();
+        assert_eq!(
+            stores,
+            [
+                "UID STORE 102 +FLAGS (\\Flagged $MailFlagBit0)",
+                "UID STORE 102 -FLAGS ($MailFlagBit1 $MailFlagBit2)",
+            ]
+        );
+
+        // The next sync reads the keywords back: still orange, not a red flag.
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        assert_eq!(it.store.thread(thread).unwrap().summary.flag, Hue::Orange);
+
+        // Another client flags the other message blue.
+        flags.lock().unwrap().insert(
+            101,
+            vec![
+                "\\Seen".to_owned(),
+                "\\Flagged".to_owned(),
+                "$MailFlagBit2".to_owned(),
+            ],
+        );
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        let blue = it
+            .store
+            .threads(
+                &Query {
+                    filter: Filter::All,
+                    sort: Sort {
+                        property: Property::Date,
+                        dir: SortDir::Desc,
+                    },
+                    page: PageReq {
+                        after: None,
+                        limit: 10,
+                    },
+                },
+                now(),
+            )
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|t| t.id != thread)
+            .expect("the other conversation");
+        assert_eq!((blue.star, blue.flag), (Star::Starred, Hue::Blue));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

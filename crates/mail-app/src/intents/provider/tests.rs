@@ -43,6 +43,7 @@ fn message(store: &SqliteStore, n: u128, subject: &str, body: &str) -> Message {
         rfc_message_id: Some(format!("m{n}@b.c")),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {

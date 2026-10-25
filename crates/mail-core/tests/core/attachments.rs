@@ -55,6 +55,7 @@ fn ingested(
         rfc_message_id: None,
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: match here {
@@ -91,6 +92,7 @@ fn ingested(
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 gone: vec![],

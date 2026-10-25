@@ -5,6 +5,7 @@ mod folder_tree;
 mod folders;
 mod foot;
 mod join;
+mod label_editor;
 mod lit;
 mod panes;
 mod sync;

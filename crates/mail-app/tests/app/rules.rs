@@ -183,6 +183,7 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
         rfc_message_id: Some(key.clone()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -213,6 +214,7 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: vec![],
                 gone: vec![],

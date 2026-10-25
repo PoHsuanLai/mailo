@@ -118,6 +118,7 @@ fn stored(store: &SqliteStore, n: u128, from: &str, date: DateTime<Utc>) -> Mess
         rfc_message_id: None,
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: Vec::new(),
         body: Body::Absent,

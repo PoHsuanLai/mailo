@@ -10,7 +10,7 @@
 use crate::when::Clock;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
-    Change, DraftId, FolderWork, FollowUp, LabelId, MailboxRole, Membership, MessageId, Mute,
+    Change, DraftId, FolderWork, FollowUp, Hue, LabelId, MailboxRole, Membership, MessageId, Mute,
     NonEmpty, Op, Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
 };
 use porter_core::AccountId;
@@ -107,6 +107,7 @@ impl UndoStack {
             patch.changes.iter().any(|change| match change {
                 Change::MessageRead(m, _)
                 | Change::MessageStar(m, _)
+                | Change::MessageFlag(m, _)
                 | Change::MessageMailbox(m, _)
                 | Change::MessageLabel(m, _, _)
                 | Change::MessageDelete(m) => messages.contains(m),
@@ -165,7 +166,11 @@ pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<R
                 .max_by_key(|(_, ids)| ids.len())
                 .map(|(role, messages)| RemoteIntent::SetMailbox { messages, role })
         }
+        RemoteIntent::SetFlag { messages, hue } => reverse_flag(messages, *hue, inverse),
         RemoteIntent::SetFlags { .. } => {
+            if let Some(coloured) = recolour(inverse) {
+                return Some(coloured);
+            }
             let mut messages = Vec::new();
             let mut read: Option<ReadState> = None;
             let mut star: Option<Star> = None;
@@ -231,6 +236,50 @@ pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<R
     }
 }
 
+/// What a flag in `hue` on `messages` was before, said to the server: each message as its own
+/// star and colour in `inverse` say, or as flagged in `hue` where they say nothing.
+///
+/// One intent carries one state. An undo that leaves messages in several (a thread with one red
+/// flag flagged orange) goes back by the largest, as an undone archive does.
+fn reverse_flag(messages: &[MessageId], hue: Hue, inverse: &Patch) -> Option<RemoteIntent> {
+    let mut by_state: BTreeMap<Option<Hue>, Vec<MessageId>> = BTreeMap::new();
+    for message in messages {
+        let unflagged = inverse.changes.iter().any(
+            |change| matches!(change, Change::MessageStar(id, Star::Unstarred) if id == message),
+        );
+        let was = inverse.changes.iter().find_map(|change| match change {
+            Change::MessageFlag(id, before) if id == message => Some(*before),
+            _ => None,
+        });
+        let state = (!unflagged).then_some(was.unwrap_or(hue));
+        by_state.entry(state).or_default().push(*message);
+    }
+    let (state, messages) = by_state.into_iter().max_by_key(|(_, ids)| ids.len())?;
+    Some(match state {
+        Some(hue) => RemoteIntent::SetFlag { messages, hue },
+        None => RemoteIntent::SetFlags {
+            messages,
+            read: None,
+            star: Some(Star::Unstarred),
+        },
+    })
+}
+
+/// An unflagging undone, where a flag had a colour: the server took the colour away with the
+/// flag, so the flag goes back in its colour rather than plain. `None` where no colour returns.
+fn recolour(inverse: &Patch) -> Option<RemoteIntent> {
+    let mut by_hue: BTreeMap<Hue, Vec<MessageId>> = BTreeMap::new();
+    for change in &inverse.changes {
+        if let Change::MessageFlag(id, hue) = change
+            && *hue != Hue::Red
+        {
+            by_hue.entry(*hue).or_default().push(*id);
+        }
+    }
+    let (hue, messages) = by_hue.into_iter().max_by_key(|(_, ids)| ids.len())?;
+    Some(RemoteIntent::SetFlag { messages, hue })
+}
+
 /// The folder work that takes `work` back on the server.
 ///
 /// Read from the work rather than the inverse patch, because the patch describes this client's
@@ -280,6 +329,7 @@ where
         Op::SetRead(ReadState::Unread) => "Marked unread".to_owned(),
         Op::SetStar(Star::Starred) => "Starred".to_owned(),
         Op::SetStar(Star::Unstarred) => "Unstarred".to_owned(),
+        Op::Flag(hue) => format!("Flagged {hue}"),
         Op::Label(_, Membership::In) => "Labelled".to_owned(),
         Op::Label(_, Membership::Out) => "Label removed".to_owned(),
         Op::SetSnooze(Snooze::Until(at)) => format!("Snoozed until {}", when(*at, zone, clock)),

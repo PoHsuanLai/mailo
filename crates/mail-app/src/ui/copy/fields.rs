@@ -12,7 +12,7 @@ pub const OLDER_THAN: &str = "Older than";
 pub const NAME: &str = "Name";
 /// A Space's page in Settings: its name's field, and what the field is called to a screen reader.
 pub const SPACE_NAME: &str = "Space name";
-/// A Space's page in Settings: the row of its colours.
+/// A Space's page in Settings, and a label's editor: the row of its colours.
 pub const COLOUR: &str = "Colour";
 /// A Space's page in Settings: its own theme, System, Light or Dark.
 pub const APPEARANCE: &str = "Appearance";

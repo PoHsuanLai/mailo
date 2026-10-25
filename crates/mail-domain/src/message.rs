@@ -1,6 +1,7 @@
 //! Messages, threads, and the derivation between them.
 
 use crate::content::{Address, Attachment, Body};
+use crate::hue::Hue;
 use crate::id::{LabelId, MessageId, ThreadId};
 use crate::state::{
     Attachments, FollowUp, MailboxRole, MailboxSet, Mute, Pin, ReadState, Snooze, Star,
@@ -92,6 +93,11 @@ pub struct Message {
     pub rfc_message_id: Option<String>,
     pub read: ReadState,
     pub star: Star,
+    /// The flag's colour, which means something only while the message is starred. Added
+    /// after the first release, so a message written before it reads back red, which is what a
+    /// flag with no colour is.
+    #[serde(default)]
+    pub flag: Hue,
     /// A single role: an individual message really is in one place.
     pub mailbox: MailboxRole,
     pub labels: Vec<LabelId>,
@@ -127,6 +133,10 @@ pub struct ThreadSummary {
     pub read: ReadState,
     /// Derived: `Starred` if *any* message is starred.
     pub star: Star,
+    /// Derived: the flag colour of the newest starred message, red when none is. Added after
+    /// the first release, so a summary written before it reads back red.
+    #[serde(default)]
+    pub flag: Hue,
     /// Derived: the union over messages. A thread is not in one place.
     pub mailboxes: MailboxSet,
     /// Derived: the union over messages, deduplicated.
@@ -191,6 +201,7 @@ impl ThreadSummary {
         let mut labels: Vec<LabelId> = Vec::new();
         let mut read = ReadState::Read;
         let mut star = Star::Unstarred;
+        let mut flag = Hue::Red;
         let mut attachments: usize = 0;
 
         for m in &order {
@@ -218,8 +229,10 @@ impl ThreadSummary {
             if m.read == ReadState::Unread {
                 read = ReadState::Unread;
             }
+            // Oldest first, so the newest starred message's colour is the one left standing.
             if m.star == Star::Starred {
                 star = Star::Starred;
+                flag = m.flag;
             }
             // Files, not the images an HTML body embeds: a paperclip on every newsletter would be
             // a paperclip nobody could find a file behind.
@@ -245,6 +258,7 @@ impl ThreadSummary {
             message_count: u32::try_from(messages.len()).unwrap_or(u32::MAX),
             read,
             star,
+            flag,
             mailboxes: order.iter().map(|m| m.mailbox).collect(),
             labels,
             attachments: Attachments::of(u32::try_from(attachments).unwrap_or(u32::MAX)),

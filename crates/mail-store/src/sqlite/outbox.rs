@@ -150,6 +150,7 @@ impl SqliteStore {
         }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
+            | RemoteIntent::SetFlag { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
@@ -172,6 +173,7 @@ impl SqliteStore {
                 read: *read,
                 star: *star,
             },
+            RemoteIntent::SetFlag { hue, .. } => ProtoOp::SetFlag { remotes, hue: *hue },
             RemoteIntent::SetMailbox { role, .. } => ProtoOp::SetMailbox {
                 remotes,
                 role: *role,

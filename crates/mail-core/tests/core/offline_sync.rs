@@ -136,6 +136,7 @@ impl Backend for Scripted {
                 cursor: None,
                 messages: Vec::new(),
                 flags: Vec::new(),
+                flag_colors: Vec::new(),
                 labels: Vec::new(),
                 label_names: Vec::new(),
                 gone: Vec::new(),
@@ -149,6 +150,8 @@ impl Backend for Scripted {
                     })
                     .collect(),
                 flags: Vec::new(),
+                flag_colors: Vec::new(),
+                label_names: Vec::new(),
             },
             ProtoOp::FetchStructure { remotes } => ProtoOutcome::Structures(
                 remotes

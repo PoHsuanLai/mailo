@@ -44,6 +44,7 @@ fn deliver(store: &dyn Store, m: &Message, remotes: &[RemoteRef], labels: &[&str
                         message: m.clone(),
                     }],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: vec![],
                     gone: vec![],

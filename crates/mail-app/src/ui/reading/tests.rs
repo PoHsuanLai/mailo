@@ -380,6 +380,7 @@ fn add_as(
             rfc_message_id: Some(format!("{tag}{index}@example.test")),
             read,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: vec![],
             body: Body::Present {
@@ -409,6 +410,7 @@ fn add_as(
                 cursor: Some(SyncCursor::Pop),
                 messages: fetched,
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 gone: vec![],
