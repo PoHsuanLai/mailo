@@ -49,7 +49,8 @@ pub(super) struct WindowHost {
 
 /// Announce what each finished pass in `ends` stored, as `mailo watch` does
 /// (`mail_core::sync::watcher::told`). A message is an arrival only on the pass that first
-/// stores it, so a watch and a window running side by side never both announce one.
+/// stores it, so a watch and a window running side by side seldom both announce one: only two
+/// passes storing the same message at the same moment can.
 fn announce(store: &SqliteStore, ends: &[PassEnd], notifier: &dyn Notifier, at: DateTime<Utc>) {
     for end in ends {
         let PassEnd::Finished(report) = end else {
