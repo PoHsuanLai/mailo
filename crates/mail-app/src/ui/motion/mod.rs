@@ -55,6 +55,7 @@ pub(in crate::ui) enum Restore {
     Rule(Rule),
     Key(PgpKey),
     Cert(SmimeCert),
+    Signature(Signature),
 }
 
 impl Restore {
@@ -67,6 +68,9 @@ impl Restore {
             Restore::Key(key) => mail_core::pgp::keys::restore(store, key).map_err(not_put_back),
             Restore::Cert(cert) => {
                 mail_core::smime::certs::restore(store, cert).map_err(not_put_back)
+            }
+            Restore::Signature(had) => {
+                mail_core::signature::restore(store, had).map_err(not_put_back)
             }
         }
     }

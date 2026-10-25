@@ -48,6 +48,10 @@ First public release.
 ### Writing and scheduling
 
 - Composer with signatures, templates, spell check, attachments, reply and forward.
+- Several signatures to an address, written and chosen in Settings. A reply is signed with the
+  default for replies under the quoted original, as Apple Mail does, unless
+  `compose.signature_above_quote` is on; `mailo reply`, which used to sign above the quote, now
+  signs under it too.
 - `mailto:` links open a composer (to, cc, bcc, subject, body).
 - Send later (`mailo send --at`) and unsend before the time, snooze, and follow-up reminders.
 

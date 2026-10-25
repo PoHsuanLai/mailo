@@ -80,6 +80,11 @@ pub fn vacation_saved(subject: &str, runs: &str) -> String {
     format!("Saved: “{subject}”, {runs}.")
 }
 
+/// Delete Signature, done: its Undo puts it back.
+pub fn signature_deleted(name: &str) -> String {
+    format!("Signature “{name}” deleted")
+}
+
 /// Block Sender, done: what happens to the sender's mail from now on.
 pub fn blocked(email: &str) -> String {
     format!("Mail from {email} now goes to Spam")

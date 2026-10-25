@@ -11,7 +11,7 @@ mod doc;
 pub use doc::{Placement, nodes_of, plain_of, recognise, region, swap};
 
 use crate::compose::{doc_of, identity_of, save};
-use crate::editor::{Doc, apply, to_flowed, to_html};
+use crate::editor::{Doc, Node, Object, apply, to_flowed, to_html};
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -88,9 +88,20 @@ pub fn create(
 
 /// Keep `doc`, as the composer's editor wrote it, as the signature's words: its HTML and its
 /// plain text. A document with nothing in it keeps no HTML.
+///
+/// A picture is left out: the editor names one by a `cid:` that only the draft it was put in
+/// carries, so in a signature it would be a broken image in every message signed with it.
 pub fn write(store: &SqliteStore, id: SignatureId, doc: &Doc) -> Result<Signature, CoreError> {
+    let doc = Doc {
+        nodes: doc
+            .nodes
+            .iter()
+            .filter(|node| !matches!(node, Node::Object(Object::Image { .. })))
+            .cloned()
+            .collect(),
+    };
     let text = plain_of(&doc.nodes);
-    let html = (!text.trim().is_empty()).then(|| to_html(doc));
+    let html = (!text.trim().is_empty()).then(|| to_html(&doc));
     let signature = Signature {
         html,
         text,
@@ -133,11 +144,17 @@ pub fn make_default(
     Ok(signature)
 }
 
-/// Delete the signature, returning the name it had.
-pub fn delete(store: &SqliteStore, id: SignatureId) -> Result<String, CoreError> {
+/// Delete the signature, returning it as it was, for [`restore`] to put back.
+pub fn delete(store: &SqliteStore, id: SignatureId) -> Result<Signature, CoreError> {
     let had = store.signature(id)?;
     store.delete_signature(id)?;
-    Ok(had.name)
+    Ok(had)
+}
+
+/// Put back a signature [`delete`] took: its id, name, words and defaults as they were. A default
+/// it was takes that flag back from whichever signature was given it since.
+pub fn restore(store: &SqliteStore, had: &Signature) -> Result<(), CoreError> {
+    Ok(store.put_signature(had)?)
 }
 
 /// The name a signature is kept under: what was typed, trimmed, or [`UNNAMED_SIGNATURE`].

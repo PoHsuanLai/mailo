@@ -215,3 +215,43 @@ fn a_swap_replaces_only_the_signature_it_recognises() {
     apply(&mut signed, op).unwrap();
     assert_eq!(region(&signed), Some(1..3));
 }
+
+/// A picture put in a signature's words is left out of what is kept: its `cid:` names a part
+/// only the page it was put on carries, and every message signed with it would show it broken.
+#[test]
+fn a_signature_keeps_its_words_and_leaves_out_a_picture() {
+    let (store, here, _) = two_accounts();
+    let work = &store.signatures(here).unwrap()[0];
+    let doc = Doc {
+        nodes: vec![
+            para("Ada at Work"),
+            Node::Object(crate::editor::Object::Image {
+                src: crate::editor::ImageRef::of_cid("logo@example.test"),
+                alt: "Logo".to_owned(),
+            }),
+        ],
+    };
+    let kept = write(&store, work.id, &doc).unwrap();
+    let html = kept.html.as_deref().expect("words keep their HTML");
+    assert!(html.contains("Ada at Work"), "{html}");
+    assert!(!html.contains("logo@example.test"), "{html}");
+    assert!(!html.contains("<img"), "{html}");
+    assert_eq!(store.signature(work.id).unwrap(), kept);
+}
+
+/// A deleted signature is handed back whole, and putting it back gives the identity the same
+/// signature again: its id, words and defaults.
+#[test]
+fn a_deleted_signature_is_put_back_as_it_was() {
+    let (store, here, _) = two_accounts();
+    let work = store.signatures(here).unwrap().remove(0);
+    let had = delete(&store, work.id).unwrap();
+    assert_eq!(had, work);
+    assert!(store.signatures(here).unwrap().is_empty());
+    restore(&store, &had).unwrap();
+    assert_eq!(store.signatures(here).unwrap(), [work.clone()]);
+    assert_eq!(
+        default_for(&store, here, SignatureUse::Replies).unwrap(),
+        Some(work)
+    );
+}

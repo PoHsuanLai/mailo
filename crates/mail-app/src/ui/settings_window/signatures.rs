@@ -5,11 +5,14 @@
 //! A signature's page is its name, its words, written in the composer's own body (`compose::Body`
 //! over a page of its own that is never a draft), whether it is the default for new messages and
 //! for replies, and Delete Signature. Everything is kept as it is changed: a name as it is typed,
-//! the words with every edit, a switch when it is pressed. The composer reads the store when it
-//! opens a message, so the next one is signed with what was kept here.
+//! the words with every edit, a switch when it is pressed; a change the store would not take is
+//! said under the words, and the next one tries again. Delete Signature says so in a toast whose
+//! Undo puts the signature back. The composer reads the store when it opens a message, so the
+//! next one is signed with what was kept here.
 
 use crate::ui::compose::{Body, Page};
 use crate::ui::copy;
+use crate::ui::motion::{Follow, Restore, tell};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::ButtonRole;
@@ -22,6 +25,7 @@ use mail_core::SqliteStore;
 use mail_core::editor::{Doc, Node, ParaKind, Session};
 use mail_core::signature;
 use mail_domain::{Draft, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
+use mail_runtime::Logged;
 use std::sync::Arc;
 
 /// The stack's element id: its back button is `signatures-pane-back-detail`.
@@ -250,6 +254,9 @@ fn SignatureEditor(
     });
     // The name as typed: a blank one is kept as the unnamed signature, and is still blank here.
     let mut typed = use_signal(|| kept.name.clone());
+    // Whether the last name or words the page tried to keep were refused: said under the words
+    // until a later change is kept.
+    let mut unkept = use_signal(|| false);
     // The words, kept with every edit: `edits` moves with each, and only then.
     let mut kept_at = use_signal(|| 0u64);
     use_effect(move || {
@@ -260,7 +267,9 @@ fn SignatureEditor(
         kept_at.set(edits);
         let store = consume_context::<Arc<SqliteStore>>();
         // Kept, or not: the words stay on the page either way, and the next edit tries again.
-        let _ = signature::write(&store, id, &page.peek().session.doc);
+        let kept = signature::write(&store, id, &page.peek().session.doc)
+            .or_log("the signature's words were not kept");
+        unkept.set(kept.is_none());
     });
     let default_row = |purpose: SignatureUse, label: &'static str| {
         let on = kept.default_for(purpose) == IsDefault::Default;
@@ -276,7 +285,11 @@ fn SignatureEditor(
                         on_toggle: EventHandler::new(move |_| {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let next = if on { IsDefault::Alternate } else { IsDefault::Default };
-                            if signature::make_default(&store, id, purpose, next).is_ok() {
+                            let made = signature::make_default(&store, id, purpose, next)
+                                .or_log("the signature's default was not kept");
+                            let mut unkept = unkept;
+                            unkept.set(made.is_none());
+                            if made.is_some() {
                                 let mut revision = revision;
                                 revision += 1;
                             }
@@ -306,12 +319,16 @@ fn SignatureEditor(
                             typed.set(now.clone());
                             let store = consume_context::<Arc<SqliteStore>>();
                             // As above: the name stays as typed, and the next key tries again.
-                            let _ = signature::rename(&store, id, &now);
+                            let kept = signature::rename(&store, id, &now)
+                                .or_log("the signature's name was not kept");
+                            unkept.set(kept.is_none());
                         },
                     }
                 }
             }
-            FormSection { title: Some(copy::fields::SIGNATURE.to_owned()),
+            FormSection {
+                title: Some(copy::fields::SIGNATURE.to_owned()),
+                footer: unkept().then(|| copy::errors::NOT_KEPT_HERE.to_owned()),
                 div { class: "sig-edit",
                     Body { page, shell, on_attach: move |()| {} }
                 }
@@ -330,15 +347,25 @@ fn SignatureEditor(
                     common: Common { aria_label: Some(copy::aria::delete_signature(&name)), ..Common::default() },
                     onclick: crate::ui::press::on_primary(move || {
                         let store = consume_context::<Arc<SqliteStore>>();
-                        if signature::delete(&store, id).is_ok() {
-                            let mut revision = revision;
-                            revision += 1;
-                            let mut path = path;
-                            path.set(PanePath::new(SignaturesAt::List));
-                        }
+                        let Some(had) = signature::delete(&store, id)
+                            .or_log("the signature was not deleted")
+                        else {
+                            unkept.set(true);
+                            return;
+                        };
+                        let said = copy::toasts::signature_deleted(&had.name);
+                        tell(said, Follow::Restore(Restore::Signature(had)));
+                        let mut revision = revision;
+                        revision += 1;
+                        let mut path = path;
+                        path.set(PanePath::new(SignaturesAt::List));
                     }),
                 }
             }
         }
     }
 }
+
+#[cfg(test)]
+#[path = "signatures_tests.rs"]
+mod tests;
