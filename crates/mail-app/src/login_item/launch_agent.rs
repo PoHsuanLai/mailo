@@ -40,9 +40,10 @@ impl LoginItem for Launchd {
     }
 }
 
-/// The agent's property list for `program`: `program watch` at each login, started again after
-/// it ends in failure (as the systemd unit is) and not after it ends of itself, which is a watch
-/// that found another already running.
+/// The agent's property list for `program`: `program watch --wait` at each login, started again
+/// after it ends in failure (as the systemd unit is). It never ends of itself: one that finds
+/// another watching (mailo.app's, until ⌘Q) waits to take over rather than ending, since launchd
+/// would not start it again after a clean exit.
 pub fn plist(program: &Path) -> String {
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -55,6 +56,7 @@ pub fn plist(program: &Path) -> String {
 	<array>
 		<string>{}</string>
 		<string>watch</string>
+		<string>--wait</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

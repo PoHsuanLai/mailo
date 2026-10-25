@@ -12,12 +12,13 @@
 //!   mailo.app's own bundle (`mail_appkit::login`, `packaging/macos/bundle.sh`), which lists
 //!   mailo under System Settings › General › Login Items; before 13, or for a mailo run from
 //!   outside its bundle, the same agent written to `~/Library/LaunchAgents` and loaded with
-//!   `launchctl` ([`launch_agent`]).
-//! - Linux and the BSDs: the systemd user unit the packages install (`dist/mailo-watch.service`),
-//!   enabled and started for this user with `systemctl --user`. A unit `dist/install.sh` enabled
-//!   for every user (`--global`) starts whatever this says; turning it off here stops it for this
-//!   session only.
-//! - Windows: a value under `HKCU\…\CurrentVersion\Run`, through `reg.exe`.
+//!   `launchctl` ([`launch_agent`]). The agent runs `mailo watch --wait`, so one started while
+//!   mailo.app watches takes over once ⌘Q ends the app.
+//! - Windows: a value under `HKCU\…\CurrentVersion\Run`, through `reg.exe`, run by a headless
+//!   console host so no window opens at login.
+//! - Linux and the BSDs: none. `dist/install.sh` enables the systemd user unit for every user, so
+//!   mail is checked with no window open there whatever a switch would say; Settings shows none
+//!   ([`KEEPS`]).
 
 use crate::settings::WhileQuit;
 use std::sync::Arc;
@@ -67,7 +68,11 @@ pub fn apply(item: &dyn LoginItem, wanted: WhileQuit) -> Result<Option<Registere
     }
 }
 
-/// This platform's login items, or `None` where mailo cannot name the program to start.
+/// Whether this platform has a login item for the switch to keep: macOS and Windows.
+pub const KEEPS: bool = cfg!(any(target_os = "macos", windows));
+
+/// This platform's login items, or `None` where there are none ([`KEEPS`]) or mailo cannot name
+/// the program to start.
 pub fn platform() -> Option<LoginItems> {
     #[cfg(target_os = "macos")]
     {
@@ -81,13 +86,21 @@ pub fn platform() -> Option<LoginItems> {
     }
     #[cfg(not(any(target_os = "macos", windows)))]
     {
-        Some(LoginItems(Arc::new(UserUnit)))
+        None
     }
 }
 
-/// Run `program` with `args`, and say what it said on failure.
+/// Run `program` with `args`, and say what it said on failure. On Windows it opens no console
+/// window of its own.
+#[cfg(any(target_os = "macos", windows))]
 fn run(program: &str, args: &[&str]) -> Result<std::process::Output, String> {
-    let output = std::process::Command::new(program)
+    let mut command = std::process::Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command
         .args(args)
         .stdin(std::process::Stdio::null())
         .output()
@@ -104,31 +117,9 @@ fn run(program: &str, args: &[&str]) -> Result<std::process::Output, String> {
     }
 }
 
-/// The systemd user unit the packages install, as `systemctl --user` enables it.
-#[cfg(not(any(target_os = "macos", windows)))]
-struct UserUnit;
-
-/// The unit's name, as `dist/install-lib.sh` installs it.
-pub const UNIT: &str = "mailo-watch.service";
-
-/// What `systemctl` is asked: `--user enable --now` the unit, or `disable --now` it.
-pub fn systemctl_args(wanted: WhileQuit) -> [&'static str; 4] {
-    match wanted {
-        WhileQuit::On => ["--user", "enable", "--now", UNIT],
-        WhileQuit::Off => ["--user", "disable", "--now", UNIT],
-    }
-}
-
-#[cfg(not(any(target_os = "macos", windows)))]
-impl LoginItem for UserUnit {
-    fn register(&self) -> Result<Registered, String> {
-        run("systemctl", &systemctl_args(WhileQuit::On)).map(|_| Registered::Done)
-    }
-
-    fn unregister(&self) -> Result<(), String> {
-        run("systemctl", &systemctl_args(WhileQuit::Off)).map(|_| ())
-    }
-}
+/// The process creation flag that keeps a console program from opening a window of its own.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// The key a program started at this user's login is named under.
 pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
@@ -136,9 +127,14 @@ pub const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 /// The value's name under [`RUN_KEY`].
 pub const RUN_VALUE: &str = "mailo watch";
 
-/// The command line the Run key holds: the program, quoted, and `watch`.
+/// The command line the Run key holds: the program, quoted, and `watch --wait`, under the console
+/// host with no window (`conhost.exe --headless`), since mailo is a console program and Windows
+/// would otherwise open a console for it at each login.
 pub fn run_command(program: &std::path::Path) -> String {
-    format!("\"{}\" watch", program.display())
+    format!(
+        "conhost.exe --headless \"{}\" watch --wait",
+        program.display()
+    )
 }
 
 /// The Run key, written with `reg.exe`.

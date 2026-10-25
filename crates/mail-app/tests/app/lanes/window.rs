@@ -115,6 +115,13 @@ impl Notifier for Notices {
 #[derive(Default)]
 pub struct LoginItem(Mutex<Vec<&'static str>>);
 
+impl LoginItem {
+    /// What it was asked, in order.
+    pub fn asked(&self) -> Vec<&'static str> {
+        held(&self.0).clone()
+    }
+}
+
 impl mail_app::login_item::LoginItem for LoginItem {
     fn register(&self) -> Result<mail_app::login_item::Registered, String> {
         held(&self.0).push("register");
@@ -314,7 +321,12 @@ impl Window {
 
     /// What the login item was asked, in order.
     pub fn login_asked(&self) -> Vec<&'static str> {
-        held(&self.shared.login.0).clone()
+        self.shared.login.asked()
+    }
+
+    /// The login item every window of the lane is handed, to wait on from a Settings window.
+    pub fn login_item(&self) -> Arc<LoginItem> {
+        Arc::clone(&self.shared.login)
     }
 
     /// Every link opened in the browser.

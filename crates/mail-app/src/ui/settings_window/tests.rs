@@ -259,9 +259,12 @@ async fn check_for_mail_when_quit_registers_and_unregisters_the_login_item() {
     let switch = seen.after("aria-label", "Check for mail when quit", "aria-checked")[0];
     click(&mut dom, switch);
     assert_eq!(stored(&built).sync.while_quit, WhileQuit::On);
+    // The login item is asked off the thread that draws, so it is asked once the window settles.
+    crate::ui::fixtures::settle_quiet(&mut dom).await;
     assert_eq!(item.asked(), ["register"]);
     click(&mut dom, switch);
     assert_eq!(stored(&built).sync.while_quit, WhileQuit::Off);
+    crate::ui::fixtures::settle_quiet(&mut dom).await;
     assert_eq!(item.asked(), ["register", "unregister"]);
 }
 
@@ -277,9 +280,9 @@ async fn a_login_item_the_system_refuses_leaves_the_switch_off_and_says_so() {
     let (mut dom, seen) = general_with_login(&built, item.clone());
     let switch = seen.after("aria-label", "Check for mail when quit", "aria-checked")[0];
     click(&mut dom, switch);
+    crate::ui::fixtures::settle_quiet(&mut dom).await;
     assert_eq!(item.asked(), ["register"]);
     assert_eq!(stored(&built).sync.while_quit, WhileQuit::Off);
-    crate::ui::fixtures::settle_quiet(&mut dom).await;
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains(crate::ui::copy::titles::LOGIN_ITEM_NOT_CHANGED)
@@ -288,18 +291,15 @@ async fn a_login_item_the_system_refuses_leaves_the_switch_off_and_says_so() {
     );
 }
 
-/// A window with no login item (every test's, and a window the launch did not make) changes
-/// the switch in `settings.toml` and reaches nothing else.
+/// A window with no login item (Linux's, where the installed unit checks mail whatever a switch
+/// says, and a window the launch did not make) draws no "Check for mail when quit" at all.
 #[tokio::test]
-async fn without_a_login_item_the_switch_is_only_the_setting() {
-    use crate::settings::WhileQuit;
+async fn without_a_login_item_there_is_no_switch() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
-    click(
-        &mut dom,
-        seen.after("aria-label", "Check for mail when quit", "aria-checked")[0],
-    );
-    assert_eq!(stored(&built).sync.while_quit, WhileQuit::On);
+    let (dom, _) = opened_on(&built, SettingsPage::General);
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains("Check spelling"), "General is drawn: {page}");
+    assert!(!page.contains("Check for mail when quit"), "{page}");
 }
 
 /// Each page, by the sidebar's row, and a line only that page draws.

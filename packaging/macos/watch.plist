@@ -4,7 +4,8 @@
      `packaging/macos/bundle.sh` puts it in mailo.app as
      Contents/Library/LaunchAgents/io.github.PoHsuanLai.mailo.watch.plist, where SMAppService finds
      it (crates/mail-app/src/login_item.rs). It is started again after it fails, as the systemd unit
-     is, and not after it ends of itself: a watch that found another already running. -->
+     is. It is told to wait: one that finds another watch running (mailo.app's, until ⌘Q) waits to
+     take over rather than ending, since launchd would not start it again after a clean exit. -->
 <plist version="1.0">
 <dict>
 	<key>Label</key>
@@ -15,6 +16,7 @@
 	<array>
 		<string>mailo</string>
 		<string>watch</string>
+		<string>--wait</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

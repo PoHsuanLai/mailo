@@ -153,10 +153,14 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
     let mut failed = use_signal(|| None::<String>);
     let mut login = use_signal(|| None::<(&'static str, String)>);
+    // "Check for mail when quit" is drawn only where the window has a login item to keep it:
+    // the launched app's on macOS and Windows (`login_item::platform`). Elsewhere the switch
+    // would say what nothing does.
+    let keeps = try_consume_context::<crate::login_item::LoginItems>().is_some();
     let onedit = move |(path, value): (String, toml::Value)| {
         let changed = crate::ui::prefs::change_key(&path, value);
         if changed.is_ok() && path == crate::settings::WHILE_QUIT {
-            login.set(follow_login_item());
+            follow_login_item(login);
         }
         failed.set(changed.err());
     };
@@ -166,6 +170,7 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
                 FormSection { key: "{section.title}", title: Some(section.title.to_owned()),
                     for line in section.lines.iter().copied() {
                         match line {
+                            Line::Key(path) if path == crate::settings::WHILE_QUIT && !keeps => rsx! {},
                             Line::Key(path) => match key_at(path) {
                                 Some(spec) => rsx! {
                                     KeyRow { key: "{path}", value: value_of(&values, &spec), spec, onedit }
@@ -200,19 +205,37 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
     }
 }
 
-/// Hand "Check for mail when quit", as it now stands, to the login item (`crate::login_item`),
-/// and say what came of it when there is something to say: a title and its message. A window
-/// with no login item (a test's, unless it hands a recorder) changes the setting alone.
+/// Hand "Check for mail when quit", as it now stands, to the login item (`crate::login_item`)
+/// off the thread that draws, since `launchctl`, SMAppService and `reg` take their time, and put
+/// in `login` what came of it when there is something to say. A window with no login item
+/// changes the setting alone.
+fn follow_login_item(mut login: Signal<Option<(&'static str, String)>>) {
+    use crate::login_item::{LoginItems, apply};
+    let Some(items) = try_consume_context::<LoginItems>() else {
+        return;
+    };
+    let wanted = crate::ui::prefs::current().sync.while_quit;
+    spawn(async move {
+        let applied = tokio::task::spawn_blocking(move || apply(&*items.0, wanted))
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+        login.set(said_of(applied, wanted));
+    });
+}
+
+/// What to say of the login item asked for `wanted`, which answered `applied`: a title and its
+/// message, or nothing.
 ///
 /// A switch turned on that the system would not keep is turned off again, so it never says mail
 /// is checked when it is not. One turned off that the system would not let go of stays off: the
 /// person said off, and the message says the login item may still run.
-fn follow_login_item() -> Option<(&'static str, String)> {
-    use crate::login_item::{LoginItems, Registered, apply};
+fn said_of(
+    applied: Result<Option<crate::login_item::Registered>, String>,
+    wanted: crate::settings::WhileQuit,
+) -> Option<(&'static str, String)> {
+    use crate::login_item::Registered;
     use crate::settings::WhileQuit;
-    let items = try_consume_context::<LoginItems>()?;
-    let wanted = crate::ui::prefs::current().sync.while_quit;
-    match (apply(&*items.0, wanted), wanted) {
+    match (applied, wanted) {
         (Ok(Some(Registered::NeedsApproval)), _) => Some((
             copy::titles::ALLOW_LOGIN_ITEM,
             copy::errors::ALLOW_LOGIN_ITEM.to_owned(),

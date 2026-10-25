@@ -11,15 +11,33 @@ fn the_command_line_can_silence_a_watch_and_change_the_setting() {
     assert_eq!(
         parse(&args("watch")),
         Ok(Command::Watch {
-            notify: WatchNotify::AsSet
+            notify: WatchNotify::AsSet,
+            wait: false
         })
     );
     assert_eq!(
         parse(&args("watch --no-notify")),
         Ok(Command::Watch {
-            notify: WatchNotify::Never
+            notify: WatchNotify::Never,
+            wait: false
         })
     );
+    // The login item's watch waits for mailo.app's to end rather than ending itself.
+    assert_eq!(
+        parse(&args("watch --wait")),
+        Ok(Command::Watch {
+            notify: WatchNotify::AsSet,
+            wait: true
+        })
+    );
+    assert_eq!(
+        parse(&args("watch --wait --no-notify")),
+        Ok(Command::Watch {
+            notify: WatchNotify::Never,
+            wait: true
+        })
+    );
+    assert!(parse(&args("watch --wait --wait")).is_err());
     assert_eq!(
         parse(&args("notify off")),
         Ok(Command::Notify {

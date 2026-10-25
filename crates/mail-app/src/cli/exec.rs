@@ -394,7 +394,29 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     }
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
-    if let Command::Watch { notify } = &command {
+    if let Command::Watch { notify, wait } = &command {
+        // One watch per user: a second would announce every message twice. A unit that starts
+        // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
+        // One told to wait (the login item's, which launchd would not start again after a clean
+        // exit) asks again every `background::AGAIN` and takes over once that one ends, as at ⌘Q
+        // of mailo.app. The settings are read once it watches, not before it waited.
+        let watching = loop {
+            match mail_core::ipc::watching::claim(crate::edge::profile().id()) {
+                Ok(held) => break held,
+                Err(mail_core::ipc::watching::Refused::AlreadyWatching) if *wait => {
+                    std::thread::sleep(crate::background::AGAIN);
+                }
+                Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
+                    println!("a mailo watch is already running; leaving it to it");
+                    return Ok(());
+                }
+                Err(mail_core::ipc::watching::Refused::Failed(why)) => {
+                    return Err(format!(
+                        "can't tell whether a mailo watch is running: {why}"
+                    ));
+                }
+            }
+        };
         let set = match notify {
             super::WatchNotify::Never => None,
             super::WatchNotify::AsSet => Some(

@@ -9,7 +9,8 @@
 //! (`ipc::watching`). So the app is, to every window, exactly what a `mailo watch` would be: a
 //! window leaves its scheduled fetching to it ([`Schedule::Watch`]) and opens no connection of its
 //! own to hear the server push ([`Daemon::Holding`]), as it does beside a watch started by hand.
-//! Only the watch announces new mail (a window never does), so nothing is said twice.
+//! The watch announces what its passes fetch and a window only what its own passes fetch (a Fetch
+//! it is asked for), each message on the pass that first stores it, so little is said twice.
 //!
 //! The lock decides who watches ([`Step`]): taken, the app watches; held by a `mailo watch`
 //! already (a terminal's, or the login item's), the app leaves it to that one and asks again now

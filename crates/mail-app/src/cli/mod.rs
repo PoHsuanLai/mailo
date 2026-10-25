@@ -153,8 +153,10 @@ pub enum Command {
     Detach { draft: DraftId, index: usize },
     /// What a draft is carrying.
     Attached { draft: DraftId },
-    /// Keep fetching until stopped, announcing new mail unless told not to.
-    Watch { notify: WatchNotify },
+    /// Keep fetching until stopped, announcing new mail unless told not to. With `wait`
+    /// (`--wait`), one that finds another watch running waits to take over when that one ends,
+    /// rather than ending itself.
+    Watch { notify: WatchNotify, wait: bool },
     /// `--help`: the usage, on stdout.
     Help,
     /// `--version`: the program's name and version.
@@ -304,6 +306,19 @@ pub enum WatchNotify {
     AsSet,
     /// `--no-notify`.
     Never,
+}
+
+/// `watch`'s options, each at most once and in any order.
+fn parse_watch(args: &[String]) -> Result<Command, String> {
+    let (mut notify, mut wait) = (WatchNotify::AsSet, false);
+    for arg in args {
+        match arg.as_str() {
+            "--no-notify" if notify == WatchNotify::AsSet => notify = WatchNotify::Never,
+            "--wait" if !wait => wait = true,
+            other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+        }
+    }
+    Ok(Command::Watch { notify, wait })
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -488,15 +503,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "smime" => smime::parse(&args[1..])
             .map(Command::Smime)
             .map_err(|e| e.to_string()),
-        "watch" => match args.get(1).map(String::as_str) {
-            None => Ok(Command::Watch {
-                notify: WatchNotify::AsSet,
-            }),
-            Some("--no-notify") => Ok(Command::Watch {
-                notify: WatchNotify::Never,
-            }),
-            Some(other) => Err(format!("unknown option {other:?}\n\n{}", usage())),
-        },
+        "watch" => parse_watch(&args[1..]),
         "notify" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Notify { set: None }),
             Some("on") => Ok(Command::Notify {
@@ -1415,9 +1422,11 @@ usage: mailo <command>
                              this removes a label and deletes no message
   folder subscribe|unsubscribe <account> <name>
   icons refresh              fetch each account's provider icon again
-  watch [--no-notify]        keep fetching until stopped (IDLE where offered, else
+  watch [--no-notify] [--wait]
+                             keep fetching until stopped (IDLE where offered, else
                              polling); notifies of new unread inbox mail unless
-                             --no-notify or `notify off`
+                             --no-notify or `notify off`; with --wait, one that finds
+                             another watch running takes over when it ends
   notify [on|off]            turn new-mail notifications on or off (default on)
   offline [<account> [on|off]]
                              keep every attachment of an account here too, fetched
@@ -2037,7 +2046,7 @@ mod tests {
                 "folder delete <account> <name> [--with-messages]",
             ),
             ("icons", "icons refresh"),
-            ("watch", "watch [--no-notify]"),
+            ("watch", "watch [--no-notify] [--wait]"),
             ("unsubscribe", "unsubscribe <thread-or-message-id>"),
             ("receipt", "receipt <message-id> [--decline]"),
             ("jmap", "account add <address> --jmap"),

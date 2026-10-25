@@ -247,6 +247,7 @@ fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
     let while_quit = move || mail_app::settings::load(&root).sync.while_quit;
     assert_eq!(while_quit(), mail_app::settings::WhileQuit::Off);
     let switch = "[*|aria-label=\"Check for mail when quit\"][*|aria-checked]";
+    let login = window.login_item();
     window.in_settings(copy::titles::GENERAL, |settings| {
         until(settings, "the switch is drawn, off", |h| {
             h.count(&format!("{switch}[*|aria-checked=\"false\"]")) == 1
@@ -254,6 +255,10 @@ fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
         click(settings, switch);
         until(settings, "the switch is on", |h| {
             h.count(&format!("{switch}[*|aria-checked=\"true\"]")) == 1
+        });
+        // The login item is asked off the thread that draws.
+        until(settings, "the login item is asked", |_| {
+            login.asked().len() == 1
         });
     });
     assert_eq!(while_quit(), mail_app::settings::WhileQuit::On);
@@ -265,6 +270,9 @@ fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
         click(settings, switch);
         until(settings, "the switch is off", |h| {
             h.count(&format!("{switch}[*|aria-checked=\"false\"]")) == 1
+        });
+        until(settings, "the login item is asked", |_| {
+            login.asked().len() == 2
         });
     });
     assert_eq!(while_quit(), mail_app::settings::WhileQuit::Off);
