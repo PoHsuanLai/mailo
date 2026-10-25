@@ -187,7 +187,7 @@ pub(crate) fn roles(listed: &[Folder]) -> FolderRoles {
         let guessed = listed
             .iter()
             .filter(|f| f.holds == Holds::Mail && f.special.is_none())
-            .filter(|f| MailboxRole::from_folder_name(&f.path) == Some(role))
+            .filter(|f| named_role(f) == Some(role))
             .filter_map(|f| Some((standard_depth(f)?, f)))
             .min_by_key(|(depth, _)| *depth);
         if let Some((_, folder)) = guessed {
@@ -195,6 +195,20 @@ pub(crate) fn roles(listed: &[Folder]) -> FolderRoles {
         }
     }
     FolderRoles(named)
+}
+
+/// The role a folder's own name gives it: its leaf, cut at the delimiter the server listed, read
+/// by [`MailboxRole::from_folder_name`]. A leaf with a `.` or a `/` in it is a name of the
+/// person's (`Old.Sent` where the delimiter is `/`), not a standard folder, and gives none.
+fn named_role(folder: &Folder) -> Option<MailboxRole> {
+    let leaf = match folder.delimiter {
+        Some(delimiter) => folder.path.rsplit(delimiter).next().unwrap_or(&folder.path),
+        None => folder.path.as_str(),
+    };
+    if leaf.contains(['.', '/']) {
+        return None;
+    }
+    MailboxRole::from_folder_name(leaf)
 }
 
 /// How far down a folder is where a standard folder is kept: 0 at the top, 1 just under
@@ -445,6 +459,16 @@ mod tests {
                 "the top over INBOX's",
                 &[r#"* LIST () "/" INBOX/Spam"#, r#"* LIST () "/" Spam"#],
                 &[("Spam", MailboxRole::Spam)],
+            ),
+            // A `.` in a `/`-delimited name is part of the name, not a level.
+            (
+                "a dot is not a delimiter",
+                &[
+                    r#"* LIST () "/" INBOX"#,
+                    r#"* LIST () "/" Old.Sent"#,
+                    r#"* LIST () "/" INBOX/Projects.Spam"#,
+                ],
+                &[("INBOX", MailboxRole::Inbox)],
             ),
             (
                 "a container holds no mail",
