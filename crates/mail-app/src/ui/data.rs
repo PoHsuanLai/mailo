@@ -1,36 +1,26 @@
+#[cfg(test)]
 use crate::ui::view::Listing;
-use mail_core::{SqliteStore, Store};
+use mail_core::SqliteStore;
 use mail_domain::*;
 use porter_core::AccountId;
 
 /// How many rows the list pane asks for at a time.
 pub(super) const PAGE: u32 = 100;
 
-/// The conversations a listing asks for.
-///
-/// Shared by the blocking task and the first frame's fallback: two copies would be two chances to
-/// disagree about what the list contains.
+/// The conversations a listing asks for, as the client reads them: for a test that checks what
+/// a place lists.
+#[cfg(test)]
 pub(super) fn list_for(
     store: &SqliteStore,
     listing: Listing,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Vec<ThreadSummary> {
-    let rows = |query: &Query| {
-        store
-            .threads(query, now)
-            .map(|page| page.items)
-            .unwrap_or_default()
-    };
-    match listing {
-        Listing::Threads(query) => rows(&query),
-        Listing::Inbox { query, scope } => mail_core::follow_up::on_top(
-            mail_core::follow_up::returned(store, scope.as_ref(), now),
-            rows(&query),
-        ),
-        Listing::Waiting { scope } => mail_core::follow_up::waiting(store, scope.as_ref(), now),
-        Listing::History { scope } => mail_core::history::listed(store, scope.as_ref(), now),
-        Listing::Drafts | Listing::Scheduled => Vec::new(),
-    }
+    use mail_client::Query as _;
+    super::list_search::Request::Place(listing)
+        .asked()
+        .run(store, now)
+        .expect("listed")
+        .threads
 }
 
 /// One account as the sidebar draws it: the id, the address, and the plan the provider comes from.

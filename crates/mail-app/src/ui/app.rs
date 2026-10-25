@@ -354,7 +354,7 @@ pub(super) fn App() -> Element {
         marking,
         paging,
         asked,
-    } = use_list(shell, pages, revision);
+    } = use_list(shell, pages);
     // Render what the person is about to open before they open it — the top of the list, and
     // the neighbours of the open conversation — so that opening it is a lookup.
     super::reading::use_warming(shell, threads);

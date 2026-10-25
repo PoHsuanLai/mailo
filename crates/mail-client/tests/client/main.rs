@@ -407,3 +407,40 @@ fn a_change_anywhere_is_told_to_whoever_follows_the_store() {
     other.put_view(&view("There")).unwrap();
     until("another process's commit told", || *moved.borrow() > at);
 }
+
+/// What time a reading was made at: a query that reads only the clock.
+#[derive(Clone, PartialEq, Eq)]
+struct Now;
+
+impl Query for Now {
+    type Output = DateTime<Utc>;
+    const READS: Topics = Topics::CLOCK;
+
+    fn run(&self, _: &SqliteStore, now: DateTime<Utc>) -> Result<DateTime<Utc>, ClientError> {
+        Ok(now)
+    }
+}
+
+/// A clock that always says the same time.
+struct Stopped(DateTime<Utc>);
+
+impl mail_core::mail::Clock for Stopped {
+    fn now(&self) -> DateTime<Utc> {
+        self.0
+    }
+}
+
+#[test]
+fn a_new_clock_reads_again_what_reads_the_clock_at_its_time() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+    let ahead = Utc::now() + chrono::TimeDelta::days(1);
+    let now = client.live(Now);
+    now.wait();
+
+    client.set_clock(Arc::new(Stopped(ahead)));
+
+    until("the clock's time read", || {
+        value(&now).as_deref() == Some(&ahead)
+    });
+}

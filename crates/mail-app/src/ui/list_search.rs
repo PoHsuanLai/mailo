@@ -1,24 +1,22 @@
-//! The list box, run through the search pipeline.
+//! The list box, as the client is asked it.
 //!
-//! A search is [`mail_core::search::search_list`], the function `mailo search` calls, with the
-//! window's label index and local midnight, over the accounts the Space shows. So `from:`, a
-//! prefix, a phrase and `re:/…/` mean the same thing in the list, in the search bar's panel and in the terminal.
-//! The rows are the matches in date order, paginated like a place; above them, a strip of the
+//! A search is the client's ([`mail_client::query::Conversations::Searched`]), which runs
+//! [`mail_core::search::search_list`], the function `mailo search` calls, with the window's label
+//! index, over the accounts the Space shows. So `from:`, a prefix, a phrase and `re:/…/` mean the
+//! same thing in the list, in the search bar's panel and in the terminal. The rows are the matches in date order, paginated like a place; above them, a strip of the
 //! few top results ranked within the newest matches. An empty box is the place's own list.
 //!
 //! One exception, said on screen: a bare `re:/…/` narrows nothing, so it runs over the page the
 //! place already has loaded ("pattern over this page") rather than over a ranked sample of all
 //! mail that would look like a search and not be one.
 
-use super::data::list_for;
 use crate::ui::view::{Listing, Shell};
-use chrono::{DateTime, Utc};
-use mail_core::search::{self, Highlight, Source, Term};
-use mail_core::{SqliteStore, Store};
-use mail_domain::{Filter, LabelId, PageReq, Query, ThreadId, ThreadSummary};
+use mail_client::query::{Conversations, Found, How};
+use mail_core::search::{self, Highlight};
+use mail_domain::{Filter, LabelId, Query, ThreadSummary};
 use std::ops::Range;
 
-/// What the list pane was asked for, taken out of the shell so a blocking thread can run it.
+/// What the list pane was asked for, taken out of the shell.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Request {
     /// The box is empty: the place's own list.
@@ -112,133 +110,47 @@ pub(super) struct Listed {
     pub marking: Marking,
 }
 
-/// Run `request`. Pure apart from the store reads.
-pub(super) fn listed(store: &SqliteStore, request: Request, now: DateTime<Utc>) -> Listed {
-    match request {
-        Request::Place(listing) => Listed {
-            threads: list_for(store, listing, now),
-            top: Vec::new(),
-            marking: Marking::default(),
-        },
-        Request::Search(search) => searched(store, &search, now),
-    }
-}
-
-fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed {
-    let label = mail_core::query::named(&search.labels);
-    let highlight = match search::list_highlight(&search.input, &chrono::Local, &label) {
-        Ok(highlight) => highlight,
-        Err(why) => return invalid(why.to_string()),
-    };
-    // Nothing but a pattern: no operator, no word, no phrase to narrow the candidates with.
-    let bare = highlight.pattern.is_some()
-        && search::extract(&search.input).is_ok_and(|extracted| extracted.rest.trim().is_empty());
-    if bare && let Some(page) = &search.page {
-        return over_page(store, page, highlight, now);
-    }
-    let scoped = Scoped {
-        store,
-        scope: search.scope.clone(),
-    };
-    let searched = match search::search_list(
-        &search.input,
-        &scoped,
-        &search::Affinity::default(),
-        &chrono::Local,
-        &label,
-        search::first(usize::try_from(search.limit).unwrap_or(usize::MAX)),
-        now,
-    ) {
-        Ok(searched) => searched,
-        Err(why) => return invalid(why.to_string()),
-    };
-    Listed {
-        top: searched.strip(),
-        threads: searched.rows,
-        marking: Marking {
-            highlight,
-            scope: Scope::Searched,
-            line: search.input.clone(),
-        },
-    }
-}
-
-fn over_page(
-    store: &SqliteStore,
-    page: &Query,
-    highlight: Highlight,
-    now: DateTime<Utc>,
-) -> Listed {
-    let rows = store
-        .threads(page, now)
-        .map(|page| page.items)
-        .unwrap_or_default();
-    let threads = match &highlight.pattern {
-        Some(pattern) => rows
-            .into_iter()
-            .filter(|summary| search::regex_hits(pattern, &summary.subject, &summary.snippet))
-            .collect(),
-        None => rows,
-    };
-    Listed {
-        threads,
-        top: Vec::new(),
-        marking: Marking {
-            highlight,
-            scope: Scope::OverPage,
-            line: String::new(),
-        },
-    }
-}
-
-fn invalid(why: String) -> Listed {
-    Listed {
-        threads: Vec::new(),
-        top: Vec::new(),
-        marking: Marking {
-            highlight: Highlight::default(),
-            scope: Scope::Invalid(why),
-            line: String::new(),
-        },
-    }
-}
-
-/// The store, narrowed to the accounts on screen.
-///
-/// `search_list` has no account in its signature, and should not: the terminal searches every
-/// account. The Space's narrowing is applied here, to both calls that return
-/// threads, so it is the same `And(account, …)` that [`Shell::query`] builds.
-struct Scoped<'a> {
-    store: &'a SqliteStore,
-    scope: Option<Filter>,
-}
-
-impl Scoped<'_> {
-    fn narrow(&self, filter: &Filter) -> Filter {
-        match &self.scope {
-            Some(scope) => Filter::And(vec![scope.clone(), filter.clone()]),
-            None => filter.clone(),
+impl Request {
+    /// What the client is asked for this request.
+    pub(super) fn asked(&self) -> Conversations {
+        match self {
+            Request::Place(listing) => match listing.clone() {
+                Listing::Threads(query) => Conversations::Matching(query),
+                Listing::Inbox { query, scope } => Conversations::WithReturned { query, scope },
+                Listing::Waiting { scope } => Conversations::Waiting { scope },
+                Listing::History { scope } => Conversations::Opened { scope },
+                // Not conversations: the list draws them from elsewhere.
+                Listing::Drafts | Listing::Scheduled => Conversations::None,
+            },
+            Request::Search(search) => Conversations::Searched(mail_client::query::Search {
+                input: search.input.clone(),
+                labels: search.labels.clone(),
+                scope: search.scope.clone(),
+                within: search.page.clone(),
+                limit: search.limit,
+            }),
         }
     }
 }
 
-impl Source for Scoped<'_> {
-    fn terms_with_prefix(&self, prefix: &str, limit: usize) -> Vec<Term> {
-        <SqliteStore as Source>::terms_with_prefix(self.store, prefix, limit)
-    }
-
-    fn listed(&self, filter: &Filter, page: PageReq, now: DateTime<Utc>) -> Vec<ThreadSummary> {
-        <SqliteStore as Source>::listed(self.store, &self.narrow(filter), page, now)
-    }
-
-    fn top(
-        &self,
-        filter: &Filter,
-        k: usize,
-        window: &[ThreadId],
-        now: DateTime<Utc>,
-    ) -> Vec<(ThreadSummary, f64)> {
-        <SqliteStore as Source>::top(self.store, &self.narrow(filter), k, window, now)
+impl From<&Found> for Listed {
+    /// What the client found, as the list draws it.
+    fn from(found: &Found) -> Self {
+        let (scope, line) = match &found.how {
+            How::Listed => (Scope::Place, String::new()),
+            How::Searched { line } => (Scope::Searched, line.clone()),
+            How::Within => (Scope::OverPage, String::new()),
+            How::Invalid(why) => (Scope::Invalid(why.clone()), String::new()),
+        };
+        Listed {
+            threads: found.threads.clone(),
+            top: found.top.clone(),
+            marking: Marking {
+                highlight: found.highlight.clone(),
+                scope,
+                line,
+            },
+        }
     }
 }
 

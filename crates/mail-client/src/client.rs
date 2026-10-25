@@ -84,7 +84,7 @@ struct Inner {
 /// What the client's threads share.
 pub(crate) struct Shared {
     store: Arc<SqliteStore>,
-    clock: Arc<dyn Clock>,
+    clock: parking_lot::RwLock<Arc<dyn Clock>>,
     /// Every value held, by its query.
     registry: Mutex<Registry>,
     /// The values waiting to be read.
@@ -206,6 +206,13 @@ impl Client {
         self.0.shared.moved.subscribe()
     }
 
+    /// Read by `clock` from now on, and read again what reads the clock: for a caller whose
+    /// time is not the system's, as a test's that jumps a day ahead.
+    pub fn set_clock(&self, clock: Arc<dyn Clock>) {
+        *self.0.shared.clock.write() = clock;
+        self.0.shared.invalidate(Topics::CLOCK);
+    }
+
     /// Whether nothing is waiting to be read or being read.
     pub fn idle(&self) -> bool {
         self.0.shared.busy.load(Ordering::Acquire) == 0
@@ -278,7 +285,7 @@ impl Shared {
     fn new(store: Arc<SqliteStore>, clock: Arc<dyn Clock>, inline: bool) -> Self {
         Self {
             store,
-            clock,
+            clock: parking_lot::RwLock::new(clock),
             registry: Mutex::new(Registry::default()),
             queue: Mutex::new(VecDeque::new()),
             queued: Condvar::new(),
@@ -300,7 +307,7 @@ impl Shared {
     }
 
     fn now(&self) -> DateTime<Utc> {
-        self.clock.now()
+        self.clock.read().now()
     }
 
     /// Put `job` in the queue, already marked as queued. An inline client reads it now instead.

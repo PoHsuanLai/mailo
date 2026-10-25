@@ -155,3 +155,6 @@ impl Query for Counts {
             .collect())
     }
 }
+
+mod conversations;
+pub use conversations::{Conversations, Found, How, Search};
