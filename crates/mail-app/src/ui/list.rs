@@ -454,7 +454,7 @@ pub(super) fn ThreadList(
                             // magnifier that brings up the search panel, or the search shown. The
                             // ⋯ closes the row: Group, Row Properties and Sync Now.
                             super::command::SearchBox { shell, pages }
-                            ListMore { shell, syncs: !quiet, side_hidden }
+                            ListMore { shell, revision, syncs: !quiet, side_hidden }
                         }
                     }
                 },

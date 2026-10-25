@@ -16,6 +16,8 @@ pub const SPACE_NAME: &str = "Space name";
 pub const COLOUR: &str = "Colour";
 /// A Space's page in Settings: its own theme, System, Light or Dark.
 pub const APPEARANCE: &str = "Appearance";
+/// The saved-view sheet: what the view's list sorts by.
+pub const SORT_BY: &str = "Sort by";
 
 // Settings › General's footnotes, each said only where a choice is unclear without it.
 /// An account's switch: keep every message and attachment on this computer.

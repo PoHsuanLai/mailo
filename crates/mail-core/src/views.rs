@@ -25,6 +25,8 @@ pub struct Draft {
     /// what it lists.
     pub kept: Option<Filter>,
     pub group: Option<GroupKey>,
+    /// What the view's list sorts by, and which way.
+    pub property: Property,
     pub dir: SortDir,
 }
 
@@ -48,6 +50,7 @@ impl Draft {
             query: search.to_owned(),
             kept: None,
             group: None,
+            property: Property::Date,
             dir: SortDir::Desc,
         }
     }
@@ -61,6 +64,7 @@ impl Draft {
             kept: words.is_none().then(|| view.filter.clone()),
             query: words.unwrap_or_default(),
             group: view.group_by.clone(),
+            property: view.sort.property,
             dir: view.sort.dir,
         }
     }
@@ -89,7 +93,7 @@ impl Draft {
             kind: ViewKind::Query,
             filter,
             sort: Sort {
-                property: Property::Date,
+                property: self.property,
                 dir: self.dir,
             },
             group_by: self.group.clone(),
@@ -157,6 +161,18 @@ mod tests {
         assert_eq!(view.kind, ViewKind::Query, "a saved search takes no drop");
         assert_eq!(view.sort.property, Property::Date);
         assert_eq!(view.sort.dir, SortDir::Desc);
+    }
+
+    #[test]
+    fn a_view_keeps_the_order_it_was_saved_in() {
+        let mut view = saved("Big", "has:attachment");
+        view.sort = Sort {
+            property: Property::Size,
+            dir: SortDir::Desc,
+        };
+        let draft = Draft::of(&view, &labels(), &Utc);
+        assert_eq!((draft.property, draft.dir), (Property::Size, SortDir::Desc));
+        assert_eq!(draft.build(&labels(), &Utc).unwrap().sort, view.sort);
     }
 
     #[test]

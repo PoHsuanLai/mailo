@@ -8,6 +8,7 @@
 
 use super::common::{Seg, in_card};
 use super::menu::{Floating, MenuItem, Right, Tile};
+use super::page::{SORT_KEYS, sorts_by};
 use super::press::{SheetClose, on_primary};
 use crate::ui::copy;
 use crate::ui::saved::{self, ViewDraft, group_choices, group_name};
@@ -23,7 +24,7 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::{SqliteStore, Store};
-use mail_domain::{SortDir, View};
+use mail_domain::{Property, SortDir, View};
 use std::sync::Arc;
 
 /// Open the sheet on a new view of what `search` finds.
@@ -109,6 +110,22 @@ fn group_items(draft: &ViewDraft, labels: &[(String, mail_domain::LabelId)]) -> 
         .collect()
 }
 
+/// Sort by's rows: each key the list's ⋯ offers, the draft's checked.
+fn sort_items(draft: &ViewDraft) -> Vec<MenuItem> {
+    SORT_KEYS
+        .into_iter()
+        .map(|key| MenuItem {
+            right: Right::Check(sorts_by(key, draft.property)),
+            ..MenuItem::plain(sort_word(key), copy::menus::sort_key(key))
+        })
+        .collect()
+}
+
+/// A sort key's stable key in a menu.
+fn sort_word(property: Property) -> String {
+    format!("{property:?}").to_lowercase()
+}
+
 /// The sheet. Mounted while `shell.view_editor` is `Some`.
 #[component]
 pub(in crate::ui) fn ViewSheet(
@@ -118,6 +135,8 @@ pub(in crate::ui) fn ViewSheet(
 ) -> Element {
     let mut grouping = use_signal(|| false);
     let mut group_at = use_signal(|| None::<MountedRef>);
+    let mut sorting = use_signal(|| false);
+    let mut sort_at = use_signal(|| None::<MountedRef>);
     let Some(draft) = shell.read().view_editor.clone() else {
         return rsx! {};
     };
@@ -126,7 +145,22 @@ pub(in crate::ui) fn ViewSheet(
     let title = if editing { "Edit view" } else { "New view" };
     let group_label = group_name(draft.group.as_ref(), &labels);
     let items = group_items(&draft, &labels);
-    let oldest = draft.dir == SortDir::Asc;
+    let sort_label = copy::menus::sort_key(draft.property);
+    let sorts = sort_items(&draft);
+    // The way the key first runs, first: Newest First before Oldest First, A to Z before Z to A.
+    let natural = draft.property.natural();
+    let ways = match natural {
+        SortDir::Desc => [SortDir::Desc, SortDir::Asc],
+        SortDir::Asc => [SortDir::Asc, SortDir::Desc],
+    };
+    let [up, down] = copy::menus::sort_dirs(draft.property);
+    let way_options: Vec<(String, bool)> = ways
+        .iter()
+        .map(|way| {
+            let name = if *way == SortDir::Asc { up } else { down };
+            (name.to_owned(), draft.dir == *way)
+        })
+        .collect();
     let name_refused = refusal(
         draft
             .refused
@@ -204,12 +238,50 @@ pub(in crate::ui) fn ViewSheet(
                             }
                         }
                     }
+                    FieldRow { label: copy::fields::SORT_BY, layout: RowLayout::Form,
+                        div {
+                            Button {
+                                label: sort_label.to_owned(),
+                                shown: Some(if sorting() { Shown::Visible } else { Shown::Hidden }),
+                                common: Common {
+                                    aria_label: Some(format!("{}: {sort_label}", copy::fields::SORT_BY)),
+                                    data: crate::ui::sidebar::tagged("view", "sort").data,
+                                    mounted: Some(EventHandler::new(move |event: MountedEvent| {
+                                        sort_at.set(Some(MountedRef(event.data())));
+                                    })),
+                                    ..Common::default()
+                                },
+                                onclick: on_primary(move || sorting.set(!sorting())),
+                            }
+                            if sorting() {
+                                Floating {
+                                    anchor: sort_at(),
+                                    title: copy::fields::SORT_BY.to_owned(),
+                                    items: sorts,
+                                    on_pick: move |key: String| {
+                                        if let Some(property) =
+                                            SORT_KEYS.into_iter().find(|p| sort_word(*p) == key)
+                                        {
+                                            edit(shell, |draft| {
+                                                draft.property = property;
+                                                draft.dir = property.natural();
+                                            });
+                                        }
+                                        sorting.set(false);
+                                    },
+                                    on_close: move |_| sorting.set(false),
+                                }
+                            }
+                        }
+                    }
                     FieldRow { label: "Order", layout: RowLayout::Form,
                         Seg {
                             label: "Order".to_owned(),
-                            options: vec![("Newest first".to_owned(), !oldest), ("Oldest first".to_owned(), oldest)],
+                            options: way_options,
                             on_pick: move |index: usize| {
-                                edit(shell, |draft| draft.dir = if index == 1 { SortDir::Asc } else { SortDir::Desc });
+                                if let Some(way) = ways.get(index).copied() {
+                                    edit(shell, |draft| draft.dir = way);
+                                }
                             },
                         }
                     }

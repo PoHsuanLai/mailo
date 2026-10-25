@@ -112,3 +112,49 @@ fn every_grouping_has_a_key_that_finds_it_again() {
             .any(|(_, name, _)| name == "Labelled Travel, and not")
     );
 }
+
+/// Sorting the list is kept where the place keeps itself: a mailbox's order under its key for
+/// `settings.toml`, a view's on the view. A search, or Drafts, offers no sort and keeps none.
+#[test]
+fn a_sort_is_kept_by_the_place_it_sorts() {
+    use crate::ui::view::{NEWEST_FIRST, SortKept, place_key};
+    let view = saved("Trips", "label:travel");
+    let mut shell = Shell::default();
+    assert_eq!(shell.query(50).sort, NEWEST_FIRST);
+    let by_size = Sort {
+        property: Property::Size,
+        dir: SortDir::Desc,
+    };
+    let inbox = place_key(&shell.places[0]);
+    assert_eq!(
+        shell.sort_by(by_size),
+        Some(SortKept::Place(inbox.clone(), by_size))
+    );
+    assert_eq!(shell.sorts.get(&inbox), Some(&by_size));
+    assert_eq!(shell.query(50).sort, by_size);
+    // Another place keeps its own.
+    shell.select(3);
+    assert_eq!(shell.query(50).sort, NEWEST_FIRST);
+    shell.select(0);
+    assert_eq!(shell.query(50).sort, by_size);
+
+    // A view is sorted on the view, and what keeps it is the view changed.
+    show_kept(&mut shell, &view);
+    let by_subject = Sort {
+        property: Property::Subject,
+        dir: SortDir::Asc,
+    };
+    let Some(SortKept::View(changed)) = shell.sort_by(by_subject) else {
+        panic!("a view keeps its own order");
+    };
+    assert_eq!(changed.sort, by_subject);
+    assert_eq!(changed.id, view.id);
+    assert_eq!(shell.query(50).sort, by_subject);
+    assert_eq!(shell.sorts.len(), 1, "no key for a view");
+
+    // A search lists its own way.
+    shell.search = "lunch".to_owned();
+    assert!(!shell.sortable());
+    assert_eq!(shell.sort_by(by_size), None);
+    assert_eq!(shell.query(50).sort, NEWEST_FIRST);
+}

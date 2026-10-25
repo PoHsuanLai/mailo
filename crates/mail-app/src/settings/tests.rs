@@ -1,7 +1,7 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    BrandLogos, LoadRemoteImages, MailSettings, NewMail, ProviderMarks, ReadReceipts,
+    BrandLogos, ListOrder, LoadRemoteImages, MailSettings, NewMail, ProviderMarks, ReadReceipts,
     ReadingSettings, ServerSearch, Spelling, change, load, schema, store,
 };
 use ds_settings::ConfigRoot;
@@ -228,6 +228,51 @@ fn remote_images_and_trusted_senders_are_written_and_read_back() {
     let text = std::fs::read_to_string(dir.path().join("mailo").join("settings.toml")).unwrap();
     assert!(text.contains("remote_images = \"trusted\""), "{text}");
     assert!(text.contains("news@shop.example"), "{text}");
+}
+
+/// A list's order is kept under its place's key and read back, and is no key of the schema: a
+/// Settings page has nothing to draw for it.
+#[test]
+fn a_list_s_order_is_written_and_read_back_and_is_not_a_key() {
+    use mail_domain::{Property, Sort, SortDir};
+    let (dir, root) = scratch();
+    let by_size = Sort {
+        property: Property::Size,
+        dir: SortDir::Desc,
+    };
+    let written = change(&root, |settings| {
+        settings
+            .window
+            .sorts
+            .insert("place:Inbox".to_owned(), ListOrder(by_size));
+    })
+    .unwrap();
+    assert_eq!(load(&root), written);
+    assert_eq!(
+        load(&root).window.sorts.get("place:Inbox"),
+        Some(&ListOrder(by_size))
+    );
+    let text = std::fs::read_to_string(dir.path().join("mailo").join("settings.toml")).unwrap();
+    assert!(text.contains("\"place:Inbox\" = \"size desc\""), "{text}");
+    // An order this build cannot read costs only itself.
+    write(
+        &mailo_dir(&dir),
+        "settings.toml",
+        "[window.sorts]\n\"place:Inbox\" = \"size\"\n\"place:Sent\" = \"subject asc\"\n",
+    );
+    let sorts = load(&root).window.sorts;
+    assert_eq!(sorts.get("place:Inbox"), None);
+    assert_eq!(
+        sorts.get("place:Sent"),
+        Some(&ListOrder(Sort {
+            property: Property::Subject,
+            dir: SortDir::Asc,
+        }))
+    );
+    assert!(
+        schema().key.iter().all(|key| !key.path.0.contains("sorts")),
+        "a map is not a Settings row"
+    );
 }
 
 #[test]

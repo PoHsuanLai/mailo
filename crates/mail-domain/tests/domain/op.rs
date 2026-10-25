@@ -13,7 +13,7 @@ use mail_domain::{
     MessageKey, MoveExt, Op, OpKind, Patch, Pin, ReadState, RemoteIntent, ServerLabels,
     ServerThreads, Snooze, Star, Supported, Target, Thread, ThreadId, ThreadSummary, WatchMode,
 };
-use mail_domain::{Address, Attachment, FollowUp, Inline, Mute, PartContent};
+use mail_domain::{Address, Attachment, FollowUp, Inline, Mute, PartContent, SortFacts};
 use proptest::prelude::*;
 use std::time::Duration;
 use uuid::Uuid;
@@ -424,6 +424,36 @@ fn derive_breaks_date_ties_by_position() {
         "the earlier position is the older message"
     );
     assert_eq!(s.from, addr(None, "second@example.test"));
+}
+
+/// The list sorts a conversation by its newest message: its subject as threading compares it,
+/// its sender as the row names it, and its text's bytes with what each part says it weighs.
+#[test]
+fn sort_facts_are_the_newest_message_s() {
+    let mut older = message(1, 100);
+    older.subject = "Zebra".to_owned();
+    older.attachments = vec![attachment("big.bin"); 4];
+    let mut newest = message(2, 200);
+    newest.subject = "Re:  Lunch   Plans".to_owned();
+    newest.from = addr(Some("Émile"), "e@example.test");
+    newest.body = Body::Present {
+        text: Some("héllo".to_owned()),
+        raw: BlobId::from_uuid(Uuid::from_u128(0xb002)),
+    };
+    newest.attachments = vec![attachment("a.txt")];
+    let facts = SortFacts::of(&[newest, older]).expect("two messages");
+    assert_eq!(facts.subject, "lunch plans");
+    assert_eq!(facts.sender, "émile");
+    assert_eq!(facts.size, 6 + 3, "six bytes of text and a part of three");
+    assert_eq!(SortFacts::of(&[]), None);
+
+    // Of two at one date, the later in the thread, as `derive` takes it.
+    let mut first = message(1, 100);
+    first.subject = "first".to_owned();
+    let mut second = message(2, 100);
+    second.subject = "second".to_owned();
+    let facts = SortFacts::of(&[first, second]).expect("two messages");
+    assert_eq!(facts.subject, "second");
 }
 
 #[test]

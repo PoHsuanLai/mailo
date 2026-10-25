@@ -23,7 +23,7 @@ crates/mail-app/src/ui/start.rs 3
 crates/mail-app/src/ui/text.rs 1
 crates/mail-app/src/ui/view.rs 8
 crates/mail-app/src/ui/view_groups.rs 17
-crates/mail-app/src/ui/views.rs 16
+crates/mail-app/src/ui/views.rs 14
 crates/mail-app/src/ui/add_account/direct.rs 5
 crates/mail-app/src/ui/add_account/host.rs 1
 crates/mail-app/src/ui/add_account/map.rs 8

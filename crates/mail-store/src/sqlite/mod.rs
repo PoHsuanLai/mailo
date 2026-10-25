@@ -417,31 +417,72 @@ use mail_domain::{
 };
 use porter_core::AccountId;
 
-/// The `thread_summary` column a [`Property`] sorts on.
+/// The `thread_summary` column a [`Property`] sorts on, and whether it holds a number.
 ///
-/// Every one is indexed or cheap; `Size` is not stored, so it falls back to date rather than
-/// forcing a scan over message bodies to answer a sort nobody can see the result of anyway.
-fn sort_column(property: Property) -> &'static str {
+/// Each but `Attachments`, which no menu offers, has an index that matches its `ORDER BY`
+/// exactly (`0033_sort_keys.sql`). Subject, sender and size are the newest message's
+/// ([`mail_domain::SortFacts`]).
+fn sort_column(property: Property) -> (&'static str, Value) {
     match property {
-        Property::Date | Property::Size => "ts.last_date",
-        Property::Subject => "ts.subject",
-        Property::From | Property::Sender => "ts.from_email",
-        Property::Attachments => "ts.attachments",
-        Property::Pin => "ts.pin",
+        Property::Date => ("ts.last_date", Value::Text),
+        Property::Subject => ("ts.sort_subject", Value::Text),
+        Property::From | Property::Sender => ("ts.sort_sender", Value::Text),
+        Property::Size => ("ts.size", Value::Int),
+        Property::Attachments => ("ts.attachments", Value::Text),
+        Property::Pin => ("ts.pin", Value::Text),
+        Property::Unread => ("ts.unread", Value::Int),
+        Property::Starred => ("ts.starred", Value::Int),
     }
 }
 
-/// Encode a keyset position. Opaque to every caller; the format is this module's business.
-fn encode_cursor(sort_value: &str, thread: ThreadId) -> Cursor {
-    Cursor(format!("{}\u{1f}{}", sort_value, thread))
+/// What a sort column holds, so a cursor's text is bound back as the type the keyset compares
+/// against: SQLite orders every integer before every text, so `'9' > 10`.
+#[derive(Clone, Copy)]
+enum Value {
+    Text,
+    Int,
 }
 
-fn decode_cursor(cursor: &Cursor) -> Result<(String, String), StoreError> {
-    cursor
-        .0
-        .split_once('\u{1f}')
-        .map(|(a, b)| (a.to_owned(), b.to_owned()))
-        .ok_or(StoreError::BadCursor)
+/// The columns a sort orders by, most significant first: its own, then the date, then the
+/// thread, so the order is total and two rows that sort alike stay newest first, or oldest first,
+/// whichever way the sort runs. The date sorts by itself and the thread alone.
+fn order_columns(property: Property) -> Vec<(&'static str, Value)> {
+    let tie = [("ts.last_date", Value::Text), ("ts.thread", Value::Text)];
+    match property {
+        Property::Date => tie.to_vec(),
+        other => std::iter::once(sort_column(other)).chain(tie).collect(),
+    }
+}
+
+/// Encode a keyset position: each order column's value. Opaque to every caller; the format is
+/// this module's business.
+fn encode_cursor(values: &[String]) -> Cursor {
+    Cursor(values.join("\u{1f}"))
+}
+
+/// The values of a cursor for `columns`, bound as each column's type. Split from the right, so
+/// a subject that somehow holds the separator is still one value: only the first column is ever
+/// free text.
+fn decode_cursor(
+    cursor: &Cursor,
+    columns: &[(&'static str, Value)],
+) -> Result<Vec<sql::SqlValue>, StoreError> {
+    let mut parts: Vec<&str> = cursor.0.rsplitn(columns.len(), '\u{1f}').collect();
+    if parts.len() != columns.len() {
+        return Err(StoreError::BadCursor);
+    }
+    parts.reverse();
+    parts
+        .into_iter()
+        .zip(columns)
+        .map(|(part, (_, value))| match value {
+            Value::Text => Ok(sql::SqlValue::Text(part.to_owned())),
+            Value::Int => part
+                .parse()
+                .map(sql::SqlValue::Int)
+                .map_err(|_| StoreError::BadCursor),
+        })
+        .collect()
 }
 
 impl Store for SqliteStore {
@@ -451,32 +492,42 @@ impl Store for SqliteStore {
         now: DateTime<Utc>,
     ) -> Result<Page<ThreadSummary>, StoreError> {
         let compiled = sql::compile(&query.filter, now);
-        let column = sort_column(query.sort.property);
+        let columns = order_columns(query.sort.property);
         let dir = match query.sort.dir {
             SortDir::Asc => "ASC",
             SortDir::Desc => "DESC",
         };
+        let names: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
         // Keyset, not OFFSET: an offset shifts under the reader when mail arrives mid-scroll,
-        // which silently skips or repeats a row. The tie-break on thread id makes the order
-        // total, so a page boundary is never ambiguous.
+        // which silently skips or repeats a row. The date and then the thread id break ties,
+        // which makes the order total, so a page boundary is never ambiguous.
         let (keyset, mut params): (String, Vec<sql::SqlValue>) = match &query.page.after {
             None => (String::from("1=1"), Vec::new()),
             Some(cursor) => {
-                let (value, thread) = decode_cursor(cursor)?;
+                let values = decode_cursor(cursor, &columns)?;
                 let cmp = if matches!(query.sort.dir, SortDir::Asc) {
                     ">"
                 } else {
                     "<"
                 };
-                (
-                    format!("({column}, ts.thread) {cmp} (?, ?)"),
-                    vec![sql::SqlValue::Text(value), sql::SqlValue::Text(thread)],
-                )
+                let marks = vec!["?"; values.len()].join(", ");
+                (format!("({}) {cmp} ({marks})", names.join(", ")), values)
             }
         };
+        let order = names
+            .iter()
+            .map(|name| format!("{name} {dir}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let selected = names
+            .iter()
+            .enumerate()
+            .map(|(at, name)| format!("{name} AS sort_key_{at}"))
+            .collect::<Vec<_>>()
+            .join(", ");
 
         let sql_text = format!(
-            "SELECT {}, {column} AS sort_key FROM thread_summary ts WHERE {} AND {} ORDER BY {column} {dir}, ts.thread {dir} LIMIT ?",
+            "SELECT {}, {selected} FROM thread_summary ts WHERE {} AND {} ORDER BY {order} LIMIT ?",
             read::qualified_summary_columns(),
             compiled.where_clause,
             keyset,
@@ -498,20 +549,30 @@ impl Store for SqliteStore {
             sql::SqlValue::Int(i) => rusqlite::types::Value::Integer(*i),
         })))?;
 
-        // Each row's sort value as the column holds it, so the next page resumes from the text
+        // Each row's order values as the columns hold them, so the next page resumes from what
         // the keyset compares against, whatever the sort.
         let mut items = Vec::new();
         let mut keys = Vec::new();
         while let Some(row) = rows.next()? {
             items.push(self.read_summary(row)?);
-            keys.push(row.get::<_, String>("sort_key")?);
+            let mut values = Vec::with_capacity(columns.len());
+            for (at, (_, value)) in columns.iter().enumerate() {
+                let name = format!("sort_key_{at}");
+                values.push(match value {
+                    Value::Text => row.get::<_, String>(name.as_str())?,
+                    Value::Int => row.get::<_, i64>(name.as_str())?.to_string(),
+                });
+            }
+            keys.push(values);
         }
 
         let next = if items.len() as i64 > limit {
             items.truncate(limit as usize);
             items
-                .last()
-                .map(|s| encode_cursor(&keys[items.len() - 1], s.id))
+                .len()
+                .checked_sub(1)
+                .and_then(|last| keys.get(last))
+                .map(|values| encode_cursor(values))
         } else {
             None
         };

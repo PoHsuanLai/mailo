@@ -39,6 +39,8 @@ pub const ADD_ACCOUNT: &str = "Add Account…";
 pub const ADD_ACCOUNT_SUBMENU: &str = "Add Account";
 
 // The list toolbar's ⋯.
+/// A submenu: the keys, then the two ways the chosen one runs ([`sort_key`], [`sort_dirs`]).
+pub const SORT_BY: &str = "Sort By";
 pub const GROUP_BY_DATE: &str = "Group by Date";
 pub const SHOW_SNIPPETS: &str = "Show Snippets";
 pub const HIDE_SNIPPETS: &str = "Hide Snippets";
@@ -179,3 +181,33 @@ pub const COPY_CERTIFICATE: &str = "Copy Certificate";
 pub const SAVE_CERTIFICATE: &str = "Save Certificate\u{2026}";
 pub const TRUST: &str = "Trust";
 pub const DONT_TRUST: &str = "Don\u{2019}t Trust";
+
+/// What Sort By calls a key.
+pub fn sort_key(property: mail_domain::Property) -> &'static str {
+    use mail_domain::Property;
+    match property {
+        Property::Date => "Date",
+        Property::From | Property::Sender => "Sender",
+        Property::Subject => "Subject",
+        Property::Size => "Size",
+        Property::Attachments => "Attachments",
+        Property::Pin => "Pinned",
+        Property::Unread => "Unread",
+        Property::Starred => "Starred",
+    }
+}
+
+/// The two ways a key runs, ascending first, in the words the key reads in: Oldest First and
+/// Newest First, not Ascending and Descending.
+pub fn sort_dirs(property: mail_domain::Property) -> [&'static str; 2] {
+    use mail_domain::Property;
+    match property {
+        Property::Date => ["Oldest First", "Newest First"],
+        Property::From | Property::Sender | Property::Subject => ["A to Z", "Z to A"],
+        Property::Size => ["Smallest First", "Largest First"],
+        Property::Attachments => ["Without First", "With First"],
+        Property::Pin => ["Pinned Last", "Pinned First"],
+        Property::Unread => ["Unread Last", "Unread First"],
+        Property::Starred => ["Starred Last", "Starred First"],
+    }
+}

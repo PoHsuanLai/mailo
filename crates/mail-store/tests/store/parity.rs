@@ -491,7 +491,8 @@ proptest! {
     }
 
     /// Paging through the list a few rows at a time, under every sort, reaches each thread once
-    /// and in the order one page of all of them has, in both stores.
+    /// and in the order one page of all of them has, in both stores, and the stores agree on
+    /// that order.
     #[test]
     fn paging_under_every_sort_reaches_each_thread_once(
         specs in prop::collection::vec(spec(), 1..8),
@@ -506,8 +507,12 @@ proptest! {
             Property::Size,
             Property::Attachments,
             Property::Pin,
+            Property::Unread,
+            Property::Starred,
         ];
+        let mut orders: Vec<Vec<Vec<ThreadId>>> = Vec::new();
         for store in [&both.sqlite as &dyn Store, &both.memory] {
+            let mut order = Vec::new();
             for property in properties {
                 for dir in [SortDir::Asc, SortDir::Desc] {
                     let query = |after, limit| Query {
@@ -534,9 +539,12 @@ proptest! {
                         }
                     }
                     prop_assert_eq!(&paged, &whole, "{:?} {:?}", property, dir);
+                    order.push(whole);
                 }
             }
+            orders.push(order);
         }
+        prop_assert_eq!(&orders[0], &orders[1], "SQLite and memory sort apart");
     }
 
     /// Term sets for an ASCII prefix. Both stores fold with `search_tokens` and count a term

@@ -47,3 +47,6 @@ mod triage;
 mod preferences;
 mod search;
 mod sidebar;
+
+// 15: sorting the list.
+mod sort;

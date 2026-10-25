@@ -256,6 +256,49 @@ impl ThreadSummary {
     }
 }
 
+/// What the list sorts a conversation by beyond its summary, every one decided by the newest
+/// message, as the summary's sender and date are: a conversation is where its latest mail left
+/// it, so its row sorts by what that mail says, how it names its sender and how large it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SortFacts {
+    /// The newest message's subject as threading compares subjects
+    /// ([`crate::threading::sort_subject`]).
+    pub subject: String,
+    /// The newest message's sender as a row names it, lowercased.
+    pub sender: String,
+    /// The newest message's bytes: its text and every part it carries ([`Message::size`]).
+    pub size: u64,
+}
+
+impl SortFacts {
+    /// The facts of a thread of `messages`, or `None` for no messages. The newest is the one
+    /// [`ThreadSummary::derive`] takes: the latest date, and of two at that date the later in
+    /// `messages`.
+    pub fn of(messages: &[Message]) -> Option<SortFacts> {
+        let newest = messages.iter().max_by_key(|m| m.date)?;
+        Some(SortFacts {
+            subject: crate::threading::sort_subject(&newest.subject),
+            sender: newest.from.shown().to_lowercase(),
+            size: newest.size(),
+        })
+    }
+}
+
+impl Message {
+    /// How large the message is, as the list sorts by it: the bytes of its text, and each part
+    /// it carries at the size the part says, whether held or still on the server.
+    ///
+    /// Not the raw message's bytes. Those are a blob only the SQLite store holds, absent for a
+    /// header fetch, and short by every attachment a large IMAP message left on the server; this
+    /// is the same in both stores and in SQL (migration 0033).
+    pub fn size(&self) -> u64 {
+        let text = self.body.text().map_or(0, |text| text.len() as u64);
+        self.attachments
+            .iter()
+            .fold(text, |sum, part| sum.saturating_add(part.size))
+    }
+}
+
 /// The most characters a snippet may hold. Enough for two lines in a list row; short enough
 /// that a summary stays cheap to store beside every thread.
 const SNIPPET_CHARS: usize = 140;

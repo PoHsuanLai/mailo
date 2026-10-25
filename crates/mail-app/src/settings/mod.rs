@@ -50,6 +50,52 @@ pub struct WindowSettings {
         section = "Mail"
     )]
     pub provider_marks: ProviderMarks,
+    /// The order each place's list was last sorted in from the list's ⋯, by the place's key
+    /// (`mail_core::view::place_key`). A saved view keeps its order on the view instead. Not a
+    /// key: nobody sets it from a Settings page, and the Settings app shows no map.
+    #[settings(skip)]
+    pub sorts: std::collections::BTreeMap<String, ListOrder>,
+}
+
+/// The places' orders as the window sorts by them, out of `window.sorts`.
+pub fn sorts_of(window: &WindowSettings) -> std::collections::BTreeMap<String, mail_domain::Sort> {
+    window
+        .sorts
+        .iter()
+        .map(|(key, order)| (key.clone(), order.0))
+        .collect()
+}
+
+/// A list's order as `settings.toml` holds it: the key's word and the way's, `"subject asc"`.
+///
+/// One string rather than a table of two: the file is read leniently, each value on its own, and
+/// a table's two halves read alone are each missing the other, so a table would never read back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListOrder(pub mail_domain::Sort);
+
+impl Serialize for ListOrder {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let word = |value: serde_json::Result<serde_json::Value>| match value {
+            Ok(serde_json::Value::String(word)) => Ok(word),
+            _ => Err(serde::ser::Error::custom("a sort's words are strings")),
+        };
+        let property = word(serde_json::to_value(self.0.property))?;
+        let dir = word(serde_json::to_value(self.0.dir))?;
+        serializer.serialize_str(&format!("{property} {dir}"))
+    }
+}
+
+impl<'de> Deserialize<'de> for ListOrder {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        let refused = || serde::de::Error::custom(format!("not a list's order: {text:?}"));
+        let (property, dir) = text.split_once(' ').ok_or_else(refused)?;
+        let word = |word: &str| serde_json::Value::String(word.to_owned());
+        Ok(ListOrder(mail_domain::Sort {
+            property: serde_json::from_value(word(property)).map_err(|_| refused())?,
+            dir: serde_json::from_value(word(dir)).map_err(|_| refused())?,
+        }))
+    }
 }
 
 /// `notifications.*`: what is said on the desktop.

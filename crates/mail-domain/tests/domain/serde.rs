@@ -927,6 +927,8 @@ fn filter_and_view_types_round_trip() {
             Property::Size,
             Property::Attachments,
             Property::Pin,
+            Property::Unread,
+            Property::Starred,
         ],
     );
     round_trip_each("SortDir", vec![SortDir::Asc, SortDir::Desc]);

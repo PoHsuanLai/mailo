@@ -694,6 +694,56 @@ const CASES: &[Case] = &[
             );
         },
     },
+    Case {
+        // The list sorts by sender, subject, size, unread and starred, from columns every
+        // existing summary gets from its newest message, not left at their defaults until the
+        // thread is next written, which for old mail is never.
+        migration: "0033_sort_keys",
+        from: 32,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                     recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                     body_text, body_raw, attachments)
+                 VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', 'Ada', 'ada@b.test', '{}',
+                     'Plans', NULL, '[]', NULL, '\"unread\"', '\"starred\"', '\"inbox\"',
+                     'héllo', NULL,
+                     '[{\"name\":\"a.pdf\",\"mime\":\"application/pdf\",\"size\":100,
+                        \"remote_section\":\"2\",\"inline\":{\"kind\":\"attached\"}}]')",
+                [OTHER, THREAD, ACCOUNT],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
+                     from_email, participants, recipients, last_date, message_count, read, star,
+                     mailboxes, labels, attachments, snooze, pin)
+                 VALUES (?1, ?2, 's', 'hello', 'Ada', 'ada@b.test', '[]', '[]',
+                     '2023-01-02T00:00:00Z', 2, '\"unread\"', '\"starred\"', '[\"inbox\"]',
+                     '[]', '{\"files\":1}', '\"none\"', '\"none\"')",
+                [THREAD, ACCOUNT],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            let db = store.raw_connection();
+            let row: (String, String, i64, i64, i64) = db
+                .query_row(
+                    "SELECT sort_subject, sort_sender, size, unread, starred FROM thread_summary",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .unwrap();
+            // The newer message's: 'héllo' is six bytes, and its part says 100.
+            assert_eq!(row, ("plans".to_owned(), "ada".to_owned(), 106, 1, 1));
+            assert_eq!(
+                number(&db, "SELECT count(*) FROM summaries_to_refresh"),
+                0,
+                "the queue is emptied on open"
+            );
+        },
+    },
 ];
 
 fn imap(mailbox: &str, uid: u32) -> mail_domain::RemoteRef {
