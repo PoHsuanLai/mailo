@@ -44,7 +44,7 @@ impl SqliteStore {
     }
 
     pub(super) fn read_found_in(&self, threads: &[ThreadId]) -> Result<Vec<ThreadId>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT 1 FROM found_on_server f JOIN messages m ON m.id = f.message
              WHERE m.thread = ?1 LIMIT 1",
@@ -70,7 +70,7 @@ impl SqliteStore {
         account: AccountId,
         remotes: &[RemoteRef],
     ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT message FROM remote_map WHERE account = ?1 AND mailbox = ?2
              AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",

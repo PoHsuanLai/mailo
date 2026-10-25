@@ -264,6 +264,32 @@ pub fn hold_writer(store: &SqliteStore) -> WriterHeld<'_> {
     WriterHeld(store.connection())
 }
 
+/// How many entries one transaction of an ingest writes, for a test that has to cross it.
+pub const INGEST_CHUNK: usize = crate::sqlite::INGEST_CHUNK;
+
+/// What [`on_ingest_chunk`] runs.
+pub(crate) struct ChunkHook(Box<dyn Fn(&SqliteStore) + Send + Sync>);
+
+impl std::fmt::Debug for ChunkHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ChunkHook")
+    }
+}
+
+/// Run `hook` each time one chunk of an ingest has committed, on the ingesting thread with the
+/// writer let go of: what a reader beside the ingest could see at that moment, it sees.
+pub fn on_ingest_chunk(store: &SqliteStore, hook: impl Fn(&SqliteStore) + Send + Sync + 'static) {
+    *store.on_chunk.lock() = Some(ChunkHook(Box::new(hook)));
+}
+
+impl SqliteStore {
+    pub(crate) fn chunk_committed(&self) {
+        if let Some(hook) = self.on_chunk.lock().as_ref() {
+            (hook.0)(self);
+        }
+    }
+}
+
 /// Write a row the way another process does: through its own connection to the database at
 /// `path`, which the store did not make.
 pub fn seed_account_from_another_connection(path: &std::path::Path, id: &str) {

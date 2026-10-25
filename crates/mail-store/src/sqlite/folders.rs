@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 impl SqliteStore {
     /// Every folder held for `account`, by path.
     pub(super) fn read_folders(&self, account: AccountId) -> Result<Vec<Folder>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT path, delimiter, special, subscription, holds FROM folders
              WHERE account = ?1 ORDER BY path",
@@ -71,7 +71,7 @@ impl SqliteStore {
 
     /// Folder work still in the outbox, in the order it will be sent.
     fn queued_folder_work(&self, account: AccountId) -> Result<Vec<FolderWork>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached("SELECT op FROM outbox WHERE account = ?1 ORDER BY id")?;
         let rows = stmt.query_map(params![account.to_string()], |r| r.get::<_, String>(0))?;
         let mut out = Vec::new();
@@ -207,7 +207,7 @@ impl SqliteStore {
     pub(super) fn contents(&self, mailbox: &MailboxRef) -> Result<FolderContents, StoreError> {
         let account = mailbox.account.to_string();
         let provider = to_json("LabelOrigin", &LabelOrigin::Provider)?;
-        let db = self.connection();
+        let db = self.reader();
         let mut mapped = db.prepare_cached(
             "SELECT DISTINCT message FROM remote_map WHERE account = ?1 AND mailbox = ?2",
         )?;

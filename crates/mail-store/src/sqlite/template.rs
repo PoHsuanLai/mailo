@@ -62,7 +62,7 @@ impl SqliteStore {
 
     pub(super) fn load_template(&self, id: TemplateId) -> Result<Template, StoreError> {
         let sql = format!("SELECT {TEMPLATE_COLUMNS} FROM templates WHERE id = ?1");
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![id.to_string()])?;
         match rows.next()? {
@@ -77,7 +77,7 @@ impl SqliteStore {
             "SELECT {TEMPLATE_COLUMNS} FROM templates WHERE account = ?1
              ORDER BY name COLLATE NOCASE, id"
         );
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![account.to_string()])?;
         let mut out = Vec::new();

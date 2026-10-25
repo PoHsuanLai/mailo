@@ -37,7 +37,7 @@ impl SqliteStore {
         messages: &[MessageId],
     ) -> Result<Vec<RemoteRef>, StoreError> {
         let mut out = Vec::new();
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT mailbox, uidvalidity, uid, uidl FROM remote_map
              WHERE account = ?1 AND message = ?2",
@@ -56,7 +56,7 @@ impl SqliteStore {
 
     fn label_names(&self, labels: &[mail_domain::LabelId]) -> Result<Vec<String>, StoreError> {
         let mut out = Vec::new();
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached("SELECT name FROM labels WHERE id = ?1")?;
         for id in labels {
             let name: Option<String> = stmt
@@ -73,7 +73,7 @@ impl SqliteStore {
 
     /// Where `message` is on the server now.
     fn addresses_now(&self, account: AccountId, message: MessageId) -> Result<Place, StoreError> {
-        let held: bool = self.connection().query_row(
+        let held: bool = self.reader().query_row(
             "SELECT EXISTS (SELECT 1 FROM messages WHERE id = ?1)",
             params![message.to_string()],
             |r| r.get(0),
@@ -207,6 +207,9 @@ impl SqliteStore {
         undo: &Patch,
         now: DateTime<Utc>,
     ) -> Result<Option<OutboxId>, StoreError> {
+        // Taken before the reads that decide what is queued, so they read through it: where a
+        // message is addressed and what is written about it are one answer, not two.
+        let db = self.connection();
         let Some(op) = self.resolve_intent(account.clone(), &intent)? else {
             return Ok(None);
         };
@@ -219,7 +222,6 @@ impl SqliteStore {
         } else {
             Some(to_json("messages", &messages)?)
         };
-        let db = self.connection();
         let tx = db.unchecked_transaction()?;
         self.connection().execute(
             "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at, messages)
@@ -266,7 +268,7 @@ impl SqliteStore {
     ) -> Result<Vec<OutboxEntry>, StoreError> {
         // Insertion order, not next_attempt order. Two operations on one thread must reach the
         // server in the order the user performed them, or the result is whichever won the race.
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT id, op, undo, attempts, next_attempt, messages FROM outbox
              WHERE account = ?1 AND next_attempt <= ?2 ORDER BY id",
@@ -309,7 +311,7 @@ impl SqliteStore {
     /// See [`crate::Store::outbox_dispatch`].
     pub(super) fn dispatch(&self, id: OutboxId) -> Result<Dispatch, StoreError> {
         let row: Option<(String, String, Option<String>)> = self
-            .connection()
+            .reader()
             .query_row(
                 "SELECT account, op, messages FROM outbox WHERE id = ?1",
                 params![id.as_i64()],
@@ -321,7 +323,7 @@ impl SqliteStore {
         };
         let account = account_id_from_uuid(super::row::uuid("AccountId", &account)?);
         let earlier = {
-            let db = self.connection();
+            let db = self.reader();
             let mut stmt = db.prepare_cached(
                 "SELECT messages FROM outbox
                  WHERE account = ?1 AND id < ?2 AND messages IS NOT NULL ORDER BY id",
@@ -350,7 +352,7 @@ impl SqliteStore {
         account: AccountId,
         after: DateTime<Utc>,
     ) -> Result<Option<DateTime<Utc>>, StoreError> {
-        let next: Option<String> = self.connection().query_row(
+        let next: Option<String> = self.reader().query_row(
             "SELECT min(next_attempt) FROM outbox
              WHERE account = ?1 AND attempts = 0 AND next_attempt > ?2",
             params![account.to_string(), from_time(after)],

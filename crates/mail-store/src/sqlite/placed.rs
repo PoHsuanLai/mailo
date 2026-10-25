@@ -13,7 +13,7 @@ impl SqliteStore {
     pub(super) fn load_placed(&self, message: MessageId) -> Result<Vec<Placed>, StoreError> {
         let held = self.message(message)?;
         let roles = self.folder_roles(held.account.clone())?;
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT DISTINCT mailbox FROM remote_map WHERE message = ?1 ORDER BY mailbox",
         )?;

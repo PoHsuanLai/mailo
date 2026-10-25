@@ -45,7 +45,7 @@ impl SqliteStore {
 
     /// The kept addresses in one mailbox.
     pub(super) fn destroyed_in(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT mailbox, uidvalidity, uid, uidl FROM destroyed
              WHERE account = ?1 AND mailbox = ?2",
@@ -63,7 +63,7 @@ impl SqliteStore {
         account: AccountId,
         message: MessageId,
     ) -> Result<Vec<RemoteRef>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT mailbox, uidvalidity, uid, uidl FROM destroyed
              WHERE account = ?1 AND message = ?2",

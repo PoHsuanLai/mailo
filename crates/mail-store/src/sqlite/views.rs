@@ -8,7 +8,7 @@ use rusqlite::params;
 
 impl SqliteStore {
     pub(super) fn load_views(&self) -> Result<Vec<View>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached("SELECT view FROM views ORDER BY position, id")?;
         let mut rows = stmt.query([])?;
         let mut out = Vec::new();

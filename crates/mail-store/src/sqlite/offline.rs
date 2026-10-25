@@ -27,7 +27,7 @@ impl SqliteStore {
         mailbox: &MailboxRef,
         limit: u32,
     ) -> Result<Vec<RemotePart>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&format!(
             "SELECT m.id, json_extract(a.value, '$.remote_section'), json_extract(a.value, '$.size')
              FROM messages m, json_each(m.attachments) a
@@ -65,7 +65,7 @@ impl SqliteStore {
     }
 
     pub(super) fn read_offline(&self, account: AccountId) -> Result<Offline, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let account = account.to_string();
         let (messages, held): (i64, i64) = db.query_row(
             &format!(
