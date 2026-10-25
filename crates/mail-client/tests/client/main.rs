@@ -505,3 +505,128 @@ fn an_inline_client_has_it_done_by_the_time_it_hands_the_ticket_back() {
 
     assert!(ticket.now().is_some());
 }
+
+/// An IMAP account `n` in `store`, as Add Account leaves one.
+fn imap_account(store: &SqliteStore, n: u128) -> AccountId {
+    let manual = mail_domain::presets::Manual {
+        imap_host: "imap.nowhere.example".to_owned(),
+        imap_port: 993,
+        smtp_host: "smtp.nowhere.example".to_owned(),
+        smtp_port: 465,
+        login: None,
+    };
+    let address = format!("me{n}@nowhere.example");
+    let preset = mail_domain::presets::manual(&address, &manual, Utc::now());
+    mail_store::testing::seed_account_plan(
+        store,
+        account(n),
+        &preset.plan.address,
+        &preset.plan,
+        Some(Utc::now()),
+    );
+    store
+        .put_caps(account(n), &preset.expected_caps, Utc::now())
+        .unwrap();
+    account(n)
+}
+
+/// Seams that reach no server: each pass is counted and ends at once having fetched nothing.
+fn counting() -> (mail_client::fetch::Seams, Arc<Mutex<Vec<AccountId>>>) {
+    use mail_core::sync::report::{AccountReport, Counts, PassEnd};
+    let passes = Arc::new(Mutex::new(Vec::new()));
+    let counted = passes.clone();
+    let seams = mail_client::fetch::Seams {
+        pass: Arc::new(move |_, _, account, _| {
+            counted.lock().unwrap().push(account.clone());
+            Ok(vec![PassEnd::Finished(AccountReport {
+                account,
+                address: String::new(),
+                counts: Counts::default(),
+                trouble: vec![],
+            })])
+        }),
+        listen: Arc::new(|_, _, _, _, _| {
+            Err(mail_core::schedule::Lost {
+                retry: mail_domain::Retry::Fatal("no watch here".to_owned()),
+                why: "no watch here".to_owned(),
+            })
+        }),
+        pushers: Arc::new(|_| Vec::new()),
+        daemon: Arc::new(|| mail_core::schedule::Daemon::Absent),
+        schedule: Arc::new(|| mail_core::schedule::Schedule::Window),
+        folder: Arc::new(|_, _, _, _| Err("no folders here".to_owned())),
+        timing: mail_core::schedule::Timing {
+            beat: Duration::ZERO,
+            first: Duration::ZERO,
+            ..mail_core::schedule::Timing::default()
+        },
+    };
+    (seams, passes)
+}
+
+#[test]
+fn a_client_fetches_on_a_thread_of_its_own_the_accounts_it_has_and_those_added_after() {
+    let (store, _dir) = on_disk();
+    let first = imap_account(&store, 1);
+    let client = client(&store);
+    let (seams, passes) = counting();
+    assert!(client.fetched().is_none(), "nothing fetches until asked");
+
+    assert!(
+        client.fetch(seams.clone()).is_none(),
+        "run on its own thread"
+    );
+    assert!(client.fetch(seams).is_none(), "and started once");
+    let fetched = client.fetched().expect("fetching");
+    until("the account it had fetched", || {
+        passes.lock().unwrap().contains(&first)
+            && fetched
+                .borrow()
+                .links
+                .get(&first)
+                .is_some_and(|link| matches!(link, mail_core::fetch::Link::Current { .. }))
+    });
+
+    let later = imap_account(&store, 2);
+    until("the account added fetched", || {
+        passes.lock().unwrap().contains(&later) && fetched.borrow().links.contains_key(&later)
+    });
+    assert_eq!(passes.lock().unwrap().len(), 2, "each fetched once");
+    client.shutdown(Duration::from_secs(1));
+}
+
+#[test]
+fn a_send_that_comes_due_asks_its_account_for_a_pass_then() {
+    let (store, _dir) = on_disk();
+    let one = imap_account(&store, 1);
+    let client = client(&store);
+    let (mut seams, passes) = counting();
+    // Not the first pass's to carry: that one is a while off.
+    seams.timing.beat = Duration::from_secs(3600);
+    client.fetch(seams);
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(passes.lock().unwrap().is_empty());
+
+    let due = Utc::now() + chrono::TimeDelta::milliseconds(300);
+    store
+        .enqueue(
+            one.clone(),
+            mail_domain::RemoteIntent::Send {
+                draft: mail_domain::DraftId::generate(),
+                raw: mail_domain::BlobId::generate(),
+                mail_from: "me1@nowhere.example".to_owned(),
+                rcpt_to: vec!["you@example.test".to_owned()],
+            },
+            &mail_domain::Patch {
+                id: mail_domain::ChangeId::generate(),
+                changes: Vec::new(),
+            },
+            due,
+        )
+        .unwrap();
+    until("the account asked for a pass", || {
+        passes.lock().unwrap().contains(&one)
+    });
+    assert!(Utc::now() >= due, "not before the send was due");
+    client.shutdown(Duration::from_secs(1));
+}

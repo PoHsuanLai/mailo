@@ -28,9 +28,9 @@ chrono.workspace = true
 log.workspace = true
 thiserror.workspace = true
 parking_lot = "0.12"
-# Only the watch channel a `Live` is followed through, so an `async` front end can await a change
-# without the client running a runtime of its own.
-tokio = { version = "1", features = ["sync"] }
+# The watch channel a `Live` is followed through, so an `async` front end can await a change; and
+# the runtime the fetch thread runs the scheduler on (`fetch`).
+tokio = { version = "1", features = ["sync", "rt", "time", "macros"] }
 # Another process's commits are heard by watching the store's file (`external`). The version the app already locks.
 notify = "8.2"
 

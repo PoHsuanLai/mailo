@@ -142,7 +142,7 @@ pub(super) fn FolderRow(
         }
         super::go_to(shell, pages, index);
         if let Some(mailbox) = fetched.clone() {
-            fetching::opened(mailbox, revision);
+            fetching::opened(mailbox);
         }
     });
     // A rename is written where the name is; taking `renaming` away, when `open` moves on,

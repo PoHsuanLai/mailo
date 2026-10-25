@@ -1,13 +1,13 @@
 //! Mail fetching in the window: every account's [`Link`], as the one scheduler moves them.
 //!
-//! [`Fetching`] is what the window shares, provided once by `App`. It holds a link for each
-//! account that has a server, the [`Operation`] a spinner reads while its pass runs, and where
-//! each folder opened on demand stands. Everything that happens to them is an [`Event`] sent
-//! with [`Fetching::send`]; the scheduler (`mail_core::schedule`, the loop `mailo watch` runs
-//! too) is the only thing that receives them, steps the link and does what it asks (a pass, a
-//! cancel, a timer), and reports each change to [`host`], which writes it into the signals the
-//! window reads. What the screen says is derived from the links and not stored: see
-//! [`Fetching::status`].
+//! The client fetches (`mail_client::fetch`): it runs the one scheduler (`mail_core::schedule`,
+//! the loop `mailo watch` runs too), which holds every account's link and does what each asks (a
+//! pass, a cancel, a timer). [`Fetching`] is what the window shares of it, provided once by
+//! `App`: the links, where each folder opened on demand stands, and the [`Operation`] a spinner
+//! reads while a pass runs, followed into signals. Everything that happens to a link is an
+//! [`Event`] sent with [`Fetching::send`]. What reaches a server is the window's to lend
+//! ([`seams`]), so a test lends its own. What the screen says is derived from the links and not
+//! stored: see [`Fetching::status`].
 
 mod delegate;
 mod external;
@@ -17,7 +17,6 @@ mod host;
 mod live;
 mod marks;
 mod need;
-mod outbox;
 mod pass;
 mod scope;
 mod status;
@@ -26,17 +25,16 @@ use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::Operation;
+use mail_client::Client;
+use mail_client::fetch::{Fetched, Seams};
 use mail_core::SqliteStore;
 use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
-use mail_core::schedule::{self, End, Note, Scheduler};
+use mail_core::schedule::Timing;
 use mail_core::sync::fresh::Pace;
 use mail_core::sync::report::Offer;
 use porter_core::AccountId;
-use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::rc::Rc;
 use std::sync::Arc;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{CANNOT_LOAD, HasRows, ListFace, list_face};
@@ -55,14 +53,14 @@ pub(in crate::ui) struct Fetching {
     folders: Signal<BTreeMap<(AccountId, String), FolderFetch>>,
     /// What each account's last pass offered beside its failure.
     offers: Signal<BTreeMap<AccountId, Offer>>,
-    tx: Signal<UnboundedSender<Note>>,
+    client: Signal<Client>,
 }
 
 impl Fetching {
     /// Tell an account's link that `event` happened. Never blocks, and is ignored for an account
     /// that has no link or whose link has nothing to do with it.
     pub(in crate::ui) fn send(&self, account: AccountId, event: Event) {
-        let _ = self.tx.peek().send(Note::Event(account, event));
+        self.client.peek().tell(account, event);
     }
 
     /// Ask each of `accounts` for a pass. A link already running one ignores it.
@@ -263,18 +261,13 @@ pub(in crate::ui) fn use_status(shell: Signal<Shell>) -> Option<StatusLine> {
 
 /// Say which accounts came since the window last looked, once it has looked: an account added in
 /// its own window (or by `mailo account add`) is otherwise seen only as the sidebar changing.
-fn announce_added(
-    known: &RefCell<Option<BTreeSet<AccountId>>>,
-    accounts: &[(AccountId, std::time::Duration)],
-) {
-    let now: BTreeSet<AccountId> = accounts.iter().map(|(id, _)| id.clone()).collect();
-    let before = known.replace(Some(now.clone()));
-    let Some(before) = before else {
+fn announce_added(before: &BTreeMap<AccountId, Link>, now: &BTreeMap<AccountId, Link>) {
+    if now.keys().all(|id| before.contains_key(id)) {
         return;
-    };
+    }
     let store = consume_context::<Arc<SqliteStore>>();
     for row in crate::ui::data::account_rows(&store) {
-        if now.contains(&row.id) && !before.contains(&row.id) {
+        if now.contains_key(&row.id) && !before.contains_key(&row.id) {
             crate::ui::motion::tell(
                 crate::ui::copy::toasts::account_added(&row.address),
                 crate::ui::motion::Follow::Nothing,
@@ -283,72 +276,114 @@ fn announce_added(
     }
 }
 
-/// Provide [`Fetching`] for the window and start the loop that serves it. Once, from `App`.
-///
-/// `revision` moves when a pass has stored something, and when an account comes or goes.
-pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let accounts = use_memo(move || {
-        let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
-        mail_core::sync::due::intervals(&store)
-    });
-    let links = use_signal({
-        let store = store.clone();
-        move || schedule::initial(&store, &accounts.peek(), Utc::now())
-    });
+/// What the client's fetching reaches, as this window lends it: the servers, unless a test
+/// provided its own pass, watch, folder fetch or word on who schedules.
+fn seams() -> Seams {
+    let pass = try_consume_context::<Passer>().unwrap_or_else(Passer::server);
+    let listener = try_consume_context::<live::Listener>().unwrap_or_else(live::Listener::server);
     let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
+    let folder = try_consume_context::<crate::ui::folder_open::Fetcher>()
+        .unwrap_or_else(crate::ui::folder_open::Fetcher::server);
+    Seams {
+        pass: pass.0,
+        listen: listener.listen,
+        pushers: listener.pushers,
+        daemon: listener.daemon,
+        schedule: delegate.0,
+        folder: folder.0,
+        timing: Timing {
+            first: listener.first,
+            retry: listener.retry,
+            ..Timing::default()
+        },
+    }
+}
+
+/// Provide [`Fetching`] for the window, and have the client fetch. Once, from `App`.
+///
+/// `revision` moves when the client says the store changed.
+pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
+    let client = crate::ui::live::use_client();
     external::use_external_changes(revision);
-    let ops = use_signal(BTreeMap::new);
-    let folders = use_signal(BTreeMap::new);
-    let offers = use_signal(BTreeMap::new);
-    let channel = use_hook(|| {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Note>();
-        (tx, Rc::new(RefCell::new(Some(rx))))
+    // The first window to ask starts it: the program's client fetches on a thread of its own
+    // from then on, and one that reads here hands back what this window runs.
+    let run = use_hook({
+        let client = client.clone();
+        move || std::rc::Rc::new(std::cell::RefCell::new(client.fetch(seams())))
     });
-    let tx = use_signal(|| channel.0.clone());
+    let first = client
+        .fetched()
+        .map(|fetched| fetched.borrow().clone())
+        .unwrap_or_default();
+    let links = use_signal(|| first.links.clone());
+    let offers = use_signal(|| first.offers.clone());
+    let folders = use_signal(|| first.folders.clone());
+    let ops = use_signal(BTreeMap::new);
+    let held = use_signal(|| client.clone());
     let fetching = use_context_provider(|| Fetching {
         links,
         ops,
         folders,
         offers,
-        tx,
+        client: held,
     });
-    // The accounts changing is the runner's to hear, since it owns what to do about it.
-    let known = use_hook(|| Rc::new(RefCell::new(None::<BTreeSet<AccountId>>)));
-    use_effect(move || {
-        let now: Vec<(AccountId, std::time::Duration)> = accounts.read().clone();
-        announce_added(&known, &now);
-        let _ = tx.peek().send(Note::Accounts(now));
-    });
-    let inbox: Rc<RefCell<Option<UnboundedReceiver<Note>>>> = channel.1.clone();
-    let _runner = use_future(move || {
-        let received = inbox.borrow_mut().take();
-        let host = host::WindowHost {
-            store: store.clone(),
-            passer: try_consume_context::<Passer>().unwrap_or_else(Passer::server),
-            listener: try_consume_context::<live::Listener>()
-                .unwrap_or_else(live::Listener::server),
-            delegate: delegate.clone(),
-            clock: try_consume_context::<crate::ui::clock::WallClock>(),
-            links,
-            ops,
-            folders,
-            offers,
-            revision,
-        };
-        let every = accounts.peek().iter().cloned().collect();
-        let initial = links.peek().clone();
-        let (store, tx) = (store.clone(), tx.peek().clone());
+    let _running = use_future(move || {
+        let run = run.borrow_mut().take();
         async move {
-            if let Some(received) = received {
-                Scheduler::new(&host, store, initial, every, tx)
-                    .run(received, End::Never)
-                    .await;
+            if let Some(run) = run {
+                run.await;
+            }
+        }
+    });
+    let _following = use_future(move || {
+        let fetched = held.peek().fetched();
+        async move {
+            let Some(mut fetched) = fetched else {
+                return;
+            };
+            loop {
+                let now = fetched.borrow_and_update().clone();
+                follow(fetching, &now);
+                if fetched.changed().await.is_err() {
+                    return;
+                }
             }
         }
     });
     fetching
+}
+
+/// Write what the client's fetching now is into the window's signals, each only if it moved, and
+/// say which accounts came.
+fn follow(fetching: Fetching, now: &Fetched) {
+    let Fetching {
+        mut links,
+        mut ops,
+        mut folders,
+        mut offers,
+        ..
+    } = fetching;
+    if *links.peek() != now.links {
+        announce_added(&links.peek(), &now.links);
+        let next: BTreeMap<AccountId, Operation> = now
+            .links
+            .iter()
+            .map(|(id, link)| {
+                let before = ops.peek().get(id).copied().unwrap_or_default();
+                (id.clone(), host::operation(before, link))
+            })
+            .collect();
+        if *ops.peek() != next {
+            ops.set(next);
+        }
+        links.set(now.links.clone());
+    }
+    if *offers.peek() != now.offers {
+        offers.set(now.offers.clone());
+    }
+    if *folders.peek() != now.folders {
+        folders.set(now.folders.clone());
+    }
 }
 
 #[cfg(test)]

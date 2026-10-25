@@ -335,6 +335,12 @@ async fn a_first_pass_that_fails_is_still_the_first_when_it_is_tried_again() {
 fn Probe() -> Element {
     let revision = use_signal(|| 0u64);
     use_context_provider(|| revision);
+    // As `App` does: a client that reads here acts on what was committed when the revision moves.
+    let client = crate::ui::live::use_client();
+    use_effect(move || {
+        let _ = revision();
+        client.settle();
+    });
     super::use_fetching(revision);
     rsx! {}
 }
