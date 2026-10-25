@@ -25,6 +25,8 @@ pub enum ListFace {
     Empty,
     /// A search that matched nothing, with the words.
     NoMatch(String),
+    /// The quick filter's toggles left nothing.
+    Filtered,
     /// No account has been added.
     NoAccount,
     /// Nothing, and the reason is that no account can be reached.
@@ -75,6 +77,7 @@ pub fn list_face(has_rows: HasRows, links: &[&Link], nothing: &Nothing) -> ListF
         (HasRows::Yes, _) => ListFace::Rows,
         (HasRows::No, Nothing::NoAccount) => ListFace::NoAccount,
         (HasRows::No, Nothing::NoMatch(words)) => ListFace::NoMatch(words.clone()),
+        (HasRows::No, Nothing::Filtered) => ListFace::Filtered,
         (HasRows::No, Nothing::EmptyFolder) => {
             if links.iter().any(|link| still_filling(link)) {
                 ListFace::FirstSync

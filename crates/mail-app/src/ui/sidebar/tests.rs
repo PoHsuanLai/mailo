@@ -118,7 +118,7 @@ async fn the_space_s_name_heads_the_sidebar_and_a_second_space_brings_the_dots()
 /// With an account that has a server, Sync is the foot's mark, at its start; the list's header
 /// is its title, New Message, Search and the ⋯ that holds Group, Row Properties and Sync Now.
 #[tokio::test]
-async fn sync_is_the_foots_mark_and_the_list_header_is_its_title_and_three_icons() {
+async fn sync_is_the_foots_mark_and_the_list_header_is_its_title_and_four_icons() {
     let (store, _dir) = crate::ui::fixtures::seeded();
     let page = crate::ui::fixtures::markup(store);
     let labels = |class: &str| -> Vec<String> {
@@ -137,6 +137,7 @@ async fn sync_is_the_foots_mark_and_the_list_header_is_its_title_and_three_icons
         labels("list-head"),
         [
             crate::ui::copy::aria::NEW_MESSAGE,
+            crate::ui::copy::aria::FILTER,
             crate::ui::command::BOX_LABEL,
             crate::ui::copy::aria::MORE,
         ],

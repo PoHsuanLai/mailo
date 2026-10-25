@@ -60,7 +60,8 @@ pub(in crate::ui) fn ask_everything(store: &SqliteStore, mut shell: Signal<Shell
     let Some(bin) = bin_shown(&shell.peek()) else {
         return;
     };
-    let mut query = shell.peek().query(PAGE);
+    // The whole bin, whatever the quick filter shows of it.
+    let mut query = shell.peek().whole_query(PAGE);
     let mut threads = Vec::new();
     while let Ok(page) = store.threads(&query, chrono::Utc::now()) {
         threads.extend(page.items.iter().map(|summary| summary.id));

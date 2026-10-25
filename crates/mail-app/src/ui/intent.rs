@@ -35,13 +35,15 @@ pub(in crate::ui) enum Intent {
     Settings,
     SelectAll,
     OpenInWindow,
+    /// ⌥⌘U: the quick filter's Unread, on or off.
+    FilterUnread,
     /// A mail key, Esc, ⌘N (as [`Shortcut::Compose`]) or Move to Trash (as [`Shortcut::Trash`]).
     Mail(Shortcut),
 }
 
 /// What `heard` asks of a window of this `scope`, if anything.
 ///
-/// A field keeps ⌘A and Shift+Enter and Move to Trash for itself; a thread window has no sidebar, search,
+/// A field keeps ⌘A, Shift+Enter, ⌥⌘U and Move to Trash for itself; a thread window has no sidebar, search,
 /// settings, list to step through or other conversation to start, so those are nothing there.
 pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent> {
     let chosen = match heard? {
@@ -53,6 +55,7 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
         Heard::Standard(StandardAction::SelectAll) => Intent::SelectAll,
         Heard::Standard(StandardAction::New) => Intent::Mail(Shortcut::Compose),
         Heard::Own(Own::OpenInWindow) => Intent::OpenInWindow,
+        Heard::Own(Own::FilterUnread) => Intent::FilterUnread,
         // Move to Trash (⌘⌫, or Delete in CUA) trashes what is open, as `#` does; a field keeps
         // the press for itself.
         Heard::Standard(StandardAction::MoveToTrash) if scope != Scope::Typing => {
@@ -71,7 +74,7 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
                 | Shortcut::Compose
         ),
         (Scope::Window, _) => false,
-        (Scope::Typing, Intent::SelectAll | Intent::OpenInWindow) => false,
+        (Scope::Typing, Intent::SelectAll | Intent::OpenInWindow | Intent::FilterUnread) => false,
         (Scope::List | Scope::Typing, _) => true,
     };
     allowed.then_some(chosen)
@@ -164,6 +167,9 @@ mod tests {
             (own(Own::OpenInWindow), List, Some(OpenInWindow)),
             (own(Own::OpenInWindow), Typing, None),
             (own(Own::OpenInWindow), Window, None),
+            (own(Own::FilterUnread), List, Some(FilterUnread)),
+            (own(Own::FilterUnread), Typing, None),
+            (own(Own::FilterUnread), Window, None),
             (
                 standard(StandardAction::MoveToTrash),
                 List,

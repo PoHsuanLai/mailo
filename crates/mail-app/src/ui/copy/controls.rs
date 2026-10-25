@@ -88,3 +88,9 @@ pub const KEEP_REPLY: &str = "Keep Reply";
 pub const DELETE_VIEW: &str = "Delete View";
 /// Asks again for what did not work: a download, a sign-in.
 pub const TRY_AGAIN: &str = "Try Again";
+/// The quick filter's toggles under the list's toolbar: what each keeps.
+pub const FILTER_UNREAD: &str = "Unread";
+pub const FILTER_STARRED: &str = "Starred";
+pub const FILTER_ATTACHMENTS: &str = "Has Attachments";
+/// Turns every quick filter toggle off: at the end of its row, and in a list it emptied.
+pub const CLEAR_FILTER: &str = "Clear Filter";

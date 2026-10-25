@@ -39,6 +39,10 @@ pub const NEW_MESSAGE: &str = "New Message";
 pub const MORE: &str = "More";
 /// The menu the ⋯ opens.
 pub const LIST_OPTIONS: &str = "List options";
+/// The button that shows or hides the quick filter's row.
+pub const FILTER: &str = "Filter";
+/// The quick filter's row of toggles under the toolbar.
+pub const QUICK_FILTER: &str = "Quick Filter";
 
 // The composer's foot.
 /// Send ▾: not "Send", which is the button beside it.

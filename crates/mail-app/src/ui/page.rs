@@ -171,7 +171,7 @@ pub(super) fn more_items(
 }
 
 /// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one
-/// menu so the header is its title and three icons. Grouping and the rows' parts apply to the
+/// menu so the header is its title and four icons. Grouping and the rows' parts apply to the
 /// loaded page only. Sync Now is the sidebar's sync mark's press, so it is here only while the
 /// sidebar is hidden; `syncs` is false with only local folders in view.
 #[component]

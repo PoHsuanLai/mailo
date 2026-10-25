@@ -47,3 +47,6 @@ mod triage;
 mod preferences;
 mod search;
 mod sidebar;
+
+// 16: the quick filter.
+mod quick;

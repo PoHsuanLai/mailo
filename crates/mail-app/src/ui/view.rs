@@ -505,6 +505,9 @@ pub struct Shell {
     pub selected: usize,
     /// What the user typed in the search box.
     pub search: String,
+    /// The quick filter's row and toggles, which narrow whatever the list shows. Per visit:
+    /// [`Self::select`] drops it, and it is never written anywhere.
+    pub quick: crate::ui::quick::Quick,
     pub open: Option<ThreadId>,
     /// The sidebar list the open thread was opened from, if one was. The sidebar has one
     /// selected row: that list's row for the thread while this holds, the place otherwise.
@@ -690,6 +693,7 @@ impl Default for Shell {
             places: default_places(),
             selected: 0,
             search: String::new(),
+            quick: crate::ui::quick::Quick::default(),
             open: None,
             from_side: None,
             picked: Picked::none(),
@@ -725,12 +729,23 @@ impl Default for Shell {
 }
 
 impl Shell {
-    /// The query the list pane should run.
+    /// The query the list pane should run: [`Self::whole_query`] narrowed by the quick filter's
+    /// toggles.
+    pub fn query(&self, limit: u32) -> Query {
+        let whole = self.whole_query(limit);
+        Query {
+            filter: self.quick.narrow(whole.filter),
+            ..whole
+        }
+    }
+
+    /// The query for everything the place (or the search) holds, the quick filter aside: what
+    /// Empty Trash empties, whatever the list is narrowed to.
     ///
     /// A non-empty search box replaces the place rather than narrowing it, which is what every
     /// mail client does and what users expect: searching while in Archive should not hide
     /// results that live in the Inbox.
-    pub fn query(&self, limit: u32) -> Query {
+    pub fn whole_query(&self, limit: u32) -> Query {
         let needle = self.search.trim();
         let mut sort = Sort {
             property: Property::Date,
@@ -808,10 +823,11 @@ impl Shell {
             Some(Source::History) => Listing::History {
                 scope: self.account_filter(),
             },
+            // The conversations put on top are narrowed as the rows under them are.
             Some(Source::Mail(filter)) if *filter == place_filter(MailboxRole::Inbox) => {
                 Listing::Inbox {
                     query: self.query(limit),
-                    scope: self.account_filter(),
+                    scope: self.list_scope(),
                 }
             }
             _ => Listing::Threads(self.query(limit)),
@@ -844,10 +860,28 @@ impl Shell {
         self.listed_scope().filter()
     }
 
+    /// The accounts listed, narrowed by the quick filter's toggles: what a search's candidates
+    /// and the Inbox's returned reminders are held to. `None` is every conversation.
+    pub fn list_scope(&self) -> Option<Filter> {
+        match (self.account_filter(), self.quick.filter()) {
+            (Some(accounts), Some(quick)) => Some(Filter::And(vec![accounts, quick])),
+            (accounts, quick) => accounts.or(quick),
+        }
+    }
+
+    /// Whether the quick filter can narrow what the list shows: conversations, from a place, a
+    /// saved view or a search. Drafts, Scheduled, Waiting and History list something else.
+    pub fn filterable(&self) -> bool {
+        matches!(self.listing(0), Listing::Threads(_) | Listing::Inbox { .. })
+    }
+
     /// Select a place, and drop any open thread that no longer belongs to the new list.
+    ///
+    /// The quick filter goes with the place, as Apple Mail's does: it narrowed the old list.
     pub fn select(&mut self, index: usize) {
         if index < self.places.len() {
             self.selected = index;
+            self.quick = crate::ui::quick::Quick::default();
             self.open = None;
             self.from_side = None;
             // What was picked was picked in the old list.
@@ -1432,6 +1466,54 @@ mod listing_tests {
         assert!(matches!(shell.listing(50), Listing::Threads(_)));
     }
 
+    /// The quick filter narrows a place, a saved view or a search, is not offered where the
+    /// list holds no conversations, and goes with the place.
+    #[test]
+    fn the_quick_filter_narrows_what_is_listed_until_the_place_changes() {
+        use crate::ui::quick::{Quick, Toggle};
+        let place = |shell: &Shell, name: &str| {
+            shell
+                .places
+                .iter()
+                .position(|p| p.name == name)
+                .unwrap_or_else(|| panic!("there is no {name} place"))
+        };
+        let unread = Filter::Read(ReadState::Unread);
+        let mut shell = Shell::default();
+        let archive = place(&shell, "Archive");
+        shell.select(archive);
+        shell.quick = Quick::default().toggled(Toggle::Unread);
+        assert_eq!(
+            shell.query(50).filter,
+            Filter::And(vec![shell.whole_query(50).filter, unread.clone()])
+        );
+        assert!(shell.filterable());
+
+        // A search is narrowed too: the toggles hold whatever the list shows.
+        shell.search = "lunch".to_owned();
+        assert_eq!(
+            shell.query(50).filter,
+            Filter::And(vec![
+                Filter::Text(TextMatch::Contains("lunch".to_owned())),
+                unread
+            ])
+        );
+        shell.search.clear();
+
+        // Another place: the toggles and their row go.
+        let sent = place(&shell, "Sent");
+        shell.select(sent);
+        assert_eq!(shell.quick, Quick::default());
+        assert_eq!(shell.query(50), shell.whole_query(50));
+
+        // Drafts lists drafts: nothing for the toggles to narrow.
+        let drafts = place(&shell, "Drafts");
+        shell.select(drafts);
+        assert!(!shell.filterable());
+        shell.search = "invoice".to_owned();
+        assert!(shell.filterable(), "a search in Drafts lists mail");
+    }
+
     #[test]
     fn the_page_limit_reaches_the_query() {
         // "Show more" works by asking for a bigger page, so a limit that did not travel would
@@ -1460,15 +1542,20 @@ pub enum Nothing {
     NoMatch(String),
     /// A folder with no mail in it, which is ordinary.
     EmptyFolder,
+    /// The quick filter's toggles left nothing: the way out is to clear them.
+    Filtered,
 }
 
 /// Why the list is empty.
-pub fn nothing_to_show(accounts: usize, search: &str) -> Nothing {
+pub fn nothing_to_show(accounts: usize, search: &str, quick: &crate::ui::quick::Quick) -> Nothing {
     let needle = search.trim();
     if accounts == 0 {
         // Checked first: with no account there is nothing to search, and "nothing matches" would
         // send the user looking for a typo instead of for the setup step they have not done.
         Nothing::NoAccount
+    } else if quick.is_active() {
+        // Before a search's words: what the toggles hide may be what was searched for.
+        Nothing::Filtered
     } else if !needle.is_empty() {
         Nothing::NoMatch(needle.to_owned())
     } else {
@@ -1483,6 +1570,7 @@ impl Nothing {
             Nothing::NoAccount => "No account".to_owned(),
             Nothing::NoMatch(needle) => format!("No results for \u{201c}{needle}\u{201d}"),
             Nothing::EmptyFolder => "Empty".to_owned(),
+            Nothing::Filtered => crate::ui::copy::empty::NOTHING_MATCHES_FILTER.to_owned(),
         }
     }
 }
@@ -1891,11 +1979,27 @@ mod nothing_tests {
                 "Empty",
             ),
         ];
+        let none = crate::ui::quick::Quick::default();
         for (name, accounts, search, want, says) in cases {
-            let got = nothing_to_show(accounts, search);
+            let got = nothing_to_show(accounts, search, &none);
             assert_eq!(got, want, "{name}");
             assert_eq!(got.message(), says, "{name}");
         }
+        // A toggle of the quick filter on: the list says the filter left nothing, with or
+        // without a search, and no account still comes first.
+        let unread = none.toggled(crate::ui::quick::Toggle::Unread);
+        let filtered = [
+            ("filtered", 1, "", Nothing::Filtered),
+            ("filtered and searched", 1, "invoice", Nothing::Filtered),
+            ("filtered with no account", 0, "", Nothing::NoAccount),
+        ];
+        for (name, accounts, search, want) in filtered {
+            assert_eq!(nothing_to_show(accounts, search, &unread), want, "{name}");
+        }
+        assert_eq!(
+            Nothing::Filtered.message(),
+            crate::ui::copy::empty::NOTHING_MATCHES_FILTER
+        );
     }
 }
 

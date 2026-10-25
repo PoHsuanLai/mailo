@@ -38,9 +38,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 mod first_sync;
+pub(in crate::ui) mod quick;
 mod status;
 
 use self::first_sync::FirstSyncRows;
+use self::quick::{FilterButton, QuickRow};
 use self::status::ListProgress;
 
 /// A `SectionHeader`'s height: its eyebrow line and its padding (27.05 px drawn).
@@ -339,9 +341,11 @@ pub(super) fn ThreadList(
                     .into(),
             ),
         },
-        ListFace::Rows | ListFace::Empty | ListFace::NoMatch(_) | ListFace::NoAccount => {
-            Phase::Ready
-        }
+        ListFace::Rows
+        | ListFace::Empty
+        | ListFace::NoMatch(_)
+        | ListFace::Filtered
+        | ListFace::NoAccount => Phase::Ready,
     };
     // Beside Retry in the failure `Loadable` draws, or instead of it, where Retry cannot help.
     let reauth = try_consume_context::<Reauth>();
@@ -356,25 +360,34 @@ pub(super) fn ThreadList(
         })
     });
     let empty_form = match nothing() {
-        Nothing::NoMatch(_) => EmptyForm::NoResults,
+        Nothing::NoMatch(_) | Nothing::Filtered => EmptyForm::NoResults,
         Nothing::NoAccount | Nothing::EmptyFolder => EmptyForm::Empty,
     };
-    // With no account the way out is a button, not a command to type.
-    let empty_action: Option<Element> = matches!(nothing(), Nothing::NoAccount).then(|| {
-        rsx! {
+    // With no account the way out is a button, not a command to type; with the quick filter
+    // leaving nothing, it is clearing it.
+    let empty_action: Option<Element> = match nothing() {
+        Nothing::NoAccount => Some(rsx! {
             Button {
                 label: copy::controls::ADD_ACCOUNT,
                 onclick: on_primary(super::add_account::open),
             }
-        }
-    });
+        }),
+        Nothing::Filtered => Some(rsx! {
+            Button {
+                label: copy::controls::CLEAR_FILTER,
+                onclick: on_primary(move || quick::clear(shell, pages)),
+            }
+        }),
+        Nothing::NoMatch(_) | Nothing::EmptyFolder => None,
+    };
     let retry = EventHandler::new(move |()| super::fetching::sync_now(&shell.read()));
     rsx! {
         div { class: "list-col",
             // The list's header is quire's 52 px `Toolbar`: the place's title, New Message, the
-            // search and a ⋯ for the rest (`page::ListMore`). How fresh the mail is, and any
-            // warning, is the sidebar's sync mark's to say. While anything listed is picked, the
-            // bar is the selection's: its count and its actions, and nothing else.
+            // quick filter's button, the search and a ⋯ for the rest (`page::ListMore`). How
+            // fresh the mail is, and any warning, is the sidebar's sync mark's to say. While
+            // anything listed is picked, the bar is the selection's: its count and its actions,
+            // and nothing else.
             Toolbar::<()> {
                 onpick: move |_| {},
                 center: rsx! {
@@ -449,6 +462,8 @@ pub(super) fn ThreadList(
                                         }
                                     }),
                                 }
+                                // The quick filter's row, shown and hidden.
+                                FilterButton { shell, pages }
                             }
                             // The search, at the toolbar's trailing end where the Mac keeps it: a
                             // magnifier that brings up the search panel, or the search shown. The
@@ -459,6 +474,8 @@ pub(super) fn ThreadList(
                     }
                 },
             }
+            // Unread, Starred and Has Attachments, while the Filter button shows them.
+            QuickRow { shell, pages }
             // Only while the first mail comes: after it, how a sync goes is the sync mark's.
             if face == ListFace::FirstSync {
                 ListProgress { shell }
@@ -491,11 +508,15 @@ pub(super) fn ThreadList(
                             }
                         },
                     }
+                    // Over the empty list, not under it: the list fills the pane, and what the
+                    // pane says (and Clear Filter, Add Account) would be drawn past its end.
                     if nothing_here {
-                        EmptyState {
-                            form: empty_form,
-                            title: nothing().message(),
-                            action: empty_action,
+                        div { class: "list-empty",
+                            EmptyState {
+                                form: empty_form,
+                                title: nothing().message(),
+                                action: empty_action,
+                            }
                         }
                     }
                 }

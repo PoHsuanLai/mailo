@@ -401,7 +401,8 @@ pub(super) fn App() -> Element {
     let nothing = use_memo(move || {
         let _ = revision();
         let store = consume_context::<Arc<SqliteStore>>();
-        nothing_to_show(accounts(&store).len(), &shell.read().search)
+        let shell = shell.read();
+        nothing_to_show(accounts(&store).len(), &shell.search, &shell.quick)
     });
 
     // The keyboard.
@@ -528,6 +529,10 @@ pub(super) fn App() -> Element {
             }
             Some(Intent::Settings) => {
                 super::settings_window::open();
+                return;
+            }
+            Some(Intent::FilterUnread) => {
+                super::list::quick::toggle(shell, pages, super::quick::Toggle::Unread);
                 return;
             }
             _ => {}
