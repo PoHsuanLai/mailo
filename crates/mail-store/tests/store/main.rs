@@ -5,6 +5,7 @@
 //! as a prefix: `cargo test -p mail-store --test store -- <file>::`.
 
 mod accounts;
+mod changes;
 mod concurrency;
 mod contacts;
 mod destroy;

@@ -8,6 +8,7 @@
 use super::SqliteStore;
 use super::row::uuid;
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::MessageId;
 use rusqlite::params;
 
@@ -29,7 +30,7 @@ impl SqliteStore {
 
     /// Take `message` off the queue: rewritten, or found not worth another try.
     pub fn reparsed(&self, message: MessageId) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::SUMMARIES).execute(
             "DELETE FROM messages_to_reparse WHERE message = ?1",
             params![message.to_string()],
         )?;

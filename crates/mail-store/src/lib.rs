@@ -4,6 +4,7 @@
 
 mod account;
 mod blob;
+pub mod changes;
 pub mod contact;
 mod dispatch;
 pub mod error;
@@ -37,6 +38,7 @@ pub mod testing;
 
 pub use account::{NewAccount, StoredAccount};
 pub use blob::Blobs;
+pub use changes::{Committed, Generation, Topics};
 pub use contact::{
     AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
 };

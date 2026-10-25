@@ -29,10 +29,12 @@ mod write;
 pub(crate) use write::INGEST_CHUNK;
 
 use crate::blob::BlobStore;
+use crate::changes::{Changes, Committed, Generation, Topics};
 use crate::{StoreError, migrate};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 
 /// A connection to the on-disk database, plus the blob store beside it.
 ///
@@ -84,6 +86,9 @@ pub struct SqliteStore {
     /// open file handles without limit; `try_lock` in turn takes the first free one.
     readers: Vec<ReentrantMutex<Connection>>,
     blobs: BlobStore,
+    /// Who hears a commit, and what the writer has done under its current hold
+    /// ([`crate::changes`]).
+    changes: Changes,
     /// The database's file, for [`SqliteStore::file`]. `None` for an in-memory database.
     file: Option<PathBuf>,
     /// The directory a test store's blobs live in, removed with the store.
@@ -205,10 +210,29 @@ impl SqliteStore {
         migrate::migrate(&db)?;
         backfill_fts(&db)?;
         search::ensure_vocab(&db)?;
+        // After the migrations, which no one is listening to yet. SQLite calls the hook only for
+        // a transaction that wrote, and calls it before the commit is made: what it marks is
+        // said when the writer is let go of, by which time the commit is there for readers.
+        //
+        // No `update_hook`, which would say which tables: SQLite does not call it for a
+        // WITHOUT ROWID table (`folders`, `message_labels`, `sync_state`, `pending_changes`), so
+        // the write methods say what they touch instead. Nor a `rollback_hook`: a transaction
+        // rolled back never reached the commit hook, so it already says nothing, and a commit
+        // that fails after the hook let it through is told as one, which costs a recount and
+        // never a stale window.
+        let changes = Changes::default();
+        let committed = changes.commit_flag();
+        db.commit_hook(Some(move || {
+            committed.store(true, Ordering::Relaxed);
+            // `false` lets the commit go ahead.
+            false
+        }))
+        .map_err(StoreError::db)?;
         let store = Self {
             db: ReentrantMutex::new(db),
             readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
+            changes,
             file: None,
             #[cfg(feature = "testing")]
             scratch: None,
@@ -363,13 +387,74 @@ impl SqliteStore {
         &self.blobs
     }
 
-    /// The underlying connection.
+    /// The underlying connection, the one that writes.
     ///
     /// Reentrant: taking it twice on one thread is normal here, because a public method opens a
     /// transaction and then calls helpers that each need the connection again. With a plain
     /// mutex that is a deadlock, and a deadlock has no error message.
-    pub(crate) fn connection(&self) -> ReentrantMutexGuard<'_, Connection> {
-        self.db.lock()
+    ///
+    /// What is committed under it is said when the outermost hold is let go of; a write that
+    /// knows what it touches takes the writer through [`Self::touch`] instead, so it is said as
+    /// that rather than as everything.
+    pub(crate) fn connection(&self) -> Writer<'_> {
+        let held = self.db.lock();
+        self.changes.enter(held.total_changes());
+        Writer {
+            held,
+            changes: &self.changes,
+        }
+    }
+
+    /// The writer, for a write that touches `topics`: what a commit under this hold (or the
+    /// outermost one it is inside) is said to have changed.
+    pub(crate) fn touch(&self, topics: Topics) -> Writer<'_> {
+        let writer = self.connection();
+        self.changes.declare(topics);
+        writer
+    }
+
+    /// Hear every commit this store makes from now on, as it is made: one [`Committed`] for
+    /// each time the writer is let go of with something committed under it.
+    ///
+    /// Not another process's commits, which go to the file without passing through here: those
+    /// are heard by watching the file and [`Self::data_version`].
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<Committed> {
+        self.changes.subscribe()
+    }
+
+    /// The generation of the last commit this store has said it made. Read before a read
+    /// begins, it is a commit that read is sure to see.
+    pub fn generation(&self) -> Generation {
+        self.changes.generation()
+    }
+
+    /// Run `read` with every read on this thread seeing one moment of the database.
+    ///
+    /// Each read normally takes whichever reader is free and sees the database as it is then,
+    /// so twenty counts made one after another can straddle a commit, and a badge can count a
+    /// message its list does not have yet. Here one reader is held for the thread in one read
+    /// transaction, and [`Self::reader`] hands the thread that reader every time, so everything
+    /// `read` asks is answered from the same snapshot, whatever commits meanwhile.
+    ///
+    /// Nested, or inside a write, `read` simply runs: the snapshot or the write already held is
+    /// the one it sees. An in-memory database has no readers, and holds the writer instead.
+    pub fn read_pinned<T>(&self, read: impl FnOnce() -> T) -> Result<T, StoreError> {
+        let held_already = self.db.is_owned_by_current_thread()
+            || self
+                .readers
+                .iter()
+                .any(ReentrantMutex::is_owned_by_current_thread);
+        if held_already {
+            return Ok(read());
+        }
+        if self.readers.is_empty() {
+            let _writer = self.db.lock();
+            return Ok(read());
+        }
+        let pinned = Pinned::begin(self.reader())?;
+        let answer = read();
+        drop(pinned);
+        Ok(answer)
     }
 
     /// The file the database is in, when it is in one: what another process's commit writes to
@@ -411,9 +496,19 @@ impl SqliteStore {
     /// anywhere inside one — `write_folders` asking what folder work is queued, an ingest asking
     /// which message a key names — reads the transaction it is part of, and takes nothing it
     /// could wait on. Only a thread that holds no part of the writer reads beside it.
+    ///
+    /// A thread inside [`Self::read_pinned`] is handed its pinned reader again, so every read it
+    /// makes is of the one snapshot.
     pub(crate) fn reader(&self) -> ReentrantMutexGuard<'_, Connection> {
         if self.db.is_owned_by_current_thread() {
             return self.db.lock();
+        }
+        if let Some(pinned) = self
+            .readers
+            .iter()
+            .find(|reader| reader.is_owned_by_current_thread())
+        {
+            return pinned.lock();
         }
         for reader in &self.readers {
             if let Some(free) = reader.try_lock() {
@@ -427,6 +522,63 @@ impl SqliteStore {
             Some(reader) => reader.lock(),
             None => self.db.lock(),
         }
+    }
+}
+
+/// The writer, held: what [`SqliteStore::connection`] and [`SqliteStore::touch`] hand out.
+///
+/// A connection, by `Deref`, and a count of how deep the thread holds it. When the outermost hold
+/// is let go of, whatever was committed under it is said to the store's subscribers
+/// ([`crate::changes`]), while the lock is still held, so commits are told in the order they were
+/// made.
+pub struct Writer<'a> {
+    held: ReentrantMutexGuard<'a, Connection>,
+    changes: &'a Changes,
+}
+
+impl std::ops::Deref for Writer<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.held
+    }
+}
+
+impl Drop for Writer<'_> {
+    fn drop(&mut self) {
+        self.changes.leave(self.held.total_changes());
+    }
+}
+
+impl std::fmt::Debug for Writer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Writer")
+    }
+}
+
+/// A reader held for one thread in one read transaction, for [`SqliteStore::read_pinned`]. The
+/// transaction ends when this is dropped, whether the read finished or panicked.
+struct Pinned<'a>(ReentrantMutexGuard<'a, Connection>);
+
+impl<'a> Pinned<'a> {
+    fn begin(reader: ReentrantMutexGuard<'a, Connection>) -> Result<Self, StoreError> {
+        reader.execute_batch("BEGIN").map_err(StoreError::db)?;
+        let pinned = Self(reader);
+        // A deferred transaction takes its snapshot at its first read, not at `BEGIN`: this is
+        // that read, so the moment is now rather than whenever `read` first asks.
+        pinned
+            .0
+            .query_row("SELECT count(*) FROM sqlite_schema", [], |_| Ok(()))
+            .map_err(StoreError::db)?;
+        Ok(pinned)
+    }
+}
+
+impl Drop for Pinned<'_> {
+    fn drop(&mut self) {
+        // A read transaction has nothing to keep or lose, and a reader whose `COMMIT` failed is
+        // still a connection the next read can use: SQLite ends the transaction either way.
+        let _ = self.0.execute_batch("COMMIT");
     }
 }
 
@@ -754,7 +906,7 @@ impl Store for SqliteStore {
         caps: &AccountCaps,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::ACCOUNTS).execute(
             "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
              ON CONFLICT(account) DO UPDATE SET
                  caps = excluded.caps, observed_at = excluded.observed_at",
@@ -795,7 +947,7 @@ impl Store for SqliteStore {
     ) -> Result<(), StoreError> {
         // The writer for the read too, so no other write to the attachments lands between it
         // and this one.
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let mut attachments = self.message(message)?.attachments;
         held(&mut attachments, message, section, blob, size)?;
         db.execute(

@@ -5287,6 +5287,7 @@ dependencies = [
 name = "mail-store"
 version = "0.1.0"
 dependencies = [
+ "bitflags 2.13.2",
  "blake3",
  "chrono",
  "mail-store",

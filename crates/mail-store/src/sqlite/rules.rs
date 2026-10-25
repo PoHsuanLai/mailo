@@ -3,6 +3,7 @@
 use super::SqliteStore;
 use super::row::{from_time, json, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Rule, RuleId, Vacation};
@@ -36,7 +37,7 @@ impl SqliteStore {
     }
 
     pub(super) fn write_rule(&self, rule: &Rule) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::RULES);
         // Asked rather than left to the UNIQUE constraint, so the refusal names the rule instead
         // of quoting SQLite.
         let taken: Option<String> = db
@@ -72,7 +73,7 @@ impl SqliteStore {
 
     pub(super) fn remove_rule(&self, id: RuleId) -> Result<(), StoreError> {
         let gone = self
-            .connection()
+            .touch(Topics::RULES)
             .execute("DELETE FROM rules WHERE id = ?1", params![id.to_string()])?;
         if gone == 0 {
             return Err(StoreError::NoRule(id));
@@ -98,7 +99,7 @@ impl SqliteStore {
         vacation: Option<&Vacation>,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::RULES);
         match vacation {
             None => {
                 db.execute(

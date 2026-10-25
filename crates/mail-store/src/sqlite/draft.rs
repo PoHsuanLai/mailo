@@ -8,6 +8,7 @@ use super::SqliteStore;
 use super::read::Recipients;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Draft, DraftId, MessageId, PendingAttachment, SendState};
 use porter_core::AccountId;
@@ -32,7 +33,7 @@ impl SqliteStore {
             cc: draft.cc.clone(),
             bcc: draft.bcc.clone(),
         };
-        self.connection().execute(
+        self.touch(Topics::DRAFTS).execute(
             "INSERT OR REPLACE INTO drafts
                (id, account, identity, recipients, subject, in_reply_to, forward_of,
                 body_text, body_html, attachments, state, updated_at, receipt, openpgp, smime)
@@ -65,7 +66,7 @@ impl SqliteStore {
     /// nothing left on screen to say it was coming. The caller refuses to discard a draft that
     /// is mid-send; anything else still queued is withdrawn here, in the same write.
     pub(super) fn delete_draft(&self, id: DraftId) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::DRAFTS | Topics::OUTBOX);
         db.execute(
             "DELETE FROM outbox WHERE json_extract(op, '$.kind') = 'submit'
                  AND json_extract(op, '$.v.draft') = ?1",
@@ -149,7 +150,7 @@ impl SqliteStore {
         state: &SendState,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), StoreError> {
-        let changed = self.connection().execute(
+        let changed = self.touch(Topics::DRAFTS).execute(
             "UPDATE drafts SET state = ?2, updated_at = ?3 WHERE id = ?1",
             params![id.to_string(), to_json("SendState", state)?, from_time(now)],
         )?;
