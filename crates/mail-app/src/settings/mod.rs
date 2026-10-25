@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, DeleteMeans, EraseAfter, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts,
+    ServerSearch, Spelling,
 };
 
 use ds::prelude::Word;
@@ -157,6 +158,42 @@ pub struct SearchSettings {
     pub server_automatically: ServerSearch,
 }
 
+/// `mailboxes.*`: deleting, and how long Trash and Spam keep mail.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ds_settings::SettingsSchema)]
+#[serde(default)]
+#[settings(file = "mailo/settings.toml", domain = "mailboxes", page = page())]
+pub struct MailboxSettings {
+    #[settings(
+        label = "Delete",
+        help = "Move deleted mail to Trash, or delete it forever as soon as it gets there.",
+        section = "Mailboxes"
+    )]
+    pub delete: DeleteMeans,
+    #[settings(
+        label = "Erase Trash",
+        help = "Delete mail forever once it has been in Trash this long.",
+        section = "Mailboxes"
+    )]
+    pub erase_trash: EraseAfter,
+    #[settings(
+        label = "Erase Spam",
+        help = "Delete mail forever once it has been in Spam this long.",
+        section = "Mailboxes"
+    )]
+    pub erase_spam: EraseAfter,
+}
+
+impl MailboxSettings {
+    /// What erasing Trash and Spam does under these settings.
+    pub fn erasing(&self) -> mail_core::erase::Policy {
+        mail_core::erase::Policy {
+            delete: self.delete.into(),
+            trash: self.erase_trash.into(),
+            spam: self.erase_spam.into(),
+        }
+    }
+}
+
 /// `mailo/settings.toml`, whole.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -166,6 +203,7 @@ pub struct MailSettings {
     pub compose: ComposeSettings,
     pub reading: ReadingSettings,
     pub search: SearchSettings,
+    pub mailboxes: MailboxSettings,
 }
 
 impl SettingsDoc for MailSettings {
@@ -181,6 +219,7 @@ pub fn schema() -> Schema {
         ComposeSettings::schema(),
         ReadingSettings::schema(),
         SearchSettings::schema(),
+        MailboxSettings::schema(),
     ]
     .into_iter()
     .flat_map(|schema| schema.key)

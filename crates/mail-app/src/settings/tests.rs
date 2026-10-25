@@ -51,6 +51,23 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
             KeyKind::List(Box::new(KeyKind::Text)),
         ),
         ("search.server_automatically", pair("on", "off")),
+        ("mailboxes.delete", pair("trash", "now")),
+        (
+            "mailboxes.erase_trash",
+            KeyKind::Segmented {
+                variants: ["never", "day", "week", "month"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            },
+        ),
+        (
+            "mailboxes.erase_spam",
+            KeyKind::Segmented {
+                variants: ["never", "day", "week", "month"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            },
+        ),
     ]
     .into_iter()
     .map(|(path, kind)| (path.to_owned(), kind))

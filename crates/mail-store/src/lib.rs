@@ -3,6 +3,7 @@
 //! Does disk I/O. Opens no sockets. The schema is `migrations/0001_initial.sql`.
 
 mod account;
+pub mod binned;
 mod blob;
 pub mod contact;
 mod dispatch;

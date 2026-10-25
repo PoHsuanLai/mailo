@@ -141,3 +141,54 @@ impl From<mail_core::server_search::Automatic> for ServerSearch {
         }
     }
 }
+
+/// `mailboxes.delete`: what Delete does to mail outside Trash and Spam.
+///
+/// Either way it moves to Trash first, with its Undo. `Now` then erases it from there as soon as
+/// the server holds it in Trash (`mail_core::erase`), rather than when Trash's own time runs out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum DeleteMeans {
+    #[default]
+    #[word(label = "Moves to Trash")]
+    Trash,
+    #[word(label = "Deletes now")]
+    Now,
+}
+
+/// `mailboxes.erase_trash` and `mailboxes.erase_spam`: how long a message stays in Trash or Spam
+/// before it is deleted forever, counted from when it got there.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum EraseAfter {
+    #[default]
+    Never,
+    #[word(label = "After a day")]
+    Day,
+    #[word(label = "After a week")]
+    Week,
+    #[word(label = "After a month")]
+    Month,
+}
+
+impl From<EraseAfter> for mail_core::erase::Keep {
+    fn from(after: EraseAfter) -> Self {
+        match after {
+            EraseAfter::Never => mail_core::erase::Keep::Always,
+            EraseAfter::Day => mail_core::erase::Keep::Day,
+            EraseAfter::Week => mail_core::erase::Keep::Week,
+            EraseAfter::Month => mail_core::erase::Keep::Month,
+        }
+    }
+}
+
+impl From<DeleteMeans> for mail_core::erase::Delete {
+    fn from(means: DeleteMeans) -> Self {
+        match means {
+            DeleteMeans::Trash => mail_core::erase::Delete::ToTrash,
+            DeleteMeans::Now => mail_core::erase::Delete::Now,
+        }
+    }
+}

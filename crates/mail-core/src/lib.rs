@@ -27,6 +27,7 @@ pub mod contacts;
 pub mod discover;
 pub mod editor;
 pub mod environment;
+pub mod erase;
 pub mod error;
 pub mod export;
 pub mod findable;

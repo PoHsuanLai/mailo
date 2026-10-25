@@ -161,6 +161,8 @@ pub(super) fn App() -> Element {
     super::reauth::use_reauth(revision);
     // The unread count on the dock or the Dash, when the window was launched with one.
     super::launcher_count::use_launcher_count(revision, shell);
+    // Trash and Spam erased after the time Settings gives them, and Delete's under "deletes now".
+    super::erase::use_eraser(revision, shell);
 
     // One count per place, recomputed after any write. `Store::count` answers each in a single
     // indexed query, which is why the sidebar can afford to ask on every revision.
