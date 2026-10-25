@@ -174,14 +174,21 @@ pub(super) fn Reader(
             let unread = store
                 .thread(thread)
                 .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread);
-            if unread
-                && super::ops::resolve(&store, thread, OpKind::MarkRead).is_some_and(|op| {
-                    super::ops::perform(&store, thread, op, super::clock::hours()).is_some()
-                })
-                && let Some(mut revision) = revision
-            {
-                revision += 1;
-            }
+            let Some(op) = unread
+                .then(|| super::ops::resolve(&store, thread, OpKind::MarkRead))
+                .flatten()
+            else {
+                return;
+            };
+            let ticket = super::live::client().act(mail_client::Command::Perform {
+                ops: vec![(thread, op)],
+                clock: super::clock::hours(),
+            });
+            super::motion::when_done(ticket, move |acted| {
+                if let (Some(mut revision), Some(_)) = (revision, acted) {
+                    revision += 1;
+                }
+            });
         }));
     }
     // The conversation as the client keeps it read. A value for another conversation (the last

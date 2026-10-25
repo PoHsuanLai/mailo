@@ -200,7 +200,9 @@ fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
 
 // What the window and `mailo intents` both do to conversations lives in the core
 // (`mail_core::act`): two code paths for "archive this" is how two front-ends start disagreeing.
-pub(super) use mail_core::act::{caps_here, destroy, perform, take_back};
+pub(super) use mail_core::act::caps_here;
+#[cfg(test)]
+pub(super) use mail_core::act::{perform, take_back};
 
 #[cfg(test)]
 mod tests {

@@ -337,7 +337,9 @@ fn archive_all_is_one_undo_for_the_whole_list() {
         put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
     }
     let entries = Arc::new(AtomicUsize::new(usize::MAX));
-    let mut dom = VirtualDom::new(Archiver).with_root_context(Handed(store, entries.clone()));
+    let mut dom = VirtualDom::new(Archiver)
+        .with_root_context(store.clone())
+        .with_root_context(Handed(store, entries.clone()));
     dom.rebuild_in_place();
     assert_eq!(entries.load(Ordering::SeqCst), 1, "one list, one undo");
 }

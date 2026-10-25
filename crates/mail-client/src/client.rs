@@ -10,6 +10,8 @@
 //!   queue and reads it, in one moment of the database.
 //! - **Changes** (`mailo-changes`) hears every commit the store makes, gathers the ones that come
 //!   together, and marks stale every value that reads what they touched.
+//! - **Act** (`mailo-act`) applies [`Command`]s, one at a time, in the order they were given: the
+//!   only one that waits on the store's writer.
 //! - **External** (`mailo-external`) watches the store's file for another process's commits
 //!   (`external`).
 //!
@@ -17,6 +19,7 @@
 //! stale while it is read is read again when that reading ends. So the queue is never longer than
 //! the values held, however many commits a sync makes.
 
+use crate::act::{Acted, Command, Ticket};
 use crate::live::{Entry, Job, Live, Query};
 use chrono::{DateTime, Utc};
 use mail_core::mail::{Clock, SystemClock};
@@ -101,7 +104,12 @@ pub(crate) struct Shared {
     moved: tokio::sync::watch::Sender<u64>,
     /// How the external watch is woken: by a write to the store's file, or to stop.
     pub(crate) external: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    /// Where commands go to be applied; `None` for an inline client, and once stopping.
+    acts: Mutex<Option<std::sync::mpsc::Sender<Asked>>>,
 }
+
+/// A command, and where to say what it did.
+type Asked = (Command, tokio::sync::oneshot::Sender<Acted>);
 
 #[derive(Default)]
 struct Registry {
@@ -125,6 +133,19 @@ impl Client {
         {
             let shared = shared.clone();
             threads.push(spawn("mailo-changes", move || shared.hear(&heard)));
+        }
+        {
+            let (tx, asked) = std::sync::mpsc::channel::<Asked>();
+            *shared.acts.lock() = Some(tx);
+            let shared = shared.clone();
+            threads.push(spawn("mailo-act", move || {
+                // Every command given is applied, even once the client is stopping: a change the
+                // person made is not dropped because the window closed after it.
+                for (command, said) in asked {
+                    // Whoever asked may have stopped waiting; the change is made all the same.
+                    let _ = said.send(crate::act::apply(&shared.store, command));
+                }
+            }));
         }
         if config.external
             && let Some(watching) = crate::external::start(shared.clone())
@@ -193,6 +214,24 @@ impl Client {
         queries.into_iter().map(|query| self.live(query)).collect()
     }
 
+    /// Apply `command`, in order after every command given before it. Never waits on the store:
+    /// the ticket says what was done once it has been. An inline client applies it here, now.
+    pub fn act(&self, command: Command) -> Ticket {
+        let (said, ticket) = Ticket::new();
+        let shared = &self.0.shared;
+        if shared.inline {
+            // The ticket is held by the caller, which this returns to.
+            let _ = said.send(crate::act::apply(&shared.store, command));
+            return ticket;
+        }
+        if let Some(acts) = shared.acts.lock().as_ref() {
+            // A thread that has gone leaves the ticket unanswered, which says the command was
+            // not done.
+            let _ = acts.send((command, said));
+        }
+        ticket
+    }
+
     /// Mark stale every value that reads any of `topics`, as a commit that touched them would.
     /// What a timer says when the clock moves past something a value counts ([`Topics::CLOCK`]).
     pub fn invalidate(&self, topics: Topics) {
@@ -254,6 +293,8 @@ impl Drop for Inner {
 impl Inner {
     fn stop(&self, within: Duration) {
         self.shared.stopping.store(true, Ordering::Release);
+        // Nothing more is taken; what was given is still applied.
+        self.shared.acts.lock().take();
         self.shared.queued.notify_all();
         crate::external::wake(&self.shared);
         let deadline = Instant::now() + within;
@@ -295,6 +336,7 @@ impl Shared {
             heard: Mutex::new(None),
             moved: tokio::sync::watch::Sender::new(0),
             external: Mutex::new(None),
+            acts: Mutex::new(None),
         }
     }
 

@@ -12,8 +12,8 @@ use super::list_search::{Listed, Request};
 use super::live::use_live;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use mail_client::Snapshot;
-use mail_domain::{ThreadId, ThreadSummary};
+use mail_client::{Generation, Snapshot};
+use mail_domain::{Filter, Op, ThreadId, ThreadSummary};
 
 /// The list's answer, split into what each part of the pane reads.
 #[derive(Clone, Copy)]
@@ -60,6 +60,17 @@ pub(super) fn use_list(shell: Signal<Shell>, pages: Signal<u32>) -> ListView {
             .unwrap_or_default()
     });
     let mut reached = use_signal(|| *pages.peek());
+    // The generation the rows were read at, which tells the window's own writes in them from
+    // those still on their way.
+    let mut read_at = use_signal(Generation::default);
+    let hides = use_signal(Vec::<Hide>::new);
+    let listed = use_memo(move || request().0.filter());
+    use_context_provider(|| Hidden {
+        hides,
+        filter: listed,
+        drawn,
+        read_at,
+    });
     let mut answered = use_signal(|| request.peek().1.clone());
     let mut asked = use_signal(|| 0u64);
     // An answer for the question asked now — not the last one's, shown while this one is read —
@@ -67,9 +78,12 @@ pub(super) fn use_list(shell: Signal<Shell>, pages: Signal<u32>) -> ListView {
     // same answer, and it is still the one the rows answer from then on.
     use_effect(move || {
         let (_, question, depth) = request();
-        let Snapshot::Ready { value, .. } = &*found.read() else {
+        let Snapshot::Ready { value, as_of } = &*found.read() else {
             return;
         };
+        if *read_at.peek() != *as_of {
+            read_at.set(*as_of);
+        }
         let done = Listed::from(value.as_ref());
         if *answered.peek() != question {
             // Another question. A new list only when it would lose rows: the same rows under a
@@ -85,12 +99,121 @@ pub(super) fn use_list(shell: Signal<Shell>, pages: Signal<u32>) -> ListView {
         }
         reached.set(depth);
     });
+    // What a write of the window's own took out of the list and the rows do not show yet is not
+    // drawn: the row leaves on the press, not when the store has it.
+    let shown = move |rows: &[ThreadSummary]| {
+        let at = read_at();
+        let hides = hides.read();
+        let hidden = |id: ThreadId| {
+            hides
+                .iter()
+                .filter(|hide| hide.until.is_none_or(|until| at < until))
+                .any(|hide| hide.threads.contains(&id))
+        };
+        rows.iter()
+            .filter(|row| !hidden(row.id))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
     ListView {
-        threads: use_memo(move || drawn.read().threads.clone()),
-        top: use_memo(move || drawn.read().top.clone()),
+        threads: use_memo(move || shown(&drawn.read().threads)),
+        top: use_memo(move || shown(&drawn.read().top)),
         marking: use_memo(move || drawn.read().marking.clone()),
         paging: use_memo(move || pages() > reached()),
         asked: asked.into(),
+    }
+}
+
+/// What a write of the window's own takes out of the list, not drawn from the press until the
+/// rows are read at or after the generation it committed at.
+#[derive(Debug, Clone, PartialEq)]
+struct Hide {
+    serial: u64,
+    threads: Vec<ThreadId>,
+    /// `None` while the write is on its way.
+    until: Option<Generation>,
+}
+
+/// The list's hidden rows, as a write reaches them: provided by [`use_list`].
+#[derive(Clone, Copy)]
+pub(in crate::ui) struct Hidden {
+    hides: Signal<Vec<Hide>>,
+    /// What the place lists, when the summary alone can say whether a conversation is in it;
+    /// `None` for a search, whose rows are only known once it is asked again.
+    filter: Memo<Option<Filter>>,
+    drawn: Signal<Listed>,
+    read_at: Signal<Generation>,
+}
+
+/// The rows a write takes out of the list, once it is under way: [`Hidden::settle`] it when
+/// the write is done.
+#[derive(Clone, Copy)]
+pub(in crate::ui) struct Hiding(Option<(Hidden, u64)>);
+
+/// Stop drawing what `ops` take out of the window's list, now, before they are written. Nothing
+/// for a window with no list, or a list whose rows only a reading can tell.
+pub(in crate::ui) fn hide(ops: &[(ThreadId, Op)]) -> Hiding {
+    let Some(hidden) = try_consume_context::<Hidden>() else {
+        return Hiding(None);
+    };
+    let Some(filter) = hidden.filter.peek().clone() else {
+        return Hiding(None);
+    };
+    let now = crate::ui::clock::now();
+    let threads: Vec<ThreadId> = {
+        let drawn = hidden.drawn.peek();
+        ops.iter()
+            .filter(|(thread, op)| {
+                drawn
+                    .threads
+                    .iter()
+                    .find(|row| row.id == *thread)
+                    .is_some_and(|row| mail_client::act::leaves(&filter, row, op, now))
+            })
+            .map(|(thread, _)| *thread)
+            .collect()
+    };
+    if threads.is_empty() {
+        return Hiding(None);
+    }
+    let mut hides = hidden.hides;
+    let serial = hides
+        .peek()
+        .iter()
+        .map(|hide| hide.serial)
+        .max()
+        .unwrap_or(0)
+        + 1;
+    hides.write().push(Hide {
+        serial,
+        threads,
+        until: None,
+    });
+    Hiding(Some((hidden, serial)))
+}
+
+impl Hiding {
+    /// The write is done, at `generation`: what it took out stays hidden until the rows are read
+    /// at it, and `kept` (what it did not do after all) is shown again now. `None` when it was
+    /// not done at all, and everything is shown again.
+    pub(in crate::ui) fn settle(self, generation: Option<Generation>, kept: &[ThreadId]) {
+        let Some((hidden, serial)) = self.0 else {
+            return;
+        };
+        let at = *hidden.read_at.peek();
+        let mut hides = hidden.hides;
+        let mut hides = hides.write();
+        // Those the rows have been read past are no longer anything to keep.
+        hides.retain(|hide| hide.until.is_none_or(|until| at < until));
+        match generation {
+            Some(generation) => {
+                for hide in hides.iter_mut().filter(|hide| hide.serial == serial) {
+                    hide.until = Some(generation);
+                    hide.threads.retain(|thread| !kept.contains(thread));
+                }
+            }
+            None => hides.retain(|hide| hide.serial != serial),
+        }
     }
 }
 

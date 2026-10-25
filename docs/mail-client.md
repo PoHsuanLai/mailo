@@ -184,7 +184,13 @@ Each leaves the app working.
    `None` once it is gone. The list's top and the open conversation's neighbours are kept read
    (`use_warming`), so opening one is a lookup; a value for another conversation is never drawn
    under this one. Marking read on open stays a write in the window until c.
-   **c.** Writes through `act`, with the overlay.
+   **c.** Writes through `Client::act`: `Command::{Perform, TakeBack, Destroy}` on the
+   `mailo-act` thread, in order, each answering a `Ticket` with what was done and the generation
+   it committed at. The window hides on the press what an op takes out of the place's list
+   (`act::leaves`, from the row's summary; never for a search, whose rows only a reading can
+   tell), and shows it again when the list is read at that generation or the op is refused. The
+   undo stack and the toast stay the window's, filled in when the ticket is answered. Settings,
+   labels, views, VIPs and sends become commands with stage 4.
 3. Fetching moves into the client: the scheduler, the background watch and the outbox. The
    shared `Revisions` retires for store data.
 4. Everything else: compose, settings, contacts, rules, keys, add account, the palette,

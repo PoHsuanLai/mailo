@@ -14,10 +14,12 @@ mod head;
 
 pub(in crate::ui) use head::{Confirm, Lookout, Phase};
 
+#[cfg(test)]
 use super::ops;
 use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_client::{Acted, Command, Done};
 use mail_core::message::Looks;
 use mail_core::undo::Undo;
 use mail_core::unsubscribe::{Found, Outcome};
@@ -137,16 +139,12 @@ pub(in crate::ui) fn client() -> Result<reqwest::Client, String> {
     mail_core::unsubscribe::client().map_err(|e| e.to_string())
 }
 
-/// Archive every conversation in the inbox from `sender`, as ordinary ops with their undos.
+/// Every conversation in the inbox from `sender`.
 ///
 /// By sender rather than by `List-Id`: no filter can ask for a list, because the id is not a
 /// column — it is read from the raw message, which is exactly the per-row blob read this avoids.
 /// A list sends from one address, so `from:` it is the same set of conversations in practice.
-pub(in crate::ui) fn archive_from(
-    store: &SqliteStore,
-    sender: &str,
-    clock: mail_core::when::Clock,
-) -> Vec<Undo> {
+fn inbox_from(store: &SqliteStore, sender: &str) -> Vec<ThreadId> {
     let query = Query {
         filter: Filter::And(vec![
             Filter::From(TextMatch::Exact(sender.to_owned())),
@@ -164,14 +162,25 @@ pub(in crate::ui) fn archive_from(
     let Ok(page) = store.threads(&query, Utc::now()) else {
         return Vec::new();
     };
-    page.items
-        .iter()
-        .filter_map(|thread| ops::perform(store, thread.id, Op::Archive, clock))
+    page.items.iter().map(|thread| thread.id).collect()
+}
+
+/// Archive every conversation in the inbox from `sender`, here, as ordinary ops with their
+/// undos.
+#[cfg(test)]
+pub(in crate::ui) fn archive_from(
+    store: &SqliteStore,
+    sender: &str,
+    clock: mail_core::when::Clock,
+) -> Vec<Undo> {
+    inbox_from(store, sender)
+        .into_iter()
+        .filter_map(|thread| ops::perform(store, thread, Op::Archive, clock))
         .collect()
 }
 
-/// The toast's "Archive all from this list": [`archive_from`], kept as one undo for ⌘Z and
-/// the toast, and said.
+/// The toast's "Archive all from this list": every conversation in the inbox from `sender`
+/// archived as one gesture, kept as one undo for ⌘Z and the toast, and said.
 pub(in crate::ui) fn archive_list(
     store: &SqliteStore,
     shell: Signal<Shell>,
@@ -179,15 +188,31 @@ pub(in crate::ui) fn archive_list(
     sender: &str,
     list: &str,
 ) {
-    let undone = archive_from(store, sender, crate::ui::clock::hours());
-    let count = undone.len();
-    revision += 1;
-    let text = match count {
-        0 => format!("Nothing left from {list}"),
-        1 => format!("Archived 1 conversation from {list}"),
-        n => format!("Archived {n} conversations from {list}"),
-    };
-    super::motion::record(shell, undone, text);
+    let ops = inbox_from(store, sender)
+        .into_iter()
+        .map(|thread| (thread, Op::Archive))
+        .collect();
+    let hours = crate::ui::clock::hours();
+    let ticket = crate::ui::live::client().act(Command::Perform { ops, clock: hours });
+    let list = list.to_owned();
+    let motion = super::motion::motion();
+    super::motion::when_done(ticket, move |acted| {
+        let undone: Vec<Undo> = match acted {
+            Some(Acted {
+                done: Done::Performed(done),
+                ..
+            }) => done.into_iter().map(|(.., undo)| undo).collect(),
+            _ => Vec::new(),
+        };
+        let count = undone.len();
+        revision += 1;
+        let text = match count {
+            0 => format!("Nothing left from {list}"),
+            1 => format!("Archived 1 conversation from {list}"),
+            n => format!("Archived {n} conversations from {list}"),
+        };
+        super::motion::record_through(motion, shell, undone, text);
+    });
 }
 
 /// What the toast says once the way out is taken.

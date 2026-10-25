@@ -155,12 +155,9 @@ fn the_keyboard_and_the_menus_walk_star_mute_archive_trash_and_undo() {
 
     // e archives it, with a toast that goes after its hold; Ctrl-Z brings it back.
     window.press(&[], Key::Char('e'), 1);
+    // The row leaves on the press; the toast says it once the archive is written.
     window.until("e archives it", |h| row_of(h, second).is_none());
-    assert_eq!(
-        window.harness.count(".ds-toast"),
-        1,
-        "archiving said nothing"
-    );
+    window.until("archiving says so", |h| h.count(".ds-toast") == 1);
     let hold = ds::style::tokens::delay::DelayToken::ToastHold.delay();
     window.harness.advance(hold / 2);
     assert_eq!(

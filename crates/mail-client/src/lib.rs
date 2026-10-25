@@ -9,12 +9,14 @@
 //! Logic only: what the values mean to a person, and how they are shown, is the caller's.
 //! `docs/mail-client.md` says where this is going.
 
+pub mod act;
 mod client;
 mod error;
 mod external;
 mod live;
 pub mod query;
 
+pub use act::{Acted, Command, Done, Ticket};
 pub use client::{Client, ClientConfig};
 pub use error::ClientError;
 pub use external::on_write;
