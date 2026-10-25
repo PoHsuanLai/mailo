@@ -69,6 +69,12 @@ pub fn always_load_from(email: &str) -> String {
     format!("Always Load from {email}")
 }
 
+// The line over a message that asks for a read receipt, under "Ask each time".
+/// Queue the receipt the sender asked for.
+pub const SEND_RECEIPT: &str = "Send Receipt";
+/// Decline it: no receipt goes, and the question is not put again.
+pub const DONT_SEND_RECEIPT: &str = "Don’t Send";
+
 // The reader: a calendar invitation's one row.
 /// The invitation row's disclosure: the event's facts, its people and its file.
 pub const DETAILS: &str = "Details";

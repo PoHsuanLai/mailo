@@ -76,6 +76,17 @@ pub fn sender_checks(said: &str) -> String {
 /// The quiet line over a message whose remote images are held back; its actions follow it.
 pub const IMAGES_HIDDEN: &str = "Images hidden";
 
+/// The line over a message that asks for a read receipt, under "Ask each time": who asked.
+pub fn receipt_asked(sender: &str) -> String {
+    format!("{sender} asked for a read receipt")
+}
+
+/// Beside [`receipt_asked`] when the receipt would go to an address other than the one the
+/// message came back from: where it would go.
+pub fn receipt_goes_elsewhere(to: &str) -> String {
+    format!("It would go to {to}, not where the message came from")
+}
+
 /// Whether an account's vacation reply is on, beside its address in Settings › Vacation Reply.
 pub mod vacation {
     pub const OFF: &str = "Off";

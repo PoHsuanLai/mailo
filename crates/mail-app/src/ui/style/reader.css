@@ -39,6 +39,9 @@
 .trust-warn { margin-bottom: var(--s-10); }
 /* One quiet line over a message whose remote images are held back: what, then its actions. */
 .images-hidden { margin: 0 0 var(--s-10); display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-2) var(--s-8); }
+/* The same quiet line under the subject, for a message that asks for a read receipt under "Ask
+   each time": who asked, then the two answers. */
+.receipt-ask { margin: 0 0 var(--s-10); display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-2) var(--s-8); }
 /* the message body is an opaque sandboxed frame: we animate the container,
    never its contents, because we cannot reach inside it and must not try. */
 /* Each message is its header, what is said about it (seal, invitation, attachments) inset as the

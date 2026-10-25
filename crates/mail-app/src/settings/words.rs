@@ -66,15 +66,19 @@ pub enum LoadRemoteImages {
 /// `reading.read_receipts`: whether a message that asks for a read receipt gets one.
 ///
 /// `Never` is the default, and answers nothing: the request is left as it came, and no receipt
-/// goes. `Always` queues one the first time a message that asks is opened, through the same path
-/// as `mailo receipt`, and only where it is safe to: never for mail in Junk, and never when the
-/// receipt would go somewhere other than the domain the message came back from.
+/// goes. `Ask` puts the question over the message that asks, in the reader, and sends or
+/// declines as the person answers. `Always` queues one the first time a message that asks is
+/// opened, through the same path as `mailo receipt`, and only where it is safe to: never for mail
+/// in Junk, and never when the receipt would go somewhere other than the domain the message came
+/// back from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
 #[word(case = snake)]
 pub enum ReadReceipts {
     #[default]
     Never,
+    #[word(label = "Ask each time")]
+    Ask,
     Always,
 }
 

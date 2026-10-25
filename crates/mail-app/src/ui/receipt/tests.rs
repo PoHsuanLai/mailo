@@ -1,9 +1,9 @@
 //! Read receipts in the window: answered by the setting, once, and only where it is safe.
 
-use super::{Standing, answer_asked, automatic};
+use super::{Standing, answer_asked, asks, automatic, decline_id, send_id};
 use crate::settings::{MailSettings, ReadReceipts};
-use crate::ui::fixtures::settle_for;
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
+use crate::ui::fixtures::{click, settle_for};
 use crate::ui::reading::Reader;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -150,6 +150,28 @@ async fn reader_under(
     let mut seen = rebuild_into(&mut dom);
     settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
     (dioxus_ssr::render(&dom), looks)
+}
+
+/// The reader on `thread` under `policy`, settled, still running, with what its renders set.
+async fn running_under(
+    store: Arc<SqliteStore>,
+    thread: ThreadId,
+    policy: ReadReceipts,
+) -> (VirtualDom, crate::ui::fixtures::Seen) {
+    dispatching();
+    let looks = Arc::new(Looks::new());
+    let mut dom = VirtualDom::new_with_props(
+        Open,
+        OpenProps {
+            thread,
+            policy: Some(policy),
+        },
+    )
+    .with_root_context(store)
+    .with_root_context(looks);
+    let mut seen = rebuild_into(&mut dom);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    (dom, seen)
 }
 
 fn ask(to: &str, return_path: ReturnPath) -> ReceiptState {
@@ -332,4 +354,123 @@ fn answering_twice_queues_one_receipt() {
     );
     assert!(answer_asked(&looks, &store, &standings, ReadReceipts::Always, now).is_empty());
     assert_eq!(submissions(&store), before + 1);
+}
+
+/// Ask each time's whole table: only Ask asks, only for an unanswered request, never in Junk,
+/// and a receipt to another domain is still a question for the person.
+#[test]
+fn ask_each_time_asks_only_about_an_unanswered_request_outside_junk() {
+    let agrees = ask("ada@example.test", ReturnPath::Agrees);
+    let differs = ask(
+        "tracker@elsewhere.test",
+        ReturnPath::Differs {
+            return_path: "ada@example.test".to_owned(),
+        },
+    );
+    let cases: Vec<(&str, ReadReceipts, ReceiptState, MailboxRole, bool)> = vec![
+        (
+            "ask",
+            ReadReceipts::Ask,
+            agrees.clone(),
+            MailboxRole::Inbox,
+            true,
+        ),
+        (
+            "ask, to another domain",
+            ReadReceipts::Ask,
+            differs,
+            MailboxRole::Inbox,
+            true,
+        ),
+        (
+            "ask, in junk",
+            ReadReceipts::Ask,
+            agrees.clone(),
+            MailboxRole::Spam,
+            false,
+        ),
+        (
+            "ask, already declined",
+            ReadReceipts::Ask,
+            ReceiptState::Answered(ReceiptAnswer::Declined),
+            MailboxRole::Inbox,
+            false,
+        ),
+        (
+            "ask, headers only",
+            ReadReceipts::Ask,
+            ReceiptState::Unknown,
+            MailboxRole::Inbox,
+            false,
+        ),
+        (
+            "ask, not asked",
+            ReadReceipts::Ask,
+            ReceiptState::NotAsked,
+            MailboxRole::Inbox,
+            false,
+        ),
+        (
+            "never",
+            ReadReceipts::Never,
+            agrees.clone(),
+            MailboxRole::Inbox,
+            false,
+        ),
+        (
+            "always",
+            ReadReceipts::Always,
+            agrees.clone(),
+            MailboxRole::Inbox,
+            false,
+        ),
+    ];
+    for (case, policy, state, mailbox, want) in cases {
+        assert_eq!(asks(policy, &state, mailbox), want, "{case}");
+        // Ask never sends by itself.
+        if policy == ReadReceipts::Ask {
+            assert_eq!(automatic(policy, &state, mailbox), None, "{case}");
+        }
+    }
+}
+
+/// Under Ask, opening queues nothing; Send Receipt queues exactly one, and the question is gone.
+#[tokio::test]
+async fn ask_each_time_sends_when_the_person_says_so() {
+    let (store, _dir) = seeded();
+    let (thread, message) = put(&store, ASKS, Held::Body);
+    let queued = outbox(&store);
+    let before = submissions(&store);
+    let (mut dom, mut seen) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
+    assert_eq!(outbox(&store), queued, "opening queued something");
+    assert_eq!(store.receipt_answer(message).unwrap(), None);
+
+    let later = click(&mut dom, seen.one("id", &send_id(message)));
+    seen = seen.merge(later);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    assert_eq!(submissions(&store), before + 1, "one receipt, queued");
+    assert_eq!(
+        store.receipt_answer(message).unwrap(),
+        Some(ReceiptAnswer::Sent)
+    );
+    assert!(!dioxus_ssr::render(&dom).contains(&send_id(message)));
+}
+
+/// Under Ask, Don't Send declines: no receipt is queued, and opening again asks no more.
+#[tokio::test]
+async fn ask_each_time_declines_and_does_not_ask_again() {
+    let (store, _dir) = seeded();
+    let (thread, message) = put(&store, ASKS, Held::Body);
+    let before = submissions(&store);
+    let (mut dom, mut seen) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
+    let later = click(&mut dom, seen.one("id", &decline_id(message)));
+    seen = seen.merge(later);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    assert_eq!(submissions(&store), before, "a receipt went");
+    assert_eq!(
+        store.receipt_answer(message).unwrap(),
+        Some(ReceiptAnswer::Declined)
+    );
+    let (again, _) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
+    assert!(!dioxus_ssr::render(&again).contains(&decline_id(message)));
 }
