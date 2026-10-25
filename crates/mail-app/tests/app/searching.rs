@@ -17,7 +17,12 @@ fn taipei() -> chrono::FixedOffset {
 }
 
 fn parse(input: &str) -> Filter {
-    query::parse_with(input, &taipei(), &|_| Vec::new())
+    query::parse_with(
+        input,
+        &taipei(),
+        &|_| Vec::new(),
+        &mail_core::vip::Vips::default(),
+    )
 }
 
 mod what_it_builds {
@@ -387,7 +392,12 @@ mod labels {
                 .map(|(word, id)| (word.to_owned(), id))
                 .collect();
             assert_eq!(
-                query::parse_with(typed, &taipei(), &query::named(&known)),
+                query::parse_with(
+                    typed,
+                    &taipei(),
+                    &query::named(&known),
+                    &mail_core::vip::Vips::default(),
+                ),
                 want,
                 "{name}, in the terminal"
             );

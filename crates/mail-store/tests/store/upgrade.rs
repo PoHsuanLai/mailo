@@ -694,6 +694,42 @@ const CASES: &[Case] = &[
             );
         },
     },
+    Case {
+        // The VIPs are a table of their own: the book's rows stay as they were, nobody is a VIP
+        // yet, and one can be marked at once.
+        migration: "0033_vips",
+        from: 32,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO contacts (address, name, name_rank, written_count, received_count,
+                     kind, origin, keys)
+                 VALUES ('dana@example.test', 'Dana', 3, 0, 1, '\"person\"',
+                     '{\"kind\":\"manual\"}', ' dana ')",
+                [],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            assert_eq!(store.vips().unwrap(), []);
+            let kept = store.contact("dana@example.test").unwrap();
+            assert_eq!(
+                kept.and_then(|contact| contact.name).as_deref(),
+                Some("Dana")
+            );
+            store.put_vip("Dana@example.test", Some("Dana")).unwrap();
+            assert_eq!(
+                store
+                    .vips()
+                    .unwrap()
+                    .into_iter()
+                    .map(|vip| vip.address)
+                    .collect::<Vec<_>>(),
+                ["dana@example.test"]
+            );
+        },
+    },
 ];
 
 fn imap(mailbox: &str, uid: u32) -> mail_domain::RemoteRef {

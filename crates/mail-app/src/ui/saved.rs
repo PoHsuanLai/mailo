@@ -60,9 +60,10 @@ impl ViewDraft {
     pub fn build<Tz: TimeZone>(
         &self,
         labels: &[(String, LabelId)],
+        vips: &mail_core::vip::Vips,
         zone: &Tz,
     ) -> Result<View, String> {
-        self.draft.build(labels, zone).map_err(|refusal| {
+        self.draft.build(labels, vips, zone).map_err(|refusal| {
             match refusal {
                 Refusal::NoName => "Give the view a name.",
                 Refusal::NoQuery => "Type a search for the view to list.",

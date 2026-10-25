@@ -55,14 +55,19 @@ fn save(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal<u
     let Some(draft) = shell.peek().view_editor.clone() else {
         return;
     };
-    let labels = shell.peek().labels.clone();
+    let (labels, vips) = {
+        let shell = shell.peek();
+        (shell.labels.clone(), shell.vips.clone())
+    };
     let store = consume_context::<Arc<SqliteStore>>();
-    let kept = draft.build(&labels, &chrono::Local).and_then(|view| {
-        store
-            .put_view(&view)
-            .map(|()| view)
-            .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why))
-    });
+    let kept = draft
+        .build(&labels, &vips, &chrono::Local)
+        .and_then(|view| {
+            store
+                .put_view(&view)
+                .map(|()| view)
+                .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why))
+        });
     match kept {
         Ok(view) => {
             saved::show_kept(&mut shell.write(), &view);

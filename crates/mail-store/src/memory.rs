@@ -33,6 +33,7 @@ mod rules;
 mod smime;
 mod templates;
 mod views;
+mod vips;
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
 #[derive(Debug, Default)]
@@ -64,6 +65,8 @@ struct Inner {
     views: BTreeMap<mail_domain::ViewId, (i64, mail_domain::View)>,
     /// When each conversation was last opened: History.
     opened: BTreeMap<ThreadId, DateTime<Utc>>,
+    /// The VIPs, by address, each with the name they were marked with.
+    vips: BTreeMap<String, Option<String>>,
     rules: BTreeMap<mail_domain::RuleId, mail_domain::Rule>,
     vacations: BTreeMap<AccountId, mail_domain::Vacation>,
     /// What each account's server turned out to support.
@@ -149,6 +152,7 @@ impl Default for Inner {
             templates: BTreeMap::new(),
             views: BTreeMap::new(),
             opened: BTreeMap::new(),
+            vips: BTreeMap::new(),
             rules: BTreeMap::new(),
             vacations: BTreeMap::new(),
             caps: BTreeMap::new(),
@@ -852,6 +856,18 @@ impl Store for MemoryStore {
 
     fn delete_contact(&self, address: &str) -> Result<bool, StoreError> {
         Ok(self.inner.borrow_mut().drop_contact(address))
+    }
+
+    fn vips(&self) -> Result<Vec<crate::Vip>, StoreError> {
+        Ok(self.inner.borrow().every_vip())
+    }
+
+    fn put_vip(&self, address: &str, name: Option<&str>) -> Result<crate::Vip, StoreError> {
+        self.inner.borrow_mut().mark_vip(address, name)
+    }
+
+    fn delete_vip(&self, address: &str) -> Result<bool, StoreError> {
+        Ok(self.inner.borrow_mut().unmark_vip(address))
     }
 
     fn address_book(&self, url: &str) -> Result<Option<crate::AddressBook>, StoreError> {

@@ -6,6 +6,7 @@
 //! conversation and not about how it is shown, so they live here where a table can test them.
 
 use crate::place::{pending_snooze, place_filter};
+use crate::vip::Vips;
 use chrono::{DateTime, Utc};
 use mail_domain::{
     Filter, FollowUp, LabelId, MailboxRef, MailboxRole, MailboxSet, Membership, Message, Mute, Op,
@@ -417,14 +418,25 @@ pub fn kept_filter() -> Filter {
     Filter::Or(vec![Filter::Starred(Star::Starred), Filter::Pinned])
 }
 
+/// What the VIPs place is called, and so what a Space remembers it by.
+pub const VIPS: &str = "VIPs";
+
 /// The default places, in the sidebar's order: the standard mailboxes and marks every mail app
-/// has, then Waiting and History.
+/// has, then Waiting and History, then the VIPs with nobody marked ([`own_places`]).
 ///
 /// Inbox is `place_filter(Inbox)` rather than anything special, which is the plan's claim that a
 /// place is just a saved filter, made true here rather than asserted. Positions are not stored:
 /// a Space remembers its place by [`place_key`] ([`find_place`] reads the names it used to
 /// store), and a running window finds a place again by its source.
 pub fn default_places() -> Vec<Place> {
+    own_places(&Vips::default())
+}
+
+/// mailo's own places, the VIPs place listing the conversations from `vips`.
+///
+/// Last, so that it moves no place before it, though the sidebar draws it under the Inbox; its
+/// filter is the VIPs' addresses ([`Vips::filter`]), so it is built again as they change.
+pub fn own_places(vips: &Vips) -> Vec<Place> {
     [
         ("Inbox", source_for(MailboxRole::Inbox)),
         ("Starred", Source::Mail(Filter::Starred(Star::Starred))),
@@ -445,6 +457,7 @@ pub fn default_places() -> Vec<Place> {
         // Every conversation the person opened, newest first: a place like the others, its list
         // in the card.
         ("History", Source::History),
+        (VIPS, Source::Mail(vips.filter())),
     ]
     .into_iter()
     .map(|(name, source)| Place {
@@ -519,6 +532,11 @@ pub fn find_place(places: &[Place], stored: &str) -> Option<usize> {
         .or_else(|| places.iter().position(|place| place.name == name))
 }
 
+/// The VIPs place, known by its key: its filter is whoever the VIPs are.
+pub fn is_vips(place: &Place) -> bool {
+    place_key(place) == format!("place:{VIPS}")
+}
+
 /// A place that lists one label, as opposed to a mailbox.
 pub fn is_label_place(place: &Place) -> bool {
     matches!(place.source, Source::Mail(Filter::HasLabel(_)))
@@ -557,10 +575,13 @@ pub fn folder_of(place: &Place) -> Option<&MailboxRef> {
 ///
 /// A folder's place is named by its last level, which is what its row and the list's title say.
 /// Saved views come last so that keeping or forgetting one moves no other place's index.
+///
+/// The VIPs place lists `vips`' conversations.
 pub fn places_with(
     labels: &[(String, LabelId)],
     folders: &[(String, MailboxRef)],
     views: &[View],
+    vips: &Vips,
 ) -> Vec<Place> {
     let labelled = labels.iter().map(|(name, id)| Place {
         name: name.clone(),
@@ -572,7 +593,7 @@ pub fn places_with(
         source: Source::Mail(folder_filter(mailbox)),
         unread: None,
     });
-    default_places()
+    own_places(vips)
         .into_iter()
         .chain(labelled)
         .chain(foldered)
@@ -1019,7 +1040,7 @@ mod tests {
     /// Waiting and History.
     #[test]
     fn the_places_are_the_standard_mailboxes_and_marks() {
-        let want: [(&str, Source); 12] = [
+        let want: [(&str, Source); 13] = [
             ("Inbox", Source::Mail(place_filter(MailboxRole::Inbox))),
             ("Starred", Source::Mail(Filter::Starred(Star::Starred))),
             ("Snoozed", Source::Mail(pending_snooze())),
@@ -1032,6 +1053,7 @@ mod tests {
             ("Pinned", Source::Mail(Filter::Pinned)),
             ("Waiting", Source::Waiting),
             ("History", Source::History),
+            ("VIPs", Source::Mail(Filter::Nothing)),
         ];
         let got: Vec<(String, Source)> = default_places()
             .into_iter()
@@ -1042,6 +1064,31 @@ mod tests {
             .map(|(name, source)| (name.to_owned(), source))
             .collect();
         assert_eq!(got, want);
+    }
+
+    /// The VIPs place lists the VIPs' conversations, built again as they change, and is known by
+    /// its key whoever they are; a label called VIPs is not it.
+    #[test]
+    fn the_vips_place_lists_the_vips_and_keeps_its_key() {
+        let label = LabelId::generate();
+        let vips = Vips::new(["dana@example.test"]);
+        let places = places_with(&[(VIPS.to_owned(), label)], &[], &[], &vips);
+        let ours: Vec<&Place> = places.iter().filter(|place| is_vips(place)).collect();
+        assert_eq!(ours.len(), 1, "{places:?}");
+        assert_eq!(ours[0].source, Source::Mail(vips.filter()));
+        assert_eq!(
+            places.iter().position(is_vips),
+            default_places().iter().position(is_vips),
+            "the VIPs move no place"
+        );
+        assert_eq!(
+            find_place(&places, &place_key(ours[0])),
+            places.iter().position(is_vips)
+        );
+        assert_eq!(
+            badge_filter(&ours[0].source),
+            Some(crate::place::unread_in(vips.filter()))
+        );
     }
 
     /// `is:kept` finds what is starred and what is pinned, together, and nothing else.
@@ -1105,6 +1152,7 @@ mod tests {
             &[("Archive".to_owned(), label), ("Done".to_owned(), done)],
             &[],
             &[],
+            &Vips::default(),
         );
         let label_at = |id: LabelId| {
             places

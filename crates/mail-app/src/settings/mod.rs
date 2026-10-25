@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, LoadRemoteImages, NewMail, NotifyFor, ProviderMarks, ReadReceipts, ServerSearch,
+    Spelling,
 };
 
 use ds::prelude::Word;
@@ -63,6 +64,12 @@ pub struct NotificationSettings {
         section = "Mail"
     )]
     pub new_mail: NewMail,
+    #[settings(
+        label = "Notify for",
+        help = "Show notifications for all new mail, or only for mail from your VIPs.",
+        section = "Mail"
+    )]
+    pub notify_for: NotifyFor,
 }
 
 /// `compose.*`: writing mail.
@@ -202,13 +209,17 @@ pub fn schema() -> Schema {
 /// written out: "From senders I trust" for `trusted`. The derive leaves every key's labels empty,
 /// and a Settings page shows a word without a label as itself.
 fn with_word_labels(mut key: KeySpec) -> KeySpec {
-    if key.path.0 == "reading.remote_images" {
-        key.labels = WordLabels(
-            LoadRemoteImages::ALL
-                .iter()
+    fn labels<W: Word>(all: &[W]) -> WordLabels {
+        WordLabels(
+            all.iter()
                 .map(|word| (word.slug().to_owned(), word.label().to_owned()))
                 .collect(),
-        );
+        )
+    }
+    match key.path.0.as_str() {
+        "reading.remote_images" => key.labels = labels(LoadRemoteImages::ALL),
+        "notifications.notify_for" => key.labels = labels(NotifyFor::ALL),
+        _ => {}
     }
     key
 }

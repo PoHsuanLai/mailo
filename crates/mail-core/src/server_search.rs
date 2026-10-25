@@ -58,7 +58,14 @@ pub fn searchable(plan: &AccountPlan) -> bool {
 ///
 /// `Err` when a part of it no server can match: a `re:/…/` pattern, which is matched here over
 /// what the store holds. An invalid pattern is that too: it matches nothing anywhere.
-pub fn filter_of(input: &str, labels: &[(String, LabelId)]) -> Result<Filter, Unsaid> {
+///
+/// `is:vip` is asked as the VIPs' addresses (`vips`), which a server matches as it matches
+/// `from:`.
+pub fn filter_of(
+    input: &str,
+    labels: &[(String, LabelId)],
+    vips: &crate::vip::Vips,
+) -> Result<Filter, Unsaid> {
     let extracted = crate::search::extract(input).map_err(|why| Unsaid(vec![why.to_string()]))?;
     if let Some(pattern) = &extracted.regex {
         return Err(Unsaid(vec![format!(
@@ -70,6 +77,7 @@ pub fn filter_of(input: &str, labels: &[(String, LabelId)]) -> Result<Filter, Un
         &extracted.rest,
         &chrono::Local,
         &crate::query::named(labels),
+        vips,
     ))
 }
 
@@ -85,7 +93,7 @@ pub async fn search(
         .into_iter()
         .map(|l| (l.name, l.id))
         .collect();
-    let filter = match filter_of(input, &named) {
+    let filter = match filter_of(input, &named, &crate::vip::read(mail.store().as_ref())) {
         Ok(filter) => filter,
         Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
     };
@@ -124,12 +132,12 @@ mod tests {
         ];
         for (input, expected) in cases {
             assert_eq!(
-                filter_of(input, &labels).map_err(|_| ()),
+                filter_of(input, &labels, &crate::vip::Vips::default()).map_err(|_| ()),
                 expected,
                 "{input}"
             );
         }
-        let said = filter_of("re:/lun.h/", &labels).unwrap_err();
+        let said = filter_of("re:/lun.h/", &labels, &crate::vip::Vips::default()).unwrap_err();
         assert_eq!(
             said.0,
             vec!["re:/lun.h/ (a pattern is matched on this computer, not by a server)".to_owned()]

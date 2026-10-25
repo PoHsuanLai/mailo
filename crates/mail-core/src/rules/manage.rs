@@ -146,9 +146,12 @@ pub fn listed(store: &SqliteStore, account: AccountId) -> Result<Vec<ListedRule>
 /// as the text "frm:bank" is a rule that silently never fires. So every `word:` term is read on
 /// its own through the same parser, and one the parser did not take as that term is refused here
 /// before it is kept.
+///
+/// `vips` is who `is:vip` means now: a rule keeps the people it was saved with.
 pub fn read_condition<Tz: TimeZone>(
     text: &str,
     labels: &[(String, LabelId)],
+    vips: &crate::vip::Vips,
     zone: &Tz,
 ) -> Result<Filter, ConditionError> {
     if text.trim().is_empty() {
@@ -163,13 +166,13 @@ pub fn read_condition<Tz: TimeZone>(
         let Some((field, value)) = bare.split_once(':') else {
             continue;
         };
-        let alone = crate::query::parse_with(bare, zone, &named);
+        let alone = crate::query::parse_with(bare, zone, &named, vips);
         if !matches!(alone, Filter::Text(_)) {
             continue;
         }
         return Err(refused(bare, field.to_ascii_lowercase(), value));
     }
-    Ok(crate::query::parse_with(text, zone, &named))
+    Ok(crate::query::parse_with(text, zone, &named, vips))
 }
 
 /// Why `word`, whose field is `field`, is not a term.
@@ -223,8 +226,13 @@ pub fn save<Tz: TimeZone>(
             name: name.to_owned(),
         });
     }
-    let filter = read_condition(&draft.query, &labels(store, account.clone()), zone)
-        .map_err(SaveError::Condition)?;
+    let filter = read_condition(
+        &draft.query,
+        &labels(store, account.clone()),
+        &crate::vip::read(store),
+        zone,
+    )
+    .map_err(SaveError::Condition)?;
     if draft.actions.is_empty() && draft.after == AfterMatch::Continue {
         return Err(SaveError::NoAction);
     }
@@ -396,7 +404,11 @@ mod tests {
             ("   ", Blank),
         ];
         for (typed, expect) in cases {
-            assert_eq!(read_condition(typed, &[], &Utc), Err(expect), "{typed:?}");
+            assert_eq!(
+                read_condition(typed, &[], &crate::vip::Vips::default(), &Utc),
+                Err(expect),
+                "{typed:?}"
+            );
         }
         // What a search reads as text but a rule reads fine: a phrase, a negation, a plain word.
         for fine in [
@@ -405,7 +417,7 @@ mod tests {
             "subject:\"re: lunch\"",
         ] {
             assert!(
-                read_condition(fine, &[], &Utc).is_ok(),
+                read_condition(fine, &[], &crate::vip::Vips::default(), &Utc).is_ok(),
                 "{fine:?} was refused"
             );
         }

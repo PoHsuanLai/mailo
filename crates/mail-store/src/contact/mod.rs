@@ -22,9 +22,11 @@
 pub mod group;
 pub(crate) mod learn;
 pub(crate) mod ledger;
+pub mod vip;
 
 pub use group::{Edit, Group, GroupHome, GroupId};
 pub use learn::normalise;
+pub use vip::Vip;
 
 use chrono::{DateTime, Utc};
 use porter_core::AccountId;

@@ -244,9 +244,10 @@ fn RuleEditor(
         .into_iter()
         .map(|d| d.path)
         .collect();
+    let vips = mail_core::vip::read(store.as_ref());
     // Read as it is written: a condition that cannot be read is its field's error, and Save waits
     // for one that can, with every row's value in.
-    let filter = work::read_condition(&draft.query, &index, &chrono::Local).ok();
+    let filter = work::read_condition(&draft.query, &index, &vips, &chrono::Local).ok();
     let readable = conditions::ready(writing(), &rows(), filter.is_some());
     let matching = filter
         .filter(|_| readable)

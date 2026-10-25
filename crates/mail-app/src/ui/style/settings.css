@@ -7,3 +7,5 @@
 /* A row that adds something leads with a bare plus (`common::add_mark`), plain beside the colour
    of the rows it adds to, in a box a row's tile wide so its title starts where theirs do. */
 .add-mark { display: grid; place-items: center; width: var(--row-icon-tile); height: var(--row-icon-tile); color: var(--ink-soft); }
+/* General › VIPs: the address field and its Add, side by side in their row. */
+.vip-add { display: flex; align-items: center; gap: var(--s-6); }

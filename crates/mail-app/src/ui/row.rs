@@ -34,6 +34,7 @@ use ds::base::vocab::RowState;
 use ds::components::app::thread_row::ThreadRow;
 use ds::components::content::text_runs::{RunTone, TextRun};
 use ds::components::controls::chip::{Chip, ChipVariant};
+use ds::components::menus::item::item::{MenuImage, MenuItem as DsMenuItem};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
@@ -94,7 +95,25 @@ pub(super) fn ListRow(
         Listed::Thread(_) => None,
     };
     let subject = listed.subject();
-    let menu_rows = listed.menu(chrono::Utc::now());
+    // A conversation's sender, and whether they are a VIP: the mark beside the name, and the
+    // menu's last row, which marks them or takes the mark off.
+    let sender = thread
+        .as_ref()
+        .map(|summary| (summary.from.email.clone(), summary.from.name.clone()));
+    let vip = sender
+        .as_ref()
+        .is_some_and(|(email, _)| shell.read().vips.includes(email));
+    let mut menu_rows = listed.menu(chrono::Utc::now());
+    if let Some((email, _)) = &sender {
+        menu_rows.push(DsMenuItem::Separator);
+        menu_rows.push(
+            DsMenuItem::new(
+                Pick::Vip,
+                crate::ui::vip::menu_words(&shell.read().vips, email),
+            )
+            .with_image(MenuImage::Icon(Icon::Star)),
+        );
+    }
     let dragged = thread.as_ref().is_some_and(|summary| {
         motion().is_some_and(|state| {
             matches!(*state.drag.read(), drag::Drag::Live { thread, .. } if thread == summary.id)
@@ -121,6 +140,13 @@ pub(super) fn ListRow(
         ..Common::default()
     };
     let via = via.map(|via| rsx! { ViaChip { via, marks: shell.read().appearance.marks } });
+    let via = match (vip, via) {
+        (false, via) => via,
+        (true, via) => Some(rsx! {
+            crate::ui::vip::VipMark {}
+            {via}
+        }),
+    };
     // A star is drawn only on a starred conversation, as its mark: starring is in the row's menu
     // and on its key, and nothing appears under the pointer. Pressing the mark unstars.
     let star = thread
@@ -208,6 +234,13 @@ pub(super) fn ListRow(
                                 press(shell, revision, id, pressed, Opened::Row);
                             }
                             (Pick::DeleteDraft, _, Some(draft)) => delete_stored_draft(shell, revision, draft),
+                            (Pick::Vip, Some(_), _) => {
+                                if let Some((email, name)) = &sender {
+                                    let mark = mail_core::vip::toggled(&shell.peek().vips, email);
+                                    let marking = crate::ui::vip::Marking { shell, revision: Some(revision) };
+                                    crate::ui::vip::set(marking, email, name.as_deref(), mark);
+                                }
+                            }
                             // A refusal is said in the toast; the message stays as it was.
                             (Pick::CancelSending, _, Some(draft))
                                 if cancel_scheduled(shell, draft).is_ok() =>

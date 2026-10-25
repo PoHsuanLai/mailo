@@ -66,9 +66,13 @@ impl Draft {
     }
 
     /// The view this draft saves as, or why it cannot be one yet.
+    ///
+    /// `vips` is who `is:vip` means as it is saved: a view keeps the filter it was saved with,
+    /// so it lists the people who were VIPs then. The VIPs place is the list that follows them.
     pub fn build<Tz: TimeZone>(
         &self,
         labels: &[(String, LabelId)],
+        vips: &crate::vip::Vips,
         zone: &Tz,
     ) -> Result<View, Refusal> {
         let name = self.name.trim();
@@ -77,7 +81,7 @@ impl Draft {
         }
         let words = self.query.trim();
         let filter = match (words.is_empty(), &self.kept) {
-            (false, _) => crate::query::parse_with(words, zone, &crate::query::named(labels)),
+            (false, _) => crate::query::parse_with(words, zone, &crate::query::named(labels), vips),
             (true, Some(kept)) => kept.clone(),
             // An empty search means "no filter" in the box, and a view of everything is the
             // Archive with extra steps; refusing beats saving a view nobody meant.
@@ -118,13 +122,20 @@ pub fn written<Tz: TimeZone>(
             .unwrap_or_default()
     };
     let words = crate::rules::condition(filter, &name);
-    let again = crate::query::parse_with(&words, zone, &crate::query::named(labels));
+    // No VIPs: the words are never `is:vip`, which a saved filter holds as the addresses it meant.
+    let again = crate::query::parse_with(
+        &words,
+        zone,
+        &crate::query::named(labels),
+        &crate::vip::Vips::default(),
+    );
     (again == *filter).then_some(words)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vip::Vips;
     use chrono::Utc;
 
     fn labels() -> Vec<(String, LabelId)> {
@@ -137,7 +148,7 @@ mod tests {
     fn saved(name: &str, query: &str) -> View {
         let mut draft = Draft::from_search(query);
         draft.name = name.to_owned();
-        draft.build(&labels(), &Utc).unwrap()
+        draft.build(&labels(), &Vips::default(), &Utc).unwrap()
     }
 
     #[test]
@@ -147,11 +158,12 @@ mod tests {
             draft.name, "from:shop.example is:unread",
             "named after the search at first"
         );
-        let view = draft.build(&labels(), &Utc).unwrap();
+        let view = draft.build(&labels(), &Vips::default(), &Utc).unwrap();
         let typed = crate::query::parse_with(
             "from:shop.example is:unread",
             &Utc,
             &crate::query::named(&labels()),
+            &Vips::default(),
         );
         assert_eq!(view.filter, typed);
         assert_eq!(view.kind, ViewKind::Query, "a saved search takes no drop");
@@ -163,10 +175,16 @@ mod tests {
     fn a_view_needs_a_name_and_something_to_list() {
         let mut draft = Draft::from_search("is:starred");
         draft.name = "   ".to_owned();
-        assert_eq!(draft.build(&labels(), &Utc), Err(Refusal::NoName));
+        assert_eq!(
+            draft.build(&labels(), &Vips::default(), &Utc),
+            Err(Refusal::NoName)
+        );
         draft.name = "Stars".to_owned();
         draft.query = String::new();
-        assert_eq!(draft.build(&labels(), &Utc), Err(Refusal::NoQuery));
+        assert_eq!(
+            draft.build(&labels(), &Vips::default(), &Utc),
+            Err(Refusal::NoQuery)
+        );
     }
 
     #[test]
@@ -177,7 +195,7 @@ mod tests {
         assert_eq!(draft.query, "label:Travel -is:read");
         assert_eq!(draft.kept, None);
         assert_eq!(
-            draft.build(&labels(), &Utc).unwrap(),
+            draft.build(&labels(), &Vips::default(), &Utc).unwrap(),
             view,
             "saving it again changes nothing"
         );
@@ -194,7 +212,7 @@ mod tests {
         );
         assert_eq!(draft.kept, Some(Filter::All));
         draft.name = "All of it".to_owned();
-        let again = draft.build(&labels(), &Utc).unwrap();
+        let again = draft.build(&labels(), &Vips::default(), &Utc).unwrap();
         assert_eq!(
             again.filter,
             Filter::All,
@@ -212,10 +230,20 @@ mod tests {
             "\"due date\"",
         ];
         for typed in CASES {
-            let filter = crate::query::parse_with(typed, &Utc, &crate::query::named(&labels()));
+            let filter = crate::query::parse_with(
+                typed,
+                &Utc,
+                &crate::query::named(&labels()),
+                &Vips::default(),
+            );
             let words = written(&filter, &labels(), &Utc)
                 .unwrap_or_else(|| panic!("{typed} is not offered as words"));
-            let again = crate::query::parse_with(&words, &Utc, &crate::query::named(&labels()));
+            let again = crate::query::parse_with(
+                &words,
+                &Utc,
+                &crate::query::named(&labels()),
+                &Vips::default(),
+            );
             assert_eq!(again, filter, "{typed} -> {words}");
         }
         // A label nothing knows by name any more cannot be written back.

@@ -395,16 +395,17 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
     if let Command::Watch { notify } = &command {
+        let set = crate::settings::person_root()
+            .map(|root| crate::settings::load(&root))
+            // A machine with no config directory has the defaults.
+            .unwrap_or_default()
+            .notifications;
         let notifications = match notify {
             super::WatchNotify::Never => mail_core::notify::Setting::Off,
-            super::WatchNotify::AsSet => mail_core::notify::Setting::from(
-                crate::settings::person_root()
-                    .map(|root| crate::settings::load(&root))
-                    .unwrap_or_default()
-                    .notifications
-                    .new_mail,
-            ),
+            super::WatchNotify::AsSet => mail_core::notify::Setting::from(set.new_mail),
         };
+        // Whose new mail is said: everyone's, or the VIPs' alone.
+        let whom = mail_core::notify::Whom::from(set.notify_for);
         // One watch per user: a second would announce every message twice. A unit that starts
         // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
         let watching = match mail_core::ipc::watching::claim() {
@@ -454,7 +455,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         let asked = Some(watching.asked());
         // Only ends when every account has stopped for a reason worth stopping for — a
         // credential the server refused, which no amount of retrying fixes.
-        let ends = crate::edge::block_on(mail.sync().watch(notifier, &say, asked))
+        let ends = crate::edge::block_on(mail.sync().watch(notifier, whom, &say, asked))
             .map_err(super::remedy::error)?;
         print!("{}", super::sync::run_text(&store, &ends));
         return Err("stopped watching; nothing left to watch".to_owned());

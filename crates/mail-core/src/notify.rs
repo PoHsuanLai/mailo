@@ -18,6 +18,7 @@ pub mod floor;
 
 use crate::error::CoreError;
 use crate::error::Logged;
+use crate::vip::Vips;
 use chrono::{DateTime, Utc};
 use mail_domain::ThreadId;
 use mail_domain::{MailboxRole, Message, MessageId, ReadState, Snooze};
@@ -36,6 +37,45 @@ pub enum Setting {
     #[default]
     On,
     Off,
+}
+
+/// Whose new mail is announced: everyone's, or only the VIPs' ([`crate::vip`]).
+///
+/// mail-app keeps the choice (`notifications.notify_for`) and hands it to whatever announces, as
+/// it hands [`Setting`] to the watch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Whom {
+    #[default]
+    Everyone,
+    Vips,
+}
+
+/// The senders whose mail may be announced, as [`verdict`] weighs them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Heard {
+    /// Anyone's.
+    #[default]
+    Everyone,
+    /// These people's alone.
+    Only(Vips),
+}
+
+impl Heard {
+    /// Who [`Whom`] means in `store` now: everyone, or the VIPs it holds.
+    pub fn of(whom: Whom, store: &dyn mail_store::Store) -> Self {
+        match whom {
+            Whom::Everyone => Heard::Everyone,
+            Whom::Vips => Heard::Only(crate::vip::read(store)),
+        }
+    }
+
+    fn hears(&self, email: &str) -> bool {
+        match self {
+            Heard::Everyone => true,
+            Heard::Only(vips) => vips.includes(email),
+        }
+    }
 }
 
 const FILE_NAME: &str = "notify.json";
@@ -65,6 +105,8 @@ pub enum Quiet {
     Snoozed,
     /// Dated before the account was first watched: backfill, not news.
     BeforeFloor,
+    /// Not from a VIP, while only the VIPs' mail is announced.
+    NotVip,
 }
 
 /// Whether one arrival is announced.
@@ -99,13 +141,14 @@ impl Own {
 
 /// Whether `message`, just stored, is worth interrupting someone for.
 ///
-/// `snooze` is its conversation's, and `floor` is when its account was first watched
-/// ([`floor::armed`]). Checked in the order a reader would explain it: where it is, whether it
-/// has been read, who sent it, then when.
+/// `snooze` is its conversation's, `floor` is when its account was first watched
+/// ([`floor::armed`]), and `heard` whose mail is announced at all. Checked in the order a reader
+/// would explain it: where it is, whether it has been read, who sent it, then when.
 pub fn verdict(
     message: &Message,
     snooze: Snooze,
     own: &Own,
+    heard: &Heard,
     floor: DateTime<Utc>,
     now: DateTime<Utc>,
 ) -> Verdict {
@@ -115,6 +158,8 @@ pub fn verdict(
         Some(Quiet::Read)
     } else if own.includes(&message.from.email) {
         Some(Quiet::FromSelf)
+    } else if !heard.hears(&message.from.email) {
+        Some(Quiet::NotVip)
     } else if matches!(snooze, Snooze::Until(at) if at > now) {
         Some(Quiet::Snoozed)
     } else if message.date < floor {
@@ -217,6 +262,8 @@ pub enum Announce<'a> {
     To {
         store: &'a SqliteStore,
         notifier: &'a dyn Notifier,
+        /// Whose mail is said.
+        whom: Whom,
     },
 }
 
@@ -233,11 +280,15 @@ impl std::fmt::Debug for Announce<'_> {
 ///
 /// Arms the account's floor on its first watched pass, whether or not anything arrived — the
 /// pass that arms it is the start of "new", and everything dated before it is backfill.
+///
+/// `whom` is the person's "Notify for": under [`Whom::Vips`] only mail from a VIP is said, the
+/// VIPs read from the store as the pass ends, so one marked a moment ago is heard at once.
 pub fn announce(
     store: &SqliteStore,
     account: AccountId,
     arrived: &[MessageId],
     notifier: &dyn Notifier,
+    whom: Whom,
     now: DateTime<Utc>,
 ) -> Result<usize, CoreError> {
     let floor = floor::armed(store, account.clone(), now)?;
@@ -245,6 +296,7 @@ pub fn announce(
         return Ok(0);
     }
     let own = own_addresses(store)?;
+    let heard = Heard::of(whom, store);
     let mut held = Vec::with_capacity(arrived.len());
     for id in arrived {
         // Gone again already — expunged by the sweep of the same pass. Nothing to announce.
@@ -260,7 +312,7 @@ pub fn announce(
     let announced: Vec<&Message> = held
         .iter()
         .filter(|(message, snooze)| {
-            verdict(message, *snooze, &own, floor, now) == Verdict::Announce
+            verdict(message, *snooze, &own, &heard, floor, now) == Verdict::Announce
         })
         .map(|(message, _)| message)
         .collect();
@@ -408,11 +460,63 @@ mod tests {
         ];
         for (name, message, snooze, expect) in cases {
             assert_eq!(
-                verdict(&message, snooze, &own, floor, now),
+                verdict(&message, snooze, &own, &Heard::Everyone, floor, now),
                 expect,
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn vips_only_lets_a_vip_s_mail_through_and_holds_back_everyone_else_s() {
+        let own = Own::new(["me@example.test"]);
+        let vips = Heard::Only(Vips::new(["Dana@Example.test"]));
+        let dana = message(1, ("Dana", "dana@example.test"), "plans");
+        let ada = message(2, ("Ada", "ada@example.test"), "lunch");
+        let read = Message {
+            read: ReadState::Read,
+            ..dana.clone()
+        };
+        // (case, message, whose mail is heard, verdict)
+        let cases: [(&str, &Message, &Heard, Verdict); 5] = [
+            (
+                "a VIP, everyone heard",
+                &dana,
+                &Heard::Everyone,
+                Verdict::Announce,
+            ),
+            (
+                "someone else, everyone heard",
+                &ada,
+                &Heard::Everyone,
+                Verdict::Announce,
+            ),
+            ("a VIP, VIPs only", &dana, &vips, Verdict::Announce),
+            (
+                "someone else, VIPs only",
+                &ada,
+                &vips,
+                Verdict::Quiet(Quiet::NotVip),
+            ),
+            (
+                "a VIP's mail already read",
+                &read,
+                &vips,
+                Verdict::Quiet(Quiet::Read),
+            ),
+        ];
+        for (case, message, heard, want) in cases {
+            assert_eq!(
+                verdict(message, Snooze::Inactive, &own, heard, at(9), at(13)),
+                want,
+                "{case}"
+            );
+        }
+        assert_eq!(
+            Heard::of(Whom::Vips, &mail_store::MemoryStore::new()),
+            Heard::Only(Vips::default()),
+            "VIPs only with nobody marked hears nobody"
+        );
     }
 
     #[test]

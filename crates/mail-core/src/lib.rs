@@ -65,6 +65,7 @@ pub mod undo;
 pub mod unsubscribe;
 pub mod view;
 pub mod views;
+pub mod vip;
 pub mod when;
 
 pub use environment::{Environment, Program};

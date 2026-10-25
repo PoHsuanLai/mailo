@@ -11,6 +11,7 @@
 //! from:ada  to:bob  subject:lunch      a word in that field
 //! is:unread is:read is:starred         state
 //! is:pinned is:snoozed is:kept       is:kept is starred or pinned
+//! is:vip                               from one of the VIPs
 //! in:inbox  in:archive in:sent         where it lives
 //! in:spam   in:trash
 //! has:attachment                       what it carries
@@ -26,6 +27,7 @@
 //! `-`, and nobody types it.
 
 use crate::error::Logged;
+use crate::vip::Vips;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, TextMatch};
 
@@ -91,16 +93,21 @@ pub fn named<'a>(index: &'a [(String, LabelId)]) -> impl Fn(&str) -> Vec<LabelId
 ///
 /// A *list* rather than one id, because `UNIQUE (account, name)` means the same word can name a
 /// label on each account, and someone who types `label:travel` means the word.
+///
+/// `vips` is who `is:vip` means ([`crate::vip::read`]), handed in for the reason `label` is: the
+/// list is the store's. A caller with none passes `&Vips::default()`, and `is:vip` finds nothing,
+/// which is what it means while nobody is a VIP.
 pub fn parse_with<Tz: TimeZone>(
     input: &str,
     zone: &Tz,
     label: &dyn Fn(&str) -> Vec<LabelId>,
+    vips: &Vips,
 ) -> Filter {
     let mut clauses: Vec<Filter> = Vec::new();
     let mut words: Vec<String> = Vec::new();
 
     for token in tokenize(input) {
-        match term(&token, zone, label) {
+        match term(&token, zone, label, vips) {
             Some(filter) => clauses.push(filter),
             None => words.push(token.text),
         }
@@ -210,6 +217,7 @@ fn term<Tz: TimeZone>(
     token: &Token,
     zone: &Tz,
     label: &dyn Fn(&str) -> Vec<LabelId>,
+    vips: &Vips,
 ) -> Option<Filter> {
     let wrap = |f: Filter| {
         if token.negated {
@@ -245,6 +253,7 @@ fn term<Tz: TimeZone>(
             "snoozed" => Filter::Snoozed,
             // Starred or pinned. The one `Or` a term stands for.
             "kept" => crate::view::kept_filter(),
+            "vip" | "vips" => vips.filter(),
             _ => return None,
         },
         "in" => Filter::InMailbox(mailbox(value)?),
@@ -284,4 +293,148 @@ fn midnight<Tz: TimeZone>(value: &str, zone: &Tz) -> Option<DateTime<Utc>> {
     zone.from_local_datetime(&date.and_hms_opt(0, 0, 0)?)
         .earliest()
         .map(|t| t.with_timezone(&Utc))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::support_tests::{account, at, message};
+    use chrono::Utc;
+    use mail_domain::{
+        Address, Change, ChangeId, PageReq, Patch, Property, Query, ReadState, Sort, SortDir, Star,
+    };
+    use mail_store::{MemoryStore, Store};
+
+    fn vips() -> Vips {
+        Vips::new(["dana@example.test", "Bob@Example.test"])
+    }
+
+    fn parsed(typed: &str, vips: &Vips) -> Filter {
+        parse_with(typed, &Utc, &|_| Vec::new(), vips)
+    }
+
+    fn from(address: &str) -> Filter {
+        Filter::From(TextMatch::Exact(address.to_owned()))
+    }
+
+    #[test]
+    fn is_vip_is_the_vips_addresses() {
+        let both = Filter::Or(vec![from("bob@example.test"), from("dana@example.test")]);
+        // (case, typed, the VIPs, the filter)
+        let cases: Vec<(&str, &str, Vips, Filter)> = vec![
+            ("is:vip", "is:vip", vips(), both.clone()),
+            ("its plural, any case", "is:VIPs", vips(), both.clone()),
+            (
+                "one VIP is that address alone",
+                "is:vip",
+                Vips::new(["dana@example.test"]),
+                from("dana@example.test"),
+            ),
+            (
+                "nobody a VIP finds nothing",
+                "is:vip",
+                Vips::default(),
+                Filter::Nothing,
+            ),
+            (
+                "negated",
+                "-is:vip",
+                vips(),
+                Filter::Not(Box::new(both.clone())),
+            ),
+            (
+                "beside another term",
+                "is:vip is:unread",
+                vips(),
+                Filter::And(vec![both.clone(), Filter::Read(ReadState::Unread)]),
+            ),
+            (
+                "is:vipx is a word",
+                "is:vipx",
+                vips(),
+                Filter::Text(TextMatch::Contains("is:vipx".to_owned())),
+            ),
+        ];
+        for (case, typed, vips, want) in cases {
+            assert_eq!(parsed(typed, &vips), want, "{case}: {typed:?}");
+        }
+    }
+
+    /// The other half: the store lists what `is:vip` asks for, and only the whole address.
+    #[test]
+    fn the_store_lists_the_vips_conversations() {
+        let store = MemoryStore::new();
+        let senders = [
+            (1, "dana@example.test"),
+            (2, "bob@example.test"),
+            (3, "ada@example.test"),
+            (4, "notdana@example.test"),
+        ];
+        for (n, email) in senders {
+            let mut mail = message(
+                n,
+                &format!("from {email}"),
+                "",
+                n as i64,
+                ReadState::Unread,
+                Star::Unstarred,
+            );
+            mail.from = Address {
+                name: None,
+                email: email.to_owned(),
+            };
+            store
+                .apply(
+                    account(),
+                    &Patch {
+                        id: ChangeId::generate(),
+                        changes: vec![Change::MessageUpsert(Box::new(mail))],
+                    },
+                )
+                .unwrap();
+        }
+        let listed = |typed: &str, vips: &Vips| -> Vec<String> {
+            let query = Query {
+                filter: parsed(typed, vips),
+                sort: Sort {
+                    property: Property::Date,
+                    dir: SortDir::Desc,
+                },
+                page: PageReq {
+                    after: None,
+                    limit: 10,
+                },
+            };
+            store
+                .threads(&query, at(100))
+                .unwrap()
+                .items
+                .into_iter()
+                .map(|summary| summary.from.email)
+                .collect()
+        };
+        // (case, typed, the VIPs, the senders listed, newest first)
+        let cases: Vec<(&str, &str, Vips, Vec<&str>)> = vec![
+            (
+                "the VIPs",
+                "is:vip",
+                Vips::new(["DANA@example.test", "bob@example.test"]),
+                vec!["bob@example.test", "dana@example.test"],
+            ),
+            ("nobody", "is:vip", Vips::default(), vec![]),
+            (
+                "everyone else",
+                "-is:vip",
+                Vips::new(["dana@example.test"]),
+                vec![
+                    "notdana@example.test",
+                    "ada@example.test",
+                    "bob@example.test",
+                ],
+            ),
+        ];
+        for (case, typed, vips, want) in cases {
+            assert_eq!(listed(typed, &vips), want, "{case}");
+        }
+    }
 }

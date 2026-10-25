@@ -162,6 +162,10 @@ mod tests {
         ) -> Vec<(ThreadSummary, f64)> {
             Vec::new()
         }
+
+        fn vips(&self) -> crate::vip::Vips {
+            crate::vip::Vips::default()
+        }
     }
 
     fn vocab(terms: Vec<Term>) -> Vocab {
@@ -207,7 +211,7 @@ mod tests {
     }
 
     fn parsed(input: &str) -> Parsed {
-        parse(input, &Utc, &|_| Vec::new())
+        parse(input, &Utc, &|_| Vec::new(), &crate::vip::Vips::default())
     }
 
     fn contains(filter: &Filter) -> Vec<String> {

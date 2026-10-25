@@ -44,6 +44,8 @@ pub const SAVE: &str = "Save";
 pub const DOWNLOAD: &str = "Download";
 /// Takes one entry out of a list in Settings.
 pub const REMOVE: &str = "Remove";
+/// Settings › General › VIPs: make the address typed, or a suggestion, a VIP.
+pub const ADD: &str = "Add";
 /// The Rules page's row that makes a rule.
 pub const NEW_RULE: &str = "New Rule…";
 /// Settings › Keyboard: every key as it ships, shown only while one differs.

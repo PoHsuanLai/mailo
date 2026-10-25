@@ -240,6 +240,10 @@ impl Source for Scoped<'_> {
     ) -> Vec<(ThreadSummary, f64)> {
         <SqliteStore as Source>::top(self.store, &self.narrow(filter), k, window, now)
     }
+
+    fn vips(&self) -> mail_core::vip::Vips {
+        <SqliteStore as Source>::vips(self.store)
+    }
 }
 
 /// A row's subject and snippet, marked.

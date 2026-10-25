@@ -205,7 +205,7 @@ mod tests {
     }
 
     fn words(text: &str) -> super::super::Parsed {
-        parse(text, &Utc, &|_| Vec::new())
+        parse(text, &Utc, &|_| Vec::new(), &crate::vip::Vips::default())
     }
 
     #[test]

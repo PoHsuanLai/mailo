@@ -45,7 +45,13 @@ impl Parsed {
 ///
 /// `zone` resolves `before:` and `after:`. `label` resolves `label:`. A caller with no index
 /// passes `&|_| Vec::new()` and `label:travel` becomes text, which is the parser's own rule.
-pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn Fn(&str) -> Vec<LabelId>) -> Parsed {
+/// `vips` resolves `is:vip`, which is an operator whoever the VIPs are.
+pub fn parse<Tz: TimeZone>(
+    input: &str,
+    zone: &Tz,
+    label: &dyn Fn(&str) -> Vec<LabelId>,
+    vips: &crate::vip::Vips,
+) -> Parsed {
     let ended_with_space = input.ends_with(char::is_whitespace);
     let mut operators = Vec::new();
     let mut operator_tokens = Vec::new();
@@ -53,7 +59,7 @@ pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn Fn(&str) -> Vec<L
     let mut phrases = Vec::new();
 
     for token in raw_tokens(input) {
-        match crate::query::parse_with(&token, zone, label) {
+        match crate::query::parse_with(&token, zone, label, vips) {
             Filter::All => {}
             Filter::Text(TextMatch::Contains(word)) => words.push(word),
             Filter::Text(TextMatch::Exact(phrase)) => phrases.push(phrase),

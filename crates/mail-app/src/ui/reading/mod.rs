@@ -100,6 +100,8 @@ pub(super) fn Reader(
     children: Element,
 ) -> Element {
     let store = use_context::<Arc<SqliteStore>>();
+    // Where the sender's name marks a VIP: this window's shell and revision.
+    use_context_provider(|| crate::ui::vip::Marking { shell, revision });
     let frames = use_frames();
     let looks = use_looks();
     // The store may have moved under this conversation, here or in another window.

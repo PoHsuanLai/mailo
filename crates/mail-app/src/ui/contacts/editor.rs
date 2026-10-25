@@ -104,16 +104,44 @@ enum Asked {
     Editing,
 }
 
-/// The key of the name menu's one row.
+/// The keys of the name menu's rows.
 const EDIT: &str = "edit-contact";
+const VIP: &str = "vip";
 
 /// A sender's name in the reader's header, in the headline type: `shown`, which is their address
-/// when the mail gave no name (`in_mail` empty). A right click offers Edit Contact…, which opens
-/// [`ContactEditor`] hung from the name.
+/// when the mail gave no name (`in_mail` empty), and the VIP mark after it when they are one. A
+/// right click offers Edit Contact…, which opens [`ContactEditor`] hung from the name, and Add to
+/// VIPs or Remove from VIPs where the reader says where a mark lands
+/// ([`crate::ui::vip::Marking`]).
 #[component]
 pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String) -> Element {
     let mut asked = use_signal(|| Asked::Resting);
     let mut at = use_signal(|| None::<MountedRef>);
+    let marking = try_use_context::<crate::ui::vip::Marking>();
+    let vips = marking.map(|marking| marking.shell.read().vips.clone());
+    let vip = vips.as_ref().is_some_and(|vips| vips.includes(&address));
+    let mut items = vec![crate::ui::menu::MenuItem::icon(
+        EDIT,
+        Icon::Pen,
+        copy::menus::EDIT_CONTACT,
+    )];
+    if let Some(vips) = &vips {
+        items.push(crate::ui::menu::MenuItem::icon(
+            VIP,
+            Icon::Star,
+            crate::ui::vip::menu_words(vips, &address),
+        ));
+    }
+    let on_vip = {
+        let (address, in_mail) = (address.clone(), in_mail.clone());
+        move || {
+            if let (Some(marking), Some(vips)) = (marking, &vips) {
+                let name = Some(in_mail.as_str()).filter(|name| !name.trim().is_empty());
+                let mark = mail_core::vip::toggled(vips, &address);
+                crate::ui::vip::set(marking, &address, name, mark);
+            }
+        }
+    };
     rsx! {
         span {
             class: "sender-name",
@@ -125,6 +153,9 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
             onmounted: move |event: MountedEvent| at.set(Some(MountedRef(event.data()))),
             Label { text: shown, style: LabelStyle::Headline, common: crate::ui::common::classed("truncate") }
         }
+        if vip {
+            crate::ui::vip::VipMark {}
+        }
         match asked() {
             Asked::Resting => rsx! {},
             Asked::Menu(placed) => rsx! {
@@ -132,8 +163,15 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
                     anchor: None,
                     placed: Some(placed),
                     title: String::new(),
-                    items: vec![crate::ui::menu::MenuItem::icon(EDIT, Icon::Pen, copy::menus::EDIT_CONTACT)],
-                    on_pick: move |_: String| asked.set(Asked::Editing),
+                    items,
+                    on_pick: move |key: String| {
+                        if key == VIP {
+                            asked.set(Asked::Resting);
+                            on_vip();
+                        } else {
+                            asked.set(Asked::Editing);
+                        }
+                    },
                     on_close: move |()| {
                         if matches!(*asked.peek(), Asked::Menu(_)) {
                             asked.set(Asked::Resting);

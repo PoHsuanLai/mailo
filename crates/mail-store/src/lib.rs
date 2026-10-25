@@ -38,7 +38,7 @@ pub mod testing;
 pub use account::{NewAccount, StoredAccount};
 pub use blob::Blobs;
 pub use contact::{
-    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
+    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally, Vip,
 };
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use file::write_atomic;
@@ -744,6 +744,17 @@ pub trait Store {
 
     /// Forget a contact. `true` when there was one. Mail arriving later may teach it again.
     fn delete_contact(&self, address: &str) -> Result<bool, StoreError>;
+
+    /// Every VIP, by address.
+    fn vips(&self) -> Result<Vec<Vip>, StoreError>;
+
+    /// Mark `address` a VIP, with the name to list them by when the book has none (`None` keeps
+    /// the one they were marked with before). Marking one already marked changes only that name.
+    /// Returns the VIP as stored; [`StoreError::BadAddress`] for something with no `@`.
+    fn put_vip(&self, address: &str, name: Option<&str>) -> Result<Vip, StoreError>;
+
+    /// Take `address` off the VIPs. `true` when they were one.
+    fn delete_vip(&self, address: &str) -> Result<bool, StoreError>;
 
     /// Where the last sync of the address book at `url` got to.
     fn address_book(&self, url: &str) -> Result<Option<AddressBook>, StoreError>;

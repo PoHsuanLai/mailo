@@ -39,6 +39,9 @@ pub trait Source {
         window: &[ThreadId],
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)>;
+
+    /// Who `is:vip` means: the VIPs now ([`crate::vip::read`]).
+    fn vips(&self) -> crate::vip::Vips;
 }
 
 impl<S: Store + ?Sized> Source for S {
@@ -75,6 +78,10 @@ impl<S: Store + ?Sized> Source for S {
     ) -> Vec<(ThreadSummary, f64)> {
         Store::top_hits(self, filter, k, window, now)
             .or_log_default("search: the store could not rank the matches")
+    }
+
+    fn vips(&self) -> crate::vip::Vips {
+        crate::vip::read(self)
     }
 }
 

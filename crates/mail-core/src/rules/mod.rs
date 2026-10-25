@@ -169,8 +169,12 @@ pub fn run(
                 .into_iter()
                 .map(|l| (l.name, l.id))
                 .collect();
-            let filter =
-                crate::query::parse_with(query, &chrono::Local, &crate::query::named(&index));
+            let filter = crate::query::parse_with(
+                query,
+                &chrono::Local,
+                &crate::query::named(&index),
+                &crate::vip::read(store),
+            );
             let position = store
                 .rules(account.id.clone())?
                 .iter()

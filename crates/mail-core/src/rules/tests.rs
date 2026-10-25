@@ -23,6 +23,7 @@ fn a_rule_is_listed_in_the_words_it_was_written_in() {
         "from:bank.example -is:read label:money \"due date\"",
         &chrono::Utc,
         &crate::query::named(&index),
+        &crate::vip::Vips::default(),
     );
     let name = |id: LabelId| {
         if id == label_id {

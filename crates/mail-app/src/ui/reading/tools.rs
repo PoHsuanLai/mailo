@@ -208,7 +208,7 @@ pub(super) fn ReaderMore(
                         }
                         Pick::Download => download(id),
                         // A draft's, never offered here.
-                        Pick::DeleteDraft | Pick::CancelSending => {}
+                        Pick::DeleteDraft | Pick::CancelSending | Pick::Vip => {}
                     }
                 },
                 onclose: move |_| open.set(false),

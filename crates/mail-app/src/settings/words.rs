@@ -25,6 +25,18 @@ pub enum NewMail {
     Off,
 }
 
+/// `notifications.notify_for`: whose new mail is said, everyone's or only the VIPs'.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum NotifyFor {
+    #[default]
+    #[word(label = "All new mail")]
+    All,
+    #[word(label = "VIPs only")]
+    Vips,
+}
+
 /// `compose.spelling`: whether the composer marks misspelt words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
@@ -102,6 +114,15 @@ impl From<mail_core::notify::Setting> for NewMail {
         match setting {
             mail_core::notify::Setting::On => NewMail::On,
             mail_core::notify::Setting::Off => NewMail::Off,
+        }
+    }
+}
+
+impl From<NotifyFor> for mail_core::notify::Whom {
+    fn from(notify_for: NotifyFor) -> Self {
+        match notify_for {
+            NotifyFor::All => mail_core::notify::Whom::Everyone,
+            NotifyFor::Vips => mail_core::notify::Whom::Vips,
         }
     }
 }

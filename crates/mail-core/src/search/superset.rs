@@ -48,6 +48,10 @@ impl Source for Indexed<'_> {
     ) -> Vec<(ThreadSummary, f64)> {
         <MemoryStore as Source>::top(self.store, filter, k, window, now)
     }
+
+    fn vips(&self) -> crate::vip::Vips {
+        <MemoryStore as Source>::vips(self.store)
+    }
 }
 
 fn vocabulary(store: &MemoryStore, now: DateTime<Utc>) -> Vec<Term> {
@@ -145,7 +149,7 @@ proptest! {
         let full = WORDS[word];
         let take = prefix_len.clamp(1, full.chars().count());
         let query: String = full.chars().take(take).collect();
-        let parsed = parse(&query, &Utc, &|_| Vec::new());
+        let parsed = parse(&query, &Utc, &|_| Vec::new(), &crate::vip::Vips::default());
         let expansion = expand(&parsed, &indexed);
         let plain = Filter::Text(TextMatch::Contains(query.clone()));
         let expanded_ids = matching(&store, &expansion.filter, now);

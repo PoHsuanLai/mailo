@@ -73,7 +73,8 @@ pub fn list_highlight<Tz: TimeZone>(
     label: &dyn Fn(&str) -> Vec<LabelId>,
 ) -> Result<Highlight, CoreError> {
     let extracted = extract(input)?;
-    let parsed = parse(&extracted.rest, zone, label);
+    // Operators mark nothing whoever they name, so `is:vip` needs no list here.
+    let parsed = parse(&extracted.rest, zone, label, &crate::vip::Vips::default());
     let mut terms = parsed.query_words();
     terms.extend(parsed.phrases);
     Ok(Highlight {

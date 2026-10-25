@@ -28,7 +28,7 @@ fn mailbox(account: AccountId, path: &str) -> MailboxRef {
 /// A shell whose sidebar has one folder place per `(name, mailbox)`, with the first chosen.
 fn in_folder(folders: &[(String, MailboxRef)]) -> Shell {
     let mut shell = Shell {
-        places: places_with(&[], folders, &[]),
+        places: places_with(&[], folders, &[], &mail_core::vip::Vips::default()),
         ..Shell::default()
     };
     let index = shell
@@ -116,6 +116,7 @@ fn folder_places_come_after_the_labels_so_the_badges_line_up() {
         &[("travel".to_owned(), label)],
         &[("2026".to_owned(), mailbox(acct_one(), "Projects/2026"))],
         &[],
+        &mail_core::vip::Vips::default(),
     );
     let defaults = crate::ui::view::default_places().len();
     assert_eq!(places.len(), defaults + 2);

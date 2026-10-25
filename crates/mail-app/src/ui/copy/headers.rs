@@ -14,6 +14,8 @@ pub const NEW_ACCOUNT: &str = "New account";
 pub const LABELS: &str = "Labels";
 pub const VIEWS: &str = "Views";
 pub const FOLDERS: &str = "Folders";
+/// Settings › General › VIPs: the people pinned in a Space who are not VIPs yet, offered.
+pub const PINNED_IN_SPACES: &str = "Pinned in your Spaces";
 
 // The list's bands.
 pub const YESTERDAY: &str = "Yesterday";
