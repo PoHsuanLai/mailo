@@ -359,3 +359,21 @@ fn unflow_gives_back_the_lines_the_writer_meant() {
         assert_eq!(mail_mime::unflow(text, *delsp), *expected, "{name}");
     }
 }
+
+/// A sender's run of closing brackets is trimmed in one pass: counting them again for each one
+/// trimmed took minutes for a message this size.
+#[test]
+fn a_long_run_of_closing_brackets_is_trimmed_at_once() {
+    let raw = format!("http://a.test/{}", ")".repeat(200_000));
+    let began = std::time::Instant::now();
+    let got = links(&text(&raw, Flowed::Fixed).blocks);
+    assert_eq!(
+        got,
+        vec![("http://a.test/".to_owned(), "http://a.test/".to_owned())]
+    );
+    assert!(
+        began.elapsed() < std::time::Duration::from_secs(10),
+        "{:?}",
+        began.elapsed()
+    );
+}

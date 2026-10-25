@@ -119,22 +119,34 @@ fn run(rest: &str) -> usize {
 }
 
 /// `address` without what ends the sentence around it rather than the address.
+///
+/// Each bracket kind is counted once, and a close is taken off its count as it is trimmed, so a
+/// run of thousands of closing brackets costs one pass rather than one pass per bracket.
 fn trimmed(address: &str) -> usize {
+    const PAIRS: [(char, char); 3] = [('(', ')'), ('[', ']'), ('{', '}')];
+    let mut opened = [0usize; 3];
+    let mut closed = [0usize; 3];
+    for ch in address.chars() {
+        for (kind, (open, close)) in PAIRS.iter().enumerate() {
+            if ch == *open {
+                opened[kind] += 1;
+            } else if ch == *close {
+                closed[kind] += 1;
+            }
+        }
+    }
     let mut end = address.len();
     loop {
         let Some(last) = address[..end].chars().next_back() else {
             return end;
         };
-        let opener = match last {
-            ')' => Some('('),
-            ']' => Some('['),
-            '}' => Some('{'),
-            _ => None,
-        };
-        let drop = match opener {
-            Some(opener) => {
-                let body = &address[..end];
-                body.matches(opener).count() < body.matches(last).count()
+        let drop = match PAIRS.iter().position(|(_, close)| *close == last) {
+            Some(kind) => {
+                let unopened = opened[kind] < closed[kind];
+                if unopened {
+                    closed[kind] -= 1;
+                }
+                unopened
             }
             None => matches!(last, '.' | ',' | ';' | ':' | '!' | '?' | '\'' | '*'),
         };
