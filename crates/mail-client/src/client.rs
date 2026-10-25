@@ -12,6 +12,7 @@
 //!   together, and marks stale every value that reads what they touched.
 //! - **Act** (`mailo-act`) applies [`Command`]s, one at a time, in the order they were given: the
 //!   only one that waits on the store's writer.
+//! - **Clock** (`mailo-clock`) marks stale what reads the clock when a snooze ends (`clock`).
 //! - **External** (`mailo-external`) watches the store's file for another process's commits
 //!   (`external`).
 //! - **Fetch** (`mailo-fetch`), once a caller asks for mail to be fetched ([`Client::fetch`]),
@@ -116,6 +117,9 @@ pub(crate) struct Shared {
     fetcher: OnceLock<Fetcher>,
     /// Stops the fetch thread.
     fetch_stop: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// Wakes the clock thread to find its next moment again: set, then told.
+    clock_poked: Mutex<bool>,
+    clock_told: Condvar,
 }
 
 /// Fetching run where the caller runs it: what [`Client::fetch`] hands a client that reads on
@@ -161,6 +165,7 @@ impl Client {
                 }
             }));
         }
+        threads.push(crate::clock::start(shared.clone()));
         if config.external
             && let Some(watching) = crate::external::start(shared.clone())
         {
@@ -264,6 +269,21 @@ impl Client {
     pub fn set_clock(&self, clock: Arc<dyn Clock>) {
         *self.0.shared.clock.write() = clock;
         self.0.shared.invalidate(Topics::CLOCK);
+    }
+
+    /// The next moment what reads the clock reads differently: a snooze ending. A client with
+    /// threads of its own marks it stale then, at its clock's time; a caller whose time moves
+    /// otherwise (a test's virtual clock), or whose client reads on its thread, waits for it and
+    /// says so ([`Client::set_clock`], [`Client::invalidate`]).
+    pub fn next_clock(&self) -> Option<DateTime<Utc>> {
+        let shared = &self.0.shared;
+        crate::clock::next(&shared.store, shared.now())
+    }
+
+    /// Whether this client marks stale what reads the clock by itself: one with threads of its
+    /// own does, one that reads on its caller's thread does not.
+    pub fn keeps_time(&self) -> bool {
+        !self.0.shared.inline
     }
 
     /// Whether nothing is waiting to be read or being read.
@@ -371,6 +391,7 @@ impl Inner {
             let _ = stop.send(());
         }
         self.shared.queued.notify_all();
+        self.shared.poke_clock();
         crate::external::wake(&self.shared);
         let deadline = Instant::now() + within;
         for thread in self.threads.lock().drain(..) {
@@ -390,7 +411,7 @@ fn readers(store: &SqliteStore) -> usize {
     store.reader_count().saturating_sub(1).max(1)
 }
 
-fn spawn(name: &str, run: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
+pub(crate) fn spawn(name: &str, run: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name(name.to_owned())
         .spawn(run)
@@ -414,6 +435,8 @@ impl Shared {
             acts: Mutex::new(None),
             fetcher: OnceLock::new(),
             fetch_stop: Mutex::new(None),
+            clock_poked: Mutex::new(false),
+            clock_told: Condvar::new(),
         }
     }
 
@@ -423,6 +446,20 @@ impl Shared {
 
     pub(crate) fn store_arc(&self) -> Arc<SqliteStore> {
         self.store.clone()
+    }
+
+    /// Sleep the clock thread up to `wait`, or until it is told to look again.
+    pub(crate) fn clock_sleep(&self, wait: Duration) {
+        let mut poked = self.clock_poked.lock();
+        if !*poked && !self.stopping() {
+            self.clock_told.wait_for(&mut poked, wait);
+        }
+        *poked = false;
+    }
+
+    fn poke_clock(&self) {
+        *self.clock_poked.lock() = true;
+        self.clock_told.notify_all();
     }
 
     pub(crate) fn fetcher(&self) -> Option<&Fetcher> {
@@ -483,6 +520,9 @@ impl Shared {
             if topics.intersects(Topics::OUTBOX) {
                 fetcher.outbox_moved();
             }
+        }
+        if topics.intersects(crate::clock::MOVES) {
+            self.poke_clock();
         }
         self.moved.send_modify(|moved| *moved += 1);
         let stale: Vec<Arc<dyn Job>> = {

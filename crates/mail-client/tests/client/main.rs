@@ -630,3 +630,72 @@ fn a_send_that_comes_due_asks_its_account_for_a_pass_then() {
     assert!(Utc::now() >= due, "not before the send was due");
     client.shutdown(Duration::from_secs(1));
 }
+
+/// A conversation of account 1 in the inbox, as a sync leaves one.
+fn seed_conversation(store: &SqliteStore) -> mail_domain::ThreadId {
+    use mail_domain::{
+        Address, Body, Change, ChangeId, MailboxRole, Message, MessageId, MessageKey, Patch,
+        ReadState, Star, ThreadId,
+    };
+    let thread = ThreadId::generate();
+    let message = Message {
+        id: MessageId::generate(),
+        thread,
+        account: account(1),
+        key: MessageKey::Rfc("snoozed@example.test".to_owned()),
+        date: Utc::now(),
+        from: Address {
+            name: None,
+            email: "ada@example.test".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![],
+        cc: vec![],
+        bcc: vec![],
+        subject: "later".to_owned(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: None,
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Absent,
+        attachments: vec![],
+    };
+    store
+        .apply(
+            account(1),
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::MessageUpsert(Box::new(message))],
+            },
+        )
+        .unwrap();
+    thread
+}
+
+#[test]
+fn what_reads_the_clock_is_read_again_when_a_snooze_ends_with_nobody_asking() {
+    let (store, _dir) = on_disk();
+    seed_account(&store, account(1), "one@example.test");
+    let thread = seed_conversation(&store);
+    let client = client(&store);
+    let now = client.live(Now);
+    now.wait();
+
+    let ends = Utc::now() + chrono::TimeDelta::milliseconds(400);
+    mail_core::act::perform(
+        &store,
+        thread,
+        mail_domain::Op::SetSnooze(mail_domain::Snooze::Until(ends)),
+        mail_core::when::Clock::H24,
+    )
+    .expect("snoozed");
+    assert_eq!(client.next_clock(), Some(ends));
+
+    until("the clock read again once the snooze ended", || {
+        value(&now).is_some_and(|read| *read >= ends)
+    });
+    assert_eq!(client.next_clock(), None, "nothing more to wake for");
+}

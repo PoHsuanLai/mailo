@@ -70,6 +70,7 @@ impl Client {
   - `mailo-act`: one command thread, applying commands in order; the only thing that waits on
     the writer.
   - `mailo-changes`: hears commits, marks entries dirty, queues recomputes.
+  - `mailo-clock`: marks stale what reads the clock when a snooze ends.
   - `mailo-fetch`: the scheduler (`mail_core::schedule`), once a caller asks for mail to be
     fetched, on a current-thread runtime of its own. Passes, watches and folder fetches run on
     its blocking threads.
@@ -104,9 +105,10 @@ impl<T> Live<T> {
   so an ingest committing every 200 entries does not recount badges per chunk. An answer equal
   to the last one wakes no one.
 - **Time.** Snoozes, follow-ups and scheduled sends change as time passes: the `CLOCK` topic is
-  invalidated (`Client::invalidate`) by a timer at the next due instant. The window's own wake
-  does it still (`use_snooze_wake`), because a test's window clock moves on quire's virtual time,
-  which only the thread that draws has. A caller whose time is not the
+  invalidated at the next due instant by `mailo-clock`, which finds that instant again whenever
+  a commit touches the conversations. A caller whose clock the client cannot sleep on (a test's
+  window, on quire's virtual time, or one whose client reads on its thread) waits for
+  `Client::next_clock` itself and says when it has passed (`use_snooze_wake`). A caller whose time is not the
   system's (a test's window, on quire's virtual clock) gives the client its own with
   `Client::set_clock`, which reads again what reads the clock.
 
@@ -207,8 +209,8 @@ Each leaves the app working.
    read, and keeps the spinner's token. The accounts are followed from `ACCOUNTS` commits, not a
    memo. A send that comes due (queued for later, or held for Undo) asks its account for a pass
    (`fetch::outbox`), which the compose pill used to do while it was on screen. Folder refusals
-   carry the server's words only. Left for later: the macOS background watch adopts the client's
-   scheduler where it runs; `revision` stays until stage 4 converts the memos that read it.
+   carry the server's words only. The clock's timer is the client's (`mailo-clock`). `revision`
+   stays until stage 4 converts the memos that read it.
 4. Everything else: compose, settings, contacts, rules, keys, add account, the palette,
    downloads. Every `edge::block_on` in `ui` becomes a command.
 5. The fence: `ui`, `settings` and the platform seams move to `mail-ui`, whose `Cargo.toml` has
