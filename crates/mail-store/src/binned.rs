@@ -1,4 +1,4 @@
-//! What is in Trash and Spam, and since when (migration 0033): what erasing them after a while,
+//! What is in Trash and Spam, and since when (migration 0041): what erasing them after a while,
 //! or at once under "Delete deletes it now", is decided from.
 
 use chrono::{DateTime, Utc};

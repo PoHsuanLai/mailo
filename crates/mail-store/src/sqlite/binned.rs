@@ -1,4 +1,4 @@
-//! What is in Trash and Spam, and since when (migration 0033).
+//! What is in Trash and Spam, and since when (migration 0041).
 
 use super::SqliteStore;
 use super::row::{from_time, time, to_json, uuid};
