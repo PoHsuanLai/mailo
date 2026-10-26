@@ -107,6 +107,7 @@ fn entries(dir: &Path) -> Result<Vec<(String, PathBuf, bool)>, CoreError> {
     let mut out: Vec<(String, PathBuf, bool)> = read
         .filter_map(Result::ok)
         .filter_map(|entry| {
+            // An entry whose kind cannot be read is one this could not open either.
             let kind = entry.file_type().ok()?;
             if kind.is_symlink() {
                 return None;
@@ -126,8 +127,8 @@ fn entries(dir: &Path) -> Result<Vec<(String, PathBuf, bool)>, CoreError> {
 fn is_thunderbird(dir: &Path) -> bool {
     let index = |dir: &Path| {
         // A directory that cannot be listed holds no index this could read.
-        entries(dir)
-            .unwrap_or_default()
+        let found = entries(dir).unwrap_or_default();
+        found
             .iter()
             .any(|(name, _, is_dir)| !is_dir && name.ends_with(".msf"))
     };
@@ -152,17 +153,14 @@ fn is_apple_mail(dir: &Path, depth: usize) -> bool {
         return true;
     }
     // A directory that cannot be listed holds nothing of Apple Mail's this could read.
-    entries(dir)
-        .unwrap_or_default()
-        .iter()
-        .any(|(name, path, is_dir)| {
-            if *is_dir {
-                emlx::folder_of_package(name).is_some()
-                    || (depth > 0 && is_apple_mail(path, depth - 1))
-            } else {
-                has_extension(path, "emlx")
-            }
-        })
+    let found = entries(dir).unwrap_or_default();
+    found.iter().any(|(name, path, is_dir)| {
+        if *is_dir {
+            emlx::folder_of_package(name).is_some() || (depth > 0 && is_apple_mail(path, depth - 1))
+        } else {
+            has_extension(path, "emlx")
+        }
+    })
 }
 
 fn read_up_to(file: &mut impl Read, buf: &mut [u8]) -> std::io::Result<usize> {
