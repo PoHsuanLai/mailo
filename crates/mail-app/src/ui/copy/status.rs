@@ -265,4 +265,29 @@ pub mod account {
     pub fn with_a_password(username: &str) -> String {
         format!("With a password, as {username}")
     }
+
+    /// An amount of storage, in the largest unit it fills: "512 kB", "1.2 GB", "15 GB".
+    pub fn amount(bytes: u64) -> String {
+        const UNITS: [(&str, u64); 4] = [
+            ("TB", 1 << 40),
+            ("GB", 1 << 30),
+            ("MB", 1 << 20),
+            ("kB", 1 << 10),
+        ];
+        let Some((unit, size)) = UNITS.into_iter().find(|(_, size)| bytes >= *size) else {
+            return format!("{bytes} B");
+        };
+        let value = bytes as f64 / size as f64;
+        let shown = format!("{value:.1}");
+        let shown = shown.strip_suffix(".0").unwrap_or(&shown);
+        format!("{shown} {unit}")
+    }
+    /// The Storage row: "1.2 GB of 15 GB used".
+    pub fn storage_used(used: &str, limit: &str) -> String {
+        format!("{used} of {limit} used")
+    }
+    /// The Storage row once little is left: mail that does not fit is refused by the server.
+    pub fn storage_nearly_full(used: &str, limit: &str) -> String {
+        format!("{used} of {limit} used, nearly full")
+    }
 }

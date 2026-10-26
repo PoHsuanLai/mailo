@@ -12,6 +12,7 @@ mod backend_imap;
 mod backend_imap_append;
 mod backend_imap_destroy;
 mod backend_imap_folders;
+mod backend_imap_quota;
 mod backend_imap_search;
 mod backend_pop3;
 mod diagnose;

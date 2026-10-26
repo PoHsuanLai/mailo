@@ -3,8 +3,10 @@
 //! Submission is deliberately absent: it is a separate connection to a separate host and lives
 //! in [`crate::backend::SmtpBackend`].
 
+mod quota;
 mod search;
 
+pub use quota::Quota;
 pub use search::{Found, Searching};
 
 use super::folders::{already_so, folder_commands, listing, roles};

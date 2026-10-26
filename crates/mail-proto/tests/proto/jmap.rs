@@ -91,6 +91,18 @@ fn the_rfc_session_names_the_mail_account_and_every_url() {
     assert_eq!(session.state, "75128aab4b1b");
     // The example's mail account lists no submission capability: it cannot send.
     assert_eq!(session.submission, Submission::Absent);
+    // Nor any quota.
+    assert_eq!(session.quotas, Quotas::Absent);
+}
+
+#[test]
+fn a_mail_account_listing_the_quota_capability_has_quotas_to_read() {
+    let with_quota = RFC_SESSION.replace(
+        r#""urn:ietf:params:jmap:contacts": {}"#,
+        r#""urn:ietf:params:jmap:contacts": {}, "urn:ietf:params:jmap:quota": {}"#,
+    );
+    let session = Session::parse(with_quota.as_bytes()).unwrap();
+    assert_eq!(session.quotas, Quotas::Offered);
 }
 
 #[test]

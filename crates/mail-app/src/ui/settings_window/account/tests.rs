@@ -3,13 +3,18 @@
 //! Account… asks before it removes and then goes back, and the window opens on the page when the
 //! main window asks for it.
 
+use super::Seams;
 use crate::ui::data::account_rows;
-use crate::ui::fixtures::{INSIDE_THE_SHELL, Seen, Work, click, drain_seen, press, work};
+use crate::ui::fixtures::{
+    INSIDE_THE_SHELL, Seen, Work, click, dispatching, drain_seen, press, rebuild_into, work,
+};
 use crate::ui::settings_window::tests::opened_on;
 use crate::ui::settings_window::{SettingsAsked, SettingsAt, settings_root};
 use crate::ui::view::SettingsPage;
 use dioxus::dioxus_core::VirtualDom;
+use mail_core::Storage;
 use porter_core::AccountId;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// The account the tests open.
@@ -195,4 +200,62 @@ async fn the_window_opens_on_the_account_s_page_the_main_window_asks_for() {
     asked.ask(SettingsAt::Account(poh(&built)));
     let (turned, page) = until(&mut dom, on_account_page).await;
     assert!(turned, "it did not turn: {page}");
+}
+
+#[tokio::test]
+async fn the_page_says_how_much_storage_the_server_counts_once_it_has_said() {
+    let built = work();
+    let asked: Arc<Mutex<Vec<AccountId>>> = Arc::default();
+    let seams = Seams {
+        secrets: Arc::new(mail_core::NoKeyring),
+        storage: Arc::new({
+            let asked = asked.clone();
+            move |_, account| {
+                asked.lock().unwrap().push(account);
+                Ok(Some(Storage {
+                    used: 3 << 30,
+                    limit: 15 << 30,
+                }))
+            }
+        }),
+    };
+    dispatching();
+    let mut dom = VirtualDom::new(settings_root)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone())
+        .with_root_context(seams);
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    let seen = click(
+        &mut dom,
+        seen.one("aria-label", SettingsPage::Accounts.name()),
+    )
+    .merge(drain_seen(&mut dom));
+    // The list asks no server: only an account's own page does.
+    assert!(asked.lock().unwrap().is_empty());
+    let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
+    let _ = click(&mut dom, row).merge(drain_seen(&mut dom));
+    let storage = crate::ui::copy::fields::account::STORAGE;
+    let (shown, page) = until(&mut dom, |page| page.contains(storage)).await;
+    assert!(shown, "no storage row: {page}");
+    assert_eq!(*asked.lock().unwrap(), vec![poh(&built)]);
+    // Under the servers, before the keys.
+    let at = |drawn: &str| {
+        page.find(drawn)
+            .unwrap_or_else(|| panic!("no {drawn}: {page}"))
+    };
+    assert!(at(crate::ui::copy::fields::account::RECEIVING) < at(storage));
+    assert!(at(storage) < at(crate::ui::copy::headers::ENCRYPTION));
+}
+
+#[tokio::test]
+async fn without_a_server_to_ask_the_page_says_nothing_of_storage() {
+    let built = work();
+    let (mut dom, _) = pushed(&built);
+    let _ = drain_seen(&mut dom);
+    let page = dioxus_ssr::render(&dom);
+    assert!(on_account_page(&page), "{page}");
+    assert!(
+        !page.contains(crate::ui::copy::fields::account::STORAGE),
+        "{page}"
+    );
 }

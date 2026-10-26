@@ -121,4 +121,6 @@ pub mod account {
     pub const SENDING: &str = "Sending";
     pub const SIGNS_IN: &str = "Signs in";
     pub const SENDS_AS: &str = "Sends as";
+    /// How much of the account's storage its server says is used.
+    pub const STORAGE: &str = "Storage";
 }

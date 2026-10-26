@@ -73,6 +73,8 @@ pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, OAuthClients, RuleOps,
     SyncOps, SystemClock,
 };
+/// An account's storage as its server counts it ([`SyncOps::quota`]).
+pub use mail_proto::Storage;
 /// The doubles at the runtime's seams, for a front end's tests: an in-memory transport, secrets,
 /// signing store and OAuth clients that sign in nowhere.
 #[cfg(feature = "testing")]

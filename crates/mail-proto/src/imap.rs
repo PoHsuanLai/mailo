@@ -176,6 +176,12 @@ pub enum ImapCommand {
     Unsubscribe {
         mailbox: String,
     },
+    /// `GETQUOTAROOT <mailbox>` (RFC 9208 §4.3.2): the quota roots the mailbox counts against,
+    /// and each root's usage and limits. Only behind [`ImapCommand::RequireCapability`] for
+    /// `QUOTA`: a server without the extension answers `BAD`.
+    GetQuotaRoot {
+        mailbox: String,
+    },
     /// `STATUS <mailbox> (MESSAGES)`, and the walk stops with a refusal unless it says zero.
     ///
     /// A guard, not a query: the one way to make "delete this folder only if it is empty" hold
@@ -658,6 +664,7 @@ impl ImapSession {
             ImapCommand::Delete { mailbox } => format!("DELETE {}", wire(mailbox)),
             ImapCommand::Subscribe { mailbox } => format!("SUBSCRIBE {}", wire(mailbox)),
             ImapCommand::Unsubscribe { mailbox } => format!("UNSUBSCRIBE {}", wire(mailbox)),
+            ImapCommand::GetQuotaRoot { mailbox } => format!("GETQUOTAROOT {}", wire(mailbox)),
             ImapCommand::RequireEmpty { mailbox } => {
                 format!("STATUS {} (MESSAGES)", wire(mailbox))
             }

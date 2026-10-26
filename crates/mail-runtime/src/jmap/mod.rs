@@ -31,6 +31,7 @@
 mod client;
 mod outbox;
 mod push;
+mod quota;
 mod search;
 mod sync;
 

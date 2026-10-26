@@ -589,3 +589,29 @@ async fn a_search_the_server_cannot_answer_faithfully_is_not_sent() {
     assert!(matches!(said, Searched::Unsaid(_)), "{said:?}");
     assert!(s.fake.calls("Email/query").is_empty());
 }
+
+#[tokio::test]
+async fn the_account_s_storage_is_the_tightest_mail_quota_the_server_lists() {
+    let mut s = setup().await;
+    // None listed: the server keeps no quota, which is no failure.
+    assert_eq!(s.engine.quota_jmap().await.unwrap(), None);
+    s.fake.state.lock().unwrap().quotas = vec![
+        serde_json::json!({
+            "id": "q1", "resourceType": "octets", "scope": "account", "name": "mail",
+            "types": ["Mail"], "used": 3_000, "hardLimit": 10_000,
+        }),
+        serde_json::json!({
+            "id": "q2", "resourceType": "count", "scope": "account", "name": "messages",
+            "types": ["Mail"], "used": 9, "hardLimit": 10,
+        }),
+    ];
+    assert_eq!(
+        s.engine.quota_jmap().await.unwrap(),
+        Some(mail_proto::Storage {
+            used: 3_000,
+            limit: 10_000,
+        })
+    );
+    let asked = s.fake.calls("Quota/get").pop().unwrap();
+    assert_eq!(asked["ids"], serde_json::Value::Null);
+}
