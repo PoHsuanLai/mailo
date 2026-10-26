@@ -21,12 +21,15 @@
 //! | Local    | never: nothing to fetch                     |
 
 use super::report::Failure;
-use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
+use super::{
+    Configured, Mode, clock_for, configured, imap_engine, poll_floor, pushed_folders, renewal_for,
+};
 use super::{signed_in_typed, to_sync};
 use crate::error::Logged;
 use mail_domain::*;
 use mail_runtime::{
-    AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, RuntimeError, Woke,
+    AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, Notify, RuntimeError,
+    Woke,
 };
 use mail_store::SqliteStore;
 use porter_core::AccountId;
@@ -44,6 +47,25 @@ pub const GRACE: Duration = Duration::from_secs(2);
 ///
 /// See [`Hold`]. A caller that never answers must not stop the watch for ever.
 pub const ACT_CEILING: Duration = Duration::from_secs(10 * 60);
+
+/// The most connections of their own a watch opens to hear of folders besides the inbox, for a
+/// server with no `NOTIFY`. Fixed and small: every one is a connection the server counts
+/// against the account ([`ConnectionBudget`]).
+pub const EXTRA_IDLE: usize = 2;
+
+/// How many folders besides the inbox this account may be watched on connections of their own.
+///
+/// What the server's budget leaves after the two a client always needs — one to watch, one to
+/// work — and never more than [`EXTRA_IDLE`]. A server that allows no more than that watches
+/// the inbox alone and the rest wait for the interval.
+pub fn extra_idle(caps: &AccountCaps) -> usize {
+    usize::from(caps.connections.max)
+        .saturating_sub(2)
+        .min(EXTRA_IDLE)
+}
+
+/// How long extra connections have to end their IDLE in protocol once the wait is over.
+const WIND_DOWN: Duration = Duration::from_secs(3);
 
 pub use mail_runtime::schedule::{Heard, Lost};
 
@@ -143,6 +165,10 @@ enum Waiter {
         engine: Box<AccountEngine<mail_proto::backend::ImapBackend>>,
         inbox: MailboxRef,
         floor: Duration,
+        /// Engines for folders besides the inbox, used only where the server has no `NOTIFY`
+        /// for the main one to hear of them through. Opened lazily: building one connects to
+        /// nothing.
+        extras: Vec<(MailboxRef, AccountEngine<mail_proto::backend::ImapBackend>)>,
     },
     Jmap {
         engine: Box<JmapEngine>,
@@ -176,10 +202,26 @@ impl Waiter {
                     registry,
                     clock_for(Mode::Watch, now),
                 );
-                let mut engine = imap_engine(store, account, held, secrets);
-                if let Some(renewal) = renewal {
-                    engine = engine.with_tokens(renewal);
-                }
+                let folders = {
+                    use mail_store::Store as _;
+                    store
+                        .folders(account.id.clone())
+                        .or_log_default("the folders could not be read to watch them")
+                };
+                let others = pushed_folders(account, &folders);
+                let build = |held: Held| {
+                    let engine = imap_engine(store, account, held, secrets.clone());
+                    match &renewal {
+                        Some(renewal) => engine.with_tokens(renewal.clone()),
+                        None => engine,
+                    }
+                };
+                let extras = others
+                    .iter()
+                    .take(extra_idle(&account.caps))
+                    .map(|m| (m.clone(), build(held.clone())))
+                    .collect();
+                let engine = build(held).with_also(others);
                 let inbox = to_sync(account, &[])
                     .into_iter()
                     .next()
@@ -188,6 +230,7 @@ impl Waiter {
                     engine: Box::new(engine),
                     inbox,
                     floor,
+                    extras,
                 })
             }
             Incoming::Jmap { .. } => {
@@ -220,10 +263,64 @@ impl Waiter {
                 engine,
                 inbox,
                 floor,
-            } => engine.wait(inbox, cancel, *floor).await,
+                extras,
+            } => {
+                // Through `NOTIFY` where the server has it, the one connection hears of every
+                // folder. Without it, one connection each, up to the limit.
+                if extras.is_empty() || engine.notifies() != Notify::Absent {
+                    return engine.wait(inbox, cancel, *floor).await;
+                }
+                wait_on_each(engine, inbox, *floor, extras, cancel).await
+            }
             Waiter::Jmap { engine, floor } => engine.wait(cancel, *floor).await,
         }
     }
+}
+
+/// [`AccountEngine::wait`] on the inbox, with every extra folder idled on a connection of its
+/// own meanwhile: whichever has news ends the wait as mail.
+///
+/// An extra that fails, or whose server ends its IDLE without news, drops out of this wait and
+/// is tried again on the next: a folder another client deleted must not end the account's push.
+async fn wait_on_each(
+    engine: &mut AccountEngine<mail_proto::backend::ImapBackend>,
+    inbox: &MailboxRef,
+    floor: Duration,
+    extras: &mut [(MailboxRef, AccountEngine<mail_proto::backend::ImapBackend>)],
+    cancel: &mut Cancel,
+) -> Result<Woke, RuntimeError> {
+    use futures_util::StreamExt;
+    use futures_util::stream::FuturesUnordered;
+
+    let (stop, stopped) = watch::channel(false);
+    let mut others: FuturesUnordered<_> = extras
+        .iter_mut()
+        .map(|(mailbox, engine)| {
+            let mut stopped = stopped.clone();
+            async move { engine.watch(mailbox, &mut stopped).await }
+        })
+        .collect();
+    let primary = engine.wait(inbox, cancel, floor);
+    tokio::pin!(primary);
+
+    let woke = loop {
+        tokio::select! {
+            woke = &mut primary => break woke,
+            Some(heard) = others.next() => match heard {
+                Ok(true) => break Ok(Woke::Mail),
+                Ok(false) => {}
+                Err(e) => log::warn!("a folder could not be watched: {e}"),
+            },
+        }
+    };
+    // Ended in protocol, so each connection stays usable; bounded, so a dead one cannot hold
+    // the wait.
+    let _ = stop.send(true);
+    let drained = async { while others.next().await.is_some() {} };
+    if tokio::time::timeout(WIND_DOWN, drained).await.is_err() {
+        log::debug!("an extra connection did not end its IDLE in time");
+    }
+    woke
 }
 
 /// Wait, say what was heard, and wait again, until cancelled or lost.

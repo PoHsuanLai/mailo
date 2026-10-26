@@ -196,6 +196,16 @@ pub enum ImapCommand {
     IdleAfter {
         uidnext: u32,
     },
+    /// `COMPRESS DEFLATE` (RFC 4978), when the server offers it and left out when not. Once the
+    /// server accepts, the session asks the transport to compress ([`IoNeed::Deflate`]) before
+    /// anything else is sent.
+    Compress,
+    /// `NOTIFY SET` (RFC 5465): hear of new and expunged mail in these mailboxes while idling, as
+    /// `STATUS` responses, beside the selected one's own news. Behind a
+    /// [`ImapCommand::RequireCapability`] guard for `NOTIFY`.
+    Notify {
+        mailboxes: Vec<String>,
+    },
     Noop,
     Logout,
 }
@@ -585,6 +595,11 @@ impl ImapSession {
                 any.join(" or ")
             )));
         }
+        if matches!(command, ImapCommand::Compress)
+            && !has_capability(&self.transcript.capabilities, "COMPRESS=DEFLATE")
+        {
+            return self.issue(index + 1);
+        }
         let tag = self.next_tag();
         self.held = 0;
         if let ImapCommand::Search { keys } = &command {
@@ -650,6 +665,15 @@ impl ImapSession {
             ImapCommand::Noop => "NOOP".to_owned(),
             ImapCommand::Logout => "LOGOUT".to_owned(),
             ImapCommand::Idle | ImapCommand::IdleAfter { .. } => "IDLE".to_owned(),
+            ImapCommand::Compress => "COMPRESS DEFLATE".to_owned(),
+            ImapCommand::Notify { mailboxes } => {
+                let names: Vec<String> = mailboxes.iter().map(|m| wire(m)).collect();
+                format!(
+                    "NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
+                     (mailboxes {} (MessageNew MessageExpunge))",
+                    names.join(" ")
+                )
+            }
             ImapCommand::List => "LIST \"\" \"*\"".to_owned(),
             ImapCommand::Lsub => "LSUB \"\" \"*\"".to_owned(),
             // Every name goes out as modified UTF-7, quoted: the wire name is the identity.
@@ -1026,7 +1050,18 @@ impl ImapSession {
                         {
                             return Some(self.fail(refusal));
                         }
-                        Some(self.issue(index + 1))
+                        let compressed =
+                            matches!(self.commands.get(index), Some(ImapCommand::Compress));
+                        let next = self.issue(index + 1);
+                        Some(match next {
+                            // Accepted: what the server sends from here is compressed, and so is
+                            // what goes next.
+                            Progress::Need(mut needs) if compressed => {
+                                needs.insert(0, IoNeed::Deflate);
+                                Progress::Need(needs)
+                            }
+                            other => other,
+                        })
                     }
                     imap_proto::Status::No => {
                         let refused = self.commands.get(index);
@@ -1134,6 +1169,10 @@ fn is_news(text: &str) -> bool {
     let Some(first) = parts.next() else {
         return false;
     };
+    // NOTIFY's news of a mailbox that is not selected (RFC 5465 §5.4).
+    if first == "STATUS" {
+        return true;
+    }
     if first.parse::<u64>().is_err() {
         return false;
     }

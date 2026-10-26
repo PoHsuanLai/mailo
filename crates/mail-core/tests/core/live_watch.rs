@@ -26,6 +26,9 @@ enum Idling {
     Announce,
     /// Park and say nothing.
     Quiet,
+    /// Park, saying nothing in the inbox and reporting one new message after a moment in the
+    /// mailbox of this name.
+    AnnounceIn(&'static str),
 }
 
 /// What it does at the login.
@@ -56,6 +59,7 @@ fn session(sock: std::net::TcpStream, idling: Idling, login: Login) {
     };
     say("* OK [CAPABILITY IMAP4rev1 IDLE] ready\r\n");
     let mut idle_tag: Option<String> = None;
+    let mut selected = String::new();
     for line in BufReader::new(sock).lines() {
         let Ok(line) = line else { return };
         let mut parts = line.splitn(2, ' ');
@@ -73,6 +77,7 @@ fn session(sock: std::net::TcpStream, idling: Idling, login: Login) {
                 Login::Refuse => say(&format!("{tag} NO [AUTHENTICATIONFAILED] refused\r\n")),
             }
         } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
+            selected = line.split('"').nth(1).unwrap_or("").to_owned();
             say(&format!(
                 "* 0 EXISTS\r\n* OK [UIDVALIDITY 7] v\r\n* OK [UIDNEXT 1] n\r\n\
                  {tag} OK [READ-WRITE] done\r\n"
@@ -80,7 +85,12 @@ fn session(sock: std::net::TcpStream, idling: Idling, login: Login) {
         } else if upper.starts_with("IDLE") {
             idle_tag = Some(tag);
             say("+ idling\r\n");
-            if matches!(idling, Idling::Announce) {
+            let announces = match idling {
+                Idling::Announce => true,
+                Idling::AnnounceIn(mailbox) => selected == mailbox,
+                Idling::Quiet => false,
+            };
+            if announces {
                 std::thread::sleep(Duration::from_millis(300));
                 say("* 1 EXISTS\r\n");
             }
@@ -251,4 +261,91 @@ fn caps(watch: WatchMode) -> AccountCaps {
         connections: ConnectionBudget { max: 2 },
         ..crate::support::caps()
     }
+}
+
+/// Without `NOTIFY`, a followed folder besides the inbox is idled on a connection of its own
+/// where the server's budget allows it, and its news is heard as mail.
+#[test]
+fn a_followed_folder_is_idled_on_its_own_connection_where_there_is_no_notify() {
+    let port = server(Idling::AnnounceIn("Lists"), Login::Accept);
+    let store = configured(port, WatchMode::Idle);
+    follow(&store, "Lists");
+    seed_budget(&store, 4);
+    let (cancel, rx) = watch::channel(false);
+    let (handle, heard) = listening(store, rx);
+
+    // The first wait finds there is no NOTIFY and ends at once; the second idles the folder.
+    let heard_mail = (0..100).any(|_| {
+        std::thread::sleep(Duration::from_millis(50));
+        heard.lock().unwrap().contains(&Heard::Mail)
+    });
+    assert!(heard_mail, "heard {:?}", heard.lock().unwrap());
+    cancel.send(true).unwrap();
+    assert_eq!(handle.join().unwrap(), Ok(()));
+}
+
+/// The same server and the same folder, with a budget that leaves no connection to spare: the
+/// inbox alone is idled and the folder is left to the interval.
+#[test]
+fn a_budget_with_no_connection_to_spare_watches_the_inbox_alone() {
+    let port = server(Idling::AnnounceIn("Lists"), Login::Accept);
+    let store = configured(port, WatchMode::Idle);
+    follow(&store, "Lists");
+    let (cancel, rx) = watch::channel(false);
+    let (handle, heard) = listening(store, rx);
+
+    std::thread::sleep(Duration::from_millis(1500));
+    assert!(
+        !heard.lock().unwrap().contains(&Heard::Mail),
+        "a folder was idled past the budget: {:?}",
+        heard.lock().unwrap()
+    );
+    cancel.send(true).unwrap();
+    assert_eq!(handle.join().unwrap(), Ok(()));
+}
+
+/// How many connections a watch may spare for folders, by what the server allows.
+#[test]
+fn the_extra_connections_follow_the_budget_and_stop_at_the_limit() {
+    let cases = [
+        (0u8, 0usize),
+        (1, 0),
+        (2, 0),
+        (3, 1),
+        (4, 2),
+        (5, 2),
+        (15, 2),
+    ];
+    for (max, want) in cases {
+        let caps = AccountCaps {
+            connections: ConnectionBudget { max },
+            ..crate::support::caps()
+        };
+        assert_eq!(live::extra_idle(&caps), want, "a budget of {max}");
+    }
+}
+
+fn follow(store: &SqliteStore, path: &str) {
+    use mail_store::Store as _;
+    store
+        .put_folders(
+            account(),
+            vec![Folder {
+                account: account(),
+                path: path.to_owned(),
+                delimiter: Some('/'),
+                special: None,
+                subscription: Subscription::Subscribed,
+                holds: Holds::Mail,
+            }],
+        )
+        .unwrap();
+}
+
+fn seed_budget(store: &SqliteStore, max: u8) {
+    let caps = AccountCaps {
+        connections: ConnectionBudget { max },
+        ..caps(WatchMode::Idle)
+    };
+    mail_store::testing::seed_caps(store, account(), &caps, now()).unwrap();
 }

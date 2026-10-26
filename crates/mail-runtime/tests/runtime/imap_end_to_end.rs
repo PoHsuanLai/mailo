@@ -1925,3 +1925,247 @@ async fn a_listing_with_no_inbox_is_an_error_and_not_an_empty_account() {
         .expect_err("the same listing, asked for on its own");
     assert!(matches!(e, mail_runtime::RuntimeError::NoInbox), "{e}");
 }
+
+/// Hearing of more than the inbox (`NOTIFY`, RFC 5465), and compressing the connection that
+/// listens (`COMPRESS DEFLATE`, RFC 4978), against a server on loopback that speaks both.
+mod pushing {
+    use super::*;
+    use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
+    use mail_runtime::Notify;
+    use tokio::net::TcpStream;
+
+    /// What the scripted server has and does.
+    #[derive(Clone, Copy)]
+    struct Script {
+        notify: bool,
+        compress: bool,
+        /// What it says a moment after IDLE begins.
+        announce: &'static str,
+    }
+
+    #[derive(Default)]
+    struct Heard {
+        /// Every command line the client sent, as the server read it.
+        commands: Vec<String>,
+        /// Whether anything arrived compressed and inflated to a command.
+        inflated: bool,
+    }
+
+    /// One connection: bytes in, with the inflating that `COMPRESS` turns on.
+    struct Pipe {
+        sock: TcpStream,
+        deflate: Option<(Compress, Decompress)>,
+        plain: Vec<u8>,
+    }
+
+    impl Pipe {
+        async fn say(&mut self, text: &str) {
+            let bytes = match &mut self.deflate {
+                None => text.as_bytes().to_vec(),
+                Some((out, _)) => {
+                    let mut wire = Vec::with_capacity(text.len() + 64);
+                    out.compress_vec(text.as_bytes(), &mut wire, FlushCompress::Sync)
+                        .unwrap();
+                    wire
+                }
+            };
+            let _ = self.sock.write_all(&bytes).await;
+        }
+
+        async fn line(&mut self) -> Option<String> {
+            loop {
+                if let Some(end) = self.plain.windows(2).position(|w| w == b"\r\n") {
+                    let line: Vec<u8> = self.plain.drain(..end + 2).collect();
+                    return Some(String::from_utf8_lossy(&line[..end]).into_owned());
+                }
+                let mut raw = [0u8; 4096];
+                let n = self.sock.read(&mut raw).await.ok()?;
+                if n == 0 {
+                    return None;
+                }
+                match &mut self.deflate {
+                    None => self.plain.extend_from_slice(&raw[..n]),
+                    Some((_, inn)) => {
+                        let mut out = Vec::with_capacity(n * 4 + 64);
+                        inn.decompress_vec(&raw[..n], &mut out, FlushDecompress::Sync)
+                            .unwrap();
+                        self.plain.extend(out);
+                    }
+                }
+            }
+        }
+    }
+
+    async fn serve(script: Script) -> (u16, Arc<Mutex<Heard>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heard = Arc::new(Mutex::new(Heard::default()));
+        let shared = heard.clone();
+        tokio::spawn(async move {
+            while let Ok((sock, _)) = listener.accept().await {
+                let heard = shared.clone();
+                tokio::spawn(async move {
+                    let mut pipe = Pipe {
+                        sock,
+                        deflate: None,
+                        plain: Vec::new(),
+                    };
+                    let caps = format!(
+                        "IMAP4rev1 IDLE{}{}",
+                        if script.notify { " NOTIFY" } else { "" },
+                        if script.compress {
+                            " COMPRESS=DEFLATE"
+                        } else {
+                            ""
+                        }
+                    );
+                    pipe.say(&format!("* OK [CAPABILITY {caps}] ready\r\n"))
+                        .await;
+                    let mut idle = None;
+                    while let Some(line) = pipe.line().await {
+                        {
+                            let mut heard = heard.lock().unwrap();
+                            heard.commands.push(line.clone());
+                            heard.inflated |= pipe.deflate.is_some();
+                        }
+                        let (tag, rest) = line.split_once(' ').unwrap_or((&line, ""));
+                        let tag = tag.to_owned();
+                        let upper = rest.to_uppercase();
+                        if tag.eq_ignore_ascii_case("DONE") {
+                            if let Some(idle) = idle.take() {
+                                pipe.say(&format!("{idle} OK idle done\r\n")).await;
+                            }
+                        } else if upper.starts_with("LOGIN") {
+                            pipe.say(&format!("{tag} OK [CAPABILITY {caps}] in\r\n"))
+                                .await;
+                        } else if upper.starts_with("COMPRESS") {
+                            pipe.say(&format!("{tag} OK DEFLATE active\r\n")).await;
+                            pipe.deflate = Some((
+                                Compress::new(Compression::default(), false),
+                                Decompress::new(false),
+                            ));
+                        } else if upper.starts_with("EXAMINE") || upper.starts_with("SELECT") {
+                            pipe.say(&format!(
+                                "* 0 EXISTS\r\n* OK [UIDVALIDITY 7] v\r\n* OK [UIDNEXT 1] n\r\n\
+                                 {tag} OK [READ-ONLY] done\r\n"
+                            ))
+                            .await;
+                        } else if upper.starts_with("IDLE") {
+                            idle = Some(tag);
+                            pipe.say("+ idling\r\n").await;
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            pipe.say(script.announce).await;
+                        } else if upper.starts_with("LOGOUT") {
+                            pipe.say(&format!("* BYE\r\n{tag} OK done\r\n")).await;
+                            return;
+                        } else {
+                            pipe.say(&format!("{tag} OK done\r\n")).await;
+                        }
+                    }
+                });
+            }
+        });
+        (port, heard)
+    }
+
+    fn caps_idle() -> AccountCaps {
+        AccountCaps {
+            watch: WatchMode::Idle,
+            ..caps()
+        }
+    }
+
+    fn lists() -> MailboxRef {
+        MailboxRef {
+            account: acct_account(),
+            path: "Lists".to_owned(),
+        }
+    }
+
+    const FIVE: std::time::Duration = std::time::Duration::from_secs(5);
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_folders_news_wakes_a_watch_through_notify() {
+        let (port, heard) = serve(Script {
+            notify: true,
+            compress: false,
+            announce: "* STATUS \"Lists\" (UIDNEXT 9)\r\n",
+        })
+        .await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        it.engine = it.engine.with_also(vec![lists()]);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the STATUS did not end the idle")
+            .unwrap();
+        assert!(woken);
+        assert_eq!(it.engine.notifies(), Notify::Works);
+        let sent = heard.lock().unwrap().commands.clone();
+        assert!(
+            sent.iter()
+                .any(|c| c.contains("NOTIFY SET") && c.contains("\"Lists\"")),
+            "{sent:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_server_without_notify_leaves_the_other_folders_to_the_caller() {
+        let (port, heard) = serve(Script {
+            notify: false,
+            compress: false,
+            announce: "* 1 EXISTS\r\n",
+        })
+        .await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        it.engine = it.engine.with_also(vec![lists()]);
+        let (_tx, mut cancel) = watch::channel(false);
+        assert_eq!(it.engine.notifies(), Notify::Unasked);
+
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the refusal ended nothing")
+            .unwrap();
+        assert!(!woken, "nothing was heard");
+        assert_eq!(it.engine.notifies(), Notify::Absent);
+        let sent = heard.lock().unwrap().commands.clone();
+        assert!(
+            !sent.iter().any(|c| c.contains("NOTIFY")),
+            "NOTIFY was sent to a server without it: {sent:?}"
+        );
+
+        // Asked once: the next watch is the inbox alone, and idles.
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the inbox's own news did not end the idle")
+            .unwrap();
+        assert!(woken);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_connection_the_server_compresses_still_carries_the_watch() {
+        let (port, heard) = serve(Script {
+            notify: false,
+            compress: true,
+            announce: "* 3 EXISTS\r\n",
+        })
+        .await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the compressed idle never ended")
+            .unwrap();
+        assert!(woken, "the news came back compressed and was not read");
+        let heard = heard.lock().unwrap();
+        let at = |what: &str| heard.commands.iter().position(|c| c.contains(what));
+        assert!(
+            at("COMPRESS DEFLATE") < at("EXAMINE") && at("EXAMINE").is_some(),
+            "{:?}",
+            heard.commands
+        );
+        assert!(heard.inflated, "nothing after COMPRESS arrived compressed");
+    }
+}

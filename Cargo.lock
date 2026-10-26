@@ -5238,6 +5238,7 @@ dependencies = [
  "const-oid 0.9.6",
  "der",
  "dirs",
+ "flate2",
  "hickory-resolver",
  "keyring-core",
  "log",

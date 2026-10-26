@@ -5,6 +5,7 @@
 //! carry the complexity precisely so that this does not have to.
 
 use crate::RuntimeError;
+use crate::deflate::Deflate;
 use crate::error::{Failure, within};
 use mail_domain::Tls;
 use mail_proto::{IoNeed, IoReady};
@@ -60,6 +61,12 @@ enum Stream {
 #[derive(Debug)]
 pub struct Transport {
     stream: Stream,
+    /// Set once `COMPRESS DEFLATE` was accepted ([`IoNeed::Deflate`]); from then on everything
+    /// either way goes through it.
+    deflate: Option<Box<Deflate>>,
+    /// Inflated bytes a read has not yet handed on, when one chunk from the server held more
+    /// than the caller's buffer.
+    inflated: Vec<u8>,
 }
 
 const RELAYED: &str = "a relay's connection is already secured by the relay";
@@ -108,6 +115,14 @@ fn keep_alive(tcp: &TcpStream) {
 }
 
 impl Transport {
+    fn of(stream: Stream) -> Self {
+        Self {
+            stream,
+            deflate: None,
+            inflated: Vec::new(),
+        }
+    }
+
     /// Connect, applying `tls` before returning.
     ///
     /// [`Tls::StartTlsRequired`] returns a plaintext transport: the caller sends the protocol's
@@ -130,7 +145,7 @@ impl Transport {
             Tls::Implicit => Stream::Tls(Box::new(Self::wrap(tcp, host).await?)),
             Tls::StartTlsRequired | Tls::Plaintext => Stream::Plain(tcp),
         };
-        Ok(Self { stream })
+        Ok(Self::of(stream))
     }
 
     /// A connection that is already open and already authenticated: the end of a porter relay
@@ -151,7 +166,7 @@ impl Transport {
             }
             AuthenticatedStream::Memory(end) => Stream::Memory(end),
         };
-        Ok(Self { stream })
+        Ok(Self::of(stream))
     }
 
     /// Upgrade a plaintext connection after the protocol's `STARTTLS`/`STLS` was accepted.
@@ -216,6 +231,10 @@ impl Transport {
                 self.write_all(bytes).await?;
                 Ok(None)
             }
+            IoNeed::Deflate => {
+                self.deflate = Some(Box::new(Deflate::new()));
+                Ok(None)
+            }
             IoNeed::Flush => {
                 self.flush().await?;
                 Ok(None)
@@ -244,6 +263,18 @@ impl Transport {
     }
 
     async fn write_all(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
+        match &mut self.deflate {
+            Some(deflate) => {
+                let squeezed = deflate
+                    .compress(bytes)
+                    .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
+                self.write_raw(&squeezed).await
+            }
+            None => self.write_raw(bytes).await,
+        }
+    }
+
+    async fn write_raw(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
         match &mut self.stream {
             Stream::Plain(s) => s.write_all(bytes).await,
             Stream::Tls(s) => s.write_all(bytes).await,
@@ -276,6 +307,29 @@ impl Transport {
     }
 
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, RuntimeError> {
+        if self.deflate.is_none() {
+            return self.read_raw(buf).await;
+        }
+        // Until something inflates to at least a byte: a read may end inside a compressed block.
+        while self.inflated.is_empty() {
+            let mut raw = vec![0u8; READ_CHUNK];
+            let n = self.read_raw(&mut raw).await?;
+            if n == 0 {
+                return Ok(0);
+            }
+            if let Some(deflate) = &mut self.deflate {
+                self.inflated = deflate
+                    .inflate(&raw[..n])
+                    .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
+            }
+        }
+        let n = buf.len().min(self.inflated.len());
+        buf[..n].copy_from_slice(&self.inflated[..n]);
+        self.inflated.drain(..n);
+        Ok(n)
+    }
+
+    async fn read_raw(&mut self, buf: &mut [u8]) -> Result<usize, RuntimeError> {
         match &mut self.stream {
             Stream::Plain(s) => s.read(buf).await,
             Stream::Tls(s) => s.read(buf).await,

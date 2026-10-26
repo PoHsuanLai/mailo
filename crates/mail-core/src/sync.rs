@@ -1400,6 +1400,17 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
     out
 }
 
+/// The mailboxes besides the inbox a push would hear of: the ones a pass fetches that mail
+/// arrives in, so not Sent, which only this client fills.
+fn pushed_folders(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
+    let sent = account.caps.folders.path(MailboxRole::Sent);
+    to_sync(account, folders)
+        .into_iter()
+        .skip(1)
+        .filter(|m| sent != Some(m.path.as_str()))
+        .collect()
+}
+
 /// Whether a pass fetches this folder, beside the inbox and Sent.
 ///
 /// One the user follows (`LSUB`) that can hold mail. An unfollowed one is fetched when it is
