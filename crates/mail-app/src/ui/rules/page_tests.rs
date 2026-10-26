@@ -265,6 +265,53 @@ async fn saving_a_rule_puts_the_rules_on_the_server_and_goes_back_to_the_list() 
     assert!(!page.contains("the server now runs"), "{page}");
 }
 
+/// Two conditions, any of which will do, and an action that notifies: kept as an either-or,
+/// and the action as picked.
+#[tokio::test]
+async fn a_rule_can_match_any_of_its_conditions_and_notify() {
+    dispatching();
+    let (store, _dir) = crate::ui::fixtures::empty();
+    let row = own_server(&store);
+    let (push, _) = counting();
+    let mut dom = sheet_at(&store, row.id.clone(), push, RulesAt::Rule(None));
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    type_into(&mut dom, seen.one("aria-placeholder", "Bills"), "Boss");
+    type_into(
+        &mut dom,
+        seen.one("aria-label", copy::fields::FROM),
+        "boss@example.test",
+    );
+    let added = click(
+        &mut dom,
+        seen.one("aria-label", copy::controls::ADD_CONDITION),
+    );
+    let added = landed(&mut dom, added).await;
+    type_into(
+        &mut dom,
+        added.one("aria-label", copy::fields::SUBJECT),
+        "urgent",
+    );
+    let joined = landed(&mut dom, Seen::default()).await.merge(added);
+    // Any: the second segment of the Match control.
+    click(
+        &mut dom,
+        joined.after("aria-label", copy::fields::MATCHES, "aria-pressed")[1],
+    );
+    let opened = click(&mut dom, seen.one("aria-label", copy::aria::ADD_ACTION));
+    let opened = landed(&mut dom, opened).await;
+    crate::ui::fixtures::pick_named(&mut dom, &opened, copy::menus::RULE_NOTIFY).await;
+
+    click(&mut dom, seen.one("aria-label", copy::aria::SAVE_RULE));
+    landed(&mut dom, Seen::default()).await;
+    let listed = work::listed(&store, row.id).unwrap();
+    assert_eq!(listed.len(), 1, "the rule was not kept");
+    assert_eq!(listed[0].when, "from:boss@example.test OR subject:urgent");
+    assert_eq!(listed[0].rule.actions, [RuleAction::Notify]);
+}
+
 #[tokio::test]
 async fn a_push_the_server_refuses_is_said_at_the_head_of_the_page() {
     dispatching();

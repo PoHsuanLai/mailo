@@ -170,6 +170,21 @@ fn run_action(
                 ),
             }
         }
+        CommandId::ApplyRules => {
+            close(shell);
+            let targets = shell.peek().acted_on(&super::picks::drawn_order());
+            if targets.is_empty() {
+                super::motion::tell(
+                    crate::ui::copy::status::NOTHING_TO_APPLY_RULES_TO.to_owned(),
+                    super::motion::Follow::Nothing,
+                );
+                return;
+            }
+            let store = consume_context::<Arc<SqliteStore>>();
+            let said = super::rules::work::apply_to(&store, &targets, chrono::Utc::now());
+            *revision += 1;
+            super::motion::tell(said, super::motion::Follow::Nothing);
+        }
         CommandId::Print => {
             close(shell);
             let open = shell.read().open;

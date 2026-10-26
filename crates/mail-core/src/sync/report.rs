@@ -35,6 +35,8 @@ pub struct Counts {
     pub arrived: Vec<MessageId>,
     /// Arrived messages a rule acted on, with the rules that did.
     pub ruled: Vec<(MessageId, Vec<String>)>,
+    /// Arrived messages a rule asked to be told of, however quiet they would otherwise be.
+    pub noted: Vec<MessageId>,
 }
 
 /// One thing that went wrong in a pass that otherwise ran, and what to do about it.
@@ -306,6 +308,7 @@ impl Done {
                 still_queued: report.still_queued,
                 arrived: report.arrived.clone(),
                 ruled: report.ruled.clone(),
+                noted: Vec::new(),
             },
             trouble: Vec::new(),
         };

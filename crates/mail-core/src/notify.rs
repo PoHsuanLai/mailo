@@ -125,6 +125,16 @@ pub fn verdict(
     quiet.map_or(Verdict::Announce, Verdict::Quiet)
 }
 
+/// The verdict on an arrival a rule asked to be told of: said even when read, filed away or
+/// snoozed, which is what asking was for, and still not the user's own mail or mail from before
+/// the account was watched, which no rule meant.
+pub fn heard(verdict: Verdict) -> Verdict {
+    match verdict {
+        Verdict::Quiet(Quiet::Read | Quiet::Elsewhere(_) | Quiet::Snoozed) => Verdict::Announce,
+        other => other,
+    }
+}
+
 /// What a click on a notification should open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opens {
@@ -240,6 +250,21 @@ pub fn announce(
     notifier: &dyn Notifier,
     now: DateTime<Utc>,
 ) -> Result<usize, CoreError> {
+    announce_noted(store, account, arrived, &[], notifier, now)
+}
+
+/// [`announce`], with the arrivals a rule asked to be told of ([`RuleAction::Notify`]): those
+/// are said wherever the rules filed them and whether or not they are read ([`heard`]).
+///
+/// [`RuleAction::Notify`]: mail_domain::RuleAction::Notify
+pub fn announce_noted(
+    store: &SqliteStore,
+    account: AccountId,
+    arrived: &[MessageId],
+    noted: &[MessageId],
+    notifier: &dyn Notifier,
+    now: DateTime<Utc>,
+) -> Result<usize, CoreError> {
     let floor = floor::armed(store, account.clone(), now)?;
     if arrived.is_empty() {
         return Ok(0);
@@ -260,7 +285,13 @@ pub fn announce(
     let announced: Vec<&Message> = held
         .iter()
         .filter(|(message, snooze)| {
-            verdict(message, *snooze, &own, floor, now) == Verdict::Announce
+            let said = verdict(message, *snooze, &own, floor, now);
+            let said = if noted.contains(&message.id) {
+                heard(said)
+            } else {
+                said
+            };
+            said == Verdict::Announce
         })
         .map(|(message, _)| message)
         .collect();
@@ -490,5 +521,29 @@ mod tests {
         assert_eq!(load(dir.path()), Setting::Off);
         std::fs::write(dir.path().join(FILE_NAME), b"not json").unwrap();
         assert_eq!(load(dir.path()), Setting::On, "an unreadable file is on");
+    }
+
+    #[test]
+    fn mail_a_rule_asked_about_is_said_wherever_it_went() {
+        let cases = [
+            (Verdict::Announce, Verdict::Announce),
+            (Verdict::Quiet(Quiet::Read), Verdict::Announce),
+            (
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Archive)),
+                Verdict::Announce,
+            ),
+            (Verdict::Quiet(Quiet::Snoozed), Verdict::Announce),
+            (
+                Verdict::Quiet(Quiet::FromSelf),
+                Verdict::Quiet(Quiet::FromSelf),
+            ),
+            (
+                Verdict::Quiet(Quiet::BeforeFloor),
+                Verdict::Quiet(Quiet::BeforeFloor),
+            ),
+        ];
+        for (said, want) in cases {
+            assert_eq!(heard(said), want, "{said:?}");
+        }
     }
 }

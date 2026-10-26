@@ -1053,7 +1053,12 @@ async fn pass_on<B: mail_proto::Backend>(
     // queue leaves in the same pass. After the bodies, so a rule about words in the body finds
     // them for every message the pass had room to fetch.
     match engine.run_rules(&done.counts.arrived, now) {
-        Ok(ran) => done.counts.ruled.extend(ran.acted),
+        Ok(ran) => {
+            done.counts.ruled.extend(ran.acted);
+            // Forwards and replies are queued before the drain, so they leave in this pass.
+            let carried = crate::rules::speak::carry_out(engine.store(), &ran.left, now);
+            done.counts.noted.extend(carried.noted);
+        }
         Err(e) => done.trouble(None, e.retry(), format!("rules: {e}")),
     }
 

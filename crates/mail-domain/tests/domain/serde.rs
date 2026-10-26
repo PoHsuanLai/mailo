@@ -1669,6 +1669,13 @@ fixtures! {
         Filter::NewerThan(7),
         Filter::OlderThan(365),
     ],
+    // The actions added after `rules.json` was frozen.
+    "rule_actions_more.json" => Vec<RuleAction> = vec![
+        RuleAction::MarkUnread,
+        RuleAction::Notify,
+        RuleAction::Forward("ada@example.com".to_owned()),
+        RuleAction::Reply("Away".to_owned()),
+    ],
 }
 
 fn cert_fingerprint() -> CertFingerprint {

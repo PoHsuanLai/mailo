@@ -229,6 +229,40 @@ fn rules_sieve_cannot_express_stay_local_and_say_why() {
             ),
             Unmappable::Clause("has:attachment"),
         ),
+        (
+            rule(
+                8,
+                "passed on",
+                Filter::From(contains("boss")),
+                vec![
+                    RuleAction::Archive,
+                    RuleAction::Forward("me@elsewhere.example".to_owned()),
+                ],
+            ),
+            Unmappable::Speaks,
+        ),
+        (
+            rule(
+                9,
+                "answered",
+                Filter::All,
+                vec![RuleAction::Reply("Away".to_owned())],
+            ),
+            Unmappable::Speaks,
+        ),
+        (
+            rule(10, "heard", Filter::All, vec![RuleAction::Notify]),
+            Unmappable::Speaks,
+        ),
+        (
+            rule(
+                11,
+                "lately",
+                Filter::NewerThan(7),
+                vec![RuleAction::Archive],
+            ),
+            Unmappable::Clause("newer_than: / older_than:"),
+        ),
     ];
     for (r, why) in &cases {
         let out = compiled(std::slice::from_ref(r), None);
@@ -645,4 +679,38 @@ fn the_server_is_the_incoming_host_on_4190_with_starttls_required() {
     for (plan, want) in cases {
         assert_eq!(endpoint(&plan), want, "{:?}", plan.incoming);
     }
+}
+
+/// Any of several conditions is `anyof`, and a size is the server's own test; marking unread is
+/// `removeflag`, written in its turn among the flags.
+#[test]
+fn any_of_sizes_and_unread_are_written_as_sieve_says_them() {
+    let rule = rule(
+        1,
+        "Big or boss",
+        Filter::Or(vec![
+            Filter::Larger(5 * 1024 * 1024),
+            Filter::From(contains("boss@example.test")),
+        ]),
+        vec![
+            RuleAction::MarkRead,
+            RuleAction::MarkUnread,
+            RuleAction::Star,
+        ],
+    );
+    let out = compiled(&[rule], None);
+    let want = crlf(
+        r#"# Written by mailo, and replaced whenever its rules change: edit them there.
+require ["imap4flags"];
+
+# Big or boss
+if anyof (size :over 5242880, header :contains "from" "boss@example.test") {
+    addflag "\\Seen";
+    removeflag "\\Seen";
+    addflag "\\Flagged";
+}
+"#,
+    );
+    assert_eq!(out.script, want);
+    assert!(out.local_only.is_empty());
 }

@@ -142,8 +142,28 @@ pub fn rule_action(action: &mail_domain::RuleAction) -> String {
         RuleAction::Spam => MARK_AS_SPAM.to_owned(),
         RuleAction::MarkRead => MARK_AS_READ.to_owned(),
         RuleAction::Star => STAR.to_owned(),
+        RuleAction::MarkUnread => MARK_AS_UNREAD.to_owned(),
+        RuleAction::Notify => RULE_NOTIFY.to_owned(),
+        RuleAction::Forward(to) => format!("Forward to {to}"),
+        RuleAction::Reply(template) => format!("Reply with “{template}”"),
     }
 }
+
+// The rule actions no conversation menu has, and the pickers that finish two of them.
+pub const RULE_NOTIFY: &str = "Notify me";
+pub const RULE_FORWARD: &str = "Forward to…";
+pub const RULE_REPLY: &str = "Reply with template…";
+pub const RULE_SENDS_HELP: &str = "As mail arrives, while Mailo runs";
+pub const FORWARD_TO: &str = "Forward to";
+pub const AN_ADDRESS: &str = "Type an address";
+pub const REPLY_WITH: &str = "Reply with";
+pub const FIND_A_TEMPLATE: &str = "Find a template";
+/// The row of the forward picker that takes what was typed.
+pub fn forward_to(address: &str) -> String {
+    format!("Forward to {address}")
+}
+// Mail's Apply Rules, on the messages picked.
+pub const APPLY_RULES: &str = "Apply Rules";
 
 // ⌘K's commands for the contact book, which has no page of its own.
 pub const IMPORT_CONTACTS: &str = "Import Contacts…";

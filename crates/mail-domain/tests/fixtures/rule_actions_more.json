@@ -1,0 +1,16 @@
+[
+  {
+    "kind": "mark_unread"
+  },
+  {
+    "kind": "notify"
+  },
+  {
+    "kind": "forward",
+    "v": "ada@example.com"
+  },
+  {
+    "kind": "reply",
+    "v": "Away"
+  }
+]

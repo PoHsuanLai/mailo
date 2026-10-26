@@ -109,6 +109,43 @@ pub fn labels(store: &SqliteStore, account: AccountId) -> Vec<(String, LabelId)>
         .collect()
 }
 
+/// Run each account's rules over the messages of `threads`, as if they had just arrived: Mail's
+/// Apply Rules. Forwards and replies are queued; a notification is not raised, the person
+/// being there. Returns how many messages a rule acted on.
+pub fn apply_to(
+    store: &SqliteStore,
+    threads: &[mail_domain::ThreadId],
+    now: DateTime<Utc>,
+) -> Result<usize, CoreError> {
+    let mut by_account: Vec<(AccountId, Vec<mail_domain::MessageId>)> = Vec::new();
+    for thread in threads {
+        let thread = store.thread(*thread)?;
+        let account = thread.summary.account.clone();
+        match by_account.iter_mut().find(|(seen, _)| *seen == account) {
+            Some((_, ids)) => ids.extend(thread.messages.iter().copied()),
+            None => by_account.push((account, thread.messages.clone())),
+        }
+    }
+    let mut acted = 0;
+    for (account, ids) in by_account {
+        let caps = crate::act::caps_here(store, account.clone(), now);
+        let ran = mail_store::rules::apply_to(store, account, &caps, &ids, now)?;
+        acted += ran.acted.len();
+        super::speak::carry_out(store, &ran.left, now);
+    }
+    Ok(acted)
+}
+
+/// The names of the account's templates, which a rule's reply names.
+pub fn templates(store: &SqliteStore, account: AccountId) -> Vec<String> {
+    store
+        .templates(account)
+        .or_log_default("the account's templates could not be read")
+        .into_iter()
+        .map(|template| template.name)
+        .collect()
+}
+
 /// A label's name, for writing a condition back; one since deleted says so.
 fn name_of(index: &[(String, LabelId)]) -> impl Fn(LabelId) -> String + '_ {
     move |id| {
@@ -330,6 +367,7 @@ pub fn run(
         store,
         &caps,
         rule,
+        &Filter::All,
         BATCH,
         now,
         &mut |_| {

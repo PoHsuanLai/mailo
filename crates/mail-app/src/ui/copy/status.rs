@@ -14,6 +14,23 @@ pub fn messages(count: u64) -> String {
 // How fresh the mail is, in the sync mark's tip's fewer words.
 pub const JUST_NOW: &str = "just now";
 
+/// What Apply Rules did.
+pub fn rules_applied(acted: usize) -> String {
+    match acted {
+        0 => "No rule matched.".to_owned(),
+        1 => "Rules acted on 1 message.".to_owned(),
+        n => format!("Rules acted on {n} messages."),
+    }
+}
+
+/// Why Apply Rules did nothing.
+pub fn rules_not_applied(why: &str) -> String {
+    format!("Rules not applied: {why}.")
+}
+
+/// Apply Rules with nothing open or picked.
+pub const NOTHING_TO_APPLY_RULES_TO: &str = "Pick or open conversations to apply rules to them.";
+
 /// "1 min ago", "3 min ago".
 pub fn minutes_ago(minutes: i64) -> String {
     format!("{minutes} min ago")

@@ -190,6 +190,7 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
     (CommandId::Compose, "action:compose"),
     (CommandId::FromTemplate, "action:from-template"),
     (CommandId::ForwardAttached, "action:forward-attached"),
+    (CommandId::ApplyRules, "action:apply-rules"),
     (CommandId::Print, "action:print"),
     (CommandId::Sync, "action:sync"),
     (CommandId::Empty(Bin::Trash), "action:empty-trash"),

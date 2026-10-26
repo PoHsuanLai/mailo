@@ -80,6 +80,23 @@ pub const SNOOZED: &str = "Snoozed";
 pub const A_DATE: &str = "2026-10-08";
 /// The row a rule's conditions sit in: every one has to match.
 pub const WHEN_ALL_MATCH: &str = "When all of these match";
+/// The same row, when any one of them is enough.
+pub const WHEN_ANY_MATCH: &str = "When any of these match";
+/// The choice between the two, and its words.
+pub const MATCHES: &str = "Match";
+pub const ALL_OF_THEM: &str = "All";
+pub const ANY_OF_THEM: &str = "Any";
+// A rule's size and age conditions.
+pub const SIZE: &str = "Size";
+pub const AGE: &str = "Age";
+pub const IS_LARGER: &str = "is larger than";
+pub const IS_SMALLER: &str = "is smaller than";
+pub const IS_NEWER: &str = "is newer than";
+pub const IS_OLDER: &str = "is older than";
+/// A size condition's field, while it is empty.
+pub const A_SIZE: &str = "5M";
+/// An age condition's field, while it is empty.
+pub const AN_AGE: &str = "30d";
 /// The checkbox under a rule's actions, with how many conversations it would act on now.
 pub fn apply_to_existing(count: Option<usize>) -> String {
     match count {
