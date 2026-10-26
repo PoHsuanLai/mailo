@@ -47,3 +47,6 @@ pub const SPACE: &str = "Space";
 
 /// Tidy Up's list of what its button archives.
 pub const TO_ARCHIVE: &str = "To archive";
+
+/// Settings › General's third group.
+pub const CALENDAR: &str = "Calendar";

@@ -17,8 +17,14 @@ use mail_pim::{Invite, Kind, Me};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
+mod calendar;
+mod propose;
 mod when;
 
+pub use calendar::{
+    Followed, add, calendars, event_in, event_of, follow_answer, follow_cancellation, pick,
+};
+pub use propose::{Proposed, propose};
 pub use when::{REPEATS_OTHERWISE, WhenShown, repeats_words, show_when};
 
 /// An answer that is queued: what was answered, and who it goes to.
@@ -103,6 +109,9 @@ pub fn answer(
         Kind::Published => {
             return Err(CoreError::PublishedEvent);
         }
+        Kind::Counter | Kind::Refresh => {
+            return Err(CoreError::NothingToAnswer);
+        }
     }
     let address = match &invite.me {
         Me::Invited { address, .. } => address.clone(),
@@ -137,22 +146,62 @@ pub fn answer(
         name: organiser.name.clone(),
         email: organiser.email.clone(),
     };
+    let sent = Itip {
+        method: "REPLY",
+        subject: &subject,
+        text: &text,
+        calendar: &calendar_text,
+    };
+    let rcpt_to = queue(store, &original, &bytes, &identity.from, &to, &sent, now)?;
+    store.answer_invite(&InviteAnswer {
+        message,
+        attendance,
+        sequence: invite.sequence,
+        comment: comment.map(str::to_owned),
+        answered_at: now,
+    })?;
+    Ok(Answered {
+        attendance,
+        to: rcpt_to,
+    })
+}
+
+/// A message to an organiser that carries one iTIP object, and what a person reads beside it.
+struct Itip<'a> {
+    /// `REPLY` or `COUNTER`: the object's `METHOD`, said again on its part.
+    method: &'a str,
+    subject: &'a str,
+    text: &'a str,
+    calendar: &'a str,
+}
+
+/// Queue `itip` from `from` to `to`, in reply to `original`, and return the envelope recipients.
+fn queue(
+    store: &SqliteStore,
+    original: &Message,
+    bytes: &[u8],
+    from: &Address,
+    to: &Address,
+    itip: &Itip<'_>,
+    now: DateTime<Utc>,
+) -> Result<Vec<String>, CoreError> {
     let id = DraftId::generate();
     let post = mail_mime::calendar_reply(
-        &bytes,
+        bytes,
         &mail_mime::CalendarReply {
-            from: &identity.from,
-            to: &to,
-            subject: &subject,
-            text: &text,
-            calendar: &calendar_text,
+            from,
+            to,
+            subject: itip.subject,
+            text: itip.text,
+            calendar: itip.calendar,
+            method: itip.method,
             id,
             at: now,
         },
     )?;
     let frozen = store.blobs().put(&post.message)?;
     let queued = store.enqueue(
-        original.account,
+        original.account.clone(),
         // Named like a draft because the outbox keys a submission by one; no draft row
         // exists, which the drain already treats as "nothing to mark", as for a receipt.
         RemoteIntent::Send {
@@ -171,17 +220,7 @@ pub fn answer(
     if queued.is_none() {
         return Err(CoreError::AnswerNotQueued);
     }
-    store.answer_invite(&InviteAnswer {
-        message,
-        attendance,
-        sequence: invite.sequence,
-        comment: comment.map(str::to_owned),
-        answered_at: now,
-    })?;
-    Ok(Answered {
-        attendance,
-        to: post.rcpt_to,
-    })
+    Ok(post.rcpt_to)
 }
 
 /// The calendar object in `message`, as it arrived, for saving as an `.ics` file any calendar

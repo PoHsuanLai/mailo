@@ -18,6 +18,8 @@ pub(in crate::ui) enum Tag {
     Cancelled,
     Answer,
     Event,
+    Proposal,
+    Refresh,
 }
 
 impl Tag {
@@ -28,6 +30,8 @@ impl Tag {
             Tag::Cancelled => "Cancelled",
             Tag::Answer => "Answer",
             Tag::Event => "Event",
+            Tag::Proposal => crate::ui::copy::fields::PROPOSAL_TAG,
+            Tag::Refresh => crate::ui::copy::fields::REFRESH_TAG,
         }
     }
 
@@ -38,7 +42,7 @@ impl Tag {
         match self {
             Tag::Invitation | Tag::Updated => ChipVariant::Accent,
             Tag::Cancelled => ChipVariant::Status(ds::base::colour::contrast::Verdict::Fail),
-            Tag::Answer | Tag::Event => ChipVariant::Neutral,
+            Tag::Answer | Tag::Event | Tag::Proposal | Tag::Refresh => ChipVariant::Neutral,
         }
     }
 
@@ -47,7 +51,7 @@ impl Tag {
             Tag::Invitation | Tag::Event => "inv-tag",
             Tag::Updated => "inv-tag updated",
             Tag::Cancelled => "inv-tag cancelled",
-            Tag::Answer => "inv-tag answer",
+            Tag::Answer | Tag::Proposal | Tag::Refresh => "inv-tag answer",
         }
     }
 }
@@ -94,6 +98,21 @@ pub(in crate::ui) struct Card {
     pub summary: Option<String>,
     pub comment: Option<String>,
     pub stand: Stand,
+    /// What the card offers to do with the calendar.
+    pub calendar: Calendar,
+    /// Whether Propose New Time is offered: an invitation to the reader that asks for an answer.
+    pub propose: bool,
+}
+
+/// What the card offers to do with the calendar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Calendar {
+    /// Nothing: an answer, or a request for the latest version.
+    None,
+    /// Add to Calendar.
+    Add,
+    /// Remove from Calendar: the event was cancelled.
+    Remove,
 }
 
 /// The card for `invite` in `message`, with times in `zone` by `clock`.
@@ -111,7 +130,16 @@ pub(in crate::ui) fn card_of<Z: TimeZone>(
         Kind::Cancelled => Tag::Cancelled,
         Kind::Reply => Tag::Answer,
         Kind::Published => Tag::Event,
+        Kind::Counter => Tag::Proposal,
+        Kind::Refresh => Tag::Refresh,
     };
+    let calendar = match invite.kind {
+        Kind::Request(_) | Kind::Published | Kind::Counter => Calendar::Add,
+        Kind::Cancelled => Calendar::Remove,
+        Kind::Reply | Kind::Refresh => Calendar::None,
+    };
+    let propose =
+        matches!(invite.kind, Kind::Request(_)) && matches!(invite.me, Me::Invited { .. });
     let summary = matches!(invite.kind, Kind::Reply).then(|| reply_summary(invite));
     Card {
         message,
@@ -154,6 +182,8 @@ pub(in crate::ui) fn card_of<Z: TimeZone>(
         summary,
         comment: invite.comment.as_deref().map(one_line),
         stand: stand(invite, answered),
+        calendar,
+        propose,
     }
 }
 
@@ -162,6 +192,8 @@ fn stand(invite: &Invite, answered: Option<&InviteAnswer>) -> Stand {
         Kind::Request(_) => {}
         Kind::Cancelled => return Stand::Closed(None),
         Kind::Reply => return Stand::Closed(None),
+        Kind::Counter => return Stand::Closed(Some(crate::ui::copy::fields::PROPOSAL_NOTE)),
+        Kind::Refresh => return Stand::Closed(Some(crate::ui::copy::fields::REFRESH_NOTE)),
         Kind::Published => {
             return Stand::Closed(Some("No answer needed."));
         }

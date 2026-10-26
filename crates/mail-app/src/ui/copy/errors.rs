@@ -162,3 +162,16 @@ pub fn nothing_removed(why: &str) -> String {
         "Nothing was removed: {why}. The saved sign-in is already forgotten, so it will ask you to sign in again."
     )
 }
+
+// A calendar invitation and the calendar.
+pub const NO_CALENDAR_TO_ADD_TO: &str = "There is no calendar that takes events.";
+pub const NEW_TIME_NOT_READ: &str =
+    "Write the new time as year-month-day and hour:minute, like 2026-11-02 14:30.";
+
+pub fn calendar_failed(why: &str) -> String {
+    format!("Couldn’t reach your calendar: {why}")
+}
+
+pub fn calendar_not_updated(why: &str) -> String {
+    format!("Your calendar wasn’t updated: {why}")
+}

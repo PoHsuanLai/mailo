@@ -95,6 +95,8 @@ anyview = ["dep:anyview-peek", "dep:anyview-core"]
 # fresh for each run, named so no one can guess it, and only its owner's.
 tempfile = "3"
 porter-core.workspace = true
+# `CalendarStore`, which the window's calendar seam (`calendar.rs`) is built over.
+porter-calendar.workspace = true
 porter-provider.workspace = true
 porter-service.workspace = true
 # `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.

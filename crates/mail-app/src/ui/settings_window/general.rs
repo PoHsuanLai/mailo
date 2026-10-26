@@ -4,7 +4,7 @@
 //! Each group is a list of [`Line`]s ([`SECTIONS`]): a key of the schema, drawn by its kind
 //! ([`super::keys`]) as detent draws it, or the row that opens the trusted senders. A key is on
 //! the page once it is named there, and the tests hold every key of the schema to being named or
-//! left to detent on purpose (the provider marks). The help the schema gives each key is detent's;
+//! left to detent on purpose (the provider marks, and the calendar's id, which the pop-up sets). The help the schema gives each key is detent's;
 //! the page draws no captions.
 //!
 //! The trusted senders are a page of their own, as System Settings pushes a list it keeps: a row
@@ -31,6 +31,8 @@ pub(super) enum Line {
     TrustedSenders,
     /// Which application opens email links, with Make Default (`crate::ui::default_mail`).
     DefaultMail,
+    /// Which calendar Add to Calendar uses (`calendar.default`), listed on request.
+    Calendar,
 }
 
 /// A group of General: its header, and its rows in the order drawn.
@@ -40,7 +42,7 @@ pub(super) struct Section {
 }
 
 /// General, group by group.
-pub(super) const SECTIONS: [Section; 2] = [
+pub(super) const SECTIONS: [Section; 3] = [
     Section {
         title: copy::headers::READING,
         lines: &[
@@ -58,6 +60,10 @@ pub(super) const SECTIONS: [Section; 2] = [
             Line::Key("compose.spelling"),
             Line::Key("search.server_automatically"),
         ],
+    },
+    Section {
+        title: copy::headers::CALENDAR,
+        lines: &[Line::Calendar, Line::Key("calendar.keep_in_step")],
     },
 ];
 
@@ -149,6 +155,7 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
                                 None => rsx! {},
                             },
                             Line::DefaultMail => rsx! { crate::ui::default_mail::DefaultMailRow {} },
+                            Line::Calendar => rsx! { super::calendar::CalendarRow {} },
                             Line::TrustedSenders => rsx! {
                                 List::<String> {
                                     label: copy::titles::TRUSTED_SENDERS,

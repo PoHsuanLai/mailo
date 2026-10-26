@@ -61,6 +61,10 @@ porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850
 # The add-account window hosts porter's account service in process and draws its sheet
 # (`porter-service`: the sheet's conversation, `Sheets`, `AccountService`; pure, no zbus). It enters
 # `mail-app`, the front-end that draws.
+# The calendar store every porter client shares (`CalendarStore`): mailo puts invitations in it. Its
+# pin is the `calendar-store` branch's commit while that pull request waits; it moves to porter's
+# master once it lands, with the pins above.
+porter-calendar = { git = "https://github.com/PoHsuanLai/porter", rev = "6239f715dd445358596a50fafcea75a0460389b0" }
 porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "dcc16ada850559c7c8ae213cd7a9b153672e5031" }
 # porter-client is the app-facing API: the add-account window's in-process transport, and the
 # relay's byte stream `mail-runtime`'s transport can wrap. Its `dbus` feature stays off: mailo keeps

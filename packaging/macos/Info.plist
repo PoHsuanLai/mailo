@@ -25,6 +25,11 @@
 	<string>11.0</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
+	<!-- Add to Calendar and answering an invitation read and write the user's calendar through EventKit. -->
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>mailo adds the events of invitations you choose to your calendar, and keeps them in step with your answers.</string>
+	<key>NSCalendarsUsageDescription</key>
+	<string>mailo adds the events of invitations you choose to your calendar, and keeps them in step with your answers.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>

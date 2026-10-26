@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
-description = "mailo's one piece of AppKit that needs unsafe: the application delegate that hears open-URL and Dock-reopen events."
+description = "mailo's pieces of AppKit and EventKit that need unsafe: the application delegate that hears open-URL and Dock-reopen events, and the calendar store over EventKit."
 
 # The workspace forbids `unsafe_code`; `define_class!` cannot be written without it, so this crate
 # is the single place that says otherwise (denied, then allowed in `delegate.rs` alone). Nothing
@@ -18,7 +18,17 @@ missing_debug_implementations = "warn"
 [lints.clippy]
 todo = "allow"
 
+# The calendar store's trait and values, which EventKit implements here: porter forbids `unsafe`,
+# so the macOS backend lives in this crate. No `eds`: nothing here reaches a bus.
+[dependencies]
+porter-calendar.workspace = true
+# A oneshot to carry an EventKit answer back to the future that asked: `sync` only, no runtime.
+tokio = { version = "1", default-features = false, features = ["sync"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSAppleEventDescriptor", "NSAppleEventManager"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSURL", "NSArray", "NSError", "NSPredicate"] }
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
+block2 = "0.6"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+objc2-event-kit = { version = "0.3", default-features = false, features = ["std", "block2", "EKEventStore", "EKEvent", "EKCalendar", "EKCalendarItem", "EKObject", "EKTypes", "EKSource"] }

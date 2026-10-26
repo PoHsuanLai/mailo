@@ -89,6 +89,8 @@ pub fn describe(state: &InviteState, message: MessageId, clock: Clock) -> String
         Kind::Cancelled => "cancelled",
         Kind::Reply => "answer to your invitation",
         Kind::Published => "event",
+        Kind::Counter => "proposed new time",
+        Kind::Refresh => "request for the latest version",
     };
     let mut out = format!("    {head}: {title}, {when}\n");
     if let Some(answered) = answered {
@@ -116,6 +118,8 @@ pub fn render<Z: TimeZone>(
         Kind::Cancelled => "CANCELLED: this event will not take place".to_owned(),
         Kind::Reply => "an answer to an invitation you sent".to_owned(),
         Kind::Published => "an event to add to a calendar; it asks for no answer".to_owned(),
+        Kind::Counter => "an attendee proposing another time for your event".to_owned(),
+        Kind::Refresh => "an attendee asking for the latest version of your event".to_owned(),
     };
     let _ = writeln!(out, "  {status}");
     if invite.recurrence_id.is_some() {

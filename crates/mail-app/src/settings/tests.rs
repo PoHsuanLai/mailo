@@ -1,7 +1,7 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    BrandLogos, LoadRemoteImages, MailSettings, NewMail, ProviderMarks, ReadReceipts,
+    BrandLogos, KeepCalendar, LoadRemoteImages, MailSettings, NewMail, ProviderMarks, ReadReceipts,
     ReadingSettings, ServerSearch, Spelling, change, load, schema, store,
 };
 use ds_settings::ConfigRoot;
@@ -51,6 +51,8 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
             KeyKind::List(Box::new(KeyKind::Text)),
         ),
         ("search.server_automatically", pair("on", "off")),
+        ("calendar.keep_in_step", pair("on", "off")),
+        ("calendar.default", KeyKind::Text),
     ]
     .into_iter()
     .map(|(path, kind)| (path.to_owned(), kind))
@@ -73,6 +75,21 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
             .iter()
             .all(|key| !key.label.0.is_empty() && !key.help.0.is_empty())
     );
+}
+
+#[test]
+fn the_calendar_keys_start_on_and_unchosen_and_are_written_and_read_back() {
+    let (_dir, root) = scratch();
+    let loaded = load(&root);
+    assert_eq!(loaded.calendar.keep_in_step, KeepCalendar::On);
+    assert_eq!(loaded.calendar.default, "");
+    let written = change(&root, |settings| {
+        settings.calendar.keep_in_step = KeepCalendar::Off;
+        settings.calendar.default = "work-calendar".to_owned();
+    })
+    .unwrap();
+    assert_eq!(load(&root), written);
+    assert_eq!(load(&root).calendar.default, "work-calendar");
 }
 
 #[test]

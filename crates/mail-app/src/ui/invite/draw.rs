@@ -3,8 +3,8 @@
 use super::super::menu::{MenuKey, menu_key};
 use super::super::motion::{Follow, tell};
 use super::super::press::{available, on_primary};
-use super::{CHIPS, Card, Stand, answer, cached, lookup, save_ics};
-use crate::ui::copy::{aria, controls, fields};
+use super::{CHIPS, Calendar, Card, Stand, answer, cached, lookup, save_ics};
+use crate::ui::copy::{aria, controls, errors, fields, toasts};
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -39,6 +39,8 @@ pub(in crate::ui) enum Phase {
         attendance: Attendance,
         note: String,
     },
+    /// Propose New Time pressed: the time being written, and a note to go with it.
+    Proposing { start: String, note: String },
     /// The answer is being queued; every button stays disabled so a second press cannot send
     /// twice.
     Working,
@@ -113,10 +115,11 @@ pub(in crate::ui) fn InviteCard(
     let mut more = use_signal(|| false);
     let mut everyone = use_signal(|| false);
     let message = card.message;
+    let desk = try_consume_context::<crate::calendar::Calendars>();
     let now = phase();
     let offered = match (&card.stand, &now) {
         (Stand::Open { .. }, _) => true,
-        (Stand::Answered { .. }, Phase::Resting) => false,
+        (Stand::Answered { .. }, Phase::Resting | Phase::Proposing { .. }) => false,
         (Stand::Answered { .. }, _) => true,
         (Stand::Closed(_), _) => false,
     };
@@ -147,9 +150,20 @@ pub(in crate::ui) fn InviteCard(
     // Made here, not in the note row: the row unmounts the moment the answer starts, and a task
     // spawned from a component that is gone is dropped with it. A callback runs in the scope
     // that made it, and this card stays.
+    let keeping = desk.clone();
     let send = use_callback(move |(attendance, note): (Attendance, String)| {
-        give(looks.clone(), message, attendance, note, phase, known)
+        give(
+            looks.clone(),
+            message,
+            attendance,
+            note,
+            phase,
+            known,
+            keeping.clone(),
+        )
     });
+    let propose_it =
+        use_callback(move |(start, note): (String, String)| propose(message, start, note, phase));
     let open = disclosure() == Disclosure::Open;
     let details_name = match disclosure() {
         Disclosure::Closed => aria::SHOW_DETAILS,
@@ -184,6 +198,54 @@ pub(in crate::ui) fn InviteCard(
                     onclick: on_primary(move || disclosure.set(disclosure().toggled())),
                 }
             }
+            if desk.is_some() && (card.calendar != Calendar::None || card.propose) {
+                div { class: "inv-cal",
+                    match card.calendar {
+                        Calendar::Add => rsx! {
+                            Button {
+                                bezel: Bezel::Inline,
+                                label: controls::ADD_TO_CALENDAR,
+                                availability: available(!working),
+                                onclick: {
+                                    let desk = desk.clone();
+                                    on_primary(move || {
+                                        if let Some(desk) = desk.clone() {
+                                            into_calendar(desk, message, phase);
+                                        }
+                                    })
+                                },
+                                common: Common { aria_label: Some(controls::ADD_TO_CALENDAR.to_owned()), data: crate::ui::sidebar::tagged("invite", "add-to-calendar").data, ..Common::default() },
+                            }
+                        },
+                        Calendar::Remove => rsx! {
+                            Button {
+                                bezel: Bezel::Inline,
+                                label: controls::REMOVE_FROM_CALENDAR,
+                                availability: available(!working),
+                                onclick: {
+                                    let desk = desk.clone();
+                                    on_primary(move || {
+                                        if let Some(desk) = desk.clone() {
+                                            out_of_calendar(desk, message, phase);
+                                        }
+                                    })
+                                },
+                                common: Common { aria_label: Some(controls::REMOVE_FROM_CALENDAR.to_owned()), data: crate::ui::sidebar::tagged("invite", "remove-from-calendar").data, ..Common::default() },
+                            }
+                        },
+                        Calendar::None => rsx! {},
+                    }
+                    if card.propose {
+                        Button {
+                            bezel: Bezel::Inline,
+                            label: controls::PROPOSE_NEW_TIME,
+                            availability: available(!working),
+                            onclick: on_primary(move || phase.set(Phase::Proposing { start: String::new(), note: String::new() })),
+                            common: Common { aria_label: Some(controls::PROPOSE_NEW_TIME.to_owned()), data: crate::ui::sidebar::tagged("invite", "propose").data, ..Common::default() },
+                        }
+                    }
+                }
+            }
             match &card.stand {
                 Stand::Closed(Some(why)) => rsx! { InlineBanner { severity: Severity::Info, text: (*why).to_owned() } },
                 Stand::Closed(None) => rsx! {},
@@ -207,6 +269,9 @@ pub(in crate::ui) fn InviteCard(
             }
             if let Phase::Noting { attendance, note } = now.clone() {
                 Noting { attendance, note, phase, on_send: send }
+            }
+            if let Phase::Proposing { start, note } = now.clone() {
+                Proposing { start, note, phase, on_send: propose_it }
             }
             if working {
                 p { class: "inv-before", Label { text: "Sending\u{2026}", role: LabelRole::Secondary } }
@@ -364,6 +429,7 @@ fn give(
     note: String,
     mut phase: Signal<Phase>,
     mut known: Signal<Option<Option<Card>>>,
+    desk: Option<crate::calendar::Calendars>,
 ) {
     if *phase.peek() == Phase::Working {
         return;
@@ -371,6 +437,9 @@ fn give(
     phase.set(Phase::Working);
     let store = consume_context::<Arc<SqliteStore>>();
     let hours = crate::ui::clock::hours();
+    let keep =
+        crate::ui::prefs::current().calendar.keep_in_step == crate::settings::KeepCalendar::On;
+    let calendar_store = store.clone();
     // Spawned from a click or a key, which is where a task is polled.
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
@@ -390,6 +459,30 @@ fn give(
             Ok(Ok((said, card))) => {
                 known.set(Some(card));
                 phase.set(Phase::Resting);
+                // The calendar follows the answer, never the other way round: a calendar that
+                // cannot be reached costs the person a sentence, not their answer.
+                let said = match desk.filter(|_| keep) {
+                    Some(desk) => {
+                        match crate::calendar::flow::follow(
+                            &desk,
+                            &calendar_store,
+                            message,
+                            attendance,
+                        )
+                        .await
+                        {
+                            Ok(crate::calendar::flow::Kept::Updated(name)) => {
+                                format!("{said}. {}", toasts::updated_in_calendar(&name))
+                            }
+                            Ok(crate::calendar::flow::Kept::Removed(name)) => {
+                                format!("{said}. {}", toasts::taken_out_of_calendar(&name))
+                            }
+                            Ok(crate::calendar::flow::Kept::NotThere) => said,
+                            Err(why) => format!("{said}. {}", errors::calendar_not_updated(&why)),
+                        }
+                    }
+                    None => said,
+                };
                 // Nothing to take back: an answer queued is the organiser's once it leaves, and
                 // answering again is how a person changes their mind.
                 tell(said, Follow::Nothing);
@@ -422,4 +515,131 @@ fn save_file(message: MessageId, title: String, mut phase: Signal<Phase>) {
             Err(error) => phase.set(Phase::Failed(format!("Couldn’t save the file: {error}"))),
         }
     });
+}
+
+/// Add to Calendar: put the event in the calendar the settings name, on the calendar's own
+/// threads, and say where it went.
+fn into_calendar(desk: crate::calendar::Calendars, message: MessageId, mut phase: Signal<Phase>) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let wanted = crate::ui::prefs::current().calendar.default;
+    phase.set(Phase::Working);
+    spawn(async move {
+        match crate::calendar::flow::add(&desk, &store, message, &wanted).await {
+            Ok(added) => {
+                phase.set(Phase::Resting);
+                tell(
+                    match added {
+                        crate::calendar::flow::Added::In(name) => toasts::added_to_calendar(&name),
+                        crate::calendar::flow::Added::HandedOver => {
+                            toasts::handed_to_calendar_app()
+                        }
+                    },
+                    Follow::Nothing,
+                );
+            }
+            Err(why) => phase.set(Phase::Failed(errors::calendar_failed(&why))),
+        }
+    });
+}
+
+/// Remove from Calendar: take a cancelled event out of the calendar that has it.
+fn out_of_calendar(desk: crate::calendar::Calendars, message: MessageId, mut phase: Signal<Phase>) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    phase.set(Phase::Working);
+    spawn(async move {
+        match crate::calendar::flow::cancel(&desk, &store, message).await {
+            Ok(Some(name)) => {
+                phase.set(Phase::Resting);
+                tell(toasts::removed_from_calendar(&name), Follow::Nothing);
+            }
+            Ok(None) => {
+                phase.set(Phase::Resting);
+                tell(toasts::NOT_IN_CALENDAR.to_owned(), Follow::Nothing);
+            }
+            Err(why) => phase.set(Phase::Failed(errors::calendar_failed(&why))),
+        }
+    });
+}
+
+/// Queue the proposed time for the organiser on a blocking thread.
+fn propose(message: MessageId, start: String, note: String, mut phase: Signal<Phase>) {
+    let Some(start) = crate::calendar::flow::local_time(&start) else {
+        phase.set(Phase::Failed(errors::NEW_TIME_NOT_READ.to_owned()));
+        return;
+    };
+    let store = consume_context::<Arc<SqliteStore>>();
+    phase.set(Phase::Working);
+    spawn(async move {
+        let done = tokio::task::spawn_blocking(move || {
+            let note = Some(note.as_str()).filter(|note| !note.trim().is_empty());
+            mail_core::invite::propose(&store, message, start, note, chrono::Utc::now())
+        })
+        .await;
+        match done {
+            Ok(Ok(_)) => {
+                phase.set(Phase::Resting);
+                tell(toasts::PROPOSAL_SENT.to_owned(), Follow::Nothing);
+            }
+            Ok(Err(why)) => phase.set(Phase::Failed(why.to_string())),
+            Err(error) => phase.set(Phase::Failed(error.to_string())),
+        }
+    });
+}
+
+/// The new time and its note, and Send Proposal. Enter sends; Esc cancels.
+#[component]
+fn Proposing(
+    start: String,
+    note: String,
+    phase: Signal<Phase>,
+    on_send: Callback<(String, String)>,
+) -> Element {
+    let (typed_start, typed_note) = (start.clone(), note.clone());
+    rsx! {
+        div {
+            class: "inv-noting",
+            onkeydown: move |event: KeyboardEvent| {
+                event.stop_propagation();
+                match menu_key(&event.key().to_string()) {
+                    Some(MenuKey::Enter) => {
+                        event.prevent_default();
+                        on_send.call((typed_start.clone(), typed_note.clone()));
+                    }
+                    Some(MenuKey::Escape) => phase.set(Phase::Resting),
+                    _ => {}
+                }
+            },
+            TextField {
+                label: fields::NEW_TIME.to_owned(),
+                value: start.clone(),
+                placeholder: fields::NEW_TIME_EXAMPLE.to_owned(),
+                oninput: {
+                    let note = note.clone();
+                    move |value: String| phase.set(Phase::Proposing { start: value, note: note.clone() })
+                },
+                common: Common { extra_class: ExtraClass::parse("inv-note-field").ok(), ..Common::default() },
+            }
+            TextField {
+                label: fields::NOTE.to_owned(),
+                value: note.clone(),
+                placeholder: fields::NOTE_PLACEHOLDER.to_owned(),
+                oninput: {
+                    let start = start.clone();
+                    move |value: String| phase.set(Phase::Proposing { start: start.clone(), note: value })
+                },
+                common: Common { extra_class: ExtraClass::parse("inv-note-field").ok(), ..Common::default() },
+            }
+            Button {
+                label: controls::CANCEL.to_owned(),
+                common: Common { aria_label: Some(aria::CANCEL_PROPOSAL.to_owned()), ..Common::default() },
+                onclick: on_primary(move || phase.set(Phase::Resting)),
+            }
+            Button {
+                answers: Answers::Return,
+                label: controls::SEND_PROPOSAL.to_owned(),
+                common: Common { data: crate::ui::sidebar::tagged("invite", "send-proposal").data, ..Common::default() },
+                onclick: on_primary(move || on_send.call((start.clone(), note.clone()))),
+            }
+        }
+    }
 }

@@ -119,6 +119,10 @@ pub enum CoreError {
     IsAnAnswer,
     #[error("that event was published to be added to a calendar and asks for no answer")]
     PublishedEvent,
+    #[error("that message asks for nothing the reader can answer with Accept, Maybe or Decline")]
+    NothingToAnswer,
+    #[error("that event has no time to put in a calendar")]
+    NoTimeToKeep,
     #[error("you organised that event")]
     YouOrganised,
     #[error("none of this account's addresses is among that event's attendees")]

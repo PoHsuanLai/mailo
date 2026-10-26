@@ -139,10 +139,16 @@ fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
             super::general::Line::Key(path) => Some(*path),
-            super::general::Line::TrustedSenders | super::general::Line::DefaultMail => None,
+            super::general::Line::TrustedSenders
+            | super::general::Line::DefaultMail
+            | super::general::Line::Calendar => None,
         })
         .collect();
-    let left = ["window.provider_marks", "reading.trusted_image_senders"];
+    let left = [
+        "window.provider_marks",
+        "reading.trusted_image_senders",
+        "calendar.default",
+    ];
     for key in crate::settings::schema().key {
         let path = key.path.0.as_str();
         assert!(

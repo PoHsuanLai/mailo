@@ -8,7 +8,7 @@
 
 use super::{Calendar, Event};
 use crate::PimError;
-use crate::line::{self, ContentLine, escape};
+use crate::line::{ContentLine, escape};
 use chrono::{DateTime, Utc};
 use mail_domain::Attendance;
 
@@ -90,43 +90,16 @@ pub fn reply(
         body.push(ContentLine::new("COMMENT", escape(comment)));
     }
 
-    let mut out = String::new();
-    for head in [
-        ContentLine::new("BEGIN", "VCALENDAR"),
-        ContentLine::new("PRODID", answering.product),
-        ContentLine::new("VERSION", "2.0"),
-        ContentLine::new("CALSCALE", "GREGORIAN"),
-        ContentLine::new("METHOD", "REPLY"),
-    ] {
-        out.push_str(&line::write(&head));
-    }
-    // Every zone a carried time names, so the organiser's calendar can read it (RFC 5545
-    // §3.6.5), each once.
-    let mut named: Vec<&str> = Vec::new();
-    for tzid in body.iter().flat_map(|l| l.values("TZID")) {
-        if !named.contains(&tzid) {
-            named.push(tzid);
-        }
-    }
-    for zone in named
-        .iter()
-        .filter_map(|tzid| calendar.zones.iter().find(|z| z.tzid == *tzid))
-    {
-        for zone_line in &zone.lines {
-            out.push_str(&line::write(zone_line));
-        }
-    }
-    out.push_str(&line::write(&ContentLine::new("BEGIN", "VEVENT")));
-    for property in &body {
-        out.push_str(&line::write(property));
-    }
-    out.push_str(&line::write(&ContentLine::new("END", "VEVENT")));
-    out.push_str(&line::write(&ContentLine::new("END", "VCALENDAR")));
-    Ok(out)
+    Ok(super::write::object(
+        Some("REPLY"),
+        answering.product,
+        &calendar.zones,
+        &[body],
+    ))
 }
 
 /// Whether an `ATTENDEE` line names `address`, compared as addresses are: case-insensitively.
-fn same_address(line: &ContentLine, address: &str) -> bool {
+pub(super) fn same_address(line: &ContentLine, address: &str) -> bool {
     let value = line.value.trim();
     let written = match value.get(..7) {
         Some(scheme) if scheme.eq_ignore_ascii_case("mailto:") => value[7..].trim(),

@@ -120,3 +120,5 @@ pub fn open_row(subject: &str) -> String {
 pub fn try_again_to_download(name: &str) -> String {
     format!("Try again to download {name}")
 }
+/// The invitation card's Cancel while a new time is being written.
+pub const CANCEL_PROPOSAL: &str = "Cancel proposal";

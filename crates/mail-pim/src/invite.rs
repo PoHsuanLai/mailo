@@ -46,6 +46,11 @@ pub enum Kind {
     Reply,
     /// `METHOD:PUBLISH`, or none: an event to add to a calendar, with no answer expected.
     Published,
+    /// `METHOD:COUNTER`: an attendee proposing another time for an event the reader organised.
+    /// The time in [`Invite::when`] is the proposed one.
+    Counter,
+    /// `METHOD:REFRESH`: an attendee asking the organiser for the latest version of the event.
+    Refresh,
 }
 
 /// Whether an invitation is the first for its event or a change to one already sent.
@@ -103,7 +108,7 @@ pub enum Unplaced {
 /// The invitation in `calendar`, for a reader whose addresses are `me`.
 ///
 /// `None` when it holds no event, or asks for something that is not an invitation to show
-/// (`REFRESH`, `COUNTER`, `DECLINECOUNTER`). Addresses are compared case-insensitively.
+/// (`DECLINECOUNTER`). Addresses are compared case-insensitively.
 pub fn summarise(calendar: &Calendar, me: &[&str]) -> Option<Invite> {
     let event = calendar.main_event()?;
     let cancelled = event.status == Some(EventStatus::Cancelled);
@@ -116,7 +121,9 @@ pub fn summarise(calendar: &Calendar, me: &[&str]) -> Option<Invite> {
         }),
         Method::Reply => Kind::Reply,
         Method::Publish | Method::Add | Method::Unstated => Kind::Published,
-        Method::Refresh | Method::Counter | Method::DeclineCounter => return None,
+        Method::Counter => Kind::Counter,
+        Method::Refresh => Kind::Refresh,
+        Method::DeclineCounter => return None,
     };
     let mine = |address: &str| me.iter().any(|m| m.trim().eq_ignore_ascii_case(address));
     let me = if event.organizer.as_ref().is_some_and(|o| mine(&o.email)) {
