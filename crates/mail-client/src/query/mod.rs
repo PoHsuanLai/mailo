@@ -160,3 +160,6 @@ mod conversation;
 mod conversations;
 pub use conversation::{Conversation, Messages};
 pub use conversations::{Conversations, Found, How, Search};
+
+// A search as typed, read into a filter.
+pub use mail_core::query::{named, parse_with, tokens};

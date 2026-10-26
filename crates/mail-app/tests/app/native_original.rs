@@ -201,7 +201,7 @@ struct Window {
 
 fn contexts(dir: &std::path::Path) -> RootContexts {
     mail_app::ui::native::contexts(
-        seeded(dir),
+        mail_client::Client::open(seeded(dir), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         None,

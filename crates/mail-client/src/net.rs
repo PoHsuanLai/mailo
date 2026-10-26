@@ -11,7 +11,10 @@ use chrono::{DateTime, Utc};
 use mail_core::account::{Added, Credentials, RemoveError, Removed, Setup};
 use mail_core::sync::Configured;
 use mail_core::sync::report::PassEnd;
-use mail_core::{AccountSecrets, CoreError, Mail, NoKeyring, Pushed, Searched};
+use mail_core::{
+    AccountSecrets, CoreError, Environment, Mail, NoKeyring, OAuthClients, Pushed, Searched,
+    SigningStore,
+};
 use mail_domain::{MessageId, PgpKey, Retry, Section};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
@@ -78,6 +81,58 @@ fn mail_over(reach: Option<&Reach>, store: Arc<SqliteStore>) -> Mail {
 impl Net<'_> {
     fn mail(&self) -> Mail {
         mail_over(self.0.reached().get(), self.0.store_arc())
+    }
+
+    /// Where account secrets are kept: the program's keyring, or none for a client never told.
+    pub fn secrets(&self) -> Arc<dyn AccountSecrets> {
+        self.mail().secrets()
+    }
+
+    /// Where signing keys are kept, as [`Net::secrets`].
+    pub fn signing(&self) -> Arc<dyn SigningStore> {
+        self.mail().signing()
+    }
+
+    /// What the program was started with.
+    pub fn environment(&self) -> Environment {
+        self.mail().environment().clone()
+    }
+
+    /// The OAuth clients the program signs in as.
+    pub fn oauth_clients(&self) -> OAuthClients {
+        self.mail().oauth_clients().clone()
+    }
+
+    /// The runtime servers are reached on.
+    pub fn runtime(&self) -> tokio::runtime::Handle {
+        self.mail().runtime().clone()
+    }
+
+    /// Run the future `work` makes on a thread of its own, waiting on [`Net::runtime`] there, and
+    /// wait for its output: for work that borrows something not `Send` (a sign-in's browser
+    /// callback) across a wait, so cannot be a task. `None` when the thread could not start or
+    /// ended without an answer.
+    pub async fn on_thread<T, F>(
+        &self,
+        name: &str,
+        work: impl FnOnce() -> F + Send + 'static,
+    ) -> Option<T>
+    where
+        F: Future<Output = T>,
+        T: Send + 'static,
+    {
+        let runtime = self.runtime();
+        let (done, answer) = tokio::sync::oneshot::channel();
+        std::thread::Builder::new()
+            .name(name.to_owned())
+            .spawn(move || {
+                // The future that asked may have been dropped; then nobody is left to tell.
+                let _ = done.send(runtime.block_on(work()));
+            })
+            // A thread that could not start is an answer that never comes.
+            .ok()?;
+        // A sender dropped without a send is a thread that panicked.
+        answer.await.ok()
     }
 
     fn wait<T>(mail: &Mail, work: impl Future<Output = T>) -> T {

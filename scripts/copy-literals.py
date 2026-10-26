@@ -1,7 +1,7 @@
 """Count the visible string literals in the window's code outside ui/copy/.
 
-All the words the window shows live in crates/mail-app/src/ui/copy/, by kind. This finds the
-string literals that still say something to a person elsewhere under crates/mail-app/src/ui, so
+All the words the window shows live in crates/mail-ui/src/ui/copy/, by kind. This finds the
+string literals that still say something to a person elsewhere under crates/mail-ui/src/ui, so
 scripts/check-copy.sh can hold their number to a ratchet (scripts/copy-literals.txt).
 
 What is a visible literal is a heuristic, kept simple and deterministic:
@@ -35,7 +35,7 @@ import re
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-UI = os.path.join("crates", "mail-app", "src", "ui")
+UI = os.path.join("crates", "mail-ui", "src", "ui")
 COPY = os.path.join(UI, "copy")
 
 # Calls whose string arguments are not shown in the window.

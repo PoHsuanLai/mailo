@@ -125,7 +125,7 @@ fn open(browse: Opened) -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let original = Original::new(Arc::new(NoFetch), Arc::new(browse));
     let contexts = mail_app::ui::native::contexts(
-        seeded(dir.path()),
+        mail_client::Client::open(seeded(dir.path()), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         None,

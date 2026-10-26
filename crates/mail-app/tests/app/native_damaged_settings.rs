@@ -54,7 +54,7 @@ fn a_damaged_settings_file_is_asked_about_and_kept_aside_before_the_window_opens
     let found = damaged_files(&dirs);
     assert_eq!(found.len(), 2, "{found:?}");
     let contexts = mail_app::ui::native::contexts(
-        Arc::new(mail),
+        mail_client::Client::open(Arc::new(mail), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         Some(dirs.clone()),

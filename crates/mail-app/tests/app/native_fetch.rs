@@ -66,7 +66,7 @@ fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
     let dir = tempfile::tempdir().unwrap();
     let store = bare(dir.path());
     let contexts = mail_app::ui::native::contexts(
-        store,
+        mail_client::Client::open(store, mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         None,
@@ -109,7 +109,7 @@ fn an_account_added_while_the_window_is_open_is_said() {
     let dir = tempfile::tempdir().unwrap();
     let store = bare(dir.path());
     let contexts = mail_app::ui::native::contexts(
-        Arc::clone(&store),
+        mail_client::Client::open(Arc::clone(&store), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         None,

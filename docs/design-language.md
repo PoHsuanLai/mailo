@@ -212,7 +212,7 @@ These are quire's colours. mailo adds nothing:
 - Title Case for controls, menu items, tips and window titles. Sentence case for sentences.
 - Short: a header is one or two words. A button is a verb or verb + noun.
 - Plain words, no jargon: "Scheduled", not "Waiting to be sent". Protocol names (IMAP, JMAP, Graph) appear only in Settings › Accounts › details.
-- All text lives in `crates/mail-app/src/ui/copy/`, by kind.
+- All text lives in `crates/mail-ui/src/ui/copy/`, by kind.
 
 ## 8. Motion
 

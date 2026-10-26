@@ -19,6 +19,7 @@ mod external;
 pub mod fetch;
 mod live;
 mod net;
+mod pure;
 pub mod query;
 mod stored;
 
@@ -28,6 +29,11 @@ pub use client::{Client, ClientConfig, FetchRun};
 pub use error::ClientError;
 pub use external::on_write;
 pub use live::{Live, Query, Snapshot};
-pub use mail_store::{Generation, Topics};
+pub use mail_core::{
+    AccountSecrets, ClientRegistry, CoreError, Environment, NoKeyring, OAuthClients, Program,
+    Pushed, Remedy, Searched, SignInWith, SigningStore,
+};
+pub use mail_store::{Generation, StoreError, Topics};
 pub use net::{Net, Reach, SignIn};
+pub use pure::*;
 pub use stored::Stored;

@@ -76,7 +76,7 @@ pub fn open_window(store: &Arc<SqliteStore>, how: Open) -> Harness {
         mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled))
     });
     let mut contexts = mail_app::ui::native::contexts(
-        Arc::clone(store),
+        mail_client::Client::open(Arc::clone(store), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         how.spaces,
         how.dirs,

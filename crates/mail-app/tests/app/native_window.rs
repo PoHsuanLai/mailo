@@ -113,7 +113,7 @@ fn window_contexts_printing(
     printer: mail_app::ui::native::Printer,
 ) -> RootContexts {
     mail_app::ui::native::contexts(
-        Arc::clone(store),
+        mail_client::Client::open(Arc::clone(store), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         None,

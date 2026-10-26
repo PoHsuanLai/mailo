@@ -239,6 +239,11 @@ impl Mail {
         self.clients.saved()
     }
 
+    /// The OAuth clients this handle was given, as they were given: read again each time asked.
+    pub fn oauth_clients(&self) -> &OAuthClients {
+        &self.clients
+    }
+
     /// Adding, listing and removing accounts.
     pub fn accounts(&self) -> AccountOps<'_> {
         AccountOps(self)

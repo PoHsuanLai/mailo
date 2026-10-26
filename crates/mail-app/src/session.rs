@@ -16,8 +16,10 @@
 //! [`EVERY`]. The count is read and said again every [`REPEAT`] even when nothing was written,
 //! so a dock that started after mailo, or restarted, learns it within that time.
 
-use crate::launcher::{Badge, Unread, unread};
+use crate::launcher::{Badge, Unread};
+use chrono::{DateTime, Utc};
 use mail_core::Store;
+use mail_core::scope::Scope;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -106,6 +108,17 @@ where
                 }
             }
         })
+}
+
+/// Count them. One indexed query (`Store::count`), made off the thread that draws.
+pub fn unread<S: Store + ?Sized>(
+    store: &S,
+    scope: &Scope,
+    now: DateTime<Utc>,
+) -> Result<Unread, mail_core::StoreError> {
+    store
+        .count(&crate::launcher::filter(scope), now)
+        .map(Unread)
 }
 
 #[cfg(test)]

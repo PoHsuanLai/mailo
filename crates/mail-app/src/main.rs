@@ -215,7 +215,7 @@ fn main() {
         // The stored Spaces, or a first run over the accounts, written where the window
         // keeps them.
         let spaces = mail_app::ui::space::boot(dirs.as_ref(), &ids, &legacy);
-        if let Err(why) = mail_app::ui::run(
+        if let Err(why) = mail_app::window::open(
             store,
             look,
             spaces,

@@ -180,33 +180,10 @@ pub fn clock() -> Clock {
         .value
         .region
         .hours;
-    clock_from(hours.resolve(time_locale()))
+    crate::ui::clock_from(hours.resolve(crate::ui::time_locale()))
 }
 
-/// The locale name the session writes times in: `LC_ALL`, then `LC_TIME`, then `LANG`, the first
-/// set and not empty, else `C` (`ds_settings::time_locale`). Read from the process once; a
-/// session does not change its locale under a running program.
-pub fn time_locale() -> &'static str {
-    static LOCALE: OnceLock<String> = OnceLock::new();
-    LOCALE.get_or_init(|| {
-        let get = |name: &str| std::env::var(name).ok();
-        let (all, time, lang) = (get("LC_ALL"), get("LC_TIME"), get("LANG"));
-        ds_settings::time_locale(all.as_deref(), time.as_deref(), lang.as_deref()).to_owned()
-    })
-}
-
-/// The desktop's settled clock as `mail-core`'s, which knows nothing of the desktop.
-pub fn clock_from(hours: ds_settings::ResolvedHours) -> Clock {
-    match hours {
-        ds_settings::ResolvedHours::H12 => Clock::H12,
-        ds_settings::ResolvedHours::H24 => Clock::H24,
-    }
-}
-
-/// The log target of the window's few traces of what it was asked from outside (a banner's
-/// click, a second launch's hand-off). They go to stderr beside the warnings: a window has no
-/// other way to say what a click did, and the desktop scenarios (`dev/scenarios`) read them there.
-pub const TRACE: &str = "mailo::trace";
+pub use crate::ui::TRACE;
 
 /// Libraries whose warnings are about the input they were handed, not about a fault: an HTML
 /// parser warns of malformed markup, which is what most mail is, and nothing anyone can act on.
@@ -374,7 +351,7 @@ mod tests {
         for (hours, all, time, lang, want) in CASES {
             let locale = time_locale(*all, *time, *lang);
             assert_eq!(
-                clock_from(hours.resolve(locale)),
+                crate::ui::clock_from(hours.resolve(locale)),
                 *want,
                 "{hours:?} {all:?} {time:?} {lang:?}"
             );

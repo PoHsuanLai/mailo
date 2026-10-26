@@ -154,7 +154,10 @@ fn open(script: Script, prefill: Option<&str>) -> Window {
     let wiring = AddAccountWiring::new(seams(&script, &log), browse);
     let config = HarnessConfig::new(VIEW)
         .with_clock(Clock::Virtual)
-        .with_context(store)
+        .with_context(mail_client::Client::inline(
+            store,
+            Arc::new(mail_core::mail::SystemClock),
+        ))
         .with_context(environment(ds::prelude::Theme::Light))
         .with_context(AddAccountOpened::new(wiring, prefill.map(str::to_owned)));
     let mut harness = Harness::new(add_account_root, config);
@@ -217,7 +220,7 @@ fn lint(html: &str) -> Vec<ds_lint::Offence> {
     let css = format!(
         "{}\n{}",
         ds_shell::stylesheet(),
-        include_str!("../../src/ui/style/accounts.css")
+        include_str!("../../../mail-ui/src/ui/style/accounts.css")
     );
     ds_lint::markup(html, &css, &ds_lint::LintConfig::new(&ds_shell::kits()))
 }

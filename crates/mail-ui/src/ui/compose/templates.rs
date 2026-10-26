@@ -1,0 +1,363 @@
+//! Templates in the window: "Start from a template" in the `/` menu, "Save as Template…" in the
+//! foot's ⋯ (`foot.rs`), and the rows every list of templates draws, here and in ⌘K.
+//!
+//! Every write goes through `mail_client::template`, the module `mailo template` uses. Templates are
+//! local only; see `mail_domain::template`.
+
+use ds::base::geometry::placement::{Align, Side};
+use ds::components::content::avatar::AvatarSize;
+use ds::components::content::label::LabelRole;
+use ds::components::overlays::popover::Arrow;
+use ds::host::measure::MountedRef;
+use ds::prelude::*;
+use ds::root::common::Common;
+use ds::root::pass_through::ExtraClass;
+
+use chrono::{DateTime, Utc};
+use dioxus::prelude::*;
+use mail_client::Client;
+use mail_domain::{Draft, Template, TemplateId};
+
+use super::super::menu::{MenuItem, MenuKey, Right, anchor_at, menu_key, palette_groups};
+use super::super::motion::{Follow, tell};
+use super::desk::{self, Desk};
+use super::float::{commit, query, slash_items};
+use super::life;
+use super::page::{Float, Page, PageKind, Phase, address};
+use crate::ui::view::Shell;
+use mail_client::editor::{Caret, Node, Op, Range, runs_text};
+
+/// The ⋯ item that keeps the message as a template.
+pub(in crate::ui) const SAVE_KEY: &str = "template:save";
+/// The `/` row that opens the emoji picker at the caret.
+pub(in crate::ui) const EMOJI_KEY: &str = "emoji:pick";
+/// The `/` row that starts the message from one, offered while the body is empty.
+pub(in crate::ui) const START_KEY: &str = "template:start";
+
+/// How much of a template's first line its row shows.
+const FIRST_LINE: usize = 60;
+
+/// The `/` menu on this page: the editor's rows, then what can be done with the whole message.
+pub(in crate::ui) fn page_slash_items(page: &Page) -> Vec<MenuItem> {
+    let typed = query(page).unwrap_or_default();
+    let wanted = typed.trim().to_lowercase();
+    let mut items = slash_items(&typed);
+    let mut offer = |key: &str, icon: Icon, name: &str, help: &str, words: &[&str]| {
+        let hit = wanted.is_empty()
+            || name.to_lowercase().starts_with(&wanted)
+            || words.iter().any(|word| word.starts_with(&wanted));
+        if hit {
+            items.push(MenuItem {
+                help: Some(help.to_owned()),
+                group: wanted.is_empty().then(|| "This message".to_owned()),
+                ..MenuItem::icon(key, icon, name)
+            });
+        }
+    };
+    // The picker the foot's emoji button used to open: one step from the caret, as `:` is.
+    offer(
+        EMOJI_KEY,
+        Icon::Smile,
+        "Emoji…",
+        "Pick one to put at the caret",
+        &["emoji", "smile"],
+    );
+    if page.kind == PageKind::New && body_is_empty(page, &typed) {
+        offer(
+            START_KEY,
+            Icon::FilePen,
+            "Start from a Template",
+            "A saved message",
+            &["template", "start"],
+        );
+    }
+    items
+}
+
+/// Whether the body holds nothing but the `/` being typed.
+fn body_is_empty(page: &Page, typed: &str) -> bool {
+    let mut text = String::new();
+    for node in &page.session.doc.nodes {
+        match node {
+            Node::Para { runs, .. } => text.push_str(&runs_text(runs)),
+            Node::Object(_) => return false,
+        }
+    }
+    text.trim() == format!("/{typed}").trim()
+}
+
+/// A template row was picked from `/`: the typed `/…` goes, and the name field or the list
+/// opens in its place. `false` for any other row, which is the editor's.
+pub(in crate::ui) fn pick(page: &mut Page, key: &str) -> bool {
+    let next = match key {
+        SAVE_KEY => Float::SaveTemplate(String::new()),
+        START_KEY => Float::Templates { active: 0 },
+        EMOJI_KEY => Float::EmojiPicker,
+        _ => return false,
+    };
+    if let Float::Slash { anchor, .. } = page.float {
+        let range = Range {
+            start: anchor,
+            end: page.session.caret.pos,
+        };
+        commit(
+            page,
+            vec![Op::Delete { range }],
+            Caret::at(anchor.node, anchor.offset),
+        );
+    }
+    page.float = next;
+    true
+}
+
+/// The rows of a list of templates, `(account address, template)`, narrowed to `typed`: the
+/// name, the address it leaves from and its first line, and a × to delete it.
+pub(in crate::ui) fn template_rows(all: &[(String, Template)], typed: &str) -> Vec<MenuItem> {
+    let typed = typed.trim();
+    all.iter()
+        .filter_map(|(from, template)| {
+            let marks = if typed.is_empty() {
+                Vec::new()
+            } else {
+                mail_client::search::match_list(typed, &[template.name.as_str()])
+                    .into_iter()
+                    .next()?
+                    .indices
+            };
+            Some(MenuItem {
+                help: Some(format!("{from} · {}", first_line(template))),
+                right: Right::Remove(format!("Delete template “{}”", template.name)),
+                marks,
+                ..MenuItem::icon(
+                    template.id.to_string(),
+                    Icon::FilePen,
+                    template.name.clone(),
+                )
+            })
+        })
+        .collect()
+}
+
+/// The first line a template says, else its subject: what a row recognises it by.
+fn first_line(template: &Template) -> String {
+    let line = template
+        .text
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or(template.subject.as_str());
+    let line = if line.is_empty() { "(empty)" } else { line };
+    if line.chars().count() > FIRST_LINE {
+        format!("{}…", line.chars().take(FIRST_LINE).collect::<String>())
+    } else {
+        line.to_owned()
+    }
+}
+
+/// The template a row's key names.
+pub(in crate::ui) fn named(all: &[(String, Template)], key: &str) -> Option<TemplateId> {
+    all.iter()
+        .map(|(_, template)| template.id)
+        .find(|id| id.to_string() == key)
+}
+
+/// Every template, or none when the client cannot say.
+pub(in crate::ui) fn every(client: &Client) -> Vec<(String, Template)> {
+    client.template().all().unwrap_or_default()
+}
+
+/// Delete the template `key` names, returning what the toast says.
+pub(in crate::ui) fn forget(client: &Client, key: &str) -> Result<String, String> {
+    let id = named(&every(client), key).ok_or_else(|| "that template is gone".to_owned())?;
+    let name = client.template().delete(id)?;
+    Ok(format!("Deleted template “{name}”"))
+}
+
+/// Keep the page's message as a template under the name typed, returning what the toast says.
+/// A blank name is the subject's, as `mailo template save` has it.
+pub(in crate::ui) fn save_named(
+    client: &Client,
+    page: &mut Page,
+    now: DateTime<Utc>,
+) -> Result<String, String> {
+    let Float::SaveTemplate(name) = page.float.clone() else {
+        return Err("there is no name to save it under".to_owned());
+    };
+    let draft = life::save(client, page, now)?;
+    let kept = client.template().save(draft.id, &name, now)?;
+    page.float = Float::Closed;
+    Ok(format!("Saved as template “{}”", kept.name))
+}
+
+/// Start a message from `template` in place of this empty page: the new draft goes to whoever
+/// the page is addressed to, or the template's own `To` when it is addressed to nobody, and the
+/// empty draft it replaces is discarded so Today keeps no blank one.
+pub(in crate::ui) fn start_from(
+    client: &Client,
+    page: &Page,
+    template: TemplateId,
+    now: DateTime<Utc>,
+) -> Result<Draft, String> {
+    let to: Vec<_> = page.to.iter().map(address).collect();
+    let started = client.template().start(template, &to, now)?;
+    super::life::discard(client, page.draft)?;
+    Ok(started)
+}
+
+/// Picked from the page's list: the new draft opens as the page.
+fn start_here(mut page: Signal<Page>, mut shell: Signal<Shell>, key: &str) {
+    let client = crate::ui::live::client();
+    let Some(id) = named(&every(&client), key) else {
+        return;
+    };
+    let started = start_from(&client, &page.peek(), id, Utc::now());
+    match started {
+        Ok(draft) => {
+            let old = page.peek().draft;
+            page.write().phase = Phase::Closed;
+            if let Some(desk) = try_consume_context::<Desk>() {
+                desk::unpark(desk, old);
+            }
+            shell.write().compose(&draft);
+        }
+        Err(why) => page.write().notice = Some(why),
+    }
+}
+
+/// Delete from the page's list, and say so.
+fn forget_here(mut page: Signal<Page>, key: &str) {
+    let client = crate::ui::live::client();
+    match forget(&client, key) {
+        Ok(said) => tell(said, Follow::Nothing),
+        Err(why) => page.write().notice = Some(why),
+    }
+    // The list is read from the client as it is drawn; this draws it again.
+    let mut write = page.write();
+    if let Float::Templates { active } = &mut write.float {
+        *active = 0;
+    }
+}
+
+/// Enter or Save in the name field.
+fn save_here(mut page: Signal<Page>) {
+    let client = crate::ui::live::client();
+    let saved = save_named(&client, &mut page.write(), Utc::now());
+    match saved {
+        Ok(said) => tell(said, Follow::Nothing),
+        Err(why) => page.write().notice = Some(why),
+    }
+}
+
+/// Keys the page's list takes while it is open: the arrows, Enter and Esc. `true` when taken.
+pub(in crate::ui) fn key(page: Signal<Page>, shell: Signal<Shell>, name: &str) -> bool {
+    let Float::Templates { active } = page.peek().float else {
+        return false;
+    };
+    let mut page = page;
+    let client = crate::ui::live::client();
+    let rows = template_rows(&every(&client), "");
+    let count = rows.len().max(1);
+    match menu_key(name) {
+        Some(MenuKey::Down) => {
+            page.write().float = Float::Templates {
+                active: (active + 1) % count,
+            }
+        }
+        Some(MenuKey::Up) => {
+            page.write().float = Float::Templates {
+                active: (active + count - 1) % count,
+            }
+        }
+        Some(MenuKey::Enter) => {
+            if let Some(row) = rows.get(active) {
+                start_here(page, shell, &row.key);
+            }
+        }
+        Some(MenuKey::Escape) => page.write().float = Float::Closed,
+        _ => return false,
+    }
+    true
+}
+
+/// At the caret: the name field for "Save as template…", or the list to start from, which
+/// floats against `at`, the caret's box.
+#[component]
+pub(in crate::ui) fn TemplateFloat(
+    page: Signal<Page>,
+    shell: Signal<Shell>,
+    at: Option<MountedRef>,
+) -> Element {
+    let float = page.read().float.clone();
+    match float {
+        Float::SaveTemplate(name) => {
+            let placeholder = match page.read().subject.trim() {
+                "" => "Template name".to_owned(),
+                subject => subject.to_owned(),
+            };
+            rsx! {
+                Popover {
+                    anchor: anchor_at(at),
+                    placement: Placement::new(Side::Bottom, Align::Start),
+                    gap: Px(4.0),
+                    arrow: Arrow::None,
+                    onclose: move |()| page.write().float = Float::Closed,
+                    div {
+                        class: "tpl-save",
+                        onkeydown: move |event: KeyboardEvent| match menu_key(&event.key().to_string()) {
+                            Some(MenuKey::Enter) => {
+                                event.prevent_default();
+                                save_here(page);
+                            }
+                            Some(MenuKey::Escape) => {
+                                event.stop_propagation();
+                                page.write().float = Float::Closed;
+                            }
+                            _ => {}
+                        },
+                        Label { text: "Save as template".to_owned(), role: LabelRole::Secondary }
+                        TextField {
+                            label: placeholder.clone(),
+                            placeholder: placeholder,
+                            value: name,
+                            help: None,
+                            focus: FieldFocus::OnMount,
+                            oninput: move |value: String| page.write().float = Float::SaveTemplate(value),
+                            common: Common { extra_class: ExtraClass::parse("tpl-name").ok(), ..Common::default() },
+                        }
+                    }
+                }
+            }
+        }
+        Float::Templates { active } => rsx! { TemplateList { page, shell, active } },
+        _ => rsx! {},
+    }
+}
+
+/// The templates to start from: quire's palette over the window, narrowed as the person types,
+/// each row's x deleting it and picking nothing.
+#[component]
+fn TemplateList(page: Signal<Page>, shell: Signal<Shell>, active: usize) -> Element {
+    let mut query = use_signal(String::new);
+    let client = crate::ui::live::client();
+    let rows = template_rows(&every(&client), &query());
+    let remove = EventHandler::new(move |key: String| forget_here(page, &key));
+    rsx! {
+        CommandPalette::<String> {
+            label: "Start from a template".to_owned(),
+            placeholder: "Find a template".to_owned(),
+            query: query(),
+            tokens: Vec::new(),
+            groups: palette_groups(&rows, AvatarSize::Size22, Some(remove)),
+            empty: "No templates".to_owned(),
+            selected: Some(active.min(rows.len().saturating_sub(1))),
+            on_select: move |to: usize| page.write().float = Float::Templates { active: to },
+            oninput: move |text: String| query.set(text),
+            onpick: move |key: String| start_here(page, shell, &key),
+            onclose: move |_: PaletteClose| {
+                if matches!(page.peek().float, Float::Templates { .. }) {
+                    page.write().float = Float::Closed;
+                }
+            },
+        }
+    }
+}

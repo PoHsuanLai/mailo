@@ -127,7 +127,7 @@ fn contexts(
     // Every window here has a print dialog of its own: none may open the system's.
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     mail_app::ui::native::contexts(
-        Arc::clone(store),
+        mail_client::Client::open(Arc::clone(store), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         Some(mail_app::ui::appearance::WindowDirs {

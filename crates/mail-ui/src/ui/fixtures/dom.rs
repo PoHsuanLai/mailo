@@ -1,0 +1,633 @@
+use super::super::app::App;
+use super::super::reading::Reader;
+use crate::ui::view::Shell;
+use dioxus::prelude::*;
+use dioxus_core::{NoOpMutations, VirtualDom};
+use ds::prelude::*;
+use mail_core::{SqliteStore, Store};
+use mail_domain::*;
+use std::sync::Arc;
+
+/// The shell's markup, rendered from the real components against a real database.
+///
+/// `rebuild_in_place` proved the components *run*; it never looked at what they produced.
+/// This does, which is the difference between "no panic" and "there is a list on the page".
+pub(in crate::ui) fn markup(store: Arc<SqliteStore>) -> String {
+    let mut dom = VirtualDom::new(App).with_root_context(crate::ui::fixtures::client(&store));
+    dom.rebuild_in_place();
+    dioxus_ssr::render(&dom)
+}
+
+/// The value of `name` on the window's quire root (`div.ds`), as the first frame or a later
+/// render has it: what the frame is painted as, read the way a browser would.
+pub(in crate::ui) fn root_attr(page: &str, name: &str) -> Option<String> {
+    let at = page.find("<div class=\"ds\"")?;
+    let tag = &page[at..at + page[at..].find('>')?];
+    let needle = format!(" {name}=\"");
+    let from = tag.find(&needle)? + needle.len();
+    let value = &tag[from..];
+    Some(value[..value.find('"')?].to_owned())
+}
+
+/// Run what a render left queued (effects, woken tasks) and draw again, until nothing is left
+/// or a few rounds have passed: a quire menu or toast asked for in one render is placed in the
+/// root's overlay by an effect, and only drawn on the render after it.
+pub(in crate::ui) fn drain(dom: &mut VirtualDom) {
+    for _ in 0..8 {
+        dom.process_events();
+        dom.render_immediate(&mut NoOpMutations);
+    }
+}
+
+/// [`drain`], keeping the attributes those renders set: what a quire overlay (a palette, a
+/// menu) drew on the renders after the one that asked for it.
+pub(in crate::ui) fn drain_seen(dom: &mut VirtualDom) -> Seen {
+    let mut seen = Seen::default();
+    for _ in 0..8 {
+        dom.process_events();
+        dom.render_immediate(&mut seen);
+    }
+    seen
+}
+
+/// Renders the reader pane on the first thread in the store.
+///
+/// `App` owns its own `Shell` signal, so nothing outside it can open a conversation; the
+/// reader is reached by rendering it directly, which is also the only way to look at the
+/// half of the shell an empty selection never shows.
+#[component]
+fn ReaderHarness(thread: ThreadId) -> Element {
+    let shell = use_signal(Shell::default);
+    // The reader draws quire's components, which read the `Ds` root's scope.
+    rsx! {
+        Ds { appearance: Appearance::default(), material: Material::Window,
+            div { class: "app",
+                div { class: "places" }
+                div { class: "list" }
+                div { class: "reader", Reader { thread, shell } }
+            }
+        }
+    }
+}
+
+/// The thread whose subject contains `needle`.
+pub(in crate::ui) fn thread_like(store: &SqliteStore, needle: &str) -> ThreadId {
+    store
+        .threads(
+            &Query {
+                filter: Filter::All,
+                sort: Sort {
+                    property: Property::Date,
+                    dir: SortDir::Desc,
+                },
+                page: PageReq {
+                    after: None,
+                    limit: 50,
+                },
+            },
+            chrono::Utc::now(),
+        )
+        .unwrap()
+        .items
+        .into_iter()
+        .find(|t| t.subject.contains(needle))
+        .unwrap_or_else(|| panic!("no thread matching {needle:?} in the fixture"))
+        .id
+}
+
+/// The reader pane's markup for one thread.
+pub(in crate::ui) fn reader_markup(store: Arc<SqliteStore>, thread: ThreadId) -> String {
+    let mut dom = VirtualDom::new_with_props(ReaderHarness, ReaderHarnessProps { thread })
+        .with_root_context(crate::ui::fixtures::client(&store));
+    dom.rebuild_in_place();
+    dioxus_ssr::render(&dom)
+}
+
+/// A keyboard event that can be handed to `VirtualDom::handle_event`.
+///
+/// Written by hand rather than through `SerializedKeyboardData`, which is behind a feature
+/// flag: six trivial methods is a smaller dependency than a feature.
+#[derive(Debug, Clone)]
+pub(in crate::ui) struct FakeKey(pub(in crate::ui) &'static str);
+
+impl dioxus::html::point_interaction::ModifiersInteraction for FakeKey {
+    fn modifiers(&self) -> dioxus::html::input_data::keyboard_types::Modifiers {
+        dioxus::html::input_data::keyboard_types::Modifiers::empty()
+    }
+}
+
+impl dioxus::html::HasKeyboardData for FakeKey {
+    fn key(&self) -> dioxus::html::input_data::keyboard_types::Key {
+        self.0
+            .parse()
+            .unwrap_or(dioxus::html::input_data::keyboard_types::Key::Character(
+                self.0.to_owned(),
+            ))
+    }
+    fn code(&self) -> dioxus::html::input_data::keyboard_types::Code {
+        dioxus::html::input_data::keyboard_types::Code::Unidentified
+    }
+    fn location(&self) -> dioxus::html::input_data::keyboard_types::Location {
+        dioxus::html::input_data::keyboard_types::Location::Standard
+    }
+    fn is_auto_repeating(&self) -> bool {
+        false
+    }
+    fn is_composing(&self) -> bool {
+        false
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// What a text box contains after someone has typed in it.
+///
+/// The search box reads `e.value()` and nothing else, so everything below it is the minimum
+/// `HasFormData` asks for. Added because the search box is the one control whose behaviour
+/// depends on state loaded from the store — `label:` resolves against an index the component
+/// fills on mount — and a test that sets `Shell::search` directly would skip exactly that.
+#[derive(Debug, Clone)]
+pub(in crate::ui) struct Typed(pub(in crate::ui) String);
+
+impl dioxus::html::HasFileData for Typed {
+    /// A search box has no files attached to it.
+    fn files(&self) -> Vec<dioxus::html::FileData> {
+        Vec::new()
+    }
+}
+
+impl dioxus::html::HasFormData for Typed {
+    fn value(&self) -> String {
+        self.0.clone()
+    }
+    fn valid(&self) -> bool {
+        true
+    }
+    fn values(&self) -> Vec<(String, dioxus::html::FormValue)> {
+        Vec::new()
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// A click with nothing but the primary button. The handlers these tests drive ignore the
+/// coordinates; the converter still has to produce a [`dioxus::html::MouseData`].
+#[derive(Debug, Clone)]
+struct FakeClick(dioxus::html::input_data::MouseButton);
+
+impl dioxus::html::point_interaction::ModifiersInteraction for FakeClick {
+    fn modifiers(&self) -> dioxus::html::input_data::keyboard_types::Modifiers {
+        dioxus::html::input_data::keyboard_types::Modifiers::empty()
+    }
+}
+
+impl dioxus::html::point_interaction::InteractionLocation for FakeClick {
+    fn client_coordinates(&self) -> dioxus::html::geometry::ClientPoint {
+        dioxus::html::geometry::ClientPoint::new(0.0, 0.0)
+    }
+    fn screen_coordinates(&self) -> dioxus::html::geometry::ScreenPoint {
+        dioxus::html::geometry::ScreenPoint::new(0.0, 0.0)
+    }
+    fn page_coordinates(&self) -> dioxus::html::geometry::PagePoint {
+        dioxus::html::geometry::PagePoint::new(0.0, 0.0)
+    }
+}
+
+impl dioxus::html::point_interaction::InteractionElementOffset for FakeClick {
+    fn element_coordinates(&self) -> dioxus::html::geometry::ElementPoint {
+        dioxus::html::geometry::ElementPoint::new(0.0, 0.0)
+    }
+}
+
+impl dioxus::html::point_interaction::PointerInteraction for FakeClick {
+    fn trigger_button(&self) -> Option<dioxus::html::input_data::MouseButton> {
+        Some(self.0)
+    }
+    fn held_buttons(&self) -> dioxus::html::input_data::MouseButtonSet {
+        dioxus::html::input_data::MouseButtonSet::empty()
+    }
+}
+
+impl dioxus::html::HasMouseData for FakeClick {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
+/// The renderer's job, done by the tests instead.
+///
+/// `handle_event` hands a listener a `PlatformEventData` and a global converter turns it
+/// into the typed data the handler expects. A renderer installs one; a test has no renderer,
+/// so without this every dispatched event panics on a failed downcast. Keyboard, form and
+/// click are converted, because those are the events these tests send.
+struct TestEvents;
+
+impl dioxus::html::HtmlEventConverter for TestEvents {
+    fn convert_keyboard_data(&self, event: &PlatformEventData) -> dioxus::html::KeyboardData {
+        if let Some(chord) = event.downcast::<super::events::FakeChord>() {
+            return dioxus::html::KeyboardData::new(chord.clone());
+        }
+        dioxus::html::KeyboardData::new(
+            event
+                .downcast::<FakeKey>()
+                .cloned()
+                .expect("these tests only dispatch FakeKey or FakeChord"),
+        )
+    }
+
+    fn convert_animation_data(&self, _: &PlatformEventData) -> dioxus::html::AnimationData {
+        unimplemented!("motion is timed by quire's clock; nothing here hears an animation end")
+    }
+    fn convert_cancel_data(&self, _: &PlatformEventData) -> dioxus::html::CancelData {
+        unimplemented!("convert_cancel_data is not what these tests dispatch")
+    }
+    fn convert_clipboard_data(&self, _: &PlatformEventData) -> dioxus::html::ClipboardData {
+        unimplemented!("convert_clipboard_data is not what these tests dispatch")
+    }
+    fn convert_composition_data(&self, _: &PlatformEventData) -> dioxus::html::CompositionData {
+        unimplemented!("convert_composition_data is not what these tests dispatch")
+    }
+    fn convert_drag_data(&self, _: &PlatformEventData) -> dioxus::html::DragData {
+        unimplemented!("convert_drag_data is not what these tests dispatch")
+    }
+    fn convert_focus_data(&self, _: &PlatformEventData) -> dioxus::html::FocusData {
+        unimplemented!("convert_focus_data is not what these tests dispatch")
+    }
+    fn convert_form_data(&self, event: &PlatformEventData) -> dioxus::html::FormData {
+        dioxus::html::FormData::new(
+            event
+                .downcast::<Typed>()
+                .cloned()
+                .expect("these tests only dispatch Typed"),
+        )
+    }
+    fn convert_image_data(&self, _: &PlatformEventData) -> dioxus::html::ImageData {
+        unimplemented!("convert_image_data is not what these tests dispatch")
+    }
+    fn convert_media_data(&self, _: &PlatformEventData) -> dioxus::html::MediaData {
+        unimplemented!("convert_media_data is not what these tests dispatch")
+    }
+    fn convert_mounted_data(&self, _: &PlatformEventData) -> dioxus::html::MountedData {
+        unimplemented!("convert_mounted_data is not what these tests dispatch")
+    }
+    fn convert_mouse_data(&self, event: &PlatformEventData) -> dioxus::html::MouseData {
+        dioxus::html::MouseData::new(
+            event
+                .downcast::<FakeClick>()
+                .cloned()
+                .expect("these tests only dispatch FakeClick"),
+        )
+    }
+    fn convert_pointer_data(&self, event: &PlatformEventData) -> dioxus::html::PointerData {
+        dioxus::html::PointerData::new(
+            event
+                .downcast::<super::events::FakePointer>()
+                .cloned()
+                .expect("these tests only dispatch FakePointer"),
+        )
+    }
+    fn convert_resize_data(&self, _: &PlatformEventData) -> dioxus::html::ResizeData {
+        unimplemented!("convert_resize_data is not what these tests dispatch")
+    }
+    fn convert_scroll_data(&self, _: &PlatformEventData) -> dioxus::html::ScrollData {
+        unimplemented!("convert_scroll_data is not what these tests dispatch")
+    }
+    fn convert_selection_data(&self, _: &PlatformEventData) -> dioxus::html::SelectionData {
+        unimplemented!("convert_selection_data is not what these tests dispatch")
+    }
+    fn convert_toggle_data(&self, _: &PlatformEventData) -> dioxus::html::ToggleData {
+        unimplemented!("convert_toggle_data is not what these tests dispatch")
+    }
+    fn convert_touch_data(&self, _: &PlatformEventData) -> dioxus::html::TouchData {
+        unimplemented!("convert_touch_data is not what these tests dispatch")
+    }
+    fn convert_transition_data(&self, _: &PlatformEventData) -> dioxus::html::TransitionData {
+        unimplemented!("convert_transition_data is not what these tests dispatch")
+    }
+    fn convert_visible_data(&self, _: &PlatformEventData) -> dioxus::html::VisibleData {
+        unimplemented!("convert_visible_data is not what these tests dispatch")
+    }
+    fn convert_wheel_data(&self, _: &PlatformEventData) -> dioxus::html::WheelData {
+        unimplemented!("convert_wheel_data is not what these tests dispatch")
+    }
+}
+
+/// Install the converter once for the whole test binary.
+pub(in crate::ui) fn dispatching() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        dioxus::html::set_event_converter(Box::new(TestEvents));
+    });
+}
+
+/// The name a listener is kept under among [`Seen`]'s attributes, its event as the value.
+const LISTENER: &str = "(listener)";
+
+/// Dynamic attributes set during one render, and which element each landed on.
+///
+/// Static attributes live in the template, so a control is found by an attribute the component
+/// computes — an `aria-label` built from a value, not a literal. A quire component's own
+/// controls often carry only static attributes (its class, its fixed name); those are kept
+/// apart, for the elements the render gave an id (a listener or a dynamic attribute), and found
+/// with [`Seen::fixed`].
+#[derive(Default)]
+pub(in crate::ui) struct Seen {
+    attrs: Vec<(String, String, dioxus_core::ElementId)>,
+    statics: Vec<(String, String, dioxus_core::ElementId)>,
+    /// The template root loaded last: `assign_node_id` paths are relative to it.
+    root: Option<&'static dioxus_core::TemplateNode>,
+}
+
+impl Seen {
+    /// Every element the render gave an id whose template writes `name="value"`, in paint order.
+    pub(in crate::ui) fn fixed(&self, name: &str, value: &str) -> Vec<dioxus_core::ElementId> {
+        let mut ids = Vec::new();
+        for (got_name, got_value, id) in &self.statics {
+            if got_name == name && got_value == value && !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        ids
+    }
+
+    fn keep_statics(
+        &mut self,
+        node: &'static dioxus_core::TemplateNode,
+        id: dioxus_core::ElementId,
+    ) {
+        if let dioxus_core::TemplateNode::Element { attrs, .. } = node {
+            for attr in attrs.iter() {
+                if let dioxus_core::TemplateAttribute::Static { name, value, .. } = attr {
+                    self.statics
+                        .push(((*name).to_owned(), (*value).to_owned(), id));
+                }
+            }
+        }
+    }
+
+    fn ids(&self, name: &str, value: &str) -> Vec<dioxus_core::ElementId> {
+        let mut ids = Vec::new();
+        for (got_name, got_value, id) in &self.attrs {
+            if got_name == name && got_value == value && !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        ids
+    }
+
+    /// The element whose dynamic `name` attribute equals `value`, when this render set it.
+    pub(in crate::ui) fn get(&self, name: &str, value: &str) -> Option<dioxus_core::ElementId> {
+        let ids = self.ids(name, value);
+        (ids.len() == 1).then(|| ids[0])
+    }
+
+    /// Every element whose dynamic `name` attribute equals `value`, in paint order.
+    pub(in crate::ui) fn all(&self, name: &str, value: &str) -> Vec<dioxus_core::ElementId> {
+        self.ids(name, value)
+    }
+
+    /// This render's attributes and then `later`'s: what several renders set between them, for
+    /// a list that lands a frame or two after the click that asked for it.
+    pub(in crate::ui) fn merge(mut self, later: Seen) -> Seen {
+        self.attrs.extend(later.attrs);
+        self.statics.extend(later.statics);
+        self
+    }
+
+    /// The elements carrying a dynamic `then` attribute that were drawn after the element whose
+    /// `name` is `value`, in paint order. A quire segmented control computes only its group's
+    /// label and each segment's `aria-pressed`, so a segment is found as the nth after its group.
+    pub(in crate::ui) fn after(
+        &self,
+        name: &str,
+        value: &str,
+        then: &str,
+    ) -> Vec<dioxus_core::ElementId> {
+        let Some(start) = self
+            .attrs
+            .iter()
+            .position(|(got_name, got_value, _)| got_name == name && got_value == value)
+        else {
+            return Vec::new();
+        };
+        let mut ids = Vec::new();
+        for (got_name, _, id) in &self.attrs[start + 1..] {
+            if got_name == then && !ids.contains(id) {
+                ids.push(*id);
+            }
+        }
+        ids
+    }
+
+    /// The element a click on the folder row whose path is `path` lands on: the row itself,
+    /// which is quire's `Row` carrying `data-place="{path}"`.
+    pub(in crate::ui) fn folder(&self, path: &str) -> dioxus_core::ElementId {
+        self.one("data-place", path)
+    }
+
+    /// The one element whose dynamic `name` attribute equals `value` that was made after the
+    /// element whose `name` is `inside`, the group it is in: an account tile, after the tiles'
+    /// row, rather than a list row that names the same account.
+    pub(in crate::ui) fn one_in(
+        &self,
+        name: &str,
+        inside: &str,
+        value: &str,
+    ) -> dioxus_core::ElementId {
+        let group = self.one(name, inside);
+        let after: Vec<dioxus_core::ElementId> = self
+            .ids(name, value)
+            .into_iter()
+            .filter(|id| id.0 > group.0)
+            .collect();
+        assert_eq!(
+            after.len(),
+            1,
+            "{name}={value:?} after {inside:?}: {after:?}"
+        );
+        after[0]
+    }
+
+    /// The one element whose dynamic `name` attribute equals `value`.
+    pub(in crate::ui) fn one(&self, name: &str, value: &str) -> dioxus_core::ElementId {
+        let ids = self.ids(name, value);
+        assert_eq!(
+            ids.len(),
+            1,
+            "attribute {name}={value:?} on {} elements; saw {:?}",
+            ids.len(),
+            self.attrs
+                .iter()
+                .filter(|(got_name, _, _)| got_name == name)
+                .collect::<Vec<_>>()
+        );
+        ids[0]
+    }
+}
+
+impl dioxus_core::WriteMutations for Seen {
+    fn set_attribute(
+        &mut self,
+        name: &'static str,
+        _ns: Option<&'static str>,
+        value: &dioxus_core::AttributeValue,
+        id: dioxus_core::ElementId,
+    ) {
+        let rendered = match value {
+            dioxus_core::AttributeValue::Text(text) => text.clone(),
+            dioxus_core::AttributeValue::Float(n) => n.to_string(),
+            dioxus_core::AttributeValue::Int(n) => n.to_string(),
+            dioxus_core::AttributeValue::Bool(b) => b.to_string(),
+            other => format!("{other:?}"),
+        };
+        self.attrs.push((name.to_owned(), rendered, id));
+    }
+
+    fn append_children(&mut self, _: dioxus_core::ElementId, _: usize) {}
+    fn assign_node_id(&mut self, path: &'static [u8], id: dioxus_core::ElementId) {
+        let mut node = self.root;
+        for step in path {
+            node = match node {
+                Some(dioxus_core::TemplateNode::Element { children, .. }) => {
+                    children.get(usize::from(*step))
+                }
+                _ => None,
+            };
+        }
+        if let Some(node) = node {
+            self.keep_statics(node, id);
+        }
+    }
+    fn create_placeholder(&mut self, _: dioxus_core::ElementId) {}
+    fn create_text_node(&mut self, _: &str, _: dioxus_core::ElementId) {}
+    fn load_template(
+        &mut self,
+        template: dioxus_core::Template,
+        index: usize,
+        id: dioxus_core::ElementId,
+    ) {
+        self.root = template.roots.get(index);
+        if let Some(root) = self.root {
+            self.keep_statics(root, id);
+        }
+    }
+    fn replace_node_with(&mut self, _: dioxus_core::ElementId, _: usize) {}
+    fn replace_placeholder_with_nodes(&mut self, _: &'static [u8], _: usize) {}
+    fn insert_nodes_after(&mut self, _: dioxus_core::ElementId, _: usize) {}
+    fn insert_nodes_before(&mut self, _: dioxus_core::ElementId, _: usize) {}
+    fn set_node_text(&mut self, _: &str, _: dioxus_core::ElementId) {}
+    fn create_event_listener(&mut self, name: &'static str, id: dioxus_core::ElementId) {
+        // Kept beside the attributes, in order, so an element with a handler and no attribute
+        // of its own (a quire tree item's name) can be found after one that has them.
+        self.attrs.push((LISTENER.to_owned(), name.to_owned(), id));
+    }
+    fn remove_event_listener(&mut self, _: &'static str, _: dioxus_core::ElementId) {}
+    fn remove_node(&mut self, _: dioxus_core::ElementId) {}
+    fn push_root(&mut self, _: dioxus_core::ElementId) {}
+}
+
+/// Render `dom` from scratch, recording the dynamic attributes of that first paint.
+pub(in crate::ui) fn rebuild_into(dom: &mut VirtualDom) -> Seen {
+    let mut seen = Seen::default();
+    dom.rebuild(&mut seen);
+    seen
+}
+
+fn paint(dom: &mut VirtualDom) -> Seen {
+    let mut seen = Seen::default();
+    dom.render_immediate(&mut seen);
+    seen
+}
+
+/// Click `element` and return the attributes the resulting render set.
+pub(in crate::ui) fn click(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
+    #[allow(deprecated)]
+    dom.handle_event(
+        "click",
+        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeClick(
+            dioxus::html::input_data::MouseButton::Primary,
+        )))),
+        element,
+        true,
+    );
+    paint(dom)
+}
+
+/// Right-click `element` (the platform's `contextmenu`) and return what the render set.
+pub(in crate::ui) fn right_click(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
+    #[allow(deprecated)]
+    dom.handle_event(
+        "contextmenu",
+        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeClick(
+            dioxus::html::input_data::MouseButton::Secondary,
+        )))),
+        element,
+        true,
+    );
+    paint(dom)
+}
+
+/// Press a key and return the attributes the resulting render set.
+pub(in crate::ui) fn key(dom: &mut VirtualDom, key_name: &'static str) -> Seen {
+    #[allow(deprecated)]
+    dom.handle_event(
+        "keydown",
+        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey(key_name)))),
+        dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
+        true,
+    );
+    paint(dom)
+}
+
+/// Press a key on the running component tree.
+///
+/// `bubbling: true`, so it does not matter which element inside the shell receives it — the
+/// handler is on the root and the event climbs to it, exactly as it does in a browser.
+pub(in crate::ui) fn press(dom: &mut VirtualDom, key: &'static str, element: u32) {
+    #[allow(deprecated)]
+    dom.handle_event(
+        "keydown",
+        std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey(key)))),
+        dioxus_core::ElementId(element as usize),
+        true,
+    );
+    dom.render_immediate(&mut NoOpMutations);
+}
+
+/// An element inside the shell, to deliver key presses to.
+///
+/// The exact id does not matter — `bubbling: true` means the event climbs to the handler on
+/// the root, as it does in a browser — but it has to be *inside*: ids 1 to 5 are the quire
+/// root, its stylesheet and frame layers and mailo's stylesheet, all outside `.app`, and an
+/// event dispatched there reaches nothing. 6 is `.app` itself (the element that carries
+/// `data-peek`), found by reading the ids the first render hands out.
+pub(in crate::ui) const INSIDE_THE_SHELL: u32 = 6;
+
+/// What the window draws over the next moments: a picked menu item blinks, then closes, then
+/// acts, on quire's clock.
+///
+/// The blink is about 140 ms and then the field is drawn. Counting out a fixed number of
+/// renders stops before that when every wait returns at once: ten of them are over in a few
+/// milliseconds and the field was never there. Wait the blink out on the wall clock, and yield
+/// between renders so a document that always has work cannot spin the timer out of the slice.
+pub(in crate::ui) async fn later(dom: &mut VirtualDom) -> Seen {
+    let mut seen = Seen::default();
+    let until = tokio::time::Instant::now() + std::time::Duration::from_millis(1000);
+    let frame = std::time::Duration::from_millis(16);
+    while tokio::time::Instant::now() < until {
+        let left = until.saturating_duration_since(tokio::time::Instant::now());
+        let slice = left.min(std::time::Duration::from_millis(50));
+        let started = tokio::time::Instant::now();
+        let _ = tokio::time::timeout(slice, dom.wait_for_work()).await;
+        let mut more = Seen::default();
+        dom.render_immediate(&mut more);
+        seen = seen.merge(more);
+        let spent = started.elapsed();
+        if spent < frame {
+            tokio::time::sleep(frame - spent).await;
+        }
+    }
+    seen
+}

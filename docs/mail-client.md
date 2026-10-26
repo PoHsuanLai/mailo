@@ -26,18 +26,25 @@ has to remember to read again after a write.
 mail-domain  mime  proto  pim            (pure)
 mail-store → mail-runtime → mail-core    (I/O)
 mail-client  → mail-core, mail-store, mail-domain, tokio, notify   (no dioxus, no ds)
-mail-ui      → mail-client, the pure crates, dioxus, ds            (the last stage)
+mail-ui      → mail-client, the pure crates, dioxus, ds            (the window)
 mail-app     → mail-ui, mail-client, mail-core                     (binary, CLI, background)
 ```
 
 The fence is the compiler: `mail-ui`'s `Cargo.toml` names no `mail-core`, `mail-store` or
-`mail-runtime`, so a store is not something the window can name. `mail-core` re-exports
+`mail-runtime` among its dependencies, so a store is not something the window can name. Its tests
+have them as dev-dependencies, to seed a store as a fixture and hand the window a client over it
+(`fixtures::client`); that code is compiled for tests alone. `mail-core` re-exports
 `SqliteStore` at its root, so dropping a dependency inside `mail-app` would fence nothing, and
 module privacy cannot hide another crate's paths. There is no lint and no allowlist: until the
 split, the stages simply convert the window, and the split is what keeps it converted.
 
-`mail-client` re-exports only what is pure (`mail_domain` types, `Scope`, `undo`, `when`,
-`editor`, the pure parts of `view` and `place`). It never hands out `&SqliteStore` or `Mail`.
+`mail-client` re-exports only what reads no store (`pure.rs`): `mail-core`'s words for mail
+(`Scope`, `undo`, `when`, `editor`, the pure parts of `view` and `place`, the shapes a call takes
+and hands back) and what it does with no store at all (parsing a search, the files under the
+config directory). Each re-exported module holds only what the window uses of `mail-core`'s. It
+never hands out `&SqliteStore` or `Mail`: what the program reaches servers with is the client's
+too (`net().secrets()`, `environment()`, `oauth_clients()`, `runtime()`), and a client never
+told ([`Reach`]) has no keyring and no OAuth client, which is what a test's window has.
 
 `mail-client` is logic only. Its queries are facts about the mail — the accounts with their
 folders and labels, the saved views, how many conversations each filter matches — and it has no
@@ -233,5 +240,10 @@ Each leaves the app working.
    for the configuration files (`ui::configured`). A client that reads on the thread that draws
    (a test's) is told each time the store commits (`Client::committed`, from the store's
    `subscribe_waking`) and settles there.
-5. The fence: `ui`, `settings` and the platform seams move to `mail-ui`, whose `Cargo.toml` has
-   no store.
+5. The fence: `ui`, `settings` and the platform seams (the launcher's count, the mail-link
+   handler, another program's hand-off, the damaged-settings gate, the words of a finished
+   import or export) move to `mail-ui`, whose dependencies hold no store. `mail-app` re-exports
+   them under their old paths (`mail_app::ui`), so the command line and the integration tests
+   read as before. The program makes the client over the store it opened, reaching servers as
+   `edge` says, and hands it to the window with whose mail it is (`window::open`,
+   `ui::Program`); every window, a test's included, is handed a client and never a store.

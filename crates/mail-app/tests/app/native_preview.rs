@@ -226,7 +226,7 @@ fn open() -> Window {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let contexts = mail_app::ui::native::contexts(
-        store.clone(),
+        mail_client::Client::open(store.clone(), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         None,

@@ -59,7 +59,7 @@ fn a_change_to_the_desktops_appearance_restyles_the_running_window() {
     saved(&store, Theme::Light, Accent::Blue, Motion::Standard);
 
     let contexts = mail_app::ui::native::contexts(
-        Arc::new(mail),
+        mail_client::Client::open(Arc::new(mail), mail_client::ClientConfig::default()),
         mail_app::ui::view::Appearance::default(),
         None,
         None,

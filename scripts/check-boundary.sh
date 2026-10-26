@@ -74,10 +74,10 @@ if [ "$lower_fail" -eq 0 ]; then
 fi
 fail=$((fail | lower_fail))
 
-# Within `mail-app`, anyview is named by the reader's attachment code only (`ui/reading`), behind
+# Within the window (`mail-ui`), anyview is named by the reader's attachment code only (`ui/reading`), behind
 # the `anyview` feature: the strip's thumbnail, Peek's card, and the adapter between them.
 if grep -rnE '\banyview_(core|peek)\b' crates --include='*.rs' \
-  | grep -vE '^crates/mail-app/src/ui/reading/(anyview|thumb|peek/part)\.rs:|^crates/mail-app/tests/app/native_anyview\.rs:' \
+  | grep -vE '^crates/mail-ui/src/ui/reading/(anyview|thumb|peek/part)\.rs:|^crates/mail-app/tests/app/native_anyview\.rs:' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "anyview_core and anyview_peek belong to ui/reading's anyview.rs, thumb.rs and peek/part.rs: see scripts/check-boundary.sh"
   fail=1
@@ -91,8 +91,8 @@ if grep -rnE "(crate|super|mail_app)::ui\b" crates/mail-app/src/cli/; then
   echo "crates/mail-app/src/cli must not name the window (crate::ui): move the shared helper to mail-core"
   fail=1
 fi
-if grep -rnE "(crate|super|mail_app)::cli\b" crates/mail-app/src/ui/; then
-  echo "crates/mail-app/src/ui must not name the command line (crate::cli): move the shared helper to mail-core"
+if grep -rnE "(crate|super|mail_app)::cli\b" crates/mail-ui/src/ui/; then
+  echo "crates/mail-ui/src/ui must not name the command line (crate::cli): move the shared helper to mail-core"
   fail=1
 fi
 
@@ -286,8 +286,8 @@ done
 
 # The reader draws blocks. A raw HTML sink in the UI would put a sender's markup
 # in our document, which is what the block types exist to prevent.
-if grep -rn "dangerous_inner_html" crates/mail-app/src/ui/; then
-  echo "dangerous_inner_html is forbidden under crates/mail-app/src/ui/: the reader draws blocks, not raw markup"
+if grep -rn "dangerous_inner_html" crates/mail-ui/src/ui/; then
+  echo "dangerous_inner_html is forbidden under crates/mail-ui/src/ui/: the reader draws blocks, not raw markup"
   exit 1
 fi
 

@@ -125,7 +125,10 @@ struct Shared {
 impl Shared {
     fn contexts(&self) -> RootContexts {
         mail_app::ui::native::contexts(
-            Arc::clone(&self.store),
+            mail_client::Client::open(
+                Arc::clone(&self.store),
+                mail_client::ClientConfig::default(),
+            ),
             mail_app::ui::view::Appearance::default(),
             None,
             Some(self.dirs.clone()),
