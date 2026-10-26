@@ -234,6 +234,61 @@ fn a_single_eml_is_one_message_even_in_crlf() {
 }
 
 #[test]
+fn a_thunderbird_profile_lands_in_local_folders_once_without_its_deleted_mail() {
+    let (store, dir) = fresh_store();
+    let profile = dir.path().join("abcd1234.default-release");
+    let local = profile.join("Mail").join("Local Folders");
+    std::fs::create_dir_all(local.join("Receipts.sbd")).unwrap();
+    write(&profile, "prefs.js", b"user_pref(\"x\", 1);\n");
+    write(&local, "Inbox.msf", b"");
+    let message = |status: &str, id: &str, subject: &str| {
+        format!(
+            "From - Tue Nov 07 13:20:51 2023\nX-Mozilla-Status: {status}\n\
+             Message-ID: <{id}@example.test>\nFrom: a@example.test\nTo: me@example.test\n\
+             Subject: {subject}\nDate: Tue, 07 Nov 2023 13:20:51 +0000\n\nbody\n\n"
+        )
+    };
+    let inbox = message("0000", "new", "still unread") + &message("0009", "gone", "deleted");
+    write(&local, "Inbox", inbox.as_bytes());
+    write(
+        &local.join("Receipts.sbd"),
+        "2023",
+        message("0001", "receipt", "a receipt").as_bytes(),
+    );
+
+    let source = import::detect(&profile).unwrap();
+    assert_eq!(source, import::Source::Thunderbird(profile.clone()));
+    let first = import::into_local(&store, &source, now(), &mut quiet).unwrap();
+    assert_eq!(
+        (first.read, first.added),
+        (2, 2),
+        "the deleted one is left behind"
+    );
+    let again = import::into_local(&store, &source, now(), &mut quiet).unwrap();
+    assert_eq!((again.added, again.already), (0, 2));
+
+    let messages = every_message(&store, local_account(&store));
+    let by_subject = |subject: &str| {
+        messages
+            .iter()
+            .find(|m| m.subject == subject)
+            .unwrap_or_else(|| panic!("{subject} was imported"))
+            .clone()
+    };
+    let unread = by_subject("still unread");
+    assert_eq!(
+        (unread.mailbox, unread.read),
+        (MailboxRole::Inbox, ReadState::Unread)
+    );
+    let receipt = by_subject("a receipt");
+    assert_eq!(
+        (receipt.mailbox, receipt.read),
+        (MailboxRole::Archive, ReadState::Read)
+    );
+    assert_eq!(receipt.labels.len(), 1);
+}
+
+#[test]
 fn a_search_exports_to_mbox_and_reads_back_the_same_bytes() {
     let (store, dir) = fresh_store();
     let path = write(dir.path(), "in.mbox", TAKEOUT.as_bytes());

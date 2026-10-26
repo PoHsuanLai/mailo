@@ -176,8 +176,14 @@ pub enum CoreError {
         #[source]
         source: std::io::Error,
     },
-    #[error("{} is a directory but not a Maildir: it has no cur, new or tmp inside", .0.display())]
+    #[error(
+        "{} is a directory but not a Maildir (it has no cur, new or tmp inside), Apple Mail's \
+         mailboxes or a Thunderbird profile",
+        .0.display()
+    )]
     NotAMaildir(PathBuf),
+    #[error("{} is not an Apple Mail message: it does not begin with its length", .0.display())]
+    NotEmlx(PathBuf),
     #[error("no account for {address:?}")]
     NoAccountFor { address: String },
     #[error(

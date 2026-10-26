@@ -49,6 +49,11 @@ pub fn selected(count: usize) -> String {
 pub fn page_of(page: u32, count: u32) -> String {
     format!("Page {page} of {count}")
 }
+// What the Import sheet found at a path, before its count: "Thunderbird profile, 1 204 messages".
+pub const SOURCE_EMLX: &str = "Apple Mail message";
+pub const SOURCE_APPLE_MAIL: &str = "Apple Mail mailboxes";
+pub const SOURCE_THUNDERBIRD: &str = "Thunderbird profile";
+
 pub const LOADING: &str = "Loading…";
 pub const NOT_DOWNLOADED: &str = "Not downloaded yet";
 pub const NO_PREVIEW: &str = "No preview for this file";

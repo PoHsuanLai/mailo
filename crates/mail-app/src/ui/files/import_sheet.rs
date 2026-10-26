@@ -140,7 +140,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             }
                             Button {
                                 label: "File…".to_owned(),
-                                title: "Choose an mbox or .eml file".to_owned(),
+                                title: "Choose an mbox, .eml or .emlx file".to_owned(),
                                 onclick: on_primary(move || {
                                     choose(Ask::File, Some(super::save_dir()), move |paths| {
                                         set_typed(shell, paths[0].display().to_string());
@@ -149,7 +149,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             }
                             Button {
                                 label: "Folder…".to_owned(),
-                                title: "Choose a Maildir directory".to_owned(),
+                                title: "Choose a Maildir, Apple Mail mailboxes or a Thunderbird profile".to_owned(),
                                 onclick: on_primary(move || {
                                     choose(Ask::Folder, Some(super::save_dir()), move |paths| {
                                         set_typed(shell, paths[0].display().to_string());

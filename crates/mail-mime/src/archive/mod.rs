@@ -1,4 +1,5 @@
-//! Mail at rest in files: mbox, Maildir and single `.eml` messages, read and written.
+//! Mail at rest in files: mbox, Maildir and single `.eml` messages, read and written, and what
+//! Apple Mail (`.emlx`) and Thunderbird (an mbox per folder) leave on disk, read.
 //!
 //! Pure in the sense this crate means it: no filesystem walk and no clock. An mbox is read from
 //! any [`std::io::BufRead`] and written to any [`std::io::Write`], because the caller owns the
@@ -10,9 +11,11 @@
 //! one [`Placement`], whichever format said it: a Maildir flag suffix, a Takeout
 //! `X-Gmail-Labels` header, or an mbox `Status` header.
 
+pub mod emlx;
 pub mod maildir;
 pub mod mbox;
 pub mod takeout;
+pub mod thunderbird;
 
 use mail_domain::{MailboxRole, ReadState, Star, SystemFlag};
 
