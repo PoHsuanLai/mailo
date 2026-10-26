@@ -716,6 +716,7 @@ mod tests {
                 summary: &thread,
                 corpus: None,
                 folders: &[],
+                sizes: &[],
                 now,
             });
             if !listed {
@@ -1069,6 +1070,7 @@ mod tests {
                 summary: &thread,
                 corpus: None,
                 folders: &[],
+                sizes: &[],
                 now,
             });
             assert_eq!(fits, listed, "{case}");

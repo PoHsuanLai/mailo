@@ -274,9 +274,15 @@ fn test(filter: &Filter, account: AccountId) -> Result<String, Unmappable> {
         Filter::Starred(_) => return Err(Unmappable::Clause("is:starred")),
         Filter::HasLabel(_) => return Err(Unmappable::Clause("label:")),
         Filter::Date(_) => return Err(Unmappable::Clause("before: / after:")),
+        Filter::NewerThan(_) | Filter::OlderThan(_) => {
+            return Err(Unmappable::Clause("newer_than: / older_than:"));
+        }
         Filter::HasAttachment => return Err(Unmappable::Clause("has:attachment")),
         Filter::Snoozed | Filter::SnoozeDue => return Err(Unmappable::Clause("is:snoozed")),
         Filter::Pinned => return Err(Unmappable::Clause("is:pinned")),
+        // Sieve's size is the whole message's (RFC 5228 §5.9), headers included.
+        Filter::Larger(bytes) => format!("size :over {bytes}"),
+        Filter::Smaller(bytes) => format!("size :under {bytes}"),
     })
 }
 

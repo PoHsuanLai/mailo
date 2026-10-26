@@ -17,7 +17,7 @@ fn taipei() -> chrono::FixedOffset {
 }
 
 fn parse(input: &str) -> Filter {
-    query::parse_with(input, &taipei(), &|_| Vec::new())
+    query::parse_with(input, &taipei(), &mail_core::query::unnamed)
 }
 
 mod what_it_builds {

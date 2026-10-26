@@ -48,6 +48,11 @@ pub enum SearchKey {
     SentBefore(NaiveDate),
     /// Gmail's `X-GM-LABELS` (its IMAP extensions): the message bears this label.
     GmailLabel(String),
+    /// `LARGER`: the message is larger than this many octets, as the server counts them (its
+    /// whole source, headers included).
+    Larger(u64),
+    /// `SMALLER`: the message is smaller than this many octets.
+    Smaller(u64),
     Not(Box<SearchKey>),
     Or(Box<SearchKey>, Box<SearchKey>),
     /// Every key, parenthesised where it is not the whole search.
@@ -236,6 +241,15 @@ fn key(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<SearchKey, Unsaid> {
                 "has:attachment (IMAP has no search for it)".to_owned(),
             ));
         }
+        Filter::Larger(bytes) => SearchKey::Larger(*bytes),
+        Filter::Smaller(bytes) => SearchKey::Smaller(*bytes),
+        // Fixed against a clock before a server is asked (`Filter::at`); one that reaches here
+        // was not, and is not guessed at.
+        Filter::NewerThan(_) | Filter::OlderThan(_) => {
+            return Err(Unsaid::one(
+                "newer_than: / older_than: (not fixed to a date)".to_owned(),
+            ));
+        }
         // A place under OR or NOT: a mailbox is where IMAP searches, not what it matches.
         Filter::InMailbox(_) | Filter::InFolder(_) => {
             return Err(Unsaid::one(format!(
@@ -339,6 +353,8 @@ fn render(key: &SearchKey, out: &mut Vec<Piece>) -> Result<(), ProtoError> {
         SearchKey::GmailLabel(v) => field(out, "X-GM-LABELS", v)?,
         SearchKey::SentSince(d) => word(out, &format!("SENTSINCE {}", imap_date(*d))),
         SearchKey::SentBefore(d) => word(out, &format!("SENTBEFORE {}", imap_date(*d))),
+        SearchKey::Larger(n) => word(out, &format!("LARGER {n}")),
+        SearchKey::Smaller(n) => word(out, &format!("SMALLER {n}")),
         SearchKey::Not(inner) => {
             word(out, "NOT ");
             render(inner, out)?;

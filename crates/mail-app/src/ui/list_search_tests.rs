@@ -311,7 +311,8 @@ fn row_marks_sit_on_char_boundaries_after_cjk_and_emoji() {
         want_snippet,
     } in cases
     {
-        let highlight = list_highlight(typed, &Utc, &|_| Vec::new()).expect("no pattern");
+        let highlight =
+            list_highlight(typed, &Utc, &mail_core::query::unnamed).expect("no pattern");
         let snippet = format!("{filler} one wrinkle: two threads");
         let hit = row_hit(&summary(subject, &snippet), &highlight).expect("a search is active");
         let marked: Vec<&str> = hit.subject.iter().map(|r| &subject[r.clone()]).collect();

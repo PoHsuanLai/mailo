@@ -81,6 +81,8 @@ struct Spec {
     /// A queued move into one of [`MOVES`], not yet confirmed by the server.
     moving: Option<usize>,
     date: i64,
+    /// An attachment named after one of [`WORDS`], of this many bytes, still on the server.
+    attached: Option<(usize, u64)>,
 }
 
 /// Folders a queued `File` moves a message into: one it may already be held in, and one it is
@@ -136,7 +138,11 @@ fn spec() -> impl Strategy<Value = Spec> {
         0u8..6,
         prop::collection::vec(any::<bool>(), 2..=2),
         prop::collection::vec(any::<bool>(), FOLDERS.len()..=FOLDERS.len()),
-        (prop::option::of(0..MOVES.len()), 0i64..4_000),
+        (
+            prop::option::of(0..MOVES.len()),
+            0i64..4_000,
+            prop::option::of((0..WORDS.len(), 0u64..60)),
+        ),
     )
         .prop_map(
             |(
@@ -151,7 +157,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                 mailbox,
                 labels,
                 folders,
-                (moving, date),
+                (moving, date, attached),
             )| {
                 Spec {
                     thread,
@@ -167,6 +173,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                     folders,
                     moving,
                     date,
+                    attached,
                 }
             },
         )
@@ -216,6 +223,10 @@ fn filter() -> impl Strategy<Value = Filter> {
         text.clone().prop_map(Filter::To),
         text.clone().prop_map(Filter::Subject),
         text.prop_map(Filter::Text),
+        (0u64..80).prop_map(Filter::Larger),
+        (0u64..80).prop_map(Filter::Smaller),
+        (0u32..4).prop_map(Filter::NewerThan),
+        (0u32..4).prop_map(Filter::OlderThan),
         (0i64..4_000, 0i64..4_000).prop_map(|(a, b)| Filter::Date(DateRange {
             from: Some(at(a.min(b))),
             to: Some(at(a.max(b) + 1)),
@@ -309,6 +320,19 @@ fn build(specs: &[Spec]) -> Both {
                 text: Some(body),
                 raw,
             },
+            attachments: s
+                .attached
+                .map(|(word, size)| Attachment {
+                    name: format!("{}.pdf", WORDS[word]),
+                    mime: "application/pdf".to_owned(),
+                    size,
+                    content: PartContent::Remote {
+                        section: Section::of(&[2]).unwrap(),
+                    },
+                    inline: Inline::Attached,
+                })
+                .into_iter()
+                .collect(),
             ..message(0)
         };
         let patch = patch(vec![Change::MessageUpsert(Box::new(message.clone()))]);

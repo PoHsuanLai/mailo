@@ -127,6 +127,58 @@ pub enum Filter {
     /// Snoozed, and the instant has passed — the thread is due back in the inbox.
     SnoozeDue,
     Pinned,
+    /// One of the thread's messages is larger than this many bytes ([`message_size`]).
+    Larger(u64),
+    /// One of the thread's messages is smaller than this many bytes ([`message_size`]).
+    Smaller(u64),
+    /// The thread's newest message came within this many days of now: [`Filter::Date`] counted
+    /// back from whenever the filter is asked, so a saved view or a rule keeps meaning "the last
+    /// week" rather than the week it was written in.
+    NewerThan(u32),
+    /// The thread's newest message is older than this many days: the other side of
+    /// [`Filter::NewerThan`].
+    OlderThan(u32),
+}
+
+impl Filter {
+    /// This filter with each relative date fixed against `now`, as a [`Filter::Date`]: what a
+    /// server is asked, which has no clause that counts back from its own clock.
+    pub fn at(&self, now: chrono::DateTime<chrono::Utc>) -> Filter {
+        let each = |fs: &[Filter]| fs.iter().map(|f| f.at(now)).collect();
+        match self {
+            Filter::And(fs) => Filter::And(each(fs)),
+            Filter::Or(fs) => Filter::Or(each(fs)),
+            Filter::Not(f) => Filter::Not(Box::new(f.at(now))),
+            Filter::NewerThan(days) => Filter::Date(DateRange {
+                from: Some(days_before(now, *days)),
+                to: None,
+            }),
+            Filter::OlderThan(days) => Filter::Date(DateRange {
+                from: None,
+                to: Some(days_before(now, *days)),
+            }),
+            other => other.clone(),
+        }
+    }
+}
+
+/// `days` whole days before `now`.
+pub fn days_before(now: chrono::DateTime<chrono::Utc>, days: u32) -> chrono::DateTime<chrono::Utc> {
+    now - chrono::TimeDelta::days(i64::from(days))
+}
+
+/// How large a message is, as `larger:` and `smaller:` measure it: the bytes of its text, and
+/// each part it carries at the size the part says, whether held or still on the server.
+///
+/// Not the raw message's bytes: those are a blob only the SQLite store holds, absent while only
+/// the headers are here, and short by every attachment a large IMAP message left on the server.
+/// This is the same in both stores and in SQL, which is what the parity test holds them to.
+pub fn message_size(message: &crate::Message) -> u64 {
+    let text = message.body.text().map_or(0, |text| text.len() as u64);
+    message
+        .attachments
+        .iter()
+        .fold(text, |sum, part| sum.saturating_add(part.size))
 }
 
 /// Everything [`Filter::fit`] needs in order to decide.
@@ -145,11 +197,15 @@ pub enum Filter {
 /// [`Filter::InFolder`] weighs beside it. A summary does not carry it — it is `remote_map` and
 /// the outbox, not message state — so it is handed in beside the summary, like the corpus. A
 /// caller that does not have it passes `&[]`, and then no `InFolder` clause matches.
+///
+/// `sizes` is each of the thread's messages' [`message_size`], for [`Filter::Larger`] and
+/// [`Filter::Smaller`]; a caller without them passes `&[]`, and then neither matches.
 #[derive(Debug, Clone, Copy)]
 pub struct MatchCtx<'a> {
     pub summary: &'a ThreadSummary,
     pub corpus: Option<&'a str>,
     pub folders: &'a [Placed],
+    pub sizes: &'a [u64],
     pub now: DateTime<Utc>,
 }
 
@@ -265,6 +321,10 @@ impl Filter {
             // Implies `Snoozed`: a due thread is still a snoozed thread.
             Filter::SnoozeDue => matches!(s.snooze, Snooze::Until(at) if at <= ctx.now),
             Filter::Pinned => matches!(s.pin, Pin::Rank(_)),
+            Filter::Larger(bytes) => ctx.sizes.iter().any(|size| size > bytes),
+            Filter::Smaller(bytes) => ctx.sizes.iter().any(|size| size < bytes),
+            Filter::NewerThan(days) => s.last_date >= days_before(ctx.now, *days),
+            Filter::OlderThan(days) => s.last_date < days_before(ctx.now, *days),
         }
     }
 }

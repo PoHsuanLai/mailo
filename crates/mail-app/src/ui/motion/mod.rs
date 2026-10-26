@@ -472,6 +472,7 @@ pub(in crate::ui) fn belongs(
         summary: &after.summary,
         corpus: None,
         folders: &folders,
+        sizes: &[],
         now,
     })
 }

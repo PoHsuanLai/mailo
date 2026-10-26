@@ -339,7 +339,7 @@ fn keystroke(store: &SqliteStore, typed: &str, now: DateTime<Utc>) -> Cost {
         &timed,
         &Affinity::default(),
         &Utc,
-        &|_| Vec::new(),
+        &mail_core::query::unnamed,
         first(PAGE),
         now,
     )

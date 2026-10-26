@@ -1562,14 +1562,17 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             }
             Ok(out)
         }
-        Command::Search { needle, limit } => Ok(search::search(
-            store,
-            needle,
-            *limit,
-            &|name| labels_named(store, name),
-            now,
-            clock,
-        )),
+        Command::Search { needle, limit } => {
+            // Shared with the window's search box, which is the point: the two had separate
+            // answers to "which label is called this", and one of them was "none, ever".
+            let labels = mail_core::query::known_labels(store);
+            let accounts = mail_core::query::known_accounts(store);
+            let known = mail_core::query::Known {
+                labels: &labels,
+                accounts: &accounts,
+            };
+            Ok(search::search(store, needle, *limit, &known, now, clock))
+        }
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
         Command::Sync | Command::SyncFolder { .. } => {
@@ -1945,12 +1948,6 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
 /// "travel" on the work one are two different labels, and a user who types `label:travel` means
 /// the word rather than one account's row. Taking the first silently searched one mailbox — a
 /// wrong answer that looks like an empty one, which is the worst kind.
-fn labels_named(store: &SqliteStore, name: &str) -> Vec<mail_domain::LabelId> {
-    // Shared with the window's search box, which is the point: the two had separate answers to
-    // "which label is called this", and one of them was "none, ever".
-    mail_core::query::named(&mail_core::query::known_labels(store))(name)
-}
-
 fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String {
     let mut out = String::new();
     for summary in items {

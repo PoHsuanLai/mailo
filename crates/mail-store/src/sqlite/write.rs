@@ -244,7 +244,14 @@ impl SqliteStore {
                 to_json("attachments", &m.attachments)?,
                 // What the index will hold: the tokens the query side will ask for, and nothing
                 // else. See `crate::sql::message_index`.
-                crate::sql::message_index(&m.subject, &m.from, &m.to, &m.cc, m.body.text()),
+                crate::sql::message_index(
+                    &m.subject,
+                    &m.from,
+                    &m.to,
+                    &m.cc,
+                    m.body.text(),
+                    &m.attachments,
+                ),
             ])?;
         for label in &m.labels {
             self.connection()
@@ -677,6 +684,7 @@ impl SqliteStore {
                     &filled.to,
                     &filled.cc,
                     text.as_deref(),
+                    &filled.attachments,
                 ),
             ])?;
         Ok(())

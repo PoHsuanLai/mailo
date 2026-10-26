@@ -938,15 +938,18 @@ impl Inner {
             let Some((summary, body)) = self.view(id) else {
                 continue;
             };
-            let folders: Vec<mail_domain::Placed> = self
-                .messages_of(id)
+            let messages = self.messages_of(id);
+            let folders: Vec<mail_domain::Placed> =
+                messages.iter().flat_map(|m| self.placed_of(m.id)).collect();
+            let sizes: Vec<u64> = messages
                 .iter()
-                .flat_map(|m| self.placed_of(m.id))
+                .map(mail_domain::filter::message_size)
                 .collect();
             let ctx = MatchCtx {
                 summary: &summary,
                 corpus: body.as_deref(),
                 folders: &folders,
+                sizes: &sizes,
                 now,
             };
             if filter.fit(&ctx) {
@@ -1787,6 +1790,9 @@ fn thread_corpus(messages: &[Message]) -> Option<String> {
             pieces.push(Some(addr.email.as_str()));
         }
         pieces.push(message.body.text());
+        for attachment in &message.attachments {
+            pieces.push(Some(attachment.name.as_str()));
+        }
         for piece in pieces.into_iter().flatten() {
             if piece.is_empty() {
                 continue;

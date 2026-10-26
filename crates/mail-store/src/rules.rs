@@ -206,10 +206,12 @@ fn act<S: Store + ?Sized>(
         // Its own addresses, re-read after each rule: a rule that files it elsewhere takes it
         // out of `InFolder` for the rules after, as it takes it out of a folder view.
         let folders = store.placed(message.id)?;
+        let sizes = [mail_domain::filter::message_size(&message)];
         let ctx = MatchCtx {
             summary: &summary,
             corpus,
             folders: &folders,
+            sizes: &sizes,
             now,
         };
         if !rule.fits(&ctx) {

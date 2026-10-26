@@ -164,10 +164,12 @@ fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: Date
         Body::Present { text, .. } => text.as_deref(),
         Body::Absent => None,
     };
+    let sizes = [mail_domain::filter::message_size(message)];
     filter.fit(&MatchCtx {
         summary: &summary,
         corpus,
         folders: &folders,
+        sizes: &sizes,
         now,
     })
 }

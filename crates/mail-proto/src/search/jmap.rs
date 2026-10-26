@@ -76,6 +76,16 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
         ),
         Filter::Text(TextMatch::Exact(phrase)) => json!({ "text": phrase }),
         Filter::HasAttachment => json!({ "hasAttachment": true }),
+        // `minSize` is at least, `maxSize` under (RFC 8621 §4.4.1); the server's size is the
+        // whole message's.
+        Filter::Larger(bytes) => json!({ "minSize": bytes.saturating_add(1) }),
+        Filter::Smaller(bytes) => json!({ "maxSize": bytes }),
+        // Fixed against a clock before a server is asked (`Filter::at`).
+        Filter::NewerThan(_) | Filter::OlderThan(_) => {
+            return Err(Unsaid::one(
+                "newer_than: / older_than: (not fixed to a date)".to_owned(),
+            ));
+        }
         Filter::Date(range) => {
             let mut out = serde_json::Map::new();
             let utc = |at: &chrono::DateTime<chrono::Utc>| {

@@ -103,6 +103,7 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
         }
         Filter::Text(m) => fts::predicate(m, params),
         Filter::Date(range) => date_predicate(range, params),
+        Filter::NewerThan(_) | Filter::OlderThan(_) => predicate(&filter.at(now), now, params),
         // `Attachments::None` is `{"kind":"none"}`; `Present` carries a count under `v`.
         Filter::HasAttachment => {
             params.push(SqlValue::Text("none".to_owned()));
@@ -119,7 +120,27 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
             params.push(SqlValue::Text("rank".to_owned()));
             "(json_extract(ts.pin, '$.kind') = ?)".to_owned()
         }
+        Filter::Larger(bytes) => {
+            params.push(SqlValue::Int(clamped(*bytes)));
+            format!("(ts.thread IN (SELECT m.thread FROM messages m WHERE {MESSAGE_SIZE} > ?))")
+        }
+        Filter::Smaller(bytes) => {
+            params.push(SqlValue::Int(clamped(*bytes)));
+            format!("(ts.thread IN (SELECT m.thread FROM messages m WHERE {MESSAGE_SIZE} < ?))")
+        }
     }
+}
+
+/// [`mail_domain::filter::message_size`] of the message aliased `m`, in SQL: the bytes of its
+/// text (a `TEXT` cast to a `BLOB` counts bytes, not characters), and each part's stated size.
+/// Uncorrelated with `ts`, as [`Filter::InFolder`] is, so it runs once rather than per thread.
+const MESSAGE_SIZE: &str = "(COALESCE(length(CAST(m.body_text AS BLOB)), 0) + \
+     COALESCE((SELECT SUM(json_extract(a.value, '$.size')) FROM json_each(m.attachments) a), 0))";
+
+/// A size as SQLite's integers hold it: nothing anyone types is past `i64::MAX`, and one that
+/// were would compare as the largest there is.
+fn clamped(bytes: u64) -> i64 {
+    i64::try_from(bytes).unwrap_or(i64::MAX)
 }
 
 /// The threads with a message held in one mailbox and still filed there, for

@@ -424,7 +424,7 @@ pub(in crate::ui) fn chips(query: &str) -> Vec<String> {
     if !started.is_empty() {
         return started.into_iter().map(str::to_owned).collect();
     }
-    search::parse(query, &Utc, &|_| Vec::new()).operator_tokens
+    search::parse(query, &Utc, &mail_core::query::unnamed).operator_tokens
 }
 
 /// The operators `query`'s last word is the start of, and not yet one of: none when the query

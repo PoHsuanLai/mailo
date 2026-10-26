@@ -29,7 +29,7 @@ mod superset;
 
 use crate::error::CoreError;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{LabelId, ThreadId, ThreadSummary};
+use mail_domain::{ThreadId, ThreadSummary};
 
 pub use expanding::{Expansion, expand, suggestions};
 pub use find::{Find, Highlight, Step, find_highlight, list_highlight};
@@ -72,7 +72,7 @@ pub fn rank_query<Tz: TimeZone>(
     source: &dyn Source,
     affinity: &Affinity,
     zone: &Tz,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn crate::query::Names,
     k: usize,
     now: DateTime<Utc>,
 ) -> Result<RankedMail, CoreError> {
@@ -97,7 +97,7 @@ pub fn run(
     if input.trim().is_empty() {
         return group::empty_query(source, commands, now);
     }
-    let Ok(prepared) = prepare(input, source, &Utc, &|_| Vec::new()) else {
+    let Ok(prepared) = prepare(input, source, &Utc, &crate::query::unnamed) else {
         return Results::default();
     };
     let hits = if prepared.has_text() {

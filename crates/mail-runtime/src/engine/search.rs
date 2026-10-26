@@ -41,7 +41,7 @@ impl AccountEngine<ImapBackend> {
             labels: caps.labels,
             labels_named: labels,
         };
-        let plan = match imap::translate(filter, &ctx) {
+        let plan = match imap::translate(&filter.at(now), &ctx) {
             Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
             Ok(Asked::Nothing) => return Ok(Searched::Found(ServerHits::default())),
             Ok(Asked::Ask(plan)) => plan,
@@ -134,7 +134,7 @@ impl<B: Backend> AccountEngine<B> {
         filter: &Filter,
         now: DateTime<Utc>,
     ) -> Result<Searched, RuntimeError> {
-        let plan = match graph::translate(filter, self.account.clone()) {
+        let plan = match graph::translate(&filter.at(now), self.account.clone()) {
             Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
             Ok(Asked::Nothing) => return Ok(Searched::Found(ServerHits::default())),
             Ok(Asked::Ask(plan)) => plan,

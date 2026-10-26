@@ -756,7 +756,10 @@ impl Shell {
             mail_core::query::parse_with(
                 needle,
                 &chrono::Local,
-                &mail_core::query::named(&self.labels),
+                &mail_core::query::Known {
+                    labels: &self.labels,
+                    accounts: &self.accounts,
+                },
             )
         };
         let filter = self.with_account(filter);

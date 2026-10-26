@@ -500,6 +500,10 @@ fn filters() -> Vec<Filter> {
         Filter::Snoozed,
         Filter::SnoozeDue,
         Filter::Pinned,
+        Filter::Larger(5_000_000),
+        Filter::Smaller(1_000),
+        Filter::NewerThan(7),
+        Filter::OlderThan(365),
     ]
 }
 
@@ -1657,6 +1661,13 @@ fixtures! {
     ],
     "smime_encryptions_authenticated.json" => Vec<SmimeEncryption> = vec![
         SmimeEncryption::DecryptedAuthenticated,
+    ],
+    // Sizes and relative dates (search operators), added after `filters.json` was frozen.
+    "filters_more.json" => Vec<Filter> = vec![
+        Filter::Larger(5_000_000),
+        Filter::Smaller(1_000),
+        Filter::NewerThan(7),
+        Filter::OlderThan(365),
     ],
 }
 
