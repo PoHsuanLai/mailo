@@ -60,7 +60,7 @@ pub(crate) fn message_index(
     }
     fields.push(body);
     // What it carries, by name, so `invoice` finds the mail with `invoice-2026.pdf` attached
-    // (migration 0033). The names only: what is inside a part is not searched.
+    // (migration 0042). The names only: what is inside a part is not searched.
     for attachment in attachments {
         fields.push(Some(attachment.name.as_str()));
     }

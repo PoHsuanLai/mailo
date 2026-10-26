@@ -697,7 +697,7 @@ const CASES: &[Case] = &[
     Case {
         // Attachment names joined the indexed text. A version-32 row was indexed without them,
         // so the migration clears the text and the index together and the open backfills it.
-        migration: "0033_fts_attachment_names",
+        migration: "0042_fts_attachment_names",
         from: 32,
         seed: |db| {
             seed(db);
