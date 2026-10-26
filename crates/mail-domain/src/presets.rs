@@ -466,17 +466,24 @@ pub const GRAPH_SEND_SCOPE: &str = "https://graph.microsoft.com/Mail.Send";
 /// the draft, and the draft sent.
 pub const GRAPH_WRITE_SCOPE: &str = "https://graph.microsoft.com/Mail.ReadWrite";
 
-/// What an account that reads and sends through Graph signs in for: Thunderbird's set.
+/// The delegated permission setting the mailbox's automatic replies needs: the vacation reply of
+/// an account that reads through Graph.
+pub const GRAPH_SETTINGS_SCOPE: &str = "https://graph.microsoft.com/MailboxSettings.ReadWrite";
+
+/// What an account that reads and sends through Graph signs in for: Thunderbird's set, and the
+/// mailbox's settings.
 ///
 /// `Mail.ReadWrite` to read, flag and move, `MailboxFolder.ReadWrite` for the folders,
-/// `Mail.Send` to send, `User.Read` for whose account it is, and `offline_access` for a refresh
-/// token, without which the account stops an hour after it is added. All Graph's, so one token
-/// serves both directions. `Mail.ReadWrite` first: nothing depends on it, but it is the one
-/// every other permission here would be useless without.
-pub const GRAPH_SCOPES: [&str; 5] = [
+/// `Mail.Send` to send, `MailboxSettings.ReadWrite` for the vacation reply (Exchange's automatic
+/// replies), `User.Read` for whose account it is, and `offline_access` for a refresh token,
+/// without which the account stops an hour after it is added. All Graph's, so one token serves
+/// both directions. `Mail.ReadWrite` first: nothing depends on it, but it is the one every other
+/// permission here would be useless without.
+pub const GRAPH_SCOPES: [&str; 6] = [
     GRAPH_WRITE_SCOPE,
     "https://graph.microsoft.com/MailboxFolder.ReadWrite",
     GRAPH_SEND_SCOPE,
+    GRAPH_SETTINGS_SCOPE,
     "https://graph.microsoft.com/User.Read",
     "offline_access",
 ];
@@ -867,6 +874,7 @@ mod tests {
                 "https://graph.microsoft.com/Mail.ReadWrite",
                 "https://graph.microsoft.com/Mail.Send",
                 "https://graph.microsoft.com/MailboxFolder.ReadWrite",
+                "https://graph.microsoft.com/MailboxSettings.ReadWrite",
                 "https://graph.microsoft.com/User.Read",
                 "offline_access",
             ]

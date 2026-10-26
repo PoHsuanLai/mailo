@@ -34,6 +34,7 @@
 //! `PidTagInternetReferences`, 0x1039) through `singleValueExtendedProperties`.
 
 pub mod read;
+pub mod replies;
 
 use crate::RuntimeError;
 use crate::error::{Failure, Logged};

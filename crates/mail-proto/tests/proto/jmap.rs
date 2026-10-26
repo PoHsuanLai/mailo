@@ -91,6 +91,18 @@ fn the_rfc_session_names_the_mail_account_and_every_url() {
     assert_eq!(session.state, "75128aab4b1b");
     // The example's mail account lists no submission capability: it cannot send.
     assert_eq!(session.submission, Submission::Absent);
+    // Nor any vacation reply.
+    assert_eq!(session.vacation, Vacations::Absent);
+}
+
+#[test]
+fn a_mail_account_listing_vacation_responses_has_a_reply_to_set() {
+    let with_vacation = RFC_SESSION.replace(
+        r#""urn:ietf:params:jmap:contacts": {}"#,
+        r#""urn:ietf:params:jmap:contacts": {}, "urn:ietf:params:jmap:vacationresponse": {}"#,
+    );
+    let session = Session::parse(with_vacation.as_bytes()).unwrap();
+    assert_eq!(session.vacation, Vacations::Offered);
 }
 
 #[test]

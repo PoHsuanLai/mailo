@@ -34,6 +34,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "reads SQLite's own datetime text",
     ),
     (
+        "mail-proto/src/automatic_replies.rs",
+        "Graph's `dateTimeTimeZone`, a wire format",
+    ),
+    (
         "mail-mime/src/archive/mbox.rs",
         "the mbox `From ` line, a file format",
     ),

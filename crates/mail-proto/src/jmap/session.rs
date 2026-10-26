@@ -1,7 +1,7 @@
 //! The session resource (RFC 8620 §2): where everything else is, and what the server allows.
 
 use super::field::{malformed, object, opt_string, string, unsigned};
-use super::{MAIL, SUBMISSION};
+use super::{MAIL, SUBMISSION, VACATION};
 use crate::ProtoError;
 use mail_domain::JmapAccountId;
 use serde_json::Value;
@@ -22,6 +22,8 @@ pub struct Session {
     pub account: JmapAccountId,
     /// Whether that account may send (`urn:ietf:params:jmap:submission`).
     pub submission: Submission,
+    /// Whether that account has a vacation reply the server sends (RFC 8621 §8).
+    pub vacation: Vacations,
     pub limits: Limits,
     /// The name the server knows the user by.
     pub username: String,
@@ -33,6 +35,13 @@ pub struct Session {
 /// Whether the mail account can send.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Submission {
+    Offered,
+    Absent,
+}
+
+/// Whether the mail account has a vacation reply to set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Vacations {
     Offered,
     Absent,
 }
@@ -79,6 +88,10 @@ impl Session {
             Some(_) => Submission::Offered,
             None => Submission::Absent,
         };
+        let vacation = match account_caps.and_then(|c| c.get(VACATION)) {
+            Some(_) => Vacations::Offered,
+            None => Vacations::Absent,
+        };
         let core = value
             .get("capabilities")
             .and_then(|c| c.get(super::CORE))
@@ -97,6 +110,7 @@ impl Session {
                 .map(str::to_owned),
             account,
             submission,
+            vacation,
             limits,
             username: opt_string(&value, "username")?.unwrap_or("").to_owned(),
             state: opt_string(&value, "state")?.unwrap_or("").to_owned(),

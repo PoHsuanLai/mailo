@@ -42,8 +42,10 @@ the least exercised.
 - Full-text search over the local store (SQLite FTS5), plus server-side search where the protocol
   has it.
 - Rules that run in mailo. Where the server offers ManageSieve, rules can be pushed to it, and an
-  away reply (`mailo vacation`) is set there. Gmail and Microsoft offer no ManageSieve, so those
-  accounts have local rules only and no vacation reply.
+  away reply (`mailo vacation`) is set there. A JMAP account's away reply is its server's own
+  vacation response, and a Microsoft account that reads through Graph gets Exchange's automatic
+  replies. Gmail and Microsoft offer no ManageSieve, so those accounts have local rules only, and
+  Gmail and Microsoft over IMAP have no vacation reply.
 
 **Encryption**
 

@@ -37,8 +37,9 @@ use crate::ui::copy;
 use crate::ui::view::{RulesAt, Shell};
 use editor::RulePage;
 use list::RulesList;
+use mail_core::rules::server::AwayServer;
 use mail_domain::Rule;
-use server::{Pusher, put, reach};
+use server::{AwaySetter, Pusher, put, reach, reach_away, set_away};
 pub(in crate::ui) use vacation::{VacationPage, back as vacation_back};
 
 /// What the last act on the page came to, when it failed: said in a dialog until it is closed.
@@ -161,6 +162,31 @@ fn push(row: AccountRow, mut said: Said) {
         let done = tokio::task::spawn_blocking(move || put(&store, &row, &push, Utc::now())).await;
         let failed = match done {
             Ok(Ok(_)) => return,
+            Ok(Err(why)) => why,
+            Err(error) => error.to_string(),
+        };
+        said.set(Some(Err(copy::errors::not_on_server(&failed))));
+    });
+}
+
+/// Put `row`'s vacation reply where its server keeps one: with its rules in its Sieve script
+/// ([`push`]), or set on its JMAP or Graph server. On a blocking thread, saying only a failure,
+/// in `said`.
+fn push_away(row: AccountRow, mut said: Said) {
+    match reach_away(&row.plan) {
+        Ok(AwayServer::Sieve) => return push(row, said),
+        Ok(AwayServer::Jmap | AwayServer::Graph) => {}
+        Err(_) => return,
+    }
+    let store = consume_context::<Arc<SqliteStore>>();
+    let set = try_consume_context::<AwaySetter>()
+        .unwrap_or_else(AwaySetter::server)
+        .0;
+    spawn(async move {
+        let done =
+            tokio::task::spawn_blocking(move || set_away(&store, &row, &set, Utc::now())).await;
+        let failed = match done {
+            Ok(Ok(())) => return,
             Ok(Err(why)) => why,
             Err(error) => error.to_string(),
         };

@@ -33,6 +33,7 @@ mod outbox;
 mod push;
 mod search;
 mod sync;
+mod vacation;
 
 pub use client::{Auth, Client, find_session, safe_url};
 

@@ -6,6 +6,7 @@
 //! returns what it needs next; `mail-runtime` owns the loop that satisfies those needs. Tests
 //! are byte transcripts — see `tests/traces/FORMAT.md`.
 
+pub mod automatic_replies;
 pub mod backend;
 pub mod diagnose;
 pub mod error;

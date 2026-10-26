@@ -7,7 +7,7 @@ use mail_core::Mail;
 use mail_core::SqliteStore;
 use mail_core::error::CoreError;
 use mail_core::rules::server::{
-    KeptVacation, PushDone, ScriptState, SieveCmd, SieveDone, SieveStatus, VacationCmd,
+    AwayServer, KeptVacation, PushDone, ScriptState, SieveCmd, SieveDone, SieveStatus, VacationCmd,
     VacationDone,
 };
 use mail_core::rules::{AccountRules, RulesCmd, RulesDone, RunProgress};
@@ -385,6 +385,14 @@ fn shown(kept: &KeptVacation, clock: mail_core::when::Clock) -> String {
 fn push_text(pushed: &PushDone) -> String {
     match pushed {
         PushDone::Pushed { address, pushed } => said(address, pushed),
+        PushDone::Set { address, on } => format!(
+            "{address}: set on the server, which sends it{}\n",
+            match on {
+                AwayServer::Jmap => " (JMAP's vacation response)",
+                AwayServer::Graph => " (Exchange's automatic replies)",
+                AwayServer::Sieve => "",
+            }
+        ),
         PushDone::NotPushed(why) => format!(
             "  kept here, but not on the server yet: {why}\n  `mailo sieve push` tries again\n"
         ),

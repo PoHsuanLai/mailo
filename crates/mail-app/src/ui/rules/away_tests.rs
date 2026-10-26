@@ -31,19 +31,25 @@ pub(super) fn own_server(store: &SqliteStore) -> AccountRow {
         login: None,
     };
     let preset = presets::manual("me@nowhere.example", &manual, Utc::now());
-    mail_store::testing::seed_account_plan(
-        store,
-        acct_own(),
-        &preset.plan.address,
-        &preset.plan,
-        Some(Utc::now()),
-    );
+    let row = seeded(store, acct_own(), &preset.plan);
     store
         .put_caps(acct_own(), &preset.expected_caps, Utc::now())
         .unwrap();
+    row
+}
+
+/// `plan` kept as account `id`, as `account add` keeps one, and its row.
+pub(super) fn seeded(store: &SqliteStore, id: AccountId, plan: &AccountPlan) -> AccountRow {
+    mail_store::testing::seed_account_plan(
+        store,
+        id.clone(),
+        &plan.address,
+        plan,
+        Some(Utc::now()),
+    );
     account_rows(store)
         .into_iter()
-        .find(|row| row.id == acct_own())
+        .find(|row| row.id == id)
         .unwrap()
 }
 

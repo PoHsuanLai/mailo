@@ -23,6 +23,7 @@ mod session;
 mod set;
 mod submit;
 mod template;
+mod vacation;
 
 pub use changes::{Changes, More, QueryPage, state_of};
 pub use email::{EmailSummary, Filing, HasAttachment, SUMMARY, filing};
@@ -34,12 +35,13 @@ pub use request::{
     identity_get, mailbox_changes, mailbox_get, mailbox_set, request, total_query,
 };
 pub use response::Responses;
-pub use session::{Limits, Session, Submission};
+pub use session::{Limits, Session, Submission, Vacations};
 pub use set::{
     SetError, SetResult, filing_patch, flags_patch, folder_work, keyword_patch, labels_patch,
 };
 pub use submit::{Filed, Identity, Sent, choose_identity, submission, submitted};
 pub use template::expand;
+pub use vacation::{VACATION, vacation_set, vacation_set_done};
 
 /// The capability every request uses (RFC 8620 §2).
 pub const CORE: &str = "urn:ietf:params:jmap:core";
