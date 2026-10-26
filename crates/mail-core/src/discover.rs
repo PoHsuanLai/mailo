@@ -30,6 +30,7 @@ use porter_discover::{
 };
 use porter_http::Http;
 use porter_provider::{DomainMatch, DomainName, Issuer, ProviderSpec};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Where a configuration came from, which is what the user is asked to trust.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -131,6 +132,23 @@ impl std::fmt::Display for Failed {
 
 impl std::error::Error for Failed {}
 
+/// Whether this installation has a client that signs a personal Microsoft account in. Set once at
+/// the program's edge ([`allow_personal_microsoft`]); off, as in every test, a personal address
+/// is refused.
+static PERSONAL_MICROSOFT_OPEN: AtomicBool = AtomicBool::new(false);
+
+/// Record whether a personal Microsoft account (`outlook.com`, `hotmail.com`) can be signed in:
+/// true when the installation's Microsoft client is registered for personal accounts
+/// (`mail_runtime::clients::personal_microsoft_ready`). Until it is, a personal address is told
+/// why it is refused, as it always was.
+pub fn allow_personal_microsoft(open: bool) {
+    PERSONAL_MICROSOFT_OPEN.store(open, Ordering::Relaxed);
+}
+
+fn personal_microsoft_open() -> bool {
+    PERSONAL_MICROSOFT_OPEN.load(Ordering::Relaxed)
+}
+
 /// What a personal Microsoft mailbox is told: it no longer takes a password, and the client
 /// supports work and school Microsoft 365 mailboxes only.
 const PERSONAL_MICROSOFT: &str = "this is a personal Microsoft mailbox. Those no longer accept \
@@ -200,7 +218,8 @@ pub fn microsoft_domain(address: &str) -> presets::MicrosoftAccount {
 /// (`<tenant>.onmicrosoft.com`). A domain that merely has an MX at a provider is not proved by
 /// its address and goes through discovery, which shows what it found and asks. Nor does a
 /// provider that signs in with a password: its hosts are shown for a yes first. A personal
-/// Microsoft domain is not here either, and discovery says why.
+/// Microsoft domain is not here either: discovery says why, or, where a client signs personal
+/// accounts in ([`allow_personal_microsoft`]), sets it up as a personal account.
 ///
 /// The address is kept exactly as typed; only the lookup folds case.
 pub fn known(address: &str, now: DateTime<Utc>) -> Option<Preset> {
@@ -230,7 +249,7 @@ fn from_provider(lead: &ProviderLead, address: &str, now: DateTime<Utc>) -> Resu
     };
     let personal = lead.via == DomainMatch::Domain
         && domain_of(address).is_some_and(|domain| personal_microsoft(spec, &domain));
-    if personal {
+    if personal && !personal_microsoft_open() {
         return Err(no_servers(
             address,
             Gap::PersonalMicrosoft,
@@ -238,6 +257,9 @@ fn from_provider(lead: &ProviderLead, address: &str, now: DateTime<Utc>) -> Resu
         ));
     }
     let preset = match spec.auth.issuer {
+        Some(_) if personal => {
+            presets::microsoft_for(presets::MicrosoftAccount::Personal, address, now)
+        }
         Some(issuer) => presets::preset_for_issuer(issuer, address, now)
             .ok_or_else(|| no_servers(address, Gap::Nothing, "its mail is not read here"))?,
         None => from_file(spec, address, now)?,
@@ -430,7 +452,8 @@ fn oauth_issuer(servers: &Servers) -> Option<Issuer> {
         })
 }
 
-/// Refuse the managed-tenant preset for a personal Microsoft address, however it was reached.
+/// Refuse the managed-tenant preset for a personal Microsoft address, however it was reached,
+/// unless a client signs personal accounts in: then the personal preset takes its place.
 fn guard(address: &str, preset: Preset) -> Result<Preset, Failed> {
     let tenant = matches!(
         preset.plan.auth,
@@ -440,13 +463,18 @@ fn guard(address: &str, preset: Preset) -> Result<Preset, Failed> {
         }
     );
     let personal = microsoft_domain(address) == presets::MicrosoftAccount::Personal;
-    match tenant && personal {
-        true => Err(no_servers(
+    match (tenant && personal, personal_microsoft_open()) {
+        (true, false) => Err(no_servers(
             address,
             Gap::PersonalMicrosoft,
             PERSONAL_MICROSOFT,
         )),
-        false => Ok(preset),
+        (true, true) => Ok(presets::microsoft_for(
+            presets::MicrosoftAccount::Personal,
+            address,
+            Utc::now(),
+        )),
+        (false, _) => Ok(preset),
     }
 }
 
@@ -1087,6 +1115,38 @@ mod tests {
                 label: "Microsoft".to_owned()
             }
         );
+    }
+
+    /// With a client that signs personal accounts in, a personal address is set up as a personal
+    /// account instead of refused; a tenant's is unchanged.
+    #[tokio::test]
+    async fn a_personal_microsoft_mailbox_is_set_up_once_a_client_takes_it() {
+        allow_personal_microsoft(true);
+        let found = Net::default().found("me@outlook.com").await;
+        let tenant = Net::default().found("me@contoso.onmicrosoft.com").await;
+        allow_personal_microsoft(false);
+        let found = found.expect("a personal mailbox");
+        assert_eq!(
+            found.preset.plan.auth,
+            presets::microsoft_for(
+                presets::MicrosoftAccount::Personal,
+                "me@outlook.com",
+                Utc::now()
+            )
+            .plan
+            .auth
+        );
+        assert_ne!(
+            found.preset.plan.incoming,
+            presets::microsoft_for(
+                presets::MicrosoftAccount::Organisation,
+                "me@outlook.com",
+                Utc::now()
+            )
+            .plan
+            .incoming
+        );
+        assert!(tenant.is_ok());
     }
 
     // ---- servers a document or DNS named ---------------------------------------------------------

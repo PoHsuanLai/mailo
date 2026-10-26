@@ -108,6 +108,12 @@ impl OAuthClients {
         }
     }
 
+    /// Whether these clients can sign a personal Microsoft account in
+    /// (`mail_runtime::clients::personal_microsoft_ready`).
+    pub fn takes_personal_microsoft(&self) -> bool {
+        mail_runtime::clients::personal_microsoft_ready(&self.saved())
+    }
+
     /// The same, for the places that sign in and can do without: a registry that cannot be read is
     /// logged and empty.
     pub fn saved(&self) -> ClientRegistry {
