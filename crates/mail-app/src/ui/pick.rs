@@ -25,6 +25,8 @@ pub enum Ask {
     Attachments,
     /// Any number of vCard files, to import into Contacts.
     Cards,
+    /// One picture, for a contact's photo.
+    Picture,
 }
 
 /// The dialog: what was asked and where it starts, to what was chosen. Nothing, when it is
@@ -69,6 +71,14 @@ impl Dialogs {
                     .add_filter("vCard", &["vcf", "vcard"])
                     .pick_files()
                     .unwrap_or_default(),
+                Ask::Picture => dialog
+                    .add_filter(
+                        crate::ui::copy::fields::PICTURE_FILES,
+                        &["png", "jpg", "jpeg", "gif", "webp"],
+                    )
+                    .pick_file()
+                    .into_iter()
+                    .collect(),
             }
         }))
     }

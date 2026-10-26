@@ -340,6 +340,17 @@ pub enum SpacesPage {
     New,
 }
 
+/// A page of Settings' Contacts pane: the people and groups, or one card or group pushed over
+/// them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContactsPage {
+    List,
+    Person(mail_core::contacts::CardId),
+    /// A new card, before there is one: it is added by its page's Add Contact.
+    NewPerson,
+    Group(mail_core::contacts::GroupId),
+}
+
 /// A page of Settings' Accounts pane: the list of accounts, one account's own page pushed over
 /// it, or the keys and certificates no account here owns.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,6 +387,8 @@ pub enum SettingsPage {
     /// Nothing about a key is kept in the shell: the page reads the store, and a passphrase, a
     /// password or a secret key never passes through it.
     Accounts,
+    /// The address book: every person's card and every group, each with its own page.
+    Contacts,
     /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
     Spaces,
     Rules,
@@ -579,6 +592,8 @@ pub struct Shell {
     pub accounts_pane: AccountsPane,
     /// Settings' Spaces pane: the list, or a Space's page over it.
     pub spaces_pane: PanePath<SpacesPage>,
+    /// Settings' Contacts pane: the people and groups, or a card or group over them.
+    pub contacts_pane: PanePath<ContactsPage>,
     /// Settings' Vacation Reply pane: the accounts, or one account's reply over them.
     pub vacation_pane: PanePath<VacationAt>,
     /// Settings while it is open, on the page shown. `None` is closed.
@@ -713,6 +728,7 @@ impl Default for Shell {
             keyboard: KeyboardPage::default(),
             accounts_pane: AccountsPane::default(),
             spaces_pane: PanePath::new(SpacesPage::List),
+            contacts_pane: PanePath::new(ContactsPage::List),
             vacation_pane: PanePath::new(VacationAt::List),
             settings: None,
             destroying: None,

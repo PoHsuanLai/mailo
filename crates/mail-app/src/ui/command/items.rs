@@ -47,6 +47,8 @@ pub(in crate::ui) enum CommandId {
 /// Which way a Contacts command moves the book.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Cards {
+    /// Settings › Contacts, the book itself.
+    Open,
     Import,
     Export,
 }
@@ -164,7 +166,14 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         Icon::Forward,
         None,
     ),
-    // The contact book in and out, as vCard.
+    // The contact book, and the book in and out as vCard.
+    entry(
+        CommandId::Contacts(Cards::Open),
+        "contacts",
+        menus::OPEN_CONTACTS,
+        Icon::Group,
+        None,
+    ),
     entry(
         CommandId::Contacts(Cards::Import),
         "import-contacts",

@@ -3,7 +3,7 @@
 //! already open. Laid out as detent lays out a program's page: a sidebar of pages, each a column
 //! of titled groups of rows.
 //!
-//! Five pages: General, Accounts, Spaces, Rules and Keyboard. General draws mailo's settings schema
+//! Seven pages: General, Accounts, Contacts, Spaces, Rules, Vacation Reply and Keyboard. General draws mailo's settings schema
 //! (`crate::settings`) as two groups of rows ([`general`], each row a key's, drawn by [`keys`]),
 //! the same keys detent draws on mailo's page and writes to the same `mailo/settings.toml`.
 //! Accounts lists each account, whose row pushes its own page into the pane ([`account`]): its
@@ -13,8 +13,9 @@
 //! before something goes. Spaces lists each Space, whose row pushes its page: its name, colour,
 //! theme and accounts, and its deletion ([`spaces`]); the Space's menu, a right click on the
 //! Space's name, is the quick way to the same, and its Edit Space… opens the Space's page here
-//! ([`open_space`]). A person is edited from their name in mail, and contacts
-//! come in and go out through ⌘K, so Contacts is not a page here.
+//! ([`open_space`]). Contacts is the address book: every person's card and every group, each
+//! pushing its page, drawn by `contacts::page`; a sender's name in mail opens it on their card
+//! ([`open_card`]), and ⌘K's Contacts on its list.
 //!
 //! Every way into one of those pages from the main window (⌘K, the composer's bar) opens the
 //! window on that page, or turns the open window to it ([`open_at`]), and the composer's way to
@@ -45,7 +46,8 @@ pub use root::settings_root;
 use crate::ui::copy;
 use crate::ui::space::SpaceId;
 use crate::ui::view::{
-    AccountStep, AccountsPage, AccountsPane, RulesAt, SettingsPage, Shell, SpacesPage, VacationAt,
+    AccountStep, AccountsPage, AccountsPane, ContactsPage, RulesAt, SettingsPage, Shell,
+    SpacesPage, VacationAt,
 };
 use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
@@ -65,9 +67,10 @@ pub(in crate::ui) const TITLE: &str = copy::titles::SETTINGS;
 const SIZE: (u32, u32) = (780, 620);
 
 impl SettingsPage {
-    pub(in crate::ui) const ALL: [SettingsPage; 6] = [
+    pub(in crate::ui) const ALL: [SettingsPage; 7] = [
         SettingsPage::General,
         SettingsPage::Accounts,
+        SettingsPage::Contacts,
         SettingsPage::Spaces,
         SettingsPage::Rules,
         SettingsPage::Vacation,
@@ -79,6 +82,7 @@ impl SettingsPage {
         match self {
             SettingsPage::General => copy::titles::GENERAL,
             SettingsPage::Accounts => copy::titles::ACCOUNTS,
+            SettingsPage::Contacts => copy::titles::CONTACTS,
             SettingsPage::Spaces => copy::titles::SPACES,
             SettingsPage::Rules => copy::titles::RULES,
             SettingsPage::Vacation => copy::titles::VACATION_REPLY,
@@ -90,6 +94,7 @@ impl SettingsPage {
         match self {
             SettingsPage::General => Icon::Settings,
             SettingsPage::Accounts => Icon::Mail,
+            SettingsPage::Contacts => Icon::Group,
             SettingsPage::Spaces => Icon::Grid,
             SettingsPage::Rules => Icon::FolderInput,
             SettingsPage::Vacation => Icon::Sun,
@@ -98,13 +103,14 @@ impl SettingsPage {
     }
 }
 
-/// Where the Settings window is asked to be: a page, one account's page pushed over Accounts, or
-/// one Space's pushed over Spaces.
+/// Where the Settings window is asked to be: a page, one account's page pushed over Accounts,
+/// one Space's pushed over Spaces, or one person's card pushed over Contacts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsAt {
     Page(SettingsPage),
     Account(AccountId),
     Space(SpaceId),
+    Card(mail_core::contacts::CardId),
 }
 
 impl SettingsAt {
@@ -114,13 +120,16 @@ impl SettingsAt {
             SettingsAt::Page(page) => *page,
             SettingsAt::Account(_) => SettingsPage::Accounts,
             SettingsAt::Space(_) => SettingsPage::Spaces,
+            SettingsAt::Card(_) => SettingsPage::Contacts,
         }
     }
 
     /// The Accounts pane as it stands there: the list, or the account's page over it.
     pub(in crate::ui) fn pane(&self) -> AccountsPane {
         match self {
-            SettingsAt::Page(_) | SettingsAt::Space(_) => AccountsPane::default(),
+            SettingsAt::Page(_) | SettingsAt::Space(_) | SettingsAt::Card(_) => {
+                AccountsPane::default()
+            }
             SettingsAt::Account(account) => AccountsPane {
                 path: PanePath::new(AccountsPage::List)
                     .pushed(AccountsPage::Account(account.clone())),
@@ -136,7 +145,16 @@ impl SettingsAt {
         let list = PanePath::new(SpacesPage::List);
         match self {
             SettingsAt::Space(space) => list.pushed(SpacesPage::Space(*space)),
-            SettingsAt::Page(_) | SettingsAt::Account(_) => list,
+            SettingsAt::Page(_) | SettingsAt::Account(_) | SettingsAt::Card(_) => list,
+        }
+    }
+
+    /// The Contacts pane as it stands there: the people and groups, or a card over them.
+    pub(in crate::ui) fn contacts_pane(&self) -> PanePath<ContactsPage> {
+        let list = PanePath::new(ContactsPage::List);
+        match self {
+            SettingsAt::Card(card) => list.pushed(ContactsPage::Person(card.clone())),
+            SettingsAt::Page(_) | SettingsAt::Account(_) | SettingsAt::Space(_) => list,
         }
     }
 }
@@ -233,6 +251,12 @@ pub(in crate::ui) fn open_space(space: SpaceId) {
     ask(Some(SettingsAt::Space(space)));
 }
 
+/// Open Settings on `card`'s page, pushed over Contacts, or raise it and turn it there: a
+/// sender's Show Contact Card.
+pub(in crate::ui) fn open_card(card: mail_core::contacts::CardId) {
+    ask(Some(SettingsAt::Card(card)));
+}
+
 fn ask(at: Option<SettingsAt>) {
     match try_consume_context::<SettingsWindows>() {
         Some(windows) => windows.0.open(at),
@@ -255,6 +279,7 @@ pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: SettingsPage) {
     }
     write.rules.path = PanePath::new(RulesAt::List);
     write.spaces_pane = PanePath::new(SpacesPage::List);
+    write.contacts_pane = PanePath::new(ContactsPage::List);
     write.vacation_pane = PanePath::new(VacationAt::List);
 }
 
@@ -270,6 +295,10 @@ pub(in crate::ui) fn go_to(shell: Signal<Shell>, at: SettingsAt) {
         SettingsAt::Space(space) => {
             go(shell, SettingsPage::Spaces);
             spaces::push(shell, space);
+        }
+        SettingsAt::Card(card) => {
+            go(shell, SettingsPage::Contacts);
+            crate::ui::contacts::page::push(shell, ContactsPage::Person(card));
         }
     }
 }
@@ -341,6 +370,7 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
                 match page {
                     SettingsPage::General => rsx! { general::General {} },
                     SettingsPage::Accounts => rsx! { accounts::Accounts { shell, revision } },
+                    SettingsPage::Contacts => rsx! { crate::ui::contacts::page::Contacts { shell } },
                     SettingsPage::Spaces => match try_consume_context::<crate::ui::space::Handle>() {
                         Some(handle) => rsx! { spaces::Spaces { shell, handle } },
                         None => rsx! {},

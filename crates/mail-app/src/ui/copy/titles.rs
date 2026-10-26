@@ -57,3 +57,6 @@ pub const KEYS_FAILED: &str = "That Didn’t Work";
 pub const SETTINGS_UNREADABLE: &str = "Some Settings Can’t Be Read";
 /// Use Defaults could not set a damaged settings file aside; the reason is the message.
 pub const NOT_SET_ASIDE: &str = "The Files Weren’t Set Aside";
+
+/// Settings' address book: its sidebar row and the root of its pane.
+pub const CONTACTS: &str = "Contacts";

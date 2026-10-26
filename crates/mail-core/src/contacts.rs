@@ -12,11 +12,13 @@ use porter_core::{CapabilityKind, Credential, SecretKey, SecretPurpose, SecretTe
 use std::collections::BTreeSet;
 
 pub mod groups;
+pub mod people;
 
 pub use mail_runtime::carddav::How;
 /// The address book's own types, which a front end names to read and edit it.
 pub use mail_store::{
-    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin,
+    AddressBook, BookCard, CardId, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin,
+    PersonCard,
 };
 
 impl crate::mail::ContactOps<'_> {
@@ -78,19 +80,24 @@ pub struct Imported {
     pub addresses: usize,
     /// Cards of kind group, each now a group of this book.
     pub groups: usize,
-    /// Cards that are not groups and carried no email address.
+    /// Cards of people, each now a card of this book.
+    pub people: usize,
+    /// Cards that are not groups and carried no email address: kept, but nothing to write to.
     pub empty: usize,
 }
 
-/// Every address on every card in `bytes`, added by hand under the card's name, and every
-/// `KIND:group` card as a group of this book ([`import_group`]).
+/// Every address on every card in `bytes`, added by hand under the card's name, every
+/// `KIND:group` card as a group of this book ([`import_group`]), and every other card kept whole
+/// as a person's card of this book ([`people::import_card`]).
 pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<Imported, CoreError> {
     let cards = vcard::parse_bytes(bytes);
-    let (mut added, mut empty, mut groups) = (0, 0, 0);
+    let (mut added, mut empty, mut groups, mut people) = (0, 0, 0, 0);
     for card in &cards {
         if card.is_group() {
             import_group(store, card, &cards)?;
             groups += 1;
+        } else if people::import_card(store, card)? {
+            people += 1;
         }
         let addresses = card.addresses_by_preference();
         if card.is_group() && addresses.is_empty() {
@@ -115,6 +122,7 @@ pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<Imported, CoreError> {
         cards: cards.len(),
         addresses: added,
         groups,
+        people,
         empty,
     })
 }
@@ -157,14 +165,16 @@ fn import_group(
     })
 }
 
-/// The book as vCard 4.0: every synced card as the address book holds it — a group edited here
-/// as edited — then every group made here, then one card per address the user added or has
-/// written to that no synced card covers. Addresses only ever heard from are not the user's
-/// contacts and are left out, as are the user's own.
+/// The book as vCard 4.0: every synced card as the address book holds it — a group or a
+/// person's card edited here as edited — then every group made here, then every person's card
+/// made here, then one card per address the user added or has written to that no card covers.
+/// Addresses only ever heard from are not the user's contacts and are left out, as are the
+/// user's own.
 pub fn export(store: &dyn Store) -> Result<String, CoreError> {
     let mut cards: Vec<Card> = Vec::new();
     let mut covered: BTreeSet<String> = BTreeSet::new();
     let groups = store.groups()?;
+    let people = store.cards()?;
     for book in store.address_books()? {
         for (href, held) in &book.cards {
             let edited = groups.iter().find(|g| {
@@ -177,9 +187,20 @@ pub fn export(store: &dyn Store) -> Result<String, CoreError> {
                         }
                     )
             });
-            let text = match edited {
-                Some(group) => carddav::group_card(group, Some(&held.vcard)),
-                None => held.vcard.clone(),
+            let person = people.iter().find(|p| {
+                p.id.0 == *href
+                    && matches!(
+                        p.home,
+                        GroupHome::Book {
+                            edit: Edit::Edited,
+                            ..
+                        }
+                    )
+            });
+            let text = match (edited, person) {
+                (Some(group), _) => carddav::group_card(group, Some(&held.vcard)),
+                (None, Some(person)) => person.vcard.clone(),
+                (None, None) => held.vcard.clone(),
             };
             cards.extend(vcard::parse(&text).into_iter().take(1));
             covered.extend(held.addresses.iter().cloned());
@@ -191,6 +212,10 @@ pub fn export(store: &dyn Store) -> Result<String, CoreError> {
                 .into_iter()
                 .take(1),
         );
+    }
+    for person in people.iter().filter(|p| p.home == GroupHome::Local) {
+        cards.extend(vcard::parse(&person.vcard).into_iter().take(1));
+        covered.extend(person.addresses.iter().cloned());
     }
     for contact in store.contacts()? {
         let theirs = contact.origin != Origin::History || contact.written.count > 0;
@@ -470,6 +495,7 @@ mod tests {
                 cards: 2,
                 addresses: 1,
                 groups: 0,
+                people: 2,
                 empty: 1,
             }
         );
@@ -479,9 +505,18 @@ mod tests {
         assert_eq!(found[0].address, "renee@example.test");
         let exported = export(&store).unwrap();
         let back = vcard::parse(&exported);
-        assert_eq!(back.len(), 1);
-        assert_eq!(back[0].formatted_name.as_deref(), Some("Renée"));
-        assert_eq!(back[0].emails[0].address, "renee@example.test");
+        assert_eq!(
+            back.len(),
+            2,
+            "a card with no address is still a person's card"
+        );
+        assert_eq!(back[0].formatted_name.as_deref(), Some("No Mail"));
+        assert_eq!(back[0].phones[0].number, "1");
+        assert_eq!(back[1].formatted_name.as_deref(), Some("Renée"));
+        assert_eq!(
+            back[1].emails[0].address, "Renee@example.test",
+            "as the card wrote it"
+        );
         assert!(exported.contains("VERSION:4.0"));
         assert!(find(&store, "zzz", 5).unwrap().is_empty());
     }

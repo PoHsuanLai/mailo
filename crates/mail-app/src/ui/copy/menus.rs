@@ -156,6 +156,10 @@ pub const DELETE_RULE: &str = "Delete Rule";
 
 // The sender's name in the reader, right-clicked.
 pub const EDIT_CONTACT: &str = "Edit Contact…";
+pub const ADD_TO_CONTACTS: &str = "Add to Contacts";
+pub const SHOW_CONTACT_CARD: &str = "Show Contact Card";
+/// ⌘K's way to Settings › Contacts.
+pub const OPEN_CONTACTS: &str = "Contacts";
 
 // A link's menu, at the pointer, in the Mac's order.
 pub const OPEN_LINK: &str = "Open Link";

@@ -162,3 +162,16 @@ pub fn nothing_removed(why: &str) -> String {
         "Nothing was removed: {why}. The saved sign-in is already forgotten, so it will ask you to sign in again."
     )
 }
+
+// Settings › Contacts.
+pub const CONTACT_NEEDS_SOMETHING: &str = "A contact needs a name or an email address.";
+pub const CONTACT_GONE: &str = "That contact is no longer here.";
+pub const GROUP_NEEDS_A_NAME: &str = "A group needs a name.";
+pub const GROUP_GONE: &str = "That group is no longer here.";
+pub const PHOTO_TOO_LARGE: &str = "That picture is too large for a contact. Choose one under 1 MB.";
+pub const NOT_A_PICTURE: &str = "That file isn’t a picture Contacts can use.";
+
+/// A synced card or group is its address book's to delete.
+pub fn in_address_book(name: &str) -> String {
+    format!("“{name}” belongs to a synced address book. Delete it there.")
+}

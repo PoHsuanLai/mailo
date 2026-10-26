@@ -65,3 +65,24 @@ pub const MAIL_STAYS_ON_SERVER: &str = "Mail on the server isn’t deleted.";
 pub fn only_copy(mail: &str) -> String {
     format!("This server deletes mail once downloaded, so these {mail} are the only copy.")
 }
+
+/// Delete Contact…'s question.
+pub fn delete_contact(name: &str) -> String {
+    match name.trim() {
+        "" => "Delete This Contact?".to_owned(),
+        name => format!("Delete “{name}”?"),
+    }
+}
+
+/// Delete Group…'s question.
+pub fn delete_group(name: &str) -> String {
+    match name.trim() {
+        "" => "Delete This Group?".to_owned(),
+        name => format!("Delete “{name}”?"),
+    }
+}
+
+/// What deleting a card leaves.
+pub const DELETE_CONTACT_KEEPS: &str = "Mail from and to them is kept. This can’t be undone.";
+/// What deleting a group leaves.
+pub const DELETE_GROUP_KEEPS: &str = "The people in it stay in Contacts. This can’t be undone.";

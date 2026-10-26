@@ -7,7 +7,7 @@ use mail_pim::vcard::{self, CardKind};
 use mail_store::{AddressBook, BookCard, Edit, Group, GroupHome, GroupId, Store};
 use url::Url;
 
-/// A group edited here that one sync did not write back.
+/// A group or a person's card edited here that one sync did not write back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unwritten {
     pub name: String,

@@ -3,3 +3,9 @@
    name field and its Save. */
 .sender-name { display: inline-flex; min-width: 0; }
 .contact-editor { display: grid; gap: var(--s-6); width: 260px; }
+/* Settings › Contacts: a card's photo, round as an avatar is, on its row and on its page, with
+   Choose Photo… and Remove Photo beside it. */
+.contact-photo { display: block; border-radius: var(--r-pill); object-fit: cover; flex: none; }
+.contact-photo[*|data-size="row"] { width: 28px; height: 28px; }
+.contact-photo[*|data-size="page"] { width: 48px; height: 48px; }
+.contact-photo-row { display: flex; align-items: center; gap: var(--s-8); }

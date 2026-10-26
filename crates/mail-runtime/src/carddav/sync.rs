@@ -15,14 +15,17 @@
 //! the user added by hand keeps their entry; an address a card no longer lists is handed back to
 //! the mail history that knew it, or forgotten if that history is empty.
 //!
-//! A `KIND:group` card also becomes a [`Group`], known by the card's URL, and goes when the card
-//! does. Last, every group of the book edited here is written back (`group::write_back`).
+//! A `KIND:group` card also becomes a [`Group`], and any other card a person's card kept whole,
+//! each known by the card's URL and gone when the card goes. Last, every group and every
+//! person's card of the book edited here is written back (`group::write_back`,
+//! `person::write_back`).
 
-use super::group::{Unwritten, put_group, write_back};
+use super::group::{self, Unwritten, put_group};
+use super::person::{self, addresses_of, put_person};
 use super::{CardDavFailure, Dav, same};
 use crate::RuntimeError;
 use mail_pim::dav::{self, Prop};
-use mail_store::{AddressBook, BookCard, GroupId, Origin, Store};
+use mail_store::{AddressBook, BookCard, CardId, GroupId, Origin, Store};
 use url::Url;
 
 /// How many cards one `addressbook-multiget` asks for.
@@ -36,9 +39,9 @@ pub struct Synced {
     /// Cards that went.
     pub removed: usize,
     pub how: How,
-    /// Groups edited here that the server now has.
+    /// Groups and people's cards edited here that the server now has.
     pub written: usize,
-    /// Groups edited here that were not written, and why. Each stays edited, and the next sync
+    /// Groups and people's cards edited here that were not written, and why. Each stays edited, and the next sync
     /// tries again.
     pub unwritten: Vec<Unwritten>,
 }
@@ -112,6 +115,7 @@ pub async fn sync<S: Store + ?Sized>(
                 release(store, &book, &source, address)?;
             }
             store.delete_group(&GroupId(href.clone()))?;
+            store.delete_card(&CardId(href.clone()))?;
             gone += 1;
         }
     }
@@ -131,6 +135,7 @@ pub async fn sync<S: Store + ?Sized>(
                             release(store, &book, &source, address)?;
                         }
                         store.delete_group(&GroupId(href.as_str().to_owned()))?;
+                        store.delete_card(&CardId(href.as_str().to_owned()))?;
                         gone += 1;
                     }
                 }
@@ -140,7 +145,10 @@ pub async fn sync<S: Store + ?Sized>(
 
     book.token = listing.token;
     store.put_address_book(&book)?;
-    let (written, unwritten) = write_back(dav, store, &mut book).await?;
+    let (mut written, mut unwritten) = group::write_back(dav, store, &mut book).await?;
+    let (people, unsent) = person::write_back(dav, store, &mut book).await?;
+    written += people;
+    unwritten.extend(unsent);
     store.put_address_book(&book)?;
     Ok(Synced {
         changed: fetched,
@@ -290,16 +298,9 @@ fn put_card<S: Store + ?Sized>(
     let card = mail_pim::vcard::parse(&data).into_iter().next();
     let name = card.as_ref().and_then(|c| c.display_name());
     put_group(store, &book.url, href, card.as_ref(), name.as_deref())?;
-    let mut addresses: Vec<String> = Vec::new();
-    for address in card
-        .iter()
-        .flat_map(|c| c.addresses_by_preference())
-        .filter_map(mail_store::contact::normalise)
-    {
-        if !addresses.contains(&address) {
-            addresses.push(address);
-        }
-    }
+    put_person(store, &book.url, href, card.as_ref(), &data)?;
+    // A card that does not parse lists nobody.
+    let addresses = card.as_ref().map(addresses_of).unwrap_or_default();
     let before = book.cards.remove(href);
     for address in before.iter().flat_map(|c| &c.addresses) {
         if !addresses.contains(address) {

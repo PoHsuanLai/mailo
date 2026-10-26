@@ -21,6 +21,7 @@ use serde::Serialize;
 
 use crate::{Dispatch, OutboxEntry, Settle, Store, StoreError, Term};
 
+mod cards;
 mod contacts;
 mod destroyed;
 mod folders;
@@ -89,6 +90,8 @@ struct Inner {
     books: BTreeMap<String, crate::contact::AddressBook>,
     /// Contact groups, by id.
     groups: BTreeMap<crate::GroupId, crate::Group>,
+    /// People's cards, by id.
+    cards: BTreeMap<crate::CardId, crate::PersonCard>,
     /// OpenPGP public keys, by fingerprint.
     pgp_keys: BTreeMap<mail_domain::Fingerprint, mail_domain::PgpKey>,
     /// Autocrypt peer state, by lower-cased address.
@@ -165,6 +168,7 @@ impl Default for Inner {
             sent_prints: Vec::new(),
             books: BTreeMap::new(),
             groups: BTreeMap::new(),
+            cards: BTreeMap::new(),
             pgp_keys: BTreeMap::new(),
             autocrypt: BTreeMap::new(),
             smime_certs: BTreeMap::new(),
@@ -882,6 +886,27 @@ impl Store for MemoryStore {
 
     fn delete_group(&self, id: &crate::GroupId) -> Result<bool, StoreError> {
         Ok(self.inner.borrow_mut().drop_group(id))
+    }
+
+    fn cards(&self) -> Result<Vec<crate::PersonCard>, StoreError> {
+        Ok(self.inner.borrow().every_card())
+    }
+
+    fn card(&self, id: &crate::CardId) -> Result<Option<crate::PersonCard>, StoreError> {
+        Ok(self.inner.borrow().one_card(id))
+    }
+
+    fn card_of(&self, address: &str) -> Result<Option<crate::PersonCard>, StoreError> {
+        Ok(self.inner.borrow().card_listing(address))
+    }
+
+    fn put_card(&self, card: &crate::PersonCard) -> Result<(), StoreError> {
+        self.inner.borrow_mut().write_card(card);
+        Ok(())
+    }
+
+    fn delete_card(&self, id: &crate::CardId) -> Result<bool, StoreError> {
+        Ok(self.inner.borrow_mut().drop_card(id))
     }
 }
 

@@ -19,10 +19,12 @@
 //! without the query needing a clock. Writing to someone weighs [`learn::WRITTEN_WEIGHT`] times
 //! receiving from them.
 
+pub mod card;
 pub mod group;
 pub(crate) mod learn;
 pub(crate) mod ledger;
 
+pub use card::{CardId, PersonCard};
 pub use group::{Edit, Group, GroupHome, GroupId};
 pub use learn::normalise;
 

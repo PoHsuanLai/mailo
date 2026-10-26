@@ -88,3 +88,15 @@ pub const KEEP_REPLY: &str = "Keep Reply";
 pub const DELETE_VIEW: &str = "Delete View";
 /// Asks again for what did not work: a download, a sign-in.
 pub const TRY_AGAIN: &str = "Try Again";
+
+// Settings › Contacts.
+pub const NEW_CONTACT: &str = "New Contact";
+pub const ADD_CONTACT: &str = "Add Contact";
+pub const DELETE_CONTACT: &str = "Delete Contact\u{2026}";
+pub const NEW_GROUP: &str = "New Group";
+pub const DELETE_GROUP: &str = "Delete Group\u{2026}";
+pub const CHOOSE_PHOTO: &str = "Choose Photo\u{2026}";
+pub const REMOVE_PHOTO: &str = "Remove Photo";
+pub const ADD_ADDRESS: &str = "Add Address";
+/// Adds what was typed to a group.
+pub const ADD: &str = "Add";

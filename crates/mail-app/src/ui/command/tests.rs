@@ -199,6 +199,7 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
     (CommandId::AddAccount, "action:add-account"),
     (CommandId::Import, "action:import"),
     (CommandId::Export, "action:export"),
+    (CommandId::Contacts(Cards::Open), "action:contacts"),
     (CommandId::Contacts(Cards::Import), "action:import-contacts"),
     (CommandId::Contacts(Cards::Export), "action:export-contacts"),
     (CommandId::NewView, "action:new-view"),

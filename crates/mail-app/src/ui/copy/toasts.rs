@@ -76,3 +76,8 @@ pub const VACATION_OFF: &str = "Vacation reply off.";
 pub fn vacation_saved(subject: &str, runs: &str) -> String {
     format!("Saved: “{subject}”, {runs}.")
 }
+
+/// Add to Contacts made a card.
+pub fn added_to_contacts(name: &str) -> String {
+    format!("Added {name} to Contacts.")
+}

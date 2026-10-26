@@ -20,7 +20,7 @@ pub use error::PimError;
 pub use ical::{Calendar, Party, Recurrence, RepeatEnd, RepeatUnit, Repeats};
 pub use invite::{Invite, Kind, Me, Revision, Unplaced, When, summarise};
 pub use line::{ContentLine, Param};
-pub use vcard::{Card, CardKind, Email, Member, Name, Phone, Version};
+pub use vcard::{Card, CardKind, Email, Member, Name, Phone, Postal, Version};
 
 /// The README's examples, compiled and run as doctests.
 #[doc = include_str!("../README.md")]

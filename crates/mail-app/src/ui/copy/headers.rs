@@ -47,3 +47,9 @@ pub const SPACE: &str = "Space";
 
 /// Tidy Up's list of what its button archives.
 pub const TO_ARCHIVE: &str = "To archive";
+
+// Settings › Contacts: its two lists, and a card's postal addresses.
+pub const PEOPLE: &str = "People";
+pub const GROUPS: &str = "Groups";
+pub const ADDRESSES: &str = "Addresses";
+pub const MEMBERS: &str = "Members";

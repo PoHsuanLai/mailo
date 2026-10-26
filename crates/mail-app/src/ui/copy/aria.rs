@@ -120,3 +120,17 @@ pub fn open_row(subject: &str) -> String {
 pub fn try_again_to_download(name: &str) -> String {
     format!("Try again to download {name}")
 }
+
+/// Settings › Contacts: the rows that add a card and a group.
+pub const ADD_A_CONTACT: &str = "Add a contact";
+pub const ADD_A_GROUP: &str = "Add a group";
+
+/// A member's remove button on a group's page.
+pub fn remove_member(who: &str) -> String {
+    format!("Remove {who} from the group")
+}
+
+/// A card's photo, where it stands for the person.
+pub fn photo_of(name: &str) -> String {
+    format!("Photo of {name}")
+}

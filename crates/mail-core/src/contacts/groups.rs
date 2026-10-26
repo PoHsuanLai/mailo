@@ -93,8 +93,8 @@ struct Named {
     address: String,
 }
 
-/// What members are resolved against: every synced card with a `UID` and an address, and every
-/// group.
+/// What members are resolved against: every synced card and every card made here with a `UID`
+/// and an address, and every group.
 struct Index {
     cards: Vec<Named>,
     groups: Vec<Group>,
@@ -123,6 +123,26 @@ impl Index {
                     address: address.clone(),
                 });
             }
+        }
+        // A card made or imported here, which a group's `MEMBER` may name by its `UID` as well.
+        for person in store
+            .cards()
+            .or_log_default("the people's cards could not be read")
+            .into_iter()
+            .filter(|person| person.home == GroupHome::Local)
+        {
+            let parsed = vcard::parse(&person.vcard).into_iter().next();
+            let (Some(uid), Some(address)) = (
+                parsed.as_ref().and_then(|card| card.uid.clone()),
+                person.addresses.first(),
+            ) else {
+                continue;
+            };
+            cards.push(Named {
+                key: vcard::uid_key(&uid),
+                name: Some(person.name.clone()),
+                address: address.clone(),
+            });
         }
         Self {
             cards,
