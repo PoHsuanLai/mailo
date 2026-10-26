@@ -10,8 +10,8 @@
 //! browser sign-in that was waiting.
 //!
 //! What a finished add leaves for the rest of the app is the client's (the account) and the
-//! window's two notices: the shared revision moves, so every window draws the new account, and the
-//! current Space takes it in when it shows some accounts and not others.
+//! window's notice: the current Space takes it in when it shows some accounts and not others.
+//! Every window draws the new account as the client says the store moved.
 
 use crate::ui::provider_chip::{MarkAt, style_of_mark};
 use crate::ui::view::Marks;
@@ -133,8 +133,6 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>, join: Join) -> Eleme
             .window
             .provider_marks,
     );
-    let mut revision = use_signal(|| 0u64);
-    crate::ui::revisions::use_shared_revision(revision);
     // The Spaces as the first window keeps them: this window wears the Space and may add to it.
     let mut spaces = use_signal({
         let dirs = dirs.clone();
@@ -224,16 +222,10 @@ fn AddAccountShell(wiring: Wiring, prefill: Option<String>, join: Join) -> Eleme
         let Some(ended) = finished() else { return };
         // Nothing is left to draw (and nothing typed is kept) while the window goes.
         sheet.set(Sheet::default());
-        if ended == Ended::Added {
-            if let Some(account) = added_to.take().and_then(|address| account_at(&address)) {
-                into_scope(&mut spaces, account, join);
-            }
-            revision += 1;
-            // Told to the other windows now, not by the effect that publishes `revision`: that
-            // runs on the next poll, and the window is closed before it comes.
-            if let Some(revisions) = try_consume_context::<crate::ui::revisions::Revisions>() {
-                revisions.bump();
-            }
+        if ended == Ended::Added
+            && let Some(account) = added_to.take().and_then(|address| account_at(&address))
+        {
+            into_scope(&mut spaces, account, join);
         }
         if let Some(handle) = &handle {
             handle.close();

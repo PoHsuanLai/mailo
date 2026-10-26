@@ -2,8 +2,8 @@
 //! row's context menu, and Shift+Enter.
 //!
 //! The window is quire's (`ds_blitz::open_window_with`): a VirtualDom of its own with the same
-//! root contexts `launch` gave the first window, so it reads the same client and the same
-//! [`super::revisions::Revisions`], which is how either window sees what the other did. It shows
+//! root contexts `launch` gave the first window, so it reads the same client, which is how either
+//! window sees what the other did. It shows
 //! the reader and nothing else (`root.rs`). Its consent to remote images starts empty: it is its
 //! own reader, holding its own grant (`ui/original/consent.rs`).
 //!

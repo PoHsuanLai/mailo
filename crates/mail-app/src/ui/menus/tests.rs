@@ -110,7 +110,7 @@ mod naming_a_conversation {
         a_label(&store, "travel");
         let mut dom = VirtualDom::new(App).with_root_context(store.clone());
         let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-        // The effect that fills `Shell::labels` runs on a revision; one render settles it.
+        // The effect that fills `Shell::labels` runs as the store moves; one render settles it.
         dom.render_immediate(&mut NoOpMutations);
 
         // A row's Label… is in its menu, and opens the labels menu where that stood.

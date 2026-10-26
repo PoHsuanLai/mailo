@@ -419,7 +419,16 @@ impl SqliteStore {
     /// Not another process's commits, which go to the file without passing through here: those
     /// are heard by watching the file and [`Self::data_version`].
     pub fn subscribe(&self) -> std::sync::mpsc::Receiver<Committed> {
-        self.changes.subscribe()
+        self.changes.subscribe(None)
+    }
+
+    /// [`Self::subscribe`], with `wake` called on the committing thread each time a commit is
+    /// waiting: for a subscriber with no thread of its own blocked on the receiver.
+    pub fn subscribe_waking(
+        &self,
+        wake: crate::changes::Wake,
+    ) -> std::sync::mpsc::Receiver<Committed> {
+        self.changes.subscribe(Some(wake))
     }
 
     /// How many connections read beside the writer: none for an in-memory database. What a

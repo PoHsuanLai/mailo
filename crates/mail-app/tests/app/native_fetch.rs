@@ -101,22 +101,20 @@ fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
     );
 }
 
-/// An account added while the window is open (in the Add Account window, which tells every
-/// window through `Revisions` as it closes) is said in a toast, and the window takes it in; the
+/// An account added while the window is open (in the Add Account window, a commit every window
+/// hears from the client) is said in a toast, and the window takes it in; the
 /// accounts the window opened with are not.
 #[test]
 fn an_account_added_while_the_window_is_open_is_said() {
     let dir = tempfile::tempdir().unwrap();
     let store = bare(dir.path());
-    let revisions = mail_app::ui::native::Revisions::new();
     let contexts = mail_app::ui::native::contexts(
         Arc::clone(&store),
         mail_app::ui::view::Appearance::default(),
         None,
         None,
         mail_app::ui::Start::Inbox,
-    )
-    .with(revisions.clone());
+    );
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
@@ -132,7 +130,6 @@ fn an_account_added_while_the_window_is_open_is_said() {
 
     let other = account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b8"));
     with_account(&store, other, "you@example.test");
-    revisions.bump();
     settle_until(&mut harness, |h| {
         h.html().contains("Added you@example.test")
     });

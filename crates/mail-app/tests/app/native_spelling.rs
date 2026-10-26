@@ -24,10 +24,9 @@ use crate::drive;
 use crate::native::ms;
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
-use mail_app::ui::native::{Configured, Dictionaries, Revisions};
+use mail_app::ui::native::{Configured, Dictionaries};
 
 /// The two counters every window of the app shares: the store's, and the configuration files'.
-type Shared = (Revisions, Configured);
 use mail_core::SqliteStore;
 use std::path::Path;
 use std::sync::Arc;
@@ -119,8 +118,12 @@ fn dictionaries(dir: &Path) -> Dictionaries {
 }
 
 /// What a window here is given: the store, scratch directories, the test's dictionaries, and
-/// the revision every window of the app shares.
-fn contexts(dir: &std::path::Path, store: &Arc<SqliteStore>, revisions: &Shared) -> RootContexts {
+/// the configuration count every window of the app shares.
+fn contexts(
+    dir: &std::path::Path,
+    store: &Arc<SqliteStore>,
+    configured: &Configured,
+) -> RootContexts {
     // Every window here has a print dialog of its own: none may open the system's.
     let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     mail_app::ui::native::contexts(
@@ -135,8 +138,7 @@ fn contexts(dir: &std::path::Path, store: &Arc<SqliteStore>, revisions: &Shared)
     )
     .with(printer)
     .with(dictionaries(dir))
-    .with(revisions.0.clone())
-    .with(revisions.1.clone())
+    .with(configured.clone())
 }
 
 /// The main window with a new message open and its body focused.
@@ -144,18 +146,18 @@ struct Composing {
     harness: Harness,
     dir: tempfile::TempDir,
     store: Arc<SqliteStore>,
-    revisions: Shared,
+    configured: Configured,
 }
 
 fn composing_beside(view: Viewport) -> Composing {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let revisions = (Revisions::new(), Configured::default());
+    let configured = Configured::default();
     let config = HarnessConfig::new(view)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_clock(Clock::Virtual)
-        .with_contexts(contexts(dir.path(), &store, &revisions));
+        .with_contexts(contexts(dir.path(), &store, &configured));
     let mut harness = Harness::new(mail_app::ui::native::root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".list-title") > 0);
@@ -168,16 +170,16 @@ fn composing_beside(view: Viewport) -> Composing {
         harness,
         dir,
         store,
-        revisions,
+        configured,
     }
 }
 
-/// The Settings window beside `open`'s main window: the same store, directories and revision.
+/// The Settings window beside `open`'s main window: the same store, directories and configuration count.
 fn settings_beside(open: &Composing) -> Harness {
     let config = HarnessConfig::new(SETTINGS_VIEW)
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Virtual)
-        .with_contexts(contexts(open.dir.path(), &open.store, &open.revisions));
+        .with_contexts(contexts(open.dir.path(), &open.store, &open.configured));
     let mut harness = Harness::new(mail_app::ui::native::settings_root, config);
     settle_until(&mut harness, |h| h.count(".settings-page") == 1);
     harness

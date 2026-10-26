@@ -49,7 +49,7 @@ fn edit(mut shell: Signal<Shell>, change: impl FnOnce(&mut ViewDraft)) {
 }
 
 /// Keep the draft as a view and show it, or say why not.
-fn save(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal<u32>) {
+fn save(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
     let Some(draft) = shell.peek().view_editor.clone() else {
         return;
     };
@@ -66,7 +66,6 @@ fn save(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal<u
         Ok(view) => {
             saved::show_kept(&mut shell.write(), &view);
             pages.set(1);
-            revision += 1;
             crate::ui::host::Host::focus_app();
         }
         Err(why) => edit(shell, |draft| draft.refused = Some(why)),
@@ -74,7 +73,7 @@ fn save(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal<u
 }
 
 /// Forget the view the draft edits.
-fn delete(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal<u32>) {
+fn delete(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
     let Some(id) = shell.peek().view_editor.as_ref().and_then(|draft| draft.id) else {
         return;
     };
@@ -83,7 +82,6 @@ fn delete(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal
         Ok(()) => {
             saved::show_forgotten(&mut shell.write(), id);
             pages.set(1);
-            revision += 1;
             crate::ui::host::Host::focus_app();
         }
         Err(why) => {
@@ -110,11 +108,7 @@ fn group_items(draft: &ViewDraft, labels: &[(String, mail_domain::LabelId)]) -> 
 
 /// The sheet. Mounted while `shell.view_editor` is `Some`.
 #[component]
-pub(in crate::ui) fn ViewSheet(
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    pages: Signal<u32>,
-) -> Element {
+pub(in crate::ui) fn ViewSheet(shell: Signal<Shell>, pages: Signal<u32>) -> Element {
     let mut grouping = use_signal(|| false);
     let mut group_at = use_signal(|| None::<MountedRef>);
     let Some(draft) = shell.read().view_editor.clone() else {
@@ -223,7 +217,7 @@ pub(in crate::ui) fn ViewSheet(
                                 data: crate::ui::sidebar::tagged("view", "delete").data,
                                 ..Common::default()
                             },
-                            onclick: on_primary(move || delete(shell, revision, pages)),
+                            onclick: on_primary(move || delete(shell, pages)),
                         }
                     }
                     SheetClose { label: copy::controls::CANCEL, on_close: move |()| close(shell) }
@@ -235,7 +229,7 @@ pub(in crate::ui) fn ViewSheet(
                             data: crate::ui::sidebar::tagged("view", "save").data,
                             ..Common::default()
                         },
-                        onclick: on_primary(move || save(shell, revision, pages)),
+                        onclick: on_primary(move || save(shell, pages)),
                     }
                 }
             }

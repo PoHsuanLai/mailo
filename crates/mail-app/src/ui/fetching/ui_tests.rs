@@ -200,18 +200,15 @@ async fn the_sync_button_is_busy_while_a_pass_runs_and_not_after() {
     );
 }
 
-/// An account removed in the Settings window, which moves the shared revision, leaves this
-/// window's links.
+/// An account removed in the Settings window, which moves the store, leaves this window's links.
 #[tokio::test]
 async fn an_account_removed_in_settings_leaves_the_links() {
     let (store, _dir) = account(true);
     let (passer, script) = passer();
-    let revisions = crate::ui::revisions::Revisions::new();
     crate::ui::fixtures::dispatching();
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
-        .with_root_context(passer)
-        .with_root_context(revisions.clone());
+        .with_root_context(passer);
     let _ = crate::ui::fixtures::rebuild_into(&mut dom);
     super::tests::fetching(&dom).sync_all(Trigger::Manual);
     settle_quiet(&mut dom).await;
@@ -223,8 +220,6 @@ async fn an_account_removed_in_settings_leaves_the_links() {
     mail_core::account::remove(&store, &secrets, account)
         .await
         .unwrap_or_else(|why| panic!("{why:?}"));
-    let (mut settings, _) = revisions.join(0);
-    revisions.publish(&mut settings);
     settle_quiet_seen(&mut dom).await;
     let links = dom.in_scope(ScopeId::APP, || super::tests::fetching(&dom).all_links());
     assert!(links.is_empty(), "its link is still running: {links:?}");

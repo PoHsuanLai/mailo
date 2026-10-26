@@ -24,7 +24,6 @@ pub(super) fn HeldPage(
     draft: Draft,
     at: DateTime<Utc>,
     shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     /// Cancel Sending went through: the message is a draft again, to be written.
     on_cancelled: EventHandler<()>,
 ) -> Element {
@@ -62,7 +61,6 @@ pub(super) fn HeldPage(
                             // A refusal is said in the toast; the message stays as it was.
                             onclick: on_primary(move || {
                                 if super::cancel_scheduled(shell, id).is_ok() {
-                                    revision += 1;
                                     on_cancelled.call(());
                                 }
                             }),

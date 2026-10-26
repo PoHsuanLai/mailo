@@ -32,7 +32,6 @@ pub(in crate::ui) fn further(pressed: Pressed) -> Option<Further> {
 /// while open, they close); a reply opens the composer on its draft.
 pub(in crate::ui) fn press(
     mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     id: ThreadId,
     pressed: Pressed,
     opened: Opened,
@@ -40,7 +39,7 @@ pub(in crate::ui) fn press(
     let client = crate::ui::live::client();
     // Offered as the way out of a state (Unsnooze, Stop Reminding): at once, with no menu.
     if let Pressed::Op(kind) = pressed
-        && turn_off(&client, shell, revision, id, kind)
+        && turn_off(&client, shell, id, kind)
     {
         return;
     }
@@ -68,22 +67,18 @@ pub(in crate::ui) fn press(
     // Mute takes its direction from the conversations it reaches, so a picked row mutes or
     // unmutes the whole selection as one gesture.
     if kind == OpKind::Mute {
-        mute_all(&client, shell, revision, &with_selection(shell, id));
+        mute_all(&client, shell, &with_selection(shell, id));
         return;
     }
     match composes(kind) {
-        Some(what) => {
-            if open_composer(&client, shell, Writes::On(id, what)).is_ok() {
-                revision += 1;
-            }
-        }
+        Some(what) => if open_composer(&client, shell, Writes::On(id, what)).is_ok() {},
         // A press on a picked row acts on everything picked, as one gesture. An op that needs
         // more than the button (a pin's rank) stays with its own row.
         None if mail_core::view::op_for(kind).is_some() => {
-            act_kind_all(&client, shell, revision, &with_selection(shell, id), kind);
+            act_kind_all(&client, shell, &with_selection(shell, id), kind);
         }
         None => {
-            act_kind(&client, shell, revision, id, kind);
+            act_kind(&client, shell, id, kind);
         }
     }
 }
@@ -94,7 +89,6 @@ pub(in crate::ui) fn press(
 pub(in crate::ui) fn turn_off(
     client: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     id: ThreadId,
     kind: OpKind,
 ) -> bool {
@@ -114,7 +108,7 @@ pub(in crate::ui) fn turn_off(
         .into_iter()
         .filter_map(|thread| off(thread).map(|op| (thread, op)))
         .collect();
-    act_all(client, shell, revision, ops);
+    act_all(client, shell, ops);
     true
 }
 

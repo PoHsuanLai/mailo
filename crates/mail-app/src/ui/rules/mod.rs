@@ -67,7 +67,7 @@ pub(super) fn back(mut shell: Signal<Shell>) {
 
 /// The page: the list at its root, a rule's page or the vacation reply's over it.
 #[component]
-pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(in crate::ui) fn RulesPage(shell: Signal<Shell>) -> Element {
     let client = crate::ui::live::client();
     let rows = account_rows(&client);
     let chosen = shell.read().rules.account.clone();
@@ -86,7 +86,7 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
     // back, so it is held here, and the list draws its bar.
     let phase = use_signal(|| Phase::Ready);
     let running = use_signal(String::new);
-    let applied = use_callback(move |rule: Rule| apply(rule, phase, running, revision));
+    let applied = use_callback(move |rule: Rule| apply(rule, phase, running));
     // Every save ends here: the account's script goes to its server, off the thread that draws,
     // and only a failure is said. Made here, so a push outlives the rule's page it was saved on.
     let pushed = use_callback(move |row: AccountRow| push(row, unpushed));
@@ -105,11 +105,11 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
     });
     let page = use_callback(move |at: RulesAt| {
         let Some(row) = account.clone() else {
-            return rsx! { RulesList { shell, revision, row: None, rows: rows.clone(), said, changed, pushed, phase, running } };
+            return rsx! { RulesList { shell, row: None, rows: rows.clone(), said, changed, pushed, phase, running } };
         };
         match at {
             RulesAt::List => rsx! {
-                RulesList { shell, revision, row: Some(row), rows: rows.clone(), said, changed, pushed, phase, running }
+                RulesList { shell, row: Some(row), rows: rows.clone(), said, changed, pushed, phase, running }
             },
             RulesAt::Rule(id) => {
                 rsx! { RulePage { key: "{id:?}", shell, row, id, said, changed, pushed, applied } }
@@ -133,7 +133,7 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
 
 /// Apply `rule` to the mail already here, as `mailo rules run` does, its bar in `phase`; the
 /// window's lists follow once it ends.
-fn apply(rule: Rule, phase: Signal<Phase>, mut running: Signal<String>, mut revision: Signal<u64>) {
+fn apply(rule: Rule, phase: Signal<Phase>, mut running: Signal<String>) {
     let client = crate::ui::live::client();
     let of = client
         .rules_manage()
@@ -143,7 +143,8 @@ fn apply(rule: Rule, phase: Signal<Phase>, mut running: Signal<String>, mut revi
         phase,
         of,
         move |report| work::run(&client, &rule, Utc::now(), report),
-        move || revision += 1,
+        // What it wrote draws the window again: nothing more to do after.
+        || {},
     );
 }
 

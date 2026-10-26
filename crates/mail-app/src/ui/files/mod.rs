@@ -62,9 +62,9 @@ pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
 
 /// Whichever sheet is open. Mounted while `shell.files` is `Some`.
 #[component]
-pub(in crate::ui) fn FilesSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(in crate::ui) fn FilesSheet(shell: Signal<Shell>) -> Element {
     match shell.read().files {
-        Some(FileSheet::Import { .. }) => rsx! { import_sheet::ImportSheet { shell, revision } },
+        Some(FileSheet::Import { .. }) => rsx! { import_sheet::ImportSheet { shell } },
         Some(FileSheet::Export { .. }) => rsx! { export_sheet::ExportSheet { shell } },
         None => rsx! {},
     }

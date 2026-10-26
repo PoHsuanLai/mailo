@@ -22,10 +22,10 @@
 //! is put in [`SettingsAsked`], which every window shares, and the Settings window follows it.
 //!
 //! The window is quire's (`ds_blitz::open_window`), with the root contexts every window of the
-//! app is given. It keeps its own `Shell` for its pages and the sheets it opens, and tells the other windows
-//! what it changed through the shared revision (`ui::revisions`): the main window reads the
-//! settings, the keymap and the Spaces again when the revision moves, so a switch here is
-//! followed there without a watch on the file. The call goes through [`SettingsWindows`] when
+//! app is given. It keeps its own `Shell` for its pages and the sheets it opens. What it changes
+//! in the store every window hears from the one client; what it writes to the configuration files
+//! it tells the other windows (`ui::configured`), which read the settings, the keymap and the
+//! Spaces again, so a switch here is followed there without a watch on the file. The call goes through [`SettingsWindows`] when
 //! the window was given one, which is how a test sees what would open: quire's harness has no
 //! event loop to open a window on.
 
@@ -301,7 +301,7 @@ fn quire() {
 
 /// The window's content: the sidebar of pages beside the page shown, which scrolls.
 #[component]
-pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(in crate::ui) fn SettingsView(shell: Signal<Shell>) -> Element {
     let page = shell.read().settings.unwrap_or_default();
     let items: Vec<ListItem<SettingsPage>> = SettingsPage::ALL
         .into_iter()
@@ -340,12 +340,12 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
             div { class: "settings-scroll settings-page", "data-page": page.name(),
                 match page {
                     SettingsPage::General => rsx! { general::General {} },
-                    SettingsPage::Accounts => rsx! { accounts::Accounts { shell, revision } },
+                    SettingsPage::Accounts => rsx! { accounts::Accounts { shell } },
                     SettingsPage::Spaces => match try_consume_context::<crate::ui::space::Handle>() {
                         Some(handle) => rsx! { spaces::Spaces { shell, handle } },
                         None => rsx! {},
                     },
-                    SettingsPage::Rules => rsx! { crate::ui::rules::RulesPage { shell, revision } },
+                    SettingsPage::Rules => rsx! { crate::ui::rules::RulesPage { shell } },
                     SettingsPage::Vacation => rsx! { crate::ui::rules::VacationPage { shell } },
                     SettingsPage::Keyboard => rsx! { crate::ui::keyboard::KeyboardPage { shell } },
                 }

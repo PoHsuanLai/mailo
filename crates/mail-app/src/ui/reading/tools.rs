@@ -123,7 +123,6 @@ pub(super) fn ReaderTools(
     summary: ThreadSummary,
     ops: Vec<OpKind>,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
 ) -> Element {
     let id = summary.id;
     let now = chrono::Utc::now();
@@ -133,7 +132,7 @@ pub(super) fn ReaderTools(
                 key: "{kind:?}",
                 tool: ToolButton::of(kind, offered(says(kind, &summary, now))),
                 aria: None,
-                onclick: move |_| press(shell, revision, id, Pressed::Op(kind), Opened::Reader),
+                onclick: move |_| press(shell, id, Pressed::Op(kind), Opened::Reader),
             }
         }
     }
@@ -159,7 +158,6 @@ pub(super) fn ReaderMore(
     toolbar: Vec<OpKind>,
     peek: Option<Peek>,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     #[props(default)] leave: Option<Offer>,
 ) -> Element {
     let mut open = use_signal(|| false);
@@ -198,7 +196,7 @@ pub(super) fn ReaderMore(
                     open.set(false);
                     match pick {
                         // Unsnooze acts at once; Snooze, Label and Move open their menus here.
-                        Pick::Press(pressed) => press(shell, revision, id, pressed, Opened::Reader),
+                        Pick::Press(pressed) => press(shell, id, pressed, Opened::Reader),
                         Pick::Print => further.set(Further::Print),
                         Pick::View => further.set(Further::View),
                         Pick::Unsubscribe => {
@@ -213,7 +211,7 @@ pub(super) fn ReaderMore(
                 onclose: move |_| open.set(false),
             }
         }
-        FurtherMenus { summary: summary.clone(), opened: Opened::Reader, shell, revision, anchor: tool() }
+        FurtherMenus { summary: summary.clone(), opened: Opened::Reader, shell, anchor: tool() }
         match (further(), peek) {
             (Further::Print, _) => rsx! {
                 super::super::print::PrintMenu { thread: id, anchor: tool(), on_close: done }
@@ -223,7 +221,7 @@ pub(super) fn ReaderMore(
             },
             (Further::Unsubscribe, _) => match leave.clone().and_then(|offer| ask(&offer).map(|asked| (offer, asked))) {
                 Some((offer, asked)) if leaving() != Phase::Closed => rsx! {
-                    Confirm { offer, asked, phase: leaving, revision: Some(revision) }
+                    Confirm { offer, asked, phase: leaving }
                 },
                 _ => rsx! {},
             },

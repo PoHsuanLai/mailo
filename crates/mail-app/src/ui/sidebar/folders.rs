@@ -66,7 +66,6 @@ pub(super) struct Wires {
     pub shell: Signal<Shell>,
     pub pages: Signal<u32>,
     pub badges: Memo<Vec<Option<u64>>>,
-    pub revision: Signal<u64>,
     pub open: Signal<Open>,
     pub note: Signal<Option<Note>>,
 }
@@ -86,7 +85,6 @@ pub(super) fn FolderList(
     shell: Signal<Shell>,
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
-    revision: Signal<u64>,
     section: Section,
     show: Signal<Show>,
 ) -> Element {
@@ -96,7 +94,6 @@ pub(super) fn FolderList(
         shell,
         pages,
         badges,
-        revision,
         open,
         note,
     };

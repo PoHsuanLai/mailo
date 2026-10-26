@@ -61,10 +61,9 @@ pub(super) fn App() -> Element {
         }
         shell
     });
-    // The window's keymap, with mailo's actions in it, and the revision bumped after any write to
-    // re-run the queries, which every other window's moves move too (`ui/revisions`).
+    // The window's keymap, with mailo's actions in it.
     let core = use_window_core();
-    let (keys, mut revision) = (core.keys, core.revision);
+    let keys = core.keys;
     // The conversations opened in windows of their own, to raise one asked for again.
     super::window::use_opened();
     super::settings_window::use_settings_opened();
@@ -170,21 +169,17 @@ pub(super) fn App() -> Element {
         write.accounts = client.compose().sending_accounts();
     });
 
-    // A client that reads on the thread that draws (a test's window, given only a client) acts on
-    // what was committed when the revision moves; the program's own client does that by itself.
-    let client = super::live::use_client();
-    use_effect(move || {
-        let _ = revision();
-        client.settle();
-    });
+    // The window follows the store's moves from its first frame: a client that reads on the thread
+    // that draws (a test's window) acts on its commits from then on.
+    use_hook(crate::ui::live::moved_peek);
 
     // Mail that only arrives when you press a button is mail you miss: every account's link, the
     // timers that poll them and the loop that runs their passes (`fetching`).
-    super::fetching::use_fetching(revision);
+    super::fetching::use_fetching();
     // Whom to ask to sign in again, once the links have all said how they stand.
-    super::reauth::use_reauth(revision);
+    super::reauth::use_reauth();
     // The unread count on the dock or the Dash, when the window was launched with one.
-    super::launcher_count::use_launcher_count(revision, shell);
+    super::launcher_count::use_launcher_count(shell);
 
     // The accounts the list is showing. A memo of its own, so only a change of Space reaches the
     // counts, never a keystroke.
@@ -256,7 +251,7 @@ pub(super) fn App() -> Element {
     // The accounts the From row can send from: an account added in a terminal reaches the open
     // window without a restart.
     use_effect(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let client = crate::ui::live::client();
         let sending = client.compose().sending_accounts();
         if shell.peek().accounts != sending {
@@ -299,7 +294,7 @@ pub(super) fn App() -> Element {
     // writes the Spaces. Run again when the part closes, which also takes the account out of the
     // Space it kept.
     use_effect(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         if handle.editing().is_some() {
             return;
         }
@@ -358,7 +353,7 @@ pub(super) fn App() -> Element {
     super::reading::use_warming(shell, threads);
 
     let drafts = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let client = crate::ui::live::client();
         match shell.read().listing(PAGE) {
             Listing::Drafts => accounts(&client)
@@ -386,7 +381,7 @@ pub(super) fn App() -> Element {
     // Why the pane is empty, when it is. Counted rather than assumed: the shell cannot add an
     // account, so the first run needs to name the command that can.
     let nothing = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let client = crate::ui::live::client();
         nothing_to_show(accounts(&client).len(), &shell.read().search)
     });
@@ -485,7 +480,6 @@ pub(super) fn App() -> Element {
             heard == Some(Heard::Standard(StandardAction::Undo)),
             typing_now,
             shell,
-            revision,
         ) {
             return;
         }
@@ -592,18 +586,17 @@ pub(super) fn App() -> Element {
                 if shell.read().composing.is_some() {
                     // Parked, not closed: saved, and waiting in Today.
                     compose::park_current(desk, shell);
-                    revision += 1;
                 } else {
                     shell.write().open = None;
                 }
             }
             Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
                 if let Some(id) = open {
-                    on_thread(&client, shell, revision, id, action);
+                    on_thread(&client, shell, id, action);
                 }
             }
             Shortcut::ToggleMute => {
-                super::picks::mute_picked(&client, shell, revision, &threads());
+                super::picks::mute_picked(&client, shell, &threads());
             }
             Shortcut::Compose => {
                 // The only shortcut that does not consult the conversation under the cursor, and
@@ -611,29 +604,28 @@ pub(super) fn App() -> Element {
                 // Cloned out and the guard dropped before anything writes back. The same
                 // hazard the composer's handlers document, caught here by the borrow checker
                 // rather than at runtime.
-                if open_composer(&client, shell, Writes::New).is_ok() {
-                    revision += 1;
-                }
+                // A refusal is the composer's to say (`open_composer` logs it).
+                let _ = open_composer(&client, shell, Writes::New);
             }
             _ => {
                 // The picked conversations, or with none picked the open one. Resolved against
                 // their own summaries, so the keyboard reaches exactly what their rows offer and
                 // nothing else, and all of it is one gesture with one undo.
-                super::picks::act_on_picked(&client, shell, revision, action, &threads());
+                super::picks::act_on_picked(&client, shell, action, &threads());
             }
         }
     };
 
-    // Follow-up reminders: swept at launch, when the next comes due, and on every revision, so
+    // Follow-up reminders: swept at launch, when the next comes due, and whenever the store moves, so
     // a conversation nobody answered comes back to the top of the inbox (`mail_core::follow_up`).
-    super::follow_up::use_reminders(revision);
-    super::follow_up::use_snooze_wake(revision);
+    super::follow_up::use_reminders();
+    super::follow_up::use_snooze_wake();
 
     let peek = shell.read().peek;
     let frame_class = if side_hidden() { "app no-side" } else { "app" };
     // The open thread or the composer: a column of the card, or, floating, quire's `Peek` over it.
     let reading = rsx! {
-        {reading_column(shell.read().open, shell, revision, ReaderIn::Pane)}
+        {reading_column(shell.read().open, shell, ReaderIn::Pane)}
     };
     let floating = shell.read().open.is_some() || compose::composing(&shell.read()).is_some();
     let pinned = if side_hidden() {
@@ -646,7 +638,7 @@ pub(super) fn App() -> Element {
     } else {
         rsx! {
             Places {
-                shell, pages, badges, revision, handle,
+                shell, pages, badges, handle,
                 side_hidden,
             }
         }
@@ -659,7 +651,7 @@ pub(super) fn App() -> Element {
                 label: "List and reader",
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
-                        shell, pages, revision, threads, drafts, nothing, more,
+                        shell, pages, threads, drafts, nothing, more,
                         marking, top, paging, side_hidden, question: asked,
                     }
                 })],
@@ -695,7 +687,7 @@ pub(super) fn App() -> Element {
                 super::motion::drag::moved((at.x, at.y), held);
             },
             onpointerup: move |_| {
-                super::motion::drag::release(shell, revision);
+                super::motion::drag::release(shell);
             },
             "data-peek": peek.slug(),
             // The window is quire's `SplitView`: the sidebar pane, resizable and folding away past
@@ -711,7 +703,7 @@ pub(super) fn App() -> Element {
             if side_hidden() {
                 div { class: "edge-host",
                     Places {
-                        shell, pages, badges, revision, handle,
+                        shell, pages, badges, handle,
                         side_hidden,
                     }
                 }
@@ -720,21 +712,21 @@ pub(super) fn App() -> Element {
             // A sign-in straight in the browser: run here, and said here when it ends.
             super::add_account::DirectSignInWatch { spaces }
             // The search panel, at the top centre of the window while it is up.
-            super::command::Spotlight { shell, pages, revision, in_a_field, side_hidden, spaces }
+            super::command::Spotlight { shell, pages, in_a_field, side_hidden, spaces }
             if shell.read().files.is_some() {
-                super::files::FilesSheet { shell, revision }
+                super::files::FilesSheet { shell }
             }
             if shell.read().view_editor.is_some() {
-                super::views::ViewSheet { shell, revision, pages }
+                super::views::ViewSheet { shell, pages }
             }
             if shell.read().preview.is_some() {
                 super::reading::PeekView { shell }
             }
             if shell.read().destroying.is_some() {
-                super::destroy::DestroyAlert { shell, revision }
+                super::destroy::DestroyAlert { shell }
             }
             if shell.read().tidying.is_some() {
-                super::tidy::TidySheet { shell, revision }
+                super::tidy::TidySheet { shell }
             }
             if shell.read().no_account {
                 super::no_account::NoAccountAlert { shell }

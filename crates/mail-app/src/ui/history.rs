@@ -1,6 +1,6 @@
 //! Who has written, how often, when last, and whether you have written back.
 //!
-//! One grouped read of the client, [`SqliteStore::sender_history`]: nothing written. It is asked once per list revision and shared, never per hover, and
+//! One grouped read of the client, [`SqliteStore::sender_history`]: nothing written. It is asked once per move of the store and shared, never per hover, and
 //! the search bar ranks people from the same answer.
 
 use chrono::{DateTime, Utc};

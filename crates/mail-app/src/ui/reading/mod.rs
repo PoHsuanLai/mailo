@@ -99,14 +99,13 @@ fn gone() -> Element {
     }
 }
 
-/// `revision` is the window's, moved when leaving a list queues a message, and whenever any
-/// window moves the client (`ui/revisions`), which draws the reader again; a reader drawn on its
-/// own has none.
+/// With `tools`, the reader has its toolbar, as a window's does; a reader drawn on its own has
+/// none.
 #[component]
 pub(super) fn Reader(
     thread: ThreadId,
     shell: Signal<Shell>,
-    revision: Option<Signal<u64>>,
+    #[props(default)] tools: bool,
     #[props(default)] place: ReaderIn,
     children: Element,
 ) -> Element {
@@ -115,9 +114,7 @@ pub(super) fn Reader(
     let frames = use_frames();
     let looks = use_looks();
     // The client may have moved under this conversation, here or in another window.
-    if let Some(revision) = revision {
-        let _ = revision();
-    }
+    let _ = crate::ui::live::moved();
     // Moved when an OpenPGP or S/MIME message has been opened and has a body of its own to show,
     // so the messages are drawn again with it. The opening itself happens in `pgp::Seal`, off
     // this thread; here it is only looked up.
@@ -185,11 +182,8 @@ pub(super) fn Reader(
                 ops: vec![(thread, op)],
                 clock: super::clock::hours(),
             });
-            super::motion::when_done(ticket, move |acted| {
-                if let (Some(mut revision), Some(_)) = (revision, acted) {
-                    revision += 1;
-                }
-            });
+            // Nothing waits on it: what it commits draws the list and the reader again.
+            super::motion::when_done(ticket, |_| ());
         }));
     }
     // The conversation as the client keeps it read. A value for another conversation (the last
@@ -415,14 +409,13 @@ pub(super) fn Reader(
             div { class: "head-row",
                 span { class: "spacer" }
                 div { class: "bar-tools",
-                    if let Some(revision) = revision {
-                        tools::ReaderTools { summary: loaded.summary.clone(), ops: toolbar.clone(), shell, revision }
+                    if tools {
+                        tools::ReaderTools { summary: loaded.summary.clone(), ops: toolbar.clone(), shell }
                         tools::ReaderMore {
                             summary: loaded.summary.clone(),
                             toolbar: toolbar.clone(),
                             peek: (place == ReaderIn::Pane).then_some(peek),
                             shell,
-                            revision,
                             leave,
                         }
                     }

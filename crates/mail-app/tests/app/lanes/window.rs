@@ -15,8 +15,8 @@ use ds::prelude::*;
 use ds_blitz::{FocusFallback, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_app::ui::appearance::WindowDirs;
+use mail_app::ui::native::Configured;
 use mail_app::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
-use mail_app::ui::native::{Configured, Revisions};
 use mail_core::SqliteStore;
 use mail_core::notify::{Notification, Notifier};
 use std::path::PathBuf;
@@ -112,12 +112,12 @@ impl Notifier for Notices {
 }
 
 /// What every window of the lane's app is handed alike: the store, its directories, the
-/// revision they share, the file dialog and where files are saved.
+/// configuration count they share, the file dialog and where files are saved.
 #[derive(Clone)]
 struct Shared {
     store: Arc<SqliteStore>,
     dirs: WindowDirs,
-    revisions: (Revisions, Configured),
+    configured: Configured,
     dialogs: Dialogs,
     saves: SaveDir,
 }
@@ -131,8 +131,7 @@ impl Shared {
             Some(self.dirs.clone()),
             mail_app::ui::Start::Inbox,
         )
-        .with(self.revisions.0.clone())
-        .with(self.revisions.1.clone())
+        .with(self.configured.clone())
         .with(self.dialogs.clone())
         .with(self.saves.clone())
     }
@@ -210,7 +209,7 @@ impl Window {
         let shared = Shared {
             store: Arc::clone(&store),
             dirs,
-            revisions: (Revisions::new(), Configured::default()),
+            configured: Configured::default(),
             dialogs: picker.dialogs(),
             saves: SaveDir(dir.path().join("saves")),
         };

@@ -13,7 +13,7 @@ has to remember to read again after a write.
 - Badges are joined to places by position (`badges().get(index)`), from two signals that move at
   different times.
 - One hand-bumped counter, `revision`, says something changed. A write that forgets to bump it,
-  or a commit no one bumps for, leaves the window stale.
+  or a commit no one bumps for, leaves the window stale (gone with stage 4).
 - `SqliteStore::data_version` does not count this store's own commits. On macOS the in-process
   background watch (`background::start`) writes through the window's own store, so mail it
   fetches does not move `revision`.
@@ -226,6 +226,12 @@ Each leaves the app working.
    seams lend (`net().pass()`, `net().listen()`). No `edge::block_on` or `edge::mail` is left in
    `ui`. The root still hands the store to `launch` (the program's) and to a test's window, whose
    `use_client()` makes an inline client over it; stage 5 takes it away.
-   **b.** `revision` goes: what moved is the client's to say (`Client::moved`).
+   **b.** `revision` goes: what moved is the client's to say (`Client::moved`). The window
+   follows it in one root signal (`live::moved`), which every memo and component that still reads
+   the store itself reads; nobody bumps anything by hand, and a write the window makes moves it
+   as one made by another window or another process does. The windows' shared counter stays only
+   for the configuration files (`ui::configured`). A client that reads on the thread that draws
+   (a test's) is told each time the store commits (`Client::committed`, from the store's
+   `subscribe_waking`) and settles there.
 5. The fence: `ui`, `settings` and the platform seams move to `mail-ui`, whose `Cargo.toml` has
    no store.

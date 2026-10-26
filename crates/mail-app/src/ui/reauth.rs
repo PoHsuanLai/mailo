@@ -86,18 +86,17 @@ fn asked_again(put_off: &mut BTreeSet<AccountId>, accounts: &[AccountId]) -> boo
 pub(in crate::ui) struct Reauth {
     /// The accounts the person said Later about, or began signing in.
     put_off: Signal<BTreeSet<AccountId>>,
-    /// The accounts whose sign-in has begun, with the revision it began at: when the revision
-    /// moves, the Add Account window changed something, and the account's link is told.
+    /// The accounts whose sign-in has begun, with how far the store had moved when it began: when
+    /// it moves on, the Add Account window changed something, and the account's link is told.
     signing: Signal<BTreeMap<AccountId, u64>>,
     /// Whether the links have all said how they stand, once; it stays so.
     settled: Signal<bool>,
     /// The accounts offered Microsoft Graph that the person answered, either way, this session.
     answered: Signal<BTreeSet<AccountId>>,
-    revision: Signal<u64>,
 }
 
 /// Provide [`Reauth`] for the window. Once, from `App`, after `use_fetching`.
-pub(in crate::ui) fn use_reauth(revision: Signal<u64>) -> Reauth {
+pub(in crate::ui) fn use_reauth() -> Reauth {
     let fetching = try_consume_context::<Fetching>();
     let needing = try_consume_context::<Needing>();
     let said_to = needing.clone();
@@ -110,7 +109,6 @@ pub(in crate::ui) fn use_reauth(revision: Signal<u64>) -> Reauth {
         signing,
         settled,
         answered,
-        revision,
     });
     // The first moment nobody is still at the beginning: from then on it can be said who waits.
     use_effect(move || {
@@ -147,10 +145,10 @@ pub(in crate::ui) fn use_reauth(revision: Signal<u64>) -> Reauth {
             }
         }
     });
-    // The Add Account window signed an account in, or changed its settings: it moves the shared
-    // revision when it does, and a window closed with nothing added leaves the sign-in waiting.
+    // The Add Account window signed an account in, or changed its settings: the store moves when
+    // it does, and a window closed with nothing added leaves the sign-in waiting.
     use_effect(move || {
-        let now = revision();
+        let now = crate::ui::live::moved();
         let Some(fetching) = fetching else { return };
         let mut signing = signing;
         let done: Vec<AccountId> = signing
@@ -239,7 +237,6 @@ impl Reauth {
         };
         let mut answered = self.answered;
         answered.write().insert(account.clone());
-        let mut revision = self.revision;
         dioxus::core::spawn_forever(async move {
             let switching = account.clone();
             // The sign-in waits on a browser: a blocking thread's to wait for.
@@ -272,14 +269,10 @@ impl Reauth {
             // A thread that panicked is an answer that never came.
             let said = match answer.await.ok() {
                 Some(Ok(mail_core::account::Outcome::SignedIn { .. })) => {
-                    revision += 1;
                     fetching.signed_in(account);
                     copy::toasts::graph_signed_in(&name)
                 }
-                Some(Ok(_)) => {
-                    revision += 1;
-                    copy::toasts::graph_waits(&name)
-                }
+                Some(Ok(_)) => copy::toasts::graph_waits(&name),
                 Some(Err(why)) => copy::toasts::graph_refused(&name, &why),
                 None => copy::toasts::graph_refused(&name, ""),
             };
@@ -320,8 +313,9 @@ impl Reauth {
     fn began(self, account: AccountId) {
         let (mut put_off, mut signing) = (self.put_off, self.signing);
         put_off.write().insert(account.clone());
-        let revision = *self.revision.peek();
-        signing.write().insert(account, revision);
+        signing
+            .write()
+            .insert(account, crate::ui::live::moved_peek());
     }
 }
 

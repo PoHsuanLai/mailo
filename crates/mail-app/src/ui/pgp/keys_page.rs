@@ -49,15 +49,11 @@ impl Whose {
 
 /// The group: its rows, then what the last act came to under them.
 #[component]
-pub(in crate::ui) fn KeysPage(
-    whose: Whose,
-    /// The shared revision, bumped by a toast's Undo that puts a deleted key back.
-    #[props(default)]
-    revision: Option<Signal<u64>>,
-) -> Element {
-    // Bumped by every change, so the keys are read again.
+pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
+    // Bumped by every change, so the keys are read again; and the store's moves, as a toast's
+    // Undo that puts a deleted key back.
     let mut changed = use_signal(|| 0u64);
-    let _ = revision.map(|revision| revision());
+    let _ = crate::ui::live::moved();
     let mut said = use_signal(|| None::<Result<String, String>>);
     let mut busy = use_signal(|| Busy::Idle);
     let mut confirm = use_signal(|| Confirm::Nothing);

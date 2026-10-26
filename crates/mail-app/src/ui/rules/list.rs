@@ -40,7 +40,6 @@ const NONE: &str = " none";
 #[component]
 pub(super) fn RulesList(
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     row: Option<AccountRow>,
     rows: Vec<AccountRow>,
     said: Said,
@@ -49,9 +48,9 @@ pub(super) fn RulesList(
     phase: Signal<Phase>,
     running: Signal<String>,
 ) -> Element {
-    // The shared revision is read too: the toast's Undo bumps it as it puts a deleted rule back.
+    // The store's moves are read too: the toast's Undo puts a deleted rule back.
     let _ = changed();
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     // The rule whose menu is open, and where the right click was.
     let menu = use_signal(|| None::<(Listed, Rect)>);
     // What a rule's menu asks, done here, as the menu closes on the pick.

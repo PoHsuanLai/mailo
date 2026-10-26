@@ -124,7 +124,7 @@ pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
 }
 
 /// The sheet's button: archive what it listed, as one gesture, then close.
-fn run(shell: Signal<Shell>, revision: Signal<u64>) {
+fn run(shell: Signal<Shell>) {
     let Some(age) = shell.peek().tidying else {
         return;
     };
@@ -135,7 +135,7 @@ fn run(shell: Signal<Shell>, revision: Signal<u64>) {
         .map(|summary| summary.id)
         .collect();
     close(shell);
-    crate::ui::motion::act_kind_all(&client, shell, revision, &threads, OpKind::Archive);
+    crate::ui::motion::act_kind_all(&client, shell, &threads, OpKind::Archive);
 }
 
 /// One conversation Tidy Up would archive, drawn as a row like the app's other lists: the
@@ -171,12 +171,12 @@ fn row(summary: &ThreadSummary, now: DateTime<Utc>, clock: Clock) -> ListItem<St
 /// The sheet, over the window while it is open: the age in a form row, then what the button
 /// archives as a grouped list, laid out as a Settings page is.
 #[component]
-pub(in crate::ui) fn TidySheet(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(in crate::ui) fn TidySheet(shell: Signal<Shell>) -> Element {
     let Some(age) = shell.read().tidying else {
         return rsx! {};
     };
     // Read so an archive or a sync elsewhere redraws the count.
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     let client = crate::ui::live::client();
     let now = crate::ui::clock::now();
     let clock = crate::ui::clock::hours();
@@ -240,7 +240,7 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>, revision: Signal<u64>) -> E
                         label: copy::controls::archive_count(count),
                         availability: available(count > 0),
                         common: crate::ui::sidebar::tagged("answer", "archive"),
-                        onclick: on_primary(move || run(shell, revision)),
+                        onclick: on_primary(move || run(shell)),
                     }
                 }
             }

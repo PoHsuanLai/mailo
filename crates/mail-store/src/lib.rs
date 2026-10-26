@@ -38,7 +38,7 @@ pub mod testing;
 
 pub use account::{NewAccount, StoredAccount};
 pub use blob::Blobs;
-pub use changes::{Committed, Generation, Topics};
+pub use changes::{Committed, Generation, Topics, Wake};
 pub use contact::{
     AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
 };

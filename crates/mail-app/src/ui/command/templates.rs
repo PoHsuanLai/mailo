@@ -32,13 +32,12 @@ pub(super) fn rows(client: &Client, typed: &str) -> Vec<MenuItem> {
 }
 
 /// Start a draft from the template `key` names and open it as a composer page.
-pub(super) fn run(shell: Signal<Shell>, mut revision: Signal<u64>, key: &str) {
+pub(super) fn run(shell: Signal<Shell>, key: &str) {
     let client = crate::ui::live::client();
     match start(&client, key) {
         Ok(draft) => {
             let mut shell = shell;
             shell.write().compose(&draft);
-            revision += 1;
             super::close(shell);
         }
         Err(why) => tell(why, Follow::Nothing),

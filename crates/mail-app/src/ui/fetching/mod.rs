@@ -10,7 +10,6 @@
 //! stored: see [`Fetching::status`].
 
 mod delegate;
-mod external;
 mod face;
 mod folder;
 mod host;
@@ -298,11 +297,8 @@ fn seams(client: &Client) -> Seams {
 }
 
 /// Provide [`Fetching`] for the window, and have the client fetch. Once, from `App`.
-///
-/// `revision` moves when the client says the store changed.
-pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
+pub(in crate::ui) fn use_fetching() -> Fetching {
     let client = crate::ui::live::use_client();
-    external::use_external_changes(revision);
     // The first window to ask starts it: the program's client fetches on a thread of its own
     // from then on, and one that reads here hands back what this window runs.
     let run = use_hook({

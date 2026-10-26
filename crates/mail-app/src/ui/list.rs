@@ -92,7 +92,6 @@ enum Slot {
 pub(super) fn ThreadList(
     shell: Signal<Shell>,
     pages: Signal<u32>,
-    revision: Signal<u64>,
     threads: Memo<Vec<ThreadSummary>>,
     drafts: Memo<Vec<Draft>>,
     nothing: Memo<Nothing>,
@@ -108,7 +107,7 @@ pub(super) fn ThreadList(
     question: ReadSignal<u64>,
 ) -> Element {
     let rows = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let client = crate::ui::live::client();
         account_rows(&client)
     });
@@ -117,7 +116,7 @@ pub(super) fn ThreadList(
     // What the servers found for the line shown that the list does not already hold, newest
     // first, as the client has each conversation now.
     let found = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let line = marking.read().line.clone();
         if line.is_empty() {
             return Vec::new();
@@ -219,7 +218,7 @@ pub(super) fn ThreadList(
         items.push(ListItem::row(
             slot,
             label,
-            rsx! { ListRow { listed, model, shell, revision, chips, via, selection } },
+            rsx! { ListRow { listed, model, shell, chips, via, selection } },
         ));
     };
     // A draft is selected while its composer is open.
@@ -391,7 +390,7 @@ pub(super) fn ThreadList(
                             }
                         }
                         if picking {
-                            PickBar { shell, revision, threads }
+                            PickBar { shell, threads }
                         } else {
                             div { class: "list-title",
                                 Label { text: place.clone(), style: LabelStyle::Title, common: classed("truncate") }
@@ -442,9 +441,8 @@ pub(super) fn ThreadList(
                                     title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::New),
                                     onclick: on_primary(move || {
                                         let client = crate::ui::live::client();
-                                        if open_composer(&client, shell, Writes::New).is_ok() {
-                                            revision += 1;
-                                        }
+                                        // A refusal is the composer's to say (`open_composer` logs it).
+                                        let _ = open_composer(&client, shell, Writes::New);
                                     }),
                                 }
                             }
@@ -499,9 +497,9 @@ pub(super) fn ThreadList(
                 }
             }
             if !servers.is_empty() {
-                ServerSearch { input: line.clone(), accounts: servers, asked, revision }
+                ServerSearch { input: line.clone(), accounts: servers, asked }
             }
-            Toast { shell, revision }
+            Toast { shell }
             Ghost {}
         }
     }

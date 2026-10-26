@@ -68,12 +68,7 @@ pub(in crate::ui) fn Lookout(
 /// Copy instead: this client never opens it and never fetches it. While the way out is being
 /// taken the alert stays up and says "Working…", and a failure is said in its message.
 #[component]
-pub(in crate::ui) fn Confirm(
-    offer: Offer,
-    asked: Ask,
-    phase: Signal<Phase>,
-    revision: Option<Signal<u64>>,
-) -> Element {
+pub(in crate::ui) fn Confirm(offer: Offer, asked: Ask, phase: Signal<Phase>) -> Element {
     let message = match (phase(), &asked) {
         (Phase::Working, _) => "Working\u{2026}".to_owned(),
         (Phase::Failed(why), _) => why,
@@ -88,7 +83,7 @@ pub(in crate::ui) fn Confirm(
         }
         (_, Some(action)) => Some((
             action,
-            EventHandler::new(move |()| take(offer.clone(), phase, revision)),
+            EventHandler::new(move |()| take(offer.clone(), phase)),
         )),
         (_, None) => None,
     };
@@ -121,7 +116,7 @@ pub(in crate::ui) fn Confirm(
 }
 
 /// Take the way out on a blocking thread, then say what happened.
-fn take(offer: Offer, mut phase: Signal<Phase>, revision: Option<Signal<u64>>) {
+fn take(offer: Offer, mut phase: Signal<Phase>) {
     if *phase.peek() == Phase::Working {
         return;
     }
@@ -139,7 +134,7 @@ fn take(offer: Offer, mut phase: Signal<Phase>, revision: Option<Signal<u64>>) {
         match done {
             Ok(Ok(outcome)) => {
                 phase.set(Phase::Closed);
-                landed(&client, &offer, &outcome, desk, revision);
+                landed(&client, &offer, &outcome, desk);
             }
             Ok(Err(why)) => phase.set(Phase::Failed(why)),
             Err(error) => phase.set(Phase::Failed(format!(
@@ -150,13 +145,7 @@ fn take(offer: Offer, mut phase: Signal<Phase>, revision: Option<Signal<u64>>) {
 }
 
 /// The toast, and for a queued message the outbox pill, like any send.
-fn landed(
-    client: &Client,
-    offer: &Offer,
-    outcome: &Outcome,
-    desk: Option<Desk>,
-    revision: Option<Signal<u64>>,
-) {
+fn landed(client: &Client, offer: &Offer, outcome: &Outcome, desk: Option<Desk>) {
     let text = said(outcome, &offer.list);
     match outcome {
         Outcome::Unsubscribed { .. } => tell(
@@ -169,9 +158,6 @@ fn landed(
         Outcome::Queued { draft } => {
             if let Some(desk) = desk {
                 show_queued(desk, client, *draft, chrono::Utc::now());
-            }
-            if let Some(mut revision) = revision {
-                revision += 1;
             }
             tell(text, Follow::Nothing);
         }

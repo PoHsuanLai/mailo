@@ -180,13 +180,7 @@ pub(in crate::ui) fn archive_from(
 
 /// The toast's "Archive all from this list": every conversation in the inbox from `sender`
 /// archived as one gesture, kept as one undo for ⌘Z and the toast, and said.
-pub(in crate::ui) fn archive_list(
-    client: &Client,
-    shell: Signal<Shell>,
-    mut revision: Signal<u64>,
-    sender: &str,
-    list: &str,
-) {
+pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender: &str, list: &str) {
     let ops = inbox_from(client, sender)
         .into_iter()
         .map(|thread| (thread, Op::Archive))
@@ -204,7 +198,6 @@ pub(in crate::ui) fn archive_list(
             _ => Vec::new(),
         };
         let count = undone.len();
-        revision += 1;
         let text = match count {
             0 => format!("Nothing left from {list}"),
             1 => format!("Archived 1 conversation from {list}"),

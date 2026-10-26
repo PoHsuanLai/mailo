@@ -190,18 +190,12 @@ impl Script {
     }
 }
 
-/// Just the fetching, with the revision the window would bump in the context.
+/// Just the fetching.
 #[component]
 fn Probe() -> Element {
-    let revision = use_signal(|| 0u64);
-    use_context_provider(|| revision);
-    // As `App` does: a client that reads here acts on what was committed when the revision moves.
-    let client = crate::ui::live::use_client();
-    use_effect(move || {
-        let _ = revision();
-        client.settle();
-    });
-    super::super::use_fetching(revision);
+    // As `App` does: a client that reads here acts on what was committed from the first frame.
+    use_hook(crate::ui::live::moved_peek);
+    super::super::use_fetching();
     rsx! {}
 }
 
@@ -237,8 +231,8 @@ fn link(dom: &VirtualDom) -> Link {
         .expect("the account has a link")
 }
 
-fn revision(dom: &VirtualDom) -> u64 {
-    dom.in_scope(ScopeId::APP, || *consume_context::<Signal<u64>>().peek())
+fn moved(dom: &VirtualDom) -> u64 {
+    dom.in_scope(ScopeId::APP, crate::ui::live::moved_peek)
 }
 
 fn is_live(dom: &VirtualDom) -> bool {
@@ -354,7 +348,7 @@ async fn a_pass_that_could_not_run_does_not_redraw_the_window() {
     let script = Script::default();
     let mut dom = window(store, &script);
     settle_quiet(&mut dom).await;
-    let before = revision(&dom);
+    let before = moved(&dom);
 
     fetching(&dom).sync_all(Trigger::Manual);
     eventually(&mut dom, "a pass", |_| script.runs() == 1).await;
@@ -363,9 +357,5 @@ async fn a_pass_that_could_not_run_does_not_redraw_the_window() {
         matches!(link(dom), Link::Waiting { .. })
     })
     .await;
-    assert_eq!(
-        revision(&dom),
-        before,
-        "an empty failed pass was read again"
-    );
+    assert_eq!(moved(&dom), before, "an empty failed pass was read again");
 }

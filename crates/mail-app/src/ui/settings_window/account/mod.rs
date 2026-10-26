@@ -7,8 +7,8 @@
 //! in quire's alert, naming how much mail goes and whether the server still has it. Only the
 //! confirming button removes; Escape and Cancel leave the page as it was. A removal runs off the
 //! thread that draws (the keyring blocks), on the window's own task, so turning to another page
-//! does not cut it short. When it is done the offline setting forgets the account, the revision
-//! moves and the pane goes back to the list: the links, the lists, the Spaces and the pressed tile
+//! does not cut it short. When it is done the offline setting forgets the account, the store
+//! has moved and the pane goes back to the list: the links, the lists, the Spaces and the pressed tile
 //! follow it, as they do for an account removed with `mailo account remove`. What the page says
 //! is [`words`]'s.
 
@@ -108,7 +108,7 @@ fn to_list(mut shell: Signal<Shell>) {
 
 /// The confirming button: remove the account, then tidy what the window kept of it and go back
 /// to the list.
-fn confirm(mut shell: Signal<Shell>, mut revision: Signal<u64>, account: AccountId) {
+fn confirm(mut shell: Signal<Shell>, account: AccountId) {
     if shell.peek().accounts_pane.step != AccountStep::Asking {
         return;
     }
@@ -136,7 +136,6 @@ fn confirm(mut shell: Signal<Shell>, mut revision: Signal<u64>, account: Account
         match removed {
             Ok(_) => {
                 forgotten(dirs.as_ref(), account.clone());
-                revision += 1;
                 let mut write = shell.write();
                 write.accounts_pane.step = AccountStep::Showing;
                 if *write.accounts_pane.path.current() == AccountsPage::Account(account) {
@@ -150,7 +149,7 @@ fn confirm(mut shell: Signal<Shell>, mut revision: Signal<u64>, account: Account
 }
 
 /// What the window kept of a removed account that the Spaces do not hold: the offline setting.
-/// The Spaces and the pressed tile follow the revision (`app`'s effect), as they do for an
+/// The Spaces and the pressed tile follow the store (`app`'s effect), as they do for an
 /// account removed from a terminal.
 fn forgotten(dirs: Option<&WindowDirs>, account: AccountId) {
     if let Some(dirs) = dirs {
@@ -172,13 +171,9 @@ fn sign_in(address: &str, account: &AccountId, need: Need) {
 
 /// The account's page, under the pane's header, which names it.
 #[component]
-pub(super) fn AccountPage(
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    account: AccountId,
-) -> Element {
+pub(super) fn AccountPage(shell: Signal<Shell>, account: AccountId) -> Element {
     // Read again when an account comes or goes.
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     // Whether the account waits for the person: the first window knows, and says so to this one.
     let waiting = use_needs();
     let row = row_of(&account);
@@ -249,7 +244,7 @@ pub(super) fn AccountPage(
                 }
             }
             if !row.is_local() {
-                crate::ui::pgp::keys::KeysPage { whose: Whose::Account(row.address.clone()), revision }
+                crate::ui::pgp::keys::KeysPage { whose: Whose::Account(row.address.clone()) }
             }
             // Removing is the page's last part, alone and outside any group, as System Settings
             // puts it: it cannot be undone, so it asks first.
@@ -274,7 +269,7 @@ pub(super) fn AccountPage(
                 buttons: vec![
                     AlertButton::new(asked.confirm, AlertRole::Destructive, EventHandler::new({
                         let account = account.clone();
-                        move |()| confirm(shell, revision, account.clone())
+                        move |()| confirm(shell, account.clone())
                     })),
                     AlertButton::new(
                         copy::controls::CANCEL,

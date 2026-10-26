@@ -98,7 +98,6 @@ pub(in crate::ui) fn account_of(client: &Client, thread: ThreadId) -> Option<Acc
 pub(in crate::ui) fn file_all_into(
     client: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     threads: &[ThreadId],
     folder: &MailboxRef,
 ) -> usize {
@@ -116,7 +115,7 @@ pub(in crate::ui) fn file_all_into(
                 .into_iter()
                 .map(|thread| (thread, Op::File(label)))
                 .collect();
-            act_all(client, shell, revision, ops)
+            act_all(client, shell, ops)
         }
         Err(why) => {
             log::warn!("move to {}: {why}", folder.path);
@@ -132,11 +131,7 @@ pub(in crate::ui) fn dragging() -> bool {
 
 /// A row let go over the folder row for `folder`: file it there, as the menu would. Returns
 /// whether a dragged row was there to take; the window's own release then has nothing to drop.
-pub(in crate::ui) fn drop_on(
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    folder: &MailboxRef,
-) -> bool {
+pub(in crate::ui) fn drop_on(shell: Signal<Shell>, folder: &MailboxRef) -> bool {
     let Some(mut state) = motion() else {
         return false;
     };
@@ -145,13 +140,7 @@ pub(in crate::ui) fn drop_on(
     };
     state.drag.set(Drag::Idle);
     let client = crate::ui::live::client();
-    file_all_into(
-        &client,
-        shell,
-        revision,
-        &with_selection(shell, thread),
-        folder,
-    );
+    file_all_into(&client, shell, &with_selection(shell, thread), folder);
     true
 }
 
@@ -169,7 +158,6 @@ pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
 pub(in crate::ui) fn MoveMenu(
     thread: ThreadId,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     anchor: Option<MountedRef>,
     /// The opener's rect once measured, which wins over `anchor`.
     #[props(default)]
@@ -205,7 +193,6 @@ pub(in crate::ui) fn MoveMenu(
                 file_all_into(
                     &client,
                     shell,
-                    revision,
                     &with_selection(shell, thread),
                     &folder,
                 );
