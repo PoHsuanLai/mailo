@@ -268,6 +268,13 @@ fn a_misspelling_is_marked_mended_and_unmarked() {
 
     // Settings, a window of its own beside the draft: the switch off, and the marks leave.
     let mut settings = settings_beside(&open);
+    // Spelling is on Composing, a page of its own.
+    let composing = ".ds-sidebar [*|aria-label=\"Composing\"]";
+    let at = centre(&settings, composing);
+    settings.click(at);
+    until(&mut settings, "Composing is shown", |h| {
+        h.count(".settings-page[*|data-page=\"Composing\"]") == 1
+    });
     let off = "[*|role=switch][*|aria-label=\"Check spelling\"]";
     until(&mut settings, "the switch is drawn, on", |h| {
         h.attr(off, "aria-checked").as_deref() == Some("true")

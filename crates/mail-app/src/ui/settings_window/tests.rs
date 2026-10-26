@@ -30,11 +30,11 @@ pub(super) fn opened_on(built: &Work, page: SettingsPage) -> (VirtualDom, Seen) 
     }
 }
 
-/// The Settings window over `built`, on General's trusted senders, pushed from their row.
+/// The Settings window over `built`, on Privacy's trusted senders, pushed from their row.
 fn trusted_senders(built: &Work) -> (VirtualDom, Seen) {
-    let (mut dom, seen) = opened_on(built, SettingsPage::General);
+    let (mut dom, seen) = opened_on(built, SettingsPage::Privacy);
     let seen =
-        click(&mut dom, seen.one("id", "general-pane-open-trusted")).merge(drain_seen(&mut dom));
+        click(&mut dom, seen.one("id", "privacy-pane-open-trusted")).merge(drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -105,49 +105,58 @@ async fn command_comma_and_the_foot_menu_ask_for_the_settings_window() {
     );
 }
 
+/// Each page that draws the schema, with the rows it draws in the order drawn.
+const KEYED: &[(SettingsPage, &[&str])] = &[
+    (SettingsPage::General, &["Search server"]),
+    (SettingsPage::Composing, &["Check spelling"]),
+    (SettingsPage::Viewing, &["Brand logos"]),
+    (SettingsPage::Notifications, &["Notifications"]),
+    (
+        SettingsPage::Privacy,
+        &[
+            "Load remote images",
+            crate::ui::copy::titles::TRUSTED_SENDERS,
+        ],
+    ),
+];
+
 #[tokio::test]
-async fn general_draws_reading_then_mail_with_their_rows() {
+async fn each_page_draws_its_rows_in_order() {
     let built = work();
-    let (dom, _seen) = opened_on(&built, SettingsPage::General);
-    let page = dioxus_ssr::render(&dom);
-    let mut from = 0;
-    for label in [
-        crate::ui::copy::headers::READING,
-        "Load remote images",
-        crate::ui::copy::titles::TRUSTED_SENDERS,
-        "Brand logos",
-        "Mail",
-        "Notifications",
-        "Check spelling",
-        "Search server",
-    ] {
-        let at = page[from..]
-            .find(&format!(">{label}<"))
-            .unwrap_or_else(|| panic!("no {label:?} after the rows before it: {page}"));
-        from += at;
+    for (page, labels) in KEYED {
+        let (dom, _seen) = opened_on(&built, *page);
+        let markup = dioxus_ssr::render(&dom);
+        let mut from = 0;
+        for label in *labels {
+            let at = markup[from..]
+                .find(&format!(">{label}<"))
+                .unwrap_or_else(|| panic!("{page:?} has no {label:?} in order: {markup}"));
+            from += at;
+        }
     }
-    assert!(!page.contains("Mail list"), "{page}");
-    assert!(page.contains("data-page=\"General\""), "{page}");
 }
 
-/// Every key of the schema is a row of General, but the two left on purpose: the provider marks
-/// are detent's to set, and the trusted senders are a list with a page of their own.
+/// Every key of the schema is a row of one page, but the two left on purpose: the provider marks
+/// are detent's to set, and the trusted senders are a list with a page of their own. No key is on
+/// two pages.
 #[test]
-fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
-    let named: Vec<&str> = super::general::SECTIONS
-        .iter()
+fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
+    let named: Vec<&str> = SettingsPage::ALL
+        .into_iter()
+        .flat_map(|page| super::pages::sections(page).iter())
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
-            super::general::Line::Key(path) => Some(*path),
-            super::general::Line::TrustedSenders | super::general::Line::DefaultMail => None,
+            super::pages::Line::Key(path) => Some(*path),
+            super::pages::Line::TrustedSenders | super::pages::Line::DefaultMail => None,
         })
         .collect();
     let left = ["window.provider_marks", "reading.trusted_image_senders"];
     for key in crate::settings::schema().key {
         let path = key.path.0.as_str();
+        let times = named.iter().filter(|named| **named == path).count();
         assert!(
-            named.contains(&path) != left.contains(&path),
-            "{path} is neither on General nor left to detent"
+            times == usize::from(!left.contains(&path)),
+            "{path} is named on {times} pages"
         );
     }
     for path in named {
@@ -156,16 +165,16 @@ fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
                 .key
                 .iter()
                 .any(|key| key.path.0 == path),
-            "General names {path}, which the schema has not"
+            "a page names {path}, which the schema has not"
         );
     }
 }
 
-/// The General page's controls each write `settings.toml`: two switches, then a choice.
+/// The pages' controls each write `settings.toml`: two switches, on the pages that hold them.
 #[tokio::test]
-async fn general_controls_write_settings_toml() {
+async fn page_controls_write_settings_toml() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Viewing);
     assert_eq!(
         stored(&built).reading.brand_logos,
         BrandLogos::Off,
@@ -181,6 +190,7 @@ async fn general_controls_write_settings_toml() {
         BrandLogos::On,
         "the brand logos switch"
     );
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Composing);
     click(
         &mut dom,
         seen.after("aria-label", "Check spelling", "aria-checked")[0],
@@ -194,25 +204,33 @@ async fn general_controls_write_settings_toml() {
 
 /// Each page, by the sidebar's row, and a line only that page draws.
 const PAGES: &[(SettingsPage, &str)] = &[
-    (SettingsPage::General, "Check spelling"),
+    (SettingsPage::General, "Search server"),
     (
         SettingsPage::Accounts,
         crate::ui::copy::controls::ADD_ACCOUNT,
     ),
     (SettingsPage::Spaces, crate::ui::copy::controls::NEW_SPACE),
+    (SettingsPage::Composing, "Check spelling"),
+    (SettingsPage::Viewing, "Brand logos"),
+    (SettingsPage::Notifications, "aria-label=\"Notifications\""),
+    (SettingsPage::Privacy, "Load remote images"),
     (SettingsPage::Rules, crate::ui::copy::controls::NEW_RULE),
     (SettingsPage::Vacation, "id=\"vacation-pane\""),
     (SettingsPage::Keyboard, "Change the key for"),
 ];
 
 #[test]
-fn settings_has_6_pages_in_that_order() {
+fn settings_has_10_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
         [
             crate::ui::copy::titles::GENERAL,
             crate::ui::copy::titles::ACCOUNTS,
             crate::ui::copy::titles::SPACES,
+            crate::ui::copy::titles::COMPOSING,
+            crate::ui::copy::titles::VIEWING,
+            crate::ui::copy::titles::NOTIFICATIONS,
+            crate::ui::copy::titles::PRIVACY,
             crate::ui::copy::titles::RULES,
             "Vacation Reply",
             crate::ui::copy::titles::KEYBOARD

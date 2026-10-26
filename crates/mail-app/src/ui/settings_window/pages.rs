@@ -1,20 +1,20 @@
-//! General: two groups of mailo's settings, Reading and Mail, and the trusted senders' page
-//! pushed over them.
+//! The pages that draw mailo's settings: General, Composing, Viewing, Notifications and Privacy.
 //!
-//! Each group is a list of [`Line`]s ([`SECTIONS`]): a key of the schema, drawn by its kind
-//! ([`super::keys`]) as detent draws it, or the row that opens the trusted senders. A key is on
-//! the page once it is named there, and the tests hold every key of the schema to being named or
-//! left to detent on purpose (the provider marks). The help the schema gives each key is detent's;
-//! the page draws no captions.
+//! Each page is a list of groups of [`Line`]s ([`sections`]): a key of the schema, drawn by its
+//! kind ([`super::keys`]) as detent draws it, the row that opens the trusted senders, or the row
+//! that sets the default mail application. A key is on a page once it is named there, and the
+//! tests hold every key of the schema to being named or left to detent on purpose (the provider
+//! marks). The help the schema gives each key is detent's; the pages draw no captions.
 //!
-//! The trusted senders are a page of their own, as System Settings pushes a list it keeps: a row
-//! per sender with its Remove. The pages are quire's `PaneStack`, its path this page's own.
+//! The trusted senders are a page of Privacy's own, as System Settings pushes a list it keeps: a
+//! row per sender with its Remove. The pages are quire's `PaneStack`, its path each page's own.
 
 use super::keys::{KeyRow, value_of};
 use super::rows::link_row;
 use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::press::on_primary;
+use crate::ui::view::SettingsPage;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::ListStyle;
@@ -22,7 +22,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds_settings::schema::{Help, KeySpec};
 
-/// One row of General.
+/// One row of a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Line {
     /// The schema's key at this path.
@@ -33,83 +33,101 @@ pub(super) enum Line {
     DefaultMail,
 }
 
-/// A group of General: its header, and its rows in the order drawn.
+/// A group of a page: its header, when it has one, and its rows in the order drawn.
 pub(super) struct Section {
-    pub title: &'static str,
+    pub title: Option<&'static str>,
     pub lines: &'static [Line],
 }
 
-/// General, group by group.
-pub(super) const SECTIONS: [Section; 2] = [
-    Section {
-        title: copy::headers::READING,
-        lines: &[
-            Line::Key("reading.remote_images"),
-            Line::TrustedSenders,
-            Line::Key("reading.brand_logos"),
-        ],
-    },
-    Section {
-        title: copy::headers::MAIL,
-        lines: &[
-            Line::DefaultMail,
-            Line::Key("notifications.new_mail"),
-            Line::Key("reading.read_receipts"),
-            Line::Key("compose.spelling"),
-            Line::Key("search.server_automatically"),
-        ],
-    },
-];
+/// The groups `page` draws. Accounts, Spaces, Rules, Vacation Reply and Keyboard draw their own.
+pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
+    match page {
+        SettingsPage::General => &[Section {
+            title: Some(copy::headers::MAIL),
+            lines: &[Line::DefaultMail, Line::Key("search.server_automatically")],
+        }],
+        SettingsPage::Composing => &[Section {
+            title: None,
+            lines: &[Line::Key("compose.spelling")],
+        }],
+        SettingsPage::Viewing => &[Section {
+            title: None,
+            lines: &[Line::Key("reading.brand_logos")],
+        }],
+        SettingsPage::Notifications => &[Section {
+            title: None,
+            lines: &[Line::Key("notifications.new_mail")],
+        }],
+        SettingsPage::Privacy => &[Section {
+            title: None,
+            lines: &[
+                Line::Key("reading.remote_images"),
+                Line::TrustedSenders,
+                Line::Key("reading.read_receipts"),
+            ],
+        }],
+        SettingsPage::Accounts
+        | SettingsPage::Spaces
+        | SettingsPage::Rules
+        | SettingsPage::Vacation
+        | SettingsPage::Keyboard => &[],
+    }
+}
 
-/// A page of General's pane.
+/// A page of a settings page's pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GeneralAt {
+enum PageAt {
     Root,
     TrustedSenders,
 }
 
-/// The stack's element id: its back button is `general-pane-back-detail`.
-const STACK: &str = "general-pane";
+/// The stack's element id: its back button is `<id>-back-detail`, as `general-pane-back-detail`.
+fn stack(page: SettingsPage) -> String {
+    format!("{}-pane", page.name().to_lowercase())
+}
 
 /// The element id of the row that opens the trusted senders, where the keyboard goes back to.
-const TRUSTED_ROW: &str = "general-pane-open-trusted";
+fn trusted_row(page: SettingsPage) -> String {
+    format!("{}-open-trusted", stack(page))
+}
 
 #[component]
-pub(super) fn General() -> Element {
-    let mut path = use_signal(|| PanePath::new(GeneralAt::Root));
-    let title = use_callback(|page: GeneralAt| {
-        match page {
-            GeneralAt::Root => copy::titles::GENERAL,
-            GeneralAt::TrustedSenders => copy::titles::TRUSTED_SENDERS,
+pub(super) fn Page(page: SettingsPage) -> Element {
+    let mut path = use_signal(|| PanePath::new(PageAt::Root));
+    let title = use_callback(move |at: PageAt| {
+        match at {
+            PageAt::Root => page.name(),
+            PageAt::TrustedSenders => copy::titles::TRUSTED_SENDERS,
         }
         .to_owned()
     });
-    let page = use_callback(move |page: GeneralAt| match page {
-        GeneralAt::Root => rsx! {
+    let shown = use_callback(move |at: PageAt| match at {
+        PageAt::Root => rsx! {
             Groups {
+                page,
                 on_trusted: move |()| {
-                    let next = path.peek().pushed(GeneralAt::TrustedSenders);
+                    let next = path.peek().pushed(PageAt::TrustedSenders);
                     path.set(next);
                 },
             }
         },
-        GeneralAt::TrustedSenders => rsx! { TrustedSenders {} },
+        PageAt::TrustedSenders => rsx! { TrustedSenders {} },
     });
-    let opener = use_callback(|page: GeneralAt| match page {
-        GeneralAt::Root => None,
-        GeneralAt::TrustedSenders => Some(TRUSTED_ROW.to_owned()),
+    let opener = use_callback(move |at: PageAt| match at {
+        PageAt::Root => None,
+        PageAt::TrustedSenders => Some(trusted_row(page)),
     });
     rsx! {
-        PaneStack::<GeneralAt> {
+        PaneStack::<PageAt> {
             path: path(),
             title,
-            page,
+            page: shown,
             opener: Some(opener),
             on_back: move |()| {
                 let back = path.peek().popped();
                 path.set(back);
             },
-            common: Common { id: Some(STACK.to_owned()), ..Common::default() },
+            common: Common { id: Some(stack(page)), ..Common::default() },
         }
     }
 }
@@ -128,7 +146,7 @@ fn key_at(path: &str) -> Option<KeySpec> {
 
 /// The root: each group's rows.
 #[component]
-fn Groups(on_trusted: EventHandler<()>) -> Element {
+fn Groups(page: SettingsPage, on_trusted: EventHandler<()>) -> Element {
     let settings = crate::ui::prefs::current();
     let values =
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
@@ -138,8 +156,8 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
     };
     rsx! {
         Form {
-            for section in SECTIONS.iter() {
-                FormSection { key: "{section.title}", title: Some(section.title.to_owned()),
+            for (at, section) in sections(page).iter().enumerate() {
+                FormSection { key: "{at}", title: section.title.map(str::to_owned),
                     for line in section.lines.iter().copied() {
                         match line {
                             Line::Key(path) => match key_at(path) {
@@ -158,7 +176,7 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
                                         copy::titles::TRUSTED_SENDERS,
                                         RowLeading::None,
                                         move |_| on_trusted.call(()),
-                                        Common { id: Some(TRUSTED_ROW.to_owned()), ..Common::default() },
+                                        Common { id: Some(trusted_row(page)), ..Common::default() },
                                     )],
                                 }
                             },

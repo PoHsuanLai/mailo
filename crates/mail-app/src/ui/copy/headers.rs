@@ -27,8 +27,7 @@ pub const TOP_RESULTS: &str = "Top results";
 /// chip on each of its rows.
 pub const FROM_SERVER: &str = "Server";
 
-// Settings › General's two groups.
-pub const READING: &str = "Reading";
+// Settings › General's group.
 pub const MAIL: &str = "Mail";
 /// An account's keys and certificates, on its page in Settings.
 pub const ENCRYPTION: &str = "Encryption";

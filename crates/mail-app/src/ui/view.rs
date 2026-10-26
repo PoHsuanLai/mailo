@@ -378,6 +378,14 @@ pub enum SettingsPage {
     Accounts,
     /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
     Spaces,
+    /// What a message is written with: spelling.
+    Composing,
+    /// How a message looks when it is read.
+    Viewing,
+    /// Whether and how new mail is announced.
+    Notifications,
+    /// What a message may fetch or tell the sender when it is read.
+    Privacy,
     Rules,
     /// An account's vacation reply, which its server sends.
     Vacation,
