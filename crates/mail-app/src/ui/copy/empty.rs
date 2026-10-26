@@ -8,6 +8,7 @@ pub use mail_domain::NO_SUBJECT;
 pub const NO_RECIPIENT: &str = "(no recipient)";
 /// Settings › General › Trusted Senders, before anyone is trusted.
 pub const NO_TRUSTED_SENDERS: &str = "No trusted senders yet";
+pub const NO_ACCOUNTS_TO_NOTIFY: &str = "No accounts yet";
 /// Settings › Accounts › Other Keys, with nothing on it.
 pub const NO_OTHER_KEYS: &str = "No other keys or certificates yet";
 /// Settings › Accounts with no account.

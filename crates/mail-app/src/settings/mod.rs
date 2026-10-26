@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BadgeCounts, BrandLogos, LoadRemoteImages, NewMail, NotifyPlaces, NotifySound, ProviderMarks,
+    ReadReceipts, ServerSearch, Spelling,
 };
 
 use ds::prelude::Word;
@@ -63,6 +64,49 @@ pub struct NotificationSettings {
         section = "Mail"
     )]
     pub new_mail: NewMail,
+    #[settings(
+        label = "Notify for",
+        help = "Which mailboxes announce new mail: the Inbox, or every mailbox the server lists as followed.",
+        section = "Mail"
+    )]
+    pub places: NotifyPlaces,
+    #[settings(
+        label = "Sound",
+        help = "The sound a notification plays.",
+        section = "Mail"
+    )]
+    pub sound: NotifySound,
+    #[settings(
+        label = "Dock badge counts",
+        help = "What the number on the Dock counts: unread conversations in the Inbox, or in every followed mailbox.",
+        section = "Mail"
+    )]
+    pub badge: BadgeCounts,
+    /// The accounts that are never announced: addresses, in lowercase, switched off in
+    /// Notifications. A key of its own, a list of text, so the desktop's Settings app shows it
+    /// like any other.
+    #[settings(
+        label = "Muted accounts",
+        help = "Accounts whose new mail is not announced.",
+        section = "Mail"
+    )]
+    pub muted_accounts: Vec<String>,
+}
+
+impl NotificationSettings {
+    /// What `mailo watch` and the window hear about and play, as the core takes it.
+    pub fn interest(&self) -> mail_core::notify::Interest {
+        mail_core::notify::Interest {
+            places: self.places.into(),
+            muted: self.muted_accounts.clone(),
+            sound: self.sound.into(),
+        }
+    }
+
+    /// Whether mail for the account signed in as `address` is announced.
+    pub fn hears(&self, address: &str) -> bool {
+        self.interest().hears(address)
+    }
 }
 
 /// `compose.*`: writing mail.
@@ -202,15 +246,35 @@ pub fn schema() -> Schema {
 /// written out: "From senders I trust" for `trusted`. The derive leaves every key's labels empty,
 /// and a Settings page shows a word without a label as itself.
 fn with_word_labels(mut key: KeySpec) -> KeySpec {
-    if key.path.0 == "reading.remote_images" {
-        key.labels = WordLabels(
-            LoadRemoteImages::ALL
-                .iter()
-                .map(|word| (word.slug().to_owned(), word.label().to_owned()))
-                .collect(),
-        );
-    }
+    key.labels = match key.path.0.as_str() {
+        "reading.remote_images" => labels_of::<LoadRemoteImages>(),
+        "notifications.places" => labels_of::<NotifyPlaces>(),
+        "notifications.badge" => labels_of::<BadgeCounts>(),
+        "notifications.sound" => labels_of::<NotifySound>(),
+        _ => return key,
+    };
     key
+}
+
+/// Every word of `W` with the label a person reads for it.
+fn labels_of<W: Word + Copy>() -> WordLabels {
+    WordLabels(
+        W::ALL
+            .iter()
+            .map(|word| (word.slug().to_owned(), word.label().to_owned()))
+            .collect(),
+    )
+}
+
+/// What the Dock's number counts, as the person's settings say; the Inbox where there are none
+/// to read.
+pub fn badge_places() -> mail_core::notify::Places {
+    person_root()
+        .map(|root| load(&root).notifications.badge)
+        .map_or(mail_core::notify::Places::Inbox, |badge| match badge {
+            BadgeCounts::Inbox => mail_core::notify::Places::Inbox,
+            BadgeCounts::Followed => mail_core::notify::Places::Followed,
+        })
 }
 
 /// The config root a mailo config directory stands for: `~/.config/mailo` is `~/.config`, the

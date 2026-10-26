@@ -16,7 +16,7 @@
 //! [`EVERY`]. The count is read and said again every [`REPEAT`] even when nothing was written,
 //! so a dock that started after mailo, or restarted, learns it within that time.
 
-use crate::launcher::{Badge, Unread, unread};
+use crate::launcher::{Badge, Unread};
 use mail_core::Store;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -88,10 +88,11 @@ where
             });
             let mut beat = Beat::default();
             loop {
-                if let Ok(count) = unread(
+                if let Ok(count) = crate::launcher::unread_in_places(
                     store.as_ref(),
                     &mail_core::scope::Scope::All,
                     chrono::Utc::now(),
+                    crate::settings::badge_places(),
                 ) && beat.due(Instant::now(), count)
                 {
                     badge.show(count);

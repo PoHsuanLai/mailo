@@ -178,6 +178,7 @@ fn a_click_starts_the_window_on_the_conversation_or_the_inbox() {
     let one = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
     let args = mail_core::notify::desktop::Launch {
         opens: mail_core::notify::Opens::Thread(one),
+        act: mail_core::notify::Act::Open,
     }
     .args();
     assert_eq!(args, ["open".to_owned(), one.to_string()]);
@@ -185,6 +186,7 @@ fn a_click_starts_the_window_on_the_conversation_or_the_inbox() {
     assert_eq!(super::start_of(&args), Some(Ok(super::Start::Thread(one))));
     let inbox = mail_core::notify::desktop::Launch {
         opens: mail_core::notify::Opens::Inbox,
+        act: mail_core::notify::Act::Open,
     }
     .args();
     assert!(inbox.is_empty());

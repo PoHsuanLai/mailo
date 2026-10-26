@@ -51,14 +51,13 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // Read once, as the window opens, like the watch reads it.
     let notices = dirs
         .as_ref()
-        .filter(|dirs| {
-            crate::ui::prefs::root_of(dirs)
-                .map(|root| crate::settings::load(&root).notifications.new_mail)
-                == Some(crate::settings::NewMail::On)
-        })
-        .map(|_| {
+        .and_then(crate::ui::prefs::root_of)
+        .map(|root| crate::settings::load(&root).notifications)
+        .filter(|notifications| notifications.new_mail == crate::settings::NewMail::On)
+        .map(|notifications| {
             crate::ui::follow_up::Notices(std::sync::Arc::new(
-                mail_core::notify::desktop::Desktop::connect_in_window(),
+                mail_core::notify::desktop::Desktop::connect_in_window()
+                    .with_interest(notifications.interest()),
             ))
         });
     let original = Original::window();

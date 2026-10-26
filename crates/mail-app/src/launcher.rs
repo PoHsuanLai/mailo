@@ -33,6 +33,7 @@ mod dock;
 
 use chrono::{DateTime, Utc};
 use mail_core::Store;
+use mail_core::notify::Places;
 use mail_core::place::{place_filter, unread_in};
 use mail_core::scope::Scope;
 use mail_domain::{Filter, MailboxRole};
@@ -50,6 +51,44 @@ pub struct Unread(pub u64);
 /// conversations are away, and read ones are read.
 pub fn filter(scope: &Scope) -> Filter {
     scope.over(unread_in(place_filter(MailboxRole::Inbox)))
+}
+
+/// As [`filter`], and for [`Places::Followed`] the unread conversations held in a mailbox the
+/// accounts' servers list as followed too.
+pub fn filter_in<S: Store + ?Sized>(
+    store: &S,
+    scope: &Scope,
+    places: Places,
+) -> Result<Filter, mail_core::StoreError> {
+    let inbox = unread_in(place_filter(MailboxRole::Inbox));
+    let followed: Vec<Filter> = match places {
+        Places::Inbox => Vec::new(),
+        Places::Followed => store
+            .followed_folders()?
+            .into_iter()
+            .filter(|mailbox| scope.shows(mailbox.account.clone()))
+            .map(|mailbox| unread_in(Filter::InFolder(mailbox)))
+            .collect(),
+    };
+    Ok(if followed.is_empty() {
+        scope.over(inbox)
+    } else {
+        let mut any = vec![inbox];
+        any.extend(followed);
+        scope.over(Filter::Or(any))
+    })
+}
+
+/// As [`unread`], counting what `places` says.
+pub fn unread_in_places<S: Store + ?Sized>(
+    store: &S,
+    scope: &Scope,
+    now: DateTime<Utc>,
+    places: Places,
+) -> Result<Unread, mail_core::StoreError> {
+    store
+        .count(&filter_in(store, scope, places)?, now)
+        .map(Unread)
 }
 
 /// Count them. One indexed query (`Store::count`), made off the thread that draws.

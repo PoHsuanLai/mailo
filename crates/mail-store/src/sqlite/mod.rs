@@ -445,6 +445,25 @@ fn decode_cursor(cursor: &Cursor) -> Result<(String, String), StoreError> {
 }
 
 impl Store for SqliteStore {
+    fn followed_folders(&self) -> Result<Vec<MailboxRef>, StoreError> {
+        let mut followed = Vec::new();
+        for stored in self.list_accounts()? {
+            for folder in self.folders(stored.id.clone())? {
+                if folder.subscription == mail_domain::Subscription::Subscribed
+                    && folder.holds == mail_domain::Holds::Mail
+                    && folder.protected().is_none()
+                    && folder.special.is_none()
+                {
+                    followed.push(MailboxRef {
+                        account: stored.id.clone(),
+                        path: folder.path,
+                    });
+                }
+            }
+        }
+        Ok(followed)
+    }
+
     fn threads(
         &self,
         query: &Query,

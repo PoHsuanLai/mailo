@@ -31,6 +31,8 @@ pub(super) enum Line {
     TrustedSenders,
     /// Which application opens email links, with Make Default (`crate::ui::default_mail`).
     DefaultMail,
+    /// A switch per account: whether its new mail is announced (`notifications.muted_accounts`).
+    MutedAccounts,
 }
 
 /// A group of a page: its header, when it has one, and its rows in the order drawn.
@@ -54,10 +56,21 @@ pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
             title: None,
             lines: &[Line::Key("reading.brand_logos")],
         }],
-        SettingsPage::Notifications => &[Section {
-            title: None,
-            lines: &[Line::Key("notifications.new_mail")],
-        }],
+        SettingsPage::Notifications => &[
+            Section {
+                title: None,
+                lines: &[
+                    Line::Key("notifications.new_mail"),
+                    Line::Key("notifications.places"),
+                    Line::Key("notifications.sound"),
+                    Line::Key("notifications.badge"),
+                ],
+            },
+            Section {
+                title: Some(copy::headers::NOTIFY_FOR_ACCOUNTS),
+                lines: &[Line::MutedAccounts],
+            },
+        ],
         SettingsPage::Privacy => &[Section {
             title: None,
             lines: &[
@@ -167,6 +180,7 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>) -> Element {
                                 None => rsx! {},
                             },
                             Line::DefaultMail => rsx! { crate::ui::default_mail::DefaultMailRow {} },
+                            Line::MutedAccounts => rsx! { MutedAccounts { failed } },
                             Line::TrustedSenders => rsx! {
                                 List::<String> {
                                     label: copy::titles::TRUSTED_SENDERS,
@@ -187,6 +201,44 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>) -> Element {
         }
         if let Some(why) = failed() {
             Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| failed.set(None) }
+        }
+    }
+}
+
+/// A switch for each account: on when its new mail is announced. Switching one off adds its
+/// address to `notifications.muted_accounts`, in lowercase, and back on takes it out.
+#[component]
+fn MutedAccounts(mut failed: Signal<Option<String>>) -> Element {
+    let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+    let rows = crate::ui::data::account_rows(&store);
+    let muted = crate::ui::prefs::current().notifications.muted_accounts;
+    rsx! {
+        if rows.is_empty() {
+            FieldRow { label: copy::empty::NO_ACCOUNTS_TO_NOTIFY }
+        }
+        for row in rows {
+            {
+                let address = row.address.to_lowercase();
+                let on = !muted.contains(&address);
+                rsx! {
+                    Toggle {
+                        key: "{address}",
+                        label: row.address.clone(),
+                        value: if on { Check::On } else { Check::Off },
+                        onchange: move |next| {
+                            let address = address.clone();
+                            let changed = crate::ui::prefs::change(move |settings| {
+                                let list = &mut settings.notifications.muted_accounts;
+                                list.retain(|kept| *kept != address);
+                                if next == Check::Off {
+                                    list.push(address);
+                                }
+                            });
+                            failed.set(changed.err());
+                        },
+                    }
+                }
+            }
         }
     }
 }

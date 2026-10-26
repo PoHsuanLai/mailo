@@ -37,6 +37,20 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
     let want: Vec<(String, KeyKind)> = [
         ("window.provider_marks", pair("icons", "letters")),
         ("notifications.new_mail", pair("on", "off")),
+        ("notifications.places", pair("inbox", "followed")),
+        (
+            "notifications.sound",
+            KeyKind::Menu {
+                variants: ["default", "ping", "glass", "pop", "submarine", "silent"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            },
+        ),
+        ("notifications.badge", pair("inbox", "followed")),
+        (
+            "notifications.muted_accounts",
+            KeyKind::List(Box::new(KeyKind::Text)),
+        ),
         ("compose.spelling", pair("on", "off")),
         ("reading.brand_logos", pair("on", "off")),
         ("reading.read_receipts", pair("never", "always")),
@@ -291,4 +305,27 @@ fn a_change_over_a_damaged_file_is_refused_and_the_file_stays() {
         std::fs::read_to_string(mailo_dir(&dir).join("settings.toml")).unwrap(),
         body
     );
+}
+
+#[test]
+fn the_notification_settings_say_what_the_core_listens_for() {
+    use super::{NotificationSettings, NotifyPlaces, NotifySound};
+    use mail_core::notify::{Places, Sound};
+    let mut settings = NotificationSettings::default();
+    let heard = settings.interest();
+    assert_eq!(heard.places, Places::Inbox);
+    assert_eq!(heard.sound, Sound::Default);
+    assert!(settings.hears("ada@example.test"));
+    settings.places = NotifyPlaces::Followed;
+    settings.sound = NotifySound::Silent;
+    settings.muted_accounts = vec!["ada@example.test".to_owned()];
+    let heard = settings.interest();
+    assert_eq!(heard.places, Places::Followed);
+    assert_eq!(heard.sound, Sound::Silent);
+    assert!(!settings.hears("ada@example.test"));
+    assert!(
+        !settings.hears("ADA@example.test"),
+        "addresses compare in lowercase"
+    );
+    assert!(settings.hears("bo@example.test"));
 }

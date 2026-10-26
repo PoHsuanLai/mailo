@@ -125,6 +125,8 @@ pub enum Command {
     Snooze { thread: ThreadId, when: String },
     /// Bring a snoozed conversation back now.
     Wake { thread: ThreadId },
+    /// File a conversation in Archive (what a notification's Archive button runs).
+    Archive { thread: ThreadId },
     /// The attachments on a message.
     Attachments { message: MessageId },
     /// Write one attachment to a directory.
@@ -730,6 +732,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 when,
             })
         }
+        "archive" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("archive needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            Ok(Command::Archive {
+                thread: ThreadId::from_uuid(uuid),
+            })
+        }
         "wake" => {
             let raw = args
                 .get(1)
@@ -1329,6 +1342,7 @@ usage: mailo <command>
   template delete <template-id>
   snooze <thread-id> <when>   put it off: later, tonight, tomorrow, weekend,
                              monday…sunday, +2h, +3d, or a date like 2026-09-25
+  archive <thread-id>         file it in Archive
   wake <thread-id>            bring a snoozed conversation back now
   pin <thread-id>             keep it in view, or unpin it again
   attachments <message-id>    what is attached to a message
@@ -1674,6 +1688,12 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         Command::Snooze { thread, when } => mail_core::snooze::snooze(store, *thread, when, now)
             .map(|at| snooze::snoozed(at, clock))
             .map_err(remedy::error),
+        Command::Archive { thread } => {
+            match mail_core::act::perform(store, *thread, mail_domain::Op::Archive, clock) {
+                Some(_) => Ok(snooze::archived()),
+                None => Err("that conversation could not be archived".to_owned()),
+            }
+        }
         Command::Wake { thread } => mail_core::snooze::wake(store, *thread, now)
             .map(|()| snooze::woke())
             .map_err(remedy::error),

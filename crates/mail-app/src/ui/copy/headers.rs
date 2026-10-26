@@ -28,6 +28,7 @@ pub const TOP_RESULTS: &str = "Top results";
 pub const FROM_SERVER: &str = "Server";
 
 // Settings › General's group.
+pub const NOTIFY_FOR_ACCOUNTS: &str = "Notify for accounts";
 pub const MAIL: &str = "Mail";
 /// An account's keys and certificates, on its page in Settings.
 pub const ENCRYPTION: &str = "Encryption";
