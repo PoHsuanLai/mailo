@@ -71,6 +71,7 @@ pub(in crate::ui) fn configured(
         plan: row.plan.clone(),
         caps: super::super::ops::caps_here(store, row.id.clone(), now),
         keep: mail_core::offline::Keep::default(),
+        junk: mail_core::junk::Policy::default(),
     }
 }
 

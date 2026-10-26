@@ -250,6 +250,7 @@ async fn one_pass(keep: Keep) -> Passed {
         plan,
         caps: caps(),
         keep,
+        junk: mail_core::junk::Policy::default(),
     };
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
     let report = match sync::drive(&mut engine, &account, &[inbox()], &mut cancel, now()).await {

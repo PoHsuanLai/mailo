@@ -19,7 +19,8 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, LoadRemoteImages, NewMail, ProviderMarks, ReadReceipts, ServerSearch, Spelling,
+    BrandLogos, JunkOrder, JunkSwitch, JunkTreat, LoadRemoteImages, NewMail, ProviderMarks,
+    ReadReceipts, ServerSearch, Spelling,
 };
 
 use ds::prelude::Word;
@@ -157,6 +158,79 @@ pub struct SearchSettings {
     pub server_automatically: ServerSearch,
 }
 
+/// `junk.*`: the junk filter of mailo's own, which learns from Spam and Not Spam.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ds_settings::SettingsSchema)]
+#[serde(default)]
+#[settings(file = "mailo/settings.toml", domain = "junk", page = page())]
+pub struct JunkSettings {
+    #[settings(
+        label = "Junk filter",
+        help = "Judge new mail in the inbox by what you have marked as spam and not spam.",
+        section = "Junk Mail"
+    )]
+    pub filter: JunkSwitch,
+    #[settings(
+        label = "Junk mail",
+        help = "Move it to Spam, or leave it in the inbox with a Junk label.",
+        section = "Junk Mail"
+    )]
+    pub treat: JunkTreat,
+    #[settings(
+        label = "Spare Contacts",
+        help = "Never call mail from someone in Contacts junk.",
+        section = "Junk Mail"
+    )]
+    pub spare_contacts: JunkSwitch,
+    #[settings(
+        label = "Spare people I write to",
+        help = "Never call mail from someone you have written to junk.",
+        section = "Junk Mail"
+    )]
+    pub spare_written_to: JunkSwitch,
+    #[settings(
+        label = "Spare my full name",
+        help = "Never call mail addressed to your full name junk.",
+        section = "Junk Mail"
+    )]
+    pub spare_full_name: JunkSwitch,
+    #[settings(
+        label = "Trust the server",
+        help = "Take the server's own spam headers as its verdict.",
+        section = "Junk Mail"
+    )]
+    pub trust_server: JunkSwitch,
+    #[settings(
+        label = "Filter",
+        help = "Run the junk filter before your rules, or after them.",
+        section = "Junk Mail"
+    )]
+    pub order: JunkOrder,
+}
+
+impl JunkSettings {
+    /// How the junk filter behaves under these settings.
+    pub fn policy(&self) -> mail_core::junk::Policy {
+        mail_core::junk::Policy {
+            filtering: match self.filter {
+                JunkSwitch::On => mail_core::junk::Filtering::On,
+                JunkSwitch::Off => mail_core::junk::Filtering::Off,
+            },
+            treat: match self.treat {
+                JunkTreat::Move => mail_core::junk::Treat::Move,
+                JunkTreat::Mark => mail_core::junk::Treat::Mark,
+            },
+            contacts: self.spare_contacts.into(),
+            written_to: self.spare_written_to.into(),
+            full_name: self.spare_full_name.into(),
+            server_says: self.trust_server.into(),
+            order: match self.order {
+                JunkOrder::After => mail_core::junk::Order::AfterRules,
+                JunkOrder::Before => mail_core::junk::Order::BeforeRules,
+            },
+        }
+    }
+}
+
 /// `mailo/settings.toml`, whole.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -166,6 +240,7 @@ pub struct MailSettings {
     pub compose: ComposeSettings,
     pub reading: ReadingSettings,
     pub search: SearchSettings,
+    pub junk: JunkSettings,
 }
 
 impl SettingsDoc for MailSettings {
@@ -181,6 +256,7 @@ pub fn schema() -> Schema {
         ComposeSettings::schema(),
         ReadingSettings::schema(),
         SearchSettings::schema(),
+        JunkSettings::schema(),
     ]
     .into_iter()
     .flat_map(|schema| schema.key)
@@ -229,6 +305,16 @@ pub fn root_for(config_dir: &Path) -> ConfigRoot {
 /// one `settings.toml`. `None` where the machine has no config directory.
 pub fn person_root() -> Option<ConfigRoot> {
     mail_core::config::config_dir().map(|dir| root_for(&dir))
+}
+
+/// How the junk filter behaves for a sync this process starts: the person's settings, or the
+/// defaults with no config directory.
+pub fn junk_policy() -> mail_core::junk::Policy {
+    person_root()
+        .map(|root| load(&root))
+        .unwrap_or_default()
+        .junk
+        .policy()
 }
 
 /// The store `settings.toml` lives in, under `root`.

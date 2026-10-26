@@ -254,11 +254,24 @@ fn op_for<S: Store + ?Sized>(
     })
 }
 
+/// Apply `op` to one message as a rule would, and queue what the server must hear: for a caller
+/// that decides about a message the way a rule does, such as the junk filter. Returns how many
+/// operations were queued.
+pub fn act_on<S: Store + ?Sized>(
+    store: &S,
+    caps: &AccountCaps,
+    op: &Op,
+    message: &Message,
+    now: DateTime<Utc>,
+) -> Result<usize, StoreError> {
+    perform(store, caps, op, message, now)
+}
+
 /// The label called `name` on the account, created with `origin` if there is none.
 ///
 /// The exact name first, then the same name in another case — a rule written `bills` should
 /// find the `Bills` label rather than make a second one beside it.
-fn label_named<S: Store + ?Sized>(
+pub fn label_named<S: Store + ?Sized>(
     store: &S,
     account: AccountId,
     name: &str,

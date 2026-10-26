@@ -378,6 +378,7 @@ async fn watching<F: std::future::Future<Output = ()>>(
         plan: plan(port),
         caps: caps(),
         keep: mail_core::offline::Keep::Bodies,
+        junk: mail_core::junk::Policy::default(),
     };
     let inbox = vec![MailboxRef {
         account: account.id.clone(),

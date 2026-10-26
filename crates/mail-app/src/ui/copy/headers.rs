@@ -30,6 +30,8 @@ pub const FROM_SERVER: &str = "Server";
 // Settings › General's two groups.
 pub const READING: &str = "Reading";
 pub const MAIL: &str = "Mail";
+/// The junk filter's switches.
+pub const JUNK_MAIL: &str = "Junk Mail";
 /// An account's keys and certificates, on its page in Settings.
 pub const ENCRYPTION: &str = "Encryption";
 /// An account's servers and sign-in, on its page in Settings: the one place a protocol is named.

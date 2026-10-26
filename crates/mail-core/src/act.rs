@@ -262,6 +262,26 @@ pub fn perform(
             .or_log("an operation could not be undone after its server half failed to queue");
         return None;
     }
+    // Spam and Not Spam teach the junk filter, as Mail's Junk and Not Junk do: the messages as
+    // they were, since what is learned is what they said and not where they went.
+    let judged = match op {
+        Op::Spam => Some(mail_store::junk::Judged::Spam),
+        Op::Restore if messages.iter().any(|m| m.mailbox == MailboxRole::Spam) => {
+            Some(mail_store::junk::Judged::Ham)
+        }
+        _ => None,
+    };
+    if let Some(judged) = judged {
+        let taught: Vec<_> = match judged {
+            mail_store::junk::Judged::Spam => messages.clone(),
+            mail_store::junk::Judged::Ham => messages
+                .iter()
+                .filter(|m| m.mailbox == MailboxRole::Spam)
+                .cloned()
+                .collect(),
+        };
+        crate::junk::learn(store, &taught, judged).or_log("the junk filter could not learn");
+    }
     Some(Undo {
         said: crate::undo::said(&op, &chrono::Local, clock),
         thread: Some(thread),

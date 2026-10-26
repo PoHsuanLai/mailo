@@ -468,6 +468,7 @@ async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> AccountReport {
         plan: plan(port),
         caps: caps(),
         keep: mail_core::offline::Keep::Bodies,
+        junk: mail_core::junk::Policy::default(),
     };
     let inbox = vec![MailboxRef {
         account: acct_account(),

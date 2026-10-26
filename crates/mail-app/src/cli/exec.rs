@@ -228,7 +228,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside super::run, which is deliberately synchronous and testable.
     if matches!(command, Command::Sync) {
-        let mail = crate::edge::mail(&store);
+        let mail = crate::edge::mail(&store).with_junk(crate::settings::junk_policy());
         let ends = crate::edge::block_on(mail.sync().run(Default::default()))
             .map_err(super::remedy::error)?;
         print!("{}", super::sync::run_text(&store, &ends));
@@ -261,7 +261,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             let ended = mail_core::ipc::daemon::serve(
                 store,
                 std::sync::Arc::new(|store| {
-                    let mail = crate::edge::mail(&store);
+                    let mail = crate::edge::mail(&store).with_junk(crate::settings::junk_policy());
                     match crate::edge::block_on(mail.sync().run(Default::default())) {
                         Ok(ends) => print!("{}", super::sync::run_text(&store, &ends)),
                         Err(why) => eprintln!("{}", super::remedy::error(why)),
@@ -439,7 +439,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             }
             let _ = std::io::stdout().flush();
         };
-        let mail = crate::edge::mail(&store);
+        let mail = crate::edge::mail(&store).with_junk(crate::settings::junk_policy());
         // The desktop's notification service when notifications are on; with none to reach it
         // says nothing, and the watch goes on fetching.
         let desktop;

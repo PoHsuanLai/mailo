@@ -11,6 +11,7 @@ mod file;
 mod filing;
 mod follow_up;
 mod history;
+pub mod junk;
 #[cfg(any(test, feature = "testing"))]
 pub mod memory;
 #[cfg(any(test, feature = "testing"))]

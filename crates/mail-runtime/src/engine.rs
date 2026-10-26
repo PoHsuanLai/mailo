@@ -416,8 +416,13 @@ impl<B: Backend> AccountEngine<B> {
         self
     }
 
+    /// The store this engine keeps the account in.
+    pub fn store(&self) -> &SqliteStore {
+        &self.store
+    }
+
     /// What the server is believed to support: the Graph reader's, where there is one.
-    fn caps(&self) -> &AccountCaps {
+    pub fn caps(&self) -> &AccountCaps {
         match &self.graph {
             Some(reader) => reader.caps(),
             None => self.backend.caps(),

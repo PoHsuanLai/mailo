@@ -10,6 +10,7 @@ pub use forget::Freed;
 mod found;
 mod groups;
 mod invite;
+mod junk;
 mod offline;
 mod opened;
 mod outbox;

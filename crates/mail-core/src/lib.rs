@@ -36,6 +36,7 @@ pub mod history;
 pub mod import;
 pub mod invite;
 pub mod ipc;
+pub mod junk;
 pub mod mail;
 pub mod message;
 pub mod notify;

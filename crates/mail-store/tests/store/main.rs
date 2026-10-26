@@ -19,6 +19,7 @@ mod import;
 mod in_folder;
 mod ingest_to_search;
 mod jmap;
+mod junk;
 mod labels;
 mod offline;
 mod opened;

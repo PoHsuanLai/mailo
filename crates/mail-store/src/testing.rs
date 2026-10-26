@@ -495,6 +495,9 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              DROP INDEX thread_summary_subject;
              DROP INDEX thread_summary_from;
              DROP INDEX thread_summary_pin;
+             DROP TABLE junk_learned;
+             DROP TABLE junk_totals;
+             DROP TABLE junk_words;
              CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
                  filter TEXT NOT NULL, sort TEXT NOT NULL, group_by TEXT,
                  threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,

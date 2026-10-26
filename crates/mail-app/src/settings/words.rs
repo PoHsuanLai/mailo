@@ -88,6 +88,49 @@ pub enum ServerSearch {
     Off,
 }
 
+/// `junk.filter` and the junk filter's other switches: on or off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum JunkSwitch {
+    #[default]
+    On,
+    Off,
+}
+
+/// `junk.treat`: what is done with mail the junk filter calls junk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum JunkTreat {
+    #[default]
+    #[word(label = "Move to Spam")]
+    Move,
+    #[word(label = "Mark as Junk")]
+    Mark,
+}
+
+/// `junk.order`: whether the junk filter runs before the rules or after them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum JunkOrder {
+    #[default]
+    #[word(label = "After my rules")]
+    After,
+    #[word(label = "Before my rules")]
+    Before,
+}
+
+impl From<JunkSwitch> for mail_core::junk::Heed {
+    fn from(switch: JunkSwitch) -> Self {
+        match switch {
+            JunkSwitch::On => mail_core::junk::Heed::Yes,
+            JunkSwitch::Off => mail_core::junk::Heed::No,
+        }
+    }
+}
+
 impl From<NewMail> for mail_core::notify::Setting {
     fn from(new_mail: NewMail) -> Self {
         match new_mail {
