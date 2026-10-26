@@ -53,7 +53,8 @@ fn on_imap(store: &SqliteStore) {
 /// A server that holds [`HIT`] in its All Mail: asked, it is kept here as headers and marked
 /// found, as `mail_runtime`'s search keeps what it finds. Records each line it was asked.
 fn server(asked: Arc<Mutex<Vec<String>>>) -> ServerSearcher {
-    ServerSearcher(Arc::new(move |store, account, input, now| {
+    ServerSearcher(Arc::new(move |client, account, input, now| {
+        let store = client.store_for_test();
         asked
             .lock()
             .unwrap_or_else(|e| e.into_inner())

@@ -12,12 +12,10 @@ use crate::ui::appearance::WindowDirs;
 use base64::Engine as _;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
-use mail_core::SqliteStore;
 use mail_core::bimi::{Cached, Lookup, cached};
 use mail_core::bimi::{Setting, domain_of};
 use mail_domain::{BlobId, MessageId};
 use std::path::PathBuf;
-use std::sync::Arc;
 
 /// Where drawn logos are kept: the cache directory's `bimi/`. A root context; a window without
 /// one shows no logos.
@@ -75,7 +73,7 @@ fn use_brand_logo(
     let _find = use_resource(move || {
         // Read here, so turning brand logos on or off looks again.
         let logos = settings.read().reading.brand_logos;
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let looks = looks.clone();
         let dirs = try_consume_context::<WindowDirs>();
         let place = try_consume_context::<BrandCache>();
@@ -87,7 +85,7 @@ fn use_brand_logo(
             let (asked, at) = (from.clone(), dir.clone());
             let found = tokio::task::spawn_blocking(move || {
                 local(
-                    || looks.checks(&store, message, raw),
+                    || client.looking(&looks).checks(message, raw),
                     logos,
                     &dirs.config,
                     &at,

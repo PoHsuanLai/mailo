@@ -373,3 +373,8 @@ pub(in crate::ui) fn inbox_query() -> Query {
         },
     }
 }
+
+/// A client over `store` that reads where it is asked, as a test's window reads.
+pub(in crate::ui) fn client(store: &Arc<SqliteStore>) -> mail_client::Client {
+    mail_client::Client::inline(store.clone(), Arc::new(mail_core::mail::SystemClock))
+}

@@ -1,6 +1,6 @@
 //! The root of a conversation's own window: the reader, and what it needs to act.
 //!
-//! quire gives this VirtualDom the same root contexts as the first window: the store, the look,
+//! quire gives this VirtualDom the same root contexts as the first window: the client, the look,
 //! the Spaces, the directories, the frames' network, and [`crate::ui::revisions::Revisions`].
 //! Everything a window keeps for itself is made here again: its `Shell` (so its consent, its
 //! find and its undo are its own), its `revision`, its hover and motion state, its toast host and
@@ -22,7 +22,6 @@ use ds::base::spawner::Spawner;
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds_settings::use_environment;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::sync::Arc;
 
@@ -69,14 +68,14 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     let core = use_window_core();
     let (keys, mut revision) = (core.keys, core.revision);
     let shell = use_signal(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let mut shell = Shell {
             appearance: try_consume_context::<crate::ui::view::Appearance>().unwrap_or_default(),
             keymap: try_consume_context::<crate::ui::appearance::WindowDirs>()
                 .map(|dirs| crate::ui::keymap::load(&dirs.config))
                 .unwrap_or_default(),
-            labels: mail_core::query::known_labels(&store),
-            accounts: mail_core::compose::sending_accounts(&store),
+            labels: client.query().known_labels(),
+            accounts: client.compose().sending_accounts(),
             ..Shell::default()
         };
         // Opened as a click opens it: nothing consented to, nothing found.
@@ -96,16 +95,21 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     let desk = use_window_desk(core, shell, spaces, None, today, None);
     // Where the conversation was when the window opened, for [`left`].
     let opened = use_hook(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
-        store
+        let client = crate::ui::live::client();
+        client
+            .stored()
             .thread(thread)
             .map(|loaded| loaded.summary.mailboxes)
             .unwrap_or(MailboxSet::empty())
     });
-    // Drawn again whenever either window moves the store.
+    // Drawn again whenever either window moves the client.
     let _ = revision();
-    let store = consume_context::<Arc<SqliteStore>>();
-    let summary = store.thread(thread).ok().map(|loaded| loaded.summary);
+    let client = crate::ui::live::client();
+    let summary = client
+        .stored()
+        .thread(thread)
+        .ok()
+        .map(|loaded| loaded.summary);
     let note = summary
         .as_ref()
         .and_then(|summary| left(opened, summary.mailboxes));
@@ -138,7 +142,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         let Some(Intent::Mail(action)) = intent else {
             return;
         };
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         match action {
             Shortcut::Back => {
                 if shell.read().composing.is_some() {
@@ -147,19 +151,20 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                 }
             }
             Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
-                on_thread(&store, shell, revision, thread, action);
+                on_thread(&client, shell, revision, thread, action);
             }
             Shortcut::ToggleMute => {
-                crate::ui::picks::mute_all(&store, shell, revision, &[thread]);
+                crate::ui::picks::mute_all(&client, shell, revision, &[thread]);
             }
             _ => {
                 // The same gesture the first window's keys make, over the one conversation
                 // there is: one undo, one toast.
-                let listed: Vec<ThreadSummary> = store
+                let listed: Vec<ThreadSummary> = client
+                    .stored()
                     .thread(thread)
                     .map(|loaded| vec![loaded.summary])
                     .unwrap_or_default();
-                crate::ui::picks::act_on_picked(&store, shell, revision, action, &listed);
+                crate::ui::picks::act_on_picked(&client, shell, revision, action, &listed);
             }
         }
     };

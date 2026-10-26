@@ -48,6 +48,13 @@ pub(in crate::ui) fn client() -> Client {
     }
 }
 
+/// [`client`], for a window that may have been handed no store: `None` there.
+pub(in crate::ui) fn try_client() -> Option<Client> {
+    let handed = try_consume_context::<Client>().is_some()
+        || try_consume_context::<Arc<SqliteStore>>().is_some();
+    handed.then(client)
+}
+
 /// Tell `client` the clock has passed something it may count — a snooze ending, a reminder
 /// coming due — so what it reads by the clock is read again, at the window's time.
 pub(in crate::ui) fn clock_moved(client: &Client) {
@@ -142,6 +149,6 @@ impl<T> PartialEq for Held<T> {
 
 /// What `query` answers now, read here: for a test that checks what a component makes of it.
 #[cfg(test)]
-pub(in crate::ui) fn read_now<Q: Query>(store: &SqliteStore, query: Q) -> Q::Output {
-    query.run(store, chrono::Utc::now()).expect("read")
+pub(in crate::ui) fn read_now<Q: Query>(client: &Client, query: Q) -> Q::Output {
+    client.read(query).expect("read")
 }

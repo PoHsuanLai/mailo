@@ -33,10 +33,16 @@ fn recent_lists_this_spaces_conversations_newest_first_then_its_drafts() {
     today.opened(SpaceId(1), elsewhere, at(time(9)));
     today.park(SpaceId(0), draft, "Plans", at(time(7)));
 
-    let keys: Vec<String> = rows(&store, &today, SpaceId(0), time(10), Clock::H24)
-        .into_iter()
-        .map(|row| row.key)
-        .collect();
+    let keys: Vec<String> = rows(
+        &crate::ui::fixtures::client(&store),
+        &today,
+        SpaceId(0),
+        time(10),
+        Clock::H24,
+    )
+    .into_iter()
+    .map(|row| row.key)
+    .collect();
     assert_eq!(keys, [thread_key(newer), thread_key(older)]);
     let _ = draft;
 }
@@ -45,7 +51,16 @@ fn recent_lists_this_spaces_conversations_newest_first_then_its_drafts() {
 #[test]
 fn recent_is_empty_with_nothing_opened() {
     let (store, _dir) = seeded();
-    assert!(rows(&store, &Today::default(), SpaceId(0), time(10), Clock::H24).is_empty());
+    assert!(
+        rows(
+            &crate::ui::fixtures::client(&store),
+            &Today::default(),
+            SpaceId(0),
+            time(10),
+            Clock::H24
+        )
+        .is_empty()
+    );
 }
 
 /// However much was opened, Recent lists a handful; the rest are a search away.
@@ -66,7 +81,14 @@ fn recent_lists_at_most_a_handful_of_conversations() {
         today.opened(SpaceId(0), *thread, at(time(minute as i64)));
     }
     assert_eq!(
-        rows(&store, &today, SpaceId(0), time(10), Clock::H24).len(),
+        rows(
+            &crate::ui::fixtures::client(&store),
+            &today,
+            SpaceId(0),
+            time(10),
+            Clock::H24
+        )
+        .len(),
         SHOWN
     );
 }
@@ -121,11 +143,16 @@ fn each_draft_is_named_by_what_is_in_it_and_an_empty_or_gone_one_is_left_out() {
     let gone = parked(&store, &mut today, "Gone", &[], "", 5);
     mail_core::compose::discard(&store, gone.id).unwrap_or_else(|why| panic!("{why}"));
 
-    let got: Vec<(String, String, Option<String>)> =
-        rows(&store, &today, SpaceId(0), time(10), Clock::H24)
-            .into_iter()
-            .map(|row| (row.key, row.name, row.help))
-            .collect();
+    let got: Vec<(String, String, Option<String>)> = rows(
+        &crate::ui::fixtures::client(&store),
+        &today,
+        SpaceId(0),
+        time(10),
+        Clock::H24,
+    )
+    .into_iter()
+    .map(|row| (row.key, row.name, row.help))
+    .collect();
     let when = |draft: &Draft| {
         Some(format!(
             "Draft \u{b7} {}",

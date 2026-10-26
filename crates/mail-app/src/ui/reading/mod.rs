@@ -26,10 +26,10 @@ use ds::components::content::avatar::{
 };
 use ds::components::content::label::LabelStyle;
 use ds::prelude::*;
+use mail_client::Client;
 use mail_client::Snapshot;
 use mail_client::query::Conversation;
 use mail_core::message::{FrameBody, ON_THE_FRAME, Sent};
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
@@ -100,7 +100,7 @@ fn gone() -> Element {
 }
 
 /// `revision` is the window's, moved when leaving a list queues a message, and whenever any
-/// window moves the store (`ui/revisions`), which draws the reader again; a reader drawn on its
+/// window moves the client (`ui/revisions`), which draws the reader again; a reader drawn on its
 /// own has none.
 #[component]
 pub(super) fn Reader(
@@ -110,11 +110,11 @@ pub(super) fn Reader(
     #[props(default)] place: ReaderIn,
     children: Element,
 ) -> Element {
-    let store = use_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::use_client();
     let read = super::live::use_live(use_reactive!(|thread| Conversation(thread)));
     let frames = use_frames();
     let looks = use_looks();
-    // The store may have moved under this conversation, here or in another window.
+    // The client may have moved under this conversation, here or in another window.
     if let Some(revision) = revision {
         let _ = revision();
     }
@@ -162,20 +162,21 @@ pub(super) fn Reader(
         shell,
         consent.as_ref().map(|(_, holder)| *holder),
         embedded.clone(),
-        store.clone(),
+        client.clone(),
     );
     // Opening a conversation reads it: an unread one is marked read once it is drawn (on the
     // server too, where the server keeps flags), with no toast and no undo, and the list loses
     // its dot. The messages that were unread as it opened stay unfolded: the render gathered
     // them into `unread` before this runs.
     {
-        let store = store.clone();
+        let client = client.clone();
         use_effect(use_reactive!(|thread| {
-            let unread = store
+            let unread = client
+                .stored()
                 .thread(thread)
                 .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread);
             let Some(op) = unread
-                .then(|| super::ops::resolve(&store, thread, OpKind::MarkRead))
+                .then(|| super::ops::resolve(&client, thread, OpKind::MarkRead))
                 .flatten()
             else {
                 return;
@@ -252,8 +253,7 @@ pub(super) fn Reader(
                     ));
             let policy = shell.read().policy_with(showing);
             let mut frame = |policy| {
-                frames.on_the_frame(
-                    &store,
+                client.framing(&frames).on_the_frame(
                     &message,
                     policy,
                     &mut room,
@@ -286,7 +286,7 @@ pub(super) fn Reader(
     if !later.is_empty() {
         cache::render_later(
             frames.clone(),
-            store.clone(),
+            client.clone(),
             later,
             sent.clone(),
             rendered_later,
@@ -388,7 +388,7 @@ pub(super) fn Reader(
         let messages = shown.iter().map(|(message, ..)| message.clone()).collect();
         images::look_later(
             looks.clone(),
-            store.clone(),
+            client.clone(),
             messages,
             wanted,
             looked.clone(),
@@ -405,7 +405,7 @@ pub(super) fn Reader(
         .collect();
 
     // The person's own addresses, for the header to leave out a To line of only them.
-    let yours: Vec<String> = super::data::account_rows(&store)
+    let yours: Vec<String> = super::data::account_rows(&client)
         .into_iter()
         .map(|row| row.address.trim().to_lowercase())
         .collect();
@@ -538,7 +538,7 @@ fn use_frame_images(
     shell: Signal<Shell>,
     holder: Option<super::original::Holder>,
     embedded: Rc<RefCell<Embedded>>,
-    store: Arc<SqliteStore>,
+    client: Client,
 ) {
     let images = use_hook(|| {
         try_consume_context::<super::original::FrameImages>().map(|images| images.listen())
@@ -546,7 +546,7 @@ fn use_frame_images(
     use_future(move || {
         let images = images.clone();
         let embedded = embedded.clone();
-        let store = store.clone();
+        let client = client.clone();
         async move {
             let (Some(mut images), Some(holder)) = (images, holder) else {
                 return;
@@ -564,7 +564,7 @@ fn use_frame_images(
                     .find(|(id, _)| *id == message)
                     .and_then(|(_, images)| mail_mime::drawn_from(&clicked.src, images));
                 if let Some(cid) = cid {
-                    peek::open_inline(shell, &store, message, &cid);
+                    peek::open_inline(shell, &client, message, &cid);
                 }
             }
         }

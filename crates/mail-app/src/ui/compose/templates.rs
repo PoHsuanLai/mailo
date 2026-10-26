@@ -12,11 +12,10 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_domain::{Draft, Template, TemplateId};
 
 use super::super::menu::{MenuItem, MenuKey, Right, anchor_at, menu_key, palette_groups};
@@ -162,30 +161,30 @@ pub(in crate::ui) fn named(all: &[(String, Template)], key: &str) -> Option<Temp
         .find(|id| id.to_string() == key)
 }
 
-/// Every template, or none when the store cannot say.
-pub(in crate::ui) fn every(store: &SqliteStore) -> Vec<(String, Template)> {
-    mail_core::template::all(store).unwrap_or_default()
+/// Every template, or none when the client cannot say.
+pub(in crate::ui) fn every(client: &Client) -> Vec<(String, Template)> {
+    client.template().all().unwrap_or_default()
 }
 
 /// Delete the template `key` names, returning what the toast says.
-pub(in crate::ui) fn forget(store: &SqliteStore, key: &str) -> Result<String, String> {
-    let id = named(&every(store), key).ok_or_else(|| "that template is gone".to_owned())?;
-    let name = mail_core::template::delete(store, id)?;
+pub(in crate::ui) fn forget(client: &Client, key: &str) -> Result<String, String> {
+    let id = named(&every(client), key).ok_or_else(|| "that template is gone".to_owned())?;
+    let name = client.template().delete(id)?;
     Ok(format!("Deleted template “{name}”"))
 }
 
 /// Keep the page's message as a template under the name typed, returning what the toast says.
 /// A blank name is the subject's, as `mailo template save` has it.
 pub(in crate::ui) fn save_named(
-    store: &SqliteStore,
+    client: &Client,
     page: &mut Page,
     now: DateTime<Utc>,
 ) -> Result<String, String> {
     let Float::SaveTemplate(name) = page.float.clone() else {
         return Err("there is no name to save it under".to_owned());
     };
-    let draft = life::save(store, page, now)?;
-    let kept = mail_core::template::save(store, draft.id, &name, now)?;
+    let draft = life::save(client, page, now)?;
+    let kept = client.template().save(draft.id, &name, now)?;
     page.float = Float::Closed;
     Ok(format!("Saved as template “{}”", kept.name))
 }
@@ -194,24 +193,24 @@ pub(in crate::ui) fn save_named(
 /// the page is addressed to, or the template's own `To` when it is addressed to nobody, and the
 /// empty draft it replaces is discarded so Today keeps no blank one.
 pub(in crate::ui) fn start_from(
-    store: &SqliteStore,
+    client: &Client,
     page: &Page,
     template: TemplateId,
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
     let to: Vec<_> = page.to.iter().map(address).collect();
-    let started = mail_core::template::start(store, template, &to, now)?;
-    super::life::discard(store, page.draft)?;
+    let started = client.template().start(template, &to, now)?;
+    super::life::discard(client, page.draft)?;
     Ok(started)
 }
 
 /// Picked from the page's list: the new draft opens as the page.
 fn start_here(mut page: Signal<Page>, mut shell: Signal<Shell>, key: &str) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let Some(id) = named(&every(&store), key) else {
+    let client = crate::ui::live::client();
+    let Some(id) = named(&every(&client), key) else {
         return;
     };
-    let started = start_from(&store, &page.peek(), id, Utc::now());
+    let started = start_from(&client, &page.peek(), id, Utc::now());
     match started {
         Ok(draft) => {
             let old = page.peek().draft;
@@ -227,12 +226,12 @@ fn start_here(mut page: Signal<Page>, mut shell: Signal<Shell>, key: &str) {
 
 /// Delete from the page's list, and say so.
 fn forget_here(mut page: Signal<Page>, key: &str) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    match forget(&store, key) {
+    let client = crate::ui::live::client();
+    match forget(&client, key) {
         Ok(said) => tell(said, Follow::Nothing),
         Err(why) => page.write().notice = Some(why),
     }
-    // The list is read from the store as it is drawn; this draws it again.
+    // The list is read from the client as it is drawn; this draws it again.
     let mut write = page.write();
     if let Float::Templates { active } = &mut write.float {
         *active = 0;
@@ -241,8 +240,8 @@ fn forget_here(mut page: Signal<Page>, key: &str) {
 
 /// Enter or Save in the name field.
 fn save_here(mut page: Signal<Page>) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let saved = save_named(&store, &mut page.write(), Utc::now());
+    let client = crate::ui::live::client();
+    let saved = save_named(&client, &mut page.write(), Utc::now());
     match saved {
         Ok(said) => tell(said, Follow::Nothing),
         Err(why) => page.write().notice = Some(why),
@@ -255,8 +254,8 @@ pub(in crate::ui) fn key(page: Signal<Page>, shell: Signal<Shell>, name: &str) -
         return false;
     };
     let mut page = page;
-    let store = consume_context::<Arc<SqliteStore>>();
-    let rows = template_rows(&every(&store), "");
+    let client = crate::ui::live::client();
+    let rows = template_rows(&every(&client), "");
     let count = rows.len().max(1);
     match menu_key(name) {
         Some(MenuKey::Down) => {
@@ -339,8 +338,8 @@ pub(in crate::ui) fn TemplateFloat(
 #[component]
 fn TemplateList(page: Signal<Page>, shell: Signal<Shell>, active: usize) -> Element {
     let mut query = use_signal(String::new);
-    let store = consume_context::<Arc<SqliteStore>>();
-    let rows = template_rows(&every(&store), &query());
+    let client = crate::ui::live::client();
+    let rows = template_rows(&every(&client), &query());
     let remove = EventHandler::new(move |key: String| forget_here(page, &key));
     rsx! {
         CommandPalette::<String> {

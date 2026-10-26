@@ -29,6 +29,7 @@
 //! named, as the document's `<p class="missing">`.
 
 use ds_blitz::{Margins, PageSize, PageSpec};
+use mail_client::Client;
 use mail_core::print::{LABELS, Pictures, Printed};
 use mail_mime::{Options, Script};
 
@@ -302,7 +303,7 @@ pub(in crate::ui) fn paper_css(default: Cjk) -> String {
 /// note on pictures, and the consented messages' remote images when `pictures` fetches them.
 /// Blocking: it reads the stored mail, and may fetch.
 pub(in crate::ui) fn printed<Tz>(
-    store: &mail_core::SqliteStore,
+    client: &Client,
     job: super::Job,
     paper: &Paper,
     pictures: Option<&Pictures<'_>>,
@@ -322,7 +323,9 @@ where
         missing_note: Some(PICTURES_NOTE),
         twelve_hour: clock == mail_core::when::Clock::H12,
     };
-    mail_core::print::document_with(store, *job.thread.as_uuid(), zone, now, &options, pictures)
+    client
+        .print()
+        .document_with(*job.thread.as_uuid(), zone, now, &options, pictures)
         .map_err(String::from)
 }
 

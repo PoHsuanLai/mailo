@@ -11,16 +11,15 @@ use crate::ui::view::{BarListing, Shell, Source, place_key};
 use chrono::Utc;
 use dioxus::prelude::*;
 use ds::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::search::Results;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// What the panel's rows are read from besides the answer.
 pub(super) struct World<'a> {
     pub shell: &'a Shell,
     pub spaces: &'a Spaces,
-    pub store: &'a SqliteStore,
+    pub client: &'a Client,
     /// The window's keymap, for the hints beside the commands.
     pub keymap: &'a chordkit::Keymap,
     /// What was opened and put aside, for Recent while nothing is typed.
@@ -39,13 +38,13 @@ pub(super) fn panel_rows(
     let World {
         shell,
         spaces,
-        store,
+        client,
         keymap,
         today,
         hours,
     } = world;
     match listing {
-        BarListing::Templates(typed) => super::templates::rows(store, typed)
+        BarListing::Templates(typed) => super::templates::rows(client, typed)
             .into_iter()
             .map(|row| MenuItem {
                 group: Some(TEMPLATES.to_owned()),
@@ -62,7 +61,7 @@ pub(super) fn panel_rows(
             // Nothing typed: Recent leads, where the person was.
             if query.trim().is_empty() {
                 let mut recent = super::recent::rows(
-                    store,
+                    client,
                     today,
                     spaces.current().id,
                     chrono::Utc::now(),
@@ -73,7 +72,7 @@ pub(super) fn panel_rows(
             }
             // Scheduled is a place only while a send waits, as the sidebar draws it.
             let waiting = query.trim().is_empty()
-                && !crate::ui::compose::scheduled(store, &shell.scope).is_empty();
+                && !crate::ui::compose::scheduled(client, &shell.scope).is_empty();
             let places: Vec<Destination> = shell
                 .places
                 .iter()
@@ -116,9 +115,9 @@ impl Default for Drawn {
 }
 
 impl Drawn {
-    /// Search for `settled`. Blocking: the store is read.
-    fn of(store: &SqliteStore, settled: Settled) -> Self {
-        let (results, names) = search_now(store, &settled.text, Utc::now());
+    /// Search for `settled`. Blocking: the client is read.
+    fn of(client: &Client, settled: Settled) -> Self {
+        let (results, names) = search_now(client, &settled.text, Utc::now());
         Self {
             settled,
             results,
@@ -134,12 +133,12 @@ pub(super) fn Fetch(shell: Signal<Shell>, drawn: Signal<Drawn>) -> Element {
     let debounced = use_debounced(shell, |shell| shell.search.clone());
     let _fetch = use_resource(move || {
         let settled = debounced.settled.read().clone();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         async move {
             if drawn.peek().settled == settled {
                 return;
             }
-            let done = tokio::task::spawn_blocking(move || Drawn::of(&store, settled)).await;
+            let done = tokio::task::spawn_blocking(move || Drawn::of(&client, settled)).await;
             if let Ok(done) = done
                 && debounced.is_latest(done.settled.generation)
             {

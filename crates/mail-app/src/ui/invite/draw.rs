@@ -18,7 +18,6 @@ use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use mail_core::SqliteStore;
 use mail_core::message::Looks;
 use mail_domain::{Attendance, BlobId, MessageId};
 use std::sync::Arc;
@@ -77,14 +76,14 @@ pub(in crate::ui) fn Invitation(message: MessageId, body: Option<BlobId>) -> Ele
         move || cached(&looks, message, body, hours)
     });
     let _look = use_resource(move || {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let looks = looks.clone();
         async move {
             if known.peek().is_some() {
                 return;
             }
             let found =
-                tokio::task::spawn_blocking(move || lookup(&looks, &store, message, body, hours))
+                tokio::task::spawn_blocking(move || lookup(&looks, &client, message, body, hours))
                     .await
                     .unwrap_or_default();
             known.set(Some(found));
@@ -356,7 +355,7 @@ fn Noting(
 }
 
 /// Queue `attendance` with `note` on a blocking thread, then say so in the toast and settle
-/// the card on what the store now holds.
+/// the card on what the client now holds.
 fn give(
     looks: Arc<Looks>,
     message: MessageId,
@@ -369,7 +368,7 @@ fn give(
         return;
     }
     phase.set(Phase::Working);
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let hours = crate::ui::clock::hours();
     // Spawned from a click or a key, which is where a task is polled.
     spawn(async move {
@@ -377,7 +376,7 @@ fn give(
             let note = Some(note.as_str()).filter(|note| !note.trim().is_empty());
             answer(
                 &looks,
-                &store,
+                &client,
                 message,
                 attendance,
                 note,
@@ -404,13 +403,13 @@ fn give(
 
 /// Write the event's `.ics` into the save directory on a blocking thread; the toast says where.
 fn save_file(message: MessageId, title: String, mut phase: Signal<Phase>) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let dir = super::super::files::save_dir();
     let saving = crate::ui::downloads::Saving::quick();
     spawn(async move {
         let done = tokio::task::spawn_blocking(move || {
-            let saved = save_ics(&store, message, &title, &dir);
-            (saved, crate::ui::downloads::origin(&store, message))
+            let saved = save_ics(&client, message, &title, &dir);
+            (saved, crate::ui::downloads::origin(&client, message))
         })
         .await;
         match done {

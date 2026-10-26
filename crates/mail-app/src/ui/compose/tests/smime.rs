@@ -11,6 +11,8 @@ use super::super::seal::SealBar;
 use super::*;
 use crate::ui::fixtures::smime_support::{Person, identity, pki, rng};
 use crate::ui::fixtures::{Seen, acct_account, click, rebuild_into, seeded};
+use mail_core::SqliteStore;
+use std::sync::Arc;
 
 thread_local! {
     /// The Settings windows the page last drawn asked for: the composer's bar sends a key to
@@ -166,7 +168,12 @@ async fn the_row_offers_both_schemes_in_one_menu_and_saves_the_choice() {
         .dom
         .in_runtime(|| pick(&mut page.write(), "smime-sign-encrypt"));
     window.dom.in_runtime(|| {
-        super::super::life::save(&store, &mut page.write(), Utc::now()).unwrap();
+        super::super::life::save(
+            &crate::ui::fixtures::client(&store),
+            &mut page.write(),
+            Utc::now(),
+        )
+        .unwrap();
     });
     let stored = store.draft(draft.id).unwrap();
     assert_eq!(
@@ -267,7 +274,7 @@ fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
 
     // The data side's answer, typed: the key, whether or not a passphrase was asked for.
     let refused = super::super::life::queue(
-        &store,
+        &crate::ui::fixtures::client(&store),
         secrets.as_ref(),
         &mail_core::pgp::no_passphrase,
         draft.id,
@@ -280,7 +287,7 @@ fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
     // Given one, and the wrong one, it is still that key: the window says "try again".
     let wrong = |_: Fingerprint| Some("not the words".to_owned());
     let refused = super::super::life::queue(
-        &store,
+        &crate::ui::fixtures::client(&store),
         secrets.as_ref(),
         &wrong,
         draft.id,

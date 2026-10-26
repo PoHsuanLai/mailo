@@ -100,7 +100,7 @@ fn now() -> chrono::DateTime<chrono::Utc> {
 fn the_two_page_choices_print_differently_and_both_are_safe() {
     let (store, thread, _dir) = conversation();
     let flow = build(
-        &store,
+        &crate::ui::fixtures::client(&store),
         Job {
             thread,
             pages: Pages::Flow,
@@ -111,7 +111,7 @@ fn the_two_page_choices_print_differently_and_both_are_safe() {
     )
     .unwrap();
     let apart = build(
-        &store,
+        &crate::ui::fixtures::client(&store),
         Job {
             thread,
             pages: Pages::PerMessage,
@@ -145,7 +145,7 @@ fn save_for_printing_writes_beside_what_is_there_and_says_where() {
         pages: Pages::Flow,
     };
     let first = save_into(
-        &store,
+        &crate::ui::fixtures::client(&store),
         job,
         &Sources::none(),
         into.path(),
@@ -154,7 +154,7 @@ fn save_for_printing_writes_beside_what_is_there_and_says_where() {
         mail_core::when::Clock::H24,
     );
     let second = save_into(
-        &store,
+        &crate::ui::fixtures::client(&store),
         job,
         &Sources::none(),
         into.path(),
@@ -187,7 +187,7 @@ fn a_thread_that_is_gone_says_so_rather_than_saving_nothing() {
         pages: Pages::Flow,
     };
     let said = save_into(
-        &store,
+        &crate::ui::fixtures::client(&store),
         job,
         &Sources::none(),
         into.path(),

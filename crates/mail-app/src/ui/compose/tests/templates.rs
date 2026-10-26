@@ -9,6 +9,7 @@ use super::super::templates::{
 };
 use super::*;
 use crate::ui::fixtures::{acct_account, seeded};
+use mail_core::SqliteStore;
 
 fn fresh(store: &SqliteStore) -> Draft {
     mail_core::compose::draft_new(store, acct_account(), &[], "", "", Utc::now())
@@ -64,8 +65,12 @@ fn slash_emoji_opens_the_picker_and_the_slash_goes() {
 async fn saved_listed_started_from_and_deleted() {
     let (store, _dir) = seeded();
     let draft = fresh(&store);
-    let (window, _seen) = Window::open(store.clone(), draft.clone(), None);
-    let before = every(&store).len();
+    let (window, _seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
+    let before = every(&crate::ui::fixtures::client(&store)).len();
 
     // Written, then kept from ⋯ under a name.
     let mut page = window.page();
@@ -78,10 +83,10 @@ async fn saved_listed_started_from_and_deleted() {
         assert_eq!(act, super::super::foot::More::Done);
         assert_eq!(write.float, Float::SaveTemplate(String::new()));
         write.float = Float::SaveTemplate("Weekly".to_owned());
-        save_named(&store, &mut write, Utc::now())
+        save_named(&crate::ui::fixtures::client(&store), &mut write, Utc::now())
     });
     assert_eq!(said.as_deref(), Ok("Saved as template “Weekly”"));
-    let all = every(&store);
+    let all = every(&crate::ui::fixtures::client(&store));
     assert_eq!(all.len(), before + 1, "nothing was kept");
     let kept = all
         .iter()
@@ -111,7 +116,11 @@ async fn saved_listed_started_from_and_deleted() {
 
     // A new, empty page addressed to Dana starts from it.
     let blank = fresh(&store);
-    let (mut window, _seen) = Window::open(store.clone(), blank.clone(), None);
+    let (mut window, _seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        blank.clone(),
+        None,
+    );
     let mut page = window.page();
     window.dom.in_runtime(|| {
         let mut write = page.write();
@@ -172,8 +181,8 @@ async fn saved_listed_started_from_and_deleted() {
 
     // And it goes, saying so.
     assert_eq!(
-        forget(&store, &kept.id.to_string()).as_deref(),
+        forget(&crate::ui::fixtures::client(&store), &kept.id.to_string()).as_deref(),
         Ok("Deleted template “Weekly”")
     );
-    assert_eq!(every(&store).len(), before);
+    assert_eq!(every(&crate::ui::fixtures::client(&store)).len(), before);
 }

@@ -38,7 +38,12 @@ mod naming_a_conversation {
             .items[0]
             .id;
 
-        assert!(apply_label(&store, thread, travel, Membership::In));
+        assert!(apply_label(
+            &crate::ui::fixtures::client(&store),
+            thread,
+            travel,
+            Membership::In
+        ));
         assert!(
             store
                 .thread(thread)
@@ -49,7 +54,12 @@ mod naming_a_conversation {
             "the label never landed"
         );
 
-        assert!(apply_label(&store, thread, travel, Membership::Out));
+        assert!(apply_label(
+            &crate::ui::fixtures::client(&store),
+            thread,
+            travel,
+            Membership::Out
+        ));
         assert!(
             !store
                 .thread(thread)
@@ -73,7 +83,12 @@ mod naming_a_conversation {
             .items[0]
             .id;
 
-        apply_label(&store, thread, travel, Membership::In);
+        apply_label(
+            &crate::ui::fixtures::client(&store),
+            thread,
+            travel,
+            Membership::In,
+        );
 
         let queued = store
             .outbox_due(acct_account(), chrono::Utc::now())

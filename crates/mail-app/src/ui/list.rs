@@ -31,11 +31,9 @@ use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::fetch::Link;
 use mail_core::provider::provider;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use porter_core::AccountId;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 mod first_sync;
 mod status;
@@ -111,13 +109,13 @@ pub(super) fn ThreadList(
 ) -> Element {
     let rows = use_memo(move || {
         let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
-        account_rows(&store)
+        let client = crate::ui::live::client();
+        account_rows(&client)
     });
     // Each account's server asked for a searched line, and what it answered.
     let asked = use_signal(Vec::<Asked>::new);
     // What the servers found for the line shown that the list does not already hold, newest
-    // first, as the store has each conversation now.
+    // first, as the client has each conversation now.
     let found = use_memo(move || {
         let _ = revision();
         let line = marking.read().line.clone();
@@ -125,10 +123,10 @@ pub(super) fn ThreadList(
             return Vec::new();
         }
         let listed: Vec<ThreadId> = threads.read().iter().map(|t| t.id).collect();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         found_threads(&asked.read(), &line, &listed)
             .into_iter()
-            .filter_map(|thread| store.thread(thread).ok())
+            .filter_map(|thread| client.stored().thread(thread).ok())
             .map(|thread| thread.summary)
             .collect::<Vec<ThreadSummary>>()
     });
@@ -443,8 +441,8 @@ pub(super) fn ThreadList(
                                     title: Some(copy::tooltips::NEW_MESSAGE.to_owned()),
                                     title_shortcut: crate::ui::actions::tip_standard(chordkit::StandardAction::New),
                                     onclick: on_primary(move || {
-                                        let store = consume_context::<Arc<SqliteStore>>();
-                                        if open_composer(&store, shell, Writes::New).is_ok() {
+                                        let client = crate::ui::live::client();
+                                        if open_composer(&client, shell, Writes::New).is_ok() {
                                             revision += 1;
                                         }
                                     }),

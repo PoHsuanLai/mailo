@@ -9,9 +9,8 @@ use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_client::Client;
 use mail_core::when::Clock;
-use mail_core::{SqliteStore, Store};
-use std::sync::Arc;
 
 use super::super::common::Told;
 use super::super::data::{AccountRow, account_rows};
@@ -40,8 +39,8 @@ pub(in crate::ui) fn back(mut shell: Signal<Shell>) {
 }
 
 /// The accounts a reply can be set on: every one with a server.
-fn replying(store: &SqliteStore) -> Vec<AccountRow> {
-    account_rows(store)
+fn replying(client: &Client) -> Vec<AccountRow> {
+    account_rows(client)
         .into_iter()
         .filter(|row| !row.is_local())
         .collect()
@@ -50,8 +49,8 @@ fn replying(store: &SqliteStore) -> Vec<AccountRow> {
 /// The pane: the accounts at its root, one account's reply over them.
 #[component]
 pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let rows = replying(&store);
+    let client = crate::ui::live::client();
+    let rows = replying(&client);
     let unpushed: Said = use_signal(|| None);
     // Bumped by every reply kept, so the list says it again.
     let mut changed = use_signal(|| 0u64);
@@ -104,7 +103,7 @@ pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
 #[component]
 fn VacationList(shell: Signal<Shell>, rows: Vec<AccountRow>, changed: Signal<u64>) -> Element {
     let _ = changed();
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let now = Utc::now();
     let clock = crate::ui::clock::hours();
     let items: Vec<ListItem<String>> = rows
@@ -112,7 +111,7 @@ fn VacationList(shell: Signal<Shell>, rows: Vec<AccountRow>, changed: Signal<u64
         .map(|row| {
             let at = VacationAt::Account(row.id.clone());
             let shown = row.shown();
-            let state = status(&store, &row, now, clock);
+            let state = status(&client, &row, now, clock);
             ListItem::row(
                 row.id.to_string(),
                 shown.clone(),
@@ -147,13 +146,13 @@ fn VacationList(shell: Signal<Shell>, rows: Vec<AccountRow>, changed: Signal<u64
 
 /// What an account's row says of its reply: off, on, on until or from a time, ended, or that its
 /// server cannot send one.
-fn status(store: &SqliteStore, row: &AccountRow, now: DateTime<Utc>, clock: Clock) -> String {
+fn status(client: &Client, row: &AccountRow, now: DateTime<Utc>, clock: Clock) -> String {
     use copy::status::vacation as words;
     if reach(&row.plan).is_err() {
         return words::UNAVAILABLE.to_owned();
     }
-    // A reply the store cannot read is not known to be off.
-    let kept = match store.vacation(row.id.clone()) {
+    // A reply the client cannot read is not known to be off.
+    let kept = match client.stored().vacation(row.id.clone()) {
         Ok(Some(kept)) => kept,
         Ok(None) => return words::OFF.to_owned(),
         Err(_) => return words::UNAVAILABLE.to_owned(),

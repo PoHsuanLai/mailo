@@ -4,7 +4,6 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -12,7 +11,6 @@ use ds::file_drop::drag::FileDrop;
 use ds::file_drop::hook::{FileDropHandle, use_file_drop};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::SqliteStore;
 
 use super::life;
 use super::page::{Guard, Page};
@@ -119,17 +117,19 @@ fn attach(mut page: Signal<Page>, paths: Vec<PathBuf>) {
                     continue;
                 }
             };
-            let store = consume_context::<Arc<SqliteStore>>();
+            let client = crate::ui::live::client();
             let draft = page.peek().draft;
             let now = chrono::Utc::now();
-            let saved = life::save(&store, &mut page.write(), now).and_then(|_| {
-                mail_core::compose::attach_bytes(&store, draft, &name, &bytes, now)
+            let saved = life::save(&client, &mut page.write(), now).and_then(|_| {
+                client
+                    .compose()
+                    .attach_bytes(draft, &name, &bytes, now)
                     .map_err(crate::ui::remedy::told)
             });
             match saved {
                 Ok(stored) => {
                     let mut write = page.write();
-                    write.attached = mail_core::compose::attached_to(&store, &stored);
+                    write.attached = client.compose().attached_to(&stored);
                     write.guard = Guard::Clear;
                 }
                 Err(why) => refused.push(why),

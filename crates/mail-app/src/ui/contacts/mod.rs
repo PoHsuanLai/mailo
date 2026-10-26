@@ -1,7 +1,7 @@
 //! Contacts in the window: the book the composer suggests from, a person edited from their name
 //! in mail, and the book in and out as vCard from ⌘K.
 //!
-//! [`book`] is every question and every write, as functions of a store, and [`groups`] the
+//! [`book`] is every question and every write, as functions of a client, and [`groups`] the
 //! same for the groups the composer offers; the editor and the commands only draw and say what
 //! they answer. CardDAV sync stays on the command line: it needs a URL and a password.
 

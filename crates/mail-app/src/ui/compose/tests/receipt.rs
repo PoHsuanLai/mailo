@@ -7,6 +7,7 @@ use super::super::page::{Float, Saved};
 use super::super::receipt::{ASK, KEY, OFF_KEY};
 use super::*;
 use crate::ui::fixtures::{acct_account, click, seeded};
+use mail_core::SqliteStore;
 
 fn fresh_draft(store: &SqliteStore) -> Draft {
     mail_core::compose::draft_new(store, acct_account(), &[], "", "", Utc::now())
@@ -53,7 +54,11 @@ fn send_menu_item_turns_the_request_on_and_off() {
 async fn asking_is_autosaved_shown_as_a_row_and_can_be_set_back_to_off() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
-    let (mut window, _seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, _seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let markup = window.render();
     assert!(!markup.contains("data-row=\"receipt\""), "{markup}");
 
@@ -74,7 +79,8 @@ async fn asking_is_autosaved_shown_as_a_row_and_can_be_set_back_to_off() {
 
     // Opened again from the store, the page still asks, and the row's menu sets it Off.
     let stored = store.draft(draft.id).unwrap_or_else(|why| panic!("{why}"));
-    let (mut window, seen) = Window::open(store.clone(), stored, None);
+    let (mut window, seen) =
+        Window::open(crate::ui::fixtures::client(&store.clone()), stored, None);
     let markup = window.render();
     assert!(markup.contains("data-row=\"receipt\""), "{markup}");
     click(

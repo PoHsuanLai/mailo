@@ -30,11 +30,10 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_client::Client;
 use mail_core::view::says;
-use mail_core::{SqliteStore, Store as _};
 use mail_domain::*;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 /// The view menu's modes, in the order it lists them.
 const MODES: [Peek; 3] = [Peek::Side, Peek::CENTER, Peek::FULL];
@@ -246,9 +245,9 @@ struct Downloaded {
 
 /// Write each of `thread`'s messages into `dir`, in the order it holds them. Blocking: off the
 /// thread that draws.
-fn save_thread(store: &SqliteStore, thread: ThreadId, dir: &Path) -> Downloaded {
+fn save_thread(client: &Client, thread: ThreadId, dir: &Path) -> Downloaded {
     let mut done = Downloaded::default();
-    let messages = match store.thread(thread) {
+    let messages = match client.stored().thread(thread) {
         Ok(loaded) => loaded.messages,
         Err(error) => {
             done.failed = Some(error.to_string());
@@ -256,10 +255,10 @@ fn save_thread(store: &SqliteStore, thread: ThreadId, dir: &Path) -> Downloaded 
         }
     };
     for message in messages {
-        match mail_core::export::save_eml(store, message, dir) {
+        match client.export().save_eml(message, dir) {
             Ok(Some(path)) => done
                 .saved
-                .push((path, crate::ui::downloads::origin(store, message))),
+                .push((path, crate::ui::downloads::origin(client, message))),
             Ok(None) => done.absent += 1,
             Err(error) => {
                 done.failed = Some(String::from(error));
@@ -302,11 +301,11 @@ fn download(thread: ThreadId) {
     // The bytes are here already, so nothing shows as being saved: each file joins the list
     // when it is written.
     let saving = Saving::quick();
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
     let dir = crate::ui::files::save_dir();
     spawn(async move {
-        let done = tokio::task::spawn_blocking(move || save_thread(&store, thread, &dir))
+        let done = tokio::task::spawn_blocking(move || save_thread(&client, thread, &dir))
             .await
             .unwrap_or_else(|error| Downloaded {
                 failed: Some(format!("it stopped early: {error}")),

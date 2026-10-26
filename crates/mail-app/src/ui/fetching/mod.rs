@@ -27,14 +27,12 @@ use dioxus::prelude::*;
 use ds::motion::detail::operation::Operation;
 use mail_client::Client;
 use mail_client::fetch::{Fetched, Seams};
-use mail_core::SqliteStore;
 use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
 use mail_core::schedule::Timing;
 use mail_core::sync::fresh::Pace;
 use mail_core::sync::report::Offer;
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 pub(in crate::ui) use delegate::Delegate;
 pub(in crate::ui) use face::{CANNOT_LOAD, HasRows, ListFace, list_face};
@@ -160,8 +158,8 @@ impl Fetching {
     /// Read from the store each time, as cheap as two lookups by key: a watch's passes move
     /// nothing in this window's links.
     pub(in crate::ui) fn pace(&self, account: &AccountId) -> Pace {
-        match try_consume_context::<Arc<SqliteStore>>() {
-            Some(store) => Pace::of(&store, account.clone()),
+        match crate::ui::live::try_client() {
+            Some(client) => client.stored().pace(account.clone()),
             None => Pace::of_watch(&mail_domain::WatchMode::Poll {
                 every: mail_core::sync::due::IDLE,
             }),
@@ -265,8 +263,7 @@ fn announce_added(before: &BTreeMap<AccountId, Link>, now: &BTreeMap<AccountId, 
     if now.keys().all(|id| before.contains_key(id)) {
         return;
     }
-    let store = consume_context::<Arc<SqliteStore>>();
-    for row in crate::ui::data::account_rows(&store) {
+    for row in crate::ui::data::account_rows(&crate::ui::live::client()) {
         if now.contains_key(&row.id) && !before.contains_key(&row.id) {
             crate::ui::motion::tell(
                 crate::ui::copy::toasts::account_added(&row.address),
@@ -278,12 +275,13 @@ fn announce_added(before: &BTreeMap<AccountId, Link>, now: &BTreeMap<AccountId, 
 
 /// What the client's fetching reaches, as this window lends it: the servers, unless a test
 /// provided its own pass, watch, folder fetch or word on who schedules.
-fn seams() -> Seams {
-    let pass = try_consume_context::<Passer>().unwrap_or_else(Passer::server);
-    let listener = try_consume_context::<live::Listener>().unwrap_or_else(live::Listener::server);
+fn seams(client: &Client) -> Seams {
+    let pass = try_consume_context::<Passer>().unwrap_or_else(|| Passer::server(client));
+    let listener =
+        try_consume_context::<live::Listener>().unwrap_or_else(|| live::Listener::server(client));
     let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
     let folder = try_consume_context::<crate::ui::folder_open::Fetcher>()
-        .unwrap_or_else(crate::ui::folder_open::Fetcher::server);
+        .unwrap_or_else(|| crate::ui::folder_open::Fetcher::server(client));
     Seams {
         pass: pass.0,
         listen: listener.listen,
@@ -309,7 +307,7 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
     // from then on, and one that reads here hands back what this window runs.
     let run = use_hook({
         let client = client.clone();
-        move || std::rc::Rc::new(std::cell::RefCell::new(client.fetch(seams())))
+        move || std::rc::Rc::new(std::cell::RefCell::new(client.fetch(seams(&client))))
     });
     let first = client
         .fetched()

@@ -327,9 +327,24 @@ fn answering_twice_queues_one_receipt() {
     let now = chrono::Utc::now();
     let before = submissions(&store);
     assert_eq!(
-        answer_asked(&looks, &store, &standings, ReadReceipts::Always, now),
+        answer_asked(
+            &looks,
+            &crate::ui::fixtures::client(&store),
+            &standings,
+            ReadReceipts::Always,
+            now
+        ),
         [message]
     );
-    assert!(answer_asked(&looks, &store, &standings, ReadReceipts::Always, now).is_empty());
+    assert!(
+        answer_asked(
+            &looks,
+            &crate::ui::fixtures::client(&store),
+            &standings,
+            ReadReceipts::Always,
+            now
+        )
+        .is_empty()
+    );
     assert_eq!(submissions(&store), before + 1);
 }

@@ -4,7 +4,7 @@
 //! "New view…" in the search bar. Drawn as the other sheets are, in quire's `Sheet` with a form's
 //! rows: a view is a search that stays, and the field that keeps a rule's search is the one
 //! people already know. What it writes is [`crate::ui::saved`]'s to decide; this only draws the draft and hands it
-//! to the store.
+//! to the client.
 
 use super::common::{Seg, in_card};
 use super::menu::{Floating, MenuItem, Right, Tile};
@@ -22,9 +22,7 @@ use ds::host::measure::MountedRef;
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::{SqliteStore, Store};
 use mail_domain::{SortDir, View};
-use std::sync::Arc;
 
 /// Open the sheet on a new view of what `search` finds.
 pub(in crate::ui) fn open_new(mut shell: Signal<Shell>, search: &str) {
@@ -56,9 +54,10 @@ fn save(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal<u
         return;
     };
     let labels = shell.peek().labels.clone();
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let kept = draft.build(&labels, &chrono::Local).and_then(|view| {
-        store
+        client
+            .stored()
             .put_view(&view)
             .map(|()| view)
             .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why))
@@ -79,8 +78,8 @@ fn delete(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal
     let Some(id) = shell.peek().view_editor.as_ref().and_then(|draft| draft.id) else {
         return;
     };
-    let store = consume_context::<Arc<SqliteStore>>();
-    match store.delete_view(id) {
+    let client = crate::ui::live::client();
+    match client.stored().delete_view(id) {
         Ok(()) => {
             saved::show_forgotten(&mut shell.write(), id);
             pages.set(1);

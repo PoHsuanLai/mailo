@@ -23,11 +23,9 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
 use ds::style::tokens::control_size::ControlSize;
-use mail_core::SqliteStore;
 use mail_core::auth::{Standing, standing};
 use mail_domain::{BlobId, MessageId};
 use mail_mime::AuthResults;
-use std::sync::Arc;
 
 /// What the head says about a message's sender, worked out from what is known so far.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -95,7 +93,7 @@ pub(in crate::ui) fn use_checks(
         move || body.and_then(|raw| looks.checks_cached(message, raw))
     });
     let _look = use_resource(move || {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let looks = looks.clone();
         let mut known = known;
         async move {
@@ -105,10 +103,11 @@ pub(in crate::ui) fn use_checks(
             if known.peek().is_some() {
                 return;
             }
-            let results = tokio::task::spawn_blocking(move || looks.checks(&store, message, raw))
-                .await
-                .ok()
-                .flatten();
+            let results =
+                tokio::task::spawn_blocking(move || client.looking(&looks).checks(message, raw))
+                    .await
+                    .ok()
+                    .flatten();
             known.set(Some(results));
         }
     });

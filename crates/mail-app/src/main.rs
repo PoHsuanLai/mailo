@@ -159,7 +159,14 @@ fn main() {
 
     let store = std::sync::Arc::new(store);
     let start = match &mailto {
-        Some(link) => match mail_app::ui::start_mailto(&store, link, chrono::Utc::now()) {
+        Some(link) => match mail_app::ui::start_mailto(
+            &mail_client::Client::inline(
+                store.clone(),
+                std::sync::Arc::new(mail_core::mail::SystemClock),
+            ),
+            link,
+            chrono::Utc::now(),
+        ) {
             Ok(compose) => Some(compose),
             Err(message) => {
                 eprintln!("{message}");

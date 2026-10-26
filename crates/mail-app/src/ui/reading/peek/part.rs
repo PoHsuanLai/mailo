@@ -14,7 +14,7 @@ use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::prelude::*;
 use ds::style::appearance::peek::PeekMode;
-use mail_core::{SqliteStore, Store};
+use mail_client::Client;
 use mail_domain::MessageId;
 
 use super::super::route::{self, Own};
@@ -43,13 +43,13 @@ pub(super) enum Drawn {
 
 /// Attachment `index` of `message`, page `page` if it is a PDF. Blocking: reads and decodes.
 pub(super) fn draw(
-    store: &Arc<SqliteStore>,
+    client: &Client,
     message: MessageId,
     index: usize,
     page: u32,
     clock: mail_core::when::Clock,
 ) -> Drawn {
-    let stored = match store.message(message) {
+    let stored = match client.stored().message(message) {
         Ok(stored) => stored,
         Err(why) => return unreadable(why),
     };
@@ -59,7 +59,7 @@ pub(super) fn draw(
     let Some(blob) = attachment.blob() else {
         return Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned());
     };
-    let head = match store.blobs().head(blob, route::HEAD) {
+    let head = match client.blobs().head(blob, route::HEAD) {
         Ok(head) => head,
         Err(why) => return unreadable(why),
     };
@@ -69,10 +69,10 @@ pub(super) fn draw(
             Some(Own::Calendar) => own::calendar,
             Some(Own::Contact) => |_, bytes, _| own::contact(bytes),
             Some(Own::Message) => |_, bytes, clock| own::message(bytes, clock),
-            Some(Own::Picture) | None => return picture(store, message, index, page),
+            Some(Own::Picture) | None => return picture(client, message, index, page),
         };
-    let whole = match store.blobs().size(blob) {
-        Ok(size) if size <= OWN_LIMIT => store.blobs().get(blob),
+    let whole = match client.blobs().size(blob) {
+        Ok(size) if size <= OWN_LIMIT => client.blobs().get(blob),
         Ok(_) => return Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
         Err(why) => Err(why),
     };
@@ -85,15 +85,15 @@ pub(super) fn draw(
     }
 }
 
-/// A part the store could not read: the reason goes to the log, and Peek says only that.
+/// A part the client could not read: the reason goes to the log, and Peek says only that.
 fn unreadable(why: impl std::fmt::Display) -> Drawn {
     log::warn!("an attachment could not be read for its preview: {why}");
     Drawn::Said(copy::status::no_preview(copy::status::UNREADABLE))
 }
 
 /// A picture or a PDF page `mail_core::preview` decodes; anything else is anyview's.
-fn picture(store: &Arc<SqliteStore>, message: MessageId, index: usize, page: u32) -> Drawn {
-    match preview::load(store, message, index) {
+fn picture(client: &Client, message: MessageId, index: usize, page: u32) -> Drawn {
+    match client.preview().load(message, index) {
         Ok((Kind::Pdf, bytes)) => match preview::pdf_page(bytes, page, preview::PAGE) {
             Ok(page) => Drawn::Page(page),
             Err(refusal) => Drawn::Said(refusal.sentence()),
@@ -104,16 +104,16 @@ fn picture(store: &Arc<SqliteStore>, message: MessageId, index: usize, page: u32
         },
         Err(Unshown::Refused(refusal)) => Drawn::Said(refusal.sentence()),
         Err(Unshown::NotHere) => Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned()),
-        Err(Unshown::NotAPicture) => beyond_mailo(store, message, index),
+        Err(Unshown::NotAPicture) => beyond_mailo(client, message, index),
         Err(Unshown::Store(why)) => unreadable(why),
     }
 }
 
 /// A part mailo does not draw itself, as anyview draws it.
 #[cfg(feature = "anyview")]
-fn beyond_mailo(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> Drawn {
+fn beyond_mailo(client: &Client, message: MessageId, index: usize) -> Drawn {
     use super::super::anyview::{Seen, see};
-    match see(store, message, index) {
+    match see(client, message, index) {
         Seen::Ready(peeked) => Drawn::Peeked(peeked),
         Seen::NotHere => Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned()),
         Seen::Own => Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
@@ -123,15 +123,15 @@ fn beyond_mailo(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> D
 
 /// Without anyview, a part mailo does not draw itself has no preview.
 #[cfg(not(feature = "anyview"))]
-fn beyond_mailo(_store: &Arc<SqliteStore>, _message: MessageId, _index: usize) -> Drawn {
+fn beyond_mailo(_store: &Client, _message: MessageId, _index: usize) -> Drawn {
     Drawn::Said(copy::status::NO_PREVIEW.to_owned())
 }
 
 /// The stored attachment `by` places on from `viewing`'s among its message's, held to the ones
 /// there are; `None` when there is none that way. A part still on the server is passed over:
 /// Peek opens only what is here, as the strip does.
-pub(super) fn stepped(store: &SqliteStore, viewing: Viewing, by: i32) -> Option<Viewing> {
-    let attachments = store.message(viewing.message).ok()?.attachments;
+pub(super) fn stepped(client: &Client, viewing: Viewing, by: i32) -> Option<Viewing> {
+    let attachments = client.stored().message(viewing.message).ok()?.attachments;
     let here = |index: &usize| attachments.get(*index).and_then(|a| a.blob()).is_some();
     let next = if by > 0 {
         (viewing.index + 1..attachments.len()).find(here)
@@ -150,8 +150,9 @@ fn viewing_of(shell: &Shell) -> Option<Viewing> {
 }
 
 /// The attachment's name, as it would be written.
-fn name_of(store: &SqliteStore, viewing: Viewing) -> String {
-    store
+fn name_of(client: &Client, viewing: Viewing) -> String {
+    client
+        .stored()
         .message(viewing.message)
         .ok()
         .and_then(|message| {
@@ -167,11 +168,11 @@ type Toasts = Option<ds::stack::toast_hub::ToastHub>;
 
 /// Save the part to the downloads folder, as the strip's Save does, and say where in a toast.
 fn save(viewing: Viewing, toasts: Toasts) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let dir = crate::ui::files::save_dir();
-    let said = match mail_core::attach::save(&store, viewing.message, viewing.index, &dir) {
+    let said = match client.attach().save(viewing.message, viewing.index, &dir) {
         Ok(path) => {
-            let origin = crate::ui::downloads::origin(&store, viewing.message);
+            let origin = crate::ui::downloads::origin(&client, viewing.message);
             crate::ui::downloads::Saving::quick().end(Some(&path), origin);
             super::super::fetch::saved_toast(&path)
         }
@@ -304,14 +305,16 @@ impl Owner {
 /// Open the part in the app the system gives its kind. From a press or a key: the write and the
 /// opener run off the thread that draws, and only a failure is said.
 pub(super) fn open_in_app(viewing: Viewing) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
     spawn(async move {
         let said = copy::errors::ATTACHMENT_NOT_OPENED;
         let opened = tokio::task::spawn_blocking(move || {
             let dir = open_dir(viewing.message).map_err(|why| plainly(said, why))?;
             std::fs::create_dir_all(&dir).map_err(|why| plainly(said, why))?;
-            let path = mail_core::attach::save(&store, viewing.message, viewing.index, &dir)
+            let path = client
+                .attach()
+                .save(viewing.message, viewing.index, &dir)
                 .map_err(|why| attachment_failure(why, said))?;
             crate::ui::downloads::open_file(&path).map_err(|why| why.told(said))
         })
@@ -326,7 +329,7 @@ pub(super) fn open_in_app(viewing: Viewing) {
 /// Peek on an attachment. Mounted while `shell.preview` is a part.
 #[component]
 pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
-    let store = use_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::use_client();
     let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
     // The part and the page, and nothing else of the shell: the count written back below must
     // not draw the page again.
@@ -335,12 +338,12 @@ pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
     });
     let hours = crate::ui::clock::hours();
     let drawn = use_resource(move || {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let wanted = wanted();
         async move {
             let (message, index, page) = wanted?;
             let drawn =
-                tokio::task::spawn_blocking(move || draw(&store, message, index, page, hours))
+                tokio::task::spawn_blocking(move || draw(&client, message, index, page, hours))
                     .await
                     .unwrap_or_else(unreadable);
             if let Drawn::Page(page) = &drawn {
@@ -363,7 +366,7 @@ pub(super) fn PartPeek(shell: Signal<Shell>) -> Element {
     let Some(viewing) = viewing_of(&shell.read()) else {
         return rsx! {};
     };
-    let name = name_of(&store, viewing);
+    let name = name_of(&client, viewing);
     // What was drawn for another part (the arrows moved on) is not shown under this one's name.
     let drawn = drawn
         .read()

@@ -289,7 +289,11 @@ async fn an_archived_conversation_s_menu_offers_move_to_inbox_and_not_archive() 
         subject,
         ..
     } = window();
-    assert!(crate::ui::ops::apply_op(&store, dana, OpKind::Archive));
+    assert!(crate::ui::ops::apply_op(
+        &crate::ui::fixtures::client(&store),
+        dana,
+        OpKind::Archive
+    ));
     let archive = seen.one("data-place", "Archive");
     let mut seen = seen.merge(click(&mut dom, archive));
     for _ in 0..12 {

@@ -27,8 +27,6 @@ use chrono::Utc;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::{SqliteStore, Store};
-use std::sync::Arc;
 
 use super::common::Told;
 use super::data::{AccountRow, account_rows};
@@ -70,8 +68,8 @@ pub(super) fn back(mut shell: Signal<Shell>) {
 /// The page: the list at its root, a rule's page or the vacation reply's over it.
 #[component]
 pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let rows = account_rows(&store);
+    let client = crate::ui::live::client();
+    let rows = account_rows(&client);
     let chosen = shell.read().rules.account.clone();
     let account = chosen
         .and_then(|id| rows.iter().find(|row| row.id == id))
@@ -97,10 +95,10 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
         RulesAt::List => copy::titles::RULES.to_owned(),
         RulesAt::Rule(None) => copy::titles::NEW_RULE.to_owned(),
         RulesAt::Rule(Some(id)) => {
-            let store = consume_context::<Arc<SqliteStore>>();
+            let client = crate::ui::live::client();
             named
                 .clone()
-                .and_then(|account| store.rules(account).ok())
+                .and_then(|account| client.stored().rules(account).ok())
                 .and_then(|rules| rules.into_iter().find(|rule| rule.id == id))
                 .map_or_else(|| copy::titles::RULES.to_owned(), |rule| rule.name)
         }
@@ -136,13 +134,15 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>, revision: Signal<u64>) -> E
 /// Apply `rule` to the mail already here, as `mailo rules run` does, its bar in `phase`; the
 /// window's lists follow once it ends.
 fn apply(rule: Rule, phase: Signal<Phase>, mut running: Signal<String>, mut revision: Signal<u64>) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let of = work::conversations(&store, rule.account.clone(), Utc::now());
+    let client = crate::ui::live::client();
+    let of = client
+        .rules_manage()
+        .conversations(rule.account.clone(), Utc::now());
     running.set(rule.name.clone());
     run(
         phase,
         of,
-        move |report| work::run(&store, &rule, Utc::now(), report),
+        move |report| work::run(&client, &rule, Utc::now(), report),
         move || revision += 1,
     );
 }
@@ -153,12 +153,12 @@ fn push(row: AccountRow, mut said: Said) {
     if reach(&row.plan).is_err() {
         return;
     }
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let push = try_consume_context::<Pusher>()
         .unwrap_or_else(Pusher::server)
         .0;
     spawn(async move {
-        let done = tokio::task::spawn_blocking(move || put(&store, &row, &push, Utc::now())).await;
+        let done = tokio::task::spawn_blocking(move || put(&client, &row, &push, Utc::now())).await;
         let failed = match done {
             Ok(Ok(_)) => return,
             Ok(Err(why)) => why,

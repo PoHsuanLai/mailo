@@ -17,6 +17,7 @@
 //! runs out. So a pick while one waits starts it afresh, and a sign-in that was replaced or ran out
 //! of time ends without a word; one that worked, or was declined in the browser, says so.
 
+use mail_client::Client;
 use std::cell::{Cell, RefCell};
 use std::future::Future;
 use std::pin::Pin;
@@ -26,9 +27,9 @@ use chrono::Utc;
 use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
+use mail_core::OAuthClients;
 use mail_core::account::direct::{WAIT, signs_in_directly};
 use mail_core::account::{Mode, SignInError};
-use mail_core::{OAuthClients, SqliteStore};
 use mail_domain::AuthPlan;
 use porter_core::AuthKind;
 use porter_provider::{Issuer, ProviderSpec};
@@ -119,10 +120,10 @@ pub(in crate::ui) fn add_menu(redirects: &[(Issuer, String)]) -> Vec<MenuItem<Ad
 pub struct DirectSignIns(pub Arc<dyn SignInDirectly>);
 
 impl DirectSignIns {
-    /// The program's: `clients`, the system browser, the keyring and `store`. For the launched
+    /// The program's: `clients`, the system browser, the keyring and `client`. For the launched
     /// window's root alone.
-    pub(in crate::ui) fn real(store: Arc<SqliteStore>, clients: OAuthClients) -> DirectSignIns {
-        DirectSignIns(Arc::new(Real { store, clients }))
+    pub(in crate::ui) fn real(client: Client, clients: OAuthClients) -> DirectSignIns {
+        DirectSignIns(Arc::new(Real { client, clients }))
     }
 }
 
@@ -131,7 +132,7 @@ impl DirectSignIns {
 pub type Signing = Pin<Box<dyn Future<Output = Result<String, SignInError>> + Send>>;
 
 /// How a direct sign-in reaches the world: the program's OAuth clients, the browser, the keyring
-/// and the store in the program, a recorder in a test.
+/// and the client in the program, a recorder in a test.
 pub trait SignInDirectly: Send + Sync + 'static {
     /// Whether an OAuth client for `issuer` is at hand.
     fn has_client(&self, issuer: Issuer) -> bool;
@@ -145,9 +146,9 @@ impl std::fmt::Debug for DirectSignIns {
     }
 }
 
-/// The program's: its OAuth clients, the system browser, the keyring and `store`.
+/// The program's: its OAuth clients, the system browser, the keyring and `client`.
 struct Real {
-    store: Arc<SqliteStore>,
+    client: Client,
     clients: OAuthClients,
 }
 
@@ -157,7 +158,7 @@ impl SignInDirectly for Real {
     }
 
     fn sign_in(&self, issuer: Issuer, mode: Mode) -> Signing {
-        let store = Arc::clone(&self.store);
+        let client = self.client.clone();
         let clients = self.clients.clone();
         Box::pin(async move {
             // `sign_in_with` borrows the browser's callback across its wait, which is not `Send`,
@@ -166,33 +167,34 @@ impl SignInDirectly for Real {
             // and frees its listener.
             let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
             let _stop = stop;
-            crate::edge::on_thread("mailo-sign-in", move || async move {
+            tokio::task::spawn_blocking(move || {
                 let saved = clients.saved();
                 let environment = crate::edge::environment();
                 let secrets = crate::edge::secrets();
                 let browse = |url: &str| webbrowser::open(url);
                 let profiles = mail_core::account::direct::Profiles::default();
-                mail_core::account::sign_in_with(
-                    issuer,
-                    mode,
-                    mail_core::account::Direct {
-                        store: &store,
-                        secrets: secrets.as_ref(),
-                        saved: &saved,
-                        environment: &environment,
-                        browse: &browse,
-                        profiles: &profiles,
-                        wait: WAIT,
-                        now: Utc::now(),
-                    },
-                    async {
-                        let _ = stopped.await;
-                    },
-                )
-                .await
-                .map(|added| added.address)
+                client
+                    .net()
+                    .sign_in(
+                        issuer,
+                        mode,
+                        mail_client::SignIn {
+                            secrets: secrets.as_ref(),
+                            saved: &saved,
+                            environment: &environment,
+                            browse: &browse,
+                            profiles: &profiles,
+                            wait: WAIT,
+                            now: Utc::now(),
+                        },
+                        async {
+                            let _ = stopped.await;
+                        },
+                    )
+                    .map(|added| added.address)
             })
             .await
+            // A thread that panicked is a sign-in that never came back.
             .unwrap_or(Err(SignInError::Cancelled))
         })
     }
@@ -482,7 +484,7 @@ async fn left(heard: &mut watch::Receiver<Phase>, run: u64) {
 }
 
 /// Say how sign-in ended, and draw what it added: the shared revision moves so every window reads
-/// the store again, and an account added joins the Space `join` names, if any.
+/// the client again, and an account added joins the Space `join` names, if any.
 fn settle(
     mut spaces: Signal<Spaces>,
     issuer: Issuer,
@@ -553,8 +555,8 @@ pub(in crate::ui) fn add_from(join: Join, mut open_menu: impl FnMut(Vec<(Issuer,
 /// redirect whose client is at hand, else in the window with the address typed. Call it from an
 /// event handler.
 pub(in crate::ui) fn again(address: String) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let plan = crate::ui::data::account_rows(&store)
+    let client = crate::ui::live::client();
+    let plan = crate::ui::data::account_rows(&client)
         .into_iter()
         .find(|row| row.address == address)
         .map(|row| row.plan.auth);

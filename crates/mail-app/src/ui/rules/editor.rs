@@ -12,10 +12,8 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
-use mail_core::SqliteStore;
 use mail_domain::{AfterMatch, Rule, RuleAction};
 use porter_core::AccountId;
-use std::sync::Arc;
 
 use super::super::common::classed;
 use super::super::data::AccountRow;
@@ -176,9 +174,9 @@ pub(super) fn RulePage(
     applied: Callback<Rule>,
 ) -> Element {
     let editing = use_signal(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let kept = id.and_then(|id| {
-            work::listed(&store, row.id.clone())
+            work::listed(&client, row.id.clone())
                 .ok()?
                 .into_iter()
                 .find(|listed| listed.rule.id == id)
@@ -237,10 +235,10 @@ fn RuleEditor(
     let Some(draft) = editing() else {
         return rsx! {};
     };
-    let store = consume_context::<Arc<SqliteStore>>();
-    let index = work::labels(&store, account.clone());
+    let client = crate::ui::live::client();
+    let index = client.rules_manage().labels(account.clone());
     let names: Vec<String> = index.iter().map(|(name, _)| name.clone()).collect();
-    let folders: Vec<String> = destinations(&store, account.clone())
+    let folders: Vec<String> = destinations(&client, account.clone())
         .into_iter()
         .map(|d| d.path)
         .collect();
@@ -250,7 +248,7 @@ fn RuleEditor(
     let readable = conditions::ready(writing(), &rows(), filter.is_some());
     let matching = filter
         .filter(|_| readable)
-        .and_then(|filter| work::matching(&store, account.clone(), filter, chrono::Utc::now()));
+        .and_then(|filter| work::matching(&client, account.clone(), filter, chrono::Utc::now()));
     let mut add = move |action: RuleAction| {
         if let Some(draft) = editing.write().as_mut()
             && !draft.actions.contains(&action)
@@ -401,8 +399,8 @@ fn RuleEditor(
                     availability: available(readable),
                     onclick: on_primary(move || {
                         let Some(draft) = editing.peek().clone() else { return };
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        match work::save(&store, account.clone(), &draft, &chrono::Local) {
+                        let client = crate::ui::live::client();
+                        match work::save(&client, account.clone(), &draft, &chrono::Local) {
                             Ok(rule) => {
                                 refused.set(None);
                                 on_saved.call((rule, apply()));

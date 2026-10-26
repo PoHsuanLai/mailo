@@ -9,7 +9,7 @@
 //! person closes the window, the service's wait ends with it (its channel is gone) and so does a
 //! browser sign-in that was waiting.
 //!
-//! What a finished add leaves for the rest of the app is the store's (the account) and the
+//! What a finished add leaves for the rest of the app is the client's (the account) and the
 //! window's two notices: the shared revision moves, so every window draws the new account, and the
 //! current Space takes it in when it shows some accounts and not others.
 
@@ -24,7 +24,7 @@ use ds_shell::accounts::model::StepTitle;
 use ds_shell::prelude::{
     BrowserWait, ProviderList, ReviewServices, ShowCode, SignInFailed, SignInForm, SignInWorking,
 };
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::profile::ProfileId;
 use porter_core::AccountId;
 
@@ -58,9 +58,9 @@ impl PartialEq for Wiring {
 
 impl Wiring {
     /// The network, the keyring, the program's OAuth clients (`clients`) and the browser.
-    pub(super) fn real(store: Arc<SqliteStore>, clients: mail_core::OAuthClients) -> Wiring {
+    pub(super) fn real(client: Client, clients: mail_core::OAuthClients) -> Wiring {
         Wiring::new(
-            Seams::real(store, clients),
+            Seams::real(client, clients),
             Arc::new(|url| webbrowser::open(url).map_err(|why| why.to_string())),
         )
     }
@@ -399,10 +399,10 @@ fn body(step: Step, send: Callback<Action>, marks: Marks) -> Element {
     }
 }
 
-/// The account mailo's store has for `address`, which the add has just written.
+/// The account mailo's client has for `address`, which the add has just written.
 pub(super) fn account_at(address: &str) -> Option<AccountId> {
-    let store = consume_context::<Arc<SqliteStore>>();
-    crate::ui::data::account_rows(&store)
+    let client = crate::ui::live::client();
+    crate::ui::data::account_rows(&client)
         .into_iter()
         .find(|row| row.address == address)
         .map(|row| row.id)

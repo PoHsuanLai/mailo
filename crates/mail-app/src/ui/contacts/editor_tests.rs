@@ -23,12 +23,16 @@ fn the_field_starts_with_the_books_name_else_the_one_the_mail_gave() {
         .unwrap()
         .and_then(|contact| contact.name);
     assert_eq!(
-        starting_name(store.as_ref(), ADDED, "Someone Else"),
+        starting_name(&crate::ui::fixtures::client(&store), ADDED, "Someone Else"),
         kept.unwrap_or_else(|| "Someone Else".to_owned()),
         "the book's name is not the one offered"
     );
     assert_eq!(
-        starting_name(store.as_ref(), "nobody@example.test", "Nobody"),
+        starting_name(
+            &crate::ui::fixtures::client(&store),
+            "nobody@example.test",
+            "Nobody"
+        ),
         "Nobody",
         "a stranger's name is not the mail's"
     );

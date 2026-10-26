@@ -32,7 +32,6 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::AccountSecrets;
-use mail_core::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::sync::Arc;
 
@@ -68,10 +67,10 @@ fn seams() -> Seams {
     try_consume_context::<Seams>().unwrap_or_else(Seams::none)
 }
 
-/// The account's row, read from the store. `None` once it is gone.
+/// The account's row, read from the client. `None` once it is gone.
 pub(super) fn row_of(account: &AccountId) -> Option<AccountRow> {
-    let store = try_consume_context::<Arc<SqliteStore>>()?;
-    account_rows(&store)
+    let client = crate::ui::live::try_client()?;
+    account_rows(&client)
         .into_iter()
         .find(|row| row.id == *account)
 }
@@ -113,19 +112,28 @@ fn confirm(mut shell: Signal<Shell>, mut revision: Signal<u64>, account: Account
     if shell.peek().accounts_pane.step != AccountStep::Asking {
         return;
     }
-    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
+    let Some(client) = crate::ui::live::try_client() else {
         return;
     };
     to(shell, AccountStep::Removing);
     let seams = seams();
     let dirs = try_consume_context::<WindowDirs>();
     let removing = account.clone();
-    // The secrets are forgotten through porter's async trait, which does its work on a runtime
-    // of its own (`mail_runtime::account_secrets`), so this task awaits it as it is; the
-    // database half is quick and the store's own. The task is the window's, not the page's: a
-    // page left mid-removal would otherwise drop it between the keyring and the database.
+    // The client forgets the secrets and then the account's mail, waiting on its runtime, so a
+    // blocking thread waits for it. The task is the window's, not the page's: a page left
+    // mid-removal would otherwise drop it between the keyring and the database.
     dioxus::core::spawn_forever(async move {
-        match mail_core::account::remove(&store, seams.secrets.as_ref(), removing).await {
+        let removed = tokio::task::spawn_blocking(move || {
+            client
+                .net()
+                .remove_account(seams.secrets.as_ref(), removing)
+        })
+        .await;
+        // A thread that panicked removed nothing it can say.
+        let Ok(removed) = removed else {
+            return;
+        };
+        match removed {
             Ok(_) => {
                 forgotten(dirs.as_ref(), account.clone());
                 revision += 1;
@@ -196,8 +204,8 @@ pub(super) fn AccountPage(
         AccountStep::Showing | AccountStep::Asking | AccountStep::Removing => None,
     };
     let asking = (step == AccountStep::Asking).then(|| {
-        let held = try_consume_context::<Arc<SqliteStore>>()
-            .and_then(|store| store.offline(row.id.clone()).ok())
+        let held = crate::ui::live::try_client()
+            .and_then(|client| client.stored().offline(row.id.clone()).ok())
             .map_or(0, |offline| {
                 usize::try_from(offline.messages).unwrap_or(usize::MAX)
             });

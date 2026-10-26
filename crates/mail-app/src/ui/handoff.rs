@@ -54,11 +54,11 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>) {
                     Request::Mailto { link, token } => {
                         // The draft is saved first, as at a `mailto:` start, then the composer
                         // opens on it.
-                        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
-                        let saved = super::start_mailto(&store, &link, chrono::Utc::now());
+                        let client = crate::ui::live::client();
+                        let saved = super::start_mailto(&client, &link, chrono::Utc::now());
                         match saved {
                             Ok(super::Start::Compose(id)) => {
-                                if let Err(why) = shell.write().compose_id(&*store, id) {
+                                if let Err(why) = shell.write().compose_id(&client, id) {
                                     log::warn!("compose: {why}");
                                 }
                             }

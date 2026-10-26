@@ -24,10 +24,9 @@ use ds::components::menus::item::item::MenuItem;
 use ds::components::menus::pop_up_button::PopUpButton;
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
+use mail_client::Client;
 use mail_core::when::Clock;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use std::sync::Arc;
 
 /// How many conversations one page of the search reads.
 const PAGE: u32 = 500;
@@ -70,7 +69,7 @@ impl Age {
 /// names (`None` is every account), last written to more than `age` before `now`, and neither
 /// starred, pinned, snoozed nor waiting on a reply.
 pub(in crate::ui) fn candidates(
-    store: &SqliteStore,
+    client: &Client,
     scope: Option<Filter>,
     age: Age,
     now: DateTime<Utc>,
@@ -98,7 +97,7 @@ pub(in crate::ui) fn candidates(
         },
     };
     let mut found = Vec::new();
-    while let Ok(page) = store.threads(&query, now) {
+    while let Ok(page) = client.stored().threads(&query, now) {
         let last = page.items.is_empty();
         found.extend(
             page.items
@@ -129,14 +128,14 @@ fn run(shell: Signal<Shell>, revision: Signal<u64>) {
     let Some(age) = shell.peek().tidying else {
         return;
     };
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let scope = shell.peek().account_filter();
-    let threads: Vec<ThreadId> = candidates(&store, scope, age, crate::ui::clock::now())
+    let threads: Vec<ThreadId> = candidates(&client, scope, age, crate::ui::clock::now())
         .into_iter()
         .map(|summary| summary.id)
         .collect();
     close(shell);
-    crate::ui::motion::act_kind_all(&store, shell, revision, &threads, OpKind::Archive);
+    crate::ui::motion::act_kind_all(&client, shell, revision, &threads, OpKind::Archive);
 }
 
 /// One conversation Tidy Up would archive, drawn as a row like the app's other lists: the
@@ -178,10 +177,10 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>, revision: Signal<u64>) -> E
     };
     // Read so an archive or a sync elsewhere redraws the count.
     let _ = revision();
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let now = crate::ui::clock::now();
     let clock = crate::ui::clock::hours();
-    let found = candidates(&store, shell.read().account_filter(), age, now);
+    let found = candidates(&client, shell.read().account_filter(), age, now);
     let count = found.len();
     let ages: Vec<MenuItem<Age>> = Age::ALL
         .iter()

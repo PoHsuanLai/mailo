@@ -7,7 +7,9 @@ use super::super::page::{Float, Fold, Guard, RowShown, When};
 use super::*;
 use crate::ui::app::App;
 use crate::ui::fixtures::{key, work};
+use mail_core::SqliteStore;
 use mail_core::editor::{Check, Doc, ImageRef, Level, Object, ParaKind, Range, Table};
+use std::sync::Arc;
 
 /// A small picture, embedded the way an image in a draft is: never fetched.
 fn picture() -> String {
@@ -74,7 +76,7 @@ fn window_with_page(dress: impl FnOnce(&mut Page)) -> (String, tempfile::TempDir
 
 /// The same, with the store to dress the page from.
 pub(super) fn window_with(
-    dress: impl FnOnce(&mut Page, &SqliteStore),
+    dress: impl FnOnce(&mut Page, &Arc<SqliteStore>),
 ) -> (String, tempfile::TempDir) {
     crate::ui::fixtures::dispatching();
     let built = work();
@@ -97,7 +99,7 @@ pub(super) fn window_with(
 
 /// The Work Space's accounts have no identity rows; `account add` writes one for each.
 pub(super) fn with_identities(built: &crate::ui::fixtures::Work) {
-    for row in crate::ui::data::account_rows(&built.store) {
+    for row in crate::ui::data::account_rows(&crate::ui::fixtures::client(&built.store)) {
         let (account, address) = (row.id, row.address);
         mail_store::testing::seed_identity_for(
             &built.store,

@@ -22,10 +22,8 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use std::sync::Arc;
 
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
 
 use super::super::data::account_rows;
 use super::super::menu::{
@@ -56,9 +54,9 @@ pub(in crate::ui) fn Props(page: Signal<Page>, shell: Signal<Shell>) -> Element 
         Guard::NoRecipient(count) => Some(count),
         _ => None,
     };
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     // One address to send from is no choice: the row is drawn only when there is another.
-    let senders = mail_core::compose::sending_accounts(&store).len();
+    let senders = client.compose().sending_accounts().len();
     rsx! {
         div { class: "c-props",
             if new && senders > 1 {
@@ -224,10 +222,10 @@ pub(super) fn ChoiceRow(
 
 #[component]
 fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let from = page.read().from.clone();
     let open = page.read().float == Float::From;
-    let rows = account_rows(&store);
+    let rows = account_rows(&client);
     let marks = shell.read().appearance.marks;
     let current = rows.iter().find(|row| row.id == from);
     let address = current.map(|row| row.address.clone()).unwrap_or_default();
@@ -308,19 +306,21 @@ fn close(mut page: Signal<Page>, was: &Float) {
 
 /// Move the draft to the account `key` names. Saved first, so nothing typed is read back over.
 fn move_to(mut page: Signal<Page>, key: &str) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let now = chrono::Utc::now();
     let mut write = page.write();
     write.float = Float::Closed;
-    let Some(account) = account_rows(&store)
+    let Some(account) = account_rows(&client)
         .into_iter()
         .find(|row| row.id.to_string() == key)
         .map(|row| row.id)
     else {
         return;
     };
-    let moved = super::life::save(&store, &mut write, now).and_then(|draft| {
-        mail_core::compose::move_draft_to(&store, draft.id, account, now)
+    let moved = super::life::save(&client, &mut write, now).and_then(|draft| {
+        client
+            .compose()
+            .move_draft_to(draft.id, account, now)
             .map_err(crate::ui::remedy::told)
     });
     match moved {
@@ -551,8 +551,8 @@ fn Recipients(page: Signal<Page>, list: List, refused: Option<u32>) -> Element {
                 validity,
                 value,
                 oninput: move |value: String| {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    typed(&mut page.write(), list, value, store.as_ref());
+                    let client = crate::ui::live::client();
+                    typed(&mut page.write(), list, value, &client);
                 },
                 onblur: move |_| {
                     let mut write = page.write();

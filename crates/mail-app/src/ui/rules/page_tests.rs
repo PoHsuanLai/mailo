@@ -129,7 +129,7 @@ fn tag<'a>(page: &'a str, attribute: &str) -> &'a str {
 }
 
 /// Two rules on `account`, the second switched off.
-fn two_rules(store: &SqliteStore, account: AccountId) {
+fn two_rules(store: &Arc<SqliteStore>, account: AccountId) {
     for (name, query, actions) in [
         (
             "Bills",
@@ -148,14 +148,29 @@ fn two_rules(store: &SqliteStore, account: AccountId) {
             actions,
             ..Draft::blank()
         };
-        work::save(store, account.clone(), &draft, &Utc).unwrap();
+        work::save(
+            &crate::ui::fixtures::client(store),
+            account.clone(),
+            &draft,
+            &Utc,
+        )
+        .unwrap();
     }
-    let off = work::listed(store, account).unwrap().pop().unwrap().rule;
-    work::switch(store, &off, RuleState::Disabled).unwrap();
+    let off = work::listed(&crate::ui::fixtures::client(store), account)
+        .unwrap()
+        .pop()
+        .unwrap()
+        .rule;
+    work::switch(
+        &crate::ui::fixtures::client(store),
+        &off,
+        RuleState::Disabled,
+    )
+    .unwrap();
 }
 
-fn names(store: &SqliteStore, account: AccountId) -> Vec<String> {
-    work::listed(store, account)
+fn names(store: &Arc<SqliteStore>, account: AccountId) -> Vec<String> {
+    work::listed(&crate::ui::fixtures::client(store), account)
         .unwrap()
         .into_iter()
         .map(|listed| listed.rule.name)
@@ -251,7 +266,7 @@ async fn saving_a_rule_puts_the_rules_on_the_server_and_goes_back_to_the_list() 
         "the rule was not kept"
     );
     assert_eq!(
-        work::listed(&store, row.id.clone()).unwrap()[0].when,
+        work::listed(&crate::ui::fixtures::client(&store), row.id.clone()).unwrap()[0].when,
         "from:bank.example",
         "the row was not written as the condition"
     );
@@ -286,7 +301,9 @@ async fn a_push_the_server_refuses_is_said_at_the_head_of_the_page() {
         "the failure is not said: {page}"
     );
     assert_eq!(
-        work::listed(&store, row.id).unwrap()[0].rule.state,
+        work::listed(&crate::ui::fixtures::client(&store), row.id).unwrap()[0]
+            .rule
+            .state,
         RuleState::Disabled,
         "the switch was not kept here"
     );
@@ -333,7 +350,9 @@ async fn the_list_names_each_rule_with_its_switch_and_its_menu_moves_it() {
     let bills_row = seen.one(
         "id",
         &super::row_id(&RulesAt::Rule(Some(
-            work::listed(&store, row.id.clone()).unwrap()[0].rule.id,
+            work::listed(&crate::ui::fixtures::client(&store), row.id.clone()).unwrap()[0]
+                .rule
+                .id,
         )))
         .unwrap(),
     );
@@ -360,7 +379,7 @@ async fn the_list_names_each_rule_with_its_switch_and_its_menu_moves_it() {
 async fn a_provider_without_sieve_keeps_rules_here_and_says_nothing_of_a_server() {
     dispatching();
     let built = crate::ui::fixtures::work();
-    let row = account_rows(&built.store)
+    let row = account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
         .find(|row| reach(&row.plan).is_err())
         .expect("the Work Space has a Google account");
@@ -430,7 +449,7 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
     let row = own_server(store);
     two_rules(store, row.id.clone());
     let kept = mail_core::rules::server::vacation_for(
-        &super::server::configured(store, &row, Utc::now()),
+        &super::server::configured(&crate::ui::fixtures::client(store), &row, Utc::now()),
         "Away until October",
         "Back on the 12th.",
         Vacation::DEFAULT_DAYS,
@@ -450,7 +469,9 @@ async fn every_state(store: &Arc<SqliteStore>) -> String {
         landed(&mut list, first).await
     };
 
-    let first = work::listed(store, row.id.clone()).unwrap()[0].rule.id;
+    let first = work::listed(&crate::ui::fixtures::client(store), row.id.clone()).unwrap()[0]
+        .rule
+        .id;
     let mut rule = sheet_at(
         store,
         row.id.clone(),
@@ -536,7 +557,9 @@ async fn undo_puts_a_deleted_rule_back_as_it_was() {
         let first = rebuild_into(&mut dom);
         landed(&mut dom, first).await
     };
-    let news = work::listed(&store, row.id.clone()).unwrap()[1].rule.id;
+    let news = work::listed(&crate::ui::fixtures::client(&store), row.id.clone()).unwrap()[1]
+        .rule
+        .id;
     let news_row = seen.one("id", &super::row_id(&RulesAt::Rule(Some(news))).unwrap());
     let opened = right_click(&mut dom, news_row);
     let opened = landed(&mut dom, opened).await;

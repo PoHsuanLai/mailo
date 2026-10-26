@@ -15,7 +15,7 @@
 
 use crate::settings::LoadRemoteImages;
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::message::Looks;
 use mail_domain::{BlobId, MailboxRole, Message, MessageId};
 use std::cell::RefCell;
@@ -86,7 +86,7 @@ pub(super) struct Checked {
 /// as the reader's checks line and the brand logo read it (`ui/checks`, `ui/brand`), if that is
 /// known yet. No body here, or an address with no domain: known, and not passed.
 ///
-/// Never reads the store: only what this reader already looked up, and the app's [`Looks`]. When
+/// Never reads the client: only what this reader already looked up, and the app's [`Looks`]. When
 /// neither knows, `None`, and the message is put in `wanted` for [`look_later`]: opening a
 /// conversation must not wait on reading and parsing its raw bytes.
 pub(super) fn dmarc_known(
@@ -138,7 +138,7 @@ pub(super) fn auto_allow_message(
 /// `landed` so the reader decides again with them. What is already being read is not sent twice.
 pub(super) fn look_later(
     looks: Arc<Looks>,
-    store: Arc<SqliteStore>,
+    client: Client,
     messages: Vec<Message>,
     wanted: Vec<Wanted>,
     checked: Rc<RefCell<Checked>>,
@@ -172,7 +172,7 @@ pub(super) fn look_later(
                 .filter_map(|message| {
                     let raw = message.body.raw()?;
                     let domain = mail_core::bimi::domain_of(&message.from.email)?;
-                    let results = looks.checks(&store, message.id, raw);
+                    let results = client.looking(&looks).checks(message.id, raw);
                     Some(((message.id, raw), passed(results.as_ref(), domain)))
                 })
                 .collect::<Vec<_>>()

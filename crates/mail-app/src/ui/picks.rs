@@ -2,7 +2,7 @@
 //! bar that counts them and acts on them.
 //!
 //! Which conversations are picked is the shell's (`crate::ui::selection`, pure). This is the part
-//! that needs the store and the window: every action here goes through `motion::act_all`, so
+//! that needs the client and the window: every action here goes through `motion::act_all`, so
 //! whatever a gesture does to five conversations is one entry on the undo stack, one toast, and
 //! one Ctrl Z that puts all five back.
 
@@ -16,10 +16,9 @@ use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_client::Client;
 use mail_core::view::mute_for_all;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use std::sync::Arc;
 
 /// The ids the list drew last, in order: what a click on a row measures a range over.
 pub(super) fn drawn_order() -> Vec<ThreadId> {
@@ -37,7 +36,7 @@ pub(super) fn with_selection(shell: Signal<Shell>, thread: ThreadId) -> Vec<Thre
 /// What `action` does to the conversations it means among `listed`: the picked ones, or with
 /// none picked the open one. One gesture, one undo. Returns how many it reached.
 pub(super) fn act_on_picked(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     action: Shortcut,
@@ -51,14 +50,14 @@ pub(super) fn act_on_picked(
         .cloned()
         .collect();
     op_for_selection(action, &summaries).map_or(0, |kind| {
-        act_kind_all(store, shell, revision, &targets, kind)
+        act_kind_all(client, shell, revision, &targets, kind)
     })
 }
 
 /// Put `label` on each of `threads`, or take it off: off when every one already wears it, on
 /// otherwise, and only on the ones it changes. One gesture, one undo.
 pub(super) fn label_all(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     threads: &[ThreadId],
@@ -67,7 +66,7 @@ pub(super) fn label_all(
     let wearing: Vec<(ThreadId, bool)> = threads
         .iter()
         .filter_map(|thread| {
-            let loaded = store.thread(*thread).ok()?;
+            let loaded = client.stored().thread(*thread).ok()?;
             Some((*thread, loaded.summary.labels.contains(&label)))
         })
         .collect();
@@ -84,20 +83,26 @@ pub(super) fn label_all(
         })
         .map(|(thread, _)| (thread, Op::Label(label, wanted)))
         .collect();
-    act_all(store, shell, revision, ops)
+    act_all(client, shell, revision, ops)
 }
 
 /// Mute each of `threads`, or unmute them: unmute when every one is already muted, mute
 /// otherwise, and only the ones it changes. One gesture, one undo.
 pub(in crate::ui) fn mute_all(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     threads: &[ThreadId],
 ) -> usize {
     let summaries: Vec<ThreadSummary> = threads
         .iter()
-        .filter_map(|thread| store.thread(*thread).ok().map(|loaded| loaded.summary))
+        .filter_map(|thread| {
+            client
+                .stored()
+                .thread(*thread)
+                .ok()
+                .map(|loaded| loaded.summary)
+        })
         .collect();
     let wanted = mute_for_all(&summaries);
     let ops = summaries
@@ -105,20 +110,20 @@ pub(in crate::ui) fn mute_all(
         .filter(|summary| summary.mute != wanted)
         .map(|summary| (summary.id, Op::SetMute(wanted)))
         .collect();
-    act_all(store, shell, revision, ops)
+    act_all(client, shell, revision, ops)
 }
 
 /// [`mute_all`] over what `action`s mean among `listed`: the picked ones, or with none picked
 /// the open one. `m`, and the pick bar's Mute.
 pub(super) fn mute_picked(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     listed: &[ThreadSummary],
 ) -> usize {
     let ids: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
     let targets = shell.peek().acted_on(&ids);
-    mute_all(store, shell, revision, &targets)
+    mute_all(client, shell, revision, &targets)
 }
 
 /// The count and the actions over the list while anything listed is picked.
@@ -181,8 +186,8 @@ pub(super) fn PickBar(
                     tool,
                     aria: Some(aria::on_selected(tool.label, count)),
                     onclick: on_primary(move || {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        act_on_picked(&store, shell, revision, action, &threads.peek());
+                        let client = crate::ui::live::client();
+                        act_on_picked(&client, shell, revision, action, &threads.peek());
                     }),
                 }
             }
@@ -191,10 +196,10 @@ pub(super) fn PickBar(
                     tool: back,
                     aria: Some(aria::on_selected(back.label, count)),
                     onclick: on_primary(move || {
-                        let store = consume_context::<Arc<SqliteStore>>();
+                        let client = crate::ui::live::client();
                         let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
                         let targets = shell.peek().acted_on(&ids);
-                        act_kind_all(&store, shell, revision, &targets, OpKind::Restore);
+                        act_kind_all(&client, shell, revision, &targets, OpKind::Restore);
                     }),
                 }
             }
@@ -202,8 +207,8 @@ pub(super) fn PickBar(
                 tool: mute,
                 aria: Some(aria::on_selected(mute.label, count)),
                 onclick: on_primary(move || {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    mute_picked(&store, shell, revision, &threads.peek());
+                    let client = crate::ui::live::client();
+                    mute_picked(&client, shell, revision, &threads.peek());
                 }),
             }
             if destroyable {
@@ -211,10 +216,10 @@ pub(super) fn PickBar(
                     tool: ToolButton::of(OpKind::Destroy, aria::DELETE_FOREVER),
                     aria: Some(aria::delete_selected_forever(count)),
                     onclick: on_primary(move || {
-                        let store = consume_context::<Arc<SqliteStore>>();
+                        let client = crate::ui::live::client();
                         let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
                         let chosen = shell.peek().picked.chosen(&ids);
-                        super::destroy::ask_chosen(&store, shell, &chosen);
+                        super::destroy::ask_chosen(&client, shell, &chosen);
                     }),
                 }
             }

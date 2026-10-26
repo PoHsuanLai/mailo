@@ -41,7 +41,7 @@ fn shown(page: &str) -> Check {
 }
 
 fn account(built: &Work) -> AccountId {
-    account_rows(&built.store)
+    account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
         .find(|row| row.address == ADDRESS)
         .map(|row| row.id)
@@ -153,7 +153,10 @@ async fn the_switch_keeps_the_setting_per_account_and_draws_no_count() {
         "On was not kept"
     );
     assert_eq!(shown(&dioxus_ssr::render(&dom)), Check::On);
-    for other in account_rows(&built.store).iter().filter(|row| row.id != id) {
+    for other in account_rows(&crate::ui::fixtures::client(&built.store))
+        .iter()
+        .filter(|row| row.id != id)
+    {
         assert_eq!(
             offline::load(config).of(other.id.clone()),
             Keep::Bodies,

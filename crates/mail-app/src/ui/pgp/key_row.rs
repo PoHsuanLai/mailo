@@ -26,7 +26,6 @@ use super::certs::CertJob;
 use super::keys::Job;
 use super::{Busy, Passphrase, cert_short, short, who};
 use crate::ui::copy::menus;
-use mail_core::Store;
 use mail_core::password::Password;
 use mail_core::pgp::WithSecret;
 
@@ -181,7 +180,7 @@ pub(in crate::ui) fn KeyRow(
 #[component]
 pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: Busy) -> Element {
     let mut confirm = confirm;
-    let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+    let client = crate::ui::live::client();
     let cancel = move || {
         AlertButton::new(
             "Cancel",
@@ -192,7 +191,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
     match confirm() {
         Confirm::Nothing => rsx! {},
         Confirm::ExportSecret(fingerprint) => {
-            let Some(key) = store.pgp_key(fingerprint).ok().flatten() else {
+            let Some(key) = client.stored().pgp_key(fingerprint).ok().flatten() else {
                 return rsx! {};
             };
             let title = format!("Export the secret key of {}?", who(&key));
@@ -212,7 +211,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             }
         }
         Confirm::Delete(fingerprint) => {
-            let Some(key) = store.pgp_key(fingerprint).ok().flatten() else {
+            let Some(key) = client.stored().pgp_key(fingerprint).ok().flatten() else {
                 return rsx! {};
             };
             let id = short(fingerprint);
@@ -232,7 +231,7 @@ pub(in crate::ui) fn Asking(confirm: Signal<Confirm>, run: Callback<Job>, busy: 
             }
         }
         Confirm::DeleteCert(fingerprint) => {
-            let Some(cert) = store.smime_cert(fingerprint).ok().flatten() else {
+            let Some(cert) = client.stored().smime_cert(fingerprint).ok().flatten() else {
                 return rsx! {};
             };
             let id = cert_short(fingerprint);

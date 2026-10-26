@@ -965,8 +965,8 @@ impl Shell {
     }
 
     /// Open the composer on the stored draft `id`, read now. A draft that is gone is the error.
-    pub fn compose_id(&mut self, store: &impl mail_core::Store, id: DraftId) -> Result<(), String> {
-        let draft = mail_core::Store::draft(store, id).map_err(|why| why.to_string())?;
+    pub fn compose_id(&mut self, client: &mail_client::Client, id: DraftId) -> Result<(), String> {
+        let draft = client.stored().draft(id).map_err(|why| why.to_string())?;
         self.compose(&draft);
         Ok(())
     }

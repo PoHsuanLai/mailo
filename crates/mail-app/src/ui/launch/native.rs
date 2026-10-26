@@ -62,12 +62,15 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
             ))
         });
     let original = Original::window();
+    // The one client every window reads mail through, reaching the servers as the program does.
+    let client = mail_client::Client::open(store.clone(), mail_client::ClientConfig::default());
+    client.reach(mail_client::Reach::new(|store| crate::edge::mail(&store)));
     // How the window reaches the world for a sign-in, for keys and for a removal's keyring: the
     // real ones, here and only here. A test's root (`contexts`) has none of them, and a window
     // without one reaches nothing (`add_account::DirectSignIns`, `pgp::seams`, Settings'
     // account page): no browser, no issuer, no keyring, no dialog.
     let sign_ins =
-        crate::ui::add_account::DirectSignIns::real(store.clone(), crate::edge::clients());
+        crate::ui::add_account::DirectSignIns::real(client.clone(), crate::edge::clients());
     let keys = crate::ui::pgp::Seams::real();
     let removals = crate::ui::settings_window::AccountSeams::real();
     // One revision for every window, so a conversation open in a window of its own follows what
@@ -83,7 +86,14 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_app_id(AppId(APP_ID.to_owned()))
         .with_net(original.net())
         .with_frame_links(original.links())
-        .with_contexts(window_contexts(store, look, Some(spaces), dirs, start))
+        .with_contexts(window_contexts(
+            store,
+            client,
+            look,
+            Some(spaces),
+            dirs,
+            start,
+        ))
         .with_context(original.consent())
         .with_context(original.pill())
         .with_context(original.menus())
@@ -157,21 +167,21 @@ pub fn contexts(
     dirs: Option<WindowDirs>,
     start: crate::ui::Start,
 ) -> RootContexts {
-    window_contexts(store, look, spaces, dirs, start).with(crate::ui::fetching::Passer::idle())
+    let client = mail_client::Client::open(store.clone(), mail_client::ClientConfig::default());
+    window_contexts(store, client, look, spaces, dirs, start)
+        .with(crate::ui::fetching::Passer::idle())
 }
 
 /// [`contexts`] as the launched window has them: its passes go to the servers.
 fn window_contexts(
     store: Arc<SqliteStore>,
+    client: mail_client::Client,
     look: Appearance,
     spaces: Option<Spaces>,
     dirs: Option<WindowDirs>,
     start: crate::ui::Start,
 ) -> RootContexts {
     let looks = crate::ui::reading::looks();
-    // The one client every window reads mail through, over the store every writer here writes
-    // to — the windows, the background watch — so a commit by any of them reaches every window.
-    let client = mail_client::Client::open(store.clone(), mail_client::ClientConfig::default());
     // The accounts and saved views read before the first window asks, so its first frame has its
     // places: kept for as long as the windows are, by their root.
     let primed = Primed {

@@ -4,10 +4,10 @@
 //! choosing a group puts each of its members on the message (`contacts::groups`).
 
 use ds::prelude::Icon;
-use mail_core::Store;
+use mail_client::Client;
 
 use super::super::contacts::book::suggest;
-use super::super::contacts::groups::{self, Offer};
+use super::super::contacts::groups::Offer;
 use super::super::menu::MenuItem;
 use super::float::people_rows;
 use super::page::{Float, List, Misread, Page, person};
@@ -18,10 +18,10 @@ use mail_core::editor::Person;
 /// The suggestions are asked of the contact book here, on the keystroke, not debounced. One
 /// read, measured in a debug build (`contacts::tests::a_suggestion_is_cheap_enough_for_every_
 /// keystroke`): under 0.7 ms at a thousand contacts for any text, and at ten thousand under
-/// 1 ms for most and about 6 ms for a first letter or a miss. The store's scale fixture's ten
+/// 1 ms for most and about 6 ms for a first letter or a miss. The client's scale fixture's ten
 /// thousand messages come from 97 senders. A menu that lags the field by a quiet period would
 /// offer people for text that is no longer there.
-pub(in crate::ui) fn typed(page: &mut Page, list: List, value: String, store: &dyn Store) {
+pub(in crate::ui) fn typed(page: &mut Page, list: List, value: String, client: &Client) {
     unmark(page, list);
     if let Some(done) = value.strip_suffix(',') {
         *page.typed_mut(list) = done.to_owned();
@@ -31,7 +31,10 @@ pub(in crate::ui) fn typed(page: &mut Page, list: List, value: String, store: &d
     (page.people, page.groups) = if value.trim().is_empty() {
         (Vec::new(), Vec::new())
     } else {
-        (suggest(store, &value), groups::offers(store, &value))
+        (
+            suggest(client, &value),
+            client.contacts_groups().offers(&value),
+        )
     };
     *page.typed_mut(list) = value;
     page.float = if people_items(page, list).is_empty() {

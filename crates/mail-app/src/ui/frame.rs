@@ -6,8 +6,6 @@ use crate::ui::appearance::WindowDirs;
 use crate::ui::space::{self, Spaces};
 use crate::ui::today::{self, Today};
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
-use std::sync::Arc;
 
 /// What the first render needs, and nothing it has to ask the disk for again.
 #[derive(Clone)]
@@ -24,8 +22,8 @@ pub(super) struct Boot {
 /// handed no directories takes the Spaces it was handed, if any (a test's), else a first run.
 pub(super) fn load_boot() -> Boot {
     let dirs = try_consume_dirs();
-    let store = dioxus::prelude::consume_context::<Arc<SqliteStore>>();
-    let ids = super::data::accounts(&store);
+    let client = crate::ui::live::client();
+    let ids = super::data::accounts(&client);
     // What mailo wrote before quire, read only: the window-wide theme a Space without one of its
     // own starts from.
     let legacy = dirs

@@ -13,10 +13,8 @@ use super::{Motion, act_all, motion};
 use crate::ui::view::{Place, Shell, Source};
 use dioxus::prelude::*;
 use ds::prelude::*;
-use mail_core::SqliteStore;
 use mail_core::place::place_role;
 use mail_domain::*;
-use std::sync::Arc;
 
 /// How far the pointer must travel before a press on a row is a drag, in pixels.
 const LIVE: f64 = 8.0;
@@ -95,8 +93,8 @@ pub(in crate::ui) fn moved(at: (f64, f64), held: bool) {
             if (at.0 - from.0).abs() + (at.1 - from.1).abs() < LIVE {
                 return;
             }
-            let store = consume_context::<Arc<SqliteStore>>();
-            let Ok(loaded) = mail_core::Store::thread(store.as_ref(), thread) else {
+            let client = crate::ui::live::client();
+            let Ok(loaded) = client.stored().thread(thread) else {
                 state.drag.set(Drag::Idle);
                 return;
             };
@@ -164,13 +162,13 @@ fn drop_on(shell: Signal<Shell>, revision: Signal<u64>, thread: ThreadId, index:
     let Some(op) = drop_op(&view_kind(&place)) else {
         return;
     };
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     // A picked row carries the whole selection with it, as one gesture.
     let ops = super::super::picks::with_selection(shell, thread)
         .into_iter()
         .map(|thread| (thread, op.clone()))
         .collect();
-    act_all(&store, shell, revision, ops);
+    act_all(&client, shell, revision, ops);
 }
 
 /// Esc: drop nothing. Returns whether a drag was live or armed.

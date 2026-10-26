@@ -18,7 +18,7 @@ use dioxus::prelude::*;
 use ds::components::content::pdf_thumb::PdfPage;
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_domain::MessageId;
 
 use crate::ui::copy;
@@ -83,9 +83,9 @@ fn remember(key: (MessageId, usize), shown: &Shown) {
 
 /// A part mailo does not decode, as anyview shows it: a picture, or nothing (the paperclip).
 #[cfg(feature = "anyview")]
-fn beyond_mailo(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> Shown {
+fn beyond_mailo(client: &Client, message: MessageId, index: usize) -> Shown {
     use super::anyview::{Seen, see};
-    match see(store, message, index) {
+    match see(client, message, index) {
         Seen::Ready(peeked) if peeked.still().is_some() => Shown::Peeked(peeked),
         Seen::Ready(_) | Seen::NotHere | Seen::Own | Seen::Failed(_) => Shown::Nothing,
     }
@@ -93,16 +93,16 @@ fn beyond_mailo(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> S
 
 /// Without anyview, a part mailo does not decode has no thumbnail.
 #[cfg(not(feature = "anyview"))]
-fn beyond_mailo(_store: &Arc<SqliteStore>, _message: MessageId, _index: usize) -> Shown {
+fn beyond_mailo(_store: &Client, _message: MessageId, _index: usize) -> Shown {
     Shown::Nothing
 }
 
 /// Attachment `index` of `message` as the strip draws it. Blocking: reads and decodes.
-pub(super) fn thumbnail(store: &Arc<SqliteStore>, message: MessageId, index: usize) -> Shown {
+pub(super) fn thumbnail(client: &Client, message: MessageId, index: usize) -> Shown {
     if let Some(had) = cached((message, index)) {
         return had;
     }
-    let shown = match preview::load(store, message, index) {
+    let shown = match client.preview().load(message, index) {
         Ok((Kind::Pdf, bytes)) => Shown::Pdf(ds_blitz::pdf_thumb_bytes(
             bytes,
             ds_blitz::DeviceBox {
@@ -117,7 +117,7 @@ pub(super) fn thumbnail(store: &Arc<SqliteStore>, message: MessageId, index: usi
         Err(Unshown::Refused(refusal)) => Shown::Refused(refusal.sentence()),
         // Not remembered: a part downloaded later is drawn when the strip is drawn again.
         Err(Unshown::NotHere | Unshown::Store(_)) => return Shown::Nothing,
-        Err(Unshown::NotAPicture) => beyond_mailo(store, message, index),
+        Err(Unshown::NotAPicture) => beyond_mailo(client, message, index),
     };
     remember((message, index), &shown);
     shown
@@ -140,9 +140,9 @@ pub(super) fn Thumb(
     shell: Signal<Shell>,
 ) -> Element {
     let shown = use_resource(move || {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         async move {
-            tokio::task::spawn_blocking(move || thumbnail(&store, message, index))
+            tokio::task::spawn_blocking(move || thumbnail(&client, message, index))
                 .await
                 .unwrap_or(Shown::Nothing)
         }

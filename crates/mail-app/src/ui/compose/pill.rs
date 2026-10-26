@@ -7,11 +7,9 @@ use ds::components::app::send_mood::SendMood;
 use ds::components::app::send_pill::{PillAction, SendPill as Pill};
 use ds::motion::detail::operation::{Operation, PendingToken};
 use ds::prelude::*;
-use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use mail_core::{SqliteStore, Store};
 use mail_domain::{Retry, SendState};
 
 use super::super::menus::when_in_sentence;
@@ -66,7 +64,7 @@ pub(in crate::ui) struct Face {
     pub offer: Offer,
 }
 
-/// The pill for `out`, given what the store says about it now. `None`: the pill is gone.
+/// The pill for `out`, given what the client says about it now. `None`: the pill is gone.
 pub(in crate::ui) fn face<Tz: TimeZone>(
     out: &Outgoing,
     state: Option<&SendState>,
@@ -195,8 +193,12 @@ pub(in crate::ui) fn SendPill(shell: Signal<Shell>) -> Element {
     let Some(out) = desk.outbox.read().clone() else {
         return rsx! {};
     };
-    let store = consume_context::<Arc<SqliteStore>>();
-    let state = store.draft(out.draft).ok().map(|draft| draft.state);
+    let client = crate::ui::live::client();
+    let state = client
+        .stored()
+        .draft(out.draft)
+        .ok()
+        .map(|draft| draft.state);
     let now = Utc::now();
     let Some(face) = face(
         &out,

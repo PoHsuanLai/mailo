@@ -22,7 +22,7 @@ pub(super) fn acct_own() -> AccountId {
 }
 
 /// Add an account on `imap.nowhere.example`, as `account add` would with its hosts typed.
-pub(super) fn own_server(store: &SqliteStore) -> AccountRow {
+pub(super) fn own_server(store: &Arc<SqliteStore>) -> AccountRow {
     let manual = presets::Manual {
         imap_host: "imap.nowhere.example".to_owned(),
         imap_port: 993,
@@ -41,7 +41,7 @@ pub(super) fn own_server(store: &SqliteStore) -> AccountRow {
     store
         .put_caps(acct_own(), &preset.expected_caps, Utc::now())
         .unwrap();
-    account_rows(store)
+    account_rows(&crate::ui::fixtures::client(store))
         .into_iter()
         .find(|row| row.id == acct_own())
         .unwrap()
@@ -68,7 +68,7 @@ fn filled(until: &str) -> Away {
 fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
     let (store, _dir) = crate::ui::fixtures::empty();
     let row = own_server(&store);
-    let fresh = away::load(&store, &row, now(), &Utc);
+    let fresh = away::load(&crate::ui::fixtures::client(&store), &row, now(), &Utc);
     assert_eq!(fresh.reply, Reply::Off);
     assert_eq!(
         fresh.addresses, "me@nowhere.example",
@@ -77,7 +77,7 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
     assert_eq!(store.vacation(acct_own()).unwrap(), None);
 
     let said = away::save(
-        &store,
+        &crate::ui::fixtures::client(&store),
         &row,
         &filled("2026-10-12 09:00"),
         now(),
@@ -108,7 +108,7 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
         Some(Utc.with_ymd_and_hms(2026, 10, 12, 9, 0, 0).unwrap())
     );
 
-    let back = away::load(&store, &row, now(), &Utc);
+    let back = away::load(&crate::ui::fixtures::client(&store), &row, now(), &Utc);
     assert_eq!(back.reply, Reply::On);
     assert_eq!(back.subject, "Away until October");
     assert_eq!(back.body, filled("").body);
@@ -121,7 +121,15 @@ fn a_reply_kept_from_the_sheet_reads_back_as_it_was_typed() {
         reply: Reply::Off,
         ..back
     };
-    away::save(&store, &row, &off, now(), &Utc, mail_core::when::Clock::H24).unwrap();
+    away::save(
+        &crate::ui::fixtures::client(&store),
+        &row,
+        &off,
+        now(),
+        &Utc,
+        mail_core::when::Clock::H24,
+    )
+    .unwrap();
     assert_eq!(store.vacation(acct_own()).unwrap(), None);
 }
 
@@ -130,7 +138,7 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
     let (store, _dir) = crate::ui::fixtures::empty();
     let row = own_server(&store);
     let past = away::save(
-        &store,
+        &crate::ui::fixtures::client(&store),
         &row,
         &filled("2026-09-01"),
         now(),
@@ -160,7 +168,7 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
             ..filled("")
         };
         let why = away::save(
-            &store,
+            &crate::ui::fixtures::client(&store),
             &row,
             &form,
             now(),
@@ -180,9 +188,9 @@ fn a_reply_that_has_already_ended_is_refused_in_words() {
 
 /// A server that installs what it is sent: one rule it runs, one it cannot, and the reply.
 pub(super) fn answering(calls: Arc<AtomicUsize>) -> Push {
-    Arc::new(move |store: &Arc<SqliteStore>, account, _now| {
+    Arc::new(move |client: &mail_client::Client, account, _now| {
         calls.fetch_add(1, Ordering::SeqCst);
-        assert!(store.vacation(account.id.clone()).is_ok());
+        assert!(client.stored().vacation(account.id.clone()).is_ok());
         Ok(Pushed {
             compiled: Compiled {
                 script: String::new(),
@@ -203,7 +211,13 @@ fn putting_rules_on_the_server_says_what_the_server_did() {
     let (store, _dir) = crate::ui::fixtures::empty();
     let row = own_server(&store);
     let calls = Arc::new(AtomicUsize::new(0));
-    let said = put(&store, &row, &answering(calls.clone()), now()).unwrap();
+    let said = put(
+        &crate::ui::fixtures::client(&store),
+        &row,
+        &answering(calls.clone()),
+        now(),
+    )
+    .unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(
         said,
@@ -215,7 +229,7 @@ fn putting_rules_on_the_server_says_what_the_server_did() {
 #[test]
 fn an_account_whose_provider_has_no_sieve_is_never_pushed() {
     let built = crate::ui::fixtures::work();
-    let rows = account_rows(&built.store);
+    let rows = account_rows(&crate::ui::fixtures::client(&built.store));
     let refused: Vec<&AccountRow> = rows.iter().filter(|r| reach(&r.plan).is_err()).collect();
     assert!(
         !refused.is_empty(),
@@ -223,14 +237,20 @@ fn an_account_whose_provider_has_no_sieve_is_never_pushed() {
     );
     let calls = Arc::new(AtomicUsize::new(0));
     for row in refused {
-        let why = put(&built.store, row, &answering(calls.clone()), now()).unwrap_err();
+        let why = put(
+            &crate::ui::fixtures::client(&built.store),
+            row,
+            &answering(calls.clone()),
+            now(),
+        )
+        .unwrap_err();
         assert!(
             why.contains("offers no ManageSieve"),
             "{}: {why}",
             row.address
         );
         let form = away::save(
-            &built.store,
+            &crate::ui::fixtures::client(&built.store),
             row,
             &filled("2026-10-12"),
             now(),

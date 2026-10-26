@@ -13,8 +13,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use mail_client::Client;
 use mail_client::query::Conversation;
-use mail_core::SqliteStore;
 use mail_core::message::{FIRST_SCREEN, Frames, Key, Looks, Sent, ahead};
 use mail_domain::{Message, ThreadId, ThreadSummary};
 use mail_mime::SanitizePolicy;
@@ -48,7 +48,7 @@ pub(in crate::ui) fn use_frames() -> Arc<Frames> {
 /// Render `later` on a blocking thread, then move `landed` so the reader draws them.
 pub(super) fn render_later(
     frames: Arc<Frames>,
-    store: Arc<SqliteStore>,
+    client: Client,
     later: Vec<(Message, SanitizePolicy)>,
     sent: std::rc::Rc<std::cell::RefCell<Sent>>,
     mut landed: Signal<u64>,
@@ -61,7 +61,7 @@ pub(super) fn render_later(
     spawn(async move {
         let _ = tokio::task::spawn_blocking(move || {
             for (message, policy) in &later {
-                let _ = frames.rendered(&store, message, *policy);
+                let _ = client.framing(&frames).rendered(message, *policy);
             }
         })
         .await;
@@ -80,7 +80,6 @@ pub(super) fn render_later(
 /// Their conversations are kept read by the client too, so opening one draws it at once rather
 /// than a frame after.
 pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) {
-    let store = use_context::<Arc<SqliteStore>>();
     let frames = use_frames();
     let client = crate::ui::live::use_client();
     let kept = use_hook(|| Rc::new(RefCell::new(Vec::new())));
@@ -98,7 +97,7 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
         // again.
         let next = client.prime(bodies.iter().map(|thread| Conversation(*thread)));
         *kept.borrow_mut() = next;
-        frames.warm(store.clone(), order, SanitizePolicy::FRAME);
+        client.framing(&frames).warm(order, SanitizePolicy::FRAME);
     });
 }
 

@@ -40,12 +40,10 @@ use ds::root::common::Common;
 use ds::root::pass_through::{DataAttr, DataName};
 use ds::style::icon::render::Glyph;
 use listed::{Listed, Opens, RowModel};
-use mail_core::SqliteStore;
 use mail_core::provider::Provider;
 use mail_domain::*;
 use menu::{Pick, RowMenu};
 use std::ops::Range;
-use std::sync::Arc;
 
 /// `text` as quire's line, with a search's `marks` as `Mark` runs; plain when nothing is marked.
 fn runs(text: &str, marks: &[Range<usize>]) -> TextLine {
@@ -131,8 +129,8 @@ pub(super) fn ListRow(
             (
                 Check::On,
                 EventHandler::new(move |_: Check| {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    act_kind(&store, shell, revision, id, OpKind::Unstar);
+                    let client = crate::ui::live::client();
+                    act_kind(&client, shell, revision, id, OpKind::Unstar);
                 }),
             )
         });
@@ -180,8 +178,8 @@ pub(super) fn ListRow(
                     match open_on.open(click) {
                         Opens::Thread(id, click) => shell.write().click(id, click, &drawn_order()),
                         Opens::Draft(id) => {
-                            let store = consume_context::<Arc<SqliteStore>>();
-                            let _ = open_composer(&store, shell, Writes::Draft(id));
+                            let client = crate::ui::live::client();
+                            let _ = open_composer(&client, shell, Writes::Draft(id));
                         }
                     }
                 },

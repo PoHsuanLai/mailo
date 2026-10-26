@@ -10,7 +10,6 @@ use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
-use mail_core::SqliteStore;
 use mail_domain::{BlobId, MessageId};
 use std::sync::Arc;
 
@@ -41,7 +40,7 @@ pub(in crate::ui) fn Seal(
     let _look = use_resource({
         let looks = looks.clone();
         move || {
-            let store = consume_context::<Arc<SqliteStore>>();
+            let client = crate::ui::live::client();
             let secrets = seams().secrets;
             let looks = looks.clone();
             async move {
@@ -56,7 +55,7 @@ pub(in crate::ui) fn Seal(
                     return;
                 }
                 let found = tokio::task::spawn_blocking(move || {
-                    lookup(&looks, &store, secrets.as_ref(), message, body)
+                    lookup(&looks, &client, secrets.as_ref(), message, body)
                 })
                 .await
                 .unwrap_or_else(|error| Look::Failed(format!("Opening it stopped: {error}")));
@@ -149,12 +148,12 @@ fn open_with(
         return;
     }
     working.set(Busy::Working);
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let secrets = seams().secrets;
     // Spawned from a press, which is where a task is polled.
     spawn(async move {
         let found = tokio::task::spawn_blocking(move || {
-            unlock(&looks, &store, secrets.as_ref(), message, body, passphrase)
+            unlock(&looks, &client, secrets.as_ref(), message, body, passphrase)
         })
         .await
         .unwrap_or_else(|error| Look::Failed(format!("Unlocking stopped: {error}")));

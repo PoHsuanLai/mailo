@@ -6,6 +6,7 @@ use super::super::page::{Float, List};
 use super::super::recipients::{people_items, pick_person, typed};
 use super::*;
 use crate::ui::contacts::tests::{ADDED, HEARD, ME, NO_REPLY, WRITTEN, the_book};
+use mail_core::SqliteStore;
 
 fn keys(page: &Page, list: List) -> Vec<String> {
     people_items(page, list)
@@ -36,7 +37,12 @@ fn the_people_menu_is_the_books_order_less_whoever_is_on_the_message() {
         "a menu before anything was typed"
     );
 
-    typed(&mut page, List::To, "da".to_owned(), store.as_ref());
+    typed(
+        &mut page,
+        List::To,
+        "da".to_owned(),
+        &crate::ui::fixtures::client(&store),
+    );
     let offered = keys(&page, List::To);
     assert_eq!(offered, book_order(&store, "da"));
     // Written to twice outranks heard from once, and the hand-added entry is offered at all.
@@ -66,7 +72,12 @@ fn the_people_menu_is_the_books_order_less_whoever_is_on_the_message() {
     // Picking one puts it on the message; typing the same text again leaves it out.
     pick_person(&mut page, List::To, WRITTEN);
     assert_eq!(page.to.len(), 1);
-    typed(&mut page, List::Cc, "da".to_owned(), store.as_ref());
+    typed(
+        &mut page,
+        List::Cc,
+        "da".to_owned(),
+        &crate::ui::fixtures::client(&store),
+    );
     let without: Vec<String> = offered
         .iter()
         .filter(|one| one.as_str() != WRITTEN)
@@ -79,7 +90,12 @@ fn the_people_menu_is_the_books_order_less_whoever_is_on_the_message() {
 fn with_the_menu_open() -> (String, tempfile::TempDir) {
     super::render::window_with(|page, store| {
         page.subject = "Offsite, Friday".to_owned();
-        typed(page, List::To, "r".to_owned(), store);
+        typed(
+            page,
+            List::To,
+            "r".to_owned(),
+            &crate::ui::fixtures::client(store),
+        );
     })
 }
 
@@ -98,7 +114,12 @@ fn ctrl_t_names_the_same_people_as_the_to_field_for_the_same_text() {
     let (store, _dir) = the_book();
     for text in ["da", "dan", "okafor", "quinn", "example"] {
         let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new());
-        typed(&mut page, List::To, text.to_owned(), store.as_ref());
+        typed(
+            &mut page,
+            List::To,
+            text.to_owned(),
+            &crate::ui::fixtures::client(&store),
+        );
         let composer = keys(&page, List::To);
         let menu = crate::ui::command::tests::people_for(&store, text);
         assert!(!composer.is_empty(), "{text}: nobody in the composer");

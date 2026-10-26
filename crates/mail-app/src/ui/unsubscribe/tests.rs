@@ -285,9 +285,12 @@ fn a_web_page_is_never_given_a_client() {
     let (store, _dir) = seeded();
     let offer = offer_from(WEB).unwrap();
     assert_eq!(ask(&offer).and_then(|asked| asked.action()), None);
-    let outcome = leave(&store, &offer.found, chrono::Utc::now(), || {
-        panic!("a client was built for a page")
-    });
+    let outcome = leave(
+        &crate::ui::fixtures::client(&store),
+        &offer.found,
+        chrono::Utc::now(),
+        || panic!("a client was built for a page"),
+    );
     assert_eq!(
         outcome,
         Ok(Outcome::Page {
@@ -303,7 +306,11 @@ fn archive_all_takes_the_senders_inbox_and_nothing_else() {
     let second = put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
     let other = put(&store, "quiet@example.test", NO_WAY_OUT, Held::Body);
 
-    let undone = archive_from(&store, "weekly@rust.test", mail_core::when::Clock::H24);
+    let undone = archive_from(
+        &crate::ui::fixtures::client(&store),
+        "weekly@rust.test",
+        mail_core::when::Clock::H24,
+    );
     let archived: Vec<ThreadId> = undone.iter().filter_map(|undo| undo.thread).collect();
     assert!(
         archived.contains(&first) && archived.contains(&second),
@@ -327,7 +334,13 @@ fn archive_all_is_one_undo_for_the_whole_list() {
         let shell = use_signal(Shell::default);
         let revision = use_signal(|| 0u64);
         use_hook(|| {
-            super::archive_list(&store, shell, revision, "weekly@rust.test", "Rust Weekly");
+            super::archive_list(
+                &crate::ui::fixtures::client(&store),
+                shell,
+                revision,
+                "weekly@rust.test",
+                "Rust Weekly",
+            );
             entries.store(shell.peek().undo.len(), Ordering::SeqCst);
         });
         rsx! {}

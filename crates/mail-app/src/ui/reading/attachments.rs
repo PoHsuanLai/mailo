@@ -28,7 +28,6 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use mail_core::fetch::{Download, DownloadEffect, DownloadEvent};
 use mail_core::message::Looks;
-use mail_core::{SqliteStore, Store as _};
 use mail_domain::{BlobId, MessageId, Retry};
 
 use super::super::text::{AttachmentRow, Kept};
@@ -51,13 +50,14 @@ pub(super) fn Attachments(
 ) -> Element {
     let downloads: Downloads = use_signal(HashMap::new);
     let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
-    let store = use_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::use_client();
     let looks = super::use_looks();
     let reauth = try_consume_context::<Reauth>();
     let account = use_hook(|| {
-        store
+        client
+            .stored()
             .message(message)
-            .map(|m| fetch::account_address(&store, m.account))
+            .map(|m| fetch::account_address(&client, m.account))
             .unwrap_or_default()
     });
     let mut tiles = Vec::new();
@@ -252,7 +252,7 @@ fn start(
         Kept::OnServer => crate::ui::downloads::Saving::begin(name),
         Kept::Here | Kept::Opened => crate::ui::downloads::Saving::quick(),
     };
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let looks = looks.clone();
     let fetchers = fetch::fetchers();
     let dir = crate::ui::files::save_dir();
@@ -261,15 +261,16 @@ fn start(
         // (`edge::block_on`), and `Runtime::block_on` inside an async context panics.
         let done = tokio::task::spawn_blocking(move || {
             let saved = match kept {
-                Kept::Here => {
-                    mail_core::attach::save(&store, message, index, &dir).map_err(String::from)
-                }
+                Kept::Here => client
+                    .attach()
+                    .save(message, index, &dir)
+                    .map_err(String::from),
                 Kept::Opened => {
                     super::super::pgp::save_attachment(&looks, message, body, index, &dir)
                 }
-                Kept::OnServer => fetch::fetch_then_save(&store, &fetchers, message, index, &dir),
+                Kept::OnServer => fetch::fetch_then_save(&client, &fetchers, message, index, &dir),
             };
-            (saved, crate::ui::downloads::origin(&store, message))
+            (saved, crate::ui::downloads::origin(&client, message))
         })
         .await;
         let (done, origin) = match done {

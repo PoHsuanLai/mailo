@@ -5,7 +5,6 @@
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
 use mail_core::notify::Notifier;
 use std::sync::Arc;
 use std::time::Duration;
@@ -52,10 +51,10 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
         async move {
             loop {
                 let now = super::clock::now();
-                let store = consume_context::<Arc<SqliteStore>>();
+                let client = crate::ui::live::client();
                 let notices = try_consume_context::<Notices>();
                 let notifier = notices.as_ref().map(|notices| notices.0.as_ref());
-                match mail_core::follow_up::sweep_and_announce(&store, notifier, now) {
+                match client.follow_up().sweep_and_announce(notifier, now) {
                     // Moving the revision starts this again, with the next due time.
                     Ok(swept) if swept.changed() => {
                         revision += 1;
@@ -64,8 +63,7 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
                     Ok(_) => {}
                     Err(why) => log::warn!("reminders: {why}"),
                 }
-                ds::base::time::clock::sleep(wait(mail_core::follow_up::next_due(&store), now))
-                    .await;
+                ds::base::time::clock::sleep(wait(client.follow_up().next_due(), now)).await;
             }
         }
     });

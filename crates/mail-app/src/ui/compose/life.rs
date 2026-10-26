@@ -1,12 +1,12 @@
-//! A draft's life on the page, against the store: load, save, park, send, and take a send back.
+//! A draft's life on the page, against the client: load, save, park, send, and take a send back.
 //!
 //! Every write goes through `mail_core::compose`, the module the command line uses, so the window and
 //! `mailo send` cannot disagree about what a draft is.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_client::Client;
 use mail_core::SigningStore;
 use mail_core::compose::Leaves;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,11 +25,7 @@ pub(in crate::ui) const GRACE: chrono::TimeDelta = chrono::TimeDelta::seconds(5)
 
 /// The page for `draft`: the parked copy when there is one, exactly as it was left, else a page
 /// built from the stored draft.
-pub(in crate::ui) fn load(
-    store: &SqliteStore,
-    draft: DraftId,
-    parked: &mut Vec<Page>,
-) -> Option<Page> {
+pub(in crate::ui) fn load(client: &Client, draft: DraftId, parked: &mut Vec<Page>) -> Option<Page> {
     if let Some(at) = parked.iter().position(|page| page.draft == draft) {
         let mut page = parked.remove(at);
         page.phase = Phase::Writing;
@@ -40,21 +36,21 @@ pub(in crate::ui) fn load(
         };
         return Some(page);
     }
-    let stored = store.draft(draft).ok()?;
-    let attached = mail_core::compose::attached_to(store, &stored);
+    let stored = client.stored().draft(draft).ok()?;
+    let attached = client.compose().attached_to(&stored);
     // Nobody is suggested until something is typed: the book is asked then, for that text.
     Some(Page::of(&stored, Vec::new(), attached))
 }
 
-/// Write the page to its draft. The dot goes clean only when the store took it.
+/// Write the page to its draft. The dot goes clean only when the client took it.
 pub(in crate::ui) fn save(
-    store: &SqliteStore,
+    client: &Client,
     page: &mut Page,
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
     let edited = {
         let mut written = written();
-        let edited = put(store, page, now)?;
+        let edited = put(client, page, now)?;
         // This page is the newest there is: nothing was taken after it.
         written.insert(page.draft, stamp());
         edited
@@ -73,7 +69,7 @@ pub(in crate::ui) fn stamp() -> u64 {
 /// autosave's. `None` when a page taken later was written first, by a save of the page's own,
 /// which a page taken earlier must not undo. The page's dot is the caller's to clear.
 pub(in crate::ui) fn save_stamped(
-    store: &SqliteStore,
+    client: &Client,
     page: &Page,
     stamp: u64,
     now: DateTime<Utc>,
@@ -82,7 +78,7 @@ pub(in crate::ui) fn save_stamped(
     if written.get(&page.draft).is_some_and(|last| *last > stamp) {
         return Ok(None);
     }
-    let edited = put(store, page, now)?;
+    let edited = put(client, page, now)?;
     written.insert(page.draft, stamp);
     Ok(Some(edited))
 }
@@ -94,24 +90,36 @@ fn written() -> MutexGuard<'static, BTreeMap<DraftId, u64>> {
     WRITTEN.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Discard `draft` from the store, as every discard in this process does: under the lock the
+/// Discard `draft` from the client, as every discard in this process does: under the lock the
 /// writes hold, so an autosave already writing finishes first, and recorded as written by a page
 /// taken now, so an autosave of a page taken before the discard is refused ([`save_stamped`]'s
 /// `None`) rather than writing the draft back.
 ///
 /// The record stays: dropped, it would let that autosave through. A page taken after it, as
 /// one is after the discard's Undo puts the draft back, is later and writes as ever.
-pub(crate) fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, mail_core::CoreError> {
-    let mut written = written();
-    let subject = mail_core::compose::discard(store, draft)?;
-    written.insert(draft, stamp());
-    Ok(subject)
+pub(crate) fn discard(client: &Client, draft: DraftId) -> Result<String, mail_core::CoreError> {
+    discarding(draft, || client.compose().discard(draft))
 }
 
-fn put(store: &SqliteStore, page: &Page, now: DateTime<Utc>) -> Result<Draft, String> {
-    let base = store.draft(page.draft).map_err(|e| e.to_string())?;
+/// [`discard`], made by `discard`: for the program beside the window, which holds the store
+/// itself (`intents`).
+pub(crate) fn discarding<T, E>(
+    draft: DraftId,
+    discard: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    let mut written = written();
+    let done = discard()?;
+    written.insert(draft, stamp());
+    Ok(done)
+}
+
+fn put(client: &Client, page: &Page, now: DateTime<Utc>) -> Result<Draft, String> {
+    let base = client
+        .stored()
+        .draft(page.draft)
+        .map_err(|e| e.to_string())?;
     let edited = page.apply_to(&base, now);
-    mail_core::compose::save(store, &edited)?;
+    client.compose().save(&edited)?;
     Ok(edited)
 }
 
@@ -119,18 +127,18 @@ fn put(store: &SqliteStore, page: &Page, now: DateTime<Utc>) -> Result<Draft, St
 /// put in ([`Draft::untouched`]) is thrown away instead: closing a composer opened by mistake
 /// leaves no draft behind.
 pub(in crate::ui) fn park(
-    store: &SqliteStore,
+    client: &Client,
     mut page: Page,
     parked: &mut Vec<Page>,
     today: &mut Today,
     space: crate::ui::space::SpaceId,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
-    let saved = save(store, &mut page, now);
+    let saved = save(client, &mut page, now);
     if saved.as_ref().is_ok_and(Draft::untouched) {
         parked.retain(|kept| kept.draft != page.draft);
         today.unpark(&page.draft);
-        return discard(store, page.draft)
+        return discard(client, page.draft)
             .map(|_| ())
             .map_err(|e| e.to_string());
     }
@@ -179,7 +187,7 @@ pub(in crate::ui) enum Sent {
 /// encrypt as it asks says why in the same bar. A plain draft is queued here, with `secrets` as
 /// the keyring; a draft to be sealed comes back as [`Sent::Sealing`].
 pub(in crate::ui) fn send<Tz: TimeZone>(
-    store: &SqliteStore,
+    client: &Client,
     secrets: &dyn SigningStore,
     page: &mut Page,
     anyway: Anyway,
@@ -217,9 +225,9 @@ where
         Leaves::At(at) => at,
     };
     let remind = page.remind.due(leaving, zone, clock)?;
-    let saved = save(store, page, now)?;
+    let saved = save(client, page, now)?;
     if page.protection != Protection::None {
-        page.seal_bar = super::seal::sealable(store, &saved, now)?;
+        page.seal_bar = super::seal::sealable(client, &saved, now)?;
         if page.seal_bar != SealBar::Clear {
             return Ok(Sent::Stopped);
         }
@@ -228,7 +236,7 @@ where
     }
     page.seal_bar = SealBar::Clear;
     let due = queue_reminding(
-        store,
+        client,
         secrets,
         &mail_core::pgp::no_passphrase,
         page.draft,
@@ -243,14 +251,14 @@ where
 /// [`queue_reminding`] with no reminder, as the sealing tests queue.
 #[cfg(test)]
 pub(in crate::ui) fn queue(
-    store: &SqliteStore,
+    client: &Client,
     secrets: &dyn SigningStore,
     ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, mail_core::compose::SendError> {
-    queue_reminding(store, secrets, ask, draft, leaves, None, now)
+    queue_reminding(client, secrets, ask, draft, leaves, None, now)
 }
 
 /// Queue the saved draft to leave as `leaves` says, signed and encrypted as it asks, with `ask`
@@ -261,7 +269,7 @@ pub(in crate::ui) fn queue(
 /// `remind` is held as the message's follow-up reminder until it has left (`mail_core::follow_up`);
 /// with none, a reminder an earlier send of the draft held goes.
 pub(in crate::ui) fn queue_reminding(
-    store: &SqliteStore,
+    client: &Client,
     secrets: &dyn SigningStore,
     ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
@@ -274,19 +282,25 @@ pub(in crate::ui) fn queue_reminding(
         Leaves::Now => {
             let due = now + GRACE;
             let (queued, post) =
-                mail_core::compose::queue_with(store, secrets, ask, draft, Leaves::Now, due)?;
+                client
+                    .compose()
+                    .queue_with(secrets, ask, draft, Leaves::Now, due)?;
             (queued, post, due)
         }
         Leaves::At(at) => {
             let (queued, post) =
-                mail_core::compose::queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
+                client
+                    .compose()
+                    .queue_with(secrets, ask, draft, Leaves::At(at), now)?;
             (queued, post, at)
         }
     };
     // The send is queued whatever becomes of the reminder: one that could not be kept is said
     // where the window says what it could not do, and is no reason to take back mail the outbox
     // already holds.
-    if let Err(why) = mail_core::follow_up::after_queue(store, &queued, &post.message, remind, due)
+    if let Err(why) = client
+        .follow_up()
+        .after_queue(&queued, &post.message, remind, due)
     {
         log::warn!("the reminder for {draft} was not kept: {why}");
     }
@@ -307,9 +321,12 @@ pub(in crate::ui) fn folded(page: &mut Page, due: DateTime<Utc>) -> Sent {
 
 /// Undo a send: the queued submission is withdrawn and the draft is editable again.
 pub(in crate::ui) fn unsend(
-    store: &SqliteStore,
+    client: &Client,
     draft: DraftId,
     now: DateTime<Utc>,
 ) -> Result<Draft, String> {
-    mail_core::compose::unsend(store, draft, now).map_err(crate::ui::remedy::told)
+    client
+        .compose()
+        .unsend(draft, now)
+        .map_err(crate::ui::remedy::told)
 }

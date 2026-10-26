@@ -5,18 +5,10 @@
 //! decides when, and keeps where each folder stands). What does the fetching is a context,
 //! [`Fetcher`], so a test can count what the window asks for without a server.
 
-use chrono::{DateTime, Utc};
-use mail_core::SqliteStore;
-use mail_core::sync::report::PassEnd;
-use porter_core::AccountId;
-use std::sync::Arc;
-
+use mail_client::Client;
 /// Fetch one folder now: the signature of [`mail_core::SyncOps::folder_now`].
-pub(in crate::ui) type Fetch = Arc<
-    dyn Fn(Arc<SqliteStore>, AccountId, &str, DateTime<Utc>) -> Result<PassEnd, String>
-        + Send
-        + Sync,
->;
+pub(in crate::ui) use mail_client::fetch::FetchFolder as Fetch;
+use std::sync::Arc;
 
 /// What fetches a folder. The real one unless a test provided its own.
 #[derive(Clone)]
@@ -25,10 +17,13 @@ pub(in crate::ui) struct Fetcher(pub Fetch);
 impl Fetcher {
     /// The server, through [`mail_core::SyncOps::folder_now`].
     #[cfg(not(test))]
-    pub(in crate::ui) fn server() -> Self {
-        Self(Arc::new(|store, account, path, _now| {
-            let mail = crate::edge::mail(&store);
-            crate::edge::block_on(mail.sync().folder_now(account, path))
+    pub(in crate::ui) fn server(client: &Client) -> Self {
+        let client = client.clone();
+        // The client's own store, which is the one it lends.
+        Self(Arc::new(move |_, account, path, _now| {
+            client
+                .net()
+                .folder_now(account, path)
                 .map_err(crate::ui::remedy::told)
         }))
     }
@@ -36,7 +31,7 @@ impl Fetcher {
     /// Not in a test build: `folder_now` reads the keyring and opens a socket, and a test that
     /// forgot to provide its own fetcher must fail in words rather than reach either.
     #[cfg(test)]
-    pub(in crate::ui) fn server() -> Self {
+    pub(in crate::ui) fn server(_: &Client) -> Self {
         Self(Arc::new(|_, _, path, _| {
             Err(format!(
                 "a test opened {path} without providing a Fetcher; the real one reaches the server"

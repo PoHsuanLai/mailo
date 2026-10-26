@@ -9,7 +9,7 @@
 //! command line is the CLI's, and [`start_of`] says so by answering `None`.
 
 use crate::ui::view::Shell;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_domain::{DraftId, ThreadId};
 use mail_mime::MailtoUri;
 
@@ -56,15 +56,17 @@ pub fn mailto_of(args: &[String]) -> Option<MailtoUri> {
 /// From the first sending account, as the window's Compose does (`ui::ops::start_new`): the
 /// composer shows who it is from and lets that be changed before anything is sent.
 pub fn start_mailto(
-    store: &SqliteStore,
+    client: &Client,
     link: &MailtoUri,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Start, String> {
-    let account = match mail_core::compose::sending_accounts(store).first() {
+    let account = match client.compose().sending_accounts().first() {
         Some((_, id)) => id.clone(),
-        None => mail_core::compose::account_for(store, None)?,
+        None => client.compose().account_for(None)?,
     };
-    mail_core::compose::draft_mailto(store, account, link, now)
+    client
+        .compose()
+        .draft_mailto(account, link, now)
         .map(|draft| Start::Compose(draft.id))
         .map_err(String::from)
 }

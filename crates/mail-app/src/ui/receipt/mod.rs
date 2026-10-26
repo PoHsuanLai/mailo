@@ -17,12 +17,12 @@
 use crate::settings::{MailSettings, ReadReceipts};
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_client::Client;
 use mail_core::message::Looks;
 use mail_core::receipt::ReceiptState;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::ReturnPath;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 // One message's standing, with the name of its sender.
 pub(in crate::ui) use mail_core::message::Receipt as Standing;
@@ -52,24 +52,24 @@ pub(in crate::ui) fn automatic(
 }
 
 /// Held while a receipt is being given, so two windows opening the same message cannot both
-/// find it unanswered and both queue one. The store's own answer, read again under it, keeps a
+/// find it unanswered and both queue one. The client's own answer, read again under it, keeps a
 /// message from being answered twice across launches.
 static ANSWERING: Mutex<()> = Mutex::new(());
 
 /// Answer, under `policy`, every message among `standings` that asks: look each one up again in
-/// the store for where it is now, and queue a receipt through [`mail_core::receipt::answer`] where
+/// the client for where it is now, and queue a receipt through [`mail_core::receipt::answer`] where
 /// [`automatic`] says to. Returns the messages a receipt was queued for. Blocking: the reader
 /// calls it on a blocking thread.
 pub(in crate::ui) fn answer_asked(
     looks: &Looks,
-    store: &SqliteStore,
+    client: &Client,
     standings: &[Standing],
     policy: ReadReceipts,
     now: DateTime<Utc>,
 ) -> Vec<MessageId> {
     let mut sent = Vec::new();
     for standing in standings {
-        let Ok(message) = store.message(standing.message) else {
+        let Ok(message) = client.stored().message(standing.message) else {
             continue;
         };
         let Some(given) = automatic(policy, &standing.state, message.mailbox) else {
@@ -77,10 +77,10 @@ pub(in crate::ui) fn answer_asked(
         };
         let _held = ANSWERING.lock().unwrap_or_else(|held| held.into_inner());
         // `answer` reads the request's state again and refuses one already answered, here or
-        // by an earlier launch, so the lock and the store between them send it once.
-        match mail_core::receipt::answer(store, standing.message, given, now) {
+        // by an earlier launch, so the lock and the client between them send it once.
+        match client.receipt().answer(standing.message, given, now) {
             Ok(_) => {
-                looks.receipt_again(store, standing.message);
+                client.looking(looks).receipt_again(standing.message);
                 sent.push(standing.message);
             }
             Err(why) => log::warn!("read receipt: {why}"),
@@ -90,8 +90,8 @@ pub(in crate::ui) fn answer_asked(
 }
 
 /// The standings already found for every message in `key`, else read for each message and remembered. Runs on a blocking thread.
-pub(in crate::ui) fn lookup(looks: &Looks, store: &SqliteStore, key: &Bodies) -> Vec<Standing> {
-    looks.receipts(store, key)
+pub(in crate::ui) fn lookup(looks: &Looks, client: &Client, key: &Bodies) -> Vec<Standing> {
+    client.looking(looks).receipts(key)
 }
 
 /// The open thread's requests, answered by the setting. Draws nothing.
@@ -107,7 +107,7 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
     let _answer = use_resource(move || {
         let bodies = bodies.clone();
         let looks = looks.clone();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let policy = settings
             .map(|settings| settings.peek().reading.read_receipts)
             .unwrap_or_default();
@@ -116,8 +116,8 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
                 return;
             }
             let _ = tokio::task::spawn_blocking(move || {
-                let standings = lookup(&looks, &store, &bodies);
-                answer_asked(&looks, &store, &standings, policy, Utc::now())
+                let standings = lookup(&looks, &client, &bodies);
+                answer_asked(&looks, &client, &standings, policy, Utc::now())
             })
             .await;
         }

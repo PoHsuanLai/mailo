@@ -15,7 +15,7 @@
 //! A passphrase typed to unlock a key, or a PKCS#12 file's password, is a
 //! [`Password`](mail_core::password::Password): moved from the field into the one call that needs
 //! it, and dropped with it. It is never in a signal, the [`Shell`](crate::ui::view::Shell), the
-//! store, a file or a log.
+//! client, a file or a log.
 
 mod actions;
 mod certs;
@@ -41,13 +41,13 @@ pub(in crate::ui) use unlock::{Passphrase, Unlock, WRONG};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mail_client::Client;
 use mail_core::SigningStore;
-use mail_core::SqliteStore;
 use mail_domain::*;
 
 /// Look a key up by its address's domain. Blocks on the network: run it off the thread that draws.
 pub(in crate::ui) type Lookup =
-    dyn Fn(&SqliteStore, &str) -> Result<Option<PgpKey>, String> + Send + Sync;
+    dyn Fn(&Client, &str) -> Result<Option<PgpKey>, String> + Send + Sync;
 /// Ask for a file to read. Blocks until the dialog is answered.
 pub(in crate::ui) type PickFile = dyn Fn() -> Option<PathBuf> + Send + Sync;
 /// Ask where to write a file, suggesting a name. Blocks until the dialog is answered.
@@ -69,13 +69,11 @@ impl Seams {
     pub(in crate::ui) fn real() -> Seams {
         Seams {
             secrets: crate::edge::signing(),
-            lookup: Arc::new(|store, address| {
-                crate::edge::block_on(mail_core::pgp::lookup_address(
-                    store,
-                    address,
-                    chrono::Utc::now(),
-                ))
-                .map_err(|e| e.to_string())
+            lookup: Arc::new(|client, address| {
+                client
+                    .net()
+                    .lookup_key(address, chrono::Utc::now())
+                    .map_err(|e| e.to_string())
             }),
             pick: Arc::new(|| rfd::FileDialog::new().pick_file()),
             save: Arc::new(|name| rfd::FileDialog::new().set_file_name(name).save_file()),

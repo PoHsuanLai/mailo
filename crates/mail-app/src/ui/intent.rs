@@ -11,7 +11,7 @@ use super::ops::{Composes, Writes, open_composer};
 use super::view::{Shell, Shortcut};
 use chordkit::StandardAction;
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_domain::*;
 
 /// Where the key landed.
@@ -81,7 +81,7 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
 /// `act_kind` like the row's own button, so it has its undo and its toast, and a reply or
 /// forward opens the composer on it.
 pub(in crate::ui) fn on_thread(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     mut revision: Signal<u64>,
     thread: ThreadId,
@@ -89,7 +89,7 @@ pub(in crate::ui) fn on_thread(
 ) {
     let what = match action {
         Shortcut::TogglePin => {
-            act_kind(store, shell, revision, thread, OpKind::Pin);
+            act_kind(client, shell, revision, thread, OpKind::Pin);
             return;
         }
         Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
@@ -97,7 +97,7 @@ pub(in crate::ui) fn on_thread(
         Shortcut::Forward => Composes::Forward,
         _ => return,
     };
-    if open_composer(store, shell, Writes::On(thread, what)).is_ok() {
+    if open_composer(client, shell, Writes::On(thread, what)).is_ok() {
         revision += 1;
     }
 }

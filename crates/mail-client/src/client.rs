@@ -120,6 +120,8 @@ pub(crate) struct Shared {
     /// Wakes the clock thread to find its next moment again: set, then told.
     clock_poked: Mutex<bool>,
     clock_told: Condvar,
+    /// How servers are reached, once the program says (`net`).
+    pub(crate) reach: OnceLock<crate::net::Reach>,
 }
 
 /// Fetching run where the caller runs it: what [`Client::fetch`] hands a client that reads on
@@ -188,6 +190,12 @@ impl Client {
             shared,
             threads: Mutex::new(Vec::new()),
         }))
+    }
+
+    /// What `query` answers now, read on the caller's thread and not kept: for a caller that
+    /// needs the answer at once, and once.
+    pub fn read<Q: Query>(&self, query: Q) -> Result<Q::Output, crate::ClientError> {
+        query.run(&self.0.shared.store, self.0.shared.now())
     }
 
     /// The value `query` answers, kept read. Never reads the store here: a value someone already
@@ -284,6 +292,26 @@ impl Client {
     /// own does, one that reads on its caller's thread does not.
     pub fn keeps_time(&self) -> bool {
         !self.0.shared.inline
+    }
+
+    /// The store, for what the client calls on its callers' behalf (`calls`).
+    pub(crate) fn store(&self) -> &SqliteStore {
+        &self.0.shared.store
+    }
+
+    /// The store, for a test's double at a seam to keep what a server would have given: never
+    /// in the program, which has no `testing`.
+    #[cfg(feature = "testing")]
+    pub fn store_for_test(&self) -> Arc<SqliteStore> {
+        self.store_arc()
+    }
+
+    pub(crate) fn reached(&self) -> &OnceLock<crate::net::Reach> {
+        &self.0.shared.reach
+    }
+
+    pub(crate) fn store_arc(&self) -> Arc<SqliteStore> {
+        self.0.shared.store.clone()
     }
 
     /// Whether nothing is waiting to be read or being read.
@@ -437,6 +465,7 @@ impl Shared {
             fetch_stop: Mutex::new(None),
             clock_poked: Mutex::new(false),
             clock_told: Condvar::new(),
+            reach: OnceLock::new(),
         }
     }
 

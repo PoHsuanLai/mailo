@@ -44,7 +44,11 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
                 "Here is what moved this week, and what did not.",
             );
             write.float = Float::SaveTemplate("Weekly update".to_owned());
-            super::super::templates::save_named(&built.store, &mut write, Utc::now())
+            super::super::templates::save_named(
+                &crate::ui::fixtures::client(&built.store),
+                &mut write,
+                Utc::now(),
+            )
         });
         kept.unwrap_or_else(|why| panic!("a template: {why}"));
         let other = mail_core::compose::draft_new(
@@ -77,7 +81,7 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
             type_text(&mut write, "The plan for Friday, as promised.");
             write.when = When::Tomorrow;
             let sent = life::send(
-                &built.store,
+                &crate::ui::fixtures::client(&built.store),
                 &mail_core::testing::MapSigningStore::default(),
                 &mut write,
                 Anyway::Yes,

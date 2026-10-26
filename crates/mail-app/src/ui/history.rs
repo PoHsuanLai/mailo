@@ -1,10 +1,10 @@
 //! Who has written, how often, when last, and whether you have written back.
 //!
-//! One grouped read of the store, [`SqliteStore::sender_history`]: nothing written. It is asked once per list revision and shared, never per hover, and
+//! One grouped read of the client, [`SqliteStore::sender_history`]: nothing written. It is asked once per list revision and shared, never per hover, and
 //! the search bar ranks people from the same answer.
 
 use chrono::{DateTime, Utc};
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::search::{Affinity, SenderStats};
 use std::collections::HashMap;
 
@@ -21,7 +21,7 @@ pub(super) struct Sender {
     pub replied: bool,
 }
 
-/// Every sender the store holds mail from, keyed by lower-cased address.
+/// Every sender the client holds mail from, keyed by lower-cased address.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(super) struct History {
     by_email: HashMap<String, Sender>,
@@ -57,11 +57,12 @@ impl History {
     }
 }
 
-/// Every sender the store holds mail from, with the addresses your own accounts have written
+/// Every sender the client holds mail from, with the addresses your own accounts have written
 /// to. An error reads as an empty history — the cards then say
 /// "first mail", which is the cautious thing for them to say.
-pub(super) fn history(store: &SqliteStore) -> History {
-    let by_email = store
+pub(super) fn history(client: &Client) -> History {
+    let by_email = client
+        .stored()
         .sender_history()
         .unwrap_or_default()
         .into_iter()

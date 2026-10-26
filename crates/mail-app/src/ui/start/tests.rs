@@ -127,7 +127,7 @@ fn a_window_started_from_a_mailto_link_opens_the_composer_on_its_draft() {
         panic!("not read as a mailto link");
     };
     let now = chrono::DateTime::from_timestamp(1_790_000_000, 0).unwrap_or_default();
-    let start = match start_mailto(&store, &link, now) {
+    let start = match start_mailto(&crate::ui::fixtures::client(&store), &link, now) {
         Ok(start) => start,
         Err(why) => panic!("no draft: {why}"),
     };
@@ -202,7 +202,7 @@ fn a_mailto_links_hidden_recipient_is_shown_in_the_composer() {
         panic!("not read as a mailto link");
     };
     let now = chrono::DateTime::from_timestamp(1_790_000_000, 0).unwrap_or_default();
-    let start = match start_mailto(&store, &link, now) {
+    let start = match start_mailto(&crate::ui::fixtures::client(&store), &link, now) {
         Ok(start) => start,
         Err(why) => panic!("no draft: {why}"),
     };

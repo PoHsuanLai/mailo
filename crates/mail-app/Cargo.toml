@@ -217,6 +217,9 @@ rfd = { version = "=0.17.2", default-features = false }
 mail-domain = { workspace = true, features = ["testing"] }
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
 mail-store = { workspace = true, features = ["testing"] }
+# A test's double at a seam keeping what a server gave in the window's store
+# (`Client::store_for_test`): the program never has it.
+mail-client = { workspace = true, features = ["testing"] }
 # The doubles at the runtime's seams (`mail_core::testing`): the program never has them.
 mail-core = { workspace = true, features = ["testing"] }
 porter-secrets = { workspace = true, features = ["testing"] }

@@ -18,9 +18,8 @@ pub(in crate::ui) use part::sweep_left_open;
 
 use dioxus::prelude::*;
 use ds::prelude::Keys;
-use mail_core::{SqliteStore, Store};
+use mail_client::Client;
 use mail_domain::MessageId;
-use std::sync::Arc;
 
 use crate::ui::view::{LinkCard, Preview, Shell, Viewing};
 
@@ -36,11 +35,11 @@ pub(in crate::ui) fn open(mut shell: Signal<Shell>, message: MessageId, index: u
 /// is only ever matched against that message's parts.
 pub(in crate::ui) fn open_inline(
     shell: Signal<Shell>,
-    store: &SqliteStore,
+    client: &Client,
     message: MessageId,
     cid: &str,
 ) {
-    let Ok(stored) = store.message(message) else {
+    let Ok(stored) = client.stored().message(message) else {
         return;
     };
     if let Some(index) = inline_index(&stored.attachments, cid) {
@@ -95,8 +94,8 @@ fn step(mut shell: Signal<Shell>, by: i32) {
     let Some(Preview::Part(viewing)) = preview else {
         return;
     };
-    let store = consume_context::<Arc<SqliteStore>>();
-    if let Some(next) = part::stepped(&store, viewing, by) {
+    let client = crate::ui::live::client();
+    if let Some(next) = part::stepped(&client, viewing, by) {
         shell.write().preview = Some(Preview::Part(next));
     }
 }

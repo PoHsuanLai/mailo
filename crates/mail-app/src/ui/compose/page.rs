@@ -1,5 +1,5 @@
 //! What the composer page holds: the draft's properties, the editor session, and the state of
-//! the page around them. Pure: nothing here reads the store or a clock.
+//! the page around them. Pure: nothing here reads the client or a clock.
 
 use std::collections::BTreeMap;
 
@@ -190,13 +190,13 @@ pub(in crate::ui) enum Guard {
     Warn,
 }
 
-/// Whether the page's changes are in the store. Never drawn: autosave is silent, and a save that
+/// Whether the page's changes are in the client. Never drawn: autosave is silent, and a save that
 /// fails says so through `notice`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Saved {
     /// As it was opened: nothing to save yet.
     Opened,
-    /// Everything on the page is in the store, written by this page.
+    /// Everything on the page is in the client, written by this page.
     Clean,
     /// Changed since the last save.
     Dirty,
@@ -364,8 +364,8 @@ impl Page {
         self.edits = self.edits.wrapping_add(1);
     }
 
-    /// The draft as this page would store it, over `base` so everything the page does not show
-    /// (the identity, what it replies to) is whatever the store says.
+    /// The draft as this page would client it, over `base` so everything the page does not show
+    /// (the identity, what it replies to) is whatever the client says.
     pub(in crate::ui) fn apply_to(&self, base: &Draft, now: DateTime<Utc>) -> Draft {
         let doc = &self.session.doc;
         Draft {

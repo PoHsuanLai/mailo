@@ -7,8 +7,6 @@
 use crate::launcher::{self, Launcher, Unread};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
-use std::sync::Arc;
 
 /// Keep the launcher's count. Does nothing in a window with no [`Launcher`], which is every test
 /// that does not hand it a recorder.
@@ -20,13 +18,17 @@ pub(super) fn use_launcher_count(revision: Signal<u64>, shell: Signal<Shell>) {
     let counted: Resource<Option<Unread>> = use_resource(move || {
         let _ = revision();
         let scope = scope();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         async move {
             if !wanted {
                 return None;
             }
             tokio::task::spawn_blocking(move || {
-                launcher::unread(&*store, &scope, chrono::Utc::now()).ok()
+                client
+                    .stored()
+                    .count(&launcher::filter(&scope), chrono::Utc::now())
+                    .map(launcher::Unread)
+                    .ok()
             })
             .await
             .ok()

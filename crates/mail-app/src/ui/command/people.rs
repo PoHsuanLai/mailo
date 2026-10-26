@@ -5,10 +5,10 @@
 //! gets for the same text — so the two cannot offer different people for "dana". The sender
 //! history still supplies the "3 threads" a row shows.
 
+use mail_client::Client;
 use std::collections::HashMap;
 
 use chrono::Utc;
-use mail_core::Store;
 
 use super::super::contacts::book::suggest;
 use super::super::history::History;
@@ -31,7 +31,7 @@ pub(in crate::ui) fn free_words(query: &str) -> String {
 pub(in crate::ui) fn from_book(
     results: &mut Results,
     names: &mut HashMap<String, String>,
-    store: &dyn Store,
+    client: &Client,
     query: &str,
     history: &History,
 ) {
@@ -39,7 +39,7 @@ pub(in crate::ui) fn from_book(
     let found = if words.trim().is_empty() {
         Vec::new()
     } else {
-        suggest(store, &words)
+        suggest(client, &words)
     };
     let mut hits: Vec<PersonHit> = found
         .iter()

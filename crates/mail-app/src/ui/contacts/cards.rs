@@ -4,10 +4,7 @@
 //! thread; export writes `contacts.vcf` into the downloads directory the way Save writes an
 //! attachment, never over a file already there. Each says what it came to once, in a toast.
 
-use std::sync::Arc;
-
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
 
 use super::book;
 use crate::ui::copy;
@@ -24,8 +21,8 @@ pub(in crate::ui) fn import_cards() {
                 let read = tokio::task::spawn_blocking(move || std::fs::read(path)).await;
                 said = Some(match read {
                     Ok(Ok(bytes)) => {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        book::import(store.as_ref(), &bytes)
+                        let client = crate::ui::live::client();
+                        book::import(&client, &bytes)
                     }
                     _ => Err(copy::errors::cannot_read(&name)),
                 });
@@ -39,9 +36,9 @@ pub(in crate::ui) fn import_cards() {
 
 /// Write the whole book into the downloads directory and say where it went.
 pub(in crate::ui) fn export_cards() {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let dir = crate::ui::files::save_dir();
-    match book::export(store.as_ref(), &dir) {
+    match book::export(&client, &dir) {
         Ok(path) => {
             crate::ui::downloads::Saving::quick().end(Some(&path), None);
             tell(copy::toasts::saved_to(&path), Follow::Nothing);

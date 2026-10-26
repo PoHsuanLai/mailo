@@ -8,6 +8,7 @@ use super::super::page::{Guard, Phase};
 use super::*;
 use crate::ui::fixtures::{acct_account, click, press, seeded};
 use ds_harness::harness::SETTLE_BOUND;
+use mail_core::SqliteStore;
 use mail_core::editor::{to_flowed, to_html};
 
 fn far() -> DateTime<Utc> {
@@ -33,10 +34,21 @@ fn an_autosave_taken_before_a_discard_does_not_bring_the_draft_back() {
     use super::super::life;
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
-    let page = life::load(&store, draft.id, &mut Vec::new()).expect("the draft's page");
+    let page = life::load(
+        &crate::ui::fixtures::client(&store),
+        draft.id,
+        &mut Vec::new(),
+    )
+    .expect("the draft's page");
     let taken = life::stamp();
-    life::discard(&store, draft.id).unwrap_or_else(|why| panic!("discard: {why}"));
-    let saved = life::save_stamped(&store, &page, taken, Utc::now());
+    life::discard(&crate::ui::fixtures::client(&store), draft.id)
+        .unwrap_or_else(|why| panic!("discard: {why}"));
+    let saved = life::save_stamped(
+        &crate::ui::fixtures::client(&store),
+        &page,
+        taken,
+        Utc::now(),
+    );
     assert!(matches!(saved, Ok(None)), "{saved:?}");
     assert!(store.draft(draft.id).is_err(), "the draft came back");
 }
@@ -46,7 +58,11 @@ async fn send_with_nobody_to_send_to_queues_nothing_and_marks_the_to_field_inval
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
     let before = queued(&store);
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let mut page = window.page();
     window
         .dom
@@ -92,7 +108,11 @@ async fn an_attachment_mentioned_and_missing_shows_one_bar_until_send_anyway() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
     let before = queued(&store);
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let mut page = window.page();
     window.dom.in_runtime(|| {
         let mut write = page.write();
@@ -141,7 +161,11 @@ async fn attach_puts_the_files_the_dialog_chose_on_the_draft() {
         .unwrap_or_else(|why| panic!("{why}"));
     let (dialogs, asked) = Dialogs::answering(vec![agenda, huge]);
 
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     window.dom.provide_root_context(dialogs);
     click(
         &mut window.dom,
@@ -181,7 +205,11 @@ async fn attach_puts_the_files_the_dialog_chose_on_the_draft() {
 async fn autosave_writes_the_documents_two_bodies_once_typing_stops() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
-    let (mut window, _seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, _seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let mut page = window.page();
     window.dom.in_runtime(|| {
         let mut write = page.write();
@@ -237,7 +265,11 @@ async fn esc_on_a_draft_with_nothing_in_it_throws_it_away() {
         state: root.path().join("state"),
     };
     let draft = fresh_draft(&store);
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), Some(dirs.clone()));
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        Some(dirs.clone()),
+    );
     let root_id = seen.one("class", "cpage");
     press(
         &mut window.dom,
@@ -268,7 +300,11 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         state: root.path().join("state"),
     };
     let draft = fresh_draft(&store);
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), Some(dirs.clone()));
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        Some(dirs.clone()),
+    );
     let mut page = window.page();
     window.dom.in_runtime(|| {
         let mut write = page.write();
@@ -350,7 +386,11 @@ async fn run_until(
 async fn a_sent_page_folds_away_on_quires_clock() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let mut page = window.page();
     window.dom.in_runtime(|| {
         let mut write = page.write();
@@ -398,7 +438,11 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
     let before_queue = queued(&store);
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let mut page = window.page();
     window.dom.in_runtime(|| {
         let mut write = page.write();

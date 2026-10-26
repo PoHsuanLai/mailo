@@ -7,9 +7,9 @@ use super::folder_tree::{AccountFolders, Mailboxes, placed};
 use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use mail_client::Client;
 use mail_client::query::Mailboxes as ClientMailboxes;
-use mail_core::SqliteStore;
-use mail_core::folder::{Refusal, change};
+use mail_core::folder::Refusal;
 use mail_core::undo::{Undo, reverse_folder};
 use mail_domain::{FolderError, FolderWork, LabelId, MailboxRef, NonEmpty, Subscription};
 use porter_core::AccountId;
@@ -99,12 +99,14 @@ pub(in crate::ui) struct Done {
 ///
 /// The window's own function, and the one its tests drive. `delimiter` only shapes the words.
 pub(in crate::ui) fn perform(
-    store: &SqliteStore,
+    client: &Client,
     account: AccountId,
     work: FolderWork,
     delimiter: Option<char>,
 ) -> Result<Done, Refusal> {
-    let applied = change(store, account.clone(), work.clone(), chrono::Utc::now())?;
+    let applied = client
+        .folder()
+        .change(account.clone(), work.clone(), chrono::Utc::now())?;
     let said = told(&work, delimiter);
     let undo = reverse_folder(&work).map(|_| Undo {
         said: said.clone(),
@@ -121,14 +123,14 @@ pub(in crate::ui) fn perform(
 /// [`perform`], then let the window show it: the undo on the stack, a fresh read of every
 /// list, and the toast.
 pub(in crate::ui) fn act(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     mut revision: Signal<u64>,
     account: AccountId,
     work: FolderWork,
     delimiter: Option<char>,
 ) -> Result<(), Refusal> {
-    let done = perform(store, account, work, delimiter)?;
+    let done = perform(client, account, work, delimiter)?;
     revision += 1;
     record(shell, done.undo.into_iter().collect(), done.said);
     Ok(())
@@ -190,7 +192,7 @@ pub(in crate::ui) fn refused(refusal: &Refusal) -> String {
 /// The path a new name makes: inside `parent`, or at the top.
 ///
 /// A name is one level. Typing the separator into it would make levels nobody asked for, so it
-/// is refused here, in words, before the store is asked.
+/// is refused here, in words, before the client is asked.
 pub(in crate::ui) fn child_path(
     parent: Option<&str>,
     name: &str,

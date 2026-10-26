@@ -22,9 +22,9 @@ use super::ops::resolve;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
+use mail_client::Client;
 use mail_client::{Acted, Command, Done, Ticket};
 use mail_core::undo::{Undo, UndoHandle};
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 
 /// What the toast says, and which op it belongs to.
@@ -61,21 +61,17 @@ pub(in crate::ui) enum Restore {
 }
 
 impl Restore {
-    /// Put it back in `store`, or say why not.
-    pub(in crate::ui) fn put_back(&self, store: &SqliteStore) -> Result<(), String> {
+    /// Put it back in `client`, or say why not.
+    pub(in crate::ui) fn put_back(&self, client: &Client) -> Result<(), String> {
         match self {
-            Restore::Rule(rule) => {
-                mail_core::rules::manage::restore(store, rule).map_err(not_put_back)
-            }
-            Restore::Key(key) => mail_core::pgp::keys::restore(store, key).map_err(not_put_back),
-            Restore::Cert(cert) => {
-                mail_core::smime::certs::restore(store, cert).map_err(not_put_back)
-            }
+            Restore::Rule(rule) => client.rules_manage().restore(rule).map_err(not_put_back),
+            Restore::Key(key) => client.keys().restore(key).map_err(not_put_back),
+            Restore::Cert(cert) => client.certs().restore(cert).map_err(not_put_back),
         }
     }
 }
 
-/// What Undo says when the store would not take back what it deleted.
+/// What Undo says when the client would not take back what it deleted.
 fn not_put_back(why: impl std::fmt::Display) -> String {
     crate::ui::remedy::plainly(crate::ui::copy::errors::NOT_KEPT_HERE, why)
 }
@@ -132,24 +128,24 @@ pub(super) fn motion() -> Option<Motion> {
 
 /// Apply what a button means, and let the window show it.
 pub(super) fn act_kind(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     thread: ThreadId,
     kind: OpKind,
 ) -> bool {
-    resolve(store, thread, kind).is_some_and(|op| act(store, shell, revision, thread, op))
+    resolve(client, thread, kind).is_some_and(|op| act(client, shell, revision, thread, op))
 }
 
 /// Apply `op` to `thread` now, keep its undo, and start whatever motion it means.
 pub(super) fn act(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     thread: ThreadId,
     op: Op,
 ) -> bool {
-    act_all(store, shell, revision, vec![(thread, op)]) > 0
+    act_all(client, shell, revision, vec![(thread, op)]) > 0
 }
 
 /// Apply each op to its conversation now, as one gesture: one undo entry that takes every one
@@ -159,19 +155,19 @@ pub(super) fn act(
 /// gesture is that their undos are kept together (`UndoStack::push_all`). A row that no longer
 /// belongs to the list leaves with it: quire's `List` plays that exit.
 pub(super) fn act_all(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     ops: Vec<(ThreadId, Op)>,
 ) -> usize {
-    act_saying(store, shell, revision, ops, None)
+    act_saying(client, shell, revision, ops, None)
 }
 
 /// [`act_all`], its toast saying `instead` rather than what the ops did, when there is more to
 /// say than the op: the toast goes up once the ops are done, so words put up before then would
 /// be replaced by the op's own.
 pub(in crate::ui) fn act_saying(
-    _store: &SqliteStore,
+    _store: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     ops: Vec<(ThreadId, Op)>,
@@ -284,7 +280,7 @@ pub(in crate::ui) fn record_through(
 /// archiving a selection that holds something already archived archives the rest and leaves
 /// that one be, and its undo does not "restore" what the gesture never moved.
 pub(super) fn act_kind_all(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     threads: &[ThreadId],
@@ -293,14 +289,14 @@ pub(super) fn act_kind_all(
     let ops = threads
         .iter()
         .filter_map(|thread| {
-            let loaded = store.thread(*thread).ok()?;
+            let loaded = client.stored().thread(*thread).ok()?;
             mail_core::view::offers(&loaded.summary, kind)
-                .then(|| resolve(store, *thread, kind))
+                .then(|| resolve(client, *thread, kind))
                 .flatten()
                 .map(|op| (*thread, op))
         })
         .collect();
-    act_all(store, shell, revision, ops)
+    act_all(client, shell, revision, ops)
 }
 
 /// Delete forever what each of `threads` holds in `bin`, as one gesture the user has already
@@ -309,7 +305,7 @@ pub(super) fn act_kind_all(
 /// deleted. The rows leave with the list: quire's `List` plays the exit, and the toast has no
 /// Undo.
 pub(in crate::ui) fn destroy_all(
-    _store: &SqliteStore,
+    _store: &Client,
     mut shell: Signal<Shell>,
     mut revision: Signal<u64>,
     threads: &[ThreadId],
@@ -388,20 +384,16 @@ pub(in crate::ui) fn offer_restore(
 }
 
 /// Take back the newest op: ⌘Z.
-pub(super) fn undo_last(
-    store: &SqliteStore,
-    mut shell: Signal<Shell>,
-    revision: Signal<u64>,
-) -> bool {
+pub(super) fn undo_last(client: &Client, mut shell: Signal<Shell>, revision: Signal<u64>) -> bool {
     let Some(entry) = shell.write().undo.pop() else {
         return false;
     };
-    restore(store, shell, revision, motion(), entry)
+    restore(client, shell, revision, motion(), entry)
 }
 
 /// Take back the op the toast named, by the handle its undo carried: the toast's tab.
 pub(super) fn undo_by(
-    store: &SqliteStore,
+    client: &Client,
     mut shell: Signal<Shell>,
     revision: Signal<u64>,
     motion: Option<Motion>,
@@ -410,13 +402,13 @@ pub(super) fn undo_by(
     let Some(entry) = shell.write().undo.take(handle) else {
         return false;
     };
-    restore(store, shell, revision, motion, entry)
+    restore(client, shell, revision, motion, entry)
 }
 
 /// Put `entry` back, every part of it, and take down the toast that offered it. A part that
 /// is refused goes back on the stack, as an entry of its own gesture's parts.
 fn restore(
-    store: &SqliteStore,
+    client: &Client,
     mut shell: Signal<Shell>,
     mut revision: Signal<u64>,
     motion: Option<Motion>,
@@ -430,7 +422,7 @@ fn restore(
         .partition(|part| part.resend.is_some());
     let (sent, unsent): (Vec<Undo>, Vec<Undo>) = sends.into_iter().partition(|part| {
         part.resend
-            .is_some_and(|resend| crate::ui::compose::send_again(store, resend))
+            .is_some_and(|resend| crate::ui::compose::send_again(client, resend))
     });
     let asked = !sent.is_empty() || !parts.is_empty();
     let mut took = move |refused: Vec<Undo>, back: bool| {
@@ -494,8 +486,8 @@ pub(super) fn key(
         return false;
     }
     if undo {
-        let store = consume_context::<std::sync::Arc<SqliteStore>>();
-        undo_last(&store, shell, revision);
+        let client = crate::ui::live::client();
+        undo_last(&client, shell, revision);
         return true;
     }
     false
@@ -567,16 +559,16 @@ impl Motion {
     }
 }
 
-/// Whether `thread`, as the store now holds it, is still in the list `shell` shows.
+/// Whether `thread`, as the client now holds it, is still in the list `shell` shows.
 ///
 /// A search is global, so a row there stays whatever happened to it; a place is its filter,
 /// asked of the thread with the folders the server holds its messages in, so a folder's place
 /// keeps a row that was starred and lets go of one whose mail has left the folder. What the
-/// list draws is the store's own answer to that query; this asks it of one thread, for the
+/// list draws is the client's own answer to that query; this asks it of one thread, for the
 /// tests that pin the two to each other.
 #[cfg(test)]
 pub(in crate::ui) fn belongs(
-    store: &SqliteStore,
+    client: &Client,
     shell: &Shell,
     thread: ThreadId,
     now: chrono::DateTime<chrono::Utc>,
@@ -584,13 +576,13 @@ pub(in crate::ui) fn belongs(
     if !shell.search.trim().is_empty() {
         return true;
     }
-    let Ok(after) = store.thread(thread) else {
+    let Ok(after) = client.stored().thread(thread) else {
         return false;
     };
     let folders: Vec<Placed> = after
         .messages
         .iter()
-        .filter_map(|message| store.placed(*message).ok())
+        .filter_map(|message| client.stored().placed(*message).ok())
         .flatten()
         .collect();
     shell.query(1).filter.fit(&MatchCtx {

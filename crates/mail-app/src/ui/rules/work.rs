@@ -1,4 +1,4 @@
-//! Every question the Rules sheet asks and every rule it writes, as functions of a store.
+//! Every question the Rules sheet asks and every rule it writes, as functions of a client.
 //!
 //! What `mailo rules` does, reached from the window: the same `Rule` rows, the condition in the
 //! same search language (`mail_core::query`), and the same `mail_store::rules::run_now`. The
@@ -6,7 +6,7 @@
 //! draws what these answer, so the tests drive these and not the markup.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::rules::manage::{self, ConditionError, SaveError};
 use mail_domain::{AfterMatch, Filter, LabelId, Rule, RuleId, RuleState};
 use porter_core::AccountId;
@@ -15,7 +15,7 @@ use super::super::files::work::{grouped, messages};
 use crate::ui::copy;
 use crate::ui::remedy::plainly;
 
-pub(in crate::ui) use mail_core::rules::manage::{Draft, Step, conversations, labels};
+pub(in crate::ui) use mail_core::rules::manage::{Draft, Step};
 
 /// The search words a rule's condition may use, as the refusal lists them.
 const KNOWN: &str = "from:, to:, subject:, is:, in:, has:, label:, before: and after:";
@@ -31,12 +31,11 @@ pub(in crate::ui) struct Listed {
 }
 
 /// The account's rules in the order they run: by position, then by name.
-pub(in crate::ui) fn listed(
-    store: &SqliteStore,
-    account: AccountId,
-) -> Result<Vec<Listed>, String> {
-    let rules =
-        manage::listed(store, account).map_err(|why| plainly(copy::errors::NOT_READ_HERE, why))?;
+pub(in crate::ui) fn listed(client: &Client, account: AccountId) -> Result<Vec<Listed>, String> {
+    let rules = client
+        .rules_manage()
+        .listed(account)
+        .map_err(|why| plainly(copy::errors::NOT_READ_HERE, why))?;
     Ok(rules
         .into_iter()
         .map(|listed| Listed {
@@ -50,12 +49,14 @@ pub(in crate::ui) fn listed(
 /// How many conversations on the account match `filter` now: what applying a rule to the mail
 /// already here would go through. `None` when they could not be counted.
 pub(in crate::ui) fn matching(
-    store: &SqliteStore,
+    client: &Client,
     account: AccountId,
     filter: Filter,
     now: DateTime<Utc>,
 ) -> Option<usize> {
-    manage::matching(store, account, filter, now)
+    client
+        .rules_manage()
+        .matching(account, filter, now)
         .ok()
         .and_then(|n| usize::try_from(n).ok())
 }
@@ -106,43 +107,50 @@ fn refusal(why: &ConditionError) -> String {
 
 /// Keep `draft` as a rule on `account`, or say why not.
 pub(in crate::ui) fn save<Tz: TimeZone>(
-    store: &SqliteStore,
+    client: &Client,
     account: AccountId,
     draft: &Draft,
     zone: &Tz,
 ) -> Result<Rule, String> {
-    manage::save(store, account, draft, zone).map_err(|why| match why {
-        SaveError::NoName => "A rule needs a name.".to_owned(),
-        SaveError::Taken { name } => format!("A rule called “{name}” already exists."),
-        SaveError::Condition(why) => refusal(&why),
-        SaveError::NoAction => "Add an action.".to_owned(),
-        SaveError::Store(why) => plainly(copy::errors::NOT_KEPT_HERE, why),
-    })
+    client
+        .rules_manage()
+        .save(account, draft, zone)
+        .map_err(|why| match why {
+            SaveError::NoName => "A rule needs a name.".to_owned(),
+            SaveError::Taken { name } => format!("A rule called “{name}” already exists."),
+            SaveError::Condition(why) => refusal(&why),
+            SaveError::NoAction => "Add an action.".to_owned(),
+            SaveError::Store(why) => plainly(copy::errors::NOT_KEPT_HERE, why),
+        })
 }
 
 /// Move the rule `id` one place up or down, and number the account's rules 1, 2, 3… again.
 pub(in crate::ui) fn reorder(
-    store: &SqliteStore,
+    client: &Client,
     account: AccountId,
     id: RuleId,
     step: Step,
 ) -> Result<(), String> {
-    manage::reorder(store, account, id, step)
+    client
+        .rules_manage()
+        .reorder(account, id, step)
         .map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))
 }
 
 /// Turn a rule on or off. Off, it is kept and skipped, here and in the server's script.
-pub(in crate::ui) fn switch(
-    store: &SqliteStore,
-    rule: &Rule,
-    state: RuleState,
-) -> Result<(), String> {
-    manage::switch(store, rule, state).map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))
+pub(in crate::ui) fn switch(client: &Client, rule: &Rule, state: RuleState) -> Result<(), String> {
+    client
+        .rules_manage()
+        .switch(rule, state)
+        .map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))
 }
 
 /// Forget a rule, returning what the toast says.
-pub(in crate::ui) fn delete(store: &SqliteStore, rule: &Rule) -> Result<String, String> {
-    manage::delete(store, rule).map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))?;
+pub(in crate::ui) fn delete(client: &Client, rule: &Rule) -> Result<String, String> {
+    client
+        .rules_manage()
+        .delete(rule)
+        .map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))?;
     Ok(format!("Deleted the rule “{}”", rule.name))
 }
 
@@ -152,12 +160,14 @@ pub(in crate::ui) fn delete(store: &SqliteStore, rule: &Rule) -> Result<String, 
 /// A switched-off rule runs too: asking is the switch. Blocking; the sheet calls it off the
 /// thread that draws.
 pub(in crate::ui) fn run(
-    store: &SqliteStore,
+    client: &Client,
     rule: &Rule,
     now: DateTime<Utc>,
     report: &(dyn Fn(usize) + Sync),
 ) -> Result<String, String> {
-    let ran = manage::run(store, rule, now, report)
+    let ran = client
+        .rules_manage()
+        .run(rule, now, report)
         .map_err(|why| plainly(copy::errors::RULE_STOPPED, why))?;
     let mut said = format!(
         "“{}” looked at {} and acted on {}.",

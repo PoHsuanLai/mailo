@@ -6,11 +6,9 @@ use ds::components::fields::field_row::{FieldGroup, FieldRow, RowLayout};
 use ds::components::fields::text_field_model::Invalid;
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
-use std::sync::Arc;
 
 use super::super::common::in_card;
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
 
 use super::super::common::classed;
 use super::super::debounce::use_debounced;
@@ -44,12 +42,12 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
     let mut counted = use_signal(|| None::<Counted>);
     let _count = use_resource(move || {
         let settled = debounced.settled.read().clone();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         async move {
             counted.set(None);
             let text = settled.text.clone();
             let done = tokio::task::spawn_blocking(move || {
-                work::counted(&store, &text, chrono::Utc::now())
+                work::counted(&client, &text, chrono::Utc::now())
             })
             .await;
             if let Ok(done) = done
@@ -95,12 +93,12 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
             let query = typed(&shell.peek());
             let target = format().target(work::expand_here(&target_path));
             let of = count.unwrap_or(0);
-            let store = consume_context::<Arc<SqliteStore>>();
+            let client = crate::ui::live::client();
             run(
                 phase,
                 of,
                 move |report| {
-                    work::export_now(&store, &query, &target, chrono::Utc::now(), &mut |done| {
+                    work::export_now(&client, &query, &target, chrono::Utc::now(), &mut |done| {
                         report(done.written)
                     })
                     .map(|(_, said)| said)

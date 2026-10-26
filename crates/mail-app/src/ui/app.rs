@@ -26,18 +26,16 @@ use ds::prelude::*;
 use ds::style::kit::Styles;
 use ds_settings::Environment;
 use mail_core::profile::ProfileId;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use std::sync::Arc;
 
 #[component]
 pub(super) fn App() -> Element {
-    // No store handle in the component body. Every read this component makes goes through a
+    // No client handle in the component body. Every read this component makes goes through a
     // `use_resource` that takes its own clone for a blocking thread, or through the first-frame
     // fallback beside it, which asks the context where it stands. A handle held here is a
     // handle that invites a query back onto the thread that draws.
     // The launched look, when `main` provided one. A test that builds `App` with only the
-    // store keeps the first-run appearance.
+    // client keeps the first-run appearance.
     // Opened on a conversation when the window was started to show one (`mailo open`), or on
     // the composer when it was started from a `mailto:` link.
     let mut shell = use_signal(|| {
@@ -54,8 +52,8 @@ pub(super) fn App() -> Element {
             // Started from a `mailto:` link: its draft was saved before the window opened, and
             // one read here, once, puts it in the composer.
             Some(super::Start::Compose(id)) => {
-                let store = consume_context::<Arc<SqliteStore>>();
-                if let Err(why) = shell.compose_id(&*store, id) {
+                let client = crate::ui::live::client();
+                if let Err(why) = shell.compose_id(&client, id) {
                     log::warn!("compose: {why}");
                 }
             }
@@ -163,16 +161,16 @@ pub(super) fn App() -> Element {
     // program reads them before the window opens): a chip's name is a lookup, and a lookup
     // against an empty list draws an empty chip.
     use_hook(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let mut write = shell.write();
         if every.peek().value().is_some() {
             write.labels = known.peek().clone();
             write.places = places_with(&known.peek(), &folder_refs.peek(), &saved_views.peek());
         }
-        write.accounts = mail_core::compose::sending_accounts(&store);
+        write.accounts = client.compose().sending_accounts();
     });
 
-    // A client that reads on the thread that draws (a test's window, given only a store) acts on
+    // A client that reads on the thread that draws (a test's window, given only a client) acts on
     // what was committed when the revision moves; the program's own client does that by itself.
     let client = super::live::use_client();
     use_effect(move || {
@@ -259,8 +257,8 @@ pub(super) fn App() -> Element {
     // window without a restart.
     use_effect(move || {
         let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
-        let sending = mail_core::compose::sending_accounts(&store);
+        let client = crate::ui::live::client();
+        let sending = client.compose().sending_accounts();
         if shell.peek().accounts != sending {
             shell.write().accounts = sending;
         }
@@ -305,8 +303,8 @@ pub(super) fn App() -> Element {
         if handle.editing().is_some() {
             return;
         }
-        let store = consume_context::<Arc<SqliteStore>>();
-        let Ok(known) = super::data::known_accounts(&store) else {
+        let client = crate::ui::live::client();
+        let Ok(known) = super::data::known_accounts(&client) else {
             return;
         };
         let mut next = spaces.peek().clone();
@@ -337,7 +335,7 @@ pub(super) fn App() -> Element {
         };
         let space = spaces.peek().current().id;
         let now = chrono::Utc::now();
-        mail_core::history::record(&consume_context::<Arc<SqliteStore>>(), id, now);
+        crate::ui::live::client().history().record(id, now);
         today_list
             .write()
             .opened(space, id, crate::ui::today::at(now));
@@ -361,21 +359,21 @@ pub(super) fn App() -> Element {
 
     let drafts = use_memo(move || {
         let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         match shell.read().listing(PAGE) {
-            Listing::Drafts => accounts(&store)
+            Listing::Drafts => accounts(&client)
                 .into_iter()
-                .filter_map(|account| store.drafts(account).ok())
+                .filter_map(|account| client.stored().drafts(account).ok())
                 .flatten()
                 .collect::<Vec<_>>(),
-            Listing::Scheduled => super::compose::scheduled(&store, &shell.read().scope),
+            Listing::Scheduled => super::compose::scheduled(&client, &shell.read().scope),
             _ => Vec::new(),
         }
     });
 
-    // One more row than asked for means there is another page. Asking the store for the count
+    // One more row than asked for means there is another page. Asking the client for the count
     // would be a second query answering a question this one already answers.
-    // Deliberately a growing limit rather than `Page::next`, which the store also returns. A
+    // Deliberately a growing limit rather than `Page::next`, which the client also returns. A
     // cursor is the usual answer for an accumulating list — but accumulating means holding
     // pages in a signal and rebuilding them after every archive, star and ingest, and a mixture
     // of pages fetched at different moments is exactly the inconsistency keyset pagination
@@ -389,8 +387,8 @@ pub(super) fn App() -> Element {
     // account, so the first run needs to name the command that can.
     let nothing = use_memo(move || {
         let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
-        nothing_to_show(accounts(&store).len(), &shell.read().search)
+        let client = crate::ui::live::client();
+        nothing_to_show(accounts(&client).len(), &shell.read().search)
     });
 
     // The keyboard.
@@ -573,7 +571,7 @@ pub(super) fn App() -> Element {
         let Some(Intent::Mail(action)) = intent else {
             return;
         };
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let open = shell.read().open;
         match action {
             Shortcut::Next | Shortcut::Previous => {
@@ -601,11 +599,11 @@ pub(super) fn App() -> Element {
             }
             Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
                 if let Some(id) = open {
-                    on_thread(&store, shell, revision, id, action);
+                    on_thread(&client, shell, revision, id, action);
                 }
             }
             Shortcut::ToggleMute => {
-                super::picks::mute_picked(&store, shell, revision, &threads());
+                super::picks::mute_picked(&client, shell, revision, &threads());
             }
             Shortcut::Compose => {
                 // The only shortcut that does not consult the conversation under the cursor, and
@@ -613,7 +611,7 @@ pub(super) fn App() -> Element {
                 // Cloned out and the guard dropped before anything writes back. The same
                 // hazard the composer's handlers document, caught here by the borrow checker
                 // rather than at runtime.
-                if open_composer(&store, shell, Writes::New).is_ok() {
+                if open_composer(&client, shell, Writes::New).is_ok() {
                     revision += 1;
                 }
             }
@@ -621,7 +619,7 @@ pub(super) fn App() -> Element {
                 // The picked conversations, or with none picked the open one. Resolved against
                 // their own summaries, so the keyboard reaches exactly what their rows offer and
                 // nothing else, and all of it is one gesture with one undo.
-                super::picks::act_on_picked(&store, shell, revision, action, &threads());
+                super::picks::act_on_picked(&client, shell, revision, action, &threads());
             }
         }
     };

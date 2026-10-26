@@ -28,7 +28,6 @@
 use ds::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
-use std::sync::Arc;
 
 use chordkit::StandardAction;
 use dioxus::prelude::*;
@@ -395,7 +394,7 @@ fn heard(
 /// An editor event, handed to the page: on the page's own selection,
 /// through the IME rule, and the `@` menu asking the contact book what follows it.
 fn edit(mut page: Signal<Page>, event: InputEvent) {
-    let store = try_consume_context::<Arc<mail_core::SqliteStore>>();
+    let client = crate::ui::live::try_client();
     let mut write = page.write();
     let caret = write.session.caret.pos;
     let selection = write.selection.unwrap_or(Range {
@@ -412,8 +411,8 @@ fn edit(mut page: Signal<Page>, event: InputEvent) {
         },
         now_ms(),
     );
-    if let Some(store) = store {
-        suggest_mention(&mut write, store.as_ref());
+    if let Some(client) = client {
+        suggest_mention(&mut write, &client);
     }
 }
 

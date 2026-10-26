@@ -307,8 +307,15 @@ fn a_mailto_link_opens_the_window_on_its_composer_and_sends_nothing() {
     let link = mail_app::ui::mailto_of(&[uri.to_owned()]).expect("read as a mailto link");
     let dir = tempfile::tempdir().expect("a temp dir");
     let store = super::seed::seeded(dir.path());
-    let start = mail_app::ui::start_mailto(&store, &link, chrono::Utc::now())
-        .expect("the link's draft is saved");
+    let start = mail_app::ui::start_mailto(
+        &mail_client::Client::inline(
+            store.clone(),
+            std::sync::Arc::new(mail_core::mail::SystemClock),
+        ),
+        &link,
+        chrono::Utc::now(),
+    )
+    .expect("the link's draft is saved");
     let mut harness = crate::opening::open_window(
         &store,
         crate::opening::Open {

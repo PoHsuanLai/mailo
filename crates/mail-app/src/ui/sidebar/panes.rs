@@ -14,9 +14,9 @@ use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::prelude::*;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
+use mail_client::Client;
 use mail_core::place::{pending_snooze, place_filter};
 use mail_core::query::{self};
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 
 /// The most pinned conversations Favourites shows: the most recently pinned. Every pinned
@@ -40,8 +40,8 @@ pub(super) struct Counts {
     pub pinned: Vec<Favourite>,
 }
 
-pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
-    let labels = query::known_labels(store);
+pub(super) fn counts(client: &Client, space: &Space) -> Counts {
+    let labels = client.query().known_labels();
     let scope = space.payload.scope().filter();
     let now = chrono::Utc::now();
     let unread = |extra: Filter| {
@@ -49,7 +49,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
         if let Some(scope) = scope.clone() {
             parts.push(scope);
         }
-        store.count(&Filter::And(parts), now).unwrap_or(0)
+        client.stored().count(&Filter::And(parts), now).unwrap_or(0)
     };
     let pins = space
         .payload
@@ -57,7 +57,8 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
         .iter()
         .map(|pin| unread(pin_filter(pin, &labels)))
         .collect();
-    let pinned = store
+    let pinned = client
+        .stored()
         .threads(
             &Query {
                 filter: mail_core::view::scoped(scope.clone(), Filter::Pinned),

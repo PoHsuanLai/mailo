@@ -1,7 +1,7 @@
 use crate::ui::view::Shell;
 use dioxus::prelude::{ReadableExt, Signal, WritableExt};
+use mail_client::Client;
 use mail_core::view::{mute_op, op_for, reply_target};
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use porter_core::AccountId;
 
@@ -38,21 +38,20 @@ pub(super) fn composes(kind: OpKind) -> Option<Composes> {
 /// Open a composer on the newest message of `thread`, replying or forwarding.
 /// Begin a message that answers nothing.
 ///
-/// `known` is the shell's own list, so the common case — one account — asks the store nothing
+/// `known` is the shell's own list, so the common case — one account — asks the client nothing
 /// and the multi-account case picks a default the user can see and change in the From row.
-/// Empty only before the first `use_effect` has run or before an account exists, and the store
+/// Empty only before the first `use_effect` has run or before an account exists, and the client
 /// is asked then, because a window that has just been opened should still be able to write.
-pub(super) fn start_new(
-    store: &SqliteStore,
-    known: &[(String, AccountId)],
-) -> Result<Draft, String> {
+pub(super) fn start_new(client: &Client, known: &[(String, AccountId)]) -> Result<Draft, String> {
     let account = match known.first() {
         Some((_, id)) => id.clone(),
-        None => mail_core::compose::account_for(store, None)?,
+        None => client.compose().account_for(None)?,
     };
     // No recipients and no subject: there is no original to take either from, and a guess is
     // something the sender has to notice and undo. Saved anyway, so closing the window keeps it.
-    mail_core::compose::draft_new(store, account, &[], "", "", chrono::Utc::now())
+    client
+        .compose()
+        .draft_new(account, &[], "", "", chrono::Utc::now())
         .map_err(String::from)
 }
 
@@ -71,17 +70,17 @@ pub(super) enum Writes {
 /// Add Account (`no_account`); anything else that stops it goes to the log. The refusal comes
 /// back for a caller that says it somewhere of its own; `Ok` when the composer opened.
 pub(super) fn open_composer(
-    store: &SqliteStore,
+    client: &Client,
     mut shell: Signal<Shell>,
     what: Writes,
 ) -> Result<(), String> {
     let opened = match what {
         Writes::New => {
             let known = shell.peek().accounts.clone();
-            let started = start_new(store, &known);
+            let started = start_new(client, &known);
             if let Err(why) = &started
                 && known.is_empty()
-                && mail_core::compose::sending_accounts(store).is_empty()
+                && client.compose().sending_accounts().is_empty()
             {
                 shell.write().no_account = true;
                 return Err(why.clone());
@@ -89,9 +88,9 @@ pub(super) fn open_composer(
             started.map(|draft| shell.write().compose(&draft))
         }
         Writes::On(thread, composes) => {
-            start_composing(store, thread, composes).map(|draft| shell.write().compose(&draft))
+            start_composing(client, thread, composes).map(|draft| shell.write().compose(&draft))
         }
-        Writes::Draft(id) => shell.write().compose_id(store, id),
+        Writes::Draft(id) => shell.write().compose_id(client, id),
     };
     if let Err(why) = &opened {
         log::warn!("compose: {why}");
@@ -100,74 +99,74 @@ pub(super) fn open_composer(
 }
 
 pub(super) fn start_composing(
-    store: &SqliteStore,
+    client: &Client,
     thread: ThreadId,
     what: Composes,
 ) -> Result<Draft, String> {
     match what {
-        Composes::Reply(scope) => start_reply(store, thread, scope),
+        Composes::Reply(scope) => start_reply(client, thread, scope),
         Composes::Forward | Composes::ForwardAttached => {
-            let loaded = store.thread(thread).map_err(|e| e.to_string())?;
+            let loaded = client.stored().thread(thread).map_err(|e| e.to_string())?;
             let messages: Vec<Message> = loaded
                 .messages
                 .iter()
-                .filter_map(|id| store.message(*id).ok())
+                .filter_map(|id| client.stored().message(*id).ok())
                 .collect();
             let target = reply_target(&messages)
                 .ok_or_else(|| "that conversation has no message to forward".to_owned())?;
             // No recipients: a forward has none of its own and the composer is where the user
             // names them. The draft is saved regardless, so closing the window does not lose it.
             let forwarded = match what {
-                Composes::ForwardAttached => mail_core::compose::draft_forward_attached(
-                    store,
-                    target.id,
-                    &[],
-                    "",
-                    chrono::Utc::now(),
-                ),
-                _ => {
-                    mail_core::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now())
+                Composes::ForwardAttached => {
+                    client
+                        .compose()
+                        .draft_forward_attached(target.id, &[], "", chrono::Utc::now())
                 }
+                _ => client
+                    .compose()
+                    .draft_forward(target.id, &[], "", chrono::Utc::now()),
             };
             forwarded.map_err(String::from)
         }
     }
 }
 
-fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Result<Draft, String> {
-    let loaded = store.thread(thread).map_err(|e| e.to_string())?;
+fn start_reply(client: &Client, thread: ThreadId, scope: ReplyScope) -> Result<Draft, String> {
+    let loaded = client.stored().thread(thread).map_err(|e| e.to_string())?;
     let messages: Vec<Message> = loaded
         .messages
         .iter()
-        .filter_map(|id| store.message(*id).ok())
+        .filter_map(|id| client.stored().message(*id).ok())
         .collect();
     let target =
         reply_target(&messages).ok_or_else(|| "that conversation has no messages".to_owned())?;
-    mail_core::compose::draft_reply(store, target.id, scope, "", chrono::Utc::now())
+    client
+        .compose()
+        .draft_reply(target.id, scope, "", chrono::Utc::now())
         .map_err(String::from)
 }
 
 /// Apply a hover action, returning whether anything changed.
 ///
 /// A free function rather than a closure so it can be called from several handlers, and so the
-/// store it needs is an argument rather than a capture.
+/// client it needs is an argument rather than a capture.
 /// Put a label on a conversation, or take it off.
 ///
 /// Separate from `apply_op` because `Op::Label` carries a payload no `OpKind` can supply — which
 /// is exactly why the row's "Label" button opened nothing for as long as it existed.
 #[cfg(test)]
 pub(super) fn apply_label(
-    store: &SqliteStore,
+    client: &Client,
     thread: ThreadId,
     label: LabelId,
     membership: Membership,
 ) -> bool {
-    apply(store, thread, Op::Label(label, membership))
+    apply(client, thread, Op::Label(label, membership))
 }
 
 #[cfg(test)]
-pub(super) fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
-    resolve(store, thread, kind).is_some_and(|op| apply(store, thread, op))
+pub(super) fn apply_op(client: &Client, thread: ThreadId, kind: OpKind) -> bool {
+    resolve(client, thread, kind).is_some_and(|op| apply(client, thread, op))
 }
 
 /// The operation a button means for this conversation now.
@@ -176,17 +175,17 @@ pub(super) fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> b
 /// current state and the rank from the clock — so it is resolved here, where both are in
 /// reach, and `Mute` likewise takes its direction from the conversation. Label and snooze open
 /// a menu rather than acting, and resolve to nothing.
-pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Option<Op> {
+pub(super) fn resolve(client: &Client, thread: ThreadId, kind: OpKind) -> Option<Op> {
     match kind {
         OpKind::Pin => {
-            let loaded = store.thread(thread).ok()?;
+            let loaded = client.stored().thread(thread).ok()?;
             Some(mail_core::place::pin_op(
                 &loaded.summary,
                 chrono::Utc::now(),
             ))
         }
         OpKind::Mute => {
-            let loaded = store.thread(thread).ok()?;
+            let loaded = client.stored().thread(thread).ok()?;
             Some(mute_op(&loaded.summary))
         }
         other => op_for(other),
@@ -194,13 +193,15 @@ pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Op
 }
 
 #[cfg(test)]
-fn apply(store: &SqliteStore, thread: ThreadId, op: Op) -> bool {
-    perform(store, thread, op, mail_core::when::Clock::H24).is_some()
+fn apply(client: &Client, thread: ThreadId, op: Op) -> bool {
+    client
+        .acting()
+        .perform(thread, op, mail_core::when::Clock::H24)
+        .is_some()
 }
 
 // What the window and `mailo intents` both do to conversations lives in the core
 // (`mail_core::act`): two code paths for "archive this" is how two front-ends start disagreeing.
-pub(super) use mail_core::act::caps_here;
 #[cfg(test)]
 pub(super) use mail_core::act::{perform, take_back};
 
@@ -238,7 +239,11 @@ mod tests {
             let (store, _dir) = realistic();
             let thread = first_thread(&store);
 
-            assert!(apply_op(&store, thread, OpKind::Archive));
+            assert!(apply_op(
+                &crate::ui::fixtures::client(&store),
+                thread,
+                OpKind::Archive
+            ));
 
             let queued = store
                 .outbox_due(acct_account(), chrono::Utc::now())
@@ -263,7 +268,11 @@ mod tests {
             let (store, _dir) = realistic();
             let thread = first_thread(&store);
 
-            assert!(apply_op(&store, thread, OpKind::MarkRead));
+            assert!(apply_op(
+                &crate::ui::fixtures::client(&store),
+                thread,
+                OpKind::MarkRead
+            ));
 
             let queued = store
                 .outbox_due(acct_account(), chrono::Utc::now())
@@ -292,7 +301,11 @@ mod tests {
                 .unwrap();
             let thread = first_thread(&store);
 
-            assert!(apply_op(&store, thread, OpKind::Archive));
+            assert!(apply_op(
+                &crate::ui::fixtures::client(&store),
+                thread,
+                OpKind::Archive
+            ));
             let queued = store
                 .outbox_due(acct_account(), chrono::Utc::now())
                 .unwrap();
@@ -311,7 +324,11 @@ mod tests {
             let (store, _dir) = realistic();
             let thread = first_thread(&store);
 
-            assert!(apply_op(&store, thread, OpKind::Pin));
+            assert!(apply_op(
+                &crate::ui::fixtures::client(&store),
+                thread,
+                OpKind::Pin
+            ));
             let queued = store
                 .outbox_due(acct_account(), chrono::Utc::now())
                 .unwrap();

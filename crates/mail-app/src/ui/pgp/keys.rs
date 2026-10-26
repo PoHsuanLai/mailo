@@ -13,8 +13,8 @@
 //! count of key changes, and the reader opens a message again when that has moved.
 
 use chrono::Utc;
+use mail_client::Client;
 use mail_core::SigningStore;
-use mail_core::SqliteStore;
 use mail_domain::{Fingerprint, PgpKey, SecretHeld};
 use std::path::{Path, PathBuf};
 
@@ -26,7 +26,7 @@ use mail_core::pgp::WithSecret;
 pub(in crate::ui) use super::keys_page::{KeysPage, Whose};
 
 /// The keys in the order the page lists them: the user's own — those whose secret half the
-/// keyring holds — first, then everyone else's, each group as the store orders it.
+/// keyring holds — first, then everyone else's, each group as the client orders it.
 pub(in crate::ui) fn ordered(keys: Vec<PgpKey>) -> Vec<PgpKey> {
     let (mut own, others): (Vec<PgpKey>, Vec<PgpKey>) = keys
         .into_iter()
@@ -37,12 +37,12 @@ pub(in crate::ui) fn ordered(keys: Vec<PgpKey>) -> Vec<PgpKey> {
 
 /// The addresses of the user's sending accounts that have no key of their own yet: what
 /// Generate is offered for.
-pub(in crate::ui) fn keyless(store: &SqliteStore) -> Vec<String> {
-    account_rows(store)
+pub(in crate::ui) fn keyless(client: &Client) -> Vec<String> {
+    account_rows(client)
         .into_iter()
         .filter(|row| !row.is_local())
         .map(|row| row.address)
-        .filter(|address| matches!(mail_core::pgp::own_key(store, address), Ok(None)))
+        .filter(|address| matches!(client.pgp().own_key(address), Ok(None)))
         .collect()
 }
 
@@ -72,16 +72,16 @@ pub(in crate::ui) enum Done {
 
 /// Do `job`. Blocks — on the keyring, a file dialog, the disk — so the page runs it on a
 /// blocking thread.
-pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Result<Done, String> {
+pub(in crate::ui) fn work(client: &Client, seams: &Seams, job: Job) -> Result<Done, String> {
     let secrets = seams.secrets.as_ref();
     let said = match job {
-        Job::Cert(job) => return super::certs::work(store, seams, job),
-        Job::Generate(address) => generate(store, secrets, &address)?,
+        Job::Cert(job) => return super::certs::work(client, seams, job),
+        Job::Generate(address) => generate(client, secrets, &address)?,
         Job::Import => {
             let Some(path) = (seams.pick)() else {
                 return Ok(Done::Said("Nothing was imported.".to_owned()));
             };
-            import(store, secrets, &path)?
+            import(client, secrets, &path)?
         }
         Job::SavePublic(key) => {
             let Some(path) = (seams.save)(&file_name(&key, "public")) else {
@@ -99,7 +99,9 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
             let Some(path) = (seams.save)(&file_name(&key, "secret")) else {
                 return Ok(Done::Said("Nothing was saved.".to_owned()));
             };
-            let armored = mail_core::pgp::keys::export_secret(store, secrets, &key)
+            let armored = client
+                .keys()
+                .export_secret(secrets, &key)
                 .map_err(|e| e.to_string())?;
             write(&path, &armored)?;
             format!(
@@ -109,7 +111,9 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
             )
         }
         Job::Delete(key, with_secret) => {
-            mail_core::pgp::keys::delete(store, secrets, &key, with_secret)
+            client
+                .keys()
+                .delete(secrets, &key, with_secret)
                 .map_err(|e| e.to_string())?;
             let said = format!("Deleted the key of {}", who(&key));
             if key.secret == SecretHeld::Absent {
@@ -121,19 +125,20 @@ pub(in crate::ui) fn work(store: &SqliteStore, seams: &Seams, job: Job) -> Resul
             said
         }
         Job::Verify(fingerprint) => {
-            mail_core::pgp::keys::verify(store, fingerprint).map_err(|e| e.to_string())?;
+            client
+                .keys()
+                .verify(fingerprint)
+                .map_err(|e| e.to_string())?;
             format!("Marked {} as verified", short(fingerprint))
         }
     };
     Ok(Done::Said(said))
 }
 
-fn generate(
-    store: &SqliteStore,
-    secrets: &dyn SigningStore,
-    address: &str,
-) -> Result<String, String> {
-    let key = mail_core::pgp::keys::generate(store, secrets, address, Utc::now())
+fn generate(client: &Client, secrets: &dyn SigningStore, address: &str) -> Result<String, String> {
+    let key = client
+        .keys()
+        .generate(secrets, address, Utc::now())
         .map_err(|e| e.to_string())?;
     Ok(format!(
         "Made a key for {address}, {}",
@@ -141,9 +146,11 @@ fn generate(
     ))
 }
 
-fn import(store: &SqliteStore, secrets: &dyn SigningStore, path: &Path) -> Result<String, String> {
+fn import(client: &Client, secrets: &dyn SigningStore, path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let imported = mail_core::pgp::keys::import(store, secrets, &bytes, Utc::now())
+    let imported = client
+        .keys()
+        .import(secrets, &bytes, Utc::now())
         .map_err(|e| e.to_string())?;
     let names: Vec<String> = imported.iter().map(|one| who(&one.key)).collect();
     let secret = imported.iter().filter(|one| one.secret.is_some()).count();

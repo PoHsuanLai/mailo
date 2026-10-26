@@ -2,7 +2,7 @@
 //! between the protection chosen and Send, and the send that seals.
 //!
 //! What stands between them is [`mail_core::pgp::check`]'s or [`mail_core::smime::check`]'s answer, the
-//! same one `mailo compose` gives, asked of the store as Send is pressed and never of the
+//! same one `mailo compose` gives, asked of the client as Send is pressed and never of the
 //! keyring. Signing and encrypting themselves happen in [`super::life::queue`], off the thread
 //! that draws, with an OpenPGP key's passphrase asked for in the bar when it has one. S/MIME's
 //! private keys have none.
@@ -10,11 +10,10 @@
 use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
-use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_domain::{Draft, Fingerprint};
 
 use super::super::pgp::{Busy, Passphrase, Scheme, Tried, WRONG, seams, short};
@@ -52,15 +51,16 @@ pub(in crate::ui) enum SealBar {
 }
 
 /// What stands between `draft` and being sent as it asks, as the bar says it; `Clear` when
-/// nothing does. Reads the store only.
+/// nothing does. Reads the client only.
 pub(in crate::ui) fn sealable(
-    store: &SqliteStore,
+    client: &Client,
     draft: &Draft,
     now: DateTime<Utc>,
 ) -> Result<SealBar, String> {
-    let identity =
-        mail_core::compose::identity_of(store, draft.account.clone(), Some(draft.identity))?;
-    match mail_core::pgp::check(store, draft, &identity, now) {
+    let identity = client
+        .compose()
+        .identity_of(draft.account.clone(), Some(draft.identity))?;
+    match client.pgp().check(draft, &identity, now) {
         Ok(()) => {}
         Err(PgpError::NoKeyFor(addresses)) => return Ok(SealBar::NoKeyFor(addresses)),
         Err(PgpError::NoOwnKey(address)) => return Ok(SealBar::NoOwnKey(address)),
@@ -69,25 +69,21 @@ pub(in crate::ui) fn sealable(
         }
         Err(other) => return Err(other.to_string()),
     }
-    Ok(
-        match mail_core::smime::check(store, draft, &identity, now) {
-            Ok(()) => SealBar::Clear,
-            Err(SmimeError::NoCertFor(addresses)) => SealBar::NoCertFor(addresses),
-            Err(SmimeError::NoOwnCert(address)) => SealBar::NoOwnCert(address),
-            Err(SmimeError::OwnCertCannotEncrypt(address)) => {
-                SealBar::OwnCertCannotEncrypt(address)
-            }
-            Err(SmimeError::BlindRecipients(addresses)) => SealBar::Blind(Scheme::Smime, addresses),
-            Err(other) => return Err(other.to_string()),
-        },
-    )
+    Ok(match client.smime().check(draft, &identity, now) {
+        Ok(()) => SealBar::Clear,
+        Err(SmimeError::NoCertFor(addresses)) => SealBar::NoCertFor(addresses),
+        Err(SmimeError::NoOwnCert(address)) => SealBar::NoOwnCert(address),
+        Err(SmimeError::OwnCertCannotEncrypt(address)) => SealBar::OwnCertCannotEncrypt(address),
+        Err(SmimeError::BlindRecipients(addresses)) => SealBar::Blind(Scheme::Smime, addresses),
+        Err(other) => return Err(other.to_string()),
+    })
 }
 
 /// Ask each address's domain for its OpenPGP key, then ask again what stands in the way.
 /// Blocks on the network: run on a blocking thread, from "Look up keys" only. Returns the bar,
 /// and what the lookups found in words.
 pub(in crate::ui) fn look_up(
-    store: &SqliteStore,
+    client: &Client,
     lookup: &super::super::pgp::Lookup,
     draft: &Draft,
     addresses: &[String],
@@ -95,13 +91,13 @@ pub(in crate::ui) fn look_up(
 ) -> Result<(SealBar, String), String> {
     let mut said = Vec::new();
     for address in addresses {
-        said.push(match lookup(store, address) {
+        said.push(match lookup(client, address) {
             Ok(Some(key)) => format!("found {address}'s key {}", short(key.fingerprint)),
             Ok(None) => format!("{address}'s domain publishes no key"),
             Err(why) => format!("could not ask about {address}: {why}"),
         });
     }
-    let bar = sealable(store, draft, now)?;
+    let bar = sealable(client, draft, now)?;
     let mut sentence = said.join("; ");
     if let Some(first) = sentence.get(..1) {
         sentence = first.to_uppercase() + &sentence[1..];
@@ -252,7 +248,7 @@ pub(in crate::ui) fn SealWarn(bar: SealBar, on_act: EventHandler<BarAct>) -> Ele
 /// key if one was typed. Answers what the send did: when it may leave, or the bar to show
 /// instead. The passphrase is dropped when the send is done.
 pub(in crate::ui) async fn seal_and_queue(
-    store: Arc<SqliteStore>,
+    client: Client,
     draft: mail_domain::DraftId,
     leaves: mail_core::compose::Leaves,
     remind: Option<DateTime<Utc>>,
@@ -271,7 +267,7 @@ pub(in crate::ui) async fn seal_and_queue(
             typed
         };
         let queued = super::life::queue_reminding(
-            &store,
+            &client,
             secrets.as_ref(),
             &ask,
             draft,

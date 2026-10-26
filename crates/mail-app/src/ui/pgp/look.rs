@@ -8,8 +8,8 @@
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
+use mail_client::Client;
 use mail_core::SigningStore;
-use mail_core::SqliteStore;
 use mail_core::message::{Looks, Opening, Protection, Sealed};
 use mail_domain::*;
 use mail_mime::Parsed;
@@ -139,25 +139,33 @@ pub(in crate::ui) fn last(looks: &Looks, message: MessageId, body: Option<BlobId
 /// nowhere else.
 pub(in crate::ui) fn lookup(
     looks: &Looks,
-    store: &SqliteStore,
+    client: &Client,
     secrets: &dyn SigningStore,
     message: MessageId,
     body: Option<BlobId>,
 ) -> Look {
-    look_of(looks.sealed(store, secrets, message, body, Utc::now()))
+    look_of(
+        client
+            .looking(looks)
+            .sealed(secrets, message, body, Utc::now()),
+    )
 }
 
 /// Open `message` again with the passphrase typed for it, and keep what that found. The
 /// passphrase is dropped when this returns. Runs on a blocking thread, and only from Unlock.
 pub(in crate::ui) fn unlock(
     looks: &Looks,
-    store: &SqliteStore,
+    client: &Client,
     secrets: &dyn SigningStore,
     message: MessageId,
     body: Option<BlobId>,
     passphrase: Password,
 ) -> Look {
-    look_of(looks.unlocked(store, secrets, message, body, passphrase, Utc::now()))
+    look_of(
+        client
+            .looking(looks)
+            .unlocked(secrets, message, body, passphrase, Utc::now()),
+    )
 }
 
 /// The attachments to list for `message` when it was opened to a body of its own: those inside

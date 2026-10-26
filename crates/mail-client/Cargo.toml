@@ -23,7 +23,14 @@ testing = ["mail-store/testing"]
 mail-core.workspace = true
 mail-domain.workspace = true
 mail-store.workspace = true
+# What the calls it makes for a caller take and hand back (`calls`).
+mail-mime.workspace = true
+mail-runtime.workspace = true
+mail-proto.workspace = true
+reqwest = { version = "0.12", default-features = false }
+uuid.workspace = true
 porter-core.workspace = true
+porter-provider.workspace = true
 chrono.workspace = true
 log.workspace = true
 thiserror.workspace = true
@@ -39,7 +46,6 @@ mail-client = { path = ".", features = ["testing"] }
 mail-domain = { workspace = true, features = ["testing"] }
 mail-store = { workspace = true, features = ["testing"] }
 tempfile = "3"
-uuid.workspace = true
 # To await a change in a test (`Live::changed`).
 tokio = { version = "1", features = ["rt", "time", "sync"] }
 

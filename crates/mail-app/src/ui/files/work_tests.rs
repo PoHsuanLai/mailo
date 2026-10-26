@@ -126,9 +126,13 @@ fn a_maildir_is_counted_then_imported_into_local_folders() {
     assert!(mail_core::sync::local_accounts(&store).is_empty());
 
     let mut seen = Vec::new();
-    let done = import_now(&store, &source, &Dest::Local, now(), &mut |so_far| {
-        seen.push(so_far.read)
-    })
+    let done = import_now(
+        &crate::ui::fixtures::client(&store),
+        &source,
+        &Dest::Local,
+        now(),
+        &mut |so_far| seen.push(so_far.read),
+    )
     .unwrap();
     assert_eq!((done.total.read, done.total.added), (3, 3));
     assert_eq!(
@@ -152,7 +156,14 @@ fn an_mbox_is_counted_then_imported_into_local_folders_once() {
     assert_eq!(source, Source::Mbox(path.clone()));
     assert_eq!((count, said.as_str()), (2, "mbox, 2 messages"));
 
-    let done = import_now(&store, &source, &Dest::Local, now(), &mut |_| {}).unwrap();
+    let done = import_now(
+        &crate::ui::fixtures::client(&store),
+        &source,
+        &Dest::Local,
+        now(),
+        &mut |_| {},
+    )
+    .unwrap();
     assert_eq!(
         done.said,
         "2 message(s) read; 2 kept in local folders; 0 already there"
@@ -163,7 +174,14 @@ fn an_mbox_is_counted_then_imported_into_local_folders_once() {
         vec!["Re: lunch", "lunch"]
     );
 
-    let again = import_now(&store, &source, &Dest::Local, now(), &mut |_| {}).unwrap();
+    let again = import_now(
+        &crate::ui::fixtures::client(&store),
+        &source,
+        &Dest::Local,
+        now(),
+        &mut |_| {},
+    )
+    .unwrap();
     assert_eq!(
         again.said,
         "2 message(s) read; 0 kept in local folders; 2 already there"
@@ -178,14 +196,14 @@ fn a_place_exports_in_each_format_and_reads_back_as_as_many_messages() {
     let chosen = mail_core::export::select(&built.store, "inbox", now()).unwrap();
     assert!(!chosen.is_empty(), "the fixture's inbox has mail");
     assert_eq!(
-        work::counted(&built.store, "inbox", now()),
+        work::counted(&crate::ui::fixtures::client(&built.store), "inbox", now()),
         Counted::Some(chosen.len())
     );
     for format in Format::ALL {
         let path = suggested(out.path(), "inbox", format);
         assert!(!path.exists());
         let (done, said) = export_now(
-            &built.store,
+            &crate::ui::fixtures::client(&built.store),
             "inbox",
             &format.target(path.clone()),
             now(),
@@ -217,17 +235,30 @@ fn a_place_exports_in_each_format_and_reads_back_as_as_many_messages() {
                 let mut read = 0;
                 for file in std::fs::read_dir(&path).unwrap() {
                     let (source, _, _) = looked_mail(&file.unwrap().path());
-                    read += import_now(&again, &source, &Dest::Local, now(), &mut |_| {})
-                        .unwrap()
-                        .total
-                        .read;
+                    read += import_now(
+                        &crate::ui::fixtures::client(&again),
+                        &source,
+                        &Dest::Local,
+                        now(),
+                        &mut |_| {},
+                    )
+                    .unwrap()
+                    .total
+                    .read;
                 }
                 assert_eq!(read, done.written, "{format:?}");
                 continue;
             }
             _ => looked_mail(&path).0,
         };
-        let back = import_now(&again, &source, &Dest::Local, now(), &mut |_| {}).unwrap();
+        let back = import_now(
+            &crate::ui::fixtures::client(&again),
+            &source,
+            &Dest::Local,
+            now(),
+            &mut |_| {},
+        )
+        .unwrap();
         assert_eq!(back.total.read, done.written, "{format:?}");
         assert_eq!(back.total.added, done.written, "{format:?}");
     }
@@ -340,7 +371,7 @@ fn the_export_opens_on_the_search_or_the_place_being_shown() {
     // What the field opens with means what the place lists.
     let built = crate::ui::fixtures::work();
     assert!(matches!(
-        work::counted(&built.store, "is:kept", now()),
+        work::counted(&crate::ui::fixtures::client(&built.store), "is:kept", now()),
         Counted::Some(n) if n > 0
     ));
 }
@@ -403,10 +434,16 @@ fn imported_mail_goes_to_local_folders_or_an_imap_accounts_folder() {
         folder: path.to_owned(),
     };
     let wanted = vec![Dest::Local, folder("Archive/2023"), folder("INBOX")];
-    assert_eq!(work::destinations(&store), wanted);
+    assert_eq!(
+        work::destinations(&crate::ui::fixtures::client(&store)),
+        wanted
+    );
     // Local folders are somewhere to import into, never an account to upload to.
     mail_core::account::local(&store, now()).unwrap();
-    assert_eq!(work::destinations(&store), wanted);
+    assert_eq!(
+        work::destinations(&crate::ui::fixtures::client(&store)),
+        wanted
+    );
     let labels: Vec<String> = wanted.iter().map(Dest::label).collect();
     assert_eq!(
         labels,

@@ -17,10 +17,8 @@ use ds::components::menus::item::item::MenuItem as Choice;
 use ds::components::menus::pop_up_button::PopUpButton;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::SqliteStore;
 use mail_domain::{Rule, RuleState};
 use porter_core::AccountId;
-use std::sync::Arc;
 
 use super::super::common::{add_mark, classed};
 use super::super::data::AccountRow;
@@ -74,8 +72,8 @@ pub(super) fn RulesList(
             }
         };
     };
-    let store = consume_context::<Arc<SqliteStore>>();
-    let (rules, failed) = match work::listed(&store, row.id.clone()) {
+    let client = crate::ui::live::client();
+    let (rules, failed) = match work::listed(&client, row.id.clone()) {
         Ok(rules) => (rules, None),
         Err(why) => (Vec::new(), Some(why)),
     };
@@ -208,9 +206,9 @@ fn RuleRow(
             accessory: Accessory::Toggle {
                 value: if on { Check::On } else { Check::Off },
                 on_toggle: EventHandler::new(move |_| {
-                    let store = consume_context::<Arc<SqliteStore>>();
+                    let client = crate::ui::live::client();
                     let state = if on { RuleState::Disabled } else { RuleState::Enabled };
-                    wrote(work::switch(&store, &toggled, state), &row, said, changed, pushed);
+                    wrote(work::switch(&client, &toggled, state), &row, said, changed, pushed);
                 }),
             },
             onclick: move |press: Press| {
@@ -272,8 +270,8 @@ fn RuleMenu(
     menu: Signal<Option<(Listed, Rect)>>,
     acted: Callback<(String, Rule)>,
 ) -> Element {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let rules = work::listed(&store, row.id.clone()).unwrap_or_default();
+    let client = crate::ui::live::client();
+    let rules = work::listed(&client, row.id.clone()).unwrap_or_default();
     let place = rules.iter().position(|one| one.rule.id == listed.rule.id);
     let first = place == Some(0);
     let last = place.is_some_and(|at| at + 1 == rules.len());
@@ -307,15 +305,15 @@ fn act(
     changed: Signal<u64>,
     pushed: Callback<AccountRow>,
 ) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     match key {
         UP | DOWN => {
             let step = if key == UP { Step::Up } else { Step::Down };
-            let moved = work::reorder(&store, rule.account.clone(), rule.id, step);
+            let moved = work::reorder(&client, rule.account.clone(), rule.id, step);
             wrote(moved, row, said, changed, pushed);
         }
         DELETE => {
-            let deleted = work::delete(&store, rule)
+            let deleted = work::delete(&client, rule)
                 .map(|text| tell(text, Follow::Restore(Restore::Rule(rule.clone()))));
             wrote(deleted, row, said, changed, pushed);
         }

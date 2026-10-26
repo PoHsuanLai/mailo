@@ -11,10 +11,9 @@ use ds::components::fields::field_row::FieldRow;
 use ds::components::fields::text_field_model::{FieldRows, Invalid};
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
+use mail_client::Client;
 use mail_core::when::Clock;
-use mail_core::{SqliteStore, Store};
 use mail_domain::{DateRange, Vacation};
-use std::sync::Arc;
 
 use super::super::common::classed;
 use super::super::data::AccountRow;
@@ -62,7 +61,7 @@ where
 
 /// The form for `row`: its reply as kept, or an empty one that answers for its addresses.
 pub(in crate::ui) fn load<Tz: TimeZone>(
-    store: &SqliteStore,
+    client: &Client,
     row: &AccountRow,
     now: DateTime<Utc>,
     zone: &Tz,
@@ -70,7 +69,7 @@ pub(in crate::ui) fn load<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    match store.vacation(row.id.clone()).ok().flatten() {
+    match client.stored().vacation(row.id.clone()).ok().flatten() {
         Some(kept) => Away {
             reply: Reply::On,
             subject: kept.subject,
@@ -82,7 +81,7 @@ where
         },
         None => {
             let fresh = mail_core::rules::server::vacation_for(
-                &configured(store, row, now),
+                &configured(client, row, now),
                 "",
                 "",
                 Vacation::DEFAULT_DAYS,
@@ -123,7 +122,7 @@ where
 
 /// Keep what the form says on `row`, returning what the page says of it.
 pub(in crate::ui) fn save<Tz: TimeZone>(
-    store: &SqliteStore,
+    client: &Client,
     row: &AccountRow,
     away: &Away,
     now: DateTime<Utc>,
@@ -137,7 +136,8 @@ where
     // worse than none, because the user believes it is going out.
     reach(&row.plan)?;
     if away.reply == Reply::Off {
-        store
+        client
+            .stored()
             .put_vacation(row.id.clone(), None, now)
             .map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))?;
         return Ok(copy::toasts::VACATION_OFF.to_owned());
@@ -166,14 +166,15 @@ where
     let reply = Vacation {
         addresses,
         ..mail_core::rules::server::vacation_for(
-            &configured(store, row, now),
+            &configured(client, row, now),
             away.subject.trim(),
             &away.body,
             away.days,
             during,
         )
     };
-    store
+    client
+        .stored()
         .put_vacation(row.id.clone(), Some(&reply), now)
         .map_err(|why| plainly(copy::errors::NOT_KEPT_HERE, why))?;
     Ok(copy::toasts::vacation_saved(
@@ -224,8 +225,8 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
     let mut away = use_signal({
         let row = row.clone();
         move || {
-            let store = consume_context::<Arc<SqliteStore>>();
-            load(&store, &row, Utc::now(), &chrono::Local)
+            let client = crate::ui::live::client();
+            load(&client, &row, Utc::now(), &chrono::Local)
         }
     });
     // An account whose server takes no vacation reply has its switch, greyed: there is nothing
@@ -275,9 +276,9 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                     onchange: move |_| {
                         if on {
                             away.write().reply = Reply::Off;
-                            let store = consume_context::<Arc<SqliteStore>>();
+                            let client = crate::ui::live::client();
                             let form = away.peek().clone();
-                            match save(&store, &off, &form, Utc::now(), &chrono::Local, hours) {
+                            match save(&client, &off, &form, Utc::now(), &chrono::Local, hours) {
                                 Ok(_) => {
                                     refused.set(None);
                                     pushed.call(off.clone());
@@ -353,9 +354,9 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                         label: copy::controls::KEEP_REPLY.to_owned(),
                         availability: available(readable),
                         onclick: on_primary(move || {
-                            let store = consume_context::<Arc<SqliteStore>>();
+                            let client = crate::ui::live::client();
                             let form = away.peek().clone();
-                            match save(&store, &keep, &form, Utc::now(), &chrono::Local, hours) {
+                            match save(&client, &keep, &form, Utc::now(), &chrono::Local, hours) {
                                 Ok(_) => {
                                     refused.set(None);
                                     pushed.call(keep.clone());

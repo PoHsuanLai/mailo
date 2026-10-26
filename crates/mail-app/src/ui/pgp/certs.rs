@@ -17,8 +17,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_client::Client;
 use mail_core::SigningStore;
-use mail_core::SqliteStore;
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
 
 use super::super::common::{add_mark, tile};
@@ -34,7 +34,7 @@ use mail_core::pgp::WithSecret;
 use mail_core::smime::SmimeError;
 
 /// The certificates in the order the sheet lists them: the user's own — those whose private
-/// key the keyring holds — first, then everyone else's, each group as the store orders it.
+/// key the keyring holds — first, then everyone else's, each group as the client orders it.
 pub(in crate::ui) fn ordered(certs: Vec<SmimeCert>) -> Vec<SmimeCert> {
     let (mut own, others): (Vec<SmimeCert>, Vec<SmimeCert>) = certs
         .into_iter()
@@ -56,21 +56,17 @@ pub(in crate::ui) enum CertJob {
 }
 
 /// Do `job`. Blocks — on the keyring, a file dialog, the disk.
-pub(in crate::ui) fn work(
-    store: &SqliteStore,
-    seams: &Seams,
-    job: CertJob,
-) -> Result<Done, String> {
+pub(in crate::ui) fn work(client: &Client, seams: &Seams, job: CertJob) -> Result<Done, String> {
     let secrets = seams.secrets.as_ref();
     let said = match job {
         CertJob::Import => {
             let Some(path) = (seams.pick)() else {
                 return Ok(Done::Said("Nothing was imported.".to_owned()));
             };
-            return import(store, secrets, &path, None);
+            return import(client, secrets, &path, None);
         }
         CertJob::ImportWith(path, password) => {
-            return import(store, secrets, &path, Some(password));
+            return import(client, secrets, &path, Some(password));
         }
         CertJob::Save(cert) => {
             let name = format!("{}.pem", cert_short(cert.fingerprint).replace(' ', ""));
@@ -86,7 +82,10 @@ pub(in crate::ui) fn work(
             )
         }
         CertJob::Trust(fingerprint, trust) => {
-            mail_core::smime::certs::trust(store, fingerprint, trust).map_err(|e| e.to_string())?;
+            client
+                .certs()
+                .trust(fingerprint, trust)
+                .map_err(|e| e.to_string())?;
             match trust {
                 KeyTrust::Verified => format!("Trusted {}", cert_short(fingerprint)),
                 KeyTrust::Unverified => {
@@ -95,7 +94,9 @@ pub(in crate::ui) fn work(
             }
         }
         CertJob::Delete(cert, with_secret) => {
-            mail_core::smime::certs::delete(store, secrets, &cert, with_secret)
+            client
+                .certs()
+                .delete(secrets, &cert, with_secret)
                 .map_err(|e| e.to_string())?;
             let said = format!("Deleted the certificate of {}", whose(&cert));
             if cert.secret == SecretHeld::Absent {
@@ -114,15 +115,14 @@ pub(in crate::ui) fn work(
 /// that needs one and was given none comes back as a question. The password is dropped when
 /// this returns.
 fn import(
-    store: &SqliteStore,
+    client: &Client,
     secrets: &dyn SigningStore,
     path: &Path,
     password: Option<Password>,
 ) -> Result<Done, String> {
     let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let given = || password.as_ref().map(|typed| typed.expose().to_owned());
-    let imported = match mail_core::smime::certs::import(store, secrets, &bytes, &given, Utc::now())
-    {
+    let imported = match client.certs().import(secrets, &bytes, &given, Utc::now()) {
         Err(SmimeError::NoPassword) => return Ok(Done::Password(path.to_owned())),
         other => other.map_err(|e| e.to_string())?,
     };

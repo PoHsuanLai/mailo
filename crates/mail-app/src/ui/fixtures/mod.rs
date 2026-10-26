@@ -37,5 +37,5 @@ pub(in crate::ui) use settle::{
     settle_for, settle_quiet, settle_quiet_seen, settle_until, step_clock, step_clock_until,
 };
 pub(in crate::ui) use store::{
-    acct_account, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,
+    acct_account, client, empty, gmail_caps, held_and_remote, inbox_query, realistic, seeded,
 };

@@ -9,11 +9,9 @@ use ds::host::measure::MountedRef;
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
-use std::sync::Arc;
 
 use super::super::common::in_card;
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
 
 use super::super::common::classed;
 use super::super::debounce::use_debounced;
@@ -94,8 +92,8 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
     };
     // Read only while the menu is open: it lists every IMAP account's folders.
     let items = if menu_open() {
-        let store = consume_context::<Arc<SqliteStore>>();
-        dest_items(&work::destinations(&store), &chosen)
+        let client = crate::ui::live::client();
+        dest_items(&work::destinations(&client), &chosen)
     } else {
         Vec::new()
     };
@@ -104,13 +102,13 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
             return;
         };
         let into = dest();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let mut revision = revision;
         run(
             phase,
             count,
             move |report| {
-                work::import_then_send(&store, &source, &into, chrono::Utc::now(), &mut |so_far| {
+                work::import_then_send(&client, &source, &into, chrono::Utc::now(), &mut |so_far| {
                     report(so_far.read)
                 })
             },
@@ -186,8 +184,8 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                                 empty: "No folder matches.",
                                 oninput: move |text: String| find.set(text),
                                 onpick: move |key: String| {
-                                    let store = consume_context::<Arc<SqliteStore>>();
-                                    if let Some(found) = work::destinations(&store)
+                                    let client = crate::ui::live::client();
+                                    if let Some(found) = work::destinations(&client)
                                         .into_iter()
                                         .find(|one| one.key() == key)
                                     {

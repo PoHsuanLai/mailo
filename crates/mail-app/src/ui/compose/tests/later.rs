@@ -9,6 +9,7 @@ use super::super::props::pick_sends;
 use super::*;
 use crate::ui::fixtures::{acct_account, click, pick_named, right_click, seeded, settle};
 use crate::ui::space::Scope;
+use mail_core::SqliteStore;
 use mail_core::compose::Leaves;
 use mail_core::editor::to_html;
 
@@ -156,7 +157,11 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
     let (store, _dir) = seeded();
     let draft = fresh(&store);
     let at = a_day_from_now();
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let before_body = scheduled_page(&mut window, at);
     let far = at + chrono::TimeDelta::days(1);
     let (before_due, before_all) = (
@@ -196,7 +201,7 @@ async fn scheduling_holds_the_draft_until_its_time_and_cancel_brings_back_the_pa
     );
     // And it is waiting in the store, and listed in the Scheduled place.
     assert_eq!(
-        scheduled(&store, &Scope::All)
+        scheduled(&crate::ui::fixtures::client(&store), &Scope::All)
             .into_iter()
             .map(|one| (one.id, one.state))
             .collect::<Vec<_>>(),
@@ -252,7 +257,11 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     let (store, _dir) = seeded();
     let draft = fresh(&store);
     let at = a_day_from_now();
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     scheduled_page(&mut window, at);
     let sent = click(
         &mut window.dom,
@@ -288,7 +297,7 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
         Some(SendState::Editing)
     );
     assert_eq!(outbox(&store, far), queued - 1, "the send is still queued");
-    assert!(scheduled(&store, &Scope::All).is_empty());
+    assert!(scheduled(&crate::ui::fixtures::client(&store), &Scope::All).is_empty());
     assert!(
         !markup.contains("data-scheduled=\"Friday\""),
         "Scheduled still lists it:\n{markup}"
@@ -307,7 +316,7 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
         entry
             .iter()
             .filter_map(|part| part.resend)
-            .all(|resend| super::super::send_again(&store, resend))
+            .all(|resend| super::super::send_again(&crate::ui::fixtures::client(&store), resend))
     });
     assert!(resent, "the undo was refused");
     assert_eq!(
@@ -330,7 +339,11 @@ async fn a_scheduled_message_opens_held_and_cancel_writes_it() {
     let (store, _dir) = seeded();
     let draft = fresh(&store);
     let at = a_day_from_now();
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     scheduled_page(&mut window, at);
     let sent = click(
         &mut window.dom,
@@ -380,7 +393,7 @@ async fn a_scheduled_message_opens_held_and_cancel_writes_it() {
         store.draft(draft.id).map(|d| d.state).ok(),
         Some(SendState::Editing)
     );
-    assert!(scheduled(&store, &Scope::All).is_empty());
+    assert!(scheduled(&crate::ui::fixtures::client(&store), &Scope::All).is_empty());
     assert!(!markup.contains("data-held"), "still held:\n{markup}");
     assert!(
         markup.contains("aria-label=\"Send\""),
@@ -398,7 +411,7 @@ fn scheduled_lists_only_the_spaces_accounts() {
         .set_send_state(draft.id, &SendState::Scheduled { at }, Utc::now())
         .unwrap_or_else(|why| panic!("{why}"));
     let ids = |scope: &Scope| -> Vec<DraftId> {
-        scheduled(&store, scope)
+        scheduled(&crate::ui::fixtures::client(&store), scope)
             .into_iter()
             .map(|one| one.id)
             .collect()
@@ -420,7 +433,11 @@ async fn cancel_of_a_send_already_on_the_wire_says_so_and_changes_nothing() {
     let (store, _dir) = seeded();
     let draft = fresh(&store);
     let at = a_day_from_now();
-    let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     scheduled_page(&mut window, at);
     let painted = click(
         &mut window.dom,
