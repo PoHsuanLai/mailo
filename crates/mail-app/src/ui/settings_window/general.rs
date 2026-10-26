@@ -34,6 +34,7 @@ pub(super) enum Line {
 }
 
 /// A group of General: its header, and its rows in the order drawn.
+#[derive(PartialEq)]
 pub(super) struct Section {
     pub title: &'static str,
     pub lines: &'static [Line],
@@ -87,6 +88,7 @@ pub(super) fn General() -> Element {
     let page = use_callback(move |page: GeneralAt| match page {
         GeneralAt::Root => rsx! {
             Groups {
+                sections: &SECTIONS,
                 on_trusted: move |()| {
                     let next = path.peek().pushed(GeneralAt::TrustedSenders);
                     path.set(next);
@@ -114,6 +116,25 @@ pub(super) fn General() -> Element {
     }
 }
 
+/// Privacy, a page of its own: what a message's remote content may learn about the reader.
+pub(super) const PRIVACY: [Section; 1] = [Section {
+    title: copy::titles::PRIVACY,
+    lines: &[
+        Line::Key("privacy.block_remote_content"),
+        Line::Key("privacy.protect"),
+        Line::Key("privacy.relay_kind"),
+        Line::Key("privacy.relay"),
+        Line::Key("privacy.relay_key"),
+        Line::Key("privacy.proxy"),
+    ],
+}];
+
+/// The Privacy page: General's rows, drawn from [`PRIVACY`].
+#[component]
+pub(super) fn Privacy() -> Element {
+    rsx! { Groups { sections: &PRIVACY, on_trusted: move |()| {} } }
+}
+
 /// The schema's key at `path`, its help left to detent.
 fn key_at(path: &str) -> Option<KeySpec> {
     crate::settings::schema()
@@ -128,7 +149,7 @@ fn key_at(path: &str) -> Option<KeySpec> {
 
 /// The root: each group's rows.
 #[component]
-fn Groups(on_trusted: EventHandler<()>) -> Element {
+fn Groups(sections: &'static [Section], on_trusted: EventHandler<()>) -> Element {
     let settings = crate::ui::prefs::current();
     let values =
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
@@ -138,7 +159,7 @@ fn Groups(on_trusted: EventHandler<()>) -> Element {
     };
     rsx! {
         Form {
-            for section in SECTIONS.iter() {
+            for section in sections.iter() {
                 FormSection { key: "{section.title}", title: Some(section.title.to_owned()),
                     for line in section.lines.iter().copied() {
                         match line {

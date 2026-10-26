@@ -18,6 +18,7 @@ pub const ACCOUNTS: &str = "Accounts";
 pub const SPACES: &str = "Spaces";
 pub const RULES: &str = "Rules";
 pub const KEYBOARD: &str = "Keyboard";
+pub const PRIVACY: &str = "Privacy";
 /// General's page of the senders whose images load.
 pub const TRUSTED_SENDERS: &str = "Trusted Senders";
 /// The page of the keys and certificates no account here owns, under Accounts.

@@ -141,3 +141,45 @@ impl From<mail_core::server_search::Automatic> for ServerSearch {
         }
     }
 }
+
+/// `privacy.protect`: which way remote images are fetched, once they are allowed to load.
+///
+/// `Off` fetches each image from its own host, which sees the reader's network address. `Relay`
+/// fetches it through the relay at `privacy.relay` (a Camo relay or a token relay, by
+/// `privacy.relay_kind`), so the host sees the relay's. `Proxy` sends every image fetch through
+/// the proxy at `privacy.proxy` (Tor, a VPN's). Which images load at all is still
+/// `reading.remote_images`'.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum Protect {
+    #[default]
+    Off,
+    Relay,
+    Proxy,
+}
+
+/// `privacy.relay_kind`: the URL format the relay at `privacy.relay` speaks.
+///
+/// `Camo` is GitHub's camo format, which go-camo and imgproxy serve: the image's URL signed with
+/// HMAC-SHA1 under the relay's key. `Token` is `GET <relay>/i?u=<url>` with the key sent as a
+/// bearer token, as `relay/image/worker.js` serves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum RelayKind {
+    #[default]
+    Camo,
+    Token,
+}
+
+/// `privacy.block_remote_content`: whether a message's remote content can be loaded at all.
+/// `On` hides "Show images" and loads nothing remote, whatever `reading.remote_images` says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum BlockRemote {
+    #[default]
+    Off,
+    On,
+}

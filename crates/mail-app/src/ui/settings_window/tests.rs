@@ -136,6 +136,7 @@ async fn general_draws_reading_then_mail_with_their_rows() {
 fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
     let named: Vec<&str> = super::general::SECTIONS
         .iter()
+        .chain(super::general::PRIVACY.iter())
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
             super::general::Line::Key(path) => Some(*path),
@@ -203,10 +204,11 @@ const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::Rules, crate::ui::copy::controls::NEW_RULE),
     (SettingsPage::Vacation, "id=\"vacation-pane\""),
     (SettingsPage::Keyboard, "Change the key for"),
+    (SettingsPage::Privacy, "Protect mail activity"),
 ];
 
 #[test]
-fn settings_has_6_pages_in_that_order() {
+fn settings_has_7_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
         [
@@ -215,7 +217,8 @@ fn settings_has_6_pages_in_that_order() {
             crate::ui::copy::titles::SPACES,
             crate::ui::copy::titles::RULES,
             "Vacation Reply",
-            crate::ui::copy::titles::KEYBOARD
+            crate::ui::copy::titles::KEYBOARD,
+            crate::ui::copy::titles::PRIVACY
         ]
     );
 }

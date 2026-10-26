@@ -20,9 +20,9 @@
 
 use super::consent::{Consent, Holder};
 use ds_blitz::{AppNet, NetDecision, NetReply, NetRequest};
-use mail_core::remote_image::ImageFetcher;
+use mail_core::remote_image::{ImageFetcher, Route};
 use mail_domain::MessageId;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, PoisonError};
 
 /// Whatever fetches an admitted image: the web in the window, a recorder in a test.
 pub trait Fetch: Send + Sync + 'static {
@@ -109,19 +109,42 @@ impl AppNet for MailNet {
     }
 }
 
-/// The web: one fetcher, made by the first admitted image, on the application's runtime. See
-/// [`ImageFetcher`] for what its client sends and how it gives up; a failed fetch leaves the
-/// image missing and says nothing.
+/// The way the window's images are fetched, as `privacy.*` says ([`follow`]): `None` while the
+/// person has chosen a relay or a proxy that cannot be used, when nothing is fetched at all
+/// rather than fetched straight from the image's host.
+static ROUTE: Mutex<Option<Route>> = Mutex::new(Some(Route::Direct));
+
+/// Fetch the window's images the way `privacy` says from now on.
+pub(crate) fn follow(privacy: &crate::settings::PrivacySettings) {
+    let route = privacy.route().ok();
+    *ROUTE.lock().unwrap_or_else(PoisonError::into_inner) = route;
+}
+
+/// The web: one fetcher for the way images are fetched now, made by the first admitted image
+/// and again when the way changes, on the application's runtime. See [`ImageFetcher`] for what
+/// its client sends and how it gives up; a failed fetch leaves the image missing and says
+/// nothing.
 #[derive(Default)]
 pub(crate) struct Web {
-    fetcher: OnceLock<Option<ImageFetcher>>,
+    fetcher: Mutex<Option<(Route, ImageFetcher)>>,
 }
 
 impl Web {
-    fn fetcher(&self) -> Option<&ImageFetcher> {
-        self.fetcher
-            .get_or_init(|| ImageFetcher::new(crate::edge::runtime().handle().clone()).ok())
-            .as_ref()
+    fn fetcher(&self) -> Option<ImageFetcher> {
+        let route = ROUTE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()?;
+        let mut held = self.fetcher.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((made_for, fetcher)) = held.as_ref()
+            && *made_for == route
+        {
+            return Some(fetcher.clone());
+        }
+        let fetcher =
+            ImageFetcher::routed(crate::edge::runtime().handle().clone(), route.clone()).ok()?;
+        *held = Some((route, fetcher.clone()));
+        Some(fetcher)
     }
 }
 
