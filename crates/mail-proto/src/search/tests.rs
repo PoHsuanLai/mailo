@@ -350,6 +350,21 @@ fn on_gmail_all_mail_is_searched_and_labels_are_x_gm_labels() {
             "a1 UID SEARCH X-GM-LABELS \"travel\"\r\n",
         ),
         (
+            "category: is X-GM-RAW",
+            Filter::Category(mail_domain::Category::Promotions),
+            vec!["[Gmail]/All Mail"],
+            "a1 UID SEARCH X-GM-RAW \"category:promotions\"\r\n",
+        ),
+        (
+            "a category with the inbox",
+            Filter::And(vec![
+                Filter::InMailbox(MailboxRole::Inbox),
+                Filter::Category(mail_domain::Category::Social),
+            ]),
+            vec!["INBOX"],
+            "a1 UID SEARCH X-GM-RAW \"category:social\"\r\n",
+        ),
+        (
             "in:inbox is the inbox",
             Filter::InMailbox(MailboxRole::Inbox),
             vec!["INBOX"],
@@ -698,4 +713,19 @@ fn graph_uses_filter_for_state_and_search_for_words_never_both() {
             (got, expected) => panic!("{name}: got {got:?}, expected {expected:?}"),
         }
     }
+}
+
+#[test]
+fn a_category_is_asked_of_gmail_alone() {
+    let folders = [folder("INBOX", Some(SpecialUse::Inbox))];
+    let roles = roles(&[]);
+    let ctx = ImapCtx {
+        account: account(),
+        folders: &folders,
+        roles: &roles,
+        labels: ServerLabels::LocalOnly,
+        labels_named: &[],
+    };
+    let filter = Filter::Category(mail_domain::Category::Forums);
+    assert!(imap::translate(&filter, &ctx).is_err());
 }

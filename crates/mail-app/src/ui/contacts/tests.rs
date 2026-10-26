@@ -90,7 +90,8 @@ fn deliver(store: &SqliteStore, m: &Message) {
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

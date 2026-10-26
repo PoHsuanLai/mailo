@@ -5,7 +5,7 @@
 //! pinned one would be testing `uuid`.
 
 use mail_domain::ThreadId;
-use mail_domain::threading::{ThreadInput, normalize_id, thread};
+use mail_domain::threading::{PROVIDER_PREFIX, ThreadInput, normalize_id, provider_key, thread};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -66,6 +66,7 @@ fn run(msgs: &[Msg], existing: &dyn Fn(&str) -> Option<ThreadId>) -> Vec<ThreadI
             in_reply_to: m.irt,
             references: r,
             subject: m.subject,
+            provider: None,
         })
         .collect();
     thread(&inputs, existing)
@@ -395,6 +396,7 @@ fn a_cycle_of_a_thousand_messages_terminates() {
             in_reply_to: None,
             references: &refs[n],
             subject: "loop",
+            provider: None,
         })
         .collect();
 
@@ -508,4 +510,40 @@ fn threads_with_nothing_known_get_fresh_ids() {
     let out = run(MISSING_PARENT, &none);
     assert_eq!(grouping(&out), expect(&[&[0, 1], &[2]]));
     assert_ne!(out[0], out[2], "two threads, two ids");
+}
+
+/// Messages sharing a server thread id are one conversation with nothing in their headers to say
+/// so, a stored message with that id lends its thread, and no `Message-ID` can pass for one.
+#[test]
+fn a_provider_thread_id_joins_messages_the_headers_do_not() {
+    let input = |id: &'static str, provider: Option<&'static str>| ThreadInput {
+        message_id: Some(id),
+        in_reply_to: None,
+        references: &[],
+        subject: "",
+        provider,
+    };
+    let inputs = [
+        input("<a@x>", Some("18")),
+        input("<b@x>", Some("18")),
+        input("<c@x>", Some("19")),
+        input("<d@x>", None),
+    ];
+    let out = thread(&inputs, &none);
+    assert_eq!(out[0], out[1]);
+    assert_ne!(out[0], out[2]);
+    assert_ne!(out[2], out[3]);
+    assert_ne!(out[0], out[3]);
+
+    let held = ThreadId::generate();
+    let known = |id: &str| (id == provider_key("19")).then_some(held);
+    let out = thread(&inputs, &known);
+    assert_eq!(out[2], held);
+    assert_ne!(out[0], held);
+
+    for odd in ["18", "1876965017123110734"] {
+        assert!(!provider_key(odd).is_empty());
+        assert!(provider_key(odd).starts_with(PROVIDER_PREFIX));
+        assert!(normalize_id(&provider_key(odd)).is_empty());
+    }
 }

@@ -12,7 +12,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
     AccountCaps, AccountPlan, Address, DraftId, Identity, IdentityId, IsDefault, LabelId,
-    LabelOrigin, MessageId, ThreadId,
+    LabelOrigin, MessageId, RemoteRef, ThreadId,
 };
 use porter_core::AccountId;
 use rusqlite::{OptionalExtension, Row, params};
@@ -296,6 +296,48 @@ impl SqliteStore {
         rfc_id: &str,
     ) -> Result<Option<ThreadId>, StoreError> {
         self.rfc_lookup("thread", account, rfc_id)?
+            .map(|id| uuid("ThreadId", &id).map(ThreadId::from_uuid))
+            .transpose()
+    }
+
+    /// The thread id the server gave the message at `remote`, if it gave one.
+    pub fn provider_thread_of(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+    ) -> Result<Option<String>, StoreError> {
+        let (mailbox, uidvalidity, uid, _) = crate::remote_row::columns(remote);
+        let (Some(uidvalidity), Some(uid)) = (uidvalidity, uid) else {
+            return Ok(None);
+        };
+        Ok(self
+            .connection()
+            .query_row(
+                "SELECT thrid FROM provider_thread
+                 WHERE account = ?1 AND mailbox = ?2 AND uidvalidity = ?3 AND uid = ?4",
+                params![account.to_string(), mailbox, uidvalidity, uid],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// The conversation a stored message of `account` is in that the server gave this thread id.
+    pub fn thread_by_provider_thread(
+        &self,
+        account: AccountId,
+        thrid: &str,
+    ) -> Result<Option<ThreadId>, StoreError> {
+        self.connection()
+            .query_row(
+                "SELECT m.thread FROM provider_thread p
+                 JOIN remote_map r ON r.account = p.account AND r.mailbox = p.mailbox
+                  AND r.uidvalidity = p.uidvalidity AND r.uid = p.uid
+                 JOIN messages m ON m.id = r.message
+                 WHERE p.account = ?1 AND p.thrid = ?2 LIMIT 1",
+                params![account.to_string(), thrid],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
             .map(|id| uuid("ThreadId", &id).map(ThreadId::from_uuid))
             .transpose()
     }

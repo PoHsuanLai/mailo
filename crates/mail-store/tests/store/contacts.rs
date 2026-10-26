@@ -89,7 +89,8 @@ fn deliver_at(store: &dyn Store, m: &Message, path: &str, uid: u32, raw: BlobId)
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

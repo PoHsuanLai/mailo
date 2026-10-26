@@ -89,6 +89,7 @@ fn put(store: &SqliteStore, headers: &str, held: Held) -> (ThreadId, MessageId) 
                 flags: vec![],
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

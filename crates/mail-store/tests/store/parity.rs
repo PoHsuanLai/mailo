@@ -349,6 +349,7 @@ fn build(specs: &[Spec]) -> Both {
             flags: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
+            provider_threads: Vec::new(),
             gone: Vec::new(),
         };
         sqlite.ingest(acct_account(), ingest.clone()).unwrap();

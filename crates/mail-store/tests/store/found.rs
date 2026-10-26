@@ -67,7 +67,8 @@ fn absorb(store: &dyn Store, n: u128, remote: RemoteRef, raw: BlobId) -> Vec<Mes
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -183,7 +184,8 @@ fn the_mark_goes_with_the_message() {
                     messages: vec![],
                     flags: vec![],
                     labels: vec![],
-                    label_names: vec![],
+                    label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![all_mail(8)],
                 },
             )

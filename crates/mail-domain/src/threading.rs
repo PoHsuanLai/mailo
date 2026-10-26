@@ -36,7 +36,24 @@ pub struct ThreadInput<'a> {
     pub references: &'a [String],
     /// Used only by the subject fallback for clients that emit no references at all.
     pub subject: &'a str,
+    /// The thread id the server itself gave this message (Gmail's `X-GM-THRID`), if it does.
+    ///
+    /// Evidence like a shared `References` entry and no more: every message naming one value is
+    /// one conversation, and the id is handed to `existing` as [`provider_key`] so a message
+    /// stored earlier with the same value lends its thread.
+    pub provider: Option<&'a str>,
 }
+
+/// What `existing` is asked about for a server's own thread id.
+///
+/// Holds a space, which [`normalize_id`] never lets through, so no `Message-ID` can be mistaken
+/// for one.
+pub fn provider_key(id: &str) -> String {
+    format!("{PROVIDER_PREFIX}{id}")
+}
+
+/// What begins every [`provider_key`].
+pub const PROVIDER_PREFIX: &str = "thrid ";
 
 impl<'a> ThreadInput<'a> {
     /// Borrow the threading-relevant headers out of a message.
@@ -46,6 +63,7 @@ impl<'a> ThreadInput<'a> {
             in_reply_to: msg.in_reply_to.as_deref(),
             references: &msg.references,
             subject: &msg.subject,
+            provider: None,
         }
     }
 }
@@ -145,6 +163,12 @@ pub fn thread<'a>(
         // forest could not express it.
         for &c in &chain {
             forest.merge(here, c);
+        }
+        // The server's own grouping joins the class the same way, without a parent link: it says
+        // which messages belong together and nothing about which answers which.
+        if let Some(id) = input.provider.filter(|id| !id.is_empty()) {
+            let key = forest.intern(&provider_key(id));
+            forest.merge(here, key);
         }
 
         home.push(here);

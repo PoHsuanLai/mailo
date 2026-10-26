@@ -130,6 +130,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
                 flags: vec![],
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -349,6 +350,7 @@ fn own_message(store: &SqliteStore) -> MessageId {
                 flags: vec![],
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -406,6 +408,7 @@ fn headers_only(store: &SqliteStore) -> MessageId {
                 flags: vec![],
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -1068,6 +1071,7 @@ mod forwarding_as_an_attachment {
                     flags: vec![],
                     labels: vec![],
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )

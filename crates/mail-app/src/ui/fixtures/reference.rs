@@ -475,6 +475,7 @@ fn ingest(
                 flags: vec![],
                 labels: vec![],
                 label_names: names,
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

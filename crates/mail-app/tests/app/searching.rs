@@ -459,6 +459,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
                         },
                         vec!["travel".to_owned()],
                     )],
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -508,6 +509,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
                         },
                         vec!["receipts".to_owned()],
                     )],
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )

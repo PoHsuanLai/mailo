@@ -546,7 +546,8 @@ async fn a_card_leaving_the_book_hands_an_address_back_to_mail_and_spares_a_hand
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

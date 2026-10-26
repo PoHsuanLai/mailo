@@ -48,7 +48,8 @@ fn deliver(store: &dyn Store, m: &Message, remote: RemoteRef) {
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -180,7 +181,8 @@ fn an_email_gone_from_the_account_is_gone_from_here() {
                     messages: vec![],
                     flags: vec![],
                     labels: vec![],
-                    label_names: vec![],
+                    label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![jmap("M1")],
                 },
             )

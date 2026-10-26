@@ -15,6 +15,8 @@
 //! in:spam   in:trash
 //! has:attachment                       what it carries
 //! label:travel                        a label the server gave it
+//! category:promotions                 one of Gmail's inbox tabs (primary, social, promotions,
+//!                                     updates, forums); only a Gmail server search answers it
 //! before:2026-01-01 after:2025-12-25   when, in the reader's zone
 //! -from:newsletter                     not that
 //! "exact phrase"                       adjacent words, in one field
@@ -27,7 +29,7 @@
 
 use crate::error::Logged;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
-use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, TextMatch};
+use mail_domain::{Category, DateRange, Filter, LabelId, MailboxRole, ReadState, Star, TextMatch};
 
 /// Every label name in the store, with the label that bears it.
 ///
@@ -248,6 +250,8 @@ fn term<Tz: TimeZone>(
             _ => return None,
         },
         "in" => Filter::InMailbox(mailbox(value)?),
+        // A name that is not one of Gmail's tabs is text, like any unknown value.
+        "category" => Filter::Category(Category::named(value)?),
         "label" => match label(value).as_slice() {
             // Nothing bears that name: the term becomes text, like any other unknown one.
             [] => return None,
@@ -284,4 +288,49 @@ fn midnight<Tz: TimeZone>(value: &str, zone: &Tz) -> Option<DateTime<Utc>> {
     zone.from_local_datetime(&date.and_hms_opt(0, 0, 0)?)
         .earliest()
         .map(|t| t.with_timezone(&Utc))
+}
+
+#[cfg(test)]
+mod category_tests {
+    use super::*;
+
+    fn parsed(input: &str) -> Filter {
+        parse_with(input, &Utc, &|_| Vec::new())
+    }
+
+    #[test]
+    fn category_terms() {
+        let text = |t: &str| Filter::Text(TextMatch::Contains(t.to_owned()));
+        let cases: Vec<(&str, Filter)> = vec![
+            ("category:primary", Filter::Category(Category::Primary)),
+            ("category:social", Filter::Category(Category::Social)),
+            (
+                "category:promotions",
+                Filter::Category(Category::Promotions),
+            ),
+            ("category:updates", Filter::Category(Category::Updates)),
+            ("category:forums", Filter::Category(Category::Forums)),
+            (
+                "CATEGORY:Promotions",
+                Filter::Category(Category::Promotions),
+            ),
+            (
+                "-category:social",
+                Filter::Not(Box::new(Filter::Category(Category::Social))),
+            ),
+            (
+                "from:ada category:updates",
+                Filter::And(vec![
+                    Filter::From(TextMatch::Contains("ada".to_owned())),
+                    Filter::Category(Category::Updates),
+                ]),
+            ),
+            // Not one of the tabs, or nothing after the colon: searched for as text.
+            ("category:spam", text("category:spam")),
+            ("category:", text("category:")),
+        ];
+        for (input, want) in cases {
+            assert_eq!(parsed(input), want, "{input}");
+        }
+    }
 }

@@ -459,11 +459,26 @@ impl SqliteStore {
             }
         }
 
+        // 3c. The server's own thread ids, held against the address they came with. Threading
+        //     reads them when the message arrives, which is after this.
+        for (remote, thrid) in &ingest.provider_threads {
+            self.hold_provider_thread(account.clone(), remote, thrid)?;
+        }
+
         // 4. Expunged elsewhere. Drop the mapping; drop the message only when no mailbox still
         //    holds it, because vanishing from INBOX is what archiving looks like on Gmail.
         for remote in &ingest.gone {
             // Deleted forever here, and now there too.
             self.forget_destroyed(account.clone(), remote)?;
+            {
+                let (acct, mailbox, uidvalidity, uid, _) = remote_key(account.clone(), remote);
+                self.connection()
+                    .prepare_cached(
+                        "DELETE FROM provider_thread WHERE account=?1 AND mailbox=?2
+                         AND uidvalidity IS ?3 AND uid IS ?4",
+                    )?
+                    .execute(params![acct, mailbox, uidvalidity, uid])?;
+            }
             if let Some(id) = self.message_by_remote(account.clone(), remote)? {
                 let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account.clone(), remote);
                 self.connection()
@@ -717,6 +732,27 @@ impl SqliteStore {
         found
             .map(|t| uuid("MessageId", &t).map(MessageId::from_uuid))
             .transpose()
+    }
+
+    /// Hold the thread id a server gave the message at `remote`. IMAP addresses only.
+    fn hold_provider_thread(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+        thrid: &str,
+    ) -> Result<(), StoreError> {
+        let (acct, mailbox, uidvalidity, uid, _) = remote_key(account, remote);
+        let (Some(uidvalidity), Some(uid)) = (uidvalidity, uid) else {
+            return Ok(());
+        };
+        self.connection()
+            .prepare_cached(
+                "INSERT INTO provider_thread (account, mailbox, uidvalidity, uid, thrid)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(account, mailbox, uidvalidity, uid) DO UPDATE SET thrid = excluded.thrid",
+            )?
+            .execute(params![acct, mailbox, uidvalidity, uid, thrid])?;
+        Ok(())
     }
 
     /// The id of the label called `name` on this account, creating it if it is new.

@@ -183,6 +183,7 @@ fn seeded(raw: Option<Vec<u8>>) -> (Arc<SqliteStore>, tempfile::TempDir, ThreadI
                 flags: vec![],
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

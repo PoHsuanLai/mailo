@@ -242,7 +242,8 @@ fn a_delete_that_takes_mail_is_asked_first_and_offers_no_undo() {
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

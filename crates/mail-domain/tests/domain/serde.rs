@@ -630,6 +630,7 @@ fn ingest() -> Ingest {
         labels: vec![label()],
         // Non-empty, so the round trip covers a shape a Gmail survey actually produces.
         label_names: vec![(imap_ref(), vec!["travel".to_owned(), "家人".to_owned()])],
+        provider_threads: Vec::new(),
         gone: vec![RemoteRef::Pop {
             uidl: "UID-2".to_owned(),
         }],
@@ -1047,6 +1048,13 @@ fn content_and_message_types_round_trip() {
     round_trip("ThreadSummary", summary());
     round_trip("Thread", thread());
     round_trip("Ingest", ingest());
+    round_trip(
+        "Ingest with thread ids",
+        Ingest {
+            provider_threads: vec![(imap_ref(), "1876965017123110734".to_owned())],
+            ..ingest()
+        },
+    );
     round_trip_each("Fetched", ingest().messages);
 }
 
@@ -1465,6 +1473,12 @@ fixtures! {
     "patch.json" => Patch = patch(),
     "actions.json" => Vec<Action> = actions(),
     "ingest.json" => Ingest = ingest(),
+    // Gmail's thread id and inbox categories, added after the files above were frozen.
+    "ingest_threads.json" => Ingest = Ingest {
+        provider_threads: vec![(imap_ref(), "1876965017123110734".to_owned())],
+        ..ingest()
+    },
+    "filter_category.json" => Vec<Filter> = Category::ALL.into_iter().map(Filter::Category).collect(),
     "message.json" => Message = message(),
     "thread.json" => Thread = thread(),
     "label.json" => Label = label(),

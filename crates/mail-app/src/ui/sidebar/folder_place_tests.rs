@@ -91,7 +91,8 @@ fn batch(account: AccountId, path: &str) -> Ingest {
         messages: vec![],
         flags: vec![],
         labels: vec![],
-        label_names: vec![],
+        label_names: Vec::new(),
+        provider_threads: Vec::new(),
         gone: vec![],
     }
 }

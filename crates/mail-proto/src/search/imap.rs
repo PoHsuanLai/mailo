@@ -48,6 +48,8 @@ pub enum SearchKey {
     SentBefore(NaiveDate),
     /// Gmail's `X-GM-LABELS` (its IMAP extensions): the message bears this label.
     GmailLabel(String),
+    /// Gmail's `X-GM-RAW`: the message matches this search as typed in Gmail's own box.
+    GmailRaw(String),
     Not(Box<SearchKey>),
     Or(Box<SearchKey>, Box<SearchKey>),
     /// Every key, parenthesised where it is not the whole search.
@@ -231,6 +233,16 @@ fn key(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<SearchKey, Unsaid> {
                 ));
             }
         },
+        // The categories are Gmail's own, and only its search extension can ask for them.
+        Filter::Category(category) => match ctx.labels {
+            ServerLabels::Supported => SearchKey::GmailRaw(format!("category:{}", category.name())),
+            ServerLabels::LocalOnly => {
+                return Err(Unsaid::one(format!(
+                    "{} (only Gmail has categories)",
+                    describe(filter)
+                )));
+            }
+        },
         Filter::HasAttachment => {
             return Err(Unsaid::one(
                 "has:attachment (IMAP has no search for it)".to_owned(),
@@ -310,7 +322,8 @@ fn needs_utf8(key: &SearchKey) -> bool {
         | SearchKey::Cc(s)
         | SearchKey::Subject(s)
         | SearchKey::Body(s)
-        | SearchKey::GmailLabel(s) => !s.is_ascii(),
+        | SearchKey::GmailLabel(s)
+        | SearchKey::GmailRaw(s) => !s.is_ascii(),
         SearchKey::Not(inner) => needs_utf8(inner),
         SearchKey::Or(a, b) => needs_utf8(a) || needs_utf8(b),
         SearchKey::And(keys) => keys.iter().any(needs_utf8),
@@ -337,6 +350,7 @@ fn render(key: &SearchKey, out: &mut Vec<Piece>) -> Result<(), ProtoError> {
         SearchKey::Subject(v) => field(out, "SUBJECT", v)?,
         SearchKey::Body(v) => field(out, "BODY", v)?,
         SearchKey::GmailLabel(v) => field(out, "X-GM-LABELS", v)?,
+        SearchKey::GmailRaw(v) => field(out, "X-GM-RAW", v)?,
         SearchKey::SentSince(d) => word(out, &format!("SENTSINCE {}", imap_date(*d))),
         SearchKey::SentBefore(d) => word(out, &format!("SENTBEFORE {}", imap_date(*d))),
         SearchKey::Not(inner) => {

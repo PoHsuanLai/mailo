@@ -127,6 +127,52 @@ pub enum Filter {
     /// Snoozed, and the instant has passed — the thread is due back in the inbox.
     SnoozeDue,
     Pinned,
+    /// In one of Gmail's inbox categories.
+    ///
+    /// Only Gmail's server knows: a category is neither a label nor a flag on any message this
+    /// client holds, so locally the clause matches nothing, and a server search is what answers
+    /// it ([`crate::Category`]).
+    Category(Category),
+}
+
+/// One of the tabs Gmail sorts its inbox into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    Primary,
+    Social,
+    Promotions,
+    Updates,
+    Forums,
+}
+
+impl Category {
+    /// Every category, in the order Gmail shows its tabs.
+    pub const ALL: [Category; 5] = [
+        Category::Primary,
+        Category::Social,
+        Category::Promotions,
+        Category::Updates,
+        Category::Forums,
+    ];
+
+    /// The name Gmail's search takes after `category:`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Category::Primary => "primary",
+            Category::Social => "social",
+            Category::Promotions => "promotions",
+            Category::Updates => "updates",
+            Category::Forums => "forums",
+        }
+    }
+
+    /// The category a typed name means, in any case.
+    pub fn named(name: &str) -> Option<Category> {
+        Category::ALL
+            .into_iter()
+            .find(|c| c.name().eq_ignore_ascii_case(name))
+    }
 }
 
 /// Everything [`Filter::fit`] needs in order to decide.
@@ -265,6 +311,8 @@ impl Filter {
             // Implies `Snoozed`: a due thread is still a snoozed thread.
             Filter::SnoozeDue => matches!(s.snooze, Snooze::Until(at) if at <= ctx.now),
             Filter::Pinned => matches!(s.pin, Pin::Rank(_)),
+            // Nothing held says which tab Gmail put a message in.
+            Filter::Category(_) => false,
         }
     }
 }

@@ -171,6 +171,7 @@ impl JmapEngine {
                     flags: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 },
             )?;
@@ -447,6 +448,7 @@ impl JmapEngine {
                 flags,
                 labels: Vec::new(),
                 label_names: labels,
+                provider_threads: Vec::new(),
                 gone,
             },
         )?;

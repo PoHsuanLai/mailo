@@ -818,7 +818,7 @@ mod gmail_labels {
                 "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
                 "S: * OK [UIDNEXT 43] Predicted next UID.\n",
                 "S: a002 OK [READ-ONLY] EXAMINE completed\n",
-                "C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE X-GM-LABELS)\n",
+                "C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE X-GM-LABELS X-GM-THRID)\n",
                 "{}",
                 "S: a003 OK Success\n",
                 "DONE\n"
@@ -884,6 +884,23 @@ mod gmail_labels {
         for (name, fetch_lines, want) in cases {
             assert_eq!(surveyed(fetch_lines).label_names, want, "{name}");
         }
+    }
+
+    /// Gmail's thread id rides in the same survey, and is read wherever the server gives one.
+    #[test]
+    fn x_gm_thrid_is_carried_for_threading() {
+        let ingest = surveyed(concat!(
+            "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS () X-GM-THRID 1876965017123110734)\n",
+            "S: * 2 FETCH (UID 43 FLAGS () RFC822.SIZE 200 X-GM-THRID 1876965017123110734 X-GM-LABELS ())\n",
+            "S: * 3 FETCH (UID 44 FLAGS () RFC822.SIZE 200 X-GM-LABELS ())\n",
+        ));
+        assert_eq!(
+            ingest.provider_threads,
+            vec![
+                (imap_ref("INBOX", 42), "1876965017123110734".to_owned()),
+                (imap_ref("INBOX", 43), "1876965017123110734".to_owned()),
+            ]
+        );
     }
 
     #[test]

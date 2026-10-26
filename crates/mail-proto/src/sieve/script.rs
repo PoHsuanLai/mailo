@@ -277,6 +277,7 @@ fn test(filter: &Filter, account: AccountId) -> Result<String, Unmappable> {
         Filter::HasAttachment => return Err(Unmappable::Clause("has:attachment")),
         Filter::Snoozed | Filter::SnoozeDue => return Err(Unmappable::Clause("is:snoozed")),
         Filter::Pinned => return Err(Unmappable::Clause("is:pinned")),
+        Filter::Category(_) => return Err(Unmappable::Clause("category:")),
     })
 }
 

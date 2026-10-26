@@ -63,6 +63,7 @@ impl Filter {
             Filter::Snoozed => "is:snoozed".to_owned(),
             Filter::SnoozeDue => words.snooze_due.to_owned(),
             Filter::Pinned => "is:pinned".to_owned(),
+            Filter::Category(category) => format!("category:{}", category.name()),
         }
     }
 }
