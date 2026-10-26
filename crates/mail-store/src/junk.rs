@@ -1,5 +1,5 @@
 //! The local junk filter's memory: word counts per account, learned from mail the user called
-//! spam or not spam (migration 0033). What the counts mean is `mail_core::junk`'s; this keeps
+//! spam or not spam (migration 0044). What the counts mean is `mail_core::junk`'s; this keeps
 //! them, and keeps a message from being counted twice.
 
 /// What a message was learned as.

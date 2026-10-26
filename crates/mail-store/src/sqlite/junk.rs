@@ -1,4 +1,4 @@
-//! The junk filter's word counts (migration 0033). See [`crate::junk`].
+//! The junk filter's word counts (migration 0044). See [`crate::junk`].
 
 use super::SqliteStore;
 use crate::StoreError;
