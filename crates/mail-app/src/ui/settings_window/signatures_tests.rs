@@ -14,6 +14,12 @@ use mail_domain::Signature;
 /// A signature called "Work" on the fixture's first address that sends, made before the window
 /// opens.
 fn work_signature(built: &Work) -> Signature {
+    // The reference fixture's accounts are plans without identities, as an account is stored.
+    let (address, account) = mail_core::compose::sending_accounts(&built.store)
+        .into_iter()
+        .next()
+        .expect("the fixture has an account that sends");
+    mail_store::testing::seed_default_identity(&built.store, account, &address, None);
     let (identity, _) = signature::every(&built.store)
         .unwrap()
         .into_iter()

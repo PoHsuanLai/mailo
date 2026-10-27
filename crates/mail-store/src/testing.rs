@@ -113,7 +113,6 @@ pub fn seed_default_identity(
     id
 }
 
-/// The default identity `id` of `account`, for a test that names it.
 /// A plain draft's text set as an older build kept it, before every draft's text was flowed
 /// text, and queued to be rewritten as migration 0038 queues it.
 pub fn keep_unflowed_plain_draft(store: &SqliteStore, draft: DraftId, text: &str) {
@@ -130,6 +129,7 @@ pub fn keep_unflowed_plain_draft(store: &SqliteStore, draft: DraftId, text: &str
     .expect("queue the draft");
 }
 
+/// The default identity `id` of `account`, for a test that names it.
 pub fn seed_identity_for(
     store: &SqliteStore,
     id: IdentityId,
