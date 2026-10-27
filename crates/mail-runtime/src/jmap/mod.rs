@@ -34,6 +34,7 @@ mod push;
 mod quota;
 mod search;
 mod sync;
+mod vacation;
 
 pub use client::{Auth, Client, find_session, safe_url};
 

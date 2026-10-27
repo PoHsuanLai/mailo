@@ -57,6 +57,8 @@ pub struct State {
     pub calls: Vec<(String, Value)>,
     /// What `Quota/get` lists (RFC 9425 Quota objects).
     pub quotas: Vec<Value>,
+    /// The account's `VacationResponse` as last set, `None` until it is.
+    pub vacation: Option<Value>,
     next: u64,
 }
 
@@ -254,7 +256,8 @@ async fn connection(fake: Fake, sock: tokio::net::TcpStream) {
                     "accountCapabilities": {
                         "urn:ietf:params:jmap:mail": {},
                         "urn:ietf:params:jmap:submission": {},
-                        "urn:ietf:params:jmap:quota": {}
+                        "urn:ietf:params:jmap:quota": {},
+                        "urn:ietf:params:jmap:vacationresponse": {}
                     }
                 } },
                 "primaryAccounts": {
@@ -595,6 +598,20 @@ fn method(
         "Quota/get" => one(json!({
             "accountId": ACCOUNT_ID, "state": "q1", "list": state.quotas, "notFound": []
         })),
+        "VacationResponse/set" => {
+            let Some(patch) = args["update"].get("singleton") else {
+                return one(json!({ "accountId": ACCOUNT_ID, "updated": {} }));
+            };
+            let mut now = state
+                .vacation
+                .take()
+                .unwrap_or_else(|| json!({ "id": "singleton" }));
+            for (key, value) in patch.as_object().unwrap() {
+                now[key] = value.clone();
+            }
+            state.vacation = Some(now);
+            one(json!({ "accountId": ACCOUNT_ID, "updated": { "singleton": null } }))
+        }
         _ => error("unknownMethod"),
     }
 }

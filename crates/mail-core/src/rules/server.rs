@@ -1,22 +1,29 @@
 //! `mailo sieve` and `mailo vacation`: rules and an away reply that run on the server.
 //!
-//! Only where the account's server offers ManageSieve (RFC 5804) — see
-//! [`mail_proto::sieve::endpoint`]. Gmail and Microsoft offer none; their own filters and
-//! vacation settings are reached through their own APIs, which this client does not use, so on
-//! those accounts rules run here and there is no vacation reply. A vacation reply this client
-//! sent itself would stop whenever the laptop closed, so there is none of that either.
+//! Rules run on the server only where it offers ManageSieve (RFC 5804) — see
+//! [`mail_proto::sieve::endpoint`]. Gmail and Microsoft offer none, so on those accounts rules
+//! run here.
+//!
+//! The vacation reply is kept where the account's server keeps one ([`away_server`]): in this
+//! client's Sieve script beside the rules; in a JMAP account's `VacationResponse` (RFC 8621
+//! §8), which the server sends itself, so a JMAP account's script carries no reply and the two
+//! never both answer; or, for an account that reads through Microsoft Graph, in Exchange's
+//! automatic replies. Gmail's is reached only through the Gmail API, which this client does not
+//! use, so a Gmail account has none. A vacation reply this client sent itself would stop
+//! whenever the laptop closed, so there is none of that either.
 
 use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use mail_domain::{DateRange, IsDefault, Vacation};
+use mail_domain::{AccountPlan, AuthPlan, DateRange, Incoming, IsDefault, Vacation};
 use mail_proto::sieve::{
-    Active, Places, SieveJob, SieveOutcome, Takeover, Unmappable, compile, endpoint,
+    Active, NoSieve, Places, SieveJob, SieveOutcome, Takeover, Unmappable, compile, endpoint,
 };
 use mail_runtime::sieve::{Pushed, SieveAuth};
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_runtime::{AccountSecrets, ClientRegistry, RuntimeError};
 use mail_store::{SqliteStore, Store};
 use porter_core::{Credential, SecretKey, SecretPurpose};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 /// The name this client's script goes by on a server, and who the script says wrote it.
 ///
@@ -117,6 +124,26 @@ pub struct KeptVacation {
     pub in_effect: bool,
 }
 
+/// Where an account's vacation reply is kept on its server, which sends it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AwayServer {
+    /// In this client's Sieve script, beside the rules.
+    Sieve,
+    /// The account's `VacationResponse`, where JMAP keeps it.
+    Jmap,
+    /// Exchange's automatic replies, through Microsoft Graph's mailbox settings.
+    Graph,
+}
+
+/// Where `plan`'s vacation reply goes, or why it has nowhere to go.
+pub fn away_server(plan: &AccountPlan) -> Result<AwayServer, NoSieve> {
+    match plan.incoming {
+        Incoming::Jmap { .. } => Ok(AwayServer::Jmap),
+        Incoming::Graph => Ok(AwayServer::Graph),
+        _ => endpoint(plan).map(|_| AwayServer::Sieve),
+    }
+}
+
 /// What pushing to the server came to, after a change that was kept here either way: kept here
 /// is not the same as running there.
 #[derive(Debug)]
@@ -124,6 +151,11 @@ pub enum PushDone {
     Pushed {
         address: String,
         pushed: Pushed,
+    },
+    /// The reply was set where a JMAP or Graph server keeps one.
+    Set {
+        address: String,
+        on: AwayServer,
     },
     /// The change is kept here; the server did not take it, for this reason.
     NotPushed(CoreError),
@@ -211,7 +243,7 @@ impl crate::mail::RuleOps<'_> {
         let mail = self.0;
         run_vacation(
             mail.store(),
-            mail.secrets().as_ref(),
+            mail.secrets(),
             command,
             &mail.saved_clients(),
             mail.now(),
@@ -231,12 +263,26 @@ impl crate::mail::RuleOps<'_> {
         )
         .await
     }
+
+    /// Put the account's kept vacation reply where its server keeps one: its Sieve script, its
+    /// JMAP `VacationResponse`, or Exchange's automatic replies. See [`put_away`].
+    pub async fn put_away(&self, account: &crate::sync::Configured) -> PushDone {
+        let mail = self.0;
+        put_away(
+            mail.store(),
+            mail.secrets(),
+            account,
+            &mail.saved_clients(),
+            mail.now(),
+        )
+        .await
+    }
 }
 
 /// A vacation command over `store`, signing in through `secrets`.
 pub async fn run_vacation(
-    store: &SqliteStore,
-    secrets: &dyn AccountSecrets,
+    store: &Arc<SqliteStore>,
+    secrets: Arc<dyn AccountSecrets>,
     command: &VacationCmd,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
@@ -262,7 +308,7 @@ pub async fn run_vacation(
             let account = super::pick(store, account.as_deref())?;
             // Refused before anything is kept: a reply nobody will send is worse than none,
             // because the user believes it is going out.
-            endpoint(&account.plan).map_err(|why| CoreError::NoSieve {
+            away_server(&account.plan).map_err(|why| CoreError::NoSieve {
                 address: account.address.clone(),
                 why,
             })?;
@@ -286,14 +332,14 @@ pub async fn run_vacation(
             let vacation = vacation_for(&account, subject, &body, *days, during);
             store.put_vacation(account.id.clone(), Some(&vacation), now)?;
             let kept = kept(&account.address, vacation, now);
-            let pushed = push_now(store, secrets, &account, Takeover::Refuse, saved, now).await;
+            let pushed = put_away(store, secrets, &account, saved, now).await;
             Ok(VacationDone::On { kept, pushed })
         }
         VacationCmd::Off { account } => {
             let account = super::pick(store, account.as_deref())?;
             store.put_vacation(account.id.clone(), None, now)?;
-            let pushed = if endpoint(&account.plan).is_ok() {
-                Some(push_now(store, secrets, &account, Takeover::Refuse, saved, now).await)
+            let pushed = if away_server(&account.plan).is_ok() {
+                Some(put_away(store, secrets, &account, saved, now).await)
             } else {
                 None
             };
@@ -303,6 +349,102 @@ pub async fn run_vacation(
             })
         }
     }
+}
+
+/// Put the account's kept reply where its server keeps one, saying so either way: in its Sieve
+/// script with the rules, or set where a JMAP or Graph server keeps it ([`set_away`]).
+pub async fn put_away(
+    store: &Arc<SqliteStore>,
+    secrets: Arc<dyn AccountSecrets>,
+    account: &crate::sync::Configured,
+    saved: &ClientRegistry,
+    now: DateTime<Utc>,
+) -> PushDone {
+    let set = |on, done: Result<(), CoreError>| match done {
+        Ok(()) => PushDone::Set {
+            address: account.address.clone(),
+            on,
+        },
+        Err(why) => PushDone::NotPushed(why),
+    };
+    match away_server(&account.plan) {
+        Ok(AwayServer::Jmap) => set(AwayServer::Jmap, set_jmap(store, secrets, account).await),
+        Ok(AwayServer::Graph) => set(
+            AwayServer::Graph,
+            set_graph(store, secrets.as_ref(), account, saved, now).await,
+        ),
+        // An account with no server to keep one has nothing to push to, and the push says why.
+        Ok(AwayServer::Sieve) | Err(_) => {
+            push_now(
+                store,
+                secrets.as_ref(),
+                account,
+                Takeover::Refuse,
+                saved,
+                now,
+            )
+            .await
+        }
+    }
+}
+
+/// Why a vacation reply was not set on a server that keeps it.
+fn not_set(e: RuntimeError) -> CoreError {
+    CoreError::context("the vacation reply was not set", e)
+}
+
+/// Make the account's `VacationResponse` the reply kept here, or switch it off when none is.
+async fn set_jmap(
+    store: &Arc<SqliteStore>,
+    secrets: Arc<dyn AccountSecrets>,
+    account: &crate::sync::Configured,
+) -> Result<(), CoreError> {
+    let vacation = store.vacation(account.id.clone())?;
+    let mut engine = mail_runtime::JmapEngine::new(
+        account.id.clone(),
+        account.plan.clone(),
+        store.clone(),
+        secrets,
+    )?;
+    engine
+        .set_vacation(vacation.as_ref())
+        .await
+        .map_err(not_set)
+}
+
+/// Make the mailbox's automatic replies the reply kept here, or switch them off when none is.
+async fn set_graph(
+    store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
+    account: &crate::sync::Configured,
+    saved: &ClientRegistry,
+    now: DateTime<Utc>,
+) -> Result<(), CoreError> {
+    let vacation = store.vacation(account.id.clone())?;
+    let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
+        return Err(not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
+            "an account that reads through Microsoft Graph signs in with Microsoft",
+        ))));
+    };
+    let client = mail_runtime::clients::client(saved, *issuer).ok_or_else(|| {
+        not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
+            "no OAuth client id is configured, so Microsoft Graph cannot be signed in to",
+        )))
+    })?;
+    let reach = mail_runtime::tokens::GraphReach::of(&account.plan);
+    let token = mail_runtime::tokens::graph_token(account.id.clone(), client, reach, secrets, now)
+        .await
+        .map_err(not_set)?;
+    let Credential::OAuth { access, .. } = token else {
+        return Err(not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
+            "the Microsoft Graph credential kept for this account is not a token",
+        ))));
+    };
+    let http = mail_runtime::http::http_client().map_err(not_set)?;
+    let body = mail_proto::automatic_replies::automatic_replies(vacation.as_ref(), now);
+    mail_runtime::graph::replies::set_automatic_replies(&http, access.expose(), &body)
+        .await
+        .map_err(not_set)
 }
 
 /// Push after a change, saying so either way: kept here is not the same as running there.
@@ -395,7 +537,7 @@ pub async fn pushed(
         why,
     })?;
     let rules = store.rules(account.id.clone())?;
-    let vacation = store.vacation(account.id.clone())?;
+    let vacation = scripted_vacation(store, account)?;
     let places = Places::from_caps(&account.caps);
     let auth = auth(account, secrets, saved, now).await?;
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
@@ -411,6 +553,18 @@ pub async fn pushed(
     )
     .await
     .map_err(|e| CoreError::context(format!("{}:{}", at.host, at.port), e))
+}
+
+/// The reply the account's Sieve script carries: the kept one, unless the server keeps the reply
+/// elsewhere ([`away_server`]), where a second copy in the script would answer twice.
+fn scripted_vacation(
+    store: &SqliteStore,
+    account: &crate::sync::Configured,
+) -> Result<Option<Vacation>, CoreError> {
+    if away_server(&account.plan) != Ok(AwayServer::Sieve) {
+        return Ok(None);
+    }
+    Ok(store.vacation(account.id.clone())?)
 }
 
 async fn status(
@@ -445,7 +599,7 @@ async fn status(
         })
         .collect();
     let rules = store.rules(account.id.clone())?;
-    let vacation = store.vacation(account.id.clone())?;
+    let vacation = scripted_vacation(store, account)?;
     let compiled = compile(
         &rules,
         vacation.as_ref(),

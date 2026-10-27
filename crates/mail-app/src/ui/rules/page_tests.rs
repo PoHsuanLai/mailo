@@ -17,10 +17,10 @@ use porter_core::AccountId;
 use super::RulesPage;
 use super::away_tests::{answering, own_server};
 use super::list::RunProgress;
-use super::server::{Pusher, reach};
+use super::server::{AwaySetter, Pusher, reach};
 use super::work::{self, Draft};
 use crate::ui::copy;
-use crate::ui::data::account_rows;
+use crate::ui::data::{AccountRow, account_rows};
 use crate::ui::files::Phase;
 use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, drain_seen, rebuild_into, right_click, type_into,
@@ -449,6 +449,61 @@ async fn a_provider_without_sieve_keeps_rules_here_and_says_nothing_of_a_server(
         "the switch can be turned on: {switch}"
     );
     assert!(!page.contains("No vacation reply here"), "{page}");
+}
+
+/// A JMAP account: its reply is the server's own `VacationResponse`, set there, not in a script.
+fn jmap_account(store: &SqliteStore) -> AccountRow {
+    let account =
+        mail_domain::id::account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000d1"));
+    let preset = presets::jmap(
+        "me@jmap.example",
+        "https://jmap.example/.well-known/jmap",
+        HttpAuth::Basic,
+    );
+    super::away_tests::seeded(store, account, &preset.plan)
+}
+
+#[tokio::test]
+async fn a_jmap_account_s_reply_is_set_on_its_server_and_no_script_is_pushed() {
+    dispatching();
+    let (store, _dir) = crate::ui::fixtures::empty();
+    let row = jmap_account(&store);
+    let kept = mail_core::rules::server::vacation_for(
+        &super::server::configured(&store, &row, Utc::now()),
+        "Away",
+        "Back on Monday.",
+        7,
+        DateRange::default(),
+    );
+    store
+        .put_vacation(row.id.clone(), Some(&kept), Utc::now())
+        .unwrap();
+    let (pusher, pushed) = counting();
+    let set = Arc::new(AtomicUsize::new(0));
+    let setter = AwaySetter(Arc::new({
+        let set = set.clone();
+        move |store: &Arc<SqliteStore>, account: &mail_core::sync::Configured| {
+            set.fetch_add(1, Ordering::SeqCst);
+            // The switch kept the reply off here first, and that is what the server is given.
+            assert_eq!(store.vacation(account.id.clone()).unwrap(), None);
+            Ok(())
+        }
+    }));
+    let mut dom = vacation_sheet(&store, row.id.clone(), pusher).with_root_context(setter);
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    // The reply is on; its switch turns it off.
+    click(&mut dom, seen.fixed("role", "switch")[0]);
+    landed(&mut dom, Seen::default()).await;
+    assert_eq!(set.load(Ordering::SeqCst), 1, "not set on the server");
+    assert_eq!(pushed.load(Ordering::SeqCst), 0, "a script was pushed");
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        !page.contains(&copy::errors::not_on_server("")),
+        "a failure is said: {page}"
+    );
 }
 
 /// "Run on existing mail" in each phase it passes through.

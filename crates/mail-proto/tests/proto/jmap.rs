@@ -95,6 +95,8 @@ fn the_rfc_session_names_the_mail_account_and_every_url() {
     assert_eq!(session.submission, Submission::Absent);
     // Nor any quota.
     assert_eq!(session.quotas, Quotas::Absent);
+    // Nor any vacation reply.
+    assert_eq!(session.vacation, Vacations::Absent);
 }
 
 #[test]
@@ -128,6 +130,16 @@ fn the_mail_accounts_attachment_limit_is_read_and_one_that_does_not_read_is_unst
         let parsed = Session::parse(session.as_bytes()).unwrap();
         assert_eq!(parsed.limits.max_size_attachments, expected, "{case}");
     }
+}
+
+#[test]
+fn a_mail_account_listing_vacation_responses_has_a_reply_to_set() {
+    let with_vacation = RFC_SESSION.replace(
+        r#""urn:ietf:params:jmap:contacts": {}"#,
+        r#""urn:ietf:params:jmap:contacts": {}, "urn:ietf:params:jmap:vacationresponse": {}"#,
+    );
+    let session = Session::parse(with_vacation.as_bytes()).unwrap();
+    assert_eq!(session.vacation, Vacations::Offered);
 }
 
 #[test]

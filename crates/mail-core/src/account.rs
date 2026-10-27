@@ -1189,14 +1189,18 @@ mod tests {
         assert_eq!(*issuer, Issuer::Microsoft);
         let mut scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
         scopes.sort_unstable();
-        let mut five = mail_domain::presets::GRAPH_SCOPES.to_vec();
-        five.sort_unstable();
-        assert_eq!(scopes, five);
-        // No client id here, so it waits for one, asking for those same five.
+        let mut graph = mail_domain::presets::GRAPH_SCOPES.to_vec();
+        graph.sort_unstable();
+        assert_eq!(scopes, graph);
+        // No client id here, so it waits for one, asking for those same scopes.
         let Outcome::NeedsClientId { scopes: asked, .. } = added.outcome else {
             panic!("{:?}", added.outcome)
         };
-        assert_eq!(asked.len(), 5, "{asked:?}");
+        assert_eq!(
+            asked.len(),
+            mail_domain::presets::GRAPH_SCOPES.len(),
+            "{asked:?}"
+        );
     }
 
     /// An account already reading a Microsoft mailbox over IMAP keeps doing so when it is added

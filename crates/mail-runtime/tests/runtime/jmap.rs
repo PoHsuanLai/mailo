@@ -1063,3 +1063,30 @@ async fn the_account_s_storage_is_the_tightest_mail_quota_the_server_lists() {
     let asked = s.fake.calls("Quota/get").pop().unwrap();
     assert_eq!(asked["ids"], serde_json::Value::Null);
 }
+
+#[tokio::test]
+async fn a_vacation_reply_is_the_account_s_vacation_response_switched_on_and_off() {
+    let mut s = setup().await;
+    let away = Vacation {
+        account: acct_account(),
+        subject: "Away".to_owned(),
+        body: "Back on Monday.".to_owned(),
+        days: 7,
+        addresses: vec![USER.to_owned()],
+        from: None,
+        during: DateRange {
+            from: Some(now()),
+            to: None,
+        },
+    };
+    s.engine.set_vacation(Some(&away)).await.unwrap();
+    let set = s.fake.state.lock().unwrap().vacation.clone().unwrap();
+    assert_eq!(set["isEnabled"], true);
+    assert_eq!(set["subject"], "Away");
+    assert_eq!(set["textBody"], "Back on Monday.");
+    assert_eq!(set["toDate"], serde_json::Value::Null);
+    s.engine.set_vacation(None).await.unwrap();
+    let set = s.fake.state.lock().unwrap().vacation.clone().unwrap();
+    assert_eq!(set["isEnabled"], false);
+    assert_eq!(s.fake.calls("VacationResponse/set").len(), 2);
+}

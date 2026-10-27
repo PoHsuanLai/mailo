@@ -17,8 +17,8 @@ use super::super::common::Told;
 use super::super::data::{AccountRow, account_rows};
 use super::super::menus::when_words;
 use super::away::AwayPage;
-use super::server::reach;
-use super::{Said, push};
+use super::server::reach_away;
+use super::{Said, push_away};
 use crate::ui::copy;
 use crate::ui::view::{Shell, VacationAt};
 
@@ -57,7 +57,7 @@ pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
     let mut changed = use_signal(|| 0u64);
     let pushed = use_callback(move |row: AccountRow| {
         changed += 1;
-        push(row, unpushed);
+        push_away(row, unpushed);
     });
     if rows.is_empty() {
         return rsx! {
@@ -149,7 +149,7 @@ fn VacationList(shell: Signal<Shell>, rows: Vec<AccountRow>, changed: Signal<u64
 /// server cannot send one.
 fn status(store: &SqliteStore, row: &AccountRow, now: DateTime<Utc>, clock: Clock) -> String {
     use copy::status::vacation as words;
-    if reach(&row.plan).is_err() {
+    if reach_away(&row.plan).is_err() {
         return words::UNAVAILABLE.to_owned();
     }
     // A reply the store cannot read is not known to be off.

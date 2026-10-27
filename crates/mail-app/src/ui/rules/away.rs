@@ -2,8 +2,10 @@
 //! fields.
 //!
 //! Kept here, run by the server: keeping it puts the account's script on its server, as `mailo
-//! sieve push` does. A server without ManageSieve cannot run one, and this client does not send
-//! one itself (`rules::server` says why), so on those accounts there is the reason and no form.
+//! sieve push` does, or sets the reply a JMAP or Graph server keeps itself
+//! (`rules::server::away_server`). A server that keeps none cannot send one, and this client does
+//! not send one itself (`rules::server` says why), so on those accounts there is the reason and
+//! no form.
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
@@ -20,7 +22,7 @@ use super::super::common::classed;
 use super::super::data::AccountRow;
 use super::super::menus::when_words;
 use super::super::press::{available, on_primary};
-use super::server::{configured, reach};
+use super::server::{configured, reach_away};
 use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::remedy::plainly;
@@ -135,7 +137,7 @@ where
 {
     // Refused before anything is kept, as `vacation on` refuses: a reply nobody will send is
     // worse than none, because the user believes it is going out.
-    reach(&row.plan)?;
+    reach_away(&row.plan)?;
     if away.reply == Reply::Off {
         store
             .put_vacation(row.id.clone(), None, now)
@@ -230,7 +232,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
     });
     // An account whose server takes no vacation reply has its switch, greyed: there is nothing
     // to turn on.
-    if reach(&row.plan).is_err() {
+    if reach_away(&row.plan).is_err() {
         return rsx! {
             Form {
                 FormSection {
