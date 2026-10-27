@@ -11,12 +11,18 @@ use std::time::Duration;
 /// A token endpoint that never answers must not hang a setup command or a sync pass forever.
 const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The shared client.
+/// The shared client: built once, since reading the system's roots is not cheap and a pass
+/// asks for it every few seconds. A clone shares its connections.
 pub fn http_client() -> Result<reqwest::Client, RuntimeError> {
-    crate::roots::trusting_system(reqwest::Client::builder())
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client.clone());
+    }
+    let client = crate::roots::trusting_system(reqwest::Client::builder())
         .timeout(HTTP_TIMEOUT)
         .build()
-        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))
+        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))?;
+    Ok(CLIENT.get_or_init(|| client).clone())
 }
 
 /// [`http_client`] as `porter_http`'s seam, which is what porter-oauth sends its exchanges over.
