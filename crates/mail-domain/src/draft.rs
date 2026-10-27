@@ -148,8 +148,13 @@ impl Draft {
         }
         // `Bcc` is never carried over: the original's blind recipients were blind for a
         // reason, and on a received message the field is our own address anyway.
-        dedup_addresses(&mut to, identity);
-        dedup_addresses(&mut cc, identity);
+        // "Our own" is the identity's `from` *and* its `reply_to`: if replies to us are directed
+        // to an alias, that alias is us too, and a reply-all that includes it mails ourselves.
+        let own: Vec<&Address> = std::iter::once(&identity.from)
+            .chain(&identity.reply_to)
+            .collect();
+        dedup_addresses(&mut to, &own);
+        dedup_addresses(&mut cc, &own);
         cc.retain(|addr| !to.iter().any(|kept| same_mailbox(kept, addr)));
 
         Draft {
@@ -267,18 +272,11 @@ fn same_mailbox(a: &Address, b: &Address) -> bool {
     a.email.eq_ignore_ascii_case(&b.email)
 }
 
-/// Drop our own addresses and any repeats, keeping the first occurrence of each mailbox.
-///
-/// "Our own" is the identity's `from` *and* its `reply_to`: if replies to us are directed to
-/// an alias, that alias is us too, and a reply-all that includes it mails ourselves.
-fn dedup_addresses(addresses: &mut Vec<Address>, identity: &crate::account::Identity) {
+/// Drop the `own` addresses and any repeats, keeping the first occurrence of each mailbox.
+pub fn dedup_addresses(addresses: &mut Vec<Address>, own: &[&Address]) {
     let mut kept: Vec<Address> = Vec::with_capacity(addresses.len());
     for addr in addresses.drain(..) {
-        let ours = same_mailbox(&addr, &identity.from)
-            || identity
-                .reply_to
-                .as_ref()
-                .is_some_and(|own| same_mailbox(&addr, own));
+        let ours = own.iter().any(|mine| same_mailbox(&addr, mine));
         if ours || kept.iter().any(|k| same_mailbox(k, &addr)) {
             continue;
         }
@@ -411,6 +409,38 @@ mod tests {
         );
         // `other` is already in `to`, so it is not repeated in `cc`.
         assert_eq!(draft.cc, vec![addr("cc@example.test")]);
+    }
+
+    /// What `dedup_addresses` keeps, with `me@` and `alias@` as the own addresses.
+    #[test]
+    fn own_addresses_and_repeats_are_dropped_and_the_rest_keep_their_order() {
+        let mut me = identity();
+        me.from = addr("me@example.test");
+        me.reply_to = Some(addr("alias@example.test"));
+        let table: [(&[&str], &[&str]); 7] = [
+            (&[], &[]),
+            (&["a@x"], &["a@x"]),
+            (&["me@example.test", "a@x"], &["a@x"]),
+            (&["ME@Example.TEST", "a@x"], &["a@x"]),
+            (&["a@x", "alias@example.test", "b@x"], &["a@x", "b@x"]),
+            (&["b@x", "A@x", "B@X", "a@x"], &["b@x", "A@x"]),
+            (&["me@example.test", "ALIAS@example.test"], &[]),
+        ];
+        for (given, kept) in table {
+            let mut got: Vec<Address> = given.iter().map(|e| addr(e)).collect();
+            dedup_addresses(&mut got, &[&me.from, me.reply_to.as_ref().unwrap()]);
+            let got: Vec<&str> = got.iter().map(|a| a.email.as_str()).collect();
+            assert_eq!(got, kept, "from {given:?}");
+        }
+        let mut named = vec![Address {
+            name: Some("Me".to_owned()),
+            email: "me@example.test".to_owned(),
+        }];
+        dedup_addresses(&mut named, &[&me.from]);
+        assert!(
+            named.is_empty(),
+            "a display name does not make it someone else"
+        );
     }
 
     #[test]

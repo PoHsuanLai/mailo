@@ -90,12 +90,9 @@ where
     let own = store
         .identities(original.account.clone())
         .or_log_default("the account's identities could not be read");
-    let mine = |a: &Address| {
-        own.iter()
-            .any(|i| i.from.email.eq_ignore_ascii_case(&a.email))
-    };
-    draft.to.retain(|a| !mine(a));
-    draft.cc.retain(|a| !mine(a));
+    let mine: Vec<&Address> = own.iter().map(|i| &i.from).collect();
+    draft::dedup_addresses(&mut draft.to, &mine);
+    draft::dedup_addresses(&mut draft.cc, &mine);
     // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
     // a property of the draft — so the quoting happens here, where the renderer is.
     draft.text = quoted(&signed(body, &identity), &original, zone);
