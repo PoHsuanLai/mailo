@@ -1142,7 +1142,7 @@ fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) 
         out.push(Surveyed {
             labels: user_labels(&text),
             thread: after_atom(&text, "X-GM-THRID ")
-                .filter(|id| id.bytes().all(|b| b.is_ascii_digit())),
+                .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())),
             remote: RemoteRef::Imap {
                 mailbox: mailbox.to_owned(),
                 // The mailbox's own UIDVALIDITY, not zero. `remote_map` keys on it, so a
