@@ -95,6 +95,14 @@ fn sniff(path: &Path) -> Result<Sniffed, CoreError> {
     Ok(archive::sniff(&head[..n]))
 }
 
+/// The name of the directory `path` stands for. `.` and `..` have none of their own, so those
+/// are looked up for the directory they resolve to.
+fn dir_name(path: &Path) -> Option<String> {
+    let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().into_owned());
+    // A path that cannot be resolved names nothing, and the folder is then unnamed.
+    name(path).or_else(|| path.canonicalize().ok().and_then(|real| name(&real)))
+}
+
 fn has_extension(path: &Path, extension: &str) -> bool {
     path.extension()
         .is_some_and(|found| found.eq_ignore_ascii_case(extension))
@@ -105,6 +113,7 @@ fn has_extension(path: &Path, extension: &str) -> bool {
 fn entries(dir: &Path) -> Result<Vec<(String, PathBuf, bool)>, CoreError> {
     let read = std::fs::read_dir(dir).map_err(CoreError::at(&dir))?;
     let mut out: Vec<(String, PathBuf, bool)> = read
+        // An entry that cannot be read is one this could not open either.
         .filter_map(Result::ok)
         .filter_map(|entry| {
             // An entry whose kind cannot be read is one this could not open either.
@@ -146,10 +155,7 @@ fn is_thunderbird(dir: &Path) -> bool {
 
 /// Whether `dir` is an Apple Mail package, or holds one or an `.emlx` within `depth` levels.
 fn is_apple_mail(dir: &Path, depth: usize) -> bool {
-    if dir
-        .file_name()
-        .is_some_and(|name| emlx::folder_of_package(&name.to_string_lossy()).is_some())
-    {
+    if dir_name(dir).is_some_and(|name| emlx::folder_of_package(&name).is_some()) {
         return true;
     }
     // A directory that cannot be listed holds nothing of Apple Mail's this could read.
@@ -221,9 +227,8 @@ pub fn items(
         }
         Source::AppleMail(root) => {
             let mut found = Vec::new();
-            let top = root.file_name().and_then(|name| {
-                emlx::folder_of_package(&name.to_string_lossy()).map(str::to_owned)
-            });
+            let top =
+                dir_name(root).and_then(|name| emlx::folder_of_package(&name).map(str::to_owned));
             apple_files(root, top, APPLE_DEPTH + 1, &mut found)?;
             Ok(chained(found, Mailer::Any))
         }
@@ -240,10 +245,12 @@ pub fn items(
 /// The folder an mbox file holds, by its name: `Sent.mbox` is `Sent`. The `mbox` inside an Apple
 /// Mail package is named for its package.
 fn mbox_folder(path: &Path) -> Option<String> {
-    let package = path
+    // A bare `mbox` has the empty path as its parent, which is the current directory.
+    let parent = path
         .parent()
-        .and_then(Path::file_name)
-        .map(|name| name.to_string_lossy().into_owned());
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let package = dir_name(parent);
     if path.file_name().is_some_and(|name| name == "mbox")
         && let Some(folder) = package.as_deref().and_then(emlx::folder_of_package)
     {
@@ -763,6 +770,18 @@ mod tests {
         let inner = package.join("mbox");
         assert_eq!(detect(&inner).unwrap(), Source::Mbox(inner.clone()));
         assert_eq!(read(&Source::Mbox(inner)), vec![archived("work", "Work")]);
+    }
+
+    #[test]
+    fn a_package_reached_by_dot_dot_still_names_its_mailbox() {
+        let dir = tempfile::tempdir().unwrap();
+        let package = dir.path().join("Work.mbox");
+        put(&package.join("mbox"), mbox_of(&[("work", None)]));
+        put(&package.join("Inner/keep"), b"");
+        let by_dots = package.join("Inner").join("..");
+        let source = detect(&by_dots).unwrap();
+        assert_eq!(source, Source::AppleMail(by_dots));
+        assert_eq!(read(&source)[0].2, vec!["Work".to_owned()]);
     }
 
     #[test]
