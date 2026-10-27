@@ -630,7 +630,7 @@ async fn one(
                 secrets,
             )
             .map_err(|e| Failure::of("", &e))?;
-            jmap::drive(&mut engine, &mut cancel, now, emit).await
+            jmap::drive(&mut engine, account, &mut cancel, now, emit).await
         }
     };
     report.map(|mut done| {
@@ -1099,8 +1099,13 @@ fn sift<B: mail_proto::Backend>(
         policy,
         now,
     ) {
-        done.trouble(None, mail_domain::Retry::Now, format!("junk filter: {e}"));
+        junk_failed(done, e);
     }
+}
+
+/// Say that the junk filter failed, without failing the pass.
+fn junk_failed(done: &mut Done, why: CoreError) {
+    done.trouble(None, mail_domain::Retry::Now, format!("junk filter: {why}"));
 }
 
 /// Most headers one mailbox takes in one pass. The rest wait for the next pass, behind the

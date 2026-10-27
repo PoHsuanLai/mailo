@@ -116,8 +116,8 @@ pub fn words(message: &Message) -> Vec<String> {
     out
 }
 
-/// How likely a message with `words` is junk, from `counts`: near 1 junk, near 0 not, 0.5 when
-/// the words say nothing. `None` until the filter has learned [`ENOUGH`] of each kind.
+/// How likely a message is junk, from `counts` of the words it has: near 1 junk, near 0 not, 0.5
+/// when the words say nothing. `None` until the filter has learned [`ENOUGH`] of each kind.
 pub fn score(counts: &JunkCounts) -> Option<f64> {
     if counts.spam < ENOUGH || counts.ham < ENOUGH {
         return None;
@@ -253,6 +253,7 @@ pub fn sift(
         .collect();
     for id in arrived {
         let Ok(message) = store.message(*id) else {
+            // Gone since the pass stored it: nothing left to judge.
             continue;
         };
         if message.account != account {
@@ -296,7 +297,7 @@ pub fn sift(
                 Membership::In,
             ),
         };
-        mail_store::rules::act_on(store, caps, &op, &message, now)?;
+        mail_store::rules::perform(store, caps, &op, &message, now)?;
         sifted.junk.push(message.id);
     }
     Ok(sifted)

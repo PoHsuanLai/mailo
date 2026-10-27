@@ -264,22 +264,19 @@ pub fn perform(
     }
     // Spam and Not Spam teach the junk filter, as Mail's Junk and Not Junk do: the messages as
     // they were, since what is learned is what they said and not where they went.
-    let judged = match op {
-        Op::Spam => Some(mail_store::junk::Judged::Spam),
-        Op::Restore if messages.iter().any(|m| m.mailbox == MailboxRole::Spam) => {
-            Some(mail_store::junk::Judged::Ham)
-        }
-        _ => None,
-    };
-    if let Some(judged) = judged {
-        let taught: Vec<_> = match judged {
-            mail_store::junk::Judged::Spam => messages.clone(),
-            mail_store::junk::Judged::Ham => messages
+    let taught = match op {
+        Op::Spam => Some((mail_store::junk::Judged::Spam, messages.clone())),
+        Op::Restore => {
+            let from_spam: Vec<_> = messages
                 .iter()
                 .filter(|m| m.mailbox == MailboxRole::Spam)
                 .cloned()
-                .collect(),
-        };
+                .collect();
+            (!from_spam.is_empty()).then_some((mail_store::junk::Judged::Ham, from_spam))
+        }
+        _ => None,
+    };
+    if let Some((judged, taught)) = taught {
         crate::junk::learn(store, &taught, judged).or_log("the junk filter could not learn");
     }
     Some(Undo {

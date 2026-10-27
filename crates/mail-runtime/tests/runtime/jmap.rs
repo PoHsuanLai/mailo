@@ -75,7 +75,30 @@ async fn setup() -> Setup {
 
 async fn pass(setup: &mut Setup) -> SyncReport {
     let (_tx, mut cancel) = watch::channel(false);
-    let report = setup.engine.pass(&mut cancel, now()).await.unwrap();
+    let report = setup
+        .engine
+        .pass(&mut cancel, now(), &mut |_, _, _| {})
+        .await
+        .unwrap();
+    assert!(report.needs_attention.is_empty(), "{report:?}");
+    report
+}
+
+/// A pass whose arrivals are all called junk, as the junk filter would: each is sent to Spam
+/// before the outbox drains.
+async fn pass_calling_arrivals_junk(setup: &mut Setup) -> SyncReport {
+    let (_tx, mut cancel) = watch::channel(false);
+    let mut call_junk = |store: &SqliteStore, caps: &AccountCaps, arrived: &[MessageId]| {
+        for id in arrived {
+            let message = store.message(*id).unwrap();
+            mail_store::rules::perform(store, caps, &Op::Spam, &message, now()).unwrap();
+        }
+    };
+    let report = setup
+        .engine
+        .pass(&mut cancel, now(), &mut call_junk)
+        .await
+        .unwrap();
     assert!(report.needs_attention.is_empty(), "{report:?}");
     report
 }
@@ -181,6 +204,32 @@ async fn a_first_sync_fetches_headers_then_bodies_and_files_by_mailbox() {
             mailbox_state: "m1".to_owned()
         })
     );
+}
+
+#[tokio::test]
+async fn what_the_pass_is_told_arrived_can_be_acted_on_before_the_outbox_drains() {
+    let mut s = setup().await;
+    let ids = seed(&s.fake);
+    let report = pass_calling_arrivals_junk(&mut s).await;
+    assert_eq!(
+        report.arrived.len(),
+        3,
+        "told of every email the pass stored"
+    );
+    assert_eq!(report.outbox_settled, 3, "the moves left in the same pass");
+    for (n, id) in [(1, &ids[0]), (2, &ids[1])] {
+        assert_eq!(held(&s.store, n).unwrap().mailbox, MailboxRole::Spam);
+        let in_boxes = s
+            .fake
+            .state
+            .lock()
+            .unwrap()
+            .email(id)
+            .unwrap()
+            .mailboxes
+            .clone();
+        assert_eq!(in_boxes, ["mbJ".to_owned()], "message {n} on the server");
+    }
 }
 
 #[tokio::test]
@@ -400,7 +449,11 @@ async fn a_refused_password_stops_the_pass_and_says_so() {
     let plan = presets::jmap(USER, &s.fake.session_url(), HttpAuth::Basic).plan;
     s.engine = JmapEngine::new(acct_account(), plan, s.store.clone(), secrets).unwrap();
     let (_tx, mut cancel) = watch::channel(false);
-    let report = s.engine.pass(&mut cancel, now()).await.unwrap();
+    let report = s
+        .engine
+        .pass(&mut cancel, now(), &mut |_, _, _| {})
+        .await
+        .unwrap();
     assert!(report.needs_reauth, "{report:?}");
 }
 
@@ -499,7 +552,11 @@ async fn an_email_filed_elsewhere_meanwhile_is_not_destroyed_and_comes_back() {
         .touch(&trashed, |email| email.mailboxes = vec!["mbI".to_owned()]);
 
     let (_tx, mut cancel) = watch::channel(false);
-    let report = s.engine.pass(&mut cancel, now()).await.unwrap();
+    let report = s
+        .engine
+        .pass(&mut cancel, now(), &mut |_, _, _| {})
+        .await
+        .unwrap();
     assert!(
         report
             .needs_attention
