@@ -963,3 +963,87 @@ async fn a_persons_card_is_kept_whole_written_back_when_edited_and_goes_with_its
     assert_eq!(store.card(&id).unwrap(), None);
     assert_eq!(store.card_of("ada@example.test").unwrap(), None);
 }
+
+/// A card edited here, while the server's copy has changed in what the editor does not show, goes
+/// back as the server's card with the edit's fields on it: the server's change is not put back.
+#[tokio::test]
+async fn an_edited_card_is_sent_over_the_servers_newer_one_not_over_the_one_edited_from() {
+    use mail_store::CardId;
+    let server: Shared = Arc::default();
+    server.lock().unwrap().put(
+        "ada",
+        "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:ada-1\r\nFN:Ada\r\nEMAIL:ada@example.test\r\nEND:VCARD\r\n",
+    );
+    let addr = serve(server.clone()).await;
+    let store = MemoryStore::new();
+    let dav = dav(addr, ada());
+    carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    let id = CardId(base(addr, &format!("{BOOK}ada.vcf")).to_string());
+    let held = store.card(&id).unwrap().expect("the card is kept");
+
+    // Edited here, from the card as it was.
+    let mut edited = mail_pim::vcard::parse(&held.vcard).remove(0);
+    edited.note = Some("met at the society".to_owned());
+    let mut person = carddav::person_card(
+        &edited,
+        mail_pim::vcard::write(&edited),
+        id.clone(),
+        held.home.clone(),
+    );
+    if let GroupHome::Book { edit, .. } = &mut person.home {
+        *edit = Edit::Edited;
+    }
+    store.put_card(&person).unwrap();
+
+    // Meanwhile the server's gained a birthday, which the editor does not show.
+    server.lock().unwrap().put(
+        "ada",
+        "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:ada-1\r\nFN:Ada\r\nEMAIL:ada@example.test\r\nBDAY:19151210\r\nEND:VCARD\r\n",
+    );
+    let done = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!((done.written, done.unwritten.len()), (1, 0));
+    let (_, _, body) = server.lock().unwrap().puts[0].clone();
+    assert!(
+        body.contains("BDAY:19151210"),
+        "the server's change was put back:\n{body}"
+    );
+    assert!(
+        body.contains("met at the society"),
+        "the edit was lost:\n{body}"
+    );
+}
+
+/// A book synced before cards were kept whole has its cards listed and none in the store: the next
+/// sync, with nothing changed on the server, keeps them.
+#[tokio::test]
+async fn cards_a_book_lists_and_the_store_lacks_are_kept_by_the_next_sync() {
+    use mail_store::CardId;
+    let server: Shared = Arc::default();
+    server.lock().unwrap().put(
+        "ada",
+        "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:ada-1\r\nFN:Ada\r\nEMAIL:ada@example.test\r\nEND:VCARD\r\n",
+    );
+    let addr = serve(server.clone()).await;
+    let store = MemoryStore::new();
+    let dav = dav(addr, ada());
+    carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    let id = CardId(base(addr, &format!("{BOOK}ada.vcf")).to_string());
+    assert!(store.card(&id).unwrap().is_some());
+    // As the book was before cards were kept: listed, and not held.
+    store.delete_card(&id).unwrap();
+    assert!(store.card(&id).unwrap().is_none());
+    let again = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!(again.changed, 0, "nothing changed on the server");
+    assert_eq!(
+        store.card(&id).unwrap().map(|card| card.name),
+        Some("Ada".to_owned())
+    );
+}

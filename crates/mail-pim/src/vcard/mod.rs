@@ -10,11 +10,13 @@
 //! card by its `UID` or a `mailto:` naming an address. [`Member::of`] says which. A member that
 //! names nothing this program knows is still a member, and is written back as it was read.
 
+mod edit;
 mod member;
 mod postal;
 mod read;
 mod write;
 
+pub use edit::{Details, apply, details_of};
 pub use member::{Member, uid_key};
 pub use postal::Postal;
 

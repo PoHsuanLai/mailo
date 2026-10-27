@@ -143,6 +143,21 @@ pub async fn sync<S: Store + ?Sized>(
         }
     }
 
+    // A book synced before cards were kept whole lists its cards and the store has none of them:
+    // each is read from the text the book holds, once, rather than waiting for the server to
+    // change it.
+    let kept: std::collections::HashSet<String> = store
+        .cards()?
+        .into_iter()
+        .map(|person| person.id.0)
+        .collect();
+    for (href, held) in &book.cards {
+        if !kept.contains(href) {
+            let card = mail_pim::vcard::parse(&held.vcard).into_iter().next();
+            put_person(store, &book.url, href, card.as_ref(), &held.vcard)?;
+        }
+    }
+
     book.token = listing.token;
     store.put_address_book(&book)?;
     let (mut written, mut unwritten) = group::write_back(dav, store, &mut book).await?;

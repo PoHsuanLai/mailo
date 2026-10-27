@@ -2,6 +2,7 @@
 //! added from mail, and the book autocomplete ranks kept in step.
 
 use super::*;
+use mail_pim::vcard::Postal;
 use mail_store::{Edit, SqliteStore};
 
 const BOOK: &str = "https://dav.example.test/book/";

@@ -5,6 +5,7 @@ use super::group::Unwritten;
 use super::{CardDavFailure, Dav, Put};
 use crate::RuntimeError;
 use mail_pim::Card;
+use mail_pim::vcard;
 use mail_store::{AddressBook, BookCard, CardId, Edit, GroupHome, PersonCard, Store};
 use url::Url;
 
@@ -69,6 +70,21 @@ pub(super) fn put_person<S: Store + ?Sized>(
     Ok(())
 }
 
+/// What to send for a card edited here: the card as the server has it now (`server`, from the
+/// book's last listing), with the fields the editor shows replaced by the edit's (`edited`). An
+/// edit sent whole would put back, over the server's etag, whatever the server changed in what
+/// the editor does not show since the edit began. A server's card that cannot be read leaves the
+/// edit as it is.
+fn merged(edited: &str, server: &str) -> String {
+    let (Some(mine), Some(theirs)) = (
+        vcard::parse(edited).into_iter().next(),
+        vcard::parse(server).into_iter().next(),
+    ) else {
+        return edited.to_owned();
+    };
+    vcard::write(&vcard::apply(theirs, &vcard::details_of(&mine)))
+}
+
 /// Send every card of `book` edited here to the server, each only if the server's is still the
 /// one last synced (`If-Match`), and mark each one sent as synced. What is not sent stays
 /// edited, and is said, as [`super::group::write_back`] says a group's.
@@ -95,7 +111,8 @@ pub(super) async fn write_back<S: Store + ?Sized>(
             continue;
         };
         let at = Url::parse(href).map_err(|e| CardDavFailure::Malformed(format!("{href}: {e}")))?;
-        match dav.put_card(&at, &held.etag, person.vcard.clone()).await {
+        let body = merged(&person.vcard, &held.vcard);
+        match dav.put_card(&at, &held.etag, body.clone()).await {
             Ok(Put::Stored(etag)) => {
                 book.cards.insert(
                     href.clone(),
@@ -105,11 +122,12 @@ pub(super) async fn write_back<S: Store + ?Sized>(
                         // it again.
                         etag: etag.unwrap_or_default(),
                         addresses: person.addresses.clone(),
-                        vcard: person.vcard.clone(),
+                        vcard: body.clone(),
                         ..held.clone()
                     },
                 );
                 store.put_card(&PersonCard {
+                    vcard: body,
                     home: GroupHome::Book {
                         url: url.clone(),
                         href: href.clone(),
