@@ -12,6 +12,7 @@
 //! cc:bob                               addressed to: To or Cc, as to: is
 //! is:unread is:read is:starred         state
 //! is:pinned is:snoozed is:kept       is:kept is starred or pinned
+//! is:vip                               from one of the VIPs
 //! in:inbox  in:archive in:sent         where it lives
 //! in:spam   in:trash
 //! has:attachment                       what it carries
@@ -33,6 +34,7 @@
 //! its own rather than together.
 
 use crate::error::Logged;
+use crate::vip::Vips;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use mail_domain::{DateRange, Filter, LabelId, MailboxRole, ReadState, Star, TextMatch};
 use porter_core::AccountId;
@@ -90,6 +92,11 @@ pub trait Names {
     fn accounts(&self, _name: &str) -> Vec<AccountId> {
         Vec::new()
     }
+    /// What `is:vip` finds ([`Vips::filter`]): nothing while none are known, which is what it
+    /// means while nobody is a VIP.
+    fn vips(&self) -> Filter {
+        Vips::default().filter()
+    }
 }
 
 impl<F: Fn(&str) -> Vec<LabelId>> Names for F {
@@ -111,6 +118,9 @@ pub struct Known<'a> {
     pub labels: &'a [(String, LabelId)],
     /// Each account's address, with the account.
     pub accounts: &'a [(String, AccountId)],
+    /// Who `is:vip` means ([`crate::vip::read`]), handed in for the reason the labels are: the
+    /// list is the store's. `None` is nobody, and `is:vip` then finds nothing.
+    pub vips: Option<&'a Vips>,
 }
 
 impl Names for Known<'_> {
@@ -141,6 +151,31 @@ impl Names for Known<'_> {
             .map(|(_, id)| id.clone())
             .collect();
         if local.len() == 1 { local } else { Vec::new() }
+    }
+
+    fn vips(&self) -> Filter {
+        self.vips.map_or(Filter::Nothing, Vips::filter)
+    }
+}
+
+/// `names`, with who `is:vip` means: for a caller whose names know the labels and accounts but
+/// whose source of mail knows the VIPs ([`crate::search::Source::vips`]).
+pub struct WithVips<'a> {
+    pub names: &'a dyn Names,
+    pub vips: &'a Vips,
+}
+
+impl Names for WithVips<'_> {
+    fn labels(&self, name: &str) -> Vec<LabelId> {
+        self.names.labels(name)
+    }
+
+    fn accounts(&self, name: &str) -> Vec<AccountId> {
+        self.names.accounts(name)
+    }
+
+    fn vips(&self) -> Filter {
+        self.vips.filter()
     }
 }
 
@@ -363,6 +398,7 @@ fn term<Tz: TimeZone>(token: &Token, zone: &Tz, names: &dyn Names) -> Option<Fil
             "snoozed" => Filter::Snoozed,
             // Starred or pinned. The one `Or` a term stands for.
             "kept" => crate::conversation::kept_filter(),
+            "vip" | "vips" => names.vips(),
             _ => return None,
         },
         "in" => Filter::InMailbox(mailbox(value)?),

@@ -89,6 +89,7 @@ mod toolbar;
 mod unsubscribe;
 mod view_groups;
 mod views;
+mod vip;
 mod window;
 mod window_core;
 
@@ -98,6 +99,8 @@ mod fixtures;
 mod shell_tests;
 #[cfg(test)]
 mod tips_tests;
+#[cfg(test)]
+mod vip_tests;
 
 pub(crate) use fetching::on_write;
 pub use launch::run;

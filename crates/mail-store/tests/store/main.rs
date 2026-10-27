@@ -47,6 +47,7 @@ mod templates;
 mod two_writers;
 mod upgrade;
 mod views;
+mod vips;
 
 /// The tests that keep a binary of their own, each saying why at its top.
 const OWN_BINARY: &[&str] = &["scale.rs"];

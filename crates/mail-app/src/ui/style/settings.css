@@ -11,3 +11,5 @@
    inset from the group's edge as a row's title is, and a few lines tall rather than a letter's. */
 .sig-edit { padding: var(--s-12) var(--s-18); }
 .sig-edit .c-body { min-height: 90px; }
+/* General › VIPs: the address field and its Add, side by side in their row. */
+.vip-add { display: flex; align-items: center; gap: var(--s-6); }

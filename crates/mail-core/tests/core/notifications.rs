@@ -165,7 +165,15 @@ fn an_accounts_first_backfill_raises_nothing() {
         })
         .collect();
     let recorder = Recorder::default();
-    let raised = notify::announce(&store, account(), &arrived, &recorder, watched).unwrap();
+    let raised = notify::announce(
+        &store,
+        account(),
+        &arrived,
+        &recorder,
+        notify::Whom::Everyone,
+        watched,
+    )
+    .unwrap();
     assert_eq!(raised, 0);
     assert!(recorder.seen().is_empty(), "{:?}", recorder.seen());
 
@@ -173,7 +181,15 @@ fn an_accounts_first_backfill_raises_nothing() {
     let later = watched + chrono::Duration::minutes(5);
     let new = stored(&store, 500, "bob@example.test", later);
     let mine = stored(&store, 501, "ME@example.test", later);
-    notify::announce(&store, account(), &[new, mine], &recorder, later).unwrap();
+    notify::announce(
+        &store,
+        account(),
+        &[new, mine],
+        &recorder,
+        notify::Whom::Everyone,
+        later,
+    )
+    .unwrap();
     let seen = recorder.seen();
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0].summary, "bob@example.test");
@@ -223,6 +239,7 @@ fn an_announcement_is_the_ordinary_banner_whatever_code_the_message_carries() {
         account(),
         &[headers, html_only, plain],
         &recorder,
+        notify::Whom::Everyone,
         later,
     )
     .unwrap();
@@ -236,6 +253,65 @@ fn an_announcement_is_the_ordinary_banner_whatever_code_the_message_carries() {
     assert!(
         seen.iter().all(|n| !n.summary.contains("771204")),
         "a code read from a body is not on the banner"
+    );
+}
+
+/// "Notify for: VIPs only": of one pass's new mail only the VIP's is said, the VIPs read from
+/// the store as the pass ends, so one marked between passes is heard on the next.
+#[test]
+fn vips_only_says_a_vip_s_new_mail_and_holds_back_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    with_account(&store, &plan(1));
+    let watched = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+    notify::floor::armed(&store, account(), watched).unwrap();
+    let recorder = Recorder::default();
+    store.put_vip("Dana@Example.test", Some("Dana")).unwrap();
+
+    let later = watched + chrono::Duration::minutes(5);
+    let dana = stored(&store, 600, "dana@example.test", later);
+    let bob = stored(&store, 601, "bob@example.test", later);
+    let raised = notify::announce(
+        &store,
+        account(),
+        &[dana, bob],
+        &recorder,
+        notify::Whom::Vips,
+        later,
+    )
+    .unwrap();
+    let seen = recorder.seen();
+    assert_eq!(raised, 1, "{seen:?}");
+    assert_eq!(seen[0].summary, "dana@example.test");
+
+    // Bob marked now: his next message is heard, and everyone's again under All new mail.
+    store.put_vip("bob@example.test", None).unwrap();
+    let again = later + chrono::Duration::minutes(5);
+    let from_bob = stored(&store, 602, "bob@example.test", again);
+    let from_cy = stored(&store, 603, "cy@example.test", again);
+    notify::announce(
+        &store,
+        account(),
+        &[from_bob, from_cy],
+        &recorder,
+        notify::Whom::Vips,
+        again,
+    )
+    .unwrap();
+    let from_eve = stored(&store, 604, "eve@example.test", again);
+    notify::announce(
+        &store,
+        account(),
+        &[from_eve],
+        &recorder,
+        notify::Whom::Everyone,
+        again,
+    )
+    .unwrap();
+    let said: Vec<String> = recorder.seen().into_iter().map(|n| n.summary).collect();
+    assert_eq!(
+        said,
+        ["dana@example.test", "bob@example.test", "eve@example.test"]
     );
 }
 
@@ -457,6 +533,7 @@ async fn watching<F: std::future::Future<Output = ()>>(
     let announce = sync::Announce::To {
         store,
         notifier: recorder,
+        whom: notify::Whom::Everyone,
     };
     let loop_ = async {
         loop {

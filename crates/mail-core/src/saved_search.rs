@@ -127,6 +127,7 @@ pub fn written<Tz: TimeZone>(filter: &Filter, names: &Known<'_>, zone: &Tz) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vip::Vips;
     use chrono::Utc;
 
     fn labels() -> Vec<(String, LabelId)> {
@@ -146,6 +147,7 @@ mod tests {
         Known {
             labels,
             accounts: &[],
+            vips: None,
         }
     }
 
@@ -264,6 +266,7 @@ mod tests {
         let names = Known {
             labels: &[],
             accounts: &accounts,
+            vips: None,
         };
         let mut draft = Draft::from_search("account:work lunch");
         draft.name = "Work lunch".to_owned();

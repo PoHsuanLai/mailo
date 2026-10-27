@@ -72,6 +72,7 @@ pub fn list_highlight<Tz: TimeZone>(
     label: &dyn crate::query::Names,
 ) -> Result<Highlight, CoreError> {
     let extracted = extract(input)?;
+    // Operators mark nothing whoever they name, so `is:vip` needs no list here.
     let parsed = parse(&extracted.rest, zone, label);
     let mut terms = parsed.query_words();
     terms.extend(parsed.phrases);

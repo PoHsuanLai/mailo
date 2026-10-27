@@ -57,7 +57,9 @@ pub(super) fn ConditionRows(
         rows.set(next);
     };
     if writing() == Writing::Text {
-        let validity = match work::read_condition(&query, &labels, &chrono::Local) {
+        // Whether it reads, not what it matches: `is:vip` is a term whoever the VIPs are.
+        let vips = mail_core::vip::Vips::default();
+        let validity = match work::read_condition(&query, &labels, &vips, &chrono::Local) {
             Err(why) => refusal(&why),
             Ok(_) => Validity::Valid,
         };
@@ -243,7 +245,14 @@ fn words(field: Field) -> bool {
 
 /// A row's own refusal: its term read alone, once it has a value.
 fn row_validity(row: &Condition, labels: &[(String, LabelId)]) -> Validity {
-    match when::term(row).map(|term| work::read_condition(&term, labels, &chrono::Local)) {
+    match when::term(row).map(|term| {
+        work::read_condition(
+            &term,
+            labels,
+            &mail_core::vip::Vips::default(),
+            &chrono::Local,
+        )
+    }) {
         Some(Err(why)) => refusal(&why),
         _ => Validity::Valid,
     }

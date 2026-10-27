@@ -167,6 +167,8 @@ pub(super) fn App() -> Element {
     let mut folder_refs = use_signal(Vec::<(String, MailboxRef)>::new);
     // The saved views, after the folders, as `view::places_with` orders them.
     let mut saved_views = use_signal(Vec::<View>::new);
+    // The VIPs, whom the VIPs place lists and its badge counts.
+    let mut vip_list = use_signal(mail_core::vip::Vips::default);
     // The first frame cannot wait for the effect below: a chip's name is a lookup, and a
     // lookup against an empty list draws an empty chip.
     use_hook(|| {
@@ -176,11 +178,14 @@ pub(super) fn App() -> Element {
         label_ids.set(ids);
         let folders = super::sidebar::folder_places(&store);
         let views = store.views().unwrap_or_default();
-        let places = places_with(&known, &folders, &views);
+        let vips = mail_core::vip::read(store.as_ref());
+        let places = places_with(&known, &folders, &views, &vips);
         folder_refs.set(folders);
         saved_views.set(views);
+        vip_list.set(vips.clone());
         let mut write = shell.write();
         write.labels = known;
+        write.vips = vips;
         write.places = places;
         write.accounts = mail_core::compose::sending_accounts(&store);
     });
@@ -204,7 +209,7 @@ pub(super) fn App() -> Element {
     let badge_scope = use_memo(move || shell.read().account_filter());
     let badge_filters = use_memo(move || {
         let scope = badge_scope();
-        let mut filters: Vec<Option<Filter>> = crate::ui::view::default_places()
+        let mut filters: Vec<Option<Filter>> = crate::ui::view::own_places(&vip_list.read())
             .iter()
             .map(|place| scoped_unread_filter(&place.source, scope.clone()))
             .collect();
@@ -290,7 +295,15 @@ pub(super) fn App() -> Element {
         if *saved_views.peek() != views {
             saved_views.set(views.clone());
         }
-        let next = places_with(&known, &folders, &views);
+        // And the VIPs: one marked in the reader, a row's menu or Settings is listed at once.
+        let vips = mail_core::vip::read(store.as_ref());
+        if *vip_list.peek() != vips {
+            vip_list.set(vips.clone());
+        }
+        if shell.peek().vips != vips {
+            shell.write().vips = vips.clone();
+        }
+        let next = places_with(&known, &folders, &views, &vips);
         if shell.peek().places != next {
             // The same place stays chosen when one is added before it: a new label moves every
             // folder down by one, and the list must not jump to the folder above.
@@ -621,7 +634,6 @@ pub(super) fn App() -> Element {
                 let open = shell.read().open;
                 if let Some(open) = open {
                     super::reading::ask_raw(shell, open, raw);
-                }
                 }
                 return;
             }

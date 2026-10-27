@@ -34,7 +34,12 @@ fn a_condition_the_rules_cannot_read_is_refused_and_not_kept() {
     ];
     let mut said = std::collections::HashSet::new();
     for typed in CASES {
-        let refused = work::read_condition(typed, &work::labels(&store, acct_account()), &Utc);
+        let refused = work::read_condition(
+            typed,
+            &work::labels(&store, acct_account()),
+            &mail_core::vip::Vips::default(),
+            &Utc,
+        );
         match refused {
             Err(why) => assert!(said.insert(why.clone()), "{typed:?}: {why} said twice"),
             Ok(filter) => panic!("{typed:?} was read as {filter:?}"),

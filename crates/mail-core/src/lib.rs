@@ -69,6 +69,7 @@ pub mod transfer;
 pub mod trust;
 pub mod undo;
 pub mod unsubscribe;
+pub mod vip;
 pub mod when;
 
 pub use environment::{Environment, Program};

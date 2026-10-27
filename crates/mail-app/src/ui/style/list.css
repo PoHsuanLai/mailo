@@ -54,6 +54,8 @@
 .via { display: inline-flex; align-items: center; gap: var(--s-2); flex: none; }
 .clip { display: inline-flex; align-items: center; gap: var(--s-2); }
 .mute-mark { display: inline-flex; align-items: center; }
+/* A VIP's mark, beside their name in a row and in the reader: small, and in the quiet ink. */
+.vip-mark { display: inline-flex; align-items: center; flex: none; color: var(--ink-faint); }
 .no-reply { display: inline-flex; align-items: center; gap: var(--s-2); white-space: nowrap; }
 /* The end of a search's list: per account with a server, "Search … on the server", or what its
    server answered. */

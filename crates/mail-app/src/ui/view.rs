@@ -17,8 +17,8 @@ use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
 pub use mail_core::conversation::{
-    Place, Source, default_places, find_place, folder_filter, folder_of, is_label_place, place_key,
-    places_with, saved_of, saved_place, scoped_unread_filter, unread_filter,
+    Place, Source, default_places, find_place, folder_filter, folder_of, is_label_place, is_vips,
+    own_places, place_key, places_with, saved_of, saved_place, scoped_unread_filter, unread_filter,
 };
 
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
@@ -628,6 +628,9 @@ pub struct Shell {
     /// appear more than once — `UNIQUE (account, name)` is per account, so "travel" on two
     /// accounts is two labels and someone typing the word means both.
     pub labels: Vec<(String, LabelId)>,
+    /// The VIPs, read from the store as `labels` is: whom `is:vip` and the VIPs place mean, and
+    /// whose name a row and the reader mark.
+    pub vips: mail_core::vip::Vips,
     /// How the window looks.
     ///
     /// A choice, held like every other one: the window reads it rather than deciding.
@@ -832,6 +835,7 @@ impl Default for Shell {
             further: None,
             accounts: Vec::new(),
             labels: Vec::new(),
+            vips: mail_core::vip::Vips::default(),
             appearance: Appearance::default(),
             scope: crate::ui::space::Scope::All,
             account: None,
@@ -866,6 +870,7 @@ impl Shell {
         mail_core::query::Known {
             labels: &self.labels,
             accounts: &self.accounts,
+            vips: Some(&self.vips),
         }
     }
 

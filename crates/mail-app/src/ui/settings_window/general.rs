@@ -1,5 +1,5 @@
-//! General: three groups of mailo's settings, Reading, Mail and Composing, and the trusted senders' page
-//! pushed over them.
+//! General: three groups of mailo's settings, Reading, Mail and Composing, and the trusted
+//! senders' and the VIPs' pages pushed over them.
 //!
 //! Each group is a list of [`Line`]s ([`SECTIONS`]): a key of the schema, drawn by its kind
 //! ([`super::keys`]) as detent draws it, or the row that opens the trusted senders. A key is on
@@ -30,6 +30,8 @@ pub(super) enum Line {
     Key(&'static str),
     /// The row that opens the trusted senders' page.
     TrustedSenders,
+    /// The row that opens the VIPs' page ([`super::vips`]).
+    Vips,
     /// Which application opens email links, with Make Default (`crate::ui::default_mail`).
     DefaultMail,
     /// The schema's text key at this path, holding a folder: drawn as the folder, with Choose…
@@ -74,6 +76,8 @@ pub(super) const SECTIONS: [Section; 4] = [
             Line::DefaultMail,
             Line::Key("notifications.new_mail"),
             Line::Key(crate::settings::WHILE_QUIT),
+            Line::Key("notifications.notify_for"),
+            Line::Vips,
             Line::Key("reading.read_receipts"),
             Line::Key("search.server_automatically"),
         ],
@@ -96,6 +100,7 @@ pub(super) const SECTIONS: [Section; 4] = [
 enum GeneralAt {
     Root,
     TrustedSenders,
+    Vips,
 }
 
 /// The stack's element id: its back button is `general-pane-back-detail`.
@@ -104,13 +109,17 @@ const STACK: &str = "general-pane";
 /// The element id of the row that opens the trusted senders, where the keyboard goes back to.
 const TRUSTED_ROW: &str = "general-pane-open-trusted";
 
+/// The element id of the row that opens the VIPs.
+pub(super) const VIPS_ROW: &str = "general-pane-open-vips";
+
 #[component]
-pub(super) fn General() -> Element {
+pub(super) fn General(revision: Signal<u64>) -> Element {
     let mut path = use_signal(|| PanePath::new(GeneralAt::Root));
     let title = use_callback(|page: GeneralAt| {
         match page {
             GeneralAt::Root => copy::titles::GENERAL,
             GeneralAt::TrustedSenders => copy::titles::TRUSTED_SENDERS,
+            GeneralAt::Vips => copy::titles::VIPS,
         }
         .to_owned()
     });
@@ -122,13 +131,19 @@ pub(super) fn General() -> Element {
                     let next = path.peek().pushed(GeneralAt::TrustedSenders);
                     path.set(next);
                 },
+                on_vips: move |()| {
+                    let next = path.peek().pushed(GeneralAt::Vips);
+                    path.set(next);
+                },
             }
         },
         GeneralAt::TrustedSenders => rsx! { TrustedSenders {} },
+        GeneralAt::Vips => rsx! { super::vips::VipsPage { revision } },
     });
     let opener = use_callback(|page: GeneralAt| match page {
         GeneralAt::Root => None,
         GeneralAt::TrustedSenders => Some(TRUSTED_ROW.to_owned()),
+        GeneralAt::Vips => Some(VIPS_ROW.to_owned()),
     });
     rsx! {
         PaneStack::<GeneralAt> {
@@ -161,7 +176,7 @@ pub(super) const PRIVACY: [Section; 1] = [Section {
 /// The Privacy page: General's rows, drawn from [`PRIVACY`].
 #[component]
 pub(super) fn Privacy() -> Element {
-    rsx! { Groups { sections: &PRIVACY, on_trusted: move |()| {} } }
+    rsx! { Groups { sections: &PRIVACY, on_trusted: move |()| {}, on_vips: move |()| {} } }
 }
 
 /// The schema's key at `path`, its help left to detent.
@@ -178,7 +193,11 @@ fn key_at(path: &str) -> Option<KeySpec> {
 
 /// The root: each group's rows.
 #[component]
-fn Groups(sections: &'static [Section], on_trusted: EventHandler<()>) -> Element {
+fn Groups(
+    sections: &'static [Section],
+    on_trusted: EventHandler<()>,
+    on_vips: EventHandler<()>,
+) -> Element {
     let settings = crate::ui::prefs::current();
     let values =
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
@@ -214,6 +233,19 @@ fn Groups(sections: &'static [Section], on_trusted: EventHandler<()>) -> Element
                                     FolderRow { key: "{path}", value: value_of(&values, &spec), spec, onedit }
                                 },
                                 None => rsx! {},
+                            },
+                            Line::Vips => rsx! {
+                                List::<String> {
+                                    label: copy::titles::VIPS,
+                                    style: ListStyle::Grouped,
+                                    items: vec![link_row(
+                                        "vips",
+                                        copy::titles::VIPS,
+                                        RowLeading::None,
+                                        move |_| on_vips.call(()),
+                                        Common { id: Some(VIPS_ROW.to_owned()), ..Common::default() },
+                                    )],
+                                }
                             },
                             Line::TrustedSenders => rsx! {
                                 List::<String> {

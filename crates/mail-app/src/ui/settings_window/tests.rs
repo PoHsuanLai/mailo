@@ -148,7 +148,9 @@ fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
             super::general::Line::Key(path) | super::general::Line::Folder(path) => Some(*path),
-            super::general::Line::TrustedSenders | super::general::Line::DefaultMail => None,
+            super::general::Line::TrustedSenders
+            | super::general::Line::DefaultMail
+            | super::general::Line::Vips => None,
         })
         .collect();
     let left = ["window.provider_marks", "reading.trusted_image_senders"];
@@ -592,4 +594,49 @@ async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
         "",
         "after Use Downloads"
     );
+}
+
+/// General › VIPs: a person pinned in a Space is offered until added, a VIP is a row whose Remove
+/// takes the mark off, and the store is what both write.
+#[tokio::test]
+async fn the_vips_page_offers_the_pinned_people_and_removes_a_vip() {
+    use mail_core::Store as _;
+    let built = work();
+    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    let seen =
+        click(&mut dom, seen.one("id", super::general::VIPS_ROW)).merge(drain_seen(&mut dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains(crate::ui::copy::empty::NO_VIPS), "{page}");
+    assert!(
+        page.contains(crate::ui::copy::headers::PINNED_IN_SPACES),
+        "{page}"
+    );
+    let dana = "dana@example.com";
+    let seen = click(
+        &mut dom,
+        seen.one("aria-label", &crate::ui::copy::aria::add_vip(dana)),
+    )
+    .merge(drain_seen(&mut dom));
+    let held = |built: &Work| -> Vec<String> {
+        built
+            .store
+            .vips()
+            .unwrap()
+            .into_iter()
+            .map(|vip| vip.address)
+            .collect()
+    };
+    assert_eq!(held(&built), [dana]);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        !page.contains(&crate::ui::copy::aria::add_vip(dana)),
+        "she is still offered: {page}"
+    );
+    click(
+        &mut dom,
+        seen.one("aria-label", &crate::ui::copy::aria::remove_vip(dana)),
+    );
+    // Only the store is asked after the Remove.
+    let _ = drain_seen(&mut dom);
+    assert!(held(&built).is_empty());
 }

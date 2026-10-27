@@ -14,6 +14,7 @@ fn known(labels: &[(String, LabelId)]) -> mail_core::query::Known<'_> {
     mail_core::query::Known {
         labels,
         accounts: &[],
+        vips: None,
     }
 }
 
@@ -26,7 +27,12 @@ fn saved(name: &str, query: &str) -> View {
 #[test]
 fn a_saved_view_is_a_place_after_the_folders_and_badged_by_its_filter() {
     let view = saved("Trips", "label:travel");
-    let places = places_with(&labels(), &[], std::slice::from_ref(&view));
+    let places = places_with(
+        &labels(),
+        &[],
+        std::slice::from_ref(&view),
+        &mail_core::vip::Vips::default(),
+    );
     let last = places.last().unwrap();
     assert_eq!(last.name, "Trips");
     assert_eq!(saved_of(last), Some(&view));

@@ -162,6 +162,10 @@ mod tests {
         ) -> Vec<(ThreadSummary, f64)> {
             Vec::new()
         }
+
+        fn vips(&self) -> crate::vip::Vips {
+            crate::vip::Vips::default()
+        }
     }
 
     fn vocab(terms: Vec<Term>) -> Vocab {

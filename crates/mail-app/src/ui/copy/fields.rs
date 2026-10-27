@@ -65,6 +65,9 @@ pub const WHERE: &str = "Where";
 pub const ORGANISER: &str = "Organiser";
 pub const REPEATS: &str = "Repeats";
 pub const EMAIL: &str = "Email";
+/// Settings › General › VIPs: the address to make a VIP, and its example.
+pub const VIP_ADDRESS: &str = "Email address";
+pub const VIP_ADDRESS_EXAMPLE: &str = "name@example.com";
 pub const PHONE: &str = "Phone";
 pub const ORGANISATION: &str = "Organisation";
 pub const FROM: &str = "From";

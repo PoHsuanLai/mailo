@@ -1,10 +1,10 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    AttachmentSettings, BlockRemote, BrandLogos, ListOrder, LoadRemoteImages, MailSettings, MarkRead,
-    MarkReadDelay, NewMail, PreferPlainText, Protect, ProviderMarks, ReadReceipts, ReadingSettings,
-    RelayKind, RemoveUnedited, RouteProblem, ServerSearch, Spelling, TextZoom, ZoomStep, change,
-    load, schema, store,
+    AttachmentSettings, BlockRemote, BrandLogos, ListOrder, LoadRemoteImages, MailSettings,
+    MarkRead, MarkReadDelay, NewMail, NotifyFor, PreferPlainText, Protect, ProviderMarks,
+    ReadReceipts, ReadingSettings, RelayKind, RemoveUnedited, RouteProblem, ServerSearch, Spelling,
+    TextZoom, ZoomStep, change, load, schema, store,
 };
 use ds_settings::ConfigRoot;
 use ds_settings::schema::{KeyKind, Page, Schema};
@@ -42,6 +42,7 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         ("window.label_chips", pair("on", "off")),
         ("window.group_by_date", pair("on", "off")),
         ("notifications.new_mail", pair("on", "off")),
+        ("notifications.notify_for", pair("all", "vips")),
         ("compose.spelling", pair("on", "off")),
         (
             "compose.copy_myself",
@@ -717,4 +718,34 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
             assert_eq!(token, "t");
         }
     }
+}
+
+/// "Notify for" is all new mail until the file says VIPs only, reads back as written, says its
+/// two choices in words, and is the watch's whose-mail.
+#[test]
+fn notify_for_starts_at_all_new_mail_and_vips_only_is_written_and_read_back() {
+    let (dir, root) = scratch();
+    write(
+        &mailo_dir(&dir),
+        "settings.toml",
+        "[notifications]\nnew_mail = \"on\"\n",
+    );
+    assert_eq!(load(&root).notifications.notify_for, NotifyFor::All);
+    let written = change(&root, |s| s.notifications.notify_for = NotifyFor::Vips).unwrap();
+    assert_eq!(load(&root), written);
+    assert_eq!(load(&root).notifications.notify_for, NotifyFor::Vips);
+    let text = std::fs::read_to_string(dir.path().join("mailo").join("settings.toml")).unwrap();
+    assert!(text.contains("notify_for = \"vips\""), "{text}");
+    let key = schema()
+        .key
+        .into_iter()
+        .find(|key| key.path.0 == "notifications.notify_for")
+        .expect("notifications.notify_for");
+    assert_eq!(key.labels.of("all"), Some("All new mail"));
+    assert_eq!(key.labels.of("vips"), Some("VIPs only"));
+    assert_eq!(key.default, toml::Value::String("all".to_owned()));
+    assert_eq!(
+        mail_core::notify::Whom::from(NotifyFor::Vips),
+        mail_core::notify::Whom::Vips
+    );
 }

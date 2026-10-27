@@ -6,7 +6,9 @@ use super::tagged;
 use crate::ui::copy;
 use crate::ui::space::{Pinned, Space};
 use crate::ui::text::sender;
-use crate::ui::view::{Shell, SideList, Source, folder_of, is_label_place, saved_of};
+use crate::ui::view::{
+    Place, Shell, SideList, Source, folder_of, is_label_place, is_vips, saved_of,
+};
 use dioxus::prelude::*;
 use ds::base::vocab::{Emphasis, RowState};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
@@ -43,9 +45,11 @@ pub(super) struct Counts {
 pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
     let labels = query::known_labels(store);
     let accounts = query::known_accounts(store);
+    let vips = mail_core::vip::read(store);
     let known = query::Known {
         labels: &labels,
         accounts: &accounts,
+        vips: Some(&vips),
     };
     let scope = space.payload.scope().filter();
     let now = chrono::Utc::now();
@@ -127,8 +131,12 @@ pub(in crate::ui) fn hex_colour(text: &str) -> Colour {
 }
 
 /// A built-in place's glyph, found by what the place lists rather than by what it is called: the
-/// sidebar's and ⌘K's.
-pub(in crate::ui) fn place_icon(source: &Source) -> Icon {
+/// sidebar's and ⌘K's. The VIPs place by its key, since what it lists is whoever they are.
+pub(in crate::ui) fn place_icon(place: &Place) -> Icon {
+    if is_vips(place) {
+        return Icon::Sparkles;
+    }
+    let source = &place.source;
     let role = |role: MailboxRole| *source == Source::Mail(for_role(role));
     match source {
         Source::Drafts => Icon::FilePen,
@@ -194,10 +202,16 @@ pub(super) fn PlaceList(
         })
         .map(|(index, place)| (index, place.name.clone()))
         .collect();
-    // mailo's own places, History among them. Scheduled only while a message is waiting.
-    let own: Vec<usize> = (0..split)
+    // mailo's own places, History among them. Scheduled only while a message is waiting, and
+    // the VIPs only while someone is one, drawn under the Inbox as the Mac draws them.
+    let anyone = !shell.read().vips.is_empty();
+    let mut own: Vec<usize> = (0..split)
         .filter(|index| scheduled || places[*index].source != Source::Scheduled)
+        .filter(|index| !is_vips(&places[*index]))
         .collect();
+    if let Some(vips) = (0..split).find(|index| anyone && is_vips(&places[*index])) {
+        own.insert(own.len().min(1), vips);
+    }
     let selected = shell.read().selected;
     let listed = |index: usize| {
         own.contains(&index)
@@ -213,7 +227,7 @@ pub(super) fn PlaceList(
         items.push(place_item(
             *index,
             &place.name,
-            place_icon(&place.source),
+            place_icon(place),
             shell,
             pages,
             badges,

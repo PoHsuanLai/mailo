@@ -430,6 +430,12 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         let notifications = set.as_ref().map_or(mail_core::notify::Setting::Off, |set| {
             mail_core::notify::Setting::from(set.new_mail)
         });
+        // Whose new mail is said: everyone's, or the VIPs' alone.
+        let whom = set
+            .as_ref()
+            .map_or(mail_core::notify::Whom::Everyone, |set| {
+                mail_core::notify::Whom::from(set.notify_for)
+            });
         if let Some(why) = watching.doorless() {
             eprintln!("Sync in an open window will not reach this watch: {why}");
         }
@@ -466,7 +472,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         let asked = Some(watching.asked());
         // Only ends when every account has stopped for a reason worth stopping for — a
         // credential the server refused, which no amount of retrying fixes.
-        let ends = crate::edge::block_on(mail.sync().watch(notifier, &say, asked))
+        let ends = crate::edge::block_on(mail.sync().watch(notifier, whom, &say, asked))
             .map_err(super::remedy::error)?;
         print!("{}", super::sync::run_text(&store, &ends));
         return Err("stopped watching; nothing left to watch".to_owned());

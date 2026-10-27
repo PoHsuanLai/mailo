@@ -64,6 +64,9 @@ pub(in crate::ui) enum Pick {
     /// Edit as New (Send Again, for a conversation only in Sent): a new message filled in from
     /// the newest. The reader's ⋯ only.
     Again,
+    /// Add to VIPs or Remove from VIPs, for the conversation's sender: the row's last row, named
+    /// by the row, which knows the VIPs ([`crate::ui::vip::menu_words`]).
+    Vip,
 }
 
 fn op(kind: OpKind) -> Pick {
@@ -172,6 +175,7 @@ pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &
         Pick::ReplyList => menus::REPLY_TO_LIST,
         Pick::Redirect => menus::REDIRECT,
         Pick::Again => again(summary),
+        Pick::Vip => menus::ADD_TO_VIPS,
         Pick::Press(Pressed::MoveTo) => menus::MOVE_TO,
         Pick::Press(Pressed::Op(kind)) => menus::offered(says(kind, summary, now)),
     }
@@ -201,6 +205,7 @@ fn icon(pick: Pick) -> Icon {
         Pick::Source => Icon::FileCode,
         Pick::DeleteDraft => Icon::Trash,
         Pick::CancelSending => Icon::X,
+        Pick::Vip => Icon::Star,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
         Pick::Press(Pressed::Op(kind)) => op_icon(kind),
     }

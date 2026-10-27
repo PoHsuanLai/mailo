@@ -534,6 +534,7 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE account_caps DROP COLUMN send_limit;
              ALTER TABLE account_caps DROP COLUMN observed;
              ALTER TABLE messages DROP COLUMN stored_at;
+             DROP TABLE vips;
              DROP INDEX messages_thread_order;
              CREATE INDEX messages_thread ON messages(thread);
              CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,

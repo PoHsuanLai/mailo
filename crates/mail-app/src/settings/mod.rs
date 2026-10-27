@@ -20,9 +20,9 @@ mod words;
 
 pub use words::{
     BlockRemote, BrandLogos, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, MarkRead,
-    MarkReadDelay, MessageFormat, NewMail, PreferPlainText, Protect, ProviderMarks, ReadReceipts,
-    RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch, SignatureAboveQuote, Snippets,
-    Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
+    MarkReadDelay, MessageFormat, NewMail, NotifyFor, PreferPlainText, Protect, ProviderMarks,
+    ReadReceipts, RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch, SignatureAboveQuote,
+    Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
 };
 
 use ds::prelude::Word;
@@ -137,6 +137,12 @@ pub struct NotificationSettings {
         section = "Mail"
     )]
     pub new_mail: NewMail,
+    #[settings(
+        label = "Notify for",
+        help = "Show notifications for all new mail, or only for mail from your VIPs.",
+        section = "Mail"
+    )]
+    pub notify_for: NotifyFor,
 }
 
 /// `compose.*`: writing mail.
@@ -513,6 +519,7 @@ fn with_word_labels(mut key: KeySpec) -> KeySpec {
         "compose.format" => key.labels = labels::<MessageFormat>(),
         "reading.mark_read" => key.labels = labels::<MarkRead>(),
         "reading.mark_read_delay" => key.labels = labels::<MarkReadDelay>(),
+        "notifications.notify_for" => key.labels = labels::<NotifyFor>(),
         _ => {}
     }
     key

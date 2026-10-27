@@ -33,6 +33,7 @@ pub use singles::MessageRow;
 mod smime;
 mod template;
 mod views;
+mod vips;
 mod write;
 
 use crate::blob::BlobStore;
@@ -1202,6 +1203,18 @@ impl Store for SqliteStore {
 
     fn delete_contact(&self, address: &str) -> Result<bool, StoreError> {
         self.drop_contact(address)
+    }
+
+    fn vips(&self) -> Result<Vec<crate::Vip>, StoreError> {
+        self.every_vip()
+    }
+
+    fn put_vip(&self, address: &str, name: Option<&str>) -> Result<crate::Vip, StoreError> {
+        self.mark_vip(address, name)
+    }
+
+    fn delete_vip(&self, address: &str) -> Result<bool, StoreError> {
+        self.unmark_vip(address)
     }
 
     fn address_book(&self, url: &str) -> Result<Option<AddressBook>, StoreError> {

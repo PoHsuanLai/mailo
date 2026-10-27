@@ -21,6 +21,8 @@ pub const KEYBOARD: &str = "Keyboard";
 pub const PRIVACY: &str = "Privacy";
 /// General's page of the senders whose images load.
 pub const TRUSTED_SENDERS: &str = "Trusted Senders";
+/// The page of the VIPs under General, and the row that opens it.
+pub const VIPS: &str = "VIPs";
 /// The page of the keys and certificates no account here owns, under Accounts.
 pub const OTHER_KEYS: &str = "Other Keys";
 /// A rule's page before it is kept.

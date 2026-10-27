@@ -243,7 +243,7 @@ pub(super) fn ReaderMore(
                         Pick::Headers => super::source::ask(shell, id, super::Raw::Headers),
                         Pick::Source => super::source::ask(shell, id, super::Raw::Source),
                         // A draft's, never offered here.
-                        Pick::DeleteDraft | Pick::CancelSending => {}
+                        Pick::DeleteDraft | Pick::CancelSending | Pick::Vip => {}
                     }
                 },
                 onclose: move |_| open.set(false),

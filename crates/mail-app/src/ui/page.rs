@@ -203,11 +203,11 @@ pub(super) fn more_items(
         })
         .into_iter()
         .collect();
-    rows.extend([
-        MenuItem::new(More::GroupByDate, copy::menus::GROUP_BY_DATE)
+    rows.extend(
+        [MenuItem::new(More::GroupByDate, copy::menus::GROUP_BY_DATE)
             .with_image(MenuImage::Icon(Icon::Group))
-            .with_check(check(group == PageGroup::Date)),
-    ];
+            .with_check(check(group == PageGroup::Date))],
+    );
     if let Some(threading) = organise {
         rows.push(
             MenuItem::new(More::Conversations, copy::menus::ORGANISE_BY_CONVERSATION)

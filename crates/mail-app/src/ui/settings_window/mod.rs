@@ -42,6 +42,7 @@ mod rows;
 mod signatures;
 mod spaces;
 mod syncing;
+mod vips;
 
 pub(in crate::ui) use account::Seams as AccountSeams;
 pub(in crate::ui) use keys::with_value;
@@ -350,7 +351,7 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
             }
             div { class: "settings-scroll settings-page", "data-page": page.name(),
                 match page {
-                    SettingsPage::General => rsx! { general::General {} },
+                    SettingsPage::General => rsx! { general::General { revision } },
                     SettingsPage::Accounts => rsx! { accounts::Accounts { shell, revision } },
                     SettingsPage::Signatures => rsx! { signatures::Signatures { shell, revision } },
                     SettingsPage::Spaces => match try_consume_context::<crate::ui::space::Handle>() {

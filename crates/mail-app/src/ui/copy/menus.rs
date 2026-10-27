@@ -192,6 +192,9 @@ pub const DELETE_RULE: &str = "Delete Rule";
 
 // The sender's name in the reader, right-clicked.
 pub const EDIT_CONTACT: &str = "Edit Contact…";
+/// The sender's name in the reader, or a row's menu: make the sender a VIP, or no longer one.
+pub const ADD_TO_VIPS: &str = "Add to VIPs";
+pub const REMOVE_FROM_VIPS: &str = "Remove from VIPs";
 
 // Words selected in a message, right-clicked: they go on the clipboard.
 pub const COPY: &str = "Copy";

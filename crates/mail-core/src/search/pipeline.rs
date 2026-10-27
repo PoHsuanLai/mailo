@@ -48,10 +48,15 @@ pub fn prepare<Tz: TimeZone>(
     // Trailing whitespace is significant: it means the last word is finished and must not be
     // prefix-expanded. Trim only the emptiness checks.
     let blank = extracted.rest.trim().is_empty();
+    let vips = source.vips();
+    let names = crate::query::WithVips {
+        names: label,
+        vips: &vips,
+    };
     let parsed = if blank {
-        parse("", zone, label)
+        parse("", zone, &names)
     } else {
-        parse(&extracted.rest, zone, label)
+        parse(&extracted.rest, zone, &names)
     };
     let expansion = expand(&parsed, source);
     let filter = if blank {

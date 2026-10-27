@@ -313,6 +313,10 @@ impl Source for Timed<'_> {
         self.top.set(self.top.get() + start.elapsed());
         rows
     }
+
+    fn vips(&self) -> mail_core::vip::Vips {
+        <SqliteStore as Source>::vips(self.store)
+    }
 }
 
 /// One keystroke's cost: in total, and in each store call.

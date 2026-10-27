@@ -7,8 +7,8 @@
 
 use mail_domain::Draft;
 use mail_mime::{
-    Block, Delsp, Dir, ParaStyle, ParsedPart, RemoteImages, SanitizePolicy, Span, from_html, sanitize,
-    unflow,
+    Block, Delsp, Dir, ParaStyle, ParsedPart, RemoteImages, SanitizePolicy, Span, from_html,
+    sanitize, unflow,
 };
 
 use crate::rich_text::{

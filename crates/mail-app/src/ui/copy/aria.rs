@@ -75,6 +75,18 @@ pub fn delete_selected_forever(count: usize) -> String {
 pub const CLEAR_THE_SELECTION: &str = "Clear the selection";
 /// The paperclip on a row whose conversation carries files.
 pub const HAS_ATTACHMENTS: &str = "Has Attachments";
+/// The mark beside a VIP's name, in a row and the reader: its name and its tooltip.
+pub const VIP: &str = "VIP";
+
+/// Settings › General › VIPs: a VIP's Remove, for the person it names.
+pub fn remove_vip(who: &str) -> String {
+    format!("Remove {who} from VIPs")
+}
+
+/// Settings › General › VIPs: a suggestion's Add, for the person it names.
+pub fn add_vip(who: &str) -> String {
+    format!("Add {who} to VIPs")
+}
 
 /// The contact editor's Save, for the person it names.
 pub fn save_contact(address: &str) -> String {

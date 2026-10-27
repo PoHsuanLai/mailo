@@ -1579,6 +1579,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             let known = mail_core::query::Known {
                 labels: &labels,
                 accounts: &accounts,
+                vips: None,
             };
             Ok(search::search(store, needle, *limit, &known, now, clock))
         }

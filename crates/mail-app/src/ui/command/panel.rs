@@ -79,9 +79,11 @@ pub(super) fn panel_rows(
                 .iter()
                 .map(|place| Destination {
                     name: place.name.clone(),
-                    icon: crate::ui::sidebar::place_icon(&place.source),
+                    icon: crate::ui::sidebar::place_icon(place),
+                    // The VIPs, like the sidebar, only while someone is one.
                     at_rest: place_key(place) == format!("place:{}", place.name)
-                        && (waiting || place.source != Source::Scheduled),
+                        && (waiting || place.source != Source::Scheduled)
+                        && (!crate::ui::view::is_vips(place) || !shell.vips.is_empty()),
                 })
                 .collect();
             let names: Vec<String> = spaces.list().iter().map(|one| one.name.clone()).collect();

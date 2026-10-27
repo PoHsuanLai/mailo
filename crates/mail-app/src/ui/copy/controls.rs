@@ -88,6 +88,8 @@ pub const REMOVE: &str = "Remove";
 pub const ADD_ALIAS: &str = "Add Alias\u{2026}";
 /// An alias's fields: the button that takes it off the account.
 pub const REMOVE_ALIAS: &str = "Remove Alias";
+/// Settings › General › VIPs: make the address typed, or a suggestion, a VIP.
+pub const ADD: &str = "Add";
 /// The Rules page's row that makes a rule.
 pub const NEW_RULE: &str = "New Rule…";
 /// Settings › Keyboard: every key as it ships, shown only while one differs.
