@@ -5,8 +5,6 @@
 //! The authorities stay in `bimi_support/` and `smime_support/`, where `mail-runtime`'s and
 //! `mail-app`'s tests include them by path.
 
-#![allow(dead_code)]
-
 #[cfg(feature = "smime")]
 #[path = "../bimi_support/mod.rs"]
 pub mod bimi;

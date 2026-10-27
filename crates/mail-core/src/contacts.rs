@@ -35,10 +35,12 @@ impl crate::mail::ContactOps<'_> {
             url,
             account,
             user,
-            mail.secrets().as_ref(),
-            mail.environment(),
-            &mail.saved_clients(),
-            mail.now(),
+            &SignIn {
+                secrets: mail.secrets().as_ref(),
+                env: mail.environment(),
+                saved: &mail.saved_clients(),
+                now: mail.now(),
+            },
         )
         .await
     }
@@ -239,18 +241,23 @@ pub enum Synced {
     Books(Vec<BookSync>),
 }
 
+/// What signing in to an address book server draws on: where the secrets are kept, what the
+/// program was started with, the OAuth clients earlier sign-ins recorded, and the time.
+struct SignIn<'a> {
+    secrets: &'a dyn AccountSecrets,
+    env: &'a Environment,
+    saved: &'a ClientRegistry,
+    now: DateTime<Utc>,
+}
+
 /// Sync the address book at `url`, or every one synced before when there is none, over the
 /// secrets it is given: the handle's, or a test's.
-#[allow(clippy::too_many_arguments)]
-pub async fn sync(
+async fn sync(
     store: &SqliteStore,
     url: Option<&str>,
     account: Option<&str>,
     user: Option<&str>,
-    secrets: &dyn AccountSecrets,
-    env: &Environment,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
+    sign_in: &SignIn<'_>,
 ) -> Result<Synced, CoreError> {
     let accounts = crate::sync::configured(store)?;
     let http = carddav::client()?;
@@ -267,17 +274,8 @@ pub async fn sync(
                         url: book.url.clone(),
                     })?;
                 let base = parse_url(&book.url)?;
-                let (dav, _) = open_dav(
-                    owner,
-                    book.login.as_deref(),
-                    Some(&base),
-                    &http,
-                    secrets,
-                    env,
-                    saved,
-                    now,
-                )
-                .await?;
+                let (dav, _) =
+                    open_dav(owner, book.login.as_deref(), Some(&base), &http, sign_in).await?;
                 synced.push(sync_one(&dav, store, book, None).await?);
             }
             return Ok(Synced::Books(synced));
@@ -288,8 +286,7 @@ pub async fn sync(
 
     let owner = owner_of(&accounts, account)?;
     let start = url.map(parse_url).transpose()?;
-    let (dav, start) =
-        open_dav(owner, user, start.as_ref(), &http, secrets, env, saved, now).await?;
+    let (dav, start) = open_dav(owner, user, start.as_ref(), &http, sign_in).await?;
     let found = carddav::discover(&dav, &start).await?;
     for collection in found {
         let key = collection.url.to_string();
@@ -324,19 +321,15 @@ fn owner_of<'a>(
 
 /// The session with the address book server of `owner`, and the URL to start from: a client of
 /// ours with the credential [`auth_for`] finds.
-#[allow(clippy::too_many_arguments)]
 async fn open_dav(
     owner: &crate::sync::Configured,
     login: Option<&str>,
     start: Option<&url::Url>,
     http: &reqwest::Client,
-    secrets: &dyn AccountSecrets,
-    env: &Environment,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
+    sign_in: &SignIn<'_>,
 ) -> Result<(Dav, url::Url), CoreError> {
     let start = start.ok_or(CoreError::BookNeedsServer)?;
-    let auth = auth_for(owner, login, secrets, env, saved, now).await?;
+    let auth = auth_for(owner, login, sign_in).await?;
     let dav = Dav::new(http.clone(), start, auth)?;
     Ok((dav, start.clone()))
 }
@@ -374,11 +367,14 @@ fn parse_url(text: &str) -> Result<url::Url, CoreError> {
 async fn auth_for(
     account: &crate::sync::Configured,
     login: Option<&str>,
-    secrets: &dyn AccountSecrets,
-    env: &Environment,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
+    sign_in: &SignIn<'_>,
 ) -> Result<DavAuth, CoreError> {
+    let SignIn {
+        secrets,
+        env,
+        saved,
+        now,
+    } = *sign_in;
     if let Some(login) = login {
         let key = SecretKey {
             account: account.id.clone(),

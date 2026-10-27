@@ -6,8 +6,6 @@
 //! `Identity/get`, blob download and upload, and an event source. Written from RFC 8620 and
 //! RFC 8621, not from any server's code. HTTP/1.1, one request per connection.
 
-#![allow(dead_code)]
-
 use serde_json::{Map, Value, json};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};

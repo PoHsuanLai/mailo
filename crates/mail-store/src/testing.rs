@@ -280,7 +280,9 @@ pub fn total_changes(store: &SqliteStore) -> i64 {
 
 /// The store's writer, held: nothing else writes until this is dropped. Taken on the thread
 /// that will hold it.
-pub struct WriterHeld<'a>(#[allow(dead_code)] crate::sqlite::Writer<'a>);
+pub struct WriterHeld<'a> {
+    _guard: crate::sqlite::Writer<'a>,
+}
 
 impl std::fmt::Debug for WriterHeld<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -290,7 +292,9 @@ impl std::fmt::Debug for WriterHeld<'_> {
 
 /// Hold the store's writer, as a long write in the same process does.
 pub fn hold_writer(store: &SqliteStore) -> WriterHeld<'_> {
-    WriterHeld(store.connection())
+    WriterHeld {
+        _guard: store.connection(),
+    }
 }
 
 /// How many entries one transaction of an ingest writes, for a test that has to cross it.

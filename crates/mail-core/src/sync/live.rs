@@ -154,25 +154,38 @@ impl crate::mail::SyncOps<'_> {
             mail.secrets(),
             &registry,
             account,
-            cancel,
-            hold,
-            grace,
+            Watch {
+                cancel,
+                hold,
+                grace,
+            },
             heard,
         )
         .await
     }
 }
 
+/// How long a watch lasts and how it is paced: the signal that ends it, the hold on its
+/// reconnects ([`Hold`]), and the grace after which a wait that has not failed counts as
+/// established.
+#[derive(Debug)]
+pub struct Watch {
+    pub cancel: watch::Receiver<bool>,
+    pub hold: Option<Hold>,
+    pub grace: Duration,
+}
+
 /// [`SyncOps::listen`](crate::SyncOps), with the secret store named, so a test can run it.
-#[allow(clippy::too_many_arguments)]
 pub async fn listen_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     account: AccountId,
-    cancel: watch::Receiver<bool>,
-    hold: Option<Hold>,
-    grace: Duration,
+    Watch {
+        cancel,
+        hold,
+        grace,
+    }: Watch,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
     listen_at(

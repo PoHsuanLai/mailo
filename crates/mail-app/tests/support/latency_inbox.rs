@@ -1,8 +1,6 @@
 //! The inbox `native_latency` times against: one account, [`THREADS`] conversations of a few
 //! kilobytes of HTML each, and the window's configuration over it.
 
-#![allow(dead_code)]
-
 use ds_blitz::{NetPolicy, PrintOutcome};
 use ds_harness::{Clock, HarnessConfig, Viewport};
 use mail_core::SqliteStore;

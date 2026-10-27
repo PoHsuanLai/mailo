@@ -541,42 +541,50 @@ fn paint(dom: &mut VirtualDom) -> Seen {
     seen
 }
 
+/// Hand `event` to `element` of the running component tree, as the platform would.
+pub(in crate::ui) fn deliver(
+    dom: &VirtualDom,
+    name: &str,
+    event: std::rc::Rc<dyn std::any::Any>,
+    element: dioxus_core::ElementId,
+) {
+    dom.runtime()
+        .handle_event(name, dioxus_core::Event::new(event, true), element);
+}
+
 /// Click `element` and return the attributes the resulting render set.
 pub(in crate::ui) fn click(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
-    #[allow(deprecated)]
-    dom.handle_event(
+    deliver(
+        dom,
         "click",
         std::rc::Rc::new(PlatformEventData::new(Box::new(FakeClick(
             dioxus::html::input_data::MouseButton::Primary,
         )))),
         element,
-        true,
     );
     paint(dom)
 }
 
 /// Right-click `element` (the platform's `contextmenu`) and return what the render set.
 pub(in crate::ui) fn right_click(dom: &mut VirtualDom, element: dioxus_core::ElementId) -> Seen {
-    #[allow(deprecated)]
-    dom.handle_event(
+    deliver(
+        dom,
         "contextmenu",
         std::rc::Rc::new(PlatformEventData::new(Box::new(FakeClick(
             dioxus::html::input_data::MouseButton::Secondary,
         )))),
         element,
-        true,
     );
     paint(dom)
 }
 
 /// Press a key and return the attributes the resulting render set.
 pub(in crate::ui) fn key(dom: &mut VirtualDom, key_name: &'static str) -> Seen {
-    #[allow(deprecated)]
-    dom.handle_event(
+    deliver(
+        dom,
         "keydown",
         std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey(key_name)))),
         dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
-        true,
     );
     paint(dom)
 }
@@ -586,12 +594,11 @@ pub(in crate::ui) fn key(dom: &mut VirtualDom, key_name: &'static str) -> Seen {
 /// `bubbling: true`, so it does not matter which element inside the shell receives it — the
 /// handler is on the root and the event climbs to it, exactly as it does in a browser.
 pub(in crate::ui) fn press(dom: &mut VirtualDom, key: &'static str, element: u32) {
-    #[allow(deprecated)]
-    dom.handle_event(
+    deliver(
+        dom,
         "keydown",
         std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey(key)))),
         dioxus_core::ElementId(element as usize),
-        true,
     );
     dom.render_immediate(&mut NoOpMutations);
 }

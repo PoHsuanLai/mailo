@@ -1185,12 +1185,11 @@ mod tests {
         SPAWN_RAN.store(false, std::sync::atomic::Ordering::SeqCst);
         let mut dom = VirtualDom::new(SpawnProbe);
         dom.rebuild_in_place();
-        #[allow(deprecated)]
-        dom.handle_event(
+        crate::ui::fixtures::deliver(
+            &dom,
             "keydown",
             std::rc::Rc::new(PlatformEventData::new(Box::new(FakeKey("j")))),
             ElementId(1),
-            true,
         );
         // One turn of the loop, which is what a spawned task needs to be picked up.
         tokio::time::timeout(std::time::Duration::from_millis(500), dom.wait_for_work())

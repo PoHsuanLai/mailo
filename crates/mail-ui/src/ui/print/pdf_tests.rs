@@ -2,7 +2,7 @@
 //! Save for printing take, and read back with pdfrum as a reader of the PDF would, for its pages,
 //! its text and its images. No test here opens a print dialog: the [`Printer`] is a recorder.
 
-use super::native_print::{BUSY, Printer, Sources, made, print_through, said};
+use super::native_print::{BUSY, Dated, Printer, Sources, made, print_through, said};
 use super::paper::{self, Cjk, Families, PICTURES_NOTE, Paper};
 use super::{Job, build};
 use crate::ui::fixtures::{acct_account, seeded};
@@ -1118,9 +1118,11 @@ fn print_hands_the_pdf_to_the_dialog_and_says_what_became_of_it() {
             &Paper::plain(),
             &printer,
             &Sources::default(),
-            &chrono::Utc,
-            now(),
-            mail_core::when::Clock::H24,
+            Dated {
+                zone: &chrono::Utc,
+                now: now(),
+                clock: mail_core::when::Clock::H24,
+            },
         );
         assert_eq!(got, words);
         let seen = seen.lock().unwrap().clone();
@@ -1141,9 +1143,11 @@ fn a_thread_that_is_gone_is_said_and_no_dialog_opens() {
         &Paper::plain(),
         &printer,
         &Sources::default(),
-        &chrono::Utc,
-        now(),
-        mail_core::when::Clock::H24,
+        Dated {
+            zone: &chrono::Utc,
+            now: now(),
+            clock: mail_core::when::Clock::H24,
+        },
     );
     assert!(got.starts_with("Couldn’t print:"), "{got}");
     assert!(seen.lock().unwrap().is_empty());

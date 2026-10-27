@@ -20,6 +20,7 @@ use crate::error::Failure;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Limit {
     /// Any length: the Secret Service and the Keychain.
+    // Built on every platform but Windows, where the limit is always a count.
     #[cfg_attr(windows, allow(dead_code))]
     None,
     /// At most this many UTF-16 code units: what the Windows Credential Manager holds. Built

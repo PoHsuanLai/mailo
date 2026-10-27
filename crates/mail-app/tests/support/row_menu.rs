@@ -4,8 +4,6 @@
 //!
 //! Included by the integration tests through `#[path]`, beside `settle.rs` and `drive.rs`.
 
-#![allow(dead_code)]
-
 use super::drive::Drive;
 use super::settle::settle_until;
 use ds::base::press::PointerButton;

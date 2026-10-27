@@ -253,7 +253,13 @@ pub(super) fn Surface(
                     if matches!(input, EditInput::Paste(_)) {
                         pasted.set(true);
                     }
-                    heard(page, shell, window_keys, on_attach, handle, preedit, &taken, input);
+                    let typing = Typing {
+                        page,
+                        shell,
+                        keys: window_keys,
+                        on_attach,
+                    };
+                    heard(typing, handle, preedit, &taken, input);
                 },
                 on_pointer: move |pointer: EditPointer| pointed(page, &pointer),
                 on_focus: move |now: EditFocus| {
@@ -358,18 +364,30 @@ fn marks_of(place: Option<Place>, caret: Option<Rect>, selection: &[Rect]) -> Ma
     }
 }
 
-/// One input from the surface.
-#[allow(clippy::too_many_arguments)]
-fn heard(
+/// What an input at the surface acts on: the page, the shell around it, the window's keys, and
+/// what the Attach key does.
+#[derive(Clone, Copy)]
+struct Typing {
     page: Signal<Page>,
     shell: Signal<Shell>,
     keys: Keys,
     on_attach: EventHandler<()>,
+}
+
+/// One input from the surface.
+fn heard(
+    typing: Typing,
     handle: EditHandle,
     mut preedit: Signal<Option<String>>,
     taken: &Cell<bool>,
     input: EditInput,
 ) {
+    let Typing {
+        page,
+        shell,
+        keys,
+        on_attach,
+    } = typing;
     // What a key asks of the window, in a text field: the actions the editor answers, and
     // select all, which the keymap names and the editor core has no key for.
     let mut said = None;

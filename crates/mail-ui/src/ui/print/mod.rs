@@ -404,9 +404,11 @@ mod native_print {
                     &paper,
                     &printer,
                     &sources,
-                    &chrono::Local,
-                    Utc::now(),
-                    hours,
+                    Dated {
+                        zone: &chrono::Local,
+                        now: Utc::now(),
+                        clock: hours,
+                    },
                 )
             })
             .await;
@@ -418,24 +420,30 @@ mod native_print {
         });
     }
 
+    /// When and where a printout is dated: the zone its times are shown in, the moment it is made,
+    /// and the clock they are read on.
+    pub(in crate::ui) struct Dated<'a, Tz> {
+        pub zone: &'a Tz,
+        pub now: DateTime<Utc>,
+        pub clock: mail_core::when::Clock,
+    }
+
     /// Build `job` with the remote images `sources` consents to, make it a PDF on `paper`, hand
     /// it to `printer`'s dialog, and say what became of it. Blocking, for as long as the fetches
     /// and the dialog take.
-    #[allow(clippy::too_many_arguments)]
     pub(in crate::ui) fn print_through<Tz>(
         client: &mail_client::Client,
         job: Job,
         paper: &Paper,
         printer: &Printer,
         sources: &Sources,
-        zone: &Tz,
-        now: DateTime<Utc>,
-        clock: mail_client::when::Clock,
+        dated: Dated<'_, Tz>,
     ) -> String
     where
         Tz: TimeZone,
         Tz::Offset: std::fmt::Display,
     {
+        let Dated { zone, now, clock } = dated;
         let made = made(client, job, paper, sources, zone, now, clock).and_then(|printed| {
             let pdf = paper::pdf(&printed, paper)?;
             Ok((

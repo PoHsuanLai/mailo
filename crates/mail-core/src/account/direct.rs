@@ -22,7 +22,7 @@ use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_provider::Issuer;
 
-use super::{Added, Credentials, Receive, Setup, add_receiving, oauth_client};
+use super::{Added, Credentials, Receive, Requested, Setup, add_receiving, oauth_client};
 use crate::environment::Environment;
 
 /// How long the browser has to come back before the sign-in gives up. Long enough to find a
@@ -209,11 +209,13 @@ pub async fn sign_in_with(
     let setup = Setup::Discovered(Box::new(preset));
     add_receiving(
         store,
-        &signed_as,
-        Some(&setup),
-        false,
-        false,
-        Receive::Imap,
+        Requested {
+            address: &signed_as,
+            manual: Some(&setup),
+            microsoft: false,
+            graph: false,
+            receive: Receive::Imap,
+        },
         now,
         Credentials {
             password: None,

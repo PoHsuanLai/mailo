@@ -331,7 +331,6 @@ struct Scope<'a> {
 }
 
 /// A run over the accounts in `scope`, told whether to stop after one pass.
-#[allow(clippy::too_many_arguments)]
 async fn run_all(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
@@ -374,7 +373,6 @@ pub(crate) fn kept_as(account: Configured, kept: &crate::offline::Kept) -> Confi
 }
 
 /// One pass over `accounts`, concurrently, each ended as a [`PassEnd`].
-#[allow(clippy::too_many_arguments)]
 async fn pass_over(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
@@ -406,25 +404,8 @@ async fn pass_over(
     // between runs for no reason the user could see.
     Ok(
         futures_util::future::join_all(accounts.iter().map(|account| async {
-            let cancel = hooks.cancel.get(&account.id).cloned();
-            let emit = |progress| {
-                if let Some(sink) = hooks.progress {
-                    sink(account.id.clone(), progress);
-                }
-            };
-            let cancelled = cancel.clone();
-            let result = one(
-                store,
-                account,
-                secrets.clone(),
-                registry,
-                now,
-                mode,
-                cancel,
-                Some(&emit),
-            )
-            .await;
-            let end = ended(account, result, cancelled);
+            let result = one(store, account, secrets.clone(), registry, now, mode, &hooks).await;
+            let end = ended(account, result, hooks.cancel.get(&account.id).cloned());
             remember(store, &end, now);
             end
         }))
@@ -588,7 +569,6 @@ fn clock_for(mode: Mode, now: chrono::DateTime<chrono::Utc>) -> Now {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn one(
     store: &Arc<SqliteStore>,
     account: &Configured,
@@ -596,9 +576,15 @@ async fn one(
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
-    cancel: Option<watch::Receiver<bool>>,
-    emit: Emit<'_>,
+    hooks: &Hooks<'_>,
 ) -> Result<Done, Failure> {
+    let cancel = hooks.cancel.get(&account.id).cloned();
+    let emitting = |progress| {
+        if let Some(sink) = hooks.progress {
+            sink(account.id.clone(), progress);
+        }
+    };
+    let emit: Emit<'_> = Some(&emitting);
     say(emit, Progress::Connecting);
     let stored = stored_credential(account, secrets.as_ref()).await?;
     let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;

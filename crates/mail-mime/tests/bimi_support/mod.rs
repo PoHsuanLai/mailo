@@ -6,8 +6,6 @@
 //! shape a mark certificate carries its logo in. Shared by `mail-mime`'s tests and
 //! `mail-runtime`'s (which include this file by path).
 
-#![allow(dead_code)]
-
 use chrono::{DateTime, TimeZone, Utc};
 use der::asn1::Ia5String;
 use der::{Encode, Length, Writer};
@@ -28,6 +26,8 @@ use x509_cert::time::{Time, Validity};
 
 pub const MARK_PURPOSE: const_oid::ObjectIdentifier =
     const_oid::ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.31");
+// `mail-mime`'s tests use it; `mail-runtime`'s, which include this file too, do not.
+#[allow(dead_code)]
 pub const SERVER_AUTH: const_oid::ObjectIdentifier =
     const_oid::ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.1");
 

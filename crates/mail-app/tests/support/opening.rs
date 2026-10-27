@@ -5,8 +5,6 @@
 //! directories, the clock, what else the window is handed, and what the first frame waits for.
 //! Those are the fields of [`Open`]; the rest is written here once.
 
-#![allow(dead_code)]
-
 use crate::settle::settle_until;
 use dioxus::prelude::Element;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome, RootContexts};
@@ -26,12 +24,8 @@ pub const VIEW: Viewport = Viewport {
 /// What [`open_window`] waits for before it hands the window back.
 #[derive(Clone, Copy)]
 pub enum Wait {
-    /// Nothing: the first frame, undrawn.
-    Nothing,
     /// The entrances quire runs on a frame's wait after mount.
     Entrances,
-    /// The entrances, then the list holding `n` conversations (read on a blocking thread).
-    List(usize),
     /// The entrances, then at least one conversation.
     SomeList,
 }
@@ -93,12 +87,7 @@ pub fn open_window(store: &Arc<SqliteStore>, how: Open) -> Harness {
         .with_contexts(contexts);
     let mut harness = Harness::new(how.root, config);
     match how.wait {
-        Wait::Nothing => {}
         Wait::Entrances => harness.advance(Duration::from_millis(300)),
-        Wait::List(n) => {
-            harness.advance(Duration::from_millis(300));
-            settle_until(&mut harness, |h| h.count(".list .ds-thread") == n);
-        }
         Wait::SomeList => {
             harness.advance(Duration::from_millis(300));
             settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);

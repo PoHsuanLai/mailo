@@ -5,6 +5,7 @@
 //! Shared by `mail-mime`'s tests and `mail-app`'s (which include this file by path), so both
 //! build their fixtures the same way.
 
+// Each includer (`mail-mime`'s tests, `mail-app`'s integration and unit tests) uses a subset.
 #![allow(dead_code)]
 
 use chrono::{DateTime, TimeZone, Utc};
@@ -13,7 +14,7 @@ use der::{Any, Decode, Encode};
 use mail_mime::smime::{Cert, Identity, PrivateKey};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
-use spki::{EncodePublicKey, SubjectPublicKeyInfoOwned};
+use spki::SubjectPublicKeyInfoOwned;
 use std::str::FromStr;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -334,9 +335,4 @@ pub fn issuer_and_serial(cert: &Cert) -> cms::cert::IssuerAndSerialNumber {
         issuer: parsed.tbs_certificate.issuer,
         serial_number: parsed.tbs_certificate.serial_number,
     }
-}
-
-/// `public`'s SPKI, DER.
-pub fn spki_der(public: &rsa::RsaPublicKey) -> Vec<u8> {
-    public.to_public_key_der().unwrap().as_bytes().to_vec()
 }

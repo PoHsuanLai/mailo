@@ -37,7 +37,7 @@ pub(super) enum Own {
 /// Who draws a part.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 // Read by the strip and Peek only with the `anyview` feature on.
-#[cfg_attr(not(feature = "anyview"), allow(dead_code))]
+#[cfg(any(feature = "anyview", test))]
 pub(super) enum Hand {
     /// mailo: a kind of its [`Own`].
     Mailo,
@@ -63,7 +63,7 @@ pub(super) fn own(name: &str, head: &[u8]) -> Option<Own> {
 }
 
 /// Who draws the part called `name` whose first bytes are `head`.
-#[cfg_attr(not(feature = "anyview"), allow(dead_code))]
+#[cfg(any(feature = "anyview", test))]
 pub(super) fn hand(name: &str, head: &[u8]) -> Hand {
     match own(name, head) {
         Some(_) => Hand::Mailo,

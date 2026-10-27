@@ -137,11 +137,15 @@ pub(super) fn Attachments(
         };
         let name = row.name.clone();
         let kept = row.kept;
-        let saved_name = name.clone();
-        let again_name = name.clone();
         let sign_in_account = account.clone();
-        let saved_looks = looks.clone();
-        let again_looks = looks.clone();
+        let saved_saver = all.clone();
+        let again_saver = all.clone();
+        let saved_part = Part {
+            index,
+            kept,
+            name: name.clone(),
+        };
+        let again_part = saved_part.clone();
         // A stored part leads with its preview (a picture's, a PDF's first page, or the
         // paperclip), which opens Peek; one still on the server, with the paperclip alone.
         let (face, opens) = match kept {
@@ -188,7 +192,7 @@ pub(super) fn Attachments(
                     availability: if busy { Availability::Busy } else { Availability::Enabled },
                     onclick: super::super::press::on_primary(move || {
                         let dir = crate::ui::files::save_dir();
-                        start(&saved_looks, message, body, index, kept, &saved_name, downloads, toasts, dir);
+                        saved_saver.save(saved_part.clone(), dir);
                     }),
                 }
             }
@@ -208,7 +212,7 @@ pub(super) fn Attachments(
                                 common: Common { aria_label: Some(crate::ui::copy::aria::try_again_to_download(&name)), ..Common::default() },
                                 onclick: super::super::press::on_primary(move || {
                                     let dir = crate::ui::files::save_dir();
-                                    start(&again_looks, message, body, index, kept, &again_name, downloads, toasts, dir);
+                                    again_saver.save(again_part.clone(), dir);
                                 }),
                             }
                         }),
@@ -347,17 +351,7 @@ struct Saver {
 impl Saver {
     /// Save `part` into `dir`, as its tile's button does.
     fn save(&self, part: Part, dir: PathBuf) {
-        start(
-            &self.looks,
-            self.message,
-            self.body,
-            part.index,
-            part.kept,
-            &part.name,
-            self.downloads,
-            self.toasts,
-            dir,
-        );
+        start(self, part, dir);
     }
 
     /// Ask for a folder, then save `part` into it.
@@ -514,29 +508,20 @@ fn send(mut downloads: Downloads, index: usize, event: DownloadEvent) -> Option<
 type Toasts = Option<ds::stack::toast_hub::ToastHub>;
 
 /// Begin saving one row into `dir`: from a press, which is where a task is polled.
-#[allow(clippy::too_many_arguments)]
-fn start(
-    looks: &Arc<Looks>,
-    message: MessageId,
-    body: Option<BlobId>,
-    index: usize,
-    kept: Kept,
-    name: &str,
-    downloads: Downloads,
-    toasts: Toasts,
-    dir: PathBuf,
-) {
+fn start(saver: &Saver, part: Part, dir: PathBuf) {
+    let Saver {
+        looks,
+        message,
+        body,
+        downloads,
+        toasts,
+    } = saver.clone();
+    let index = part.index;
     if send(downloads, index, DownloadEvent::Start) != Some(DownloadEffect::Begin) {
         return;
     }
-    let part = Part {
-        index,
-        kept,
-        name: name.to_owned(),
-    };
     let saving = saving_for(&part);
     let client = crate::ui::live::client();
-    let looks = looks.clone();
     let fetchers = fetch::fetchers();
     spawn(async move {
         // `spawn_blocking`, not this task: a fetch waits on the application's runtime

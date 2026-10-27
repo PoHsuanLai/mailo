@@ -19,8 +19,8 @@ mod store;
 pub(in crate::ui) mod smime_support;
 
 pub(in crate::ui) use dom::{
-    FakeKey, INSIDE_THE_SHELL, Seen, click, dispatching, drain, drain_seen, key, later, markup,
-    press, reader_markup, rebuild_into, right_click, root_attr, thread_like,
+    FakeKey, INSIDE_THE_SHELL, Seen, click, deliver, dispatching, drain, drain_seen, key, later,
+    markup, press, reader_markup, rebuild_into, right_click, root_attr, thread_like,
 };
 pub(in crate::ui) use events::{FakePointer, PRIMARY, Scripts, chord, pointer, type_into};
 pub(in crate::ui) use reference::{Work, work};

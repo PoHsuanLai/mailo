@@ -108,7 +108,7 @@ fn base(place: Place) -> Option<PathBuf> {
 /// The XDG base directory rule over an environment given as a function, so it can be tested
 /// without setting a variable (which is `unsafe` since the 2024 edition, and the workspace
 /// forbids `unsafe`). Compiled everywhere, so the rule is tested everywhere.
-#[cfg_attr(any(target_os = "macos", windows), allow(dead_code))]
+#[cfg(any(not(any(target_os = "macos", windows)), test))]
 fn xdg(place: Place, var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let (name, under_home) = match place {
         Place::Config => ("XDG_CONFIG_HOME", ".config"),

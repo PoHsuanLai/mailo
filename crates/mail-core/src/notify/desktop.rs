@@ -83,13 +83,17 @@ impl Desktop {
     /// main run loop. On macOS that is what lets a click on a banner be heard; everywhere else
     /// it is the same as `connect`.
     pub fn connect_in_window() -> Self {
-        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
-        let mut desktop = Self::connect();
         #[cfg(target_os = "macos")]
         {
-            desktop.run_loop = true;
+            Desktop {
+                run_loop: true,
+                ..Self::connect()
+            }
         }
-        desktop
+        #[cfg(not(target_os = "macos"))]
+        {
+            Self::connect()
+        }
     }
 }
 
@@ -433,7 +437,7 @@ fn sound_name(sound: Sound) -> Option<&'static str> {
 
 /// A body is markup to a server that advertises `body-markup`, and a subject is a stranger's text:
 /// `<b>` in one must reach the screen as those three characters.
-#[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
+#[cfg(any(all(unix, not(target_os = "macos")), test))]
 fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {

@@ -569,9 +569,11 @@ pub async fn pushed(
     mail_runtime::sieve::push(
         &at,
         &auth,
-        &rules,
-        vacation.as_ref(),
-        &places,
+        mail_runtime::sieve::Wanted {
+            rules: &rules,
+            vacation: vacation.as_ref(),
+            places: &places,
+        },
         takeover,
         now,
         &mut cancel,

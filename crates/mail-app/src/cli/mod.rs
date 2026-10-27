@@ -1849,11 +1849,13 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             receive,
             consent: _,
         } => crate::edge::block_on(mail.accounts().add(
-            address,
-            manual.as_ref(),
-            *microsoft,
-            *graph,
-            *receive,
+            mail_core::account::Requested {
+                address,
+                manual: manual.as_ref(),
+                microsoft: *microsoft,
+                graph: *graph,
+                receive: *receive,
+            },
             &account::announce_sign_in,
         ))
         .map(|added| account::added(&added))

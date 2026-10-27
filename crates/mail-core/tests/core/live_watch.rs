@@ -166,9 +166,11 @@ fn listening_with_grace(
             secrets(),
             &ClientRegistry::default(),
             account(),
-            cancel,
-            None,
-            grace,
+            live::Watch {
+                cancel,
+                hold: None,
+                grace,
+            },
             &|h| said.lock().unwrap().push(h),
         )
     });

@@ -41,7 +41,7 @@ struct Page {
 }
 
 /// A window with one element of its own beside the reader's Original frame.
-#[allow(non_snake_case)]
+#[component]
 fn Window() -> Element {
     let page = use_context::<Page>();
     rsx! {
