@@ -14,7 +14,7 @@ use mail_domain::{Signature, SignatureId};
 use mail_mime::{RemoteImages, SanitizePolicy, from_html, sanitize};
 
 use crate::compose::FORWARDED;
-use crate::editor::{
+use crate::rich_text::{
     Doc, Node, Object, Op, ParaKind, nodes_from_blocks, nodes_from_plain, runs_text,
 };
 

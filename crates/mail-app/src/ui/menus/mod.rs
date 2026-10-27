@@ -152,7 +152,7 @@ pub(super) fn label_items(
     summary: &ThreadSummary,
     typed: &str,
 ) -> Vec<MenuItem> {
-    let mut items: Vec<MenuItem> = mail_core::view::label_menu(known, summary)
+    let mut items: Vec<MenuItem> = mail_core::conversation::label_choices(known, summary)
         .into_iter()
         .map(|choice| MenuItem {
             right: Right::Check(choice.membership == Membership::In),

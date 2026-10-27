@@ -79,7 +79,7 @@ pub const KEEP_FOR_LATER: &str = "Keep for Later";
 pub const DELETE_DRAFT: &str = "Delete Draft";
 
 // A conversation's actions, in its row's menu, the reader's ⋯ and the selection bar: each named
-// by the side the conversation is offered (`mail_core::view::Say`), never the side it is on.
+// by the side the conversation is offered (`mail_core::conversation::Say`), never the side it is on.
 pub const ARCHIVE: &str = "Archive";
 /// Out of Archive or Trash, back to the inbox.
 pub const MOVE_TO_INBOX: &str = "Move to Inbox";
@@ -126,8 +126,8 @@ pub fn block_sender(email: &str) -> String {
 }
 
 /// The word for the side of an action a conversation is offered.
-pub fn offered(say: mail_core::view::Say) -> &'static str {
-    use mail_core::view::Say;
+pub fn offered(say: mail_core::conversation::Say) -> &'static str {
+    use mail_core::conversation::Say;
     match say {
         Say::Archive => ARCHIVE,
         Say::MoveToInbox => MOVE_TO_INBOX,

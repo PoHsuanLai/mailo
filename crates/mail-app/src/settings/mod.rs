@@ -70,7 +70,7 @@ pub struct WindowSettings {
         section = "Message list"
     )]
     pub group_by_date: GroupByDate,
-    /// The places listed a message to a row, each by its `mail_core::view::place_key`:
+    /// The places listed a message to a row, each by its `mail_core::conversation::place_key`:
     /// Organise by Conversation turned off in the list's ⋯ for each. Only the exceptions are
     /// kept, since a place lists conversations until told otherwise; a saved view keeps its own
     /// choice in the view. Not a key of the schema: a place's key means nothing in the Settings

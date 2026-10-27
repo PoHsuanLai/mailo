@@ -10,7 +10,7 @@
 use chrono::{TimeDelta, TimeZone};
 use mail_app::ui::copy;
 use mail_core::Store;
-use mail_core::follow_up::{CHOICES, row_words};
+use mail_core::follow_up::{CHOICES, returned_words};
 use mail_core::notify::Opens;
 use mail_domain::{FollowUp, SendState};
 
@@ -30,7 +30,7 @@ fn no_reply() -> &'static str {
         at: chrono::Utc::now(),
         set: chrono::Utc::now(),
     };
-    row_words(&returned).expect("a returned conversation says so")
+    returned_words(&returned).expect("a returned conversation says so")
 }
 
 #[test]

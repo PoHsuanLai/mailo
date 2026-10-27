@@ -171,7 +171,7 @@ fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed 
         Err(why) => return invalid(why.to_string()),
     };
     Listed {
-        top: searched.strip(),
+        top: searched.top_results(),
         threads: searched.rows,
         messages: Vec::new(),
         marking: Marking {

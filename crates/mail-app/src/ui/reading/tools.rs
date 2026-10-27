@@ -34,7 +34,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
-use mail_core::view::says;
+use mail_core::conversation::says;
 use mail_core::{SqliteStore, Store as _};
 use mail_domain::*;
 use std::path::{Path, PathBuf};

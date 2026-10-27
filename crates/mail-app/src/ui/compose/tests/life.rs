@@ -8,7 +8,7 @@ use super::super::page::{Guard, Phase};
 use super::*;
 use crate::ui::fixtures::{acct_account, click, press, seeded};
 use ds_harness::harness::SETTLE_BOUND;
-use mail_core::editor::{to_flowed, to_html};
+use mail_core::rich_text::{to_flowed, to_html};
 
 fn far() -> DateTime<Utc> {
     Utc::now() + chrono::TimeDelta::days(365)
@@ -295,7 +295,7 @@ async fn autosave_writes_the_documents_two_bodies_once_typing_stops() {
     window.dom.in_runtime(|| {
         let mut write = page.write();
         type_text(&mut write, "Notes for Friday");
-        write.session.caret = mail_core::editor::Caret::at(0, 0);
+        write.session.caret = mail_core::rich_text::Caret::at(0, 0);
         type_text(&mut write, "# ");
     });
     window.render();
@@ -383,7 +383,7 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         let mut write = page.write();
         write.subject = "Offsite".to_owned();
         type_text(&mut write, "Underlined ");
-        write.selection = Some(mail_core::editor::Range {
+        write.selection = Some(mail_core::rich_text::Range {
             start: Pos::new(0, 0),
             end: Pos::new(0, 10),
         });
@@ -625,7 +625,7 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
 #[tokio::test]
 async fn a_picture_in_the_body_reopens_drawn_and_is_saved_by_its_name() {
     use super::super::life;
-    use mail_core::editor::{Node, Object};
+    use mail_core::rich_text::{Node, Object};
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
     let png = b"\x89PNG\r\n\x1a\nnot really a picture";

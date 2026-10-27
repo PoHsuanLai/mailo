@@ -268,7 +268,7 @@ fn html_round_trip_examples_and_what_is_dropped() {
 /// `>` in its words.
 #[test]
 fn quote_marks_with_spaces_between_them_are_run_together() {
-    use crate::editor::plain_to_flowed;
+    use crate::rich_text::plain_to_flowed;
     assert_eq!(
         plain_to_flowed("> > text  \n> >\n>> kept\n> plain"),
         ">> text\n>>\n>> kept\n> plain"
@@ -278,7 +278,7 @@ fn quote_marks_with_spaces_between_them_are_run_together() {
 /// Text not written by the editor is flowed text that reads back exactly as it was written.
 #[test]
 fn plain_text_reads_back_as_itself_through_flowed() {
-    use crate::editor::plain_to_flowed;
+    use crate::rich_text::plain_to_flowed;
     use mail_mime::{Delsp, unflow};
     let long = "word ".repeat(30);
     let cases: &[(&str, &str, &str)] = &[

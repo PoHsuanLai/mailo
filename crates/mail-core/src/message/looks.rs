@@ -345,7 +345,7 @@ impl Looks {
     }
 
     /// [`post_cached`](Self::post_cached), else read and remembered: the thread's newest message
-    /// ([`crate::view::reply_target`], the one Reply answers), when its stored bytes name an
+    /// ([`crate::conversation::reply_target`], the one Reply answers), when its stored bytes name an
     /// address to write to its list (`List-Post`). This reads a blob: run it on a blocking
     /// thread, for the thread the reader has open.
     pub fn post(&self, store: &SqliteStore, thread: ThreadId, key: &Bodies) -> Option<MessageId> {
@@ -362,7 +362,7 @@ impl Looks {
                     .iter()
                     .filter_map(|id| store.message(*id).or_log("a message could not be read"))
                     .collect();
-                let target = crate::view::reply_target(&messages)?;
+                let target = crate::conversation::reply_target(&messages)?;
                 // Only stored bytes are read: a message whose body is not here names nothing.
                 crate::compose::list_post(store, target)
                     .is_ok()

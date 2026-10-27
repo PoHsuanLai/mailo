@@ -11,7 +11,7 @@ mod doc;
 pub use doc::{Placement, nodes_of, plain_of, recognise, region, swap};
 
 use crate::compose::{doc_of, identity_of, save};
-use crate::editor::{Doc, Node, Object, apply, to_flowed, to_html};
+use crate::rich_text::{Doc, Node, Object, apply, to_flowed, to_html};
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_domain::{

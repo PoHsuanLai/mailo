@@ -244,7 +244,7 @@ fn term<Tz: TimeZone>(
             "pinned" => Filter::Pinned,
             "snoozed" => Filter::Snoozed,
             // Starred or pinned. The one `Or` a term stands for.
-            "kept" => crate::view::kept_filter(),
+            "kept" => crate::conversation::kept_filter(),
             _ => return None,
         },
         "in" => Filter::InMailbox(mailbox(value)?),

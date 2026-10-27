@@ -8,7 +8,7 @@
 
 use dioxus::prelude::*;
 use mail_core::SqliteStore;
-use mail_core::editor::{Caret, Doc, apply};
+use mail_core::rich_text::{Caret, Doc, apply};
 use mail_core::signature::{self, Placement};
 use mail_domain::{Draft, Signature, SignatureId};
 use std::sync::Arc;
@@ -48,8 +48,8 @@ pub(in crate::ui) fn adopt(store: &SqliteStore, page: &mut Page) {
     let Some(rich) = known.iter().find(|signature| signature.id == id) else {
         return;
     };
-    let mut nodes = vec![mail_core::editor::Node::Object(
-        mail_core::editor::Object::Signature,
+    let mut nodes = vec![mail_core::rich_text::Node::Object(
+        mail_core::rich_text::Object::Signature,
     )];
     nodes.extend(signature::nodes_of(rich));
     // Not an edit: the draft says this already, so nothing is to be saved and nothing undone.

@@ -23,7 +23,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::Logged;
 use mail_core::SqliteStore;
-use mail_core::editor::{Doc, Node, ParaKind, Session};
+use mail_core::rich_text::{Doc, Node, ParaKind, Session};
 use mail_core::signature;
 use mail_domain::{Draft, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
 use std::sync::Arc;

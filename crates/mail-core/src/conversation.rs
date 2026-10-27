@@ -1,11 +1,11 @@
-//! What a conversation offers and what a gesture does to it: the decisions behind a row's menu,
+//! What a conversation offers and what a gesture does to it: the decisions behind a row's choices,
 //! the keyboard and Reply, with no window in them.
 //!
 //! The window asks these and draws the answer. Which actions a row offers, which operation a
 //! button performs, which message a reply answers and how mute turns on a selection are about the
 //! conversation and not about how it is shown, so they live here where a table can test them.
 
-use crate::place::{pending_snooze, place_filter};
+use crate::mailbox_filter::{for_role, pending_snooze};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     Filter, FollowUp, LabelId, MailboxRef, MailboxRole, MailboxSet, Membership, Message, Mute, Op,
@@ -50,7 +50,7 @@ pub fn mute_for_all(summaries: &[ThreadSummary]) -> Mute {
 /// 3. **Archive** when any message is filed there and none is in the inbox or a bin.
 /// 4. **Elsewhere**: only Sent or Drafts, the person's own mail that was never filed.
 ///
-/// The Archive place lists by the same rule ([`crate::place::place_filter`]), so what it lists is
+/// The Archive place lists by the same rule ([`crate::mailbox_filter::for_role`]), so what it lists is
 /// always offered Move to Inbox and never Archive.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Whereabouts {
@@ -116,7 +116,7 @@ pub enum Say {
 
 /// The side `kind` is offered as for this conversation at `now`.
 ///
-/// Read and star are two kinds, and [`hover_actions`] picks the one the conversation needs.
+/// Read and star are two kinds, and [`allowed_actions`] picks the one the conversation needs.
 /// Restore, pin, mute, snooze and the follow-up are one kind each whose direction the
 /// conversation's state decides, and this names that direction. `now` is for the snooze alone:
 /// one whose time has passed is back, and is offered Snooze again.
@@ -202,7 +202,7 @@ pub fn turns_off(kind: OpKind, summary: &ThreadSummary, now: DateTime<Utc>) -> O
 /// label and a forward are always offered; [`says`] names which way the first four go. Returns
 /// [`OpKind`] rather than [`Op`] because a menu item cannot carry a payload that does not exist
 /// yet.
-pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
+pub fn allowed_actions(summary: &ThreadSummary) -> Vec<OpKind> {
     let here = Whereabouts::of(summary.mailboxes);
     let mut out = Vec::new();
     match here {
@@ -238,7 +238,7 @@ pub fn hover_actions(summary: &ThreadSummary) -> Vec<OpKind> {
     out
 }
 
-/// One row of the label menu: the name, which label it is, and whether this conversation has it.
+/// One row of the label choices: the name, which label it is, and whether this conversation has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LabelChoice {
     pub name: String,
@@ -253,7 +253,7 @@ impl LabelChoice {
     }
 }
 
-/// The label menu for one conversation.
+/// The label choices for one conversation.
 ///
 /// `known` is the shell's own index, so this stays a pure function of what is on screen. Names
 /// are not unique — `UNIQUE (account, name)` is per account, so "travel" on two accounts is two
@@ -262,7 +262,7 @@ impl LabelChoice {
 ///
 /// Sorted by name, with the ones already on the conversation first: the common act is taking a
 /// label off the thing you are looking at, and it should not be a search.
-pub fn label_menu(known: &[(String, LabelId)], summary: &ThreadSummary) -> Vec<LabelChoice> {
+pub fn label_choices(known: &[(String, LabelId)], summary: &ThreadSummary) -> Vec<LabelChoice> {
     let mut out: Vec<LabelChoice> = known
         .iter()
         .map(|(name, id)| LabelChoice {
@@ -285,9 +285,9 @@ pub fn label_menu(known: &[(String, LabelId)], summary: &ThreadSummary) -> Vec<L
 }
 
 /// Whether `kind` is something this conversation can have done to it now: what its row offers
-/// ([`hover_actions`]).
+/// ([`allowed_actions`]).
 pub fn offers(summary: &ThreadSummary, kind: OpKind) -> bool {
-    hover_actions(summary).contains(&kind)
+    allowed_actions(summary).contains(&kind)
 }
 
 /// The conversation `Next` or `Previous` moves to, or the message, in a list of single messages.
@@ -312,7 +312,7 @@ pub fn step<T: Copy + PartialEq>(current: Option<T>, ids: &[T], forward: bool) -
     Some(ids[next.unwrap_or(here)])
 }
 
-/// The `Op` a hover button performs, where it needs no payload.
+/// The `Op` a quick action performs, where it needs no payload.
 ///
 /// `None` for the ones that open a composer instead — a reply is a draft, not an operation.
 pub fn op_for(kind: OpKind) -> Option<Op> {
@@ -358,22 +358,22 @@ pub fn reply_target(messages: &[Message]) -> Option<&Message> {
     })
 }
 
-/// An entry in the sidebar.
+/// A place mail is listed from: a mailbox, a label, a folder or a saved view.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
     pub name: String,
     /// What this place lists. Not a `Filter`: see [`Source`].
     pub source: Source,
-    /// Shown as a badge. `None` until counted, which is not the same as zero.
+    /// The unread count. `None` until counted, which is not the same as zero.
     pub unread: Option<u64>,
 }
 
-/// Where a sidebar place gets its rows.
+/// Where a place gets its rows.
 ///
 /// Two variants because drafts are genuinely not mail yet. A draft has no thread, no server
 /// address and no mailbox — it lives in its own table — so there is no `Filter` that selects
 /// one, and a `Drafts` place built from `Filter::InMailbox(MailboxRole::Drafts)` lists nothing,
-/// for ever, with no error. That was the state of this sidebar until the composer gave it
+/// for ever, with no error. That was the state of the places until the composer gave it
 /// something to show.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Source {
@@ -400,14 +400,14 @@ pub enum Source {
     /// The messages held to leave at a time the person chose, soonest first.
     ///
     /// Drafts, like [`Source::Drafts`]: a message that has not left is not mail yet. Drawn in
-    /// the sidebar only while one is waiting.
+    /// the list only while one is waiting.
     Scheduled,
 }
 
 fn source_for(role: MailboxRole) -> Source {
     match role {
         MailboxRole::Drafts => Source::Drafts,
-        other => Source::Mail(place_filter(other)),
+        other => Source::Mail(for_role(other)),
     }
 }
 
@@ -417,10 +417,10 @@ pub fn kept_filter() -> Filter {
     Filter::Or(vec![Filter::Starred(Star::Starred), Filter::Pinned])
 }
 
-/// The default places, in the sidebar's order: the standard mailboxes and marks every mail app
+/// The default places, in listed order: the standard mailboxes and marks every mail app
 /// has, then Waiting and History.
 ///
-/// Inbox is `place_filter(Inbox)` rather than anything special, which is the plan's claim that a
+/// Inbox is `for_role(Inbox)` rather than anything special, which is the plan's claim that a
 /// place is just a saved filter, made true here rather than asserted. Positions are not stored:
 /// a Space remembers its place by [`place_key`] ([`find_place`] reads the names it used to
 /// store), and a running window finds a place again by its source.
@@ -434,7 +434,7 @@ pub fn default_places() -> Vec<Place> {
         ("Archive", source_for(MailboxRole::Archive)),
         ("Sent", source_for(MailboxRole::Sent)),
         ("Drafts", source_for(MailboxRole::Drafts)),
-        // Only while a message is waiting for its time: the sidebar draws it then and not before.
+        // Only while a message is waiting for its time: the window draws it then and not before.
         ("Scheduled", Source::Scheduled),
         ("Spam", source_for(MailboxRole::Spam)),
         ("Trash", source_for(MailboxRole::Trash)),
@@ -455,7 +455,7 @@ pub fn default_places() -> Vec<Place> {
     .collect()
 }
 
-/// The place a Space may have stored while the sidebar was lifecycle: Done is Archive again, and
+/// The place a Space may have stored while the places were lifecycle: Done is Archive again, and
 /// Kept is Starred. By name or by key; any other is itself.
 pub fn renamed(stored: &str) -> &str {
     match stored {
@@ -524,7 +524,7 @@ pub fn kept_single(single: &[String], place: &Place, threading: Threading) -> Ve
 
 /// The names mailo's own places had while a Space stored a place by its name alone. A stored
 /// name among them was one of mailo's places; any other was the person's label, folder or view
-/// (or one of the lifecycle sidebar's, which [`renamed`] reads).
+/// (or one of the lifecycle places', which [`renamed`] reads).
 const NAMED_BEFORE_KEYS: &[&str] = &[
     "Inbox", "Starred", "Snoozed", "Archive", "Sent", "Drafts", "Spam", "Trash", "Pinned",
     "Waiting", "History",
@@ -532,7 +532,7 @@ const NAMED_BEFORE_KEYS: &[&str] = &[
 
 /// Where among `places` the place a Space stored as `stored` is now, if it is still there.
 ///
-/// `stored` is a [`place_key`], or one the lifecycle sidebar stored ([`renamed`]). A Space left
+/// `stored` is a [`place_key`], or one the lifecycle places stored ([`renamed`]). A Space left
 /// before keys stored the place's name: one of mailo's own names then is mailo's place, and any
 /// other name is the person's first, so a label called "Done" is still that label.
 pub fn find_place(places: &[Place], stored: &str) -> Option<usize> {
@@ -587,8 +587,8 @@ pub fn folder_of(place: &Place) -> Option<&MailboxRef> {
     }
 }
 
-/// The sidebar: the default places, then one per label, then one per server folder, then one
-/// per saved view, in that order — which is also the order the badges are counted in, index for
+/// The places: the default places, then one per label, then one per server folder, then one
+/// per saved view, in that order — which is also the order the unread counts are counted in, index for
 /// index.
 ///
 /// A folder's place is named by its last level, which is what its row and the list's title say.
@@ -616,7 +616,7 @@ pub fn places_with(
         .collect()
 }
 
-/// The sidebar place a saved view is.
+/// The place a saved view is.
 pub fn saved_place(view: &View) -> Place {
     Place {
         name: view.name.clone(),
@@ -637,17 +637,17 @@ pub fn saved_of(place: &Place) -> Option<&View> {
     }
 }
 
-/// What a place's badge counts, or `None` when it has no badge.
+/// What a place's unread count counts, or `None` when it has no unread count.
 ///
 /// Unread threads, and only for mail: "3 unread drafts" is not a thing, because a draft is not
 /// something that arrives and is not something anyone has failed to read yet.
 ///
 /// Sent and Archive get one too. That looks odd until a filter rule files an unread message
-/// straight into Archive, at which point a badgeless Archive is a message the user never learns
+/// straight into Archive, at which point a countless Archive is a message the user never learns
 /// about.
 /// `filter` narrowed to `scope`, the accounts the window is showing (`None` is every account).
 ///
-/// The one narrowing the list and the sidebar's counts both go through, so a badge counts what
+/// The one narrowing the list and the window's counts both go through, so an unread count counts what
 /// opening its place lists: a count over every account beside a list of one said Trash held a
 /// message that was in another account's Trash.
 pub fn scoped(scope: Option<Filter>, filter: Filter) -> Filter {
@@ -657,15 +657,15 @@ pub fn scoped(scope: Option<Filter>, filter: Filter) -> Filter {
     }
 }
 
-/// What a place's badge counts in `scope`: its unread, among the accounts its list shows.
-pub fn scoped_badge(source: &Source, scope: Option<Filter>) -> Option<Filter> {
-    badge_filter(source).map(|filter| scoped(scope, filter))
+/// What a place's unread count counts in `scope`: its unread, among the accounts its list shows.
+pub fn scoped_unread_filter(source: &Source, scope: Option<Filter>) -> Option<Filter> {
+    unread_filter(source).map(|filter| scoped(scope, filter))
 }
 
-pub fn badge_filter(source: &Source) -> Option<Filter> {
+pub fn unread_filter(source: &Source) -> Option<Filter> {
     match source {
-        Source::Mail(filter) => Some(crate::place::unread_in(filter.clone())),
-        Source::Saved(view) => Some(crate::place::unread_in(view.filter.clone())),
+        Source::Mail(filter) => Some(crate::mailbox_filter::unread_in(filter.clone())),
+        Source::Saved(view) => Some(crate::mailbox_filter::unread_in(view.filter.clone())),
         // Nothing in it is news: the user wrote the last word and is waiting for someone else's.
         Source::Drafts | Source::Waiting | Source::History | Source::Scheduled => None,
     }
@@ -691,12 +691,12 @@ mod tests {
     }
 
     #[test]
-    fn hover_actions_fit_where_the_thread_is() {
-        let inbox = hover_actions(&summary(|_| {}));
+    fn allowed_actions_fit_where_the_thread_is() {
+        let inbox = allowed_actions(&summary(|_| {}));
         assert!(inbox.contains(&OpKind::Archive), "{inbox:?}");
         assert!(!inbox.contains(&OpKind::Restore), "nothing to restore from");
 
-        let archived = hover_actions(&summary(|s| {
+        let archived = allowed_actions(&summary(|s| {
             s.mailboxes = MailboxSet::only(MailboxRole::Archive)
         }));
         assert!(archived.contains(&OpKind::Restore), "{archived:?}");
@@ -705,7 +705,7 @@ mod tests {
             "offering to archive what is archived is noise"
         );
 
-        let trashed = hover_actions(&summary(|s| {
+        let trashed = allowed_actions(&summary(|s| {
             s.mailboxes = MailboxSet::only(MailboxRole::Trash)
         }));
         assert!(!trashed.contains(&OpKind::Trash), "{trashed:?}");
@@ -745,7 +745,7 @@ mod tests {
                 &[MailboxRole::Archive, MailboxRole::Sent],
             ),
         ];
-        let archive = place_filter(MailboxRole::Archive);
+        let archive = for_role(MailboxRole::Archive);
         for (case, roles) in cases {
             let thread = summary(|s| s.mailboxes = set(roles));
             let listed = archive.fit(&mail_domain::filter::MatchCtx {
@@ -757,7 +757,7 @@ mod tests {
             if !listed {
                 continue;
             }
-            let offered = hover_actions(&thread);
+            let offered = allowed_actions(&thread);
             assert!(!offered.contains(&OpKind::Archive), "{case}: {offered:?}");
             assert!(offered.contains(&OpKind::Restore), "{case}: {offered:?}");
         }
@@ -879,7 +879,7 @@ mod tests {
                         .fold(MailboxSet::empty(), |set, role| set.with(*role));
                     tweak(s);
                 });
-                let said: Vec<Say> = hover_actions(&thread)
+                let said: Vec<Say> = allowed_actions(&thread)
                     .into_iter()
                     .map(|kind| says(kind, &thread, now))
                     .collect();
@@ -937,7 +937,7 @@ mod tests {
 
     #[test]
     fn actions_needing_a_payload_have_no_bare_op() {
-        // A reply is a draft, not an operation, so a hover button cannot perform one.
+        // A reply is a draft, not an operation, so a quick action cannot perform one.
         for kind in [
             OpKind::Reply,
             OpKind::Forward,
@@ -1034,14 +1034,14 @@ mod tests {
             ("alpha".to_owned(), alpha),
         ];
         let thread = summary(|s| s.labels = vec![travel]);
-        let menu = label_menu(&known, &thread);
+        let menu = label_choices(&known, &thread);
         let order: Vec<&str> = menu.iter().map(|choice| choice.name.as_str()).collect();
         assert_eq!(order, ["travel", "alpha", "Bills"]);
         assert_eq!(menu[0].toggled(), Membership::Out);
     }
 
     #[test]
-    fn the_sidebar_offers_somewhere_to_find_a_snoozed_conversation() {
+    fn the_places_offer_somewhere_to_find_a_snoozed_conversation() {
         // Otherwise snoozing is a way to lose mail.
         let places = default_places();
         let snoozed = places
@@ -1051,20 +1051,20 @@ mod tests {
         assert_eq!(snoozed.source, Source::Mail(pending_snooze()));
     }
 
-    /// The sidebar's places are the standard ones every mail app has, in this order, then
+    /// The places are the standard ones every mail app has, in this order, then
     /// Waiting and History.
     #[test]
     fn the_places_are_the_standard_mailboxes_and_marks() {
         let want: [(&str, Source); 12] = [
-            ("Inbox", Source::Mail(place_filter(MailboxRole::Inbox))),
+            ("Inbox", Source::Mail(for_role(MailboxRole::Inbox))),
             ("Starred", Source::Mail(Filter::Starred(Star::Starred))),
             ("Snoozed", Source::Mail(pending_snooze())),
-            ("Archive", Source::Mail(place_filter(MailboxRole::Archive))),
-            ("Sent", Source::Mail(place_filter(MailboxRole::Sent))),
+            ("Archive", Source::Mail(for_role(MailboxRole::Archive))),
+            ("Sent", Source::Mail(for_role(MailboxRole::Sent))),
             ("Drafts", Source::Drafts),
             ("Scheduled", Source::Scheduled),
-            ("Spam", Source::Mail(place_filter(MailboxRole::Spam))),
-            ("Trash", Source::Mail(place_filter(MailboxRole::Trash))),
+            ("Spam", Source::Mail(for_role(MailboxRole::Spam))),
+            ("Trash", Source::Mail(for_role(MailboxRole::Trash))),
             ("Pinned", Source::Mail(Filter::Pinned)),
             ("Waiting", Source::Waiting),
             ("History", Source::History),
@@ -1151,7 +1151,7 @@ mod tests {
         let theirs = label_at(label);
         let ours = places
             .iter()
-            .position(|place| place.source == Source::Mail(place_filter(MailboxRole::Archive)))
+            .position(|place| place.source == Source::Mail(for_role(MailboxRole::Archive)))
             .expect("Archive");
         assert_ne!(place_key(&places[theirs]), place_key(&places[ours]));
         for at in [theirs, ours] {
@@ -1192,7 +1192,7 @@ mod tests {
         let all = kept_single(&[], &waiting, Threading::Single);
         assert_eq!(threading_of(&waiting, &all), Threading::Threaded);
 
-        let mut view = crate::views::Draft::from_search("is:unread");
+        let mut view = crate::saved_search::Draft::from_search("is:unread");
         view.threading = Threading::Single;
         let view = view.build(&[], &Utc).unwrap();
         let place = saved_place(&view);
@@ -1206,18 +1206,18 @@ mod tests {
 }
 
 #[cfg(test)]
-mod badge_tests {
+mod unread_filter_tests {
     use super::*;
 
     #[test]
     fn a_mail_place_counts_its_unread_threads() {
         let inbox = Source::Mail(Filter::InMailbox(MailboxRole::Inbox));
-        match badge_filter(&inbox) {
+        match unread_filter(&inbox) {
             Some(Filter::And(clauses)) => {
                 assert!(clauses.contains(&Filter::InMailbox(MailboxRole::Inbox)));
                 assert!(
                     clauses.contains(&Filter::Read(ReadState::Unread)),
-                    "the badge counted every thread, not the unread ones: {clauses:?}"
+                    "the unread count counted every thread, not the unread ones: {clauses:?}"
                 );
             }
             other => panic!("expected a conjunction, got {other:?}"),
@@ -1226,13 +1226,13 @@ mod badge_tests {
 
     #[test]
     fn every_mail_place_gets_one_including_archive() {
-        // A filter rule can file an unread message straight into Archive. A badgeless Archive is
+        // A filter rule can file an unread message straight into Archive. A countless Archive is
         // then a message the user never finds out about.
         for place in default_places() {
             match &place.source {
                 Source::Mail(_) | Source::Saved(_) => assert!(
-                    badge_filter(&place.source).is_some(),
-                    "{} has no badge",
+                    unread_filter(&place.source).is_some(),
+                    "{} has no unread count",
                     place.name
                 ),
                 // The user wrote the last word in each of them: nothing there is unread news.
@@ -1240,9 +1240,9 @@ mod badge_tests {
                 // read it.
                 Source::Drafts | Source::Waiting | Source::History | Source::Scheduled => {
                     assert_eq!(
-                        badge_filter(&place.source),
+                        unread_filter(&place.source),
                         None,
-                        "{} has a badge",
+                        "{} has a unread count",
                         place.name
                     )
                 }

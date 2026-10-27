@@ -1,6 +1,6 @@
 use super::*;
 use crate::compose::{draft_new, draft_reply_placed, move_draft_to};
-use crate::editor::{Node, ParaKind};
+use crate::rich_text::{Node, ParaKind};
 use crate::support_tests::{account, at, sqlite_with};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{MessageId, ReplyScope};
@@ -170,7 +170,7 @@ fn a_swap_replaces_only_the_signature_it_recognises() {
     let doc = Doc {
         nodes: vec![
             para("Hello"),
-            Node::Object(crate::editor::Object::Signature),
+            Node::Object(crate::rich_text::Object::Signature),
             para("Ada at Work"),
             para("PS: typed under it"),
         ],
@@ -225,8 +225,8 @@ fn a_signature_keeps_its_words_and_leaves_out_a_picture() {
     let doc = Doc {
         nodes: vec![
             para("Ada at Work"),
-            Node::Object(crate::editor::Object::Image {
-                src: crate::editor::ImageRef::of_cid("logo@example.test"),
+            Node::Object(crate::rich_text::Object::Image {
+                src: crate::rich_text::ImageRef::of_cid("logo@example.test"),
                 alt: "Logo".to_owned(),
             }),
         ],

@@ -14,7 +14,7 @@ use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
 use crate::ui::view::{
     Appearance, Listing, PageMenu, Peek, Shell, Shortcut, Source, folder_filter, nothing_to_show,
-    places_with, scoped_badge,
+    places_with, scoped_unread_filter,
 };
 use chordkit::StandardAction;
 use dioxus::prelude::*;
@@ -196,22 +196,22 @@ pub(super) fn App() -> Element {
         let scope = badge_scope();
         let mut filters: Vec<Option<Filter>> = crate::ui::view::default_places()
             .iter()
-            .map(|place| scoped_badge(&place.source, scope.clone()))
+            .map(|place| scoped_unread_filter(&place.source, scope.clone()))
             .collect();
         for id in label_ids.read().iter() {
-            filters.push(Some(mail_core::view::scoped(
+            filters.push(Some(mail_core::conversation::scoped(
                 scope.clone(),
                 Filter::And(vec![Filter::HasLabel(*id), Filter::Read(ReadState::Unread)]),
             )));
         }
         for (_, mailbox) in folder_refs.read().iter() {
-            filters.push(scoped_badge(
+            filters.push(scoped_unread_filter(
                 &Source::Mail(folder_filter(mailbox)),
                 scope.clone(),
             ));
         }
         for view in saved_views.read().iter() {
-            filters.push(scoped_badge(
+            filters.push(scoped_unread_filter(
                 &Source::Saved(Box::new(view.clone())),
                 scope.clone(),
             ));
@@ -644,14 +644,14 @@ pub(super) fn App() -> Element {
                 if !singles.is_empty() && singles.len() == rows.len() {
                     // A message to a row: the cursor moves by message, and opens each alone.
                     let here = shell.read().focus.filter(|_| open.is_some());
-                    if let Some(next) = mail_core::view::step(here, &singles, forward)
+                    if let Some(next) = mail_core::conversation::step(here, &singles, forward)
                         && let Some(at) = singles.iter().position(|m| *m == next)
                     {
                         shell.write().open_message(rows[at].id, next, at);
                     }
                 } else {
                     let ids: Vec<ThreadId> = rows.iter().map(|t| t.id).collect();
-                    if let Some(id) = mail_core::view::step(open, &ids, forward) {
+                    if let Some(id) = mail_core::conversation::step(open, &ids, forward) {
                         shell.write().open(id);
                     }
                 }

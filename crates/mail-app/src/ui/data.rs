@@ -218,7 +218,7 @@ mod tests {
 #[cfg(test)]
 mod badge_tests {
     use super::*;
-    use crate::ui::view::{Listing, Shell, Source, default_places, scoped_badge};
+    use crate::ui::view::{Listing, Shell, Source, default_places, scoped_unread_filter};
     use mail_domain::{ReadState, ThreadSummary};
     use std::collections::BTreeSet;
 
@@ -282,11 +282,11 @@ mod badge_tests {
                     .count() as u64;
                 let badge = count_badges(
                     store,
-                    &[scoped_badge(&place.source, shell.account_filter())],
+                    &[scoped_unread_filter(&place.source, shell.account_filter())],
                 )[0]
                 .unwrap_or(0);
-                let unscoped =
-                    count_badges(store, &[scoped_badge(&place.source, None)])[0].unwrap_or(0);
+                let unscoped = count_badges(store, &[scoped_unread_filter(&place.source, None)])[0]
+                    .unwrap_or(0);
                 differed |= unscoped != badge;
                 assert_eq!(
                     badge, unread,

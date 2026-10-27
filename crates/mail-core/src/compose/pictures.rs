@@ -1,7 +1,7 @@
 //! Pictures sent smaller, as the composer's Picture Size asks: a photo re-encoded to fit a
 //! longest side, at send, from the original the draft keeps.
 //!
-//! Only JPEG and PNG, told by their first bytes as the preview tells them (`crate::preview`):
+//! Only JPEG and PNG, told by their first bytes as the preview tells them (`crate::attachment_image`):
 //! a GIF may be moving and a WebP is usually small already. A picture is never made larger, and
 //! one whose smaller copy comes out no smaller in bytes, as a drawing saved as PNG can, goes as it
 //! was. The copy carries no metadata: `image` writes none, so a photo's EXIF, and with it where it
@@ -17,7 +17,7 @@ use image::codecs::png::{CompressionType, FilterType as PngFilter, PngEncoder};
 use image::imageops::FilterType;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader};
 
-use crate::preview::{Kind, decodable, sniff};
+use crate::attachment_image::{Kind, decodable, sniff};
 
 /// How large the pictures a message carries are sent, as Apple Mail names the choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
@@ -125,7 +125,7 @@ impl Decoded {
         }
         let decode = || {
             let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
-            reader.limits(crate::preview::limits());
+            reader.limits(crate::attachment_image::limits());
             // Nor does a picture with no decoder: it goes as it came.
             let mut decoder = reader.into_decoder().ok()?;
             // A picture whose orientation does not read is taken as it is stored.

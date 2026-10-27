@@ -8,7 +8,7 @@
 
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use mail_core::view::{kept_single, saved_of, saved_place};
+use mail_core::conversation::{kept_single, saved_of, saved_place};
 use mail_core::{SqliteStore, Store};
 use mail_domain::Threading;
 use std::sync::Arc;

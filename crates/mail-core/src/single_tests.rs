@@ -182,7 +182,7 @@ fn a_place_lists_the_messages_its_filter_fits_on_their_own() {
     let cases: [(&str, Filter, &[u128]); 4] = [
         (
             "inbox",
-            crate::place::place_filter(MailboxRole::Inbox),
+            crate::mailbox_filter::for_role(MailboxRole::Inbox),
             &[3, 1],
         ),
         ("sent", Filter::InMailbox(MailboxRole::Sent), &[2]),
@@ -203,7 +203,7 @@ fn a_place_lists_the_messages_its_filter_fits_on_their_own() {
 fn a_page_is_full_of_messages_that_fit_and_resumes_after_them() {
     let dir = tempfile::tempdir().unwrap();
     let store = store(dir.path());
-    let mut asked = query(crate::place::place_filter(MailboxRole::Inbox), 1);
+    let mut asked = query(crate::mailbox_filter::for_role(MailboxRole::Inbox), 1);
     let first = listed(&store, &asked, day(1)).unwrap();
     assert_eq!(listed_ids(&first), [id(3)]);
     assert!(first.next.is_some(), "Ada's message is still to come");

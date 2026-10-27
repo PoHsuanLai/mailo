@@ -1468,12 +1468,12 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
     let signing = mail.signing();
     match command {
         Command::List { mailbox, limit } => {
-            // `view::place_filter`, not `Filter::InMailbox`: the shell and the command list the
+            // `mailbox_filter::for_role`, not `Filter::InMailbox`: the shell and the command list the
             // same mailbox, and two spellings of "the inbox" is how one of them keeps showing
             // what the other has put away.
             let page = store
                 .threads(
-                    &list_query(mail_core::place::place_filter(*mailbox), *limit),
+                    &list_query(mail_core::mailbox_filter::for_role(*mailbox), *limit),
                     now,
                 )
                 .map_err(|e| e.to_string())?;
@@ -1661,7 +1661,10 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             .map_err(remedy::error),
         Command::ListSnoozed { limit } => {
             let page = store
-                .threads(&list_query(mail_core::place::pending_snooze(), *limit), now)
+                .threads(
+                    &list_query(mail_core::mailbox_filter::pending_snooze(), *limit),
+                    now,
+                )
                 .map_err(|e| e.to_string())?;
             if page.items.is_empty() {
                 return Ok("nothing is snoozed\n".to_owned());
@@ -1784,14 +1787,15 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             crate::edge::block_on(contacts::run(mail, command)).map_err(remedy::error)
         }
         Command::Print { target, out, pages } => {
-            let printed = mail_core::print::document(store, *target, &Local, now, *pages, clock)
-                .map_err(remedy::error)?;
+            let printed =
+                mail_core::html_document::document(store, *target, &Local, now, *pages, clock)
+                    .map_err(remedy::error)?;
             match out {
                 PrintTo::Unsaid | PrintTo::Stdout => Ok(printed.html),
                 PrintTo::File(path) => std::fs::write(path, &printed.html)
                     .map(|()| format!("wrote {}\n", path.display()))
                     .map_err(|e| format!("{}: {e}", path.display())),
-                PrintTo::Into(dir) => mail_core::print::write_into(dir, &printed)
+                PrintTo::Into(dir) => mail_core::html_document::write_into(dir, &printed)
                     .map(|path| format!("wrote {}\n", path.display()))
                     .map_err(remedy::error),
             }
@@ -1891,10 +1895,10 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             let mut out = String::new();
             for role in MailboxRole::ALL {
                 // What the window's place lists: Archive is what is not in the inbox too.
-                let place = mail_core::place::place_filter(role);
+                let place = mail_core::mailbox_filter::for_role(role);
                 let total = store.count(&place, now).map_err(|e| e.to_string())?;
                 let unread = store
-                    .count(&mail_core::place::unread_in(place), now)
+                    .count(&mail_core::mailbox_filter::unread_in(place), now)
                     .map_err(|e| e.to_string())?;
                 if total > 0 {
                     let _ = writeln!(out, "{:<8} {:>5} total  {:>5} unread", role, total, unread);

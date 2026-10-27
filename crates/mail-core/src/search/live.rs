@@ -12,7 +12,7 @@ fn subjects(input: &str, store: &mail_store::SqliteStore) -> Vec<String> {
         &Affinity::default(),
         &Utc,
         &|_| Vec::new(),
-        MENU,
+        QUICK_LIMIT,
         at(900),
     )
     .unwrap_or_else(|why| panic!("{input:?} is not a regex: {why}"));

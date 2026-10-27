@@ -9,7 +9,7 @@
 
 use super::enclosed::sent_bytes_of;
 use super::{answering, carried, identity_addressed, identity_of, quoted, quoting, save, signed};
-use crate::editor::plain_to_flowed;
+use crate::rich_text::plain_to_flowed;
 use crate::error::{CoreError, Logged};
 use crate::signature::{self, Placement};
 use chrono::{DateTime, Local, Utc};

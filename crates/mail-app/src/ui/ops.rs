@@ -1,7 +1,7 @@
 use crate::ui::view::Shell;
 use dioxus::prelude::{ReadableExt, Signal, WritableExt};
 use mail_core::compose::{Answer, Quote};
-use mail_core::view::{mute_op, op_for, reply_target};
+use mail_core::conversation::{mute_op, op_for, reply_target};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use porter_core::AccountId;
@@ -46,7 +46,7 @@ pub(super) fn composes(kind: OpKind) -> Option<Composes> {
 
 /// Create the draft a reply button opens.
 ///
-/// Which message that answers is [`mail_core::view::reply_target`]'s decision, not this function's.
+/// Which message that answers is [`mail_core::conversation::reply_target`]'s decision, not this function's.
 /// Open a composer on the newest message of `thread`, replying or forwarding.
 /// Begin a message that answers nothing.
 ///
@@ -279,7 +279,7 @@ pub(super) fn resolve(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> Op
     match kind {
         OpKind::Pin => {
             let loaded = store.thread(thread).ok()?;
-            Some(mail_core::place::pin_op(
+            Some(mail_core::mailbox_filter::pin_op(
                 &loaded.summary,
                 chrono::Utc::now(),
             ))

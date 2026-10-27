@@ -5,7 +5,7 @@
 //! and queue them", never "open a connection". A send that depended on the network being up at
 //! the moment the user pressed the key would lose the message on a train.
 
-use crate::editor::plain_to_flowed;
+use crate::rich_text::plain_to_flowed;
 use crate::error::{CoreError, Logged, TimeError};
 use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
@@ -1132,18 +1132,18 @@ fn signed_new(
         .as_ref()
         .filter(|signature| signature.html.is_some())
         .map(|signature| {
-            let mut nodes = crate::editor::nodes_from_plain(body.trim());
+            let mut nodes = crate::rich_text::nodes_from_plain(body.trim());
             if nodes.is_empty() {
-                nodes.push(crate::editor::Node::plain(
-                    crate::editor::ParaKind::Paragraph,
+                nodes.push(crate::rich_text::Node::plain(
+                    crate::rich_text::ParaKind::Paragraph,
                     "",
                 ));
             }
-            nodes.push(crate::editor::Node::Object(
-                crate::editor::Object::Signature,
+            nodes.push(crate::rich_text::Node::Object(
+                crate::rich_text::Object::Signature,
             ));
             nodes.extend(signature::nodes_of(signature));
-            crate::editor::to_html(&crate::editor::Doc { nodes })
+            crate::rich_text::to_html(&crate::rich_text::Doc { nodes })
         });
     Ok((text, html))
 }

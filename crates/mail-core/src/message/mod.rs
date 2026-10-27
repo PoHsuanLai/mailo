@@ -13,7 +13,7 @@ mod quote;
 mod seal;
 
 pub use frame::{FrameBody, Source, render};
-pub use frames::{FIRST_SCREEN, Frames, Key, ON_THE_FRAME, Sent, Unsealed, ahead};
+pub use frames::{FIRST_PAGE, Frames, INLINE_BYTES, Key, Sent, Unsealed, ahead};
 pub use list::{Offer, offer_of};
 pub use looks::{Bodies, Invited, Looks, Read, Receipt};
 pub use seal::{Opening, Protection, Scheme, Sealed, Tried};
