@@ -164,20 +164,6 @@ fn inbox_from(client: &Client, sender: &str) -> Vec<ThreadId> {
     page.items.iter().map(|thread| thread.id).collect()
 }
 
-/// Archive every conversation in the inbox from `sender`, here, as ordinary ops with their
-/// undos.
-#[cfg(test)]
-pub(in crate::ui) fn archive_from(
-    client: &Client,
-    sender: &str,
-    clock: mail_core::when::Clock,
-) -> Vec<Undo> {
-    inbox_from(client, sender)
-        .into_iter()
-        .filter_map(|thread| client.acting().perform(thread, Op::Archive, clock))
-        .collect()
-}
-
 /// The toast's "Archive all from this list": every conversation in the inbox from `sender`
 /// archived as one gesture, kept as one undo for ⌘Z and the toast, and said.
 pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender: &str, list: &str) {

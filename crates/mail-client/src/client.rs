@@ -241,8 +241,7 @@ impl Client {
     }
 
     /// Read `queries` before anyone asks, so the first to ask finds them read. Kept for as long as
-    /// the [`Live`]s
-    /// returned are.
+    /// the [`Live`]s returned are.
     pub fn prime<Q: Query>(&self, queries: impl IntoIterator<Item = Q>) -> Vec<Live<Q::Output>> {
         queries.into_iter().map(|query| self.live(query)).collect()
     }
