@@ -102,17 +102,27 @@ fn the_score_says_nothing_until_enough_is_learned_and_then_leans_the_right_way()
             .collect(),
     };
     assert_eq!(
-        score(&counts(4, 10, vec![("prize", 4, 0)])),
+        score(&counts(ENOUGH - 1, ENOUGH, vec![("prize", ENOUGH - 1, 0)])),
         None,
         "too little spam"
     );
     assert_eq!(
-        score(&counts(10, 10, vec![])),
+        score(&counts(ENOUGH, ENOUGH, vec![])),
         Some(0.5),
         "no word it knows"
     );
-    let spammy = score(&counts(10, 10, vec![("prize", 9, 0), ("winner", 8, 1)])).unwrap();
-    let hammy = score(&counts(10, 10, vec![("budget", 0, 9), ("meeting", 1, 8)])).unwrap();
+    let spammy = score(&counts(
+        ENOUGH,
+        ENOUGH,
+        vec![("prize", ENOUGH - 1, 0), ("winner", ENOUGH - 2, 1)],
+    ))
+    .unwrap();
+    let hammy = score(&counts(
+        ENOUGH,
+        ENOUGH,
+        vec![("budget", 0, ENOUGH - 1), ("meeting", 1, ENOUGH - 2)],
+    ))
+    .unwrap();
     assert!(spammy > THRESHOLD, "{spammy}");
     assert!(hammy < 0.1, "{hammy}");
 }

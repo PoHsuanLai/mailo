@@ -54,9 +54,10 @@ pub enum Heed {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Order {
     /// After them: a rule that files a message has the last word over it.
-    #[default]
     AfterRules,
-    /// Before them: junk is out of the inbox before any rule sees it.
+    /// Before them: junk is out of the inbox before any rule sees it, so a rule that answers or
+    /// forwards never speaks for mail the filter has called junk.
+    #[default]
     BeforeRules,
 }
 
@@ -81,7 +82,7 @@ pub const JUNK_LABEL: &str = "Junk";
 
 /// Messages of each kind the filter must have learned before it judges anything: until then
 /// its counts are an accident of the first few messages.
-pub const ENOUGH: u64 = 5;
+pub const ENOUGH: u64 = 50;
 
 /// How sure the filter must be before it calls a message junk.
 pub const THRESHOLD: f64 = 0.9;
