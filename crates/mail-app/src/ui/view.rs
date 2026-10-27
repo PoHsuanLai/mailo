@@ -197,9 +197,9 @@ impl Peek {
     }
 }
 
-/// How the loaded page is grouped.
+/// How the list is grouped by the Group menu.
 ///
-/// Client-side, and only the rows already on this page. The store's own grouping is a
+/// Client-side, and only the rows already on the page. The store's own grouping is a
 /// different feature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageGroup {
@@ -219,7 +219,7 @@ pub enum RowPart {
     Hidden,
 }
 
-/// Which parts of a row the loaded page draws.
+/// Which parts of a row the list draws.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PageParts {
     pub snippet: RowPart,
@@ -265,7 +265,7 @@ impl RowPart {
 /// How the list is grouped: by the page's Group menu, or by the saved view being shown.
 ///
 /// Two vocabularies because they are two features. The menu's [`PageGroup`] is a quick look at
-/// the loaded page; a view's [`GroupKey`] is part of what the view was saved as, and says things
+/// the rows on the page; a view's [`GroupKey`] is part of what the view was saved as, and says things
 /// the menu cannot, such as "tagged Travel, and not".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Grouping {

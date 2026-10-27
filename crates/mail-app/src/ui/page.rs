@@ -1,5 +1,5 @@
-//! Group and Row Properties, applied to the loaded page only, and the list toolbar's ⋯ that
-//! holds them with Sync Now.
+//! Group and Row Properties, kept as settings, and the list toolbar's ⋯ that holds them with
+//! Sync Now.
 //!
 //! Neither asks the store for a different query.
 
@@ -180,8 +180,9 @@ fn kept(edit: impl FnOnce(&mut crate::settings::WindowSettings)) {
 
 /// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one
 /// menu so the header is its title and three icons. Grouping and the rows' parts are kept as
-/// settings ([`kept`]), so every window opens with them. Sync Now is the sidebar's sync mark's press, so it is here only while the
-/// sidebar is hidden; `syncs` is false with only local folders in view.
+/// settings ([`kept`]), so every window opens with them. Sync Now is the sidebar's sync mark's
+/// press, so it is here only while the sidebar is hidden; `syncs` is false with only local
+/// folders in view.
 #[component]
 pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bool>) -> Element {
     let open = shell.read().page_menu == PageMenu::More;
