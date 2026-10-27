@@ -75,6 +75,28 @@ pub enum RuleAction {
     File(String),
     MarkRead,
     Star,
+    MarkUnread,
+    /// Raise a notification for it, wherever it went and whether or not it is read: the way to
+    /// hear of mail a rule files away, or of one sender when everything else is quiet.
+    Notify,
+    /// Send it on to this address, as a forward with the message quoted beneath.
+    Forward(String),
+    /// Answer its sender with the template of this name. Not to the user's own mail, and not to
+    /// an address that takes no answers (`noreply@`, `mailer-daemon@`), so two clients' rules
+    /// cannot answer each other for ever.
+    Reply(String),
+}
+
+impl RuleAction {
+    /// Whether this action sends mail or raises a notification: things only a running client
+    /// can do, and that a second run would do twice. They are never written into a server's
+    /// script, and running a rule over mail already here leaves them out.
+    pub fn speaks(&self) -> bool {
+        matches!(
+            self,
+            RuleAction::Notify | RuleAction::Forward(_) | RuleAction::Reply(_)
+        )
+    }
 }
 
 impl Rule {

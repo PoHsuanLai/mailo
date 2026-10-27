@@ -1702,6 +1702,11 @@ impl<B: Backend> AccountEngine<B> {
             })
     }
 
+    /// The store this engine keeps the account in.
+    pub fn store(&self) -> &SqliteStore {
+        &self.store
+    }
+
     /// Run the account's rules over what a pass stored for the first time.
     ///
     /// `arrived` is [`SyncReport::arrived`], so each message meets the rules once, when it first

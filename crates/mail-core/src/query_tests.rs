@@ -326,3 +326,29 @@ mod vip {
         }
     }
 }
+
+/// An either-or of single terms, and relative dates, written back read as the same filter: what
+/// a rule kept as `a OR b` opens on again.
+#[test]
+fn an_either_or_reads_back_as_written() {
+    let words = mail_domain::filter::Words {
+        label: &|_| String::new(),
+        folder: &|path| path.to_owned(),
+        account: "",
+        snooze_due: "",
+        any_date: "",
+    };
+    let cases = [
+        Filter::Or(vec![from("ada"), from("bob")]),
+        Filter::Or(vec![
+            Filter::Larger(5 * 1024 * 1024),
+            Filter::Subject(TextMatch::Contains("lunch on friday".to_owned())),
+            Filter::OlderThan(30),
+        ]),
+        Filter::NewerThan(7),
+    ];
+    for filter in cases {
+        let spelled = filter.spelled(&words);
+        assert_eq!(parse(&spelled), filter, "{spelled}");
+    }
+}

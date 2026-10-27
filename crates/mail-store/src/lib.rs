@@ -42,6 +42,7 @@ pub use account::{AccountPrefs, NewAccount, StoredAccount, Syncing, with_picks};
 pub use blob::Blobs;
 pub use contact::{
     AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally, Vip,
+    no_reply,
 };
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use file::write_atomic;

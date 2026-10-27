@@ -42,6 +42,7 @@ pub fn parse(args: &[String]) -> Result<RulesCmd, String> {
             let mut name = None;
             let mut account = None;
             let mut batch = BATCH;
+            let mut folder = None;
             let mut words = rest.iter();
             while let Some(word) = words.next() {
                 match word.as_str() {
@@ -52,6 +53,9 @@ pub fn parse(args: &[String]) -> Result<RulesCmd, String> {
                             .ok()
                             .filter(|n| *n > 0)
                             .ok_or("--batch needs a number above nought")?;
+                    }
+                    "--in" if verb == "run" => {
+                        folder = Some(value(&mut words, "--in", "a folder's path")?);
                     }
                     flag if flag.starts_with("--") => {
                         return Err(format!("unknown option {flag:?}\n\n{}", super::usage()));
@@ -76,6 +80,7 @@ pub fn parse(args: &[String]) -> Result<RulesCmd, String> {
                 _ => RulesCmd::Run {
                     name,
                     account,
+                    folder,
                     batch,
                 },
             })
@@ -110,6 +115,18 @@ fn parse_add(args: &[String]) -> Result<RulesCmd, String> {
             "--spam" => actions.push(RuleAction::Spam),
             "--read" => actions.push(RuleAction::MarkRead),
             "--star" => actions.push(RuleAction::Star),
+            "--unread" => actions.push(RuleAction::MarkUnread),
+            "--notify" => actions.push(RuleAction::Notify),
+            "--forward" => actions.push(RuleAction::Forward(value(
+                &mut words,
+                "--forward",
+                "an address",
+            )?)),
+            "--reply" => actions.push(RuleAction::Reply(value(
+                &mut words,
+                "--reply",
+                "a template's name",
+            )?)),
             "--stop" => after = AfterMatch::Stop,
             flag if flag.starts_with("--") => {
                 return Err(format!("unknown option {flag:?}\n\n{}", super::usage()));
@@ -129,7 +146,8 @@ fn parse_add(args: &[String]) -> Result<RulesCmd, String> {
     if actions.is_empty() && after == AfterMatch::Continue {
         return Err(format!(
             "rules add needs something to do: --label NAME, --folder PATH, --archive, --trash, \
-             --spam, --read, --star or --stop\n\n{}",
+             --spam, --read, --unread, --star, --notify, --forward ADDRESS, --reply TEMPLATE \
+             or --stop\n\n{}",
             super::usage()
         ));
     }
@@ -319,6 +337,10 @@ fn action(action: &RuleAction) -> String {
         RuleAction::Spam => "spam".to_owned(),
         RuleAction::MarkRead => "mark read".to_owned(),
         RuleAction::Star => "star".to_owned(),
+        RuleAction::MarkUnread => "mark unread".to_owned(),
+        RuleAction::Notify => "notify".to_owned(),
+        RuleAction::Forward(to) => format!("forward to {to}"),
+        RuleAction::Reply(template) => format!("reply with {template}"),
     }
 }
 
@@ -561,6 +583,7 @@ mod tests {
                 RulesCmd::Run {
                     name: "Bills".into(),
                     account: None,
+                    folder: None,
                     batch: 200,
                 },
             ),
@@ -569,7 +592,17 @@ mod tests {
                 RulesCmd::Run {
                     name: "Bills".into(),
                     account: None,
+                    folder: None,
                     batch: 50,
+                },
+            ),
+            (
+                "run Bills --in Lists/Rust",
+                RulesCmd::Run {
+                    name: "Bills".into(),
+                    account: None,
+                    folder: Some("Lists/Rust".into()),
+                    batch: 200,
                 },
             ),
         ];
@@ -591,6 +624,8 @@ mod tests {
             "add Bad from:x --frobnicate",
             "remove",
             "run Bills --batch 0",
+            "run Bills --in",
+            "add Bad from:x --forward",
             "enable a b",
             "frobnicate",
         ] {

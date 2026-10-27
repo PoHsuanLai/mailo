@@ -25,7 +25,7 @@ pub(crate) mod ledger;
 pub mod vip;
 
 pub use group::{Edit, Group, GroupHome, GroupId};
-pub use learn::normalise;
+pub use learn::{no_reply, normalise};
 pub use vip::Vip;
 
 use chrono::{DateTime, Utc};

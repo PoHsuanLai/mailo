@@ -1,9 +1,10 @@
 //! A rule's condition on its page: rows built from menus ([`super::when`]), every one having to
-//! match, or the search language as text for a condition the rows cannot hold. Either way the rule
-//! keeps the text; the rows write it as they change.
+//! match or any one of them, or the search language as text for a condition the rows cannot
+//! hold. Either way the rule keeps the text; the rows write it as they change.
 
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::components::controls::segmented::Tracking;
 use ds::components::fields::text_field_model::Invalid;
 use ds::components::menus::item::item::MenuItem as Choice;
 use ds::components::menus::pop_up_button::PopUpButton;
@@ -14,7 +15,7 @@ use mail_domain::LabelId;
 
 use super::super::common::classed;
 use super::super::press::{available, on_primary};
-use super::when::{self, Condition, Field, STATES, Test};
+use super::when::{self, Condition, Field, Joined, STATES, Test};
 use super::work;
 use crate::ui::copy;
 
@@ -25,13 +26,15 @@ pub(super) enum Writing {
     Text,
 }
 
-/// The rows and the way of writing a rule's page opens on for `query`: rows when they can hold
-/// it (one empty From row for a new rule), else text.
-pub(super) fn opened(query: &str) -> (Writing, Vec<Condition>) {
+/// The rows, how they join and the way of writing a rule's page opens on for `query`: rows when
+/// they can hold it (one empty From row for a new rule), else text.
+pub(super) fn opened(query: &str) -> (Writing, Joined, Vec<Condition>) {
     match when::rows_of(query) {
-        Some(rows) if rows.is_empty() => (Writing::Rows, vec![Field::From.fresh()]),
-        Some(rows) => (Writing::Rows, rows),
-        None => (Writing::Text, Vec::new()),
+        Some((joined, rows)) if rows.is_empty() => {
+            (Writing::Rows, joined, vec![Field::From.fresh()])
+        }
+        Some((joined, rows)) => (Writing::Rows, joined, rows),
+        None => (Writing::Text, Joined::All, Vec::new()),
     }
 }
 
@@ -46,6 +49,7 @@ pub(super) fn ready(writing: Writing, rows: &[Condition], readable: bool) -> boo
 #[component]
 pub(super) fn ConditionRows(
     writing: Signal<Writing>,
+    joined: Signal<Joined>,
     rows: Signal<Vec<Condition>>,
     query: String,
     labels: Vec<(String, LabelId)>,
@@ -53,7 +57,7 @@ pub(super) fn ConditionRows(
 ) -> Element {
     let names: Vec<String> = labels.iter().map(|(name, _)| name.clone()).collect();
     let mut set = move |next: Vec<Condition>| {
-        on_query.call(when::query_of(&next));
+        on_query.call(when::query_of(&next, *joined.peek()));
         rows.set(next);
     };
     if writing() == Writing::Text {
@@ -82,7 +86,8 @@ pub(super) fn ConditionRows(
                     bezel: Bezel::Inline,
                     availability: available(back.is_some()),
                     onclick: on_primary(move || {
-                        let (_, opened) = opened(&query);
+                        let (_, how, opened) = opened(&query);
+                        joined.set(how);
                         rows.set(opened);
                         writing.set(Writing::Rows);
                     }),
@@ -93,6 +98,23 @@ pub(super) fn ConditionRows(
     let shown = rows();
     let several = shown.len() > 1;
     rsx! {
+                if several {
+                    div { class: "rules-line",
+                        SegmentedControl::<Joined> {
+                            label: copy::fields::MATCHES.to_owned(),
+                            choices: vec![
+                                ds::prelude::Choice::new(Joined::All, copy::fields::ALL_OF_THEM),
+                                ds::prelude::Choice::new(Joined::Any, copy::fields::ANY_OF_THEM),
+                            ],
+                            tracking: Tracking::SelectOne(joined()),
+                            common: Common { id: Some("rule-joined".to_owned()), ..Common::default() },
+                            onchange: move |how: Joined| {
+                                joined.set(how);
+                                on_query.call(when::query_of(&rows.peek(), how));
+                            },
+                        }
+                    }
+                }
                 for (at, row) in shown.iter().cloned().enumerate() {
                     ConditionRow {
                         key: "{at}",
@@ -213,6 +235,8 @@ fn ConditionRow(
                         value: row.value.clone(),
                         placeholder: match field {
                             Field::Before | Field::After => copy::fields::A_DATE.to_owned(),
+                            Field::Size => copy::fields::A_SIZE.to_owned(),
+                            Field::Age => copy::fields::AN_AGE.to_owned(),
                             _ => String::new(),
                         },
                         validity,

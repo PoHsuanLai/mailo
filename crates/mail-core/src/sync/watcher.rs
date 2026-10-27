@@ -51,6 +51,7 @@ pub fn told(end: &PassEnd, announce: Announce<'_>, at: DateTime<Utc>, tell: &dyn
         store,
         report.account.clone(),
         &report.counts.arrived,
+        &report.counts.noted,
         notifier,
         whom,
         at,

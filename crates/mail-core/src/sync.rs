@@ -1185,7 +1185,12 @@ async fn pass_on<B: mail_proto::Backend>(
         sift(engine, account.id.clone(), &junk, &mut done, now);
     }
     match engine.run_rules(&done.counts.arrived, now) {
-        Ok(ran) => done.counts.ruled.extend(ran.acted),
+        Ok(ran) => {
+            done.counts.ruled.extend(ran.acted);
+            // Forwards and replies are queued before the drain, so they leave in this pass.
+            let noted = crate::rules::speak::carry_out(engine.store(), &ran.left, now);
+            done.counts.noted.extend(noted);
+        }
         Err(e) => done.trouble(None, e.retry(), format!("rules: {e}")),
     }
     if junk.order == crate::junk::Order::AfterRules {

@@ -23,6 +23,7 @@ use super::super::menu::{Floating, MenuItem, anchor_at, narrowed, palette_groups
 use super::super::move_to::destinations;
 use super::super::press::{available, on_primary};
 use super::conditions::{self, ConditionRows};
+use super::when::Joined;
 use super::work::{self, Draft};
 use super::{Said, back};
 use crate::ui::common::Problem;
@@ -40,6 +41,10 @@ enum Adding {
     Labels,
     /// Which folder.
     Folders,
+    /// Which address to forward to.
+    Forward,
+    /// Which template to reply with.
+    Reply,
 }
 
 fn item(key: &str, icon: Icon, name: &str, help: Option<&str>) -> MenuItem {
@@ -49,8 +54,9 @@ fn item(key: &str, icon: Icon, name: &str, help: Option<&str>) -> MenuItem {
     }
 }
 
-/// Every kind of action a rule can take, `folders` saying whether the account has any to move to.
-pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
+/// Every kind of action a rule can take, `folders` saying whether the account has any to move to
+/// and `templates` whether it has any to reply with.
+pub(in crate::ui) fn kinds(folders: bool, templates: bool) -> Vec<MenuItem> {
     let mut out = vec![item(
         "label",
         Icon::Tag,
@@ -65,6 +71,12 @@ pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
             "read",
             Icon::MailOpen,
             &copy::menus::rule_action(&RuleAction::MarkRead),
+            None,
+        ),
+        item(
+            "unread",
+            Icon::Mail,
+            &copy::menus::rule_action(&RuleAction::MarkUnread),
             None,
         ),
         item(
@@ -91,7 +103,27 @@ pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
             &copy::menus::rule_action(&RuleAction::Spam),
             None,
         ),
+        item(
+            "notify",
+            Icon::Bell,
+            copy::menus::RULE_NOTIFY,
+            Some(copy::menus::RULE_SENDS_HELP),
+        ),
+        item(
+            "forward",
+            Icon::Forward,
+            copy::menus::RULE_FORWARD,
+            Some(copy::menus::RULE_SENDS_HELP),
+        ),
     ]);
+    if templates {
+        out.push(item(
+            "reply",
+            Icon::Reply,
+            copy::menus::RULE_REPLY,
+            Some(copy::menus::RULE_SENDS_HELP),
+        ));
+    }
     out
 }
 
@@ -99,6 +131,8 @@ pub(in crate::ui) fn kinds(folders: bool) -> Vec<MenuItem> {
 fn plain(key: &str) -> Option<RuleAction> {
     Some(match key {
         "read" => RuleAction::MarkRead,
+        "unread" => RuleAction::MarkUnread,
+        "notify" => RuleAction::Notify,
         "star" => RuleAction::Star,
         "archive" => RuleAction::Archive,
         "trash" => RuleAction::Trash,
@@ -116,6 +150,10 @@ fn icon_of(action: &RuleAction) -> Icon {
         RuleAction::Spam => Icon::OctagonAlert,
         RuleAction::MarkRead => Icon::MailOpen,
         RuleAction::Star => Icon::Star,
+        RuleAction::MarkUnread => Icon::Mail,
+        RuleAction::Notify => Icon::Bell,
+        RuleAction::Forward(_) => Icon::Forward,
+        RuleAction::Reply(_) => Icon::Reply,
     }
 }
 
@@ -125,6 +163,8 @@ fn pick_key(action: &RuleAction) -> String {
     match action {
         RuleAction::Label(name) => format!("label:{name}"),
         RuleAction::File(path) => format!("file:{path}"),
+        RuleAction::Forward(to) => format!("forward:{to}"),
+        RuleAction::Reply(template) => format!("reply:{template}"),
         _ => String::new(),
     }
 }
@@ -133,6 +173,10 @@ fn pick_key(action: &RuleAction) -> String {
 fn picked(key: &str) -> Option<RuleAction> {
     if let Some(name) = key.strip_prefix("label:") {
         Some(RuleAction::Label(name.to_owned()))
+    } else if let Some(to) = key.strip_prefix("forward:") {
+        Some(RuleAction::Forward(to.to_owned()))
+    } else if let Some(template) = key.strip_prefix("reply:") {
+        Some(RuleAction::Reply(template.to_owned()))
     } else {
         key.strip_prefix("file:")
             .map(|path| RuleAction::File(path.to_owned()))
@@ -162,6 +206,21 @@ pub(in crate::ui) fn label_items(names: &[String], typed: &str) -> Vec<MenuItem>
         ));
     }
     out
+}
+
+/// The forward menu's row: the address typed, once it looks like one.
+pub(in crate::ui) fn forward_items(typed: &str) -> Vec<MenuItem> {
+    let typed = typed.trim();
+    if typed.contains('@') && !typed.contains(char::is_whitespace) {
+        vec![item(
+            &pick_key(&RuleAction::Forward(typed.to_owned())),
+            Icon::Forward,
+            &copy::menus::forward_to(typed),
+            None,
+        )]
+    } else {
+        Vec::new()
+    }
 }
 
 /// The page of the rule `id` on `row`'s account, or of a new one for `None`.
@@ -228,7 +287,8 @@ fn RuleEditor(
         )
     });
     let writing = use_signal(|| opened.0);
-    let rows = use_signal(|| opened.1.clone());
+    let joined = use_signal(|| opened.1);
+    let rows = use_signal(|| opened.2.clone());
     let mut apply = use_signal(|| Check::Off);
     let mut adding = use_signal(|| Adding::Closed);
     // The Add button, which the action menu floats against.
@@ -245,6 +305,7 @@ fn RuleEditor(
         .map(|d| d.path)
         .collect();
     let vips = mail_core::vip::read(store.as_ref());
+    let templates = work::templates(&store, account.clone());
     // Read as it is written: a condition that cannot be read is its field's error, and Save waits
     // for one that can, with every row's value in.
     let filter = work::read_condition(&draft.query, &index, &vips, &chrono::Local).ok();
@@ -278,9 +339,13 @@ fn RuleEditor(
                 }
             }
         }
-        FormSection { title: Some(copy::fields::WHEN_ALL_MATCH.to_owned()),
+        FormSection { title: Some(match joined() {
+                Joined::All => copy::fields::WHEN_ALL_MATCH,
+                Joined::Any => copy::fields::WHEN_ANY_MATCH,
+            }.to_owned()),
             ConditionRows {
                 writing,
+                joined,
                 rows,
                 query: draft.query.clone(),
                 labels: index.clone(),
@@ -336,12 +401,16 @@ fn RuleEditor(
                             placement: MenuPlacement::Popup,
                             anchor: add_at(),
                             title: copy::aria::ADD_ACTION.to_owned(),
-                            items: kinds(!folders.is_empty()),
+                            items: kinds(!folders.is_empty(), !templates.is_empty()),
                             on_pick: move |key: String| {
                                 if key == "label" {
                                     adding.set(Adding::Labels);
                                 } else if key == "file" {
                                     adding.set(Adding::Folders);
+                                } else if key == "forward" {
+                                    adding.set(Adding::Forward);
+                                } else if key == "reply" {
+                                    adding.set(Adding::Reply);
                                 } else if let Some(action) = plain(&key) {
                                     add(action);
                                 }
@@ -353,12 +422,13 @@ fn RuleEditor(
                             },
                         }
                     }
-                    if matches!(adding(), Adding::Labels | Adding::Folders) {
+                    if !matches!(adding(), Adding::Closed | Adding::Kinds) {
                         ActionPicker {
                             anchor: add_at(),
                             adding: adding(),
                             names: names.clone(),
                             folders: folders.clone(),
+                            templates: templates.clone(),
                             on_pick: move |key: String| {
                                 if let Some(action) = picked(&key) {
                                     add(action);
@@ -428,6 +498,7 @@ fn ActionPicker(
     adding: Adding,
     names: Vec<String>,
     folders: Vec<String>,
+    templates: Vec<String>,
     on_pick: EventHandler<String>,
     on_close: EventHandler<()>,
 ) -> Element {
@@ -437,6 +508,26 @@ fn ActionPicker(
             "Label",
             "Find or create a label",
             label_items(&names, &query()),
+        ),
+        Adding::Forward => (
+            copy::menus::FORWARD_TO,
+            copy::menus::AN_ADDRESS,
+            forward_items(&query()),
+        ),
+        Adding::Reply => (
+            copy::menus::REPLY_WITH,
+            copy::menus::FIND_A_TEMPLATE,
+            templates
+                .iter()
+                .map(|name| {
+                    item(
+                        &pick_key(&RuleAction::Reply(name.clone())),
+                        Icon::Reply,
+                        name,
+                        None,
+                    )
+                })
+                .collect(),
         ),
         _ => (
             "Move to",

@@ -9,6 +9,7 @@
 pub mod block;
 pub mod manage;
 pub mod server;
+pub mod speak;
 
 use crate::error::CoreError;
 use chrono::{DateTime, Utc};
@@ -37,10 +38,12 @@ pub enum RulesCmd {
         account: Option<String>,
         state: RuleState,
     },
-    /// Run one rule over the mail already here.
+    /// Run one rule over the mail already here, or in one folder.
     Run {
         name: String,
         account: Option<String>,
+        /// The folder's path, to run over that folder alone.
+        folder: Option<String>,
         batch: u32,
     },
 }
@@ -228,16 +231,24 @@ pub fn run(
         RulesCmd::Run {
             name,
             account,
+            folder,
             batch,
         } => {
             let (account, rule) = named_rule(store, name, account.as_deref())?;
+            let within = folder.as_ref().map_or(Filter::All, |path| {
+                Filter::InFolder(mail_domain::MailboxRef {
+                    account: account.id.clone(),
+                    path: path.clone(),
+                })
+            });
             let caps = crate::act::caps_here(store, account.id, now);
-            let ran = mail_store::rules::run_now(store, &caps, &rule, *batch, now, &mut |b| {
-                progress(RunProgress {
-                    examined: b.examined,
-                    matched: b.acted.len(),
-                });
-            })?;
+            let ran =
+                mail_store::rules::run_now(store, &caps, &rule, &within, *batch, now, &mut |b| {
+                    progress(RunProgress {
+                        examined: b.examined,
+                        matched: b.acted.len(),
+                    });
+                })?;
             Ok(RulesDone::Ran {
                 name: name.clone(),
                 examined: ran.examined,

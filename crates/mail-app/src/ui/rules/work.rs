@@ -15,10 +15,11 @@ use super::super::files::work::{grouped, messages};
 use crate::ui::copy;
 use crate::ui::remedy::plainly;
 
-pub(in crate::ui) use mail_core::rules::manage::{Draft, Step, conversations, labels};
+pub(in crate::ui) use mail_core::rules::manage::{Draft, Step, conversations, labels, templates};
 
 /// The search words a rule's condition may use, as the refusal lists them.
-const KNOWN: &str = "from:, to:, subject:, is:, in:, has:, label:, before: and after:";
+const KNOWN: &str = "from:, to:, cc:, subject:, is:, in:, has:, label:, before:, after:, \
+                     larger:, smaller:, newer_than: and older_than:";
 
 /// One rule as the sheet lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +59,18 @@ pub(in crate::ui) fn matching(
     manage::matching(store, account, filter, now)
         .ok()
         .and_then(|n| usize::try_from(n).ok())
+}
+
+/// Apply the rules to the messages of `threads`, and say what they did.
+pub(in crate::ui) fn apply_to(
+    store: &SqliteStore,
+    threads: &[mail_domain::ThreadId],
+    now: DateTime<Utc>,
+) -> String {
+    match manage::apply_to(store, threads, now) {
+        Ok(acted) => copy::status::rules_applied(acted),
+        Err(why) => copy::status::rules_not_applied(&why.to_string()),
+    }
 }
 
 /// Everything a rule does, in one line.

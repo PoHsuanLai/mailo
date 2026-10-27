@@ -247,7 +247,7 @@ pub fn parse_with<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn Names) -> Fi
 
 /// Whether `token` is the word that joins two terms into one either-or term: `OR` in capitals,
 /// as Gmail writes it, or `|`. Lower-case `or` is a word like any other.
-fn is_either(token: &Token) -> bool {
+pub fn is_either(token: &Token) -> bool {
     !token.quoted && !token.negated && joins(&token.text)
 }
 

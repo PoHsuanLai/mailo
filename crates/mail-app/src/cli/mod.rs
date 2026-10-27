@@ -1358,12 +1358,16 @@ usage: mailo <command>
                              the account's own sign-in is presented
   rules [list] [--account A]  every rule, in the order it runs
   rules add NAME <search words…> [--label L] [--folder PATH] [--archive] [--trash]
-            [--spam] [--read] [--star] [--stop] [--account A]
+            [--spam] [--read] [--unread] [--star] [--notify] [--forward ADDRESS]
+            [--reply TEMPLATE] [--stop] [--account A]
                              run on each sync over new inbox mail the search matches;
-                             --stop keeps later rules from seeing it
+                             --stop keeps later rules from seeing it. Join conditions
+                             with OR for any of them
   rules remove|enable|disable NAME [--account A]
-  rules run NAME [--batch N] [--account A]
-                             run a rule now over the mail already here
+  rules run NAME [--in FOLDER] [--batch N] [--account A]
+                             run a rule now over the mail already here, or in one
+                             folder; it forwards, replies and notifies only as mail
+                             arrives
   sieve [status] [--account A]
                              what the server's ManageSieve runs, and whether it is
                              what this client would put there

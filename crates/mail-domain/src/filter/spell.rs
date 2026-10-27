@@ -44,17 +44,22 @@ impl Filter {
             Filter::All => "everything".to_owned(),
             Filter::Nothing => "nothing".to_owned(),
             Filter::And(fs) => each(fs).join(" "),
-            // A group inside an either-or is parenthesised: the line has no way to say it, so it
-            // does not read back, but it reads as what it is.
-            Filter::Or(fs) => fs
-                .iter()
-                .map(|f| match f {
-                    Filter::And(_) | Filter::Or(_) => format!("({})", f.spelled(words)),
-                    _ => f.spelled(words),
-                })
-                .collect::<Vec<_>>()
-                .join(" OR "),
-            Filter::Not(f) => format!("-{}", f.spelled(words)),
+            // `a OR b` is read back as the either-or it is, when each side is one term. A side
+            // of several terms has no spelling the line reads back, and keeps its brackets.
+            Filter::Or(fs) => {
+                let sides = each(fs);
+                if fs.len() > 1 && sides.iter().all(|side| one_term(side)) {
+                    sides.join(" OR ")
+                } else {
+                    format!("({})", sides.join(" or "))
+                }
+            }
+            // A group kept out keeps its brackets: `-a OR b` would read as `(-a) OR b`.
+            Filter::Not(f) => match &**f {
+                Filter::Or(fs) => format!("-({})", each(fs).join(" or ")),
+                Filter::And(fs) if fs.len() > 1 => format!("-({})", each(fs).join(" ")),
+                f => format!("-{}", f.spelled(words)),
+            },
             Filter::Account(_) => words.account.to_owned(),
             Filter::InMailbox(role) => format!("in:{role}"),
             Filter::InFolder(mailbox) => (words.folder)(&mailbox.path),
@@ -92,6 +97,21 @@ fn size(bytes: u64) -> String {
         b if b % K == 0 => format!("{}K", b / K),
         b => b.to_string(),
     }
+}
+
+/// Whether `spelled` is one term of the line: no space outside its quotes, and not itself an
+/// either-or or a group.
+fn one_term(spelled: &str) -> bool {
+    let mut quoted = false;
+    !spelled.is_empty()
+        && !spelled.starts_with('(')
+        && !spelled.starts_with("-(")
+        && spelled.chars().all(|c| {
+            if c == '"' {
+                quoted = !quoted;
+            }
+            quoted || !c.is_whitespace()
+        })
 }
 
 fn dates(range: &DateRange, any: &str) -> String {

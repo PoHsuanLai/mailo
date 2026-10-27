@@ -174,6 +174,16 @@ pub fn verdict(
     quiet.map_or(Verdict::Announce, Verdict::Quiet)
 }
 
+/// The verdict on an arrival a rule asked to be told of: said even when read, filed away or
+/// snoozed, which is what asking was for, and still not the user's own mail or mail from before
+/// the account was watched, which no rule meant.
+pub fn heard(verdict: Verdict) -> Verdict {
+    match verdict {
+        Verdict::Quiet(Quiet::Read | Quiet::Elsewhere(_) | Quiet::Snoozed) => Verdict::Announce,
+        other => other,
+    }
+}
+
 /// What a click on a notification should open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Opens {
@@ -283,15 +293,21 @@ impl std::fmt::Debug for Announce<'_> {
 
 /// Announce what one account's pass stored, returning how many notifications were raised.
 ///
+/// `noted` are the arrivals a rule asked to be told of ([`RuleAction::Notify`]): those are said
+/// wherever the rules filed them and whether or not they are read ([`heard`]).
+///
 /// Arms the account's floor on its first watched pass, whether or not anything arrived — the
 /// pass that arms it is the start of "new", and everything dated before it is backfill.
 ///
 /// `whom` is the person's "Notify for": under [`Whom::Vips`] only mail from a VIP is said, the
 /// VIPs read from the store as the pass ends, so one marked a moment ago is heard at once.
+///
+/// [`RuleAction::Notify`]: mail_domain::RuleAction::Notify
 pub fn announce(
     store: &SqliteStore,
     account: AccountId,
     arrived: &[MessageId],
+    noted: &[MessageId],
     notifier: &dyn Notifier,
     whom: Whom,
     now: DateTime<Utc>,
@@ -317,7 +333,13 @@ pub fn announce(
     let announced: Vec<&Message> = held
         .iter()
         .filter(|(message, snooze)| {
-            verdict(message, *snooze, &own, &heard, floor, now) == Verdict::Announce
+            let said = verdict(message, *snooze, &own, &heard, floor, now);
+            let said = if noted.contains(&message.id) {
+                self::heard(said)
+            } else {
+                said
+            };
+            said == Verdict::Announce
         })
         .map(|(message, _)| message)
         .collect();
@@ -600,5 +622,29 @@ mod tests {
         assert_eq!(load(dir.path()), Setting::Off);
         std::fs::write(dir.path().join(FILE_NAME), b"not json").unwrap();
         assert_eq!(load(dir.path()), Setting::On, "an unreadable file is on");
+    }
+
+    #[test]
+    fn mail_a_rule_asked_about_is_said_wherever_it_went() {
+        let cases = [
+            (Verdict::Announce, Verdict::Announce),
+            (Verdict::Quiet(Quiet::Read), Verdict::Announce),
+            (
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Archive)),
+                Verdict::Announce,
+            ),
+            (Verdict::Quiet(Quiet::Snoozed), Verdict::Announce),
+            (
+                Verdict::Quiet(Quiet::FromSelf),
+                Verdict::Quiet(Quiet::FromSelf),
+            ),
+            (
+                Verdict::Quiet(Quiet::BeforeFloor),
+                Verdict::Quiet(Quiet::BeforeFloor),
+            ),
+        ];
+        for (said, want) in cases {
+            assert_eq!(heard(said), want, "{said:?}");
+        }
     }
 }

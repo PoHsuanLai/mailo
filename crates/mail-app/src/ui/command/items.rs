@@ -35,6 +35,8 @@ pub(in crate::ui) enum CommandId {
     ReplyList,
     Redirect,
     Again,
+    /// Run the rules over the conversations picked, or the open one.
+    ApplyRules,
     Print,
     Sync,
     Empty(Bin),
@@ -127,6 +129,13 @@ pub(in crate::ui) const ENTRIES: &[Entry] = &[
         "edit-as-new",
         menus::EDIT_AS_NEW,
         Icon::FilePen,
+        None,
+    ),
+    entry(
+        CommandId::ApplyRules,
+        "apply-rules",
+        menus::APPLY_RULES,
+        Icon::Check,
         None,
     ),
     entry(

@@ -193,6 +193,7 @@ const EVERY_COMMAND: &[(CommandId, &str)] = &[
     (CommandId::ReplyList, "action:reply-list"),
     (CommandId::Redirect, "action:redirect"),
     (CommandId::Again, "action:edit-as-new"),
+    (CommandId::ApplyRules, "action:apply-rules"),
     (CommandId::Print, "action:print"),
     (CommandId::Sync, "action:sync"),
     (CommandId::Empty(Bin::Trash), "action:empty-trash"),

@@ -382,9 +382,15 @@ fn backlog<S: Store>(store: &S, raw: BlobId) -> (Vec<Vec<String>>, Vec<usize>, R
         rules::at_arrival(store, acct_account(), &folders(), &arrived(&patch), at(10)).unwrap();
 
     let mut batches = Vec::new();
-    let ran = rules::run_now(store, &folders(), &news, 2, at(20), &mut |batch| {
-        batches.push(batch.examined)
-    })
+    let ran = rules::run_now(
+        store,
+        &folders(),
+        &news,
+        &Filter::All,
+        2,
+        at(20),
+        &mut |batch| batches.push(batch.examined),
+    )
     .unwrap();
     (names(&at_arrival), batches, ran, outbox(store))
 }
@@ -736,4 +742,85 @@ fn a_muted_conversations_reply_arrives_read_and_archived_and_an_unmuted_ones_doe
 
     // The in-memory store did exactly the same.
     assert_eq!(muting(&MemoryStore::new(), BlobId::generate()), seen);
+}
+
+/// What the speaking scenario saw, for comparing the two stores.
+#[derive(Debug, PartialEq, Eq)]
+struct Spoken {
+    arrival: Vec<RuleAction>,
+    state: State,
+    backlog_acted: usize,
+    backlog: Vec<RuleAction>,
+    picked: Vec<RuleAction>,
+    other_account: usize,
+}
+
+/// A rule that marks mail unread, notifies and forwards: the mark is the store's to make, the
+/// rest are left to the caller, in order, as mail arrives and on messages the user picked, and
+/// never over the mail already here.
+fn speaking<S: Store>(store: &S, raw: BlobId) -> Spoken {
+    store
+        .put_rule(&rule(
+            1,
+            "Boss",
+            Filter::Or(vec![from("boss@example.test"), Filter::Larger(1_000_000)]),
+            vec![
+                RuleAction::MarkRead,
+                RuleAction::MarkUnread,
+                RuleAction::Notify,
+                RuleAction::Forward("me@elsewhere.example".to_owned()),
+            ],
+        ))
+        .unwrap();
+    let boss = arriving(1, "boss@example.test", MailboxRole::Inbox, raw);
+    let id = boss.message.id;
+    let patch = store.ingest(acct_account(), ingest(vec![boss])).unwrap();
+    let ran = rules::at_arrival(store, acct_account(), &gmail(), &arrived(&patch), at(10)).unwrap();
+    let left = |ran: &Ran| -> Vec<RuleAction> {
+        assert!(ran.left.iter().all(|(on, _)| *on == id), "{:?}", ran.left);
+        ran.left.iter().map(|(_, action)| action.clone()).collect()
+    };
+    let state = state(store, id);
+    let boss_rule = store.rules(acct_account()).unwrap().remove(0);
+    let backlog = rules::run_now(
+        store,
+        &gmail(),
+        &boss_rule,
+        &Filter::All,
+        10,
+        at(20),
+        &mut |_| {},
+    )
+    .unwrap();
+    let picked = rules::apply_to(store, acct_account(), &gmail(), &[id], at(30)).unwrap();
+    let other = rules::apply_to(store, acct_other(), &gmail(), &[id], at(40)).unwrap();
+    Spoken {
+        arrival: left(&ran),
+        state,
+        backlog_acted: backlog.acted.len(),
+        backlog: left(&backlog),
+        picked: left(&picked),
+        other_account: other.acted.len(),
+    }
+}
+
+#[test]
+fn what_a_rule_says_or_sends_is_left_to_the_caller_and_never_done_over_the_backlog() {
+    let sqlite = sqlite();
+    let raw = sqlite.blobs().put(b"raw").unwrap();
+    let seen = speaking(&sqlite, raw);
+    let spoken = vec![
+        RuleAction::Notify,
+        RuleAction::Forward("me@elsewhere.example".to_owned()),
+    ];
+    assert_eq!(seen.arrival, spoken);
+    assert_eq!(seen.state.1, ReadState::Unread, "the last mark wins");
+    assert_eq!(seen.backlog_acted, 1, "the backlog run matched it");
+    assert!(seen.backlog.is_empty(), "and sent nothing");
+    assert_eq!(seen.picked, spoken);
+    assert_eq!(
+        seen.other_account, 0,
+        "a message on another account is not that account's"
+    );
+    assert_eq!(speaking(&MemoryStore::new(), raw), seen);
 }
