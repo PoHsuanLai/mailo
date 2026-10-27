@@ -339,8 +339,8 @@ fn a_redirect_queues_the_original_unchanged_to_the_new_recipients() {
     let before = store.blobs().get(original.body.raw().unwrap()).unwrap();
 
     let to = [addr(Some("Bea"), "bea@example.test")];
-    let went = compose::redirect(&store, id, &to, at(10)).unwrap();
-    assert_eq!(went, ["bea@example.test"]);
+    let went = compose::redirect(&store, id, &to, chrono::TimeDelta::zero(), at(10)).unwrap();
+    assert_eq!(went.to, ["bea@example.test"]);
 
     let due = store.outbox_due(account(), at(20)).unwrap();
     assert_eq!(due.len(), 1, "one submission");
@@ -375,6 +375,29 @@ fn a_redirect_queues_the_original_unchanged_to_the_new_recipients() {
     assert!(text.contains(&format!("Resent-Message-ID: <{draft}@example.test>\r\n")));
 }
 
+/// A redirect leaves after the undo-send grace, like any send, and withdrawing it before then
+/// takes it out of the outbox.
+#[test]
+fn a_redirect_waits_out_the_grace_and_can_be_withdrawn_until_then() {
+    let store = seeded(smtp());
+    let id = message(&store, Stored::default());
+    let to = [addr(None, "bea@example.test")];
+    let grace = chrono::TimeDelta::seconds(5);
+
+    let went = compose::redirect(&store, id, &to, grace, at(10)).unwrap();
+    assert!(
+        store.outbox_due(account(), at(14)).unwrap().is_empty(),
+        "held for the grace"
+    );
+    assert_eq!(store.outbox_due(account(), at(15)).unwrap().len(), 1);
+
+    compose::withdraw_redirect(&store, &went).unwrap();
+    assert!(store.outbox_due(account(), at(60)).unwrap().is_empty());
+
+    // One that went on its way is not in the outbox, and withdrawing it is not an error.
+    compose::withdraw_redirect(&store, &went).unwrap();
+}
+
 #[test]
 fn a_redirect_that_cannot_go_as_it_came_is_refused() {
     let to = [addr(None, "bea@example.test")];
@@ -382,7 +405,7 @@ fn a_redirect_that_cannot_go_as_it_came_is_refused() {
     let graph = seeded(Outgoing::Graph);
     let id = message(&graph, Stored::default());
     assert!(matches!(
-        compose::redirect(&graph, id, &to, at(10)),
+        compose::redirect(&graph, id, &to, chrono::TimeDelta::zero(), at(10)),
         Err(CoreError::RedirectThroughGraph { .. })
     ));
     assert!(graph.outbox_due(account(), at(20)).unwrap().is_empty());
@@ -390,7 +413,13 @@ fn a_redirect_that_cannot_go_as_it_came_is_refused() {
     let store = seeded(smtp());
     let id = message(&store, Stored::default());
     assert!(matches!(
-        compose::redirect(&store, id, &[addr(None, " ")], at(10)),
+        compose::redirect(
+            &store,
+            id,
+            &[addr(None, " ")],
+            chrono::TimeDelta::zero(),
+            at(10)
+        ),
         Err(CoreError::Mime(_))
     ));
     assert!(store.outbox_due(account(), at(20)).unwrap().is_empty());

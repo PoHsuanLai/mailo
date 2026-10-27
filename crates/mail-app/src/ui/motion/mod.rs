@@ -56,6 +56,8 @@ pub(in crate::ui) enum Restore {
     Key(PgpKey),
     Cert(SmimeCert),
     Signature(Signature),
+    /// A redirect still in its grace period: Undo withdraws it.
+    Redirect(mail_core::compose::Redirected),
 }
 
 impl Restore {
@@ -71,6 +73,9 @@ impl Restore {
             }
             Restore::Signature(had) => {
                 mail_core::signature::restore(store, had).map_err(not_put_back)
+            }
+            Restore::Redirect(redirected) => {
+                mail_core::compose::withdraw_redirect(store, redirected).map_err(not_put_back)
             }
         }
     }

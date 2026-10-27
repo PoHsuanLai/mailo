@@ -20,8 +20,8 @@ pub struct ListHeaders {
     /// The ways out this message offers, in the order its `List-Unsubscribe` gave them.
     /// Empty when it offers none that this client can use.
     pub unsubscribe: Vec<Unsubscribe>,
-    /// Where a message to the whole list goes: `List-Post`'s `mailto:` addresses, in order.
-    /// Empty when the message has none, or says `NO` (RFC 2369 §3.4, a list nobody posts to).
+    /// Where a message to the whole list goes: the addresses of `List-Post`'s first usable
+    /// `mailto:`. Empty when the message has none, or says `NO` (RFC 2369 §3.4, a list nobody posts to).
     pub post: Vec<Address>,
 }
 
@@ -158,8 +158,9 @@ pub fn list_headers(raw: &[u8]) -> ListHeaders {
     }
 }
 
-/// The addresses one `List-Post` value posts to: each `mailto:` among its URIs, its `cc` and
-/// `bcc` dropped for the reason [`Mailto`] drops them. `NO` has no URI and so none.
+/// The addresses one `List-Post` value posts to: those of the first `mailto:` among its URIs that
+/// names any, since the URIs are alternatives (RFC 2369 §3.4), its `cc` and `bcc` dropped for the
+/// reason [`Mailto`] drops them. `NO` has no URI and so none.
 fn posts_to(value: &str) -> Vec<Address> {
     let mut out: Vec<Address> = Vec::new();
     for uri in uris_of(value) {
@@ -176,6 +177,9 @@ fn posts_to(value: &str) -> Vec<Address> {
             {
                 out.push(to);
             }
+        }
+        if !out.is_empty() {
+            break;
         }
     }
     out

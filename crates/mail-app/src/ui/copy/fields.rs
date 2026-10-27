@@ -38,7 +38,7 @@ pub const SMIME_CERTIFICATE: &str = "S/MIME Certificate";
 pub const REDIRECT_TO: &str = "Redirect to";
 pub const SOMEONE: &str = "name@example.com";
 /// Under Redirect…'s field, before anything is typed.
-pub const REDIRECT_HELP: &str = "The message goes unchanged, from you. Return sends it.";
+pub const REDIRECT_HELP: &str = "The message goes unchanged, from you. Gmail may show your address as its sender. Return sends it.";
 pub const SNOOZE_UNTIL: &str = "Snooze until";
 pub const A_TIME: &str = "tomorrow 9";
 /// Under the field while nothing is typed.

@@ -15,6 +15,7 @@ use crate::signature::{self, Placement};
 use chrono::{DateTime, Local, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
+use porter_core::AccountId;
 
 /// Whom an answer goes to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,11 +171,23 @@ pub fn draft_again(
     Ok(draft)
 }
 
+/// A redirect that is queued: whom it goes to, and what it takes to withdraw it
+/// ([`withdraw_redirect`]) while its grace period runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Redirected {
+    /// The addresses of the envelope, blind ones too.
+    pub to: Vec<String>,
+    pub account: AccountId,
+    /// The id its outbox entry is keyed by. No draft has it.
+    pub draft: DraftId,
+}
+
 /// Redirect `message` to `to`: queue the original, unchanged, beneath a `Resent-` block
 /// ([`mail_mime::resent`]), and say whom it went to.
 ///
 /// Sent from the address the message reached, else the account's default, through the ordinary
-/// outbox, so it leaves on the next sync like any message and is retried like one. There is no
+/// outbox, so it leaves on the first sync after `grace` and is retried like any message. Until
+/// then [`withdraw_redirect`] takes it back, as Undo does a send. There is no
 /// draft: nothing in it is the person's to edit. The outbox's entry is keyed by an id no draft
 /// has, which the drain already treats as nothing to mark (as a read receipt's is).
 ///
@@ -185,8 +198,9 @@ pub fn redirect(
     store: &SqliteStore,
     message: MessageId,
     to: &[Address],
+    grace: chrono::TimeDelta,
     now: DateTime<Utc>,
-) -> Result<Vec<String>, CoreError> {
+) -> Result<Redirected, CoreError> {
     let original = store.message(message)?;
     let account = original.account.clone();
     if crate::sync::local_accounts(store).contains(&account) {
@@ -231,7 +245,7 @@ pub fn redirect(
     )?;
     let raw = store.blobs().put(&post.message)?;
     let queued = store.enqueue(
-        account,
+        account.clone(),
         RemoteIntent::Send {
             draft: id,
             raw,
@@ -244,10 +258,31 @@ pub fn redirect(
             id: ChangeId::generate(),
             changes: Vec::new(),
         },
-        now,
+        // The entry's `next_attempt`: the outbox hands nothing out before it, so until then the
+        // redirect can be withdrawn.
+        now + grace,
     )?;
     if queued.is_none() {
         return Err(CoreError::SubmissionNotQueued);
     }
-    Ok(post.rcpt_to)
+    Ok(Redirected {
+        to: post.rcpt_to,
+        account,
+        draft: id,
+    })
+}
+
+/// Take back a redirect that has not left: its outbox entry goes, as a discarded draft's does.
+///
+/// There is no draft behind it, and deleting a draft that is not there withdraws the entry keyed
+/// by that id all the same. One that was already sent is gone from the outbox and this does nothing.
+pub fn withdraw_redirect(store: &SqliteStore, redirected: &Redirected) -> Result<(), CoreError> {
+    store.apply(
+        redirected.account.clone(),
+        &Patch {
+            id: ChangeId::generate(),
+            changes: vec![Change::DraftDelete(redirected.draft)],
+        },
+    )?;
+    Ok(())
 }

@@ -5,10 +5,11 @@
 //! as it came, beneath the `Resent-` block that says it was passed on, and when, and by whom
 //! (`mail_core::compose::redirect`). A typo is the field's own refusal and leaves the popover up;
 //! anything the core refuses (a body not here, an account that sends through Graph) is said as a
-//! toast, as every other outcome of a send is.
+//! toast, as every other outcome of a send is. A redirect that is queued waits out the same grace
+//! as a send, and its toast's Undo withdraws it.
 
 use super::super::menu::{MenuKey, anchor_for, menu_key};
-use super::super::motion::{Follow, tell};
+use super::super::motion::{Follow, Restore, tell};
 use super::super::ops::newest;
 use crate::ui::copy;
 use crate::ui::view::Shell;
@@ -34,14 +35,19 @@ pub(super) fn recipients(typed: &str) -> Result<Vec<Address>, String> {
     Ok(to)
 }
 
-/// Redirect `id`'s newest message to `to`, and say how it went.
-fn redirect(store: &SqliteStore, id: ThreadId, to: &[Address]) -> String {
+/// Redirect `id`'s newest message to `to`, and say how it went: with an Undo while it waits.
+fn redirect(store: &SqliteStore, id: ThreadId, to: &[Address]) -> (String, Follow) {
+    let grace = crate::ui::prefs::current().compose.undo_send.grace();
     let went = newest(store, id).and_then(|message| {
-        mail_core::compose::redirect(store, message, to, chrono::Utc::now()).map_err(String::from)
+        mail_core::compose::redirect(store, message, to, grace, chrono::Utc::now())
+            .map_err(String::from)
     });
     match went {
-        Ok(to) => copy::toasts::redirected(&to),
-        Err(why) => copy::toasts::not_redirected(&why),
+        Ok(redirected) => (
+            copy::toasts::redirected(&redirected.to),
+            Follow::Restore(Restore::Redirect(redirected)),
+        ),
+        Err(why) => (copy::toasts::not_redirected(&why), Follow::Nothing),
     }
 }
 
@@ -84,10 +90,10 @@ pub(in crate::ui) fn RedirectMenu(
                             match recipients(&typed()) {
                                 Ok(to) => {
                                     let store = consume_context::<Arc<SqliteStore>>();
-                                    let said = redirect(&store, id, &to);
+                                    let (said, follow) = redirect(&store, id, &to);
                                     done();
                                     revision += 1;
-                                    tell(said, Follow::Nothing);
+                                    tell(said, follow);
                                 }
                                 Err(why) => refused.set(Some(why)),
                             }

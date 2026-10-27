@@ -521,6 +521,7 @@ impl JmapEngine {
             Some(at) => mail_mime::restamp(&frozen, at),
             None => frozen,
         };
+        let resent = mail_mime::is_resent(&message);
         let blob = client.upload(message).await?;
         let filed = Filed {
             drafts: mailboxes.id_for_role(MailboxRole::Drafts).cloned(),
@@ -540,7 +541,8 @@ impl JmapEngine {
             },
         )?;
         let responses = client.call(&[CORE, MAIL, SUBMISSION], &calls).await?;
-        let sent = jmap::submitted(&responses)?;
+        let sent = jmap::submitted(&responses)
+            .map_err(|e| crate::sending::redirect_refused(e.into(), resent))?;
         Ok(ProtoOutcome::Submitted {
             remote: Some(RemoteRef::Jmap {
                 email_id: sent.email_id,

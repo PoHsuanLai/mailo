@@ -25,7 +25,10 @@ mod weight;
 pub use doc::{doc_from_text, doc_of};
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
 pub use format::{Written, written_as};
-pub use modes::{Answer, Quote, draft_again, draft_answer, draft_answer_in, list_post, redirect};
+pub use modes::{
+    Answer, Quote, Redirected, draft_again, draft_answer, draft_answer_in, list_post, redirect,
+    withdraw_redirect,
+};
 pub use pictures::{PictureSize, sized};
 pub use weight::{
     Fit, Measure, Picture, Said, SendLimit, USUAL_LIMIT, Weight, can_ask_delivery_report, fit,

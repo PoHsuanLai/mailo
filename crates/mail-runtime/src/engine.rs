@@ -875,6 +875,7 @@ impl<B: Backend> AccountEngine<B> {
             ));
         }
         let message = self.leaving_bytes(raw, leaving)?;
+        let resent = mail_mime::is_resent(&message);
         let Some((host, port, tls)) = self.outgoing() else {
             return self.submit_to_graph(&message, rcpt_to).await;
         };
@@ -890,7 +891,7 @@ impl<B: Backend> AccountEngine<B> {
         // a 421 that closes it. Every message before this one was accepted at its dot and is
         // settled, so only this one goes again, and it had not been.
         let again = kept.as_ref().map(|_| (posting.clone(), op.clone()));
-        match (
+        let sent = match (
             self.submit_on(&outgoing, posting, op, kept, cancel).await,
             again,
         ) {
@@ -898,7 +899,8 @@ impl<B: Backend> AccountEngine<B> {
                 self.submit_on(&outgoing, posting, op, None, cancel).await
             }
             (done, _) => done,
-        }
+        };
+        sent.map_err(|e| crate::sending::redirect_refused(e, resent))
     }
 
     /// Submit `posting` on `kept`, or on a new connection to `outgoing`, and keep the

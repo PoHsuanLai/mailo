@@ -277,6 +277,11 @@ fn list_post_names_where_a_message_to_the_list_goes() {
             "List-Post: <mailto:list@example.test?cc=stranger@example.test>\r\n",
             &["list@example.test"],
         ),
+        // The URIs are alternatives: the first that names an address is the one, not all of them.
+        (
+            "List-Post: <mailto:first@example.test>, <mailto:second@example.test>\r\n",
+            &["first@example.test"],
+        ),
         ("List-Post: NO (posting not allowed on this list)\r\n", &[]),
         ("List-Post: <https://forum.example.test/new>\r\n", &[]),
         ("", &[]),
