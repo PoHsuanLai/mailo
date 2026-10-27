@@ -27,7 +27,7 @@ pub(super) fn use_launcher_count(revision: Signal<u64>, shell: Signal<Shell>) {
             }
             tokio::task::spawn_blocking(move || {
                 let places = crate::settings::badge_places();
-                launcher::unread_in_places(&*store, &scope, chrono::Utc::now(), places).ok()
+                launcher::unread(&*store, &scope, chrono::Utc::now(), places).ok()
             })
             .await
             .ok()

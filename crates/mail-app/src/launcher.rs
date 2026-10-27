@@ -46,16 +46,11 @@ pub struct Unread(pub u64);
 /// The conversations the launcher counts, in the accounts of `scope`.
 ///
 /// The inbox's own badge filter (`place::unread_in` of the inbox place, which the sidebar's badge
-/// uses too), so the launcher and the
-/// sidebar's Inbox badge cannot disagree about what "unread in the inbox" means: snoozed
-/// conversations are away, and read ones are read.
-pub fn filter(scope: &Scope) -> Filter {
-    scope.over(unread_in(place_filter(MailboxRole::Inbox)))
-}
-
-/// As [`filter`], and for [`Places::Followed`] the unread conversations held in a mailbox the
-/// accounts' servers list as followed too.
-pub fn filter_in<S: Store + ?Sized>(
+/// uses too), so the launcher and the sidebar's Inbox badge cannot disagree about what "unread in
+/// the inbox" means: snoozed conversations are away, and read ones are read. For
+/// [`Places::Followed`] the unread conversations held in a mailbox the accounts' servers list as
+/// followed count too.
+pub fn filter<S: Store + ?Sized>(
     store: &S,
     scope: &Scope,
     places: Places,
@@ -79,25 +74,15 @@ pub fn filter_in<S: Store + ?Sized>(
     })
 }
 
-/// As [`unread`], counting what `places` says.
-pub fn unread_in_places<S: Store + ?Sized>(
+/// Count them, as `places` says. One indexed query (`Store::count`), made off the thread that
+/// draws.
+pub fn unread<S: Store + ?Sized>(
     store: &S,
     scope: &Scope,
     now: DateTime<Utc>,
     places: Places,
 ) -> Result<Unread, mail_core::StoreError> {
-    store
-        .count(&filter_in(store, scope, places)?, now)
-        .map(Unread)
-}
-
-/// Count them. One indexed query (`Store::count`), made off the thread that draws.
-pub fn unread<S: Store + ?Sized>(
-    store: &S,
-    scope: &Scope,
-    now: DateTime<Utc>,
-) -> Result<Unread, mail_core::StoreError> {
-    store.count(&filter(scope), now).map(Unread)
+    store.count(&filter(store, scope, places)?, now).map(Unread)
 }
 
 /// The text of a badge that draws its own label (the macOS Dock's): the number, or nothing for

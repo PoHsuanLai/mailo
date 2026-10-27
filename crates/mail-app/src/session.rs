@@ -1,11 +1,11 @@
 //! What `mailo watch` does as the session's member, beyond fetching: it keeps the unread count on
 //! the launcher, with the window open or closed.
 //!
-//! The count is every account's unread inbox conversations (`launcher::unread` over no
-//! scope), the same question the window asks for the Space it shows. The window, where there is
-//! a watch running, leaves the launcher to this thread (`ui::launch::native`), because a dock
-//! forgets a count when its sender leaves the bus: a window that closed would take the badge with
-//! it while the mail stayed unread.
+//! The count is every account's unread conversations (`launcher::unread` over no scope, in the
+//! places `notifications.badge` says), the same question the window asks for the Space it shows.
+//! The window, where there is a watch running, leaves the launcher to this thread
+//! (`ui::launch::native`), because a dock forgets a count when its sender leaves the bus: a
+//! window that closed would take the badge with it while the mail stayed unread.
 //!
 //! Read when the store is written to. The store is shared by the watch, the window and the command
 //! line, and what changes the count is any of them reading or archiving a message, each of which
@@ -88,7 +88,7 @@ where
             });
             let mut beat = Beat::default();
             loop {
-                if let Ok(count) = crate::launcher::unread_in_places(
+                if let Ok(count) = crate::launcher::unread(
                     store.as_ref(),
                     &mail_core::scope::Scope::All,
                     chrono::Utc::now(),

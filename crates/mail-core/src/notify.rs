@@ -23,6 +23,7 @@ use mail_domain::ThreadId;
 use mail_domain::{MailboxRole, Message, MessageId, ReadState, Snooze};
 use mail_store::{SqliteStore, Store as _};
 use porter_core::AccountId;
+use std::collections::HashSet;
 use std::path::Path;
 
 /// Whether `mailo watch` raises notifications. On unless someone turned it off.
@@ -368,7 +369,7 @@ pub fn announce(
     }
     let own = own_addresses(store)?;
     let followed = match interest.places {
-        Places::Inbox => Vec::new(),
+        Places::Inbox => HashSet::new(),
         Places::Followed => followed_messages(store, &account)?,
     };
     let mut held = Vec::with_capacity(arrived.len());
@@ -420,8 +421,8 @@ fn account_heard(
 fn followed_messages(
     store: &SqliteStore,
     account: &AccountId,
-) -> Result<Vec<MessageId>, CoreError> {
-    let mut held = Vec::new();
+) -> Result<HashSet<MessageId>, CoreError> {
+    let mut held = HashSet::new();
     for mailbox in store.followed_folders()? {
         if mailbox.account == *account {
             held.extend(store.folder_contents(&mailbox)?.mapped);
