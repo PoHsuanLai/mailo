@@ -55,19 +55,19 @@ pub struct WindowSettings {
     #[settings(
         label = "Message preview",
         help = "Show a line of each conversation's latest message in the list.",
-        section = "Mail"
+        section = "Message list"
     )]
     pub snippets: Snippets,
     #[settings(
         label = "Labels in the list",
         help = "Show each conversation's labels on its row.",
-        section = "Mail"
+        section = "Message list"
     )]
     pub label_chips: LabelChips,
     #[settings(
         label = "Group by date",
         help = "Group the list under Today, Yesterday, This week and Older.",
-        section = "Mail"
+        section = "Message list"
     )]
     pub group_by_date: GroupByDate,
     /// The places listed a message to a row, each by its `mail_core::view::place_key`:

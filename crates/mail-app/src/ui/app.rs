@@ -321,10 +321,16 @@ pub(super) fn App() -> Element {
 
     // How the list is drawn is kept (`window.snippets`, `window.label_chips`,
     // `window.group_by_date`): the list's ⋯ menu writes it, and detent or another window may.
-    use_effect(move || {
+    // Memoised, so a change to any other setting does not run the effect.
+    let drawn = use_memo(move || {
         let window = prefs.read().window.clone();
-        let parts = super::view::PageParts::of(&window);
-        let group = super::view::PageGroup::from(window.group_by_date);
+        (
+            super::view::PageParts::of(&window),
+            super::view::PageGroup::from(window.group_by_date),
+        )
+    });
+    use_effect(move || {
+        let (parts, group) = drawn();
         if shell.peek().parts != parts || shell.peek().group != group {
             let mut write = shell.write();
             write.parts = parts;
