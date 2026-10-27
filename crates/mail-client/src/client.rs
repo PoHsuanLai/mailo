@@ -111,6 +111,9 @@ pub(crate) struct Shared {
     committed: Arc<tokio::sync::watch::Sender<u64>>,
     /// One more each time values were marked stale, by a commit here or another process's.
     moved: tokio::sync::watch::Sender<u64>,
+    /// The same, for each set of topics a caller asked to hear alone: one more only when what was
+    /// marked stale touches them ([`Client::moved_for`]).
+    moved_for: Mutex<Vec<(Topics, tokio::sync::watch::Sender<u64>)>>,
     /// How the external watch is woken: by a write to the store's file, or to stop.
     pub(crate) external: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     /// Where commands go to be applied; `None` for an inline client, and once stopping.
@@ -275,6 +278,20 @@ impl Client {
     /// are told once.
     pub fn moved(&self) -> tokio::sync::watch::Receiver<u64> {
         self.0.shared.moved.subscribe()
+    }
+
+    /// [`Client::moved`], told only when the store moved in something that touches `topics`: for
+    /// what reads the store itself and reads only that, so a burst of arriving mail does not read
+    /// again what is about accounts, or keys, or rules.
+    pub fn moved_for(&self, topics: Topics) -> tokio::sync::watch::Receiver<u64> {
+        let mut held = self.0.shared.moved_for.lock();
+        if let Some((_, told)) = held.iter().find(|(wanted, _)| *wanted == topics) {
+            return told.subscribe();
+        }
+        let told = tokio::sync::watch::Sender::new(0);
+        let heard = told.subscribe();
+        held.push((topics, told));
+        heard
     }
 
     /// Read by `clock` from now on, and read again what reads the clock: for a caller whose
@@ -473,6 +490,7 @@ impl Shared {
             heard: Mutex::new(None),
             committed: Arc::new(tokio::sync::watch::Sender::new(0)),
             moved: tokio::sync::watch::Sender::new(0),
+            moved_for: Mutex::new(Vec::new()),
             external: Mutex::new(None),
             acts: Mutex::new(None),
             fetcher: OnceLock::new(),
@@ -568,6 +586,11 @@ impl Shared {
             self.poke_clock();
         }
         self.moved.send_modify(|moved| *moved += 1);
+        for (wanted, told) in self.moved_for.lock().iter() {
+            if wanted.intersects(topics) {
+                told.send_modify(|moved| *moved += 1);
+            }
+        }
         let stale: Vec<Arc<dyn Job>> = {
             let mut registry = self.registry.lock();
             registry.every.retain(|job| job.strong_count() > 0);

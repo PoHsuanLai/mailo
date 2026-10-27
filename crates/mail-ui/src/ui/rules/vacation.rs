@@ -103,7 +103,7 @@ pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
 #[component]
 fn VacationList(shell: Signal<Shell>, rows: Vec<AccountRow>) -> Element {
     // A reply kept, here or anywhere, moves the store.
-    let _ = crate::ui::live::moved();
+    let _ = crate::ui::live::moved_for(mail_client::Topics::RULES | mail_client::Topics::ACCOUNTS);
     let client = crate::ui::live::client();
     let now = Utc::now();
     let clock = crate::ui::clock::hours();

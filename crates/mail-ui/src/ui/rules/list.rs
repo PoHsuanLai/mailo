@@ -48,7 +48,7 @@ pub(super) fn RulesList(
     running: Signal<String>,
 ) -> Element {
     // A write of ours, or the toast's Undo putting a deleted rule back, moves the store.
-    let _ = crate::ui::live::moved();
+    let _ = crate::ui::live::moved_for(mail_client::Topics::RULES | mail_client::Topics::ACCOUNTS);
     // The rule whose menu is open, and where the right click was.
     let menu = use_signal(|| None::<(Listed, Rect)>);
     // What a rule's menu asks, done here, as the menu closes on the pick.

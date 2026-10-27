@@ -86,6 +86,42 @@ fn moved_signal() -> Signal<u64> {
     moved
 }
 
+/// [`moved`], for what reads only `topics`: it runs again when the store moves in one of them,
+/// not on every commit. Each set of topics is one signal for the window, followed from one task.
+pub(in crate::ui) fn moved_for(topics: mail_client::Topics) -> u64 {
+    moved_for_signal(topics)()
+}
+
+/// The signals [`moved_for`] has made, one per set of topics, held at the root.
+#[derive(Clone)]
+struct MovedFor(std::rc::Rc<std::cell::RefCell<Heard>>);
+
+/// The topics asked for, and the signal that follows each.
+type Heard = Vec<(mail_client::Topics, Signal<u64>)>;
+
+fn moved_for_signal(topics: mail_client::Topics) -> Signal<u64> {
+    let held = try_consume_context::<MovedFor>().unwrap_or_else(|| {
+        let held = MovedFor(Default::default());
+        provide_root_context(held.clone());
+        held
+    });
+    if let Some((_, signal)) = held.0.borrow().iter().find(|(wanted, _)| *wanted == topics) {
+        return *signal;
+    }
+    // Made and its counter followed before any of it is read, so a commit between is not missed.
+    let _ = moved_signal();
+    let mut heard = client().moved_for(topics);
+    let mut signal = Signal::new_in_scope(*heard.borrow_and_update(), ScopeId::ROOT);
+    held.0.borrow_mut().push((topics, signal));
+    dioxus::dioxus_core::spawn_forever(async move {
+        while heard.changed().await.is_ok() {
+            let now = *heard.borrow_and_update();
+            signal.set(now);
+        }
+    });
+    signal
+}
+
 /// [`client`], for a window that may have been handed no client: `None` there.
 pub(in crate::ui) fn try_client() -> Option<Client> {
     try_consume_context::<Client>().is_some().then(client)

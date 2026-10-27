@@ -57,7 +57,8 @@ fn set(address: &str, name: Option<&str>, mark: Mark, mut failed: Signal<Option<
 #[component]
 pub(super) fn VipsPage() -> Element {
     // Read again whenever a VIP is marked or unmarked, here or in another window.
-    let _ = crate::ui::live::moved();
+    let _ =
+        crate::ui::live::moved_for(mail_client::Topics::CONTACTS | mail_client::Topics::SUMMARIES);
     let client = crate::ui::live::client();
     let listed: Vec<Vip> = match client.query().listed_vips() {
         Ok(listed) => listed,

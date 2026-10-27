@@ -27,7 +27,7 @@ pub(super) fn use_eraser(shell: Signal<Shell>) {
         }
     });
     let _sweep = use_resource(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
         let _ = tick();
         let policy = settings
             .map(|settings| settings.read().mailboxes.erasing())

@@ -158,7 +158,8 @@ fn defaults_of(signature: &Signature) -> String {
 #[component]
 fn SignatureList(path: Signal<PanePath<SignaturesAt>>) -> Element {
     // Read again with each change: a signature made, renamed, made a default or deleted.
-    let _ = crate::ui::live::moved();
+    let _ =
+        crate::ui::live::moved_for(mail_client::Topics::IDENTITIES | mail_client::Topics::ACCOUNTS);
     let client = crate::ui::live::client();
     // Unreadable is nothing to list; the next change read again.
     let every = client.signing().every().unwrap_or_default();
@@ -259,7 +260,8 @@ fn SignaturePage(
     id: SignatureId,
 ) -> Element {
     // Read again with each change, so the switches say what was kept.
-    let _ = crate::ui::live::moved();
+    let _ =
+        crate::ui::live::moved_for(mail_client::Topics::IDENTITIES | mail_client::Topics::ACCOUNTS);
     let client = crate::ui::live::client();
     let found = client.stored().signature(id).ok().and_then(|kept| {
         let identity = client.stored().identity(kept.identity).ok().flatten()?;

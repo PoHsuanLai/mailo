@@ -79,6 +79,27 @@ pub(super) fn account_rows(client: &Client) -> Vec<AccountRow> {
         .collect()
 }
 
+/// [`account_rows`], from the accounts the client keeps read: no store is asked.
+pub(super) fn rows_of(accounts: &[mail_client::query::Account]) -> Vec<AccountRow> {
+    accounts
+        .iter()
+        .map(|account| AccountRow {
+            id: account.id.clone(),
+            address: account.address.clone(),
+            plan: account
+                .plan
+                .clone()
+                .unwrap_or_else(|| fallback_plan(&account.address)),
+            description: account.description.clone(),
+            syncing: if account.paused {
+                Syncing::Paused
+            } else {
+                Syncing::default()
+            },
+        })
+        .collect()
+}
+
 impl AccountRow {
     /// Whether this is local folders: mail kept on this computer, never synced, never sent from.
     /// The same test as [`mail_client::sync::local_accounts`].

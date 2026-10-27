@@ -16,7 +16,9 @@ pub(super) fn use_launcher_count(shell: Signal<Shell>) {
     // A memo, so a keystroke (a shell change) does not recount; only a new scope does.
     let scope = use_memo(move || shell.read().scope.clone());
     let counted: Resource<Option<Unread>> = use_resource(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(
+            mail_client::Topics::SUMMARIES | mail_client::Topics::FOLDERS,
+        );
         let scope = scope();
         let client = crate::ui::live::client();
         async move {

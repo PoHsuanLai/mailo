@@ -51,7 +51,7 @@ impl Whose {
 #[component]
 pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
     // Every change, and a toast's Undo that puts a deleted key back, moves the store.
-    let _ = crate::ui::live::moved();
+    let _ = crate::ui::live::moved_for(mail_client::Topics::KEYS | mail_client::Topics::ACCOUNTS);
     let mut said = use_signal(|| None::<Result<String, String>>);
     let mut busy = use_signal(|| Busy::Idle);
     let mut confirm = use_signal(|| Confirm::Nothing);

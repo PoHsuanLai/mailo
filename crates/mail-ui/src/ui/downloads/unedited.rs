@@ -197,7 +197,7 @@ pub(in crate::ui) fn use_remove_unedited() {
     let settings = crate::ui::prefs::use_settings();
     let _removing = use_resource(move || {
         // Read only to run again on the next revision.
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
         let due =
             settings.read().attachments.remove_unedited == RemoveUnedited::AfterMessageIsDeleted;
         async move {

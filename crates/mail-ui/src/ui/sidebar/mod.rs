@@ -17,7 +17,7 @@ mod tiles;
 pub(super) use self::folder_act::{folder_places, known_labels};
 use self::folder_tree::{Show, arrange, scope};
 use self::folders::FolderList;
-use self::panes::{Favourites, PlaceList, counts};
+use self::panes::{Favourites, PlaceList, counted_of, pins_of};
 pub(in crate::ui) use self::panes::{hex_colour, place_icon};
 use self::tiles::{AccountTiles, tile_filter, tile_rows};
 use crate::ui::copy;
@@ -70,13 +70,36 @@ pub(super) fn Places(
 ) -> Element {
     let spaces = handle.spaces();
     let space = spaces.read().current().clone();
-    let counted = use_memo(move || {
-        let _ = crate::ui::live::moved();
-        let client = crate::ui::live::client();
-        counts(&client, spaces.read().current())
-    });
     // Every account with its folders and labels, kept read by the client.
     let accounts = use_live(|| mail_client::query::Accounts);
+    // And the VIPs, which a pin of a search may name.
+    let vips = use_live(|| mail_client::query::VipList);
+    // The Space's pins counted and its pinned conversations, kept read: nothing here reads the
+    // store while a frame is drawn.
+    let pinned = use_live(move || {
+        let accounts = accounts.read();
+        let accounts = accounts
+            .value()
+            .map_or(&[][..], |accounts| accounts.as_slice());
+        let labels = folder_act::known_labels(accounts);
+        let named: Vec<(String, porter_core::AccountId)> = accounts
+            .iter()
+            .map(|account| (account.address.clone(), account.id.clone()))
+            .collect();
+        let vips = vips
+            .read()
+            .value()
+            .map(|vips| (**vips).clone())
+            .unwrap_or_default();
+        pins_of(spaces.read().current(), &labels, &named, &vips)
+    });
+    let counted = use_memo(move || {
+        pinned
+            .read()
+            .value()
+            .map(|found| counted_of(found))
+            .unwrap_or_default()
+    });
     // Each tile's unread, counted as the client counts anything: read again as mail arrives.
     let tile_counts = use_live(move || {
         mail_client::query::Counts(
@@ -118,7 +141,12 @@ pub(super) fn Places(
     // drawn only then. Read again as a send is scheduled or taken back.
     let desk = try_use_context::<crate::ui::compose::Desk>();
     let scheduled = use_memo(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(
+            mail_client::Topics::DRAFTS
+                | mail_client::Topics::OUTBOX
+                | mail_client::Topics::CLOCK
+                | mail_client::Topics::ACCOUNTS,
+        );
         if let Some(desk) = desk {
             let _ = desk.outbox.read();
         }

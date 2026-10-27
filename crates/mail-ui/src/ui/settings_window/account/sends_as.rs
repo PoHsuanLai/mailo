@@ -167,7 +167,8 @@ fn field(
 #[component]
 pub(super) fn SendsAs(account: AccountId) -> Element {
     // Read again when an identity is added, changed or removed.
-    let _ = crate::ui::live::moved();
+    let _ =
+        crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS | mail_client::Topics::IDENTITIES);
     let mut editing = use_signal(|| None::<Editing>);
     let mut failed = use_signal(|| None::<(&'static str, String)>);
     // An unreadable list is said, once, and drawn as an account with no name and no aliases; the

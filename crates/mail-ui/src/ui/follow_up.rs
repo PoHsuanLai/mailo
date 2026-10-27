@@ -61,7 +61,11 @@ pub(in crate::ui) fn wait(next: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Du
 /// test).
 pub(in crate::ui) fn use_reminders() {
     let _sweeping = use_resource(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(
+            mail_client::Topics::SUMMARIES
+                | mail_client::Topics::FOLLOW_UPS
+                | mail_client::Topics::CLOCK,
+        );
         async move {
             loop {
                 let now = super::clock::now();
@@ -97,7 +101,8 @@ pub(in crate::ui) fn use_snooze_wake() {
         !client.keeps_time() || try_consume_context::<super::clock::WallClock>().is_some();
     let _waking = use_resource(move || {
         let client = client.clone();
-        let _ = crate::ui::live::moved();
+        let _ =
+            crate::ui::live::moved_for(mail_client::Topics::SUMMARIES | mail_client::Topics::CLOCK);
         async move {
             if !bridging {
                 return;

@@ -180,7 +180,14 @@ pub(super) fn Reader(
     // ⌘F's frames, which every message's frame below joins (`find`).
     let found = find::use_find(shell);
     // The client may have moved under this conversation, here or in another window.
-    let _ = crate::ui::live::moved();
+    let _ = crate::ui::live::moved_for(
+        mail_client::Topics::SUMMARIES
+            | mail_client::Topics::LABELS
+            | mail_client::Topics::ACCOUNTS
+            | mail_client::Topics::IDENTITIES
+            | mail_client::Topics::CONTACTS
+            | mail_client::Topics::KEYS,
+    );
     // Moved when an OpenPGP or S/MIME message has been opened and has a body of its own to show,
     // so the messages are drawn again with it. The opening itself happens in `pgp::Seal`, off
     // this thread; here it is only looked up.

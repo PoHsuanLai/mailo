@@ -769,3 +769,49 @@ fn a_reading_that_panics_is_a_failed_reading_and_the_client_goes_on() {
     }
     assert!(value(&counted).is_some(), "the reader threads are gone");
 }
+
+/// Hearing only some topics: what moves others is not heard.
+#[test]
+fn a_caller_hears_only_the_topics_it_asked_for() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+    let mut drafts = client.moved_for(Topics::DRAFTS);
+    let all = client.moved();
+    client.invalidate(Topics::VIEWS);
+    assert!(
+        all.has_changed().unwrap(),
+        "the whole counter moves for anything"
+    );
+    assert!(!drafts.has_changed().unwrap(), "drafts did not move");
+    client.invalidate(Topics::DRAFTS | Topics::VIEWS);
+    assert!(drafts.has_changed().unwrap());
+    assert_eq!(*drafts.borrow_and_update(), 1);
+    // The same topics share one counter.
+    assert_eq!(*client.moved_for(Topics::DRAFTS).borrow(), 1);
+}
+
+/// A label of mail kept here, or of a POP3 account, is the organisation that account has: it is
+/// read with the account, like an IMAP account's.
+#[test]
+fn a_local_accounts_labels_are_read_with_it() {
+    let store = Arc::new(in_memory());
+    let preset = mail_domain::presets::local_folders(Utc::now());
+    mail_store::testing::seed_account_plan(
+        &store,
+        account(3),
+        &preset.plan.address,
+        &preset.plan,
+        Some(Utc::now()),
+    );
+    seed_label(
+        &store,
+        LabelId::from_uuid(uuid::Uuid::from_u128(33)),
+        account(3),
+        "Kept",
+        mail_domain::LabelOrigin::User,
+    );
+    let client = Client::inline(store, Arc::new(mail_core::mail::SystemClock));
+    let read = client.read(mail_client::query::Accounts).unwrap();
+    let names: Vec<&str> = read[0].labels().iter().map(|l| l.name.as_str()).collect();
+    assert_eq!(names, ["Kept"]);
+}

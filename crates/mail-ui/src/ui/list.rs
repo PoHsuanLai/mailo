@@ -5,7 +5,7 @@
 //! `App`; this reads the memos it is handed rather than cloning their answers in the parent.
 
 use super::common::classed;
-use super::data::{AccountRow, account_rows, syncs_nothing};
+use super::data::{AccountRow, syncs_nothing};
 use super::list_search::{Marking, RowHit, Scope, row_hit};
 use super::motion::{Ghost, Toast};
 use super::ops::{Writes, open_composer};
@@ -138,17 +138,20 @@ pub(super) fn ThreadList(
     /// Which question the rows answer (`list_query::ListView::asked`).
     question: ReadSignal<u64>,
 ) -> Element {
+    let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
     let rows = use_memo(move || {
-        let _ = crate::ui::live::moved();
-        let client = crate::ui::live::client();
-        account_rows(&client)
+        every
+            .read()
+            .value()
+            .map(|accounts| crate::ui::data::rows_of(accounts))
+            .unwrap_or_default()
     });
     // Each account's server asked for a searched line, and what it answered.
     let asked = use_signal(Vec::<Asked>::new);
     // What the servers found for the line shown that the list does not already hold, newest
     // first, as the client has each conversation now.
     let found = use_memo(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
         let line = marking.read().line.clone();
         if line.is_empty() {
             return Vec::new();

@@ -176,7 +176,7 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>) -> Element {
         return rsx! {};
     };
     // Read so an archive or a sync elsewhere redraws the count.
-    let _ = crate::ui::live::moved();
+    let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
     let client = crate::ui::live::client();
     let now = crate::ui::clock::now();
     let clock = crate::ui::clock::hours();

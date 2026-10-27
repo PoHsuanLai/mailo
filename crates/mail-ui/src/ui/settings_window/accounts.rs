@@ -86,7 +86,7 @@ pub(super) fn Accounts(shell: Signal<Shell>) -> Element {
 #[component]
 fn AccountList(shell: Signal<Shell>) -> Element {
     // Read again when an account comes or goes.
-    let _ = crate::ui::live::moved();
+    let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
     // The add menu while it is open (the providers that sign in straight in the browser), hung
     // from the Add Account… row.
     let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);

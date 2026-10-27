@@ -302,7 +302,9 @@ pub(super) fn App() -> Element {
     // The accounts the From row can send from: an account added in a terminal reaches the open
     // window without a restart.
     use_effect(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(
+            mail_client::Topics::ACCOUNTS | mail_client::Topics::IDENTITIES,
+        );
         let client = crate::ui::live::client();
         let sending = client.compose().sending_accounts();
         if shell.peek().accounts != sending {
@@ -373,7 +375,7 @@ pub(super) fn App() -> Element {
     // writes the Spaces. Run again when the part closes, which also takes the account out of the
     // Space it kept.
     use_effect(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
         if handle.editing().is_some() {
             return;
         }
@@ -433,7 +435,9 @@ pub(super) fn App() -> Element {
     super::reading::use_warming(shell, threads);
 
     let drafts = use_memo(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(
+            mail_client::Topics::DRAFTS | mail_client::Topics::OUTBOX | mail_client::Topics::CLOCK,
+        );
         let client = crate::ui::live::client();
         match shell.read().listing(PAGE) {
             Listing::Drafts => accounts(&client)
@@ -461,7 +465,7 @@ pub(super) fn App() -> Element {
     // Why the pane is empty, when it is. Counted rather than assumed: the shell cannot add an
     // account, so the first run needs to name the command that can.
     let nothing = use_memo(move || {
-        let _ = crate::ui::live::moved();
+        let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
         let client = crate::ui::live::client();
         let shell = shell.read();
         nothing_to_show(accounts(&client).len(), &shell.search, &shell.quick)

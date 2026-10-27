@@ -226,7 +226,7 @@ fn use_storage(account: AccountId, waiting: Signal<Vec<(AccountId, Need)>>) -> O
 #[component]
 pub(super) fn AccountPage(shell: Signal<Shell>, account: AccountId) -> Element {
     // Read again when an account comes or goes.
-    let _ = crate::ui::live::moved();
+    let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
     // Whether the account waits for the person: the first window knows, and says so to this one.
     let waiting = use_needs();
     let storage = use_storage(account.clone(), waiting);

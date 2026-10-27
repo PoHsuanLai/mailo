@@ -101,7 +101,8 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             .unwrap_or(MailboxSet::empty())
     });
     // Drawn again whenever either window moves the client.
-    let _ = crate::ui::live::moved();
+    let _ =
+        crate::ui::live::moved_for(mail_client::Topics::SUMMARIES | mail_client::Topics::LABELS);
     let client = crate::ui::live::client();
     let summary = client
         .stored()

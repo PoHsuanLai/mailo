@@ -13,7 +13,7 @@
 //! sign-in prompt instead of syncing.
 
 use crate::ui::copy;
-use crate::ui::data::{account_rows, syncs_nothing};
+use crate::ui::data::syncs_nothing;
 use crate::ui::fetching::{Fetching, StatusLine, Tone, sync_availability, use_status};
 use crate::ui::press::on_primary;
 use crate::ui::reauth::Reauth;
@@ -55,10 +55,12 @@ pub(super) fn dot(line: &StatusLine) -> Option<&'static str> {
 /// The foot's sync mark, for the accounts `shell` shows.
 #[component]
 pub(super) fn SyncMark(shell: Signal<Shell>) -> Element {
+    let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
     let rows = use_memo(move || {
-        let _ = crate::ui::live::moved();
-        crate::ui::live::try_client()
-            .map(|client| account_rows(&client))
+        every
+            .read()
+            .value()
+            .map(|accounts| crate::ui::data::rows_of(accounts))
             .unwrap_or_default()
     });
     let line = use_status(shell);

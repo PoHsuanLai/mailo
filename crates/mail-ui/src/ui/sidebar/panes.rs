@@ -22,7 +22,6 @@ use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
-use mail_client::Client;
 use mail_client::mailbox_filter::{for_role, pending_snooze};
 use mail_client::query::{self};
 use mail_domain::*;
@@ -40,7 +39,7 @@ pub(super) struct Favourite {
     pub unread: bool,
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Default)]
 pub(super) struct Counts {
     /// The Space's pinned people and searches: each one's unread count.
     pub pins: Vec<u64>,
@@ -48,57 +47,46 @@ pub(super) struct Counts {
     pub pinned: Vec<Favourite>,
 }
 
-pub(super) fn counts(client: &Client, space: &Space) -> Counts {
-    let labels = client.query().known_labels();
-    let accounts = client.query().known_accounts();
-    let vips = client.query().vips();
+/// What Favourites needs read for `space`: its pins as filters, as the labels, accounts and VIPs
+/// it is told of resolve them, in the Space's scope.
+pub(super) fn pins_of(
+    space: &Space,
+    labels: &[(String, LabelId)],
+    accounts: &[(String, porter_core::AccountId)],
+    vips: &mail_client::vip::Vips,
+) -> query::Pins {
     let known = query::Known {
-        labels: &labels,
-        accounts: &accounts,
-        vips: Some(&vips),
+        labels,
+        accounts,
+        vips: Some(vips),
     };
-    let scope = space.payload.scope().filter();
-    let now = chrono::Utc::now();
-    let unread = |extra: Filter| {
-        let mut parts = vec![Filter::Read(ReadState::Unread), extra];
-        if let Some(scope) = scope.clone() {
-            parts.push(scope);
-        }
-        client.stored().count(&Filter::And(parts), now).unwrap_or(0)
-    };
-    let pins = space
-        .payload
-        .pins
-        .iter()
-        .map(|pin| unread(pin_filter(pin, &known)))
-        .collect();
-    let pinned = client
-        .stored()
-        .threads(
-            &Query {
-                filter: mail_client::conversation::scoped(scope.clone(), Filter::Pinned),
-                sort: Sort {
-                    property: Property::Pin,
-                    dir: SortDir::Desc,
-                },
-                page: PageReq {
-                    after: None,
-                    limit: FAVOURITES_SHOWN,
-                },
-            },
-            now,
-        )
-        .map(|page| page.items)
-        .unwrap_or_default()
-        .into_iter()
-        .map(|summary| Favourite {
-            thread: summary.id,
-            title: titled(&summary.subject),
-            initial: initial(&sender(&summary)),
-            unread: summary.read == ReadState::Unread,
-        })
-        .collect();
-    Counts { pins, pinned }
+    query::Pins {
+        scope: space.payload.scope().filter(),
+        pins: space
+            .payload
+            .pins
+            .iter()
+            .map(|pin| pin_filter(pin, &known))
+            .collect(),
+        shown: FAVOURITES_SHOWN,
+    }
+}
+
+/// [`Counts`] as Favourites draws what [`pins_of`] read.
+pub(super) fn counted_of(found: &query::Pinned) -> Counts {
+    Counts {
+        pins: found.unread.clone(),
+        pinned: found
+            .threads
+            .iter()
+            .map(|summary| Favourite {
+                thread: summary.id,
+                title: titled(&summary.subject),
+                initial: initial(&sender(summary)),
+                unread: summary.read == ReadState::Unread,
+            })
+            .collect(),
+    }
 }
 
 /// A conversation's subject as a sidebar row says it.
