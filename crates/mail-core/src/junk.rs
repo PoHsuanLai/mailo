@@ -161,32 +161,19 @@ fn chi_squared_survival(x: f64, freedom: usize) -> f64 {
     sum.min(1.0)
 }
 
-/// Why a message is not judged: whom it is from or to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Spared {
-    InContacts,
-    WrittenTo,
-    FullName,
-}
-
-/// Whether `message` is spared judging, and why: `names` are the user's full names, from their
-/// identities.
-pub fn spared(
-    store: &SqliteStore,
-    message: &Message,
-    policy: &Policy,
-    names: &[String],
-) -> Option<Spared> {
+/// Whether `message` is spared judging, by whom it is from or to: `names` are the user's full
+/// names, from their identities.
+pub fn spared(store: &SqliteStore, message: &Message, policy: &Policy, names: &[String]) -> bool {
     let contact = store
         .contact(&message.from.email)
         .or_log("a sender could not be looked up")
         .flatten();
     if let Some(contact) = &contact {
         if policy.contacts == Heed::Yes && contact.origin != mail_store::Origin::History {
-            return Some(Spared::InContacts);
+            return true;
         }
         if policy.written_to == Heed::Yes && contact.written.count > 0 {
-            return Some(Spared::WrittenTo);
+            return true;
         }
     }
     if policy.full_name == Heed::Yes
@@ -198,9 +185,9 @@ pub fn spared(
             })
         })
     {
-        return Some(Spared::FullName);
+        return true;
     }
-    None
+    false
 }
 
 /// Whether the server that delivered `raw` said it is spam.
@@ -240,8 +227,6 @@ pub fn learn(
 pub struct Sifted {
     /// Judged junk and moved or marked.
     pub junk: Vec<MessageId>,
-    /// Filed in the server's Junk on arrival, and learned from.
-    pub learned: usize,
 }
 
 /// Judge what a pass stored for the first time on `account`, as `policy` says.
@@ -276,13 +261,12 @@ pub fn sift(
         match message.mailbox {
             MailboxRole::Spam => {
                 learn(store, std::slice::from_ref(&message), Judged::Spam)?;
-                sifted.learned += 1;
                 continue;
             }
             MailboxRole::Inbox => {}
             _ => continue,
         }
-        if spared(store, &message, policy, &names).is_some() {
+        if spared(store, &message, policy, &names) {
             continue;
         }
         let server = policy.server_says == Heed::Yes
