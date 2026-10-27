@@ -13,6 +13,22 @@ pub fn delete_space(name: &str) -> String {
 /// What deleting a Space leaves: the mail, which is the accounts'.
 pub const DELETE_SPACE_KEEPS: &str = "Your mail won’t be deleted. This can’t be undone.";
 
+/// Asked on a POP3 account's page before Remove from Server is set to anything but Never.
+pub const REMOVE_FROM_SERVER: &str = "Remove Mail From the Server?";
+
+/// What choosing Remove from Server after `days` days does: a day count, never zero.
+pub fn remove_from_server_after(days: u16) -> String {
+    let days = days.max(1);
+    format!(
+        "Once a message is {days} {} old and kept on this computer, the next check removes the server’s copy. {CANT_BE_UNDONE}",
+        if days == 1 { "day" } else { "days" }
+    )
+}
+
+/// What choosing Remove from Server when deleted here does.
+pub const REMOVE_FROM_SERVER_WHEN_DELETED: &str =
+    "A message you delete here is removed from the server at the next check. This can’t be undone.";
+
 /// The last line of an alert before something that has no way back.
 pub const CANT_BE_UNDONE: &str = "This can’t be undone.";
 

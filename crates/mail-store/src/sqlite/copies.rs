@@ -17,8 +17,9 @@ use porter_core::AccountId;
 use rusqlite::params;
 
 impl SqliteStore {
-    /// The addresses in `mailbox` of messages held here in full and dated before `before`,
-    /// oldest first, at most `limit`.
+    /// The addresses in `mailbox` of messages held here in full and both dated and stored before
+    /// `before`, oldest first, at most `limit`. A message's age is the later of the date it
+    /// carries and the time it was stored, so a late or forged Date does not make it old.
     pub fn copies_held_before(
         &self,
         mailbox: &MailboxRef,
@@ -31,6 +32,7 @@ impl SqliteStore {
              FROM remote_map r
              JOIN messages m ON m.id = r.message
              WHERE r.account = ?1 AND r.mailbox = ?2 AND m.body_raw IS NOT NULL AND m.date < ?3
+               AND coalesce(m.stored_at, m.date) < ?3
              ORDER BY m.date, m.id
              LIMIT ?4",
         )?;
@@ -47,7 +49,8 @@ impl SqliteStore {
     }
 
     /// The addresses in `mailbox` of messages deleted here: in the Trash, or deleted forever
-    /// while the server still lists them (migration 0025). At most `limit`.
+    /// while the server still lists them (migration 0025). At most `limit`. A message in the
+    /// Trash that was never downloaded is not among them: the server's copy is the only one.
     pub fn copies_deleted_here(
         &self,
         mailbox: &MailboxRef,
@@ -59,6 +62,7 @@ impl SqliteStore {
              FROM remote_map r
              JOIN messages m ON m.id = r.message
              WHERE r.account = ?1 AND r.mailbox = ?2 AND m.mailbox = ?3
+               AND m.body_raw IS NOT NULL
              UNION
              SELECT mailbox, uidvalidity, uid, uidl FROM destroyed
              WHERE account = ?1 AND mailbox = ?2

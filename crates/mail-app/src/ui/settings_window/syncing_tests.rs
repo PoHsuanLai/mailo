@@ -1,7 +1,7 @@
 //! How an account is synced, on its page in Settings: each menu opens on what is kept, against a
 //! temporary config directory only, and Remove from Server is a POP3 account's alone.
 
-use super::{every_label, remove_label, window_label};
+use super::{asked, asks_first, every_label, remove_label, window_label};
 use crate::ui::copy;
 use crate::ui::data::account_rows;
 use crate::ui::fixtures::{Work, work};
@@ -104,4 +104,24 @@ async fn the_menus_open_on_what_was_kept_and_only_pop3_removes_from_the_server()
     for kept in ["Every 15 minutes", "The last 90 days", "After one week"] {
         assert!(shown.contains(kept), "{kept} is not shown:\n{shown}");
     }
+}
+
+#[test]
+fn any_removal_from_the_server_but_never_is_confirmed_first() {
+    for chosen in [
+        Remove::AfterDays(1),
+        Remove::AfterDays(30),
+        Remove::WhenDeleted,
+    ] {
+        assert!(asks_first(Remove::Never, chosen), "{chosen:?}");
+        assert!(!asks_first(chosen, chosen), "{chosen:?} is already kept");
+        assert!(!asked(chosen).is_empty());
+    }
+    assert!(
+        !asks_first(Remove::WhenDeleted, Remove::Never),
+        "Never deletes nothing"
+    );
+    assert!(asks_first(Remove::AfterDays(7), Remove::WhenDeleted));
+    assert!(asked(Remove::AfterDays(1)).contains("1 day old"));
+    assert!(asked(Remove::AfterDays(7)).contains("7 days old"));
 }

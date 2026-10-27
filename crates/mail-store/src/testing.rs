@@ -210,6 +210,19 @@ pub fn count(store: &SqliteStore, table: &str) -> i64 {
         .unwrap_or_else(|why| panic!("count the rows of {table}: {why}"))
 }
 
+/// Say every stored message was stored when it is dated, or, with `Some(at)`, at `at`: a test's
+/// messages are all stored now, and it asks about ages in the past.
+pub fn set_stored_at(store: &SqliteStore, at: Option<chrono::DateTime<chrono::Utc>>) {
+    let at = at.map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true));
+    store
+        .connection()
+        .execute(
+            "UPDATE messages SET stored_at = coalesce(?1, date)",
+            rusqlite::params![at],
+        )
+        .unwrap_or_else(|why| panic!("set when messages were stored: {why}"));
+}
+
 /// The id of every stored message, oldest first.
 pub fn message_ids(store: &SqliteStore) -> Vec<MessageId> {
     let db = store.connection();
@@ -495,6 +508,7 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              DROP TABLE account_prefs;
              ALTER TABLE account_caps DROP COLUMN send_limit;
              ALTER TABLE account_caps DROP COLUMN observed;
+             ALTER TABLE messages DROP COLUMN stored_at;
              DROP INDEX messages_thread_order;
              CREATE INDEX messages_thread ON messages(thread);
              DROP INDEX thread_summary_subject;

@@ -14,6 +14,8 @@ use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::menus::item::item::MenuItem;
 use ds::components::menus::pop_up_button::PopUpButton;
+use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
+use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::offline::{self, Every, Kept, Remove, Window};
 use mail_domain::Incoming;
@@ -58,6 +60,23 @@ fn items<T: Copy + PartialEq + 'static>(
     all.into_iter()
         .map(|one| MenuItem::new(one, label(one)))
         .collect()
+}
+
+/// Whether picking `chosen` for Remove from Server must be confirmed first: it deletes mail from
+/// the server, which nothing here can bring back, so any choice but Never, other than the one
+/// already kept, asks.
+fn asks_first(kept: Remove, chosen: Remove) -> bool {
+    chosen != Remove::Never && chosen != kept
+}
+
+/// What the confirmation of `chosen` says.
+fn asked(chosen: Remove) -> String {
+    match chosen {
+        Remove::AfterDays(days) => copy::confirm::remove_from_server_after(days),
+        Remove::Never | Remove::WhenDeleted => {
+            copy::confirm::REMOVE_FROM_SERVER_WHEN_DELETED.to_owned()
+        }
+    }
 }
 
 /// What the rows keep: the setting as it was last written, why a write failed, and the revision
@@ -107,6 +126,7 @@ pub(super) fn Syncing(row: AccountRow, revision: Signal<u64>) -> Element {
         }
     });
     let failed = use_signal(|| None::<String>);
+    let mut asking = use_signal(|| None::<Remove>);
     let held = Held {
         kept,
         failed,
@@ -118,7 +138,8 @@ pub(super) fn Syncing(row: AccountRow, revision: Signal<u64>) -> Element {
     };
     let pop3 = matches!(row.plan.incoming, Incoming::Pop3 { .. });
     let (on_every, on_window, on_remove) = (id.clone(), id.clone(), id);
-    let (dirs_every, dirs_window) = (dirs.clone(), dirs.clone());
+    let (dirs_every, dirs_window, dirs_remove) = (dirs.clone(), dirs.clone(), dirs.clone());
+    let (confirm_remove, confirm_dirs) = (on_remove.clone(), dirs);
     rsx! {
         FieldRow { label: copy::fields::CHECK_FOR_NEW_MAIL,
             PopUpButton::<Every> {
@@ -147,9 +168,31 @@ pub(super) fn Syncing(row: AccountRow, revision: Signal<u64>) -> Element {
                     value: Some(remove),
                     common: Common { aria_label: Some(copy::fields::REMOVE_FROM_SERVER.to_owned()), ..Common::default() },
                     onpick: move |one: Remove| {
-                        save(dirs.as_ref(), held, |kept: Kept| kept.with_remove(on_remove.clone(), one));
+                        if asks_first(remove, one) {
+                            asking.set(Some(one));
+                        } else {
+                            save(dirs_remove.as_ref(), held, |kept: Kept| kept.with_remove(on_remove.clone(), one));
+                        }
                     },
                 }
+            }
+        }
+        if let Some(chosen) = asking() {
+            Alert {
+                title: copy::confirm::REMOVE_FROM_SERVER.to_owned(),
+                message: Some(TextLine::from(asked(chosen))),
+                style: AlertStyle::Critical,
+                buttons: vec![
+                    AlertButton::new(copy::controls::REMOVE, AlertRole::Destructive, EventHandler::new(move |()| {
+                        asking.set(None);
+                        save(confirm_dirs.as_ref(), held, |kept: Kept| kept.with_remove(confirm_remove.clone(), chosen));
+                    })),
+                    AlertButton::new(
+                        copy::controls::CANCEL,
+                        AlertRole::Cancel,
+                        EventHandler::new(move |()| asking.set(None)),
+                    ),
+                ],
             }
         }
         if let Some(why) = failed() {

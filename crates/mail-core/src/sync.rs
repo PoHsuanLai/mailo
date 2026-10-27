@@ -740,7 +740,7 @@ async fn remove_copies(
         Remove::Never => return,
         Remove::AfterDays(days) => store.copies_held_before(
             &inbox,
-            now - chrono::TimeDelta::days(i64::from(days)),
+            now - chrono::TimeDelta::days(i64::from(days.max(1))),
             REMOVED_PER_PASS,
         ),
         Remove::WhenDeleted => store.copies_deleted_here(&inbox, REMOVED_PER_PASS),

@@ -214,8 +214,8 @@ impl SqliteStore {
             .prepare_cached(
                 "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
                      recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                     body_text, body_raw, attachments, fts_text)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
+                     body_text, body_raw, attachments, fts_text, stored_at)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
                  ON CONFLICT(id) DO UPDATE SET
                      thread=excluded.thread, subject=excluded.subject, from_name=excluded.from_name,
                      from_email=excluded.from_email, read=excluded.read,
@@ -245,6 +245,8 @@ impl SqliteStore {
                 // What the index will hold: the tokens the query side will ask for, and nothing
                 // else. See `crate::sql::message_index`.
                 crate::sql::message_index(&m.subject, &m.from, &m.to, &m.cc, m.body.text()),
+                // First stored now; a conflict keeps the first (see migration 0040).
+                from_time(chrono::Utc::now()),
             ])?;
         for label in &m.labels {
             self.connection()

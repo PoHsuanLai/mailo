@@ -36,6 +36,8 @@ fn store() -> SqliteStore {
     put(&store, 2, MailboxRole::Inbox, true);
     put(&store, 3, MailboxRole::Inbox, false);
     put(&store, 4, MailboxRole::Trash, true);
+    // Each was stored when it is dated, unless a test says otherwise.
+    mail_store::testing::set_stored_at(&store, None);
     store
 }
 
@@ -58,11 +60,37 @@ fn only_what_is_held_in_full_and_old_enough_may_go() {
 }
 
 #[test]
+fn a_message_stored_lately_is_not_old_whatever_its_date_says() {
+    let store = store();
+    // Dated long ago, but stored just now, as a late or forged Date header would be.
+    mail_store::testing::set_stored_at(&store, Some(at(100)));
+    let got = store
+        .copies_held_before(&mailbox("INBOX"), at(10), 10)
+        .unwrap();
+    assert!(got.is_empty(), "{got:?}");
+    let got = store
+        .copies_held_before(&mailbox("INBOX"), at(200), 10)
+        .unwrap();
+    assert_eq!(got, [pop("u1"), pop("u2"), pop("u4")]);
+}
+
+#[test]
 fn what_is_in_the_trash_here_is_deleted_here() {
     let store = store();
     assert_eq!(
         store.copies_deleted_here(&mailbox("INBOX"), 10).unwrap(),
         [pop("u4")]
+    );
+}
+
+#[test]
+fn a_header_only_message_in_the_trash_is_not_deleted_from_the_server() {
+    let store = store();
+    put(&store, 5, MailboxRole::Trash, false);
+    assert_eq!(
+        store.copies_deleted_here(&mailbox("INBOX"), 10).unwrap(),
+        [pop("u4")],
+        "the server holds the only copy of u5"
     );
 }
 
