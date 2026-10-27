@@ -1060,6 +1060,19 @@ impl ImapSession {
                     self.buf = buf;
                     return self.read_more();
                 }
+                // `imap-proto` takes a capability list only with IMAP4rev1 in it, so the list of
+                // an IMAP4rev2 server that does not also name IMAP4rev1 (RFC 9051 §7.2.2) is
+                // read here, as a line of text.
+                Err(_) if starts_with_ignore_case(&buf, b"* CAPABILITY ") => {
+                    let Some(end) = find_line(&buf) else {
+                        self.buf = buf;
+                        return self.read_more();
+                    };
+                    let line = String::from_utf8_lossy(&buf[..end]).trim_end().to_owned();
+                    self.transcript.capabilities =
+                        capability_atoms(line.get("* CAPABILITY ".len()..).unwrap_or_default());
+                    (end, None)
+                }
                 Err(_) => {
                     // The response as text, not as `nom`'s error. `{e:?}` prints the remaining
                     // input as a `Vec<u8>` of decimal numbers — five hundred integers where the
@@ -1123,7 +1136,9 @@ impl ImapSession {
         let text = String::from_utf8_lossy(raw).trim_end().to_owned();
         let bytes = raw.to_vec();
 
-        if let Some(atoms) = capabilities_in(response) {
+        if let Some(atoms) =
+            capabilities_in(response).or_else(|| capabilities_in_code(response, &text))
+        {
             // Replace rather than extend: a later CAPABILITY describes the session we have now,
             // and Gmail's pre-auth list is a strict subset of its post-auth one.
             self.transcript.capabilities = atoms;
@@ -1298,6 +1313,37 @@ fn capabilities_in(response: &Response<'_>) -> Option<Vec<String>> {
         _ => return None,
     };
     Some(atoms.iter().map(|c| format!("{c:?}")).collect())
+}
+
+/// The atoms of a capability list in words, rendered as `imap-proto`'s are in
+/// [`ImapTranscript::capabilities`].
+fn capability_atoms(list: &str) -> Vec<String> {
+    list.split_ascii_whitespace()
+        .map(|atom| {
+            if atom.eq_ignore_ascii_case("IMAP4rev1") {
+                "Imap4rev1".to_owned()
+            } else if atom
+                .get(..5)
+                .is_some_and(|p| p.eq_ignore_ascii_case("AUTH="))
+            {
+                format!("Auth({:?})", atom.get(5..).unwrap_or_default())
+            } else {
+                format!("Atom({atom:?})")
+            }
+        })
+        .collect()
+}
+
+/// The `[CAPABILITY ...]` code of a greeting or completion that `imap-proto` left as text
+/// because the list does not name IMAP4rev1 (see the `* CAPABILITY` case in `drain`).
+fn capabilities_in_code(response: &Response<'_>, text: &str) -> Option<Vec<String>> {
+    if !matches!(response, Response::Data { .. } | Response::Done { .. }) {
+        return None;
+    }
+    let line = text.lines().next()?;
+    let start = line.to_ascii_uppercase().find("[CAPABILITY ")? + "[CAPABILITY ".len();
+    let list = line.get(start..)?.split(']').next()?;
+    Some(capability_atoms(list))
 }
 
 /// Whether the server offers the SASL mechanism `mechanism` (`AUTH=<mechanism>`, RFC 9051 §6.2.2).
