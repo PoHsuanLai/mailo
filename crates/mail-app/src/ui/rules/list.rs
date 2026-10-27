@@ -291,13 +291,7 @@ fn RuleMenu(
 }
 
 /// Do what `key` in a rule's menu asks.
-fn act(
-    key: &str,
-    rule: &Rule,
-    row: &AccountRow,
-    said: Said,
-    pushed: Callback<AccountRow>,
-) {
+fn act(key: &str, rule: &Rule, row: &AccountRow, said: Said, pushed: Callback<AccountRow>) {
     let client = crate::ui::live::client();
     match key {
         UP | DOWN => {
