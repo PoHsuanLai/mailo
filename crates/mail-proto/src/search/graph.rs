@@ -143,6 +143,12 @@ fn kql(filter: &Filter) -> Result<String, Unsaid> {
                 "label: (labels stay on this computer for Microsoft accounts)".to_owned(),
             ));
         }
+        Filter::Category(_) => {
+            return Err(Unsaid::one(format!(
+                "{} (only Gmail has categories)",
+                describe(filter)
+            )));
+        }
         Filter::InMailbox(_) | Filter::InFolder(_) => {
             return Err(Unsaid::one(format!(
                 "{} inside another clause",

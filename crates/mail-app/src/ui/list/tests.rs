@@ -73,6 +73,7 @@ mod searching_in_the_window {
                         },
                         vec!["travel".to_owned()],
                     )],
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )

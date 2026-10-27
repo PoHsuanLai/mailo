@@ -1878,6 +1878,7 @@ impl<B: Backend> AccountEngine<B> {
                     flags,
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 },
             )?;
@@ -1937,6 +1938,7 @@ impl<B: Backend> AccountEngine<B> {
                     flags: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 },
             )?;

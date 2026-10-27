@@ -214,7 +214,8 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

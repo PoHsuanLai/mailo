@@ -12,8 +12,8 @@ use crate::imap::{Access, ImapCommand, ImapSession, Resume};
 use crate::machine::{Backend, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome};
 use mail_domain::{
     AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderWork, Ingest, MailboxRef,
-    MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels, SyncCursor,
-    SystemFlag, UidValidity,
+    MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels, ServerThreads,
+    SyncCursor, SystemFlag, UidValidity,
 };
 use porter_core::AccountId;
 
@@ -500,20 +500,21 @@ impl Backend for ImapBackend {
                 // would have discarded.
                 //
                 // `X-GM-LABELS` is asked for because the code that reads it exists, which is the
-                // only condition under which asking for something is worth the bytes.
+                // only condition under which asking for something is worth the bytes. So is
+                // `X-GM-THRID`, Gmail's own conversation id, which threading joins on.
                 // `ENVELOPE`, `BODYSTRUCTURE`, `INTERNALDATE` and the other `X-GM-*` attributes
                 // stay out: nothing reads them.
-                let items = if matches!(self.caps.labels, ServerLabels::Supported) {
-                    "(UID FLAGS RFC822.SIZE X-GM-LABELS)"
-                } else {
-                    "(UID FLAGS RFC822.SIZE)"
-                };
+                let mut items = String::from("(UID FLAGS RFC822.SIZE");
+                if matches!(self.caps.labels, ServerLabels::Supported) {
+                    items.push_str(" X-GM-LABELS");
+                }
+                if matches!(self.caps.threads, ServerThreads::ProviderId) {
+                    items.push_str(" X-GM-THRID");
+                }
+                items.push(')');
                 self.queue(vec![
                     Self::select(&mailbox, Access::ReadOnly),
-                    ImapCommand::UidFetch {
-                        set,
-                        items: items.to_owned(),
-                    },
+                    ImapCommand::UidFetch { set, items },
                 ])
             }
             ProtoOp::FetchHeaders { remotes } => {
@@ -915,10 +916,17 @@ impl Backend for ImapBackend {
                 } else {
                     MoveExt::Absent
                 };
-                caps.labels = if seen("X-GM-EXT-1") {
+                // Gmail's extensions bring its labels and its own conversation ids.
+                let gmail = seen("X-GM-EXT-1");
+                caps.labels = if gmail {
                     ServerLabels::Supported
                 } else {
                     ServerLabels::LocalOnly
+                };
+                caps.threads = if gmail {
+                    ServerThreads::ProviderId
+                } else {
+                    ServerThreads::Jwz
                 };
                 // Never inferred from a capability: see ExpungeMeans.
                 caps.expunge = ExpungeMeans::Forbidden;
@@ -965,6 +973,7 @@ impl Backend for ImapBackend {
                     flags: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 })))
             }
@@ -978,6 +987,7 @@ impl Backend for ImapBackend {
                     flags: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 };
                 // A different UIDVALIDITY and the server ignores the parameter (RFC 7162
@@ -1046,6 +1056,10 @@ impl Backend for ImapBackend {
                         .iter()
                         .filter(|row| !row.labels.is_empty())
                         .map(|row| (row.remote.clone(), row.labels.clone()))
+                        .collect(),
+                    provider_threads: seen
+                        .iter()
+                        .filter_map(|row| Some((row.remote.clone(), row.thread.clone()?)))
                         .collect(),
                     gone: Vec::new(),
                 })))
@@ -1209,6 +1223,8 @@ struct Surveyed {
     star: mail_domain::Star,
     /// Gmail's user labels, empty everywhere else. See [`user_labels`].
     labels: Vec<String>,
+    /// Gmail's conversation id for it (`X-GM-THRID`), absent everywhere else.
+    thread: Option<String>,
 }
 
 /// The UIDVALIDITY a batch of references carries, so re-parsed rows key to the same rows.
@@ -1312,6 +1328,8 @@ fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) 
         let flags = flag_list(&text);
         out.push(Surveyed {
             labels: user_labels(&text),
+            thread: after_atom(&text, "X-GM-THRID ")
+                .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())),
             remote: RemoteRef::Imap {
                 mailbox: mailbox.to_owned(),
                 // The mailbox's own UIDVALIDITY, not zero. `remote_map` keys on it, so a

@@ -21,6 +21,7 @@ mod end_to_end;
 mod folder_outbox;
 mod folders;
 mod gmail_labels;
+mod gmail_threads;
 mod graph_read;
 mod graph_send;
 mod imap_end_to_end;

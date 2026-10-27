@@ -116,6 +116,8 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
             params.push(SqlValue::Text("until".to_owned()));
             "(json_extract(ts.snooze, '$.kind') = ?)".to_owned()
         }
+        // Held nowhere, as `Filter::fit` says: false.
+        Filter::Category(_) => "(1=0)".to_owned(),
         Filter::SnoozeDue => snooze_due(now, params),
         // `Pin::Rank` is the pinned form; `Unpinned` has no rank.
         Filter::Pinned => {

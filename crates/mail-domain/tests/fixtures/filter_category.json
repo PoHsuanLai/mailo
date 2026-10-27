@@ -1,0 +1,22 @@
+[
+  {
+    "kind": "category",
+    "v": "primary"
+  },
+  {
+    "kind": "category",
+    "v": "social"
+  },
+  {
+    "kind": "category",
+    "v": "promotions"
+  },
+  {
+    "kind": "category",
+    "v": "updates"
+  },
+  {
+    "kind": "category",
+    "v": "forums"
+  }
+]

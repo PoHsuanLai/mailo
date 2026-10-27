@@ -137,6 +137,7 @@ fn generated() -> (SqliteStore, tempfile::TempDir) {
                     flags: vec![],
                     labels: vec![],
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )

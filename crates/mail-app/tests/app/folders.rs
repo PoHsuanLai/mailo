@@ -187,7 +187,8 @@ fn deleting_a_folder_with_mail_in_it_needs_saying_so() {
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

@@ -76,6 +76,7 @@ impl Filter {
             Filter::Smaller(bytes) => format!("smaller:{}", size(*bytes)),
             Filter::NewerThan(days) => format!("newer_than:{days}d"),
             Filter::OlderThan(days) => format!("older_than:{days}d"),
+            Filter::Category(category) => format!("category:{}", category.name()),
         }
     }
 }

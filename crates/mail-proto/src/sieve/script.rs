@@ -283,6 +283,7 @@ fn test(filter: &Filter, account: AccountId) -> Result<String, Unmappable> {
         // Sieve's size is the whole message's (RFC 5228 §5.9), headers included.
         Filter::Larger(bytes) => format!("size :over {bytes}"),
         Filter::Smaller(bytes) => format!("size :under {bytes}"),
+        Filter::Category(_) => return Err(Unmappable::Clause("category:")),
     })
 }
 

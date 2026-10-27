@@ -356,6 +356,7 @@ impl Reader {
             flags: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
+            provider_threads: Vec::new(),
             gone: Vec::new(),
         };
         self.arrivals.clear();

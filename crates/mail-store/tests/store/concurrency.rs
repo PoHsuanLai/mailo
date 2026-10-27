@@ -275,6 +275,7 @@ mod a_reader_that_is_not_the_writer {
                     flags: vec![],
                     labels: vec![],
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )

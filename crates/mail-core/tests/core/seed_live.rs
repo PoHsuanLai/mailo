@@ -71,6 +71,7 @@ fn seed() {
                     },
                     vec!["travel".to_owned()],
                 )],
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

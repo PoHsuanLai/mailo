@@ -268,7 +268,8 @@ pub enum ServerLabels {
 }
 
 /// Where conversation grouping comes from. JWZ runs either way, so POP3 and IMAP share one
-/// set of [`crate::ThreadId`] rules; a provider id is only a hint.
+/// set of [`crate::ThreadId`] rules; `ProviderId` adds the id the server gave each message
+/// (Gmail's `X-GM-THRID`) as one more reason for messages to share a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerThreads {

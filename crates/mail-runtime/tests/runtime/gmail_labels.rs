@@ -63,7 +63,7 @@ fn backend() -> ImapBackend {
 ///
 /// No socket: the backend is sans-I/O, so "the server" is a slice of bytes handed back whenever
 /// it asks to read. That is the whole point of the `Machine` shape.
-fn survey(responses: &[&str]) -> Ingest {
+pub(crate) fn survey(responses: &[&str]) -> Ingest {
     let mut backend = backend();
     let mut replies = responses.iter();
     let mut progress = backend.begin(ProtoOp::FetchEnvelopes {
@@ -141,7 +141,8 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

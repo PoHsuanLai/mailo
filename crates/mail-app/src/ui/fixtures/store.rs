@@ -106,6 +106,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
                 flags: vec![],
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -268,6 +269,7 @@ pub(in crate::ui) fn realistic() -> (Arc<SqliteStore>, tempfile::TempDir) {
                     flags: vec![],
                     labels: vec![],
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -360,6 +362,7 @@ pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) 
                 flags: vec![],
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

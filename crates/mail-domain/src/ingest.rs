@@ -62,6 +62,15 @@ pub struct Ingest {
     /// Empty on every protocol but Gmail, which is the only one that has them.
     #[serde(default)]
     pub label_names: Vec<(RemoteRef, Vec<String>)>,
+    /// The thread id the server gave each message, where it gives one (Gmail's `X-GM-THRID`).
+    ///
+    /// Kept against the address, because a survey reports it before the message is fetched.
+    /// Threading reads it when the message arrives; see [`crate::threading::ThreadInput`].
+    ///
+    /// Left out of the encoding when empty, which is every protocol but Gmail, so what was
+    /// written before it existed reads back and encodes the same.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provider_threads: Vec<(RemoteRef, String)>,
     /// Expunged on the server, by this client or another one. Without this, a message
     /// deleted elsewhere never disappears locally.
     pub gone: Vec<RemoteRef>,

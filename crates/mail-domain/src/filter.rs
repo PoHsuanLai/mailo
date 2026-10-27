@@ -141,6 +141,12 @@ pub enum Filter {
     /// The thread's newest message is older than this many days: the other side of
     /// [`Filter::NewerThan`].
     OlderThan(u32),
+    /// In one of Gmail's inbox categories.
+    ///
+    /// Only Gmail's server knows: a category is neither a label nor a flag on any message this
+    /// client holds, so locally the clause matches nothing, and a server search is what answers
+    /// it ([`crate::Category`]).
+    Category(Category),
 }
 
 impl Filter {
@@ -182,6 +188,46 @@ pub fn message_size(message: &crate::Message) -> u64 {
         .attachments
         .iter()
         .fold(text, |sum, part| sum.saturating_add(part.size))
+}
+
+/// One of the tabs Gmail sorts its inbox into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    Primary,
+    Social,
+    Promotions,
+    Updates,
+    Forums,
+}
+
+impl Category {
+    /// Every category, in the order Gmail shows its tabs.
+    pub const ALL: [Category; 5] = [
+        Category::Primary,
+        Category::Social,
+        Category::Promotions,
+        Category::Updates,
+        Category::Forums,
+    ];
+
+    /// The name Gmail's search takes after `category:`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Category::Primary => "primary",
+            Category::Social => "social",
+            Category::Promotions => "promotions",
+            Category::Updates => "updates",
+            Category::Forums => "forums",
+        }
+    }
+
+    /// The category a typed name means, in any case.
+    pub fn named(name: &str) -> Option<Category> {
+        Category::ALL
+            .into_iter()
+            .find(|c| c.name().eq_ignore_ascii_case(name))
+    }
 }
 
 /// Everything [`Filter::fit`] needs in order to decide.
@@ -351,6 +397,8 @@ impl Filter {
             Filter::Smaller(bytes) => ctx.sizes.iter().any(|size| size < bytes),
             Filter::NewerThan(days) => s.last_date >= days_before(ctx.now, *days),
             Filter::OlderThan(days) => s.last_date < days_before(ctx.now, *days),
+            // Nothing held says which tab Gmail put a message in.
+            Filter::Category(_) => false,
         }
     }
 }

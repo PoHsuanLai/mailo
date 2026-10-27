@@ -114,6 +114,12 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
         Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned => {
             return Err(kept_here(filter));
         }
+        Filter::Category(_) => {
+            return Err(Unsaid::one(format!(
+                "{} (only Gmail has categories)",
+                describe(filter)
+            )));
+        }
     })
 }
 

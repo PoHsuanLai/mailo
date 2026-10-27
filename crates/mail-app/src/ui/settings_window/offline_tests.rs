@@ -110,7 +110,8 @@ fn with_a_part_on_the_server(built: &Work, id: AccountId) {
                 }],
                 flags: vec![],
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
