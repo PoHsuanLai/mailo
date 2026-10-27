@@ -65,8 +65,7 @@ async fn a_relay_is_kept_on_return_and_one_that_cannot_be_is_refused() {
 
     // Not HTTPS: said under the field, which is marked invalid, and what was kept stays.
     type_into(&mut dom, field, "http://relay.example.test");
-    chord(&mut dom, "Enter", Modifiers::empty(), field);
-    let seen = drain_seen(&mut dom);
+    let seen = chord(&mut dom, "Enter", Modifiers::empty(), field).merge(drain_seen(&mut dom));
     assert_eq!(seen.all("aria-invalid", "true"), [field]);
     let page = dioxus_ssr::render(&dom);
     assert!(
@@ -90,9 +89,11 @@ async fn a_relay_is_kept_on_return_and_one_that_cannot_be_is_refused() {
     assert!(page.contains(RELAY_EXTRAS), "{page}");
 
     // Typing again takes the mark away.
-    let seen = type_into(&mut dom, field, "https://relay.example.test/a");
-    let seen = seen.merge(drain_seen(&mut dom));
-    assert_eq!(seen.all("aria-invalid", "false"), [field]);
+    // (A valid field carries no `aria-invalid` at all, so the page is looked at, not the writes.)
+    type_into(&mut dom, field, "https://relay.example.test/a");
+    drain_seen(&mut dom);
+    let page = dioxus_ssr::render(&dom);
+    assert!(!page.contains("aria-invalid"), "{page}");
 
     // Emptied: polled again.
     type_into(&mut dom, field, "");
