@@ -322,6 +322,41 @@ fn vips_only_says_a_vip_s_new_mail_and_holds_back_the_rest() {
     );
 }
 
+/// Under "VIPs only" a rule whose action is Notify is the person's explicit ask, so it is
+/// heard for a sender who is not a VIP; it does not lift the floor or the user's own mail.
+#[test]
+fn a_rule_that_notifies_is_heard_under_vips_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    with_account(&store, &plan(1));
+    let watched = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+    notify::floor::armed(&store, account(), watched).unwrap();
+    let recorder = Recorder::default();
+    let later = watched + chrono::Duration::minutes(5);
+    let asked = stored(&store, 700, "bob@example.test", later);
+    let not_asked = stored(&store, 701, "cy@example.test", later);
+    let before_floor = stored(
+        &store,
+        702,
+        "eve@example.test",
+        watched - chrono::Duration::days(1),
+    );
+    let mine = stored(&store, 703, "ME@example.test", later);
+    let raised = notify::announce(
+        &store,
+        account(),
+        &[asked, not_asked, before_floor, mine],
+        &[asked, before_floor, mine],
+        &recorder,
+        notify::Whom::Vips,
+        later,
+    )
+    .unwrap();
+    let seen = recorder.seen();
+    assert_eq!(raised, 1, "{seen:?}");
+    assert_eq!(seen[0].summary, "bob@example.test");
+}
+
 /// What the fake server holds: UID, raw bytes and flags, which a test adds to while the client
 /// is watching.
 type Maildrop = Arc<Mutex<Vec<(u32, String, Vec<String>)>>>;

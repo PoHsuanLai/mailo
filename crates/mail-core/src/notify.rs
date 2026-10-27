@@ -228,7 +228,8 @@ pub fn verdict(
 }
 
 /// The verdict on an arrival a rule asked to be told of: said even when read, filed away or
-/// snoozed, which is what asking was for, and still not the user's own mail or mail from before
+/// snoozed (and, under "VIPs only", when the sender is not one: [`announce`] asks it as if
+/// everyone were heard), which is what asking was for, and still not the user's own mail or mail from before
 /// the account was watched, which no rule meant.
 pub fn heard(verdict: Verdict) -> Verdict {
     match verdict {
@@ -462,11 +463,21 @@ pub fn announce(
         .iter()
         .filter(|(message, snooze)| {
             let followed = followed.contains(&message.id);
-            let said = verdict(message, *snooze, &own, &heard, floor, now, followed);
+            // A rule's Notify is the person's own ask for this message, so whose mail is heard
+            // does not apply to it; the floor and the user's own mail still do.
             let said = if noted.contains(&message.id) {
-                self::heard(said)
+                let asked = verdict(
+                    message,
+                    *snooze,
+                    &own,
+                    &Heard::Everyone,
+                    floor,
+                    now,
+                    followed,
+                );
+                self::heard(asked)
             } else {
-                said
+                verdict(message, *snooze, &own, &heard, floor, now, followed)
             };
             said == Verdict::Announce
         })
