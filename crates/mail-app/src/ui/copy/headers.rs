@@ -34,6 +34,8 @@ pub const READING: &str = "Reading";
 pub const MAIL: &str = "Mail";
 pub const MESSAGE_LIST: &str = "Message list";
 pub const COMPOSING: &str = "Composing";
+/// Deleting, and how long Trash and Spam keep mail.
+pub const MAILBOXES: &str = "Mailboxes";
 /// An account's keys and certificates, on its page in Settings.
 pub const ENCRYPTION: &str = "Encryption";
 /// An account's servers and sign-in, on its page in Settings: the one place a protocol is named.

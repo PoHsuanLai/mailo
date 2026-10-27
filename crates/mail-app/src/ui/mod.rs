@@ -35,6 +35,7 @@ mod debounce;
 pub mod default_mail;
 mod destroy;
 mod downloads;
+mod erase;
 mod fetching;
 mod files;
 mod folder_open;

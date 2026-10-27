@@ -298,6 +298,22 @@ pub fn perform_on(
 /// its server addresses with it. The deletion is queued first, while the store still knows where
 /// each message is (`Store::enqueue`), and nothing is returned to undo it.
 pub fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> {
+    destroy_target(store, thread, Target::Threads(vec![thread]))
+}
+
+/// [`destroy`], for `messages` of `thread` alone: those of them in Trash or Spam are deleted
+/// forever, and the rest of the conversation stays. What erasing Trash and Spam by themselves
+/// uses ([`crate::erase`]), which picks messages by how long each has been there.
+pub fn destroy_messages(
+    store: &SqliteStore,
+    thread: ThreadId,
+    messages: Vec<MessageId>,
+) -> Option<Vec<MessageId>> {
+    destroy_target(store, thread, Target::Messages(messages))
+}
+
+/// [`destroy`] and [`destroy_messages`]: Delete forever on `target` within `thread`.
+fn destroy_target(store: &SqliteStore, thread: ThreadId, target: Target) -> Option<Vec<MessageId>> {
     let loaded = store
         .thread(thread)
         .or_log("the conversation to delete could not be read")?;
@@ -305,7 +321,7 @@ pub fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> 
     let account = messages.first().map(|m| m.account.clone())?;
     let now = chrono::Utc::now();
     let applied = Op::Destroy.apply(
-        &Target::Threads(vec![thread]),
+        &target,
         &loaded,
         &messages,
         &caps_here(store, account.clone(), now),

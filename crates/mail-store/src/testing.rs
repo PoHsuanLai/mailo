@@ -562,6 +562,7 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE messages DROP COLUMN stored_at;
              DROP TABLE vips;
              DROP TABLE provider_thread;
+             DROP TABLE binned;
              DROP INDEX messages_thread_order;
              CREATE INDEX messages_thread ON messages(thread);
              CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,

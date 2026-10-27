@@ -4,7 +4,7 @@
 //! of titled groups of rows.
 //!
 //! Seven pages: General, Accounts, Signatures, Spaces, Rules, Vacation Reply and Keyboard.
-//! General draws mailo's settings schema (`crate::settings`) as two groups of rows ([`general`],
+//! General draws mailo's settings schema (`crate::settings`) as five groups of rows ([`general`],
 //! each row a key's, drawn by [`keys`]), the same keys detent draws on mailo's page and writes to
 //! the same `mailo/settings.toml`. Accounts lists each account, whose row pushes its own page into
 //! the pane ([`account`]): its mail kept here, its encryption keys, and its removal. Signatures

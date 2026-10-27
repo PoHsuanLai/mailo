@@ -2,6 +2,7 @@
 
 mod account_prefs;
 mod accounts;
+mod binned;
 mod contacts;
 mod copies;
 mod destroyed;

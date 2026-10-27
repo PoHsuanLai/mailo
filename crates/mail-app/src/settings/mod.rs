@@ -19,10 +19,10 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BlockRemote, BrandLogos, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, MarkRead,
-    MarkReadDelay, MessageFormat, NewMail, NotifyFor, PreferPlainText, Protect, ProviderMarks,
-    ReadReceipts, RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch, SignatureAboveQuote,
-    Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
+    BlockRemote, BrandLogos, CopyMyself, DeleteMeans, EraseAfter, GroupByDate, LabelChips,
+    LoadRemoteImages, MarkRead, MarkReadDelay, MessageFormat, NewMail, NotifyFor, PreferPlainText,
+    Protect, ProviderMarks, ReadReceipts, RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch,
+    SignatureAboveQuote, Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
 };
 
 use ds::prelude::Word;
@@ -436,6 +436,42 @@ impl PrivacySettings {
     }
 }
 
+/// `mailboxes.*`: deleting, and how long Trash and Spam keep mail.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ds_settings::SettingsSchema)]
+#[serde(default)]
+#[settings(file = "mailo/settings.toml", domain = "mailboxes", page = page())]
+pub struct MailboxSettings {
+    #[settings(
+        label = "Delete",
+        help = "Move deleted mail to Trash, or delete it forever as soon as it gets there.",
+        section = "Mailboxes"
+    )]
+    pub delete: DeleteMeans,
+    #[settings(
+        label = "Erase Trash",
+        help = "Delete mail forever once it has been in Trash this long.",
+        section = "Mailboxes"
+    )]
+    pub erase_trash: EraseAfter,
+    #[settings(
+        label = "Erase Spam",
+        help = "Delete mail forever once it has been in Spam this long.",
+        section = "Mailboxes"
+    )]
+    pub erase_spam: EraseAfter,
+}
+
+impl MailboxSettings {
+    /// What erasing Trash and Spam does under these settings.
+    pub fn erasing(&self) -> mail_core::erase::Policy {
+        mail_core::erase::Policy {
+            delete: self.delete.into(),
+            trash: self.erase_trash.into(),
+            spam: self.erase_spam.into(),
+        }
+    }
+}
+
 /// Why the chosen way to fetch remote images cannot be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteProblem {
@@ -466,6 +502,7 @@ pub struct MailSettings {
     pub sync: SyncSettings,
     pub attachments: AttachmentSettings,
     pub privacy: PrivacySettings,
+    pub mailboxes: MailboxSettings,
 }
 
 impl SettingsDoc for MailSettings {
@@ -484,6 +521,7 @@ pub fn schema() -> Schema {
         SyncSettings::schema(),
         AttachmentSettings::schema(),
         PrivacySettings::schema(),
+        MailboxSettings::schema(),
     ]
     .into_iter()
     .flat_map(|schema| schema.key)

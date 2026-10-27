@@ -194,6 +194,11 @@ pub(super) fn act_all(
             done.push(op);
         }
     }
+    // Delete under "deletes now": what it moved to Trash is erased from there once the server
+    // holds it (`ui::erase`). The move keeps its Undo until then.
+    if done.contains(&Op::Trash) && deletes_now() {
+        mail_core::erase::mark_deleted(store, &undos, chrono::Utc::now());
+    }
     let count = undos.len();
     let said = match done.as_slice() {
         [] => return 0,
@@ -227,6 +232,14 @@ fn target_of(shell: Signal<Shell>, thread: ThreadId) -> Target {
         }
         _ => Target::Threads(vec![thread]),
     }
+}
+
+/// Whether Delete means "deletes now" in this window's settings. A window with none (a test's)
+/// moves to Trash and no more.
+fn deletes_now() -> bool {
+    try_consume_context::<Signal<crate::settings::MailSettings>>().is_some_and(|settings| {
+        settings.peek().mailboxes.delete == crate::settings::DeleteMeans::Now
+    })
 }
 
 /// The one way an undoable action is kept and shown: `undos` go on the window's stack as one
