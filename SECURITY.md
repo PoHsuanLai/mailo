@@ -26,7 +26,7 @@ code does about that, as of 0.1.0:
   allow them for that message or for a trusted sender (`RemoteImages::Blocked` is the default in
   `mail-mime`). When allowed, mailo fetches them itself, with no cookies and no `Referer`, a size
   cap and a timeout; documents do not reach the network on their own. Read receipts are never sent
-  automatically.
+  unless you answer one or set Settings › Reading to ask or always.
 - **HTML is sanitised.** Message HTML goes through an allow-list sanitiser (ammonia) in
   `mail-mime`. Links are limited to `http`, `https`, `mailto` and `cid` (a part of the same
   message), and CSS that could reach the

@@ -1,6 +1,8 @@
 //! Read receipts in the window: answered by the setting, once, and only where it is safe.
 
-use super::{Standing, answer_asked, asks, automatic, decline_id, send_id};
+use super::{
+    Destination, Standing, answer_asked, asks, automatic, decline_id, destination, send_id,
+};
 use crate::settings::{MailSettings, ReadReceipts};
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::fixtures::{click, settle_for};
@@ -473,4 +475,28 @@ async fn ask_each_time_declines_and_does_not_ask_again() {
     );
     let (again, _) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
     assert!(!dioxus_ssr::render(&again).contains(&decline_id(message)));
+}
+
+/// What a question says of where the receipt would go depends on the return path alone.
+#[test]
+fn a_question_says_only_what_the_return_path_lets_it() {
+    let cases = [
+        (ReturnPath::Agrees, Destination::Agreed),
+        (
+            ReturnPath::Differs {
+                return_path: "ada@example.test".to_owned(),
+            },
+            Destination::Elsewhere("tracker@elsewhere.test".to_owned()),
+        ),
+        (
+            ReturnPath::Unknown,
+            Destination::Unchecked("tracker@elsewhere.test".to_owned()),
+        ),
+    ];
+    for (return_path, want) in cases {
+        let ReceiptState::Pending(asked) = ask("tracker@elsewhere.test", return_path) else {
+            unreachable!("`ask` builds a pending request");
+        };
+        assert_eq!(destination(&asked), want);
+    }
 }

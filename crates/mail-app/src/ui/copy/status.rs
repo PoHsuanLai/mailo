@@ -87,6 +87,12 @@ pub fn receipt_goes_elsewhere(to: &str) -> String {
     format!("It would go to {to}, not where the message came from")
 }
 
+/// Beside [`receipt_asked`] when the message names no address it came back from, so where the
+/// receipt would go can be said but not checked.
+pub fn receipt_goes_unchecked(to: &str) -> String {
+    format!("It would go to {to}, which can’t be checked against where the message came from")
+}
+
 /// Whether an account's vacation reply is on, beside its address in Settings › Vacation Reply.
 pub mod vacation {
     pub const OFF: &str = "Off";

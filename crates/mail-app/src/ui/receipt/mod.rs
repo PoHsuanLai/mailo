@@ -23,7 +23,7 @@ use mail_core::message::Looks;
 use mail_core::receipt::ReceiptState;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_mime::ReturnPath;
+use mail_mime::{ReceiptAsk, ReturnPath};
 use std::sync::{Arc, Mutex};
 
 use super::copy::{controls, status};
@@ -65,7 +65,7 @@ pub(in crate::ui) fn automatic(
 /// never in Junk, where even the question would tell the person nothing they want to know.
 ///
 /// Pure, so the whole table is a test. A request whose receipt would go to another domain is
-/// still asked about, with the address said beside it ([`Question::elsewhere`]): the person
+/// still asked about, with the address said beside it ([`Question::destination`]): the person
 /// decides, knowing where it would go.
 pub(in crate::ui) fn asks(
     policy: ReadReceipts,
@@ -87,14 +87,40 @@ pub(in crate::ui) fn decline_id(message: MessageId) -> String {
     format!("receipt-decline-{message}")
 }
 
+/// Where a receipt would go, as far as the message's return path says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::ui) enum Destination {
+    /// To the domain the message came back from: nothing to say.
+    Agreed,
+    /// To these addresses, which are not on that domain.
+    Elsewhere(String),
+    /// To these addresses, with no return path to compare them with.
+    Unchecked(String),
+}
+
 /// One request put to the person under [`ReadReceipts::Ask`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::ui) struct Question {
     pub(in crate::ui) message: MessageId,
     /// The sender's name, else their address.
     pub(in crate::ui) sender: String,
-    /// Where the receipt would go, when that is not the domain the message came back from.
-    pub(in crate::ui) elsewhere: Option<String>,
+    pub(in crate::ui) destination: Destination,
+}
+
+/// Where a receipt for `ask` would go, as it is to be said.
+fn destination(ask: &ReceiptAsk) -> Destination {
+    let to = || {
+        ask.to
+            .iter()
+            .map(|to| to.email.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    match ask.return_path {
+        ReturnPath::Agrees => Destination::Agreed,
+        ReturnPath::Differs { .. } => Destination::Elsewhere(to()),
+        ReturnPath::Unknown => Destination::Unchecked(to()),
+    }
 }
 
 /// The requests among `standings` that `policy` puts to the person, each looked up again in the
@@ -107,24 +133,17 @@ pub(in crate::ui) fn questions(
     standings
         .iter()
         .filter_map(|standing| {
+            let ReceiptState::Pending(ask) = &standing.state else {
+                return None;
+            };
             let message = store.message(standing.message).ok()?;
             if !asks(policy, &standing.state, message.mailbox) {
                 return None;
             }
-            let ReceiptState::Pending(ask) = &standing.state else {
-                return None;
-            };
-            let elsewhere = (!matches!(ask.return_path, ReturnPath::Agrees)).then(|| {
-                ask.to
-                    .iter()
-                    .map(|to| to.email.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            });
             Some(Question {
                 message: standing.message,
                 sender: standing.sender.clone(),
-                elsewhere,
+                destination: destination(ask),
             })
         })
         .collect()
@@ -247,8 +266,8 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
     }
 }
 
-/// One question's line: who asked, where the receipt would go when that is somewhere else, and
-/// the two answers.
+/// One question's line: who asked, where the receipt would go when that is not plainly back to
+/// the sender, and the two answers.
 #[component]
 fn Asking(question: Question, answered: Signal<Vec<MessageId>>) -> Element {
     let looks = crate::ui::reading::use_looks();
@@ -281,8 +300,14 @@ fn Asking(question: Question, answered: Signal<Vec<MessageId>>) -> Element {
     rsx! {
         p { class: "receipt-ask", role: "status",
             Label { text: status::receipt_asked(&question.sender), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
-            if let Some(to) = &question.elsewhere {
-                Label { text: status::receipt_goes_elsewhere(to), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+            match &question.destination {
+                Destination::Agreed => rsx! {},
+                Destination::Elsewhere(to) => rsx! {
+                    Label { text: status::receipt_goes_elsewhere(to), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+                },
+                Destination::Unchecked(to) => rsx! {
+                    Label { text: status::receipt_goes_unchecked(to), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
+                },
             }
             Button {
                 bezel: Bezel::Inline,
