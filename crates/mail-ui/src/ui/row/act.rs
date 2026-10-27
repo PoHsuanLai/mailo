@@ -71,7 +71,10 @@ pub(in crate::ui) fn press(
         return;
     }
     match composes(kind) {
-        Some(what) => if open_composer(&client, shell, Writes::On(id, what)).is_ok() {},
+        Some(what) => {
+            // A refusal is the composer's to say (`open_composer` logs it).
+            let _ = open_composer(&client, shell, Writes::On(id, what));
+        }
         // A press on a picked row acts on everything picked, as one gesture. An op that needs
         // more than the button (a pin's rank) stays with its own row.
         None if mail_client::conversation::op_for(kind).is_some() => {
