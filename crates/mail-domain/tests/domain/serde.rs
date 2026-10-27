@@ -1678,7 +1678,6 @@ fixtures! {
             draft: DraftId::from_uuid(uuid(9)),
             mailbox: MailboxRef { account: account(), path: "Drafts".to_owned() },
             message_id: "00000000-0000-4000-8000-000000000009@example.test".to_owned(),
-            raw: BlobId::from_uuid(uuid(7)),
         },
         ProtoOp::DropDraft {
             draft: DraftId::from_uuid(uuid(9)),
@@ -1875,7 +1874,6 @@ fn remote_intent_round_trips() {
             draft: DraftId::generate(),
             mailbox: mailbox_ref(),
             message_id: "d@example.test".to_owned(),
-            raw: BlobId::generate(),
         },
         RemoteIntent::DropDraft {
             draft: DraftId::generate(),

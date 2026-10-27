@@ -604,11 +604,46 @@ async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_non
         account: acct_account(),
         path: "Drafts".to_owned(),
     };
-    let copy = |body: &str| {
-        format!(
-            "From: {USER}\r\nSubject: Unfinished\r\nMessage-ID: <{message_id}>\r\n\
-             Date: Mon, 01 Sep 2026 10:00:00 +0000\r\n\r\n{body}\r\n"
-        )
+    // The draft being written, whose copy is made from it when the upload runs.
+    let identity = IdentityId::generate();
+    mail_store::testing::seed_identity_for(
+        &s.store,
+        identity,
+        acct_account(),
+        "me@example.test",
+        None,
+    );
+    let write = |store: &SqliteStore, body: &str| {
+        let draft = Draft {
+            id: draft,
+            account: acct_account(),
+            identity,
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: "Unfinished".to_owned(),
+            in_reply_to: None,
+            forward_of: None,
+            text: format!("{body}\r\n"),
+            html: None,
+            attachments: vec![],
+            receipt: ReceiptRequest::Unrequested,
+            openpgp: OpenPgp::None,
+            smime: Smime::None,
+            priority: Priority::Normal,
+            delivery: DeliveryReport::Unrequested,
+            state: SendState::Editing,
+            updated: now(),
+        };
+        store
+            .apply(
+                acct_account(),
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::DraftUpsert(Box::new(draft))],
+                },
+            )
+            .unwrap();
     };
     let nothing = || Patch {
         id: ChangeId::generate(),
@@ -631,7 +666,7 @@ async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_non
     };
 
     for body in ["first thoughts", "second thoughts"] {
-        let raw = s.store.blobs().put(copy(body).as_bytes()).unwrap();
+        write(&s.store, body);
         s.store
             .enqueue(
                 acct_account(),
@@ -639,7 +674,6 @@ async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_non
                     draft,
                     mailbox: drafts.clone(),
                     message_id: message_id.clone(),
-                    raw,
                 },
                 &nothing(),
                 now(),
@@ -656,6 +690,18 @@ async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_non
     // Nothing of it is kept here as a message: the draft is the document.
     assert!(by_message_id(&s.store, &message_id).is_none());
 
+    // The sent message itself, kept in Drafts by a server with no Sent mailbox, carries the same
+    // Message-ID and no `$draft`: it is the only copy of what was sent, and is never destroyed.
+    let sent = s.fake.state.lock().unwrap().deliver(
+        format!(
+            "From: {USER}\r\nSubject: Unfinished\r\nMessage-ID: <{message_id}>\r\n\
+             Date: Mon, 01 Sep 2026 10:00:00 +0000\r\n\r\nsent\r\n"
+        )
+        .as_bytes(),
+        &["mbD"],
+        &["$seen"],
+        "2026-09-01T10:00:00Z",
+    );
     s.store
         .enqueue(
             acct_account(),
@@ -669,7 +715,10 @@ async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_non
         )
         .unwrap();
     pass(&mut s).await;
-    assert!(copies(&s.fake).is_empty(), "{:?}", copies(&s.fake));
+    let left = copies(&s.fake);
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert!(left[0].2.contains("\r\n\r\nsent"), "{left:?}");
+    assert!(s.fake.state.lock().unwrap().email(&sent).is_some());
     // Another client's draft in the same folder is not this one's to remove.
     assert!(s.fake.state.lock().unwrap().email(&seeded[3]).is_some());
 }

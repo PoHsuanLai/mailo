@@ -302,11 +302,14 @@ impl JmapEngine {
                     .await
             }
             ProtoOp::KeepDraft {
+                draft,
                 mailbox,
                 message_id,
-                raw,
-                ..
             } => {
+                // Made from the draft as it stands now; nothing to put there, nothing done.
+                let Some(raw) = crate::server_drafts::copy(&self.store, draft)? else {
+                    return Ok(ProtoOutcome::Applied);
+                };
                 self.draft_copy(&client, &mailboxes, &mailbox, &message_id, Some(raw))
                     .await
             }
@@ -427,18 +430,21 @@ impl JmapEngine {
     /// ([`ProtoOp::KeepDraft`]), or with no `raw` only remove them ([`ProtoOp::DropDraft`]).
     ///
     /// As over IMAP: the copies are found by the draft's `Message-ID` first (`Email/query`, with
-    /// `Email/get` of where each is), the new copy imported with `$draft` and `$seen`, and then
-    /// those found destroyed, so a request cut off part way leaves a copy too many and never none.
-    /// Only an email in Drafts and nowhere else is destroyed: one another client has since filed
-    /// anywhere else is not a draft any more. A Drafts mailbox gone since this was queued leaves
-    /// nothing to keep a copy in, and nothing is done.
+    /// `Email/get` of where each is and its keywords), the new copy imported with `$draft` and
+    /// `$seen`, and then those found destroyed, so a request cut off part way leaves a copy too
+    /// many and never none. Only an email with `$draft`, in Drafts and nowhere else, is
+    /// destroyed: one another client has since filed anywhere else is not a draft any more, and
+    /// one without the keyword is not a copy at all. The sent message itself carries the same
+    /// `Message-ID`, and on a server with no Sent mailbox it is kept in Drafts: destroying it
+    /// would take the only copy of what was sent. A Drafts mailbox gone since this was queued
+    /// leaves nothing to keep a copy in, and nothing is done.
     async fn draft_copy(
         &self,
         client: &Client,
         mailboxes: &jmap::Mailboxes,
         mailbox: &MailboxRef,
         message_id: &str,
-        raw: Option<BlobId>,
+        raw: Option<Vec<u8>>,
     ) -> Result<ProtoOutcome, RuntimeError> {
         let Some(drafts) = mailboxes.id_for_path(&mailbox.path).cloned() else {
             return Ok(ProtoOutcome::Applied);
@@ -459,7 +465,7 @@ impl JmapEngine {
                     name: "Email/query",
                     path: "/ids",
                 },
-                &["id", "mailboxIds"],
+                &["id", "mailboxIds", "keywords"],
                 "g",
             ),
         ];
@@ -467,11 +473,11 @@ impl JmapEngine {
         let found: Vec<JmapEmailId> =
             EmailSummary::parse_list(responses.answer("g", "Email/get")?)?
                 .into_iter()
+                .filter(|e| e.keywords.iter().any(|k| k.eq_ignore_ascii_case("$draft")))
                 .filter(|e| !e.mailbox_ids.is_empty() && e.mailbox_ids.iter().all(|m| *m == drafts))
                 .map(|e| e.id)
                 .collect();
-        if let Some(raw) = raw {
-            let bytes = self.store.blobs().get(raw)?;
+        if let Some(bytes) = raw {
             let blob = client.upload(bytes).await?;
             let keywords = [SystemFlag::Draft, SystemFlag::Seen].map(|f| keyword_of(&f));
             let call = jmap::email_import(account, &blob, &drafts, &keywords, None, "i");

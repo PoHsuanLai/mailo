@@ -199,7 +199,11 @@ where
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
-    draft.text = plain_to_flowed(&forwarded(&signed(body, signature.as_ref()), &original, zone));
+    draft.text = plain_to_flowed(&forwarded(
+        &signed(body, signature.as_ref()),
+        &original,
+        zone,
+    ));
     draft.attachments = carried(&original.attachments);
     Ok(draft)
 }
@@ -1052,35 +1056,26 @@ pub fn keep_on_server(
     now: DateTime<Utc>,
 ) -> Result<bool, CoreError> {
     let draft = store.draft(draft)?;
-    if draft.state != SendState::Editing || draft.openpgp.encrypts() || draft.smime.encrypts() {
+    if draft.state != SendState::Editing {
         return Ok(false);
     }
     let Some(mailbox) = drafts_on_server(store, &draft.account) else {
         return Ok(false);
     };
-    let Some(identity) = store.identity(draft.identity)? else {
+    if draft.openpgp.encrypts() || draft.smime.encrypts() {
+        // Asked to be encrypted after a copy was kept: the copy in the clear goes, and the
+        // upload still waiting with it, which would have put the plaintext there.
+        mail_runtime::server_drafts::queue_drop(store, &draft, mailbox, now)?;
         return Ok(false);
-    };
-    let parent = draft
-        .in_reply_to
-        .and_then(|id| store.message(id).or_log("a message could not be read"));
-    let mut parts = Vec::with_capacity(draft.attachments.len());
-    for attachment in &draft.attachments {
-        let bytes = store
-            .blobs()
-            .get(attachment.blob)
-            .map_err(|e| CoreError::context(format!("attachment {}", attachment.name), e))?;
-        parts.push((attachment.blob, bytes));
     }
-    let copy = mail_mime::draft_copy(&draft, &identity, parent.as_ref(), &parts)?;
-    let raw = store.blobs().put(&copy)?;
     Ok(mail_runtime::server_drafts::queue_keep(
-        store, &draft, mailbox, raw, now,
+        store, &draft, mailbox, now,
     )?)
 }
 
 /// The Drafts mailbox `account` keeps copies of drafts in on its server: the one its server
-/// named, on an IMAP or JMAP account. See [`keep_on_server`] for why no other.
+/// named, on an IMAP or JMAP account that is not Gmail's
+/// ([`mail_runtime::server_drafts::keeps_copies`]). See [`keep_on_server`] for why no other.
 fn drafts_on_server(store: &SqliteStore, account: &AccountId) -> Option<MailboxRef> {
     let stored = store
         .account(account.clone())
@@ -1094,6 +1089,9 @@ fn drafts_on_server(store: &SqliteStore, account: &AccountId) -> Option<MailboxR
     let caps = stored
         .caps?
         .or_log("the capabilities of the account a draft is on could not be read")?;
+    if !mail_runtime::server_drafts::keeps_copies(&caps) {
+        return None;
+    }
     let path = caps.folders.path(MailboxRole::Drafts)?;
     Some(MailboxRef {
         account: account.clone(),
@@ -1749,7 +1747,6 @@ mod server_copy_tests {
                 draft: kept,
                 mailbox,
                 message_id,
-                raw,
             },
         ] = &ops[..]
         else {
@@ -1758,7 +1755,13 @@ mod server_copy_tests {
         assert_eq!(*kept, draft.id);
         assert_eq!(mailbox.path, "Drafts");
         assert_eq!(*message_id, format!("{}@example.test", draft.id));
-        let bytes = String::from_utf8(store.blobs().get(*raw).unwrap()).unwrap();
+        // Nothing is stored for the upload: its bytes are made from the draft when it runs.
+        let bytes = String::from_utf8(
+            mail_runtime::server_drafts::copy(&store, draft.id)
+                .unwrap()
+                .expect("a draft being written has a copy"),
+        )
+        .unwrap();
         assert!(
             bytes.contains(&format!("Message-ID: <{message_id}>\r\n")),
             "{bytes}"
@@ -1826,5 +1829,38 @@ mod server_copy_tests {
             assert!(!keep_on_server(&store, draft.id, at(2)).unwrap());
             assert!(queued(&store).is_empty(), "{:?}", queued(&store));
         }
+    }
+
+    #[test]
+    fn a_draft_that_asks_to_be_encrypted_takes_the_copy_kept_before_and_its_waiting_upload_away() {
+        let (store, draft) = writing(imap(), with_drafts());
+        assert!(keep_on_server(&store, draft.id, at(2)).unwrap());
+        save(
+            &store,
+            &Draft {
+                openpgp: OpenPgp::Encrypt,
+                ..draft.clone()
+            },
+        )
+        .unwrap();
+        assert!(!keep_on_server(&store, draft.id, at(3)).unwrap());
+        let ops = queued(&store);
+        assert!(
+            matches!(&ops[..], [ProtoOp::DropDraft { draft: gone, .. }] if *gone == draft.id),
+            "{ops:?}"
+        );
+    }
+
+    #[test]
+    fn gmail_keeps_no_copy_of_a_draft_on_its_server() {
+        let (store, draft) = writing(imap(), with_drafts());
+        let gmail = AccountCaps {
+            archive: mail_domain::ArchiveMeans::DropInbox,
+            folders: FolderRoles(with_drafts()),
+            ..caps()
+        };
+        mail_store::testing::seed_caps(&store, account(), &gmail, at(0)).unwrap();
+        assert!(!keep_on_server(&store, draft.id, at(2)).unwrap());
+        assert!(queued(&store).is_empty(), "{:?}", queued(&store));
     }
 }

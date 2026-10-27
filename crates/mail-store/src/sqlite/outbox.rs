@@ -201,21 +201,44 @@ impl SqliteStore {
         // stale once another is queued, or once the draft is sent or discarded, and goes. One
         // already under way when it goes runs to its end and settles into nothing (`settle`);
         // what it put there is found and removed by the operation queued here.
+        // A new upload takes over the place of the one it replaces in the backoff too: a server
+        // that refuses them is not asked again at every autosave.
+        let (mut attempts, mut next_attempt) = (0_u32, now);
         if let Some(draft) = crate::dispatch::draft_copy_of(&intent) {
-            self.connection().execute(
-                "DELETE FROM outbox WHERE account = ?1
-                     AND json_extract(op, '$.kind') = 'keep_draft'
-                     AND json_extract(op, '$.v.draft') = ?2",
-                params![account.to_string(), draft.to_string()],
-            )?;
+            let stale: Vec<(i64, u32, String)> = {
+                let db = self.connection();
+                let mut stmt = db.prepare(
+                    "SELECT id, attempts, next_attempt FROM outbox WHERE account = ?1
+                         AND json_extract(op, '$.kind') = 'keep_draft'
+                         AND json_extract(op, '$.v.draft') = ?2",
+                )?;
+                stmt.query_map(params![account.to_string(), draft.to_string()], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
+                .collect::<Result<_, _>>()?
+            };
+            for (id, tried, due) in &stale {
+                if matches!(intent, RemoteIntent::KeepDraft { .. }) {
+                    attempts = attempts.max(*tried);
+                    next_attempt = next_attempt.max(super::row::time("next_attempt", due)?);
+                }
+                self.connection()
+                    .execute("DELETE FROM outbox WHERE id = ?1", params![id])?;
+                self.replaced
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(*id);
+            }
         }
         self.connection().execute(
             "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at, messages)
-             VALUES (?1, ?2, ?3, 0, ?4, ?4, ?5)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 account.to_string(),
                 to_json("ProtoOp", &op)?,
                 to_json("Patch", undo)?,
+                attempts,
+                from_time(next_attempt),
                 from_time(now),
                 messages,
             ],
@@ -364,7 +387,17 @@ impl SqliteStore {
             |r| r.get(0),
         )?;
         if !held {
-            return Ok(());
+            // Only an upload of a draft that a later one replaced while it ran has no row.
+            let replaced = self
+                .replaced
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&id.as_i64());
+            return if replaced {
+                Ok(())
+            } else {
+                Err(StoreError::db(format!("no such outbox entry: {id}")))
+            };
         }
         match settle {
             Settle::Ok => {

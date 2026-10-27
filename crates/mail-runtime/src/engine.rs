@@ -675,9 +675,17 @@ impl<B: Backend> AccountEngine<B> {
         // An upload's bytes are a blob, and reading one is this crate's to do. Staged here, per
         // attempt, rather than by the caller: a retry after a renewed sign-in runs this again,
         // and bytes staged once would already have been spent by the first attempt.
-        if let ProtoOp::Append { raw, .. } | ProtoOp::KeepDraft { raw, .. } = &op {
+        if let ProtoOp::Append { raw, .. } = &op {
             let bytes = self.store.blobs().get(*raw)?;
             self.backend.stage_append(bytes);
+        }
+        // A draft's copy is made from the draft as it stands now, so what waited sends the
+        // latest; one with nothing to put there any more is done with.
+        if let ProtoOp::KeepDraft { draft, .. } = &op {
+            match crate::server_drafts::copy(&self.store, *draft)? {
+                Some(bytes) => self.backend.stage_append(bytes),
+                None => return Ok(ProtoOutcome::Applied),
+            }
         }
         // A watch is quiet by design, parked in IDLE until there is news, and `wait` ends it at
         // `IDLE_REARM`; this is only the floor under that. Anything else that goes this quiet
@@ -1565,6 +1573,10 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<bool, RuntimeError> {
         // A Graph account reads through `self.graph`, and keeps no copy there.
         if !matches!(self.plan.incoming, Incoming::Imap { .. }) || self.graph.is_some() {
+            return Ok(false);
+        }
+        // Nor does Gmail ([`crate::server_drafts::keeps_copies`]), whose EXPUNGE may archive.
+        if !crate::server_drafts::keeps_copies(self.caps()) {
             return Ok(false);
         }
         let Some(path) = self.folder_for(MailboxRole::Drafts) else {

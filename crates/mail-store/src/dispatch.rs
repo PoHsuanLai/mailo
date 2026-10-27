@@ -161,12 +161,10 @@ pub(crate) fn unaddressed(intent: &RemoteIntent) -> Option<ProtoOp> {
             draft,
             mailbox,
             message_id,
-            raw,
         } => ProtoOp::KeepDraft {
             draft: *draft,
             mailbox: mailbox.clone(),
             message_id: message_id.clone(),
-            raw: *raw,
         },
         RemoteIntent::DropDraft {
             draft,

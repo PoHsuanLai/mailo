@@ -48,7 +48,6 @@ fn keep() -> Driven<ImapBackend> {
             draft: DraftId::generate(),
             mailbox: drafts("Drafts"),
             message_id: ID.to_owned(),
-            raw: BlobId::generate(),
         },
     )
 }
@@ -77,7 +76,7 @@ fn prelude(capabilities: &str) -> String {
          S: * 3 EXISTS\n\
          S: * OK [UIDVALIDITY 900] ok\n\
          S: a003 OK [READ-WRITE] done\n\
-         C: a004 UID SEARCH HEADER Message-ID \"<{ID}>\"\n"
+         C: a004 UID SEARCH DRAFT HEADER Message-ID \"<{ID}>\"\n"
     )
 }
 
@@ -220,7 +219,7 @@ fn only_the_search_s_own_answer_names_what_is_marked() {
          S: * SEARCH 1 2 3\n\
          S: * OK [UIDVALIDITY 900] ok\n\
          S: a003 OK [READ-WRITE] done\n\
-         C: a004 UID SEARCH HEADER Message-ID \"<{ID}>\"\n\
+         C: a004 UID SEARCH DRAFT HEADER Message-ID \"<{ID}>\"\n\
          S: * SEARCH\n\
          S: a004 OK done\n\
          DONE\n",
@@ -245,7 +244,6 @@ fn outside_the_drafts_folder_nothing_is_sent() {
                 draft: DraftId::generate(),
                 mailbox: drafts(folder),
                 message_id: ID.to_owned(),
-                raw: BlobId::generate(),
             },
             ProtoOp::DropDraft {
                 draft: DraftId::generate(),

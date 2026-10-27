@@ -104,6 +104,7 @@ fn an_autosave_queues_the_draft_s_copy_for_the_server_s_drafts_folder() {
     };
     store.set_account_plan(acct_account(), &plan).unwrap();
     let caps = AccountCaps {
+        archive: mail_domain::ArchiveMeans::LocalOnly,
         folders: FolderRoles(vec![("Drafts".to_owned(), MailboxRole::Drafts)]),
         ..crate::ui::fixtures::gmail_caps()
     };

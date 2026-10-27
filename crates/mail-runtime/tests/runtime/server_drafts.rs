@@ -8,7 +8,7 @@
 
 use crate::fixture::{IDENTITY, acct_account, now};
 use mail_domain::*;
-use mail_mime::{draft_copy, posting};
+use mail_mime::posting;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::{AccountEngine, AccountSecrets};
@@ -423,10 +423,8 @@ fn drafts() -> MailboxRef {
 
 /// Queue the draft's copy as it now stands, as the composer's autosave does.
 fn keep(store: &SqliteStore, draft: &Draft) {
-    let raw = draft_copy(draft, &identity(), None, &[]).unwrap();
-    let raw = store.blobs().put(&raw).unwrap();
     assert!(
-        mail_runtime::server_drafts::queue_keep(store, draft, drafts(), raw, now()).unwrap(),
+        mail_runtime::server_drafts::queue_keep(store, draft, drafts(), now()).unwrap(),
         "the copy was not queued"
     );
 }

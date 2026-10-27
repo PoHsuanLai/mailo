@@ -304,9 +304,9 @@ impl ImapBackend {
     /// The folder must be the one the server lists as Drafts, as Trash or Spam must be for a
     /// deletion forever: this marks messages `\Deleted`, and nowhere else is that this client's
     /// to do. Then, on one connection: `CAPABILITY`, so the session knows what the server offers
-    /// once signed in; `SELECT`; `UID SEARCH HEADER Message-ID`, which finds the copies already
-    /// there, by the draft's own id rather than by UIDs an earlier upload was told, since a
-    /// server need not say where an upload landed (`APPENDUID`) and an upload cut off before its
+    /// once signed in; `SELECT`; `UID SEARCH DRAFT HEADER Message-ID`, which finds the copies
+    /// already there, by the draft's own id rather than by UIDs an earlier upload was told, since
+    /// a server need not say where an upload landed (`APPENDUID`) and an upload cut off before its
     /// answer leaves a copy nobody was told of; the `APPEND`; and `UID STORE +FLAGS.SILENT
     /// (\Deleted)` and `UID EXPUNGE` of exactly the UIDs the search found, which are decided in
     /// the walk ([`ImapCommand::UidStoreFound`]). Found before the upload, so the new copy is
@@ -785,7 +785,7 @@ impl Backend for ImapBackend {
                 message_id,
                 ..
             } => {
-                // Staged as an `Append`'s bytes are: the op names a blob.
+                // Staged as an `Append`'s bytes are, made from the draft by the runtime.
                 let Some(body) = self.staged.take() else {
                     return Progress::Failed(ProtoError::Malformed(
                         "a draft was not staged: call stage() with its bytes".to_owned(),
@@ -1110,16 +1110,19 @@ impl Backend for ImapBackend {
     }
 }
 
-/// `HEADER Message-ID "<id>"`: the search that finds a draft's copies by the id every one of
-/// them carries. `None` for an id that is not one this client gives a draft, which is ASCII with
-/// one `@` and nothing that could close the quoted string or the brackets.
+/// `DRAFT HEADER Message-ID "<id>"`: the search that finds a draft's copies by the id every one
+/// of them carries, and by the `\Draft` flag every one was uploaded with. A message without it
+/// is not a copy of the draft, whatever its id: the sent message itself, filed in Drafts by a
+/// server or client that keeps no Sent folder, carries the same `Message-ID`, and is never
+/// marked for removal. `None` for an id that is not one this client gives a draft, which is ASCII
+/// with one `@` and nothing that could close the quoted string or the brackets.
 fn draft_search(message_id: &str) -> Option<String> {
     let fits = !message_id.is_empty()
         && message_id.matches('@').count() == 1
         && message_id
             .bytes()
             .all(|b| b.is_ascii_graphic() && !matches!(b, b'"' | b'\\' | b'<' | b'>'));
-    fits.then(|| format!("HEADER Message-ID \"<{message_id}>\""))
+    fits.then(|| format!("DRAFT HEADER Message-ID \"<{message_id}>\""))
 }
 
 /// The wire spelling of a keyword. `$`-prefixed keywords are the registered ones (RFC 5788).

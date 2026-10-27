@@ -69,6 +69,8 @@ struct Inner {
     /// What each account's server turned out to support.
     caps: BTreeMap<AccountId, AccountCaps>,
     outbox: BTreeMap<OutboxId, OutboxRow>,
+    /// Rows a draft's newer upload took the place of, which an attempt under way may still settle.
+    replaced: BTreeSet<OutboxId>,
     next_outbox: i64,
     pending: Vec<PendingRow>,
     sync: BTreeMap<(AccountId, String), SyncCursor>,
@@ -153,6 +155,7 @@ impl Default for Inner {
             vacations: BTreeMap::new(),
             caps: BTreeMap::new(),
             outbox: BTreeMap::new(),
+            replaced: BTreeSet::new(),
             // SQLite rowids start at 1. Matching that keeps insertion order obvious in tests.
             next_outbox: 1,
             pending: Vec::new(),
@@ -1468,7 +1471,9 @@ impl Inner {
             Ok(!self.refs_for(account.clone(), &[m])?.is_empty()
                 || self.unplaced.contains_key(&(account.clone(), m)))
         })?;
-        // As `SqliteStore::queue`: a draft's upload still waiting is stale, and goes.
+        // As `SqliteStore::queue`: a draft's upload still waiting is stale, and goes; a new
+        // upload takes over its backoff.
+        let (mut attempts, mut next_attempt) = (0_u32, now);
         if let Some(draft) = crate::dispatch::draft_copy_of(intent) {
             let stale: Vec<OutboxId> = self
                 .outbox
@@ -1480,6 +1485,11 @@ impl Inner {
                 .map(|(id, _)| *id)
                 .collect();
             for id in stale {
+                if matches!(intent, RemoteIntent::KeepDraft { .. }) {
+                    attempts = attempts.max(self.outbox[&id].attempts);
+                    next_attempt = next_attempt.max(self.outbox[&id].next_attempt);
+                }
+                self.replaced.insert(id);
                 self.drop_entry(id);
             }
         }
@@ -1500,8 +1510,8 @@ impl Inner {
                 op,
                 messages,
                 undo: undo.clone(),
-                attempts: 0,
-                next_attempt: now,
+                attempts,
+                next_attempt,
             },
         );
         for (message, changes) in crate::pending::pending_of(intent) {
@@ -1680,9 +1690,14 @@ impl Inner {
         settle: Settle,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        // As `SqliteStore::settle`: a draft's upload replaced while it ran has no row to settle.
+        // As `SqliteStore::settle`: a draft's upload replaced while it ran has no row to settle,
+        // and no other row is gone.
         if !self.outbox.contains_key(&id) {
-            return Ok(());
+            return if self.replaced.contains(&id) {
+                Ok(())
+            } else {
+                Err(StoreError::db(format!("no such outbox entry: {id}")))
+            };
         }
         match settle {
             Settle::Ok => {

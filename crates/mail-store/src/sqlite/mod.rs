@@ -85,6 +85,10 @@ pub struct SqliteStore {
     blobs: BlobStore,
     /// The database's file, for [`SqliteStore::file`]. `None` for an in-memory database.
     file: Option<PathBuf>,
+    /// Outbox rows a draft's newer upload took the place of, which an attempt already under way
+    /// may still settle ([`SqliteStore::settle`]). Only those; any other row that is gone is a
+    /// mistake of the caller's.
+    replaced: std::sync::Mutex<std::collections::BTreeSet<i64>>,
     /// The directory a test store's blobs live in, removed with the store.
     #[cfg(feature = "testing")]
     pub(crate) scratch: Option<tempfile::TempDir>,
@@ -206,6 +210,7 @@ impl SqliteStore {
             readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
             file: None,
+            replaced: std::sync::Mutex::new(std::collections::BTreeSet::new()),
             #[cfg(feature = "testing")]
             scratch: None,
         };

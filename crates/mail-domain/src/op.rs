@@ -258,14 +258,15 @@ pub enum RemoteIntent {
     ///
     /// Addresses no message this client holds: the copy is never brought in as one, and the
     /// copies it replaces are found on the server by `message_id`, which a draft keeps however
-    /// often it is rebuilt. Resolves to the identical [`crate::ProtoOp::KeepDraft`]; a second
-    /// upload of the same draft queued while one waits takes its place in the outbox.
+    /// often it is rebuilt. Carries no bytes: the copy is made from the draft as it stands when
+    /// the upload runs, so nothing is stored for it and a queued one is never stale. Resolves to
+    /// the identical [`crate::ProtoOp::KeepDraft`]; a second upload of the same draft queued
+    /// while one waits takes its place in the outbox.
     KeepDraft {
         draft: DraftId,
         mailbox: MailboxRef,
         /// The draft's `Message-ID`, without angle brackets.
         message_id: String,
-        raw: BlobId,
     },
     /// Remove a draft's copies from the server's Drafts mailbox, once it is sent or discarded.
     /// Resolves to the identical [`crate::ProtoOp::DropDraft`], and takes the place of any upload

@@ -337,8 +337,9 @@ pub enum ProtoOp {
     },
     /// Create, rename, delete or follow a mailbox. IMAP only.
     Folder(crate::folder::FolderWork),
-    /// Put `raw`, a draft's latest bytes, in the Drafts mailbox at `mailbox`, and remove the
-    /// copies of it already there.
+    /// Put the draft's latest bytes in the Drafts mailbox at `mailbox`, and remove the copies of
+    /// it already there. The bytes are made from the draft when this runs, and staged as an
+    /// [`ProtoOp::Append`]'s are; nothing is stored for them.
     ///
     /// The copies are found by `message_id`, which is the draft's own and the same in every
     /// copy, rather than by where an earlier upload said it landed: a server need not say
@@ -356,7 +357,6 @@ pub enum ProtoOp {
         mailbox: MailboxRef,
         /// The draft's `Message-ID`, without angle brackets.
         message_id: String,
-        raw: BlobId,
     },
     /// Remove every copy of a draft from the Drafts mailbox at `mailbox`: it was sent, or
     /// discarded. Found and removed as [`ProtoOp::KeepDraft`] removes the copies it replaces.
