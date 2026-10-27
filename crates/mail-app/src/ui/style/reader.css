@@ -18,6 +18,10 @@
 }
 /* The bar over the subject, a message's and a new one's alike (`.c-head`, `composer.css`). */
 .reader-head .head-row, .c-head .head-row { display: flex; gap: var(--s-6); align-items: center; min-height: var(--ctl-h-l); margin-bottom: var(--s-9); }
+/* ⌘F's bar, at the start of the reader's bar: the field with its count, the steps, and Done. */
+.find-bar { display: flex; align-items: center; gap: var(--s-6); flex: 0 1 380px; min-width: 0; }
+.find-field { flex: 1 1 auto; min-width: 0; }
+.find-count { color: var(--ink-faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* A message's header, as Mail draws it: the avatar, then the sender's line (name, address, and
    the date at its end) over whom it went to. The compact one, an earlier message's, is a small
    avatar, the name and the date on one line. */

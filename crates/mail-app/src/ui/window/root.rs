@@ -116,6 +116,11 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             crate::ui::reading::peek_key(shell, keys, &event);
             return;
         }
+        // Escape closes ⌘F's bar first, as in the first window.
+        if key == "Escape" && shell.read().find.is_some() && shell.read().composing.is_none() {
+            crate::ui::reading::find::close(shell);
+            return;
+        }
         if shell.read().raw.is_some() {
             if key == "Escape" {
                 crate::ui::reading::close_raw(shell);
@@ -134,11 +139,22 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
         ) {
             return;
         }
-        if intent == Some(Intent::Print) {
-            if let Some(job) = crate::ui::print::job_for(Some(thread)) {
-                crate::ui::print::print(job);
+        match intent {
+            Some(Intent::Print) => {
+                if let Some(job) = crate::ui::print::job_for(Some(thread)) {
+                    crate::ui::print::print(job);
+                }
+                return;
             }
-            return;
+            Some(Intent::Find) => {
+                crate::ui::reading::find::open(shell);
+                return;
+            }
+            Some(Intent::FindStep(step)) => {
+                crate::ui::reading::find::step(shell, step);
+                return;
+            }
+            _ => {}
         }
         match intent {
             Some(Intent::Zoom(step)) => {

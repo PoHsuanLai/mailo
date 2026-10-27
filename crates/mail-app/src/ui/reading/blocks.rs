@@ -29,7 +29,8 @@ pub(super) fn Sandbox(
     /// takes the room left instead.
     #[props(default)]
     fit: bool,
-    /// The message the frame shows, which a reply asks for its selection (`super::selection`).
+    /// The message the frame shows, which a reply asks for its selection (`super::selection`) and
+    /// ⌘F looks through (`super::find`); a frame drawn with no reader around it is not.
     #[props(default)]
     message: Option<MessageId>,
     /// The words a right click on the frame was on, for the reader's Copy menu, which takes
@@ -87,6 +88,26 @@ pub(super) fn Sandbox(
         }
     }));
     let html = super::fit::zoomed(&html, zoom());
+    let found = use_hook(try_consume_context::<super::find::Frames>);
+    // A new document in the frame (a zoom to fit is one) holds none of what ⌘F marked.
+    {
+        let found = found.clone();
+        use_effect(use_reactive!(|html| {
+            // Read for its changes alone: each is a new document.
+            let _ = html;
+            if let Some(found) = &found {
+                found.changed();
+            }
+        }));
+    }
+    {
+        let found = found.clone();
+        use_drop(move || {
+            if let (Some(found), Some(message)) = (found, message) {
+                found.gone(message);
+            }
+        });
+    }
     let style = match (fit, height()) {
         (true, Some(px)) => format!("height: {px}px;"),
         _ => String::new(),
@@ -105,6 +126,9 @@ pub(super) fn Sandbox(
             onmounted: move |event: MountedEvent| {
                 let mounted = event.data();
                 frame.set(Some(mounted.clone()));
+                if let (Some(found), Some(message)) = (&found, message) {
+                    found.drawn(message, mounted.clone());
+                }
                 if let (Some(selections), Some(message)) = (&selections, message) {
                     selections.hold(message, &mounted);
                 }

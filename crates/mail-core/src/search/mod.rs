@@ -21,6 +21,7 @@ mod pipeline;
 mod ranking;
 mod regex;
 mod source;
+mod within;
 
 #[cfg(test)]
 mod live;
@@ -41,6 +42,7 @@ pub use pipeline::{NEWEST_POOL, Prepared, QUICK_LIMIT, Searched, TOP_LIMIT, prep
 pub use ranking::{Affinity, MAX_BONUS, SenderStats, WEIGHTS, rank};
 pub use regex::{Extracted, compile, extract, hits as regex_hits};
 pub use source::{Source, Term, first};
+pub use within::{Found, MOST_FOUND, find_in};
 
 /// A query that has been parsed, expanded and ranked.
 #[derive(Debug, Clone)]

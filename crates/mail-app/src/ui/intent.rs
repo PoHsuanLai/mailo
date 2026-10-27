@@ -14,6 +14,7 @@ use crate::settings::ZoomStep;
 use chordkit::StandardAction;
 use dioxus::prelude::*;
 use mail_core::SqliteStore;
+use mail_core::search::Step;
 use mail_domain::*;
 
 /// Where the key landed.
@@ -32,8 +33,12 @@ pub(in crate::ui) enum Scope {
 pub(in crate::ui) enum Intent {
     ToggleSidebar,
     Print,
-    /// ⌘F and ⌘K: bring up the search panel.
+    /// ⌘K: bring up the search panel.
     Search,
+    /// ⌘F: find in the open conversation.
+    Find,
+    /// ⌘G and ⇧⌘G (F3 and Shift+F3 in CUA): the next or previous match of that find.
+    FindStep(Step),
     Settings,
     SelectAll,
     OpenInWindow,
@@ -49,12 +54,17 @@ pub(in crate::ui) enum Intent {
 ///
 /// A field keeps ⌘A and Shift+Enter and Move to Trash for itself; a thread window has no sidebar, search,
 /// settings, list to step through or other conversation to start, so those are nothing there.
+/// Finding in the conversation is every window's, and a field's too: the find bar's own field
+/// hands ⌘F and ⌘G on.
 pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent> {
     let chosen = match heard? {
         Heard::Mail(action) => Intent::Mail(action),
         Heard::Standard(StandardAction::Print) => Intent::Print,
         Heard::Standard(StandardAction::ToggleSidebar) => Intent::ToggleSidebar,
-        Heard::Standard(StandardAction::Find) | Heard::Own(Own::Search) => Intent::Search,
+        Heard::Own(Own::Search) => Intent::Search,
+        Heard::Standard(StandardAction::Find) => Intent::Find,
+        Heard::Standard(StandardAction::FindNext) => Intent::FindStep(Step::Next),
+        Heard::Standard(StandardAction::FindPrevious) => Intent::FindStep(Step::Previous),
         Heard::Standard(StandardAction::Settings) => Intent::Settings,
         Heard::Standard(StandardAction::SelectAll) => Intent::SelectAll,
         Heard::Standard(StandardAction::New) => Intent::Mail(Shortcut::Compose),
@@ -72,7 +82,7 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
         _ => return None,
     };
     let allowed = match (scope, chosen) {
-        (_, Intent::Print | Intent::Zoom(_)) => true,
+        (_, Intent::Print | Intent::Zoom(_) | Intent::Find | Intent::FindStep(_)) => true,
         (Scope::Window, Intent::Raw(_)) => true,
         (Scope::Typing, Intent::Raw(_)) => false,
         (Scope::Window, Intent::Mail(action)) => !matches!(
@@ -168,8 +178,21 @@ mod tests {
                 Some(ToggleSidebar),
             ),
             (standard(StandardAction::ToggleSidebar), Window, None),
-            (standard(StandardAction::Find), Typing, Some(Search)),
+            (standard(StandardAction::Find), List, Some(Find)),
+            (standard(StandardAction::Find), Window, Some(Find)),
+            (standard(StandardAction::Find), Typing, Some(Find)),
+            (
+                standard(StandardAction::FindNext),
+                Window,
+                Some(FindStep(Step::Next)),
+            ),
+            (
+                standard(StandardAction::FindPrevious),
+                Typing,
+                Some(FindStep(Step::Previous)),
+            ),
             (own(Own::Search), List, Some(Search)),
+            (own(Own::Search), Typing, Some(Search)),
             (own(Own::Search), Window, None),
             (standard(StandardAction::Settings), List, Some(Settings)),
             (standard(StandardAction::SelectAll), List, Some(SelectAll)),

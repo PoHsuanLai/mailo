@@ -12,7 +12,7 @@ mod looks;
 mod quote;
 mod seal;
 
-pub use frame::{FrameBody, Prefer, Source, render};
+pub use frame::{FOUND_CURRENT, FOUND_MARK, FrameBody, Prefer, Source, render};
 pub use frames::{FIRST_PAGE, Frames, INLINE_BYTES, Key, Sent, Unsealed, ahead};
 pub use list::{Offer, offer_of};
 pub use looks::{Bodies, Invited, Looks, Read, Receipt};

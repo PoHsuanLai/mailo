@@ -44,6 +44,13 @@ pub fn selected(count: usize) -> String {
     format!("{count} selected")
 }
 
+// ⌘F's count, beside what was typed.
+/// The match it is on, counted from 1: "3 of 12".
+pub fn match_of(at: usize, total: usize) -> String {
+    format!("{at} of {total}")
+}
+pub const NO_MATCHES: &str = "No matches";
+
 // Peek, while it draws an attachment or when it cannot.
 /// A PDF's page, counted from 1.
 pub fn page_of(page: u32, count: u32) -> String {

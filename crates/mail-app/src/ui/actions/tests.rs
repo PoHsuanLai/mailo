@@ -447,6 +447,23 @@ fn a_press_is_the_action_the_platform_s_chord_names() {
             false,
             Some(Standard(StandardAction::Find)),
         ),
+        // Find Next and Find Previous are offered, for the find bar: mailo forgoes neither.
+        (
+            "⌘G",
+            ours(),
+            character("g"),
+            SUPER,
+            false,
+            Some(Standard(StandardAction::FindNext)),
+        ),
+        (
+            "⇧⌘G",
+            ours(),
+            character("G"),
+            SUPER | SHIFT,
+            false,
+            Some(Standard(StandardAction::FindPrevious)),
+        ),
         (
             "⌘,",
             ours(),

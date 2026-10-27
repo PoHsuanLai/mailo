@@ -49,6 +49,7 @@ mod rules;
 mod triage;
 
 // 13–14: the sidebar's Spaces, tiles and folders; the Settings window.
+mod find;
 mod preferences;
 mod search;
 mod sidebar;

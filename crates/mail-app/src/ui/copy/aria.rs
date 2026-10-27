@@ -93,6 +93,13 @@ pub fn preview(name: &str) -> String {
 /// A PDF's page buttons in Peek.
 pub const PREVIOUS_PAGE: &str = "Previous Page";
 pub const NEXT_PAGE: &str = "Next Page";
+// ⌘F's bar over the open conversation.
+/// Its field.
+pub const FIND_IN_MESSAGE: &str = "Find in Message";
+/// Its buttons, which step through the matches and close it.
+pub const PREVIOUS_MATCH: &str = "Previous Match";
+pub const NEXT_MATCH: &str = "Next Match";
+pub const DONE_FINDING: &str = "Done";
 /// Peek showing a link's card.
 pub const LINK_DESTINATION: &str = "Link Destination";
 /// A PDF's page in Peek, counted from 1: the picture's description.
