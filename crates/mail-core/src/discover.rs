@@ -30,7 +30,7 @@ use porter_discover::{
 };
 use porter_http::Http;
 use porter_provider::{DomainMatch, DomainName, Issuer, ProviderSpec};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::RwLock;
 
 /// Where a configuration came from, which is what the user is asked to trust.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,21 +132,25 @@ impl std::fmt::Display for Failed {
 
 impl std::error::Error for Failed {}
 
-/// Whether this installation has a client that signs a personal Microsoft account in. Set once at
-/// the program's edge ([`allow_personal_microsoft`]); off, as in every test, a personal address
-/// is refused.
-static PERSONAL_MICROSOFT_OPEN: AtomicBool = AtomicBool::new(false);
+/// The clients this installation signs in as, once the program's edge records them
+/// ([`judge_personal_microsoft_by`]); none, as in every test, refuses a personal address.
+static CLIENTS: RwLock<Option<crate::OAuthClients>> = RwLock::new(None);
 
-/// Record whether a personal Microsoft account (`outlook.com`, `hotmail.com`) can be signed in:
-/// true when the installation's Microsoft client is registered for personal accounts
-/// (`mail_runtime::clients::personal_microsoft_ready`). Until it is, a personal address is told
-/// why it is refused, as it always was.
-pub fn allow_personal_microsoft(open: bool) {
-    PERSONAL_MICROSOFT_OPEN.store(open, Ordering::Relaxed);
+/// Record the clients that decide whether a personal Microsoft account (`outlook.com`,
+/// `hotmail.com`) can be signed in: it can when they hold a Microsoft client registered for
+/// personal accounts (`mail_runtime::clients::personal_microsoft_ready`). They are asked at each
+/// address, so a client set up while the program runs counts. Until one does, a personal address
+/// is told why it is refused, as it always was.
+pub fn judge_personal_microsoft_by(clients: Option<crate::OAuthClients>) {
+    *CLIENTS.write().unwrap_or_else(|e| e.into_inner()) = clients;
 }
 
 fn personal_microsoft_open() -> bool {
-    PERSONAL_MICROSOFT_OPEN.load(Ordering::Relaxed)
+    CLIENTS
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|clients| clients.takes_personal_microsoft())
 }
 
 /// What a personal Microsoft mailbox is told: it no longer takes a password, and the client
@@ -219,7 +223,7 @@ pub fn microsoft_domain(address: &str) -> presets::MicrosoftAccount {
 /// its address and goes through discovery, which shows what it found and asks. Nor does a
 /// provider that signs in with a password: its hosts are shown for a yes first. A personal
 /// Microsoft domain is not here either: discovery says why, or, where a client signs personal
-/// accounts in ([`allow_personal_microsoft`]), sets it up as a personal account.
+/// accounts in ([`judge_personal_microsoft_by`]), sets it up as a personal account.
 ///
 /// The address is kept exactly as typed; only the lookup folds case.
 pub fn known(address: &str, now: DateTime<Utc>) -> Option<Preset> {
@@ -1121,10 +1125,19 @@ mod tests {
     /// account instead of refused; a tenant's is unchanged.
     #[tokio::test]
     async fn a_personal_microsoft_mailbox_is_set_up_once_a_client_takes_it() {
-        allow_personal_microsoft(true);
+        let mut client = mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None);
+        client.endpoints = Some(porter_provider::IssuerEndpoints {
+            authorize: EndpointUrl::parse("https://login.example/common/authorize").unwrap(),
+            token: EndpointUrl::parse("https://login.example/common/token").unwrap(),
+            revoke: None,
+            device: None,
+        });
+        judge_personal_microsoft_by(Some(crate::OAuthClients::Given(
+            mail_runtime::clients::registry_of(vec![client]),
+        )));
         let found = Net::default().found("me@outlook.com").await;
         let tenant = Net::default().found("me@contoso.onmicrosoft.com").await;
-        allow_personal_microsoft(false);
+        judge_personal_microsoft_by(None);
         let found = found.expect("a personal mailbox");
         assert_eq!(
             found.preset.plan.auth,

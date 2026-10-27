@@ -49,7 +49,7 @@ const PLACEHOLDER: &str = "REPLACE-ME";
 
 /// Whether `entry` is a placeholder from the packaged file, not a registered client. Such a row
 /// is never used to sign in: it is read as no client at all.
-pub fn is_placeholder(entry: &ClientEntry) -> bool {
+fn is_placeholder(entry: &ClientEntry) -> bool {
     entry.client_id.0.starts_with(PLACEHOLDER)
 }
 
@@ -88,8 +88,8 @@ pub fn load_default() -> Result<ClientRegistry, RuntimeError> {
     load(&Files::here())
 }
 
-/// The registry from `files`: the built-in clients, porter's over them, then mailo's earlier file for each issuer they do
-/// not cover. A file that does not exist is empty; one that is damaged is an error, never read
+/// The registry from `files`: the built-in clients, porter's over them, then mailo's earlier file
+/// for each issuer they do not cover. A file that does not exist is empty; one that is damaged is an error, never read
 /// as empty (that would report a configured client as missing). Nothing is written.
 pub fn load(files: &Files) -> Result<ClientRegistry, RuntimeError> {
     let mut shipped = read(files.shipped.as_deref())?;

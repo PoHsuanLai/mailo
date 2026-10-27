@@ -90,7 +90,7 @@ pub fn environment() -> Environment {
 pub fn install_clients(clients: OAuthClients) {
     // A personal Outlook.com or Hotmail address is refused until a client that takes personal
     // accounts is registered (placeholders in `packaging/oauth/clients.toml` are none).
-    mail_core::discover::allow_personal_microsoft(clients.takes_personal_microsoft());
+    mail_core::discover::judge_personal_microsoft_by(Some(clients.clone()));
     let _ = CLIENTS.set(clients);
 }
 
