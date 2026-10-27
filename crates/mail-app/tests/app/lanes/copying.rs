@@ -108,7 +108,8 @@ fn words_dragged_over_in_a_message_are_copied_by_command_c() {
 
     // A plain-text message, the same way.
     open(&mut window, PLAIN_SUBJECT, "body");
-    let words = drag_over(&mut window, "body", 2.0, 120.0).expect("the drag selects words");
+    // The words sit 18 px in, inside the frame's gutter; a drag begins on them, not in it.
+    let words = drag_over(&mut window, "body", 19.0, 138.0).expect("the drag selects words");
     assert!(words.starts_with("First"), "the drag selected {words:?}");
     window.press(&[PRIMARY], Key::Char('c'), 1);
     assert_eq!(window.harness.clipboard_text(), Some(words));
