@@ -12,6 +12,7 @@
 //! browser sign-in has no form at all. So the name is given here, for a new account and an old
 //! one alike.
 
+use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::press::on_primary;
 use dioxus::prelude::*;
@@ -48,31 +49,51 @@ struct Editing {
     refused: Option<String>,
 }
 
-/// The account's identities, its own first. None when the store cannot say.
-fn identities(account: &AccountId) -> Vec<Identity> {
-    try_consume_context::<Arc<SqliteStore>>()
-        .and_then(|store| identity::of_account(&store, account.clone()).ok())
-        // An unreadable list is drawn as an account with no name and no aliases; the page's
-        // other groups are still worth showing.
-        .unwrap_or_default()
+/// The account's identities, its own first; why not, when the store cannot say. Without a store
+/// to ask there are none.
+fn identities(account: &AccountId) -> Result<Vec<Identity>, String> {
+    match try_consume_context::<Arc<SqliteStore>>() {
+        Some(store) => {
+            identity::of_account(&store, account.clone()).map_err(crate::ui::remedy::told)
+        }
+        None => Ok(Vec::new()),
+    }
 }
 
-/// Keep `typed` as the name of `account`'s own address, when it differs from what is kept.
-fn keep_name(account: &AccountId, typed: &str, mut revision: Signal<u64>) {
+/// Keep `typed` as the name of `account`'s own address, when it differs from what is kept. The
+/// revision moves only once it is kept; a store that refuses is said in `failed`.
+fn keep_name(
+    account: &AccountId,
+    typed: &str,
+    mut revision: Signal<u64>,
+    mut failed: Signal<Option<(&'static str, String)>>,
+) {
     let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
         return;
     };
-    let kept = identities(account)
-        .into_iter()
-        .find(|one| one.default == IsDefault::Default)
-        .and_then(|own| own.from.name);
+    let kept = match identities(account) {
+        Ok(all) => all
+            .into_iter()
+            .find(|one| one.default == IsDefault::Default)
+            .and_then(|own| own.from.name),
+        Err(why) => {
+            failed.set(Some((copy::titles::NOT_READ, why)));
+            return;
+        }
+    };
     if kept.as_deref().unwrap_or("") == typed.trim() {
         return;
     }
-    if let Err(why) = identity::set_name(&store, account.clone(), typed) {
-        log::warn!("the account's name was not kept: {why}");
+    match identity::set_name(&store, account.clone(), typed) {
+        Ok(_) => {
+            failed.set(None);
+            revision += 1;
+        }
+        Err(why) => failed.set(Some((
+            copy::titles::NOT_SAVED,
+            crate::ui::remedy::told(why),
+        ))),
     }
-    revision += 1;
 }
 
 /// Save the alias being edited: added or changed, then the fields close; refused, they stay
@@ -155,7 +176,14 @@ pub(super) fn SendsAs(account: AccountId, revision: Signal<u64>) -> Element {
     // Read again when an identity is added, changed or removed.
     let _ = revision();
     let mut editing = use_signal(|| None::<Editing>);
-    let all = identities(&account);
+    let mut failed = use_signal(|| None::<(&'static str, String)>);
+    // An unreadable list is said, once, and drawn as an account with no name and no aliases; the
+    // page's other groups are still worth showing.
+    let mut unread_seen = use_signal(|| false);
+    let (all, unread) = match identities(&account) {
+        Ok(all) => (all, None),
+        Err(why) => (Vec::new(), Some(why)),
+    };
     let own = all.iter().find(|one| one.default == IsDefault::Default);
     let kept_name = own
         .and_then(|own| own.from.name.clone())
@@ -232,11 +260,17 @@ pub(super) fn SendsAs(account: AccountId, revision: Signal<u64>) -> Element {
                     value: name(),
                     placeholder: copy::fields::FULL_NAME_EXAMPLE,
                     oninput: move |typed: String| name.set(typed),
-                    onblur: move |()| keep_name(&for_name, &name.peek(), revision),
-                    onsubmit: move |_| keep_name(&for_submit, &name.peek(), revision),
+                    onblur: move |()| keep_name(&for_name, &name.peek(), revision, failed),
+                    onsubmit: move |_| keep_name(&for_submit, &name.peek(), revision, failed),
                 }
             }
             List::<String> { label: copy::aria::ALIASES, items, style: ListStyle::Grouped }
+        }
+        if let Some(why) = unread.filter(|_| !unread_seen()) {
+            Problem { title: copy::titles::NOT_READ, why, onclose: move |()| unread_seen.set(true) }
+        }
+        if let Some((title, why)) = failed() {
+            Problem { title, why, onclose: move |()| failed.set(None) }
         }
         if let Some(open) = open {
             FormSection { title: Some(copy::headers::ALIAS.to_owned()),
