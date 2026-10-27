@@ -25,7 +25,7 @@ pub(in crate::ui) fn load(
             address: crate::ui::data::named(account),
             account: account.id.clone(),
             mailboxes: match &account.mailboxes {
-                ClientMailboxes::One => Mailboxes::One,
+                ClientMailboxes::One { .. } => Mailboxes::One,
                 ClientMailboxes::Many {
                     folders,
                     labels,

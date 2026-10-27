@@ -33,8 +33,9 @@ pub struct Account {
 /// Whether an account has mailboxes of its own.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Mailboxes {
-    /// POP3, or local mail: one mailbox, and nothing to name. Local mail's labels are its own.
-    One,
+    /// POP3, or local mail: one mailbox, and nothing to name. Its labels are its own, and are
+    /// all the organisation it has.
+    One { labels: Vec<Label> },
     Many {
         /// The server's last listing. Empty until the first sync has asked.
         folders: Vec<Folder>,
@@ -46,11 +47,10 @@ pub enum Mailboxes {
 }
 
 impl Account {
-    /// The account's labels: none for one mailbox.
+    /// The account's labels, whatever its mailboxes.
     pub fn labels(&self) -> &[Label] {
         match &self.mailboxes {
-            Mailboxes::Many { labels, .. } => labels,
-            Mailboxes::One => &[],
+            Mailboxes::Many { labels, .. } | Mailboxes::One { labels } => labels,
         }
     }
 }
@@ -74,7 +74,9 @@ impl Query for Accounts {
                 let incoming = plan.as_ref().map(|plan| &plan.incoming);
                 let local = matches!(incoming, Some(Incoming::Local));
                 let mailboxes = match incoming {
-                    Some(Incoming::Pop3 { .. } | Incoming::Local) => Mailboxes::One,
+                    Some(Incoming::Pop3 { .. } | Incoming::Local) => Mailboxes::One {
+                        labels: or_none(store.labels(account.id.clone()), "labels"),
+                    },
                     _ => Mailboxes::Many {
                         folders: or_none(store.folders(account.id.clone()), "folders"),
                         labels: or_none(store.labels(account.id.clone()), "labels"),
@@ -160,6 +162,70 @@ impl Query for Counts {
                 (filter.clone(), n)
             })
             .collect())
+    }
+}
+
+/// What Favourites shows of a Space's pins: each pin's unread count, and the pinned conversations
+/// themselves, most recently pinned first, all in one reading.
+///
+/// A pin is a filter the caller built (a person, a search); `scope` narrows all of them to a
+/// Space's accounts, and `shown` is the most pinned conversations wanted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pins {
+    pub scope: Option<Filter>,
+    pub pins: Vec<Filter>,
+    pub shown: u32,
+}
+
+/// What [`Pins`] read: the unread count of each pin, in the order asked, and the pinned
+/// conversations. A count that could not be made is nothing, and said in the log.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Pinned {
+    pub unread: Vec<u64>,
+    pub threads: Vec<mail_domain::ThreadSummary>,
+}
+
+impl Query for Pins {
+    type Output = Pinned;
+
+    const READS: Topics = Topics::SUMMARIES.union(Topics::LABELS).union(Topics::CLOCK);
+
+    fn run(&self, store: &SqliteStore, now: DateTime<Utc>) -> Result<Pinned, ClientError> {
+        use mail_domain::{PageReq, Property, Query as Asked, ReadState, Sort, SortDir};
+        let unread = self
+            .pins
+            .iter()
+            .map(|pin| {
+                let mut parts = vec![Filter::Read(ReadState::Unread), pin.clone()];
+                parts.extend(self.scope.clone());
+                store
+                    .count(&Filter::And(parts), now)
+                    .inspect_err(|why| log::warn!("a pin could not be counted: {why}"))
+                    .unwrap_or(0)
+            })
+            .collect();
+        let pinned = Filter::Pinned;
+        let filter = match self.scope.clone() {
+            Some(scope) => Filter::And(vec![scope, pinned]),
+            None => pinned,
+        };
+        let threads = store
+            .threads(
+                &Asked {
+                    filter,
+                    sort: Sort {
+                        property: Property::Pin,
+                        dir: SortDir::Desc,
+                    },
+                    page: PageReq {
+                        after: None,
+                        limit: self.shown,
+                    },
+                },
+                now,
+            )?
+            .items;
+        Ok(Pinned { unread, threads })
     }
 }
 
