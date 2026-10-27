@@ -20,7 +20,7 @@ quire-desktop = []
 # (`ui/reading/anyview.rs`). Off, the strip shows a picture's or a PDF's thumbnail and Peek those,
 # the calendars, contacts and messages mailo reads itself, and "no preview" for the rest.
 anyview = ["dep:anyview-peek", "dep:anyview-core"]
-# What the window's tests and `mail-app`'s share (`testing`): off in the program.
+# What `mail-app`'s integration tests drive the window with (`testing`): off in the program.
 testing = ["dep:ds-harness"]
 
 [dependencies]
@@ -123,7 +123,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 rfd = { version = "=0.17.2", default-features = false }
 
 [dev-dependencies]
-# The shared test support (`testing`), on for the window's own tests.
+# The test driver (`ds-harness`) behind `testing`, on for the window's own tests.
 mail-ui = { path = ".", features = ["testing"] }
 # The values a test starts from (`mail_domain::testing`): the program never has them.
 mail-domain = { workspace = true, features = ["testing"] }

@@ -5339,6 +5339,7 @@ dependencies = [
  "mail-core",
  "mail-runtime",
  "mail-store",
+ "mail-ui",
  "mailo-domain",
  "mailo-mime",
  "mailo-pim",
