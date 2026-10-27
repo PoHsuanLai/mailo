@@ -22,6 +22,9 @@ pub struct Session {
     pub account: JmapAccountId,
     /// Whether that account may send (`urn:ietf:params:jmap:submission`).
     pub submission: Submission,
+    /// Whether its submissions may ask for delivery reports: the capability's
+    /// `submissionExtensions` list `DSN` (RFC 8621 §1.3.2, RFC 3461).
+    pub dsn: Dsn,
     pub limits: Limits,
     /// The name the server knows the user by.
     pub username: String,
@@ -33,6 +36,13 @@ pub struct Session {
 /// Whether the mail account can send.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Submission {
+    Offered,
+    Absent,
+}
+
+/// Whether the mail account's submission server takes RFC 3461's `NOTIFY` and `RET`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dsn {
     Offered,
     Absent,
 }
@@ -82,6 +92,14 @@ impl Session {
             Some(_) => Submission::Offered,
             None => Submission::Absent,
         };
+        // The extensions are the submission server's EHLO keywords, each with its arguments;
+        // one that does not read is no reason to refuse the session, and is taken as none.
+        let dsn = account_caps
+            .and_then(|c| c.get(SUBMISSION))
+            .and_then(|s| s.get("submissionExtensions"))
+            .and_then(Value::as_object)
+            .is_some_and(|extensions| extensions.keys().any(|k| k.eq_ignore_ascii_case("DSN")));
+        let dsn = if dsn { Dsn::Offered } else { Dsn::Absent };
         let core = value
             .get("capabilities")
             .and_then(|c| c.get(super::CORE))
@@ -107,6 +125,7 @@ impl Session {
                 .map(str::to_owned),
             account,
             submission,
+            dsn,
             limits,
             username: opt_string(&value, "username")?.unwrap_or("").to_owned(),
             state: opt_string(&value, "state")?.unwrap_or("").to_owned(),

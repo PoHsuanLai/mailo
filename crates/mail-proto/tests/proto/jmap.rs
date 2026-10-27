@@ -594,6 +594,7 @@ fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
             drafts: Some("mbD".into()),
             sent: Some("mbS".into()),
         },
+        mail_domain::DeliveryReport::Unrequested,
     )
     .unwrap();
     assert_eq!(
@@ -639,10 +640,66 @@ fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
             &Filed {
                 drafts: None,
                 sent: None
-            }
+            },
+            mail_domain::DeliveryReport::Unrequested,
         )
         .is_err()
     );
+}
+
+/// A requested delivery report is RFC 3461's `NOTIFY` on each recipient and `RET` on the sender.
+#[test]
+fn a_requested_delivery_report_names_notify_on_each_recipient() {
+    let identity = Identity {
+        id: "I1".into(),
+        address: mail_domain::Address::new("john@example.com"),
+    };
+    let calls = submission(
+        &"A1".into(),
+        &"Gblob".into(),
+        &identity,
+        "john@example.com",
+        &[
+            "ada@example.test".to_owned(),
+            "blind@example.test".to_owned(),
+        ],
+        &Filed {
+            drafts: Some("mbD".into()),
+            sent: Some("mbS".into()),
+        },
+        mail_domain::DeliveryReport::Requested,
+    )
+    .unwrap();
+    let body = request(&[CORE, MAIL, SUBMISSION], &calls);
+    let envelope = &body["methodCalls"][1][1]["create"]["send"]["envelope"];
+    assert_eq!(envelope["mailFrom"]["parameters"], json!({ "RET": "HDRS" }));
+    for rcpt in envelope["rcptTo"].as_array().unwrap() {
+        assert_eq!(rcpt["parameters"], json!({ "NOTIFY": "SUCCESS,FAILURE" }));
+    }
+    assert_eq!(envelope["rcptTo"].as_array().unwrap().len(), 2);
+}
+
+/// A session says whether its submissions take delivery reports from the capability's
+/// `submissionExtensions`; one that lists none, or none that reads, is taken as not offering.
+#[test]
+fn a_session_offers_delivery_reports_when_its_submission_extensions_list_dsn() {
+    let with = |extensions: &str| {
+        let session = RFC_SESSION.replace(
+            r#""urn:ietf:params:jmap:contacts": {}
+      }"#,
+            &format!(
+                r#""urn:ietf:params:jmap:contacts": {{}},
+        "urn:ietf:params:jmap:submission": {{ "maxDelayedSend": 0, "submissionExtensions": {extensions} }}
+      }}"#
+            ),
+        );
+        Session::parse(session.as_bytes()).unwrap().dsn
+    };
+    assert_eq!(with(r#"{ "DSN": [], "SIZE": [] }"#), Dsn::Offered);
+    assert_eq!(with(r#"{ "SIZE": [] }"#), Dsn::Absent);
+    assert_eq!(with(r#"[]"#), Dsn::Absent);
+    let none = Session::parse(RFC_SESSION.as_bytes()).unwrap();
+    assert_eq!(none.dsn, Dsn::Absent);
 }
 
 #[test]

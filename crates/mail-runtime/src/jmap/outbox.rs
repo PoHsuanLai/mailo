@@ -12,11 +12,11 @@ use super::{Client, JmapEngine, email_ids};
 use crate::{RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    BlobId, JmapEmailId, JmapMailboxId, MailboxRef, MailboxRole, ProtoOp, RemoteRef, Retry,
-    Retryable, SendState, SystemFlag,
+    BlobId, DeliveryReport, JmapEmailId, JmapMailboxId, MailboxRef, MailboxRole, ProtoOp,
+    RemoteRef, Retry, Retryable, SendState, SystemFlag,
 };
 use mail_proto::jmap::{
-    self, CORE, EmailSummary, Filed, Identity, Ids, MAIL, SUBMISSION, SetResult, Submission,
+    self, CORE, Dsn, EmailSummary, Filed, Identity, Ids, MAIL, SUBMISSION, SetResult, Submission,
 };
 use mail_proto::{ProtoError, ProtoOutcome, Refusal};
 use mail_store::{Dispatch, Settle, Store};
@@ -296,10 +296,13 @@ impl JmapEngine {
                 raw,
                 mail_from,
                 rcpt_to,
+                delivery,
                 ..
             } => {
-                self.submit(&client, &mailboxes, raw, &mail_from, &rcpt_to, leaving)
-                    .await
+                self.submit(
+                    &client, &mailboxes, raw, &mail_from, &rcpt_to, delivery, leaving,
+                )
+                .await
             }
             ProtoOp::KeepDraft {
                 draft,
@@ -498,6 +501,7 @@ impl JmapEngine {
         raw: BlobId,
         mail_from: &str,
         rcpt_to: &[String],
+        delivery: DeliveryReport,
         leaving: Option<DateTime<Utc>>,
     ) -> Result<ProtoOutcome, RuntimeError> {
         if client.session.submission == Submission::Absent {
@@ -529,6 +533,11 @@ impl JmapEngine {
             mail_from,
             rcpt_to,
             &filed,
+            // A server that did not list DSN is not asked for it: it may refuse the whole send.
+            match client.session.dsn {
+                Dsn::Offered => delivery,
+                Dsn::Absent => DeliveryReport::Unrequested,
+            },
         )?;
         let responses = client.call(&[CORE, MAIL, SUBMISSION], &calls).await?;
         let sent = jmap::submitted(&responses)?;

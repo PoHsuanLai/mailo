@@ -266,7 +266,7 @@ fn send_menu_and_more_hold_every_choice_once() {
         ]
     );
     assert_eq!(
-        titles(&more_items(&page)),
+        titles(&more_items(&page, true)),
         [
             crate::ui::copy::menus::SECURITY,
             crate::ui::copy::menus::PRIORITY,
@@ -277,6 +277,12 @@ fn send_menu_and_more_hold_every_choice_once() {
             crate::ui::copy::menus::KEEP_FOR_LATER,
             crate::ui::copy::menus::DELETE_DRAFT,
         ]
+    );
+    // An account that cannot ask for a report is not offered the choice.
+    assert!(
+        !titles(&more_items(&page, false))
+            .contains(&crate::ui::copy::menus::REQUEST_DELIVERY_RECEIPT.to_owned()),
+        "no Request Delivery Receipt where it does nothing"
     );
     let mut page = page;
     assert_eq!(pick_more(&mut page, "plain"), More::Done);
@@ -298,7 +304,7 @@ fn priority_and_a_delivery_receipt_are_picked_from_more_and_saved_on_the_draft()
             Line::Item { title, check, .. } if *check == Some(Check::On) => Some(title.clone()),
             _ => None,
         };
-        more_items(page)
+        more_items(page, true)
             .iter()
             .flat_map(|item| match item {
                 Line::Submenu {

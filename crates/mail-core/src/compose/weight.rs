@@ -91,6 +91,18 @@ pub fn send_limit(store: &SqliteStore, account: &AccountId) -> SendLimit {
     }
 }
 
+/// Whether `account` can ask for delivery reports (RFC 3461). Graph's `sendMail` has no way to,
+/// so the composer does not offer the choice there; every other way of sending takes it, and a
+/// plan that does not read leaves the choice offered.
+pub fn can_ask_delivery_report(store: &SqliteStore, account: &AccountId) -> bool {
+    let plan = store
+        .account(account.clone())
+        .or_log("the sending account could not be read")
+        .flatten()
+        .and_then(|stored| stored.plan.ok());
+    !matches!(plan.map(|plan| plan.outgoing), Some(Outgoing::Graph))
+}
+
 /// How large a message is at each [`PictureSize`], both ways a limit counts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Weight {

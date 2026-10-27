@@ -215,3 +215,40 @@ fn an_accounts_limit_is_what_its_server_said_or_graphs_or_the_usual() {
         assert_eq!(super::send_limit(&store, &account), expected, "{case}");
     }
 }
+
+/// Graph's `sendMail` cannot ask for delivery reports, so the composer offers the choice for every
+/// account but a Graph one.
+#[test]
+fn delivery_reports_are_offered_for_every_account_but_graph() {
+    use mail_domain::Outgoing;
+    use mail_domain::presets::{self, Manual};
+
+    let store = mail_store::testing::in_memory();
+    let now = mail_domain::testing::now();
+    let preset = presets::manual(
+        "ada@example.test",
+        &Manual {
+            imap_host: "imap.example.test".to_owned(),
+            imap_port: 993,
+            smtp_host: "smtp.example.test".to_owned(),
+            smtp_port: 465,
+            login: None,
+        },
+        now,
+    );
+    let seed = |address: &str, outgoing: Outgoing| {
+        let id = mail_domain::id::new_account_id();
+        let plan = mail_domain::AccountPlan {
+            outgoing,
+            ..preset.plan.clone()
+        };
+        mail_store::testing::seed_account_plan(&store, id.clone(), address, &plan, None);
+        id
+    };
+    let graph = seed("g@x.test", Outgoing::Graph);
+    let jmap = seed("j@x.test", Outgoing::Jmap);
+    let smtp = seed("s@x.test", preset.plan.outgoing.clone());
+    assert!(!super::can_ask_delivery_report(&store, &graph));
+    assert!(super::can_ask_delivery_report(&store, &jmap));
+    assert!(super::can_ask_delivery_report(&store, &smtp));
+}

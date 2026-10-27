@@ -28,7 +28,8 @@ pub use format::{Written, written_as};
 pub use modes::{Answer, Quote, draft_again, draft_answer, draft_answer_in, list_post, redirect};
 pub use pictures::{PictureSize, sized};
 pub use weight::{
-    Fit, Measure, Picture, Said, SendLimit, USUAL_LIMIT, Weight, fit, send_limit, weigh,
+    Fit, Measure, Picture, Said, SendLimit, USUAL_LIMIT, Weight, can_ask_delivery_report, fit,
+    send_limit, weigh,
 };
 
 use crate::signature::{self, Placement};

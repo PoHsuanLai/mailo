@@ -27,7 +27,9 @@ use super::remind::{PickRemind, pick_remind, remind_choices};
 use super::templates::{self, SAVE_KEY};
 use crate::ui::actions::{self, Own};
 use crate::ui::press::on_primary;
+use mail_core::SqliteStore;
 use mail_domain::{DeliveryReport, Priority, ReceiptRequest};
+use std::sync::Arc;
 
 /// Send ▾'s keys: a Send Later choice is `later:` and the Sends key, a reminder `remind:` and its
 /// key, and the receipt [`receipt::KEY`].
@@ -146,8 +148,9 @@ fn priority_name(priority: Priority) -> &'static str {
 
 /// The foot's ⋯: Security ▸ (None, OpenPGP ▸, S/MIME ▸), Priority ▸ (High, Normal, Low), Request
 /// Delivery Receipt, Show Plain Text, Save as Template…, then Keep for Later (Esc) and Delete
-/// Draft, which has an undo.
-pub(in crate::ui) fn more_items(page: &Page) -> Vec<Line<String>> {
+/// Draft, which has an undo. Request Delivery Receipt is left out where the sending account has no
+/// way to ask (`delivery_offered` is false), so the menu never offers what does nothing.
+pub(in crate::ui) fn more_items(page: &Page, delivery_offered: bool) -> Vec<Line<String>> {
     let check = |on: bool| if on { Check::On } else { Check::Off };
     let mut security = Vec::new();
     let mut schemes: Vec<(&'static str, Vec<Line<String>>)> = Vec::new();
@@ -189,14 +192,20 @@ pub(in crate::ui) fn more_items(page: &Page) -> Vec<Line<String>> {
                 })
                 .collect(),
         },
-        Line::new(DELIVERY.to_owned(), copy::menus::REQUEST_DELIVERY_RECEIPT)
-            .with_check(check(page.delivery == DeliveryReport::Requested)),
+    ];
+    if delivery_offered {
+        items.push(
+            Line::new(DELIVERY.to_owned(), copy::menus::REQUEST_DELIVERY_RECEIPT)
+                .with_check(check(page.delivery == DeliveryReport::Requested)),
+        );
+    }
+    items.extend([
         Line::new(PLAIN.to_owned(), copy::menus::SHOW_PLAIN_TEXT)
             .with_check(check(page.plain == Fold::Open)),
         Line::new(SAVE_KEY.to_owned(), copy::menus::SAVE_AS_TEMPLATE)
             .with_image(MenuImage::Icon(Icon::FilePen)),
         Line::Separator,
-    ];
+    ]);
     items.extend([
         Line::new(KEEP.to_owned(), copy::menus::KEEP_FOR_LATER)
             .with_image(MenuImage::Icon(Icon::Clock))
@@ -332,8 +341,13 @@ pub(super) fn MoreButton(
 ) -> Element {
     let mut at = use_signal(|| None::<MountedRef>);
     let open = page.read().float == Float::More;
+    // Asked of the store again only when the page's From account changes.
+    let delivery_offered = use_memo(move || {
+        let store = consume_context::<Arc<SqliteStore>>();
+        mail_core::compose::can_ask_delivery_report(&store, &page.read().from)
+    });
     let items = if open {
-        more_items(&page.read())
+        more_items(&page.read(), delivery_offered())
     } else {
         Vec::new()
     };
