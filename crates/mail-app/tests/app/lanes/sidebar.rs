@@ -7,6 +7,8 @@
 
 use ds::base::geometry::units::Px;
 use ds::base::press::PointerButton;
+use ds::host::gesture::GesturePhase;
+use ds_harness::Input;
 use mail_app::ui::appearance::WindowDirs;
 use mail_app::ui::copy;
 use mail_app::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
@@ -16,7 +18,7 @@ use mail_domain::{Folder, Holds, Subscription, presets};
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key};
-use super::hands::{menu_item, text};
+use super::hands::{menu_item, ms, text};
 use super::row_menu::menu_names;
 use super::window::{Window, account};
 use crate::lanes::seed::ME;
@@ -319,4 +321,63 @@ fn a_sideways_swipe_over_the_sidebar_moves_one_space_and_a_scroll_down_does_not(
     assert_eq!(window.harness.count(".side .slide.a-slide-l"), 1);
     // At rest, nothing is carried.
     assert_eq!(window.harness.count(".side [*|data-swipe]"), 0);
+}
+
+/// Fingers touching down outside the sidebar while a swipe's momentum is still running end that
+/// swipe: what follows is the list's own scroll, which never switches a Space.
+#[test]
+fn fingers_down_elsewhere_end_a_swipe_the_momentum_would_have_switched() {
+    let mut window = Window::open_with(chrono::Utc::now(), with_folders, |dir, contexts| {
+        let two = space::built(
+            (1..=2)
+                .map(|n| {
+                    let look = ds::prelude::SpaceLook::default();
+                    (format!("Space {n}"), look, Mail::of(vec![account()]))
+                })
+                .collect(),
+            0,
+        );
+        let dirs = WindowDirs {
+            config: dir.join("config"),
+            state: dir.join("state"),
+        };
+        space::save(Some(&dirs), &two).expect("the Spaces are written");
+        contexts
+    });
+    assert_eq!(space_on_screen(&window), "Space 1");
+    let side = window.centre(".side .slide");
+    let elsewhere = window.centre(".list");
+    // A short swipe over the sidebar, not yet far enough to switch.
+    for phase in [
+        GesturePhase::Began,
+        GesturePhase::Changed,
+        GesturePhase::Changed,
+    ] {
+        window
+            .harness
+            .send(Input::fingers(side, Px(-6.0), Px(0.0), phase));
+        window.harness.advance(ms(16));
+    }
+    // New fingers elsewhere, and the sideways run that would have carried the old swipe over.
+    window.harness.send(Input::fingers(
+        elsewhere,
+        Px(0.0),
+        Px(0.0),
+        GesturePhase::Began,
+    ));
+    for _ in 0..30 {
+        window.harness.send(Input::fingers(
+            elsewhere,
+            Px(-30.0),
+            Px(0.0),
+            GesturePhase::Changed,
+        ));
+        window.harness.advance(ms(16));
+    }
+    window.harness.advance(ms(400));
+    assert_eq!(
+        space_on_screen(&window),
+        "Space 1",
+        "fingers down elsewhere did not end the swipe"
+    );
 }

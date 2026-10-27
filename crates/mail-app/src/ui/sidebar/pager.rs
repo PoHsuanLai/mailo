@@ -19,7 +19,7 @@ use dioxus::prelude::*;
 use ds::base::geometry::units::{Point, Px, Rect};
 use ds::base::machine::Machine;
 use ds::components::app::spaces::SlideIn;
-use ds::host::gesture::{Gesture, ScrollSource, use_gestures};
+use ds::host::gesture::{Gesture, GesturePhase, ScrollSource, use_gestures};
 use ds::host::measure::{RectProbe, use_rect};
 use ds::motion::anim::Anim;
 use ds::motion::detail::touch::Touch;
@@ -96,6 +96,19 @@ pub(super) fn use_pager(handle: Handle) -> Pager {
         // sidebar only.
         let under_way = machine.state().peek().wake().is_some();
         let over = probe.rect().is_some_and(|rect| inside(rect, at));
+        // Fingers touching down elsewhere end a gesture under way, momentum tail and all; they
+        // are not a new swipe, which starts over the sidebar only.
+        if phase == GesturePhase::Began && !over {
+            if under_way {
+                machine.send(SwipeIn::Scroll {
+                    dx: Px(0.0),
+                    dy: Px(0.0),
+                    phase: GesturePhase::Cancelled,
+                    turn: Turn::Glide,
+                });
+            }
+            return;
+        }
         if !(under_way || over) {
             return;
         }
