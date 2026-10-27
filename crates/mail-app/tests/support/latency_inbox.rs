@@ -5,10 +5,10 @@
 
 use ds_blitz::{NetPolicy, PrintOutcome};
 use ds_harness::{Clock, HarnessConfig, Viewport};
-use mail_ui::ui::appearance::WindowDirs;
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::*;
+use mail_ui::ui::appearance::WindowDirs;
 use std::sync::Arc;
 
 use crate::store::acct_account;

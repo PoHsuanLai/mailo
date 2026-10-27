@@ -10,8 +10,8 @@ use ds::prelude::*;
 use ds_blitz::NetPolicy;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::{AppName, AppearanceFile, ConfigRoot, Store, SystemPrefsSource};
-use mail_ui::ui::native::DesktopSettings;
 use mail_core::SqliteStore;
+use mail_ui::ui::native::DesktopSettings;
 use std::sync::Arc;
 
 const VIEW: Viewport = Viewport {

@@ -11,8 +11,8 @@ use crate::settle::settle_until;
 use dioxus::prelude::Element;
 use ds_blitz::{FocusFallback, NetPolicy, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_ui::ui::appearance::WindowDirs;
 use mail_core::SqliteStore;
+use mail_ui::ui::appearance::WindowDirs;
 use std::sync::Arc;
 use std::time::Duration;
 

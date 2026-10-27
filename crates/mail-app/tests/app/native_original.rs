@@ -12,10 +12,10 @@
 use ds::prelude::*;
 use ds_blitz::{AppNet, NetDecision, NetPolicy, NetReply, NetRequest, RequestOrigin, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_ui::ui::native::{Browse, Fetch, Original};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::*;
+use mail_ui::ui::native::{Browse, Fetch, Original};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 

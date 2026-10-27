@@ -24,9 +24,9 @@ use crate::native::ms;
 use crate::store::acct_account;
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
-use mail_ui::ui::native::{Ask, MessageOpen, OpenWindow, Windows};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui::ui::native::{Ask, MessageOpen, OpenWindow, Windows};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 

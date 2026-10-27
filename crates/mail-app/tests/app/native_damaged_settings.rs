@@ -8,9 +8,9 @@ use ds::prelude::{ShortcutKey as Key, SystemPrefs};
 use ds_blitz::NetPolicy;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::{ConfigRoot, SystemPrefsSource};
+use mail_core::SqliteStore;
 use mail_ui::ui::appearance::WindowDirs;
 use mail_ui::ui::native::{DesktopSettings, Found, damaged_files};
-use mail_core::SqliteStore;
 use std::sync::Arc;
 use std::time::Duration;
 

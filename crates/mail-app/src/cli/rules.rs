@@ -1,7 +1,6 @@
 //! `mailo rules`, `mailo sieve` and `mailo vacation`: the words typed after them, as the commands
 //! [`mail_core::rules`] runs.
 
-use mail_ui::said::rules::said;
 use chrono::{DateTime, Utc};
 use mail_core::Mail;
 use mail_core::SqliteStore;
@@ -13,6 +12,7 @@ use mail_core::rules::server::{
 use mail_core::rules::{AccountRules, RulesCmd, RulesDone, RunProgress};
 use mail_domain::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
 use mail_proto::sieve::Takeover;
+use mail_ui::said::rules::said;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 

@@ -3,8 +3,8 @@
 //! and the main window's inbox follows.
 
 use ds_harness::Harness;
-use mail_ui::ui::copy;
 use mail_core::SqliteStore;
+use mail_ui::ui::copy;
 use std::sync::Arc;
 
 use super::hands::{click, scroll_to, type_text, until};

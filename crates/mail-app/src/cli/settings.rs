@@ -1,8 +1,8 @@
 //! The command line's half of `mail_ui::settings`: `mailo notify [on|off]`, and
 //! `mailo --write-schema <dir>`, which writes the schema the desktop's Settings app reads.
 
-use mail_ui::settings::{self, NewMail};
 use ds_settings::ConfigRoot;
+use mail_ui::settings::{self, NewMail};
 
 /// `mailo notify [on|off]`: set new-mail notifications, then say which they are. With no config
 /// directory there is nowhere they are kept, and it says so rather than guess.

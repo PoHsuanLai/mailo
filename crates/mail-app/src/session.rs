@@ -16,10 +16,10 @@
 //! [`EVERY`]. The count is read and said again every [`REPEAT`] even when nothing was written,
 //! so a dock that started after mailo, or restarted, learns it within that time.
 
-use mail_ui::launcher::{Badge, Unread};
 use chrono::{DateTime, Utc};
 use mail_core::Store;
 use mail_core::scope::Scope;
+use mail_ui::launcher::{Badge, Unread};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

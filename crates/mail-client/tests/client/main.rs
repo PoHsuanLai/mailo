@@ -702,7 +702,10 @@ fn what_reads_the_clock_is_read_again_when_a_snooze_ends_with_nobody_asking() {
 
 #[test]
 fn work_that_is_not_send_runs_on_a_thread_of_its_own_and_is_awaited_from_another_runtime() {
-    let client = Client::inline(Arc::new(in_memory()), Arc::new(mail_core::mail::SystemClock));
+    let client = Client::inline(
+        Arc::new(in_memory()),
+        Arc::new(mail_core::mail::SystemClock),
+    );
     let local = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();

@@ -7,12 +7,12 @@
 
 use ds_blitz::Extent;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_ui::ui::native::{
-    AddAccountOpened, AddAccountSeams, AddAccountWiring, AddRequest, add_account_root,
-};
 use mail_core::SqliteStore;
 use mail_core::discover::{Failed, Found, Gap, Source};
 use mail_domain::presets;
+use mail_ui::ui::native::{
+    AddAccountOpened, AddAccountSeams, AddAccountWiring, AddRequest, add_account_root,
+};
 use porter_core::{Credential, SecretText};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

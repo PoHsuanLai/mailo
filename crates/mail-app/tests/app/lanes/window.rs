@@ -14,11 +14,11 @@
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
+use mail_core::SqliteStore;
+use mail_core::notify::{Notification, Notifier};
 use mail_ui::ui::appearance::WindowDirs;
 use mail_ui::ui::native::Configured;
 use mail_ui::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
-use mail_core::SqliteStore;
-use mail_core::notify::{Notification, Notifier};
 use std::path::PathBuf;
 
 pub use super::look::{panel_row, panel_settled, parsed, queued, row_of};

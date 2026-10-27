@@ -15,8 +15,8 @@ use crate::drive;
 use crate::opening::{Open, Wait, open_window};
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
-use mail_ui::ui::appearance::WindowDirs;
 use mail_core::SqliteStore;
+use mail_ui::ui::appearance::WindowDirs;
 use std::sync::Arc;
 
 /// A cell of the picker's grid.

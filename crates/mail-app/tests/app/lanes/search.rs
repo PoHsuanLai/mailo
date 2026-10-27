@@ -5,13 +5,13 @@
 //! grouped as it was saved, and is deleted from its editor. A search that finds nothing here
 //! offers the server, which is asked only when that is pressed, or at once when Settings says so.
 
-use mail_ui::ui::copy;
-use mail_ui::ui::native::ServerSearcher;
 use mail_core::{Arrival, Searched, ServerHits, SqliteStore, Store, absorb};
 use mail_domain::{
     AccountPlan, AuthPlan, Change, GroupKey, Incoming, MailboxRef, MessageId, Outgoing, ReadState,
     RemoteRef, SaslMech, Tls, Username, View,
 };
+use mail_ui::ui::copy;
+use mail_ui::ui::native::ServerSearcher;
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};
