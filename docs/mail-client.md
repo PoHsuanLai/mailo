@@ -7,16 +7,12 @@ has to remember to read again after a write.
 
 ## Where it stands
 
-- The UI reads the store while it renders: 196 `consume_context::<Arc<SqliteStore>>` in 92 files,
-  the sidebar's memos (`counted`, `tiled`, `scheduled`, `folders`), `PlaceRow`'s `label_of`, and
-  `App`'s seeding hook, effect and first-frame badge fallback.
-- Badges are joined to places by position (`badges().get(index)`), from two signals that move at
-  different times.
-- One hand-bumped counter, `revision`, says something changed. A write that forgets to bump it,
-  or a commit no one bumps for, leaves the window stale.
-- `SqliteStore::data_version` does not count this store's own commits. On macOS the in-process
-  background watch (`background::start`) writes through the window's own store, so mail it
-  fetches does not move `revision`.
+- The UI reads the store while it renders, through `Client::stored()`: 84 calls in 46 files, among
+  them the sidebar's memos `counted` (the Favourites' counts) and `scheduled`.
+- One hand-bumped counter, `revision`, says something changed in what the window still reads
+  itself. A write that forgets to bump it leaves that stale; the counter moves with every commit
+  the client hears, so a commit no one bumps for, the background watch's or another process's,
+  no longer does.
 - About 15 `edge::block_on` calls in `ui` waited on the network on the UI thread (gone with
   stage 4).
 
@@ -55,11 +51,11 @@ pub struct Client(Arc<Inner>);   // Clone, Send + Sync; one per process, shared 
 impl Client {
     pub fn open(store: Arc<SqliteStore>, config: ClientConfig) -> Client;
     pub fn live<Q: Query>(&self, query: Q) -> Live<Q::Output>;   // a registry lookup, never SQL
-    pub fn act(&self, command: Command) -> Ticket<Done>;         // never blocks
+    pub fn act(&self, command: Command) -> Ticket;               // never blocks
     pub fn fetch(&self, seams: Seams) -> Option<FetchRun>;        // once; the scheduler
     pub fn fetched(&self) -> Option<watch::Receiver<Arc<Fetched>>>;
     pub fn tell(&self, account: AccountId, event: Event);
-    pub fn prime(&self, queries: impl IntoIterator<Item = AnyQuery>);
+    pub fn prime<Q: Query>(&self, queries: impl IntoIterator<Item = Q>) -> Vec<Live<Q::Output>>;
     pub fn shutdown(self, within: Duration);
 }
 ```
@@ -121,9 +117,10 @@ Every write goes through the store, so the store says what changed.
   OUTBOX, VIEWS, VIPS, CONTACTS, RULES, KEYS, TEMPLATES, SIGNATURES, IDENTITIES, PREFS,
   FOLLOW_UPS, CLOCK`. Each query declares the topics it reads.
 - **In this process.** `connection()` returns a `Writer` guard that counts how deep the thread
-  holds the writer. A `commit_hook` marks the store dirty and a `rollback_hook` clears it;
-  `update_hook` cannot, because SQLite does not call it for WITHOUT ROWID tables (`folders`,
-  `vips`, `message_labels`, `sync_state`, `pending_changes`). Write methods say what they touch
+  holds the writer. A `commit_hook` marks the store dirty (a rolled-back transaction never
+  reaches it, so there is no `rollback_hook`); `update_hook` cannot say which tables, because
+  SQLite does not call it for WITHOUT ROWID tables (`folders`, `vips`, `message_labels`,
+  `sync_state`, `pending_changes`). Write methods say what they touch
   (`self.touch(Topics::FOLDERS)`). When the outermost guard drops, after the commit is visible
   to readers, the store publishes `Committed { topics, generation }`. A commit that said nothing
   publishes `ALL`, so a missing declaration costs a recount, never a stale window.
@@ -140,22 +137,23 @@ places is being read again, and an account's labels go with it, in the same valu
 
 ## Commands
 
-- `act` returns a `Ticket` that resolves to `Done { said, undo: Option<Undo>, generation }`.
-  Commands are `Ops`, `Folder`, `TakeBack`, `Restore`, label, view and VIP edits, and later sends.
-  The act thread calls `mail_core::act::perform`, `folder::change` and `act::take_back`, the
-  same rules the CLI uses.
-- Undo and toasts stay in the window: `use_act()` sends the command, awaits the ticket in a task,
-  then records the undo and says what happened.
-- Errors are `ClientError { Refused, Store, Network }`, put into words by `ui/copy`.
-- Optimism is explicit: the window keeps `Pending { hides, until: Generation }`, so rows leave on
-  the press. It lets go once the list's `as_of` reaches the ticket's generation, or when the
-  command fails (with a toast). It cannot stick, and a list cannot show the world before the
-  write once it has shown it after.
+- `act` returns a `Ticket` that resolves to `Acted { done, generation }`: `done` is
+  `Done::Performed`, `TookBack` or `Destroyed`, saying what the command did, and `generation` is
+  the commit a list read at or after it has. Commands are `Perform`, `TakeBack` and `Destroy`;
+  the act thread calls `mail_core::act::perform`, `take_back` and `destroy`, the same rules the
+  CLI uses. An op the store refuses is missing from `Performed`, and a ticket the client stopped
+  before answering resolves to `None`.
+- Undo and toasts stay in the window: it sends the command, awaits the ticket in a task of its
+  own (`motion::when_done`), then records the undo and says what happened.
+- Optimism is explicit: the list hides on the press what an op takes out of it
+  (`list_query::hide`), so rows leave at once. It lets go once the list is read at the ticket's
+  generation, or when the command is refused. It cannot stick, and a list cannot show the world
+  before the write once it has shown it after.
 
 ## In Dioxus
 
 ```rust
-pub fn use_live<Q: Query>(key: impl Fn() -> Q + 'static) -> ReadSignal<Snapshot<Q::Output>>
+pub fn use_live<Q: Query>(key: impl FnMut() -> Q + 'static) -> Memo<Snapshot<Q::Output>>
 ```
 
 - The key is a memo, so it follows the signals it reads, and an equal key does not resubscribe.
@@ -167,9 +165,10 @@ pub fn use_live<Q: Query>(key: impl Fn() -> Q + 'static) -> ReadSignal<Snapshot<
 
 ## Testing
 
-- `Client::builder(store).inline()` (testing feature) computes on subscribe and on invalidation,
-  synchronously, so SSR tests see data on the first render. `client.idle()` says nothing is
-  queued or running. `ClientConfig::clock` takes the harness clock.
+- `Client::inline(store, clock)` starts no thread and computes on subscribe, synchronously, so
+  SSR tests see data on the first render; what the store has committed since is acted on at
+  `client.settle()`. `client.idle()` says nothing is queued or running. `ClientConfig::clock`
+  takes the harness clock.
 - Lanes keep seeding through the store; publishing makes the window notice.
 - `mail-client`'s own tests, on temp-dir stores: coalescing, sharing, a drop cancels a queued
   job, an undeclared commit publishes `ALL`, `remove_account` publishes `ACCOUNTS`, a pinned
@@ -209,7 +208,7 @@ Each leaves the app working.
    watch channel; the window follows it into the signals its status line, sidebar and reauth
    read, and keeps the spinner's token. The accounts are followed from `ACCOUNTS` commits, not a
    memo. A send that comes due (queued for later, or held for Undo) asks its account for a pass
-   (`fetch::outbox`), which the compose pill used to do while it was on screen. Folder refusals
+   (`fetch::outbox`), whether or not the compose pill is on screen. Folder refusals
    carry the server's words only. The clock's timer is the client's (`mailo-clock`). `revision`
    stays until stage 4 converts the memos that read it.
 4. Everything else reaches the store through the client, on the caller's thread.
