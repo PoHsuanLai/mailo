@@ -86,7 +86,7 @@ fn plainly_safe(css: &str) -> bool {
 const OWN: &str = "mailo";
 
 /// Whether `name` is one of mailo's own: it starts `mailo-`, in any case.
-fn is_own(name: &str) -> bool {
+pub(super) fn is_own(name: &str) -> bool {
     name.get(..OWN.len() + 1)
         .is_some_and(|head| head.eq_ignore_ascii_case("mailo-"))
 }

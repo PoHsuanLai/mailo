@@ -72,7 +72,7 @@ fn fitting(frame: &MountedData) -> Option<f32> {
 }
 
 /// How wide `doc` is laid out, in its pixels as drawn: its widest box inside the frame's inset
-/// (`mail_core::message`'s `mailo-inset`, the one element of `<body>`), and the insets of the
+/// (`mail_core::message::INSET_CLASS`, the one element of `<body>`), and the insets of the
 /// body and the inset either side; a document with no inset, its widest box under `<body>`. The
 /// inset itself is a block as wide as the frame whatever it holds, so it is never the widest.
 /// Not where boxes end: Blitz starts a centred box that overflows at an offset that does not
@@ -86,7 +86,7 @@ fn laid_width(doc: &blitz_dom::BaseDocument) -> Option<f32> {
             .is_some_and(|class| {
                 class
                     .split_ascii_whitespace()
-                    .any(|name| name == "mailo-inset")
+                    .any(|name| name == mail_core::message::INSET_CLASS)
             })
     });
     let insets = insets_of(body) + inset.map_or(0.0, insets_of);

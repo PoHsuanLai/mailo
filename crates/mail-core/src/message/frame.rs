@@ -203,7 +203,7 @@ const FRAME_INSET: &str = "18px";
 /// The class of the element a frame's words are read in, inside its `<body>` ([`frame_document`]).
 /// The sanitizer keeps a sender's markup from carrying it and a sender's sheet from naming it
 /// (`mail_mime::sanitize`: no class, id or selector of the sender's starts `mailo-`).
-const INSET_CLASS: &str = "mailo-inset";
+pub const INSET_CLASS: &str = "mailo-inset";
 
 /// The inset's rule, the same for an HTML message and a plain-text one, so every message's words
 /// line up. On an element of the frame's own, never the sender's `<body>`: Gmail and Mail keep a
