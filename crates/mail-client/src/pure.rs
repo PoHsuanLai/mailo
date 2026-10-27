@@ -1,8 +1,8 @@
-//! What a caller may name of `mail-core`: its words for mail (the editor's document, a place, an
-//! undo, a time as a person reads it) and what it does with no store and no server (parsing a
-//! search, the files under the config directory). Everything that reads or writes the store, or
-//! asks a server, is a call on [`Client`](crate::Client) instead, so a caller handed only a client
-//! has no way to name a store.
+//! What a caller may name of `mail-core`: its words for mail (a document being edited, an undo, a
+//! time as a person reads it) and what it does with no store and no server (parsing a search, the
+//! files under the config directory). Everything that reads or writes the store, or asks a
+//! server, is a call on [`Client`](crate::Client) instead, so a caller handed only a client has no
+//! way to name a store.
 //!
 //! Each module stands for the `mail-core` module of the same name, and holds only what a caller
 //! uses of it.

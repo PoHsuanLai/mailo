@@ -14,8 +14,12 @@ Effects live at the edges, and the layering encodes that:
 - `mail-store` may touch the disk, and is the only crate that speaks SQL.
 - `mail-runtime` is the only crate that opens a socket, spawns a task or reads the clock.
 - `mail-core` drives them and may use tokio, but has no window and no terminal in it.
-- `mail-app` draws the window (`ui`) and the terminal (`cli`) over `mail-core`. The two never
-  name each other: a helper both want belongs in `mail-core`.
+- `mail-client` is the one door to mail: logic only, no window, over `mail-core` and `mail-store`.
+- `mail-ui` draws the window over a `mail-client`; its dependencies name no `mail-core`,
+  `mail-store` or `mail-runtime`.
+- `mail-app` is the program: it makes the client, hands it to the window, and holds the terminal
+  (`cli`). The window and the terminal never name each other: a helper both want belongs in
+  `mail-core`.
 
 The libraries start no runtime, read no environment variable and keep no process-wide state.
 Their I/O is `async`, and `mail-app`'s `edge` owns the one runtime and the environment, handing

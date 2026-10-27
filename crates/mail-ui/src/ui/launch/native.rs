@@ -15,12 +15,6 @@ use crate::ui::view::Appearance;
 use dioxus::prelude::*;
 use ds_blitz::{AppConfig, AppId, RootContexts};
 
-/// The desktop entry's name (`packaging/org.quire.Mail.desktop`), which notifications name too:
-/// the Wayland `app_id` and X11 `WM_CLASS`, so the desktop matches the window to its entry. It is
-/// the intents app (`mail_app::intents::APP`) too, so the scope a launcher starts the window in
-/// names the app the desktop's intent router knows.
-pub const APP_ID: &str = crate::APP_ID;
-
 /// Open the window on Blitz.
 ///
 /// The reader's Original frames are sealed documents whose network and links are mailo's
@@ -73,7 +67,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .as_ref()
         .map(|dirs| crate::ui::keymap::load(&dirs.config).overrides());
     let config = AppConfig::new("mailo", ds_blitz::WindowSize::new(1200, 800))
-        .with_app_id(AppId(APP_ID.to_owned()))
+        .with_app_id(AppId(crate::APP_ID.to_owned()))
         .with_net(original.net())
         .with_frame_links(original.links())
         .with_contexts(window_contexts(client, look, Some(spaces), dirs, start))

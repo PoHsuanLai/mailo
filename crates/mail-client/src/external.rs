@@ -22,8 +22,6 @@
 //! version; it looks again every [`OWED`] until it can. A write is heard as it reaches the file,
 //! which can be before its commit is told to other connections, so a heard write that moved
 //! nothing is looked at once more, [`OWED`] later.
-//!
-//! Until 2026-10 this lived in the app (`ui/fetching/external.rs`).
 
 use crate::client::Shared;
 use mail_store::{SqliteStore, Topics};

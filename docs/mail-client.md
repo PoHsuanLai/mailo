@@ -5,20 +5,20 @@ value that is already there, and everything it changes goes to the `Client` as a
 window never holds the store, so no frame can be stuck behind a sync, and no part of the window
 has to remember to read again after a write.
 
-## Where it stands
+## What it replaced
 
-- The UI reads the store while it renders: 196 `consume_context::<Arc<SqliteStore>>` in 92 files,
-  the sidebar's memos (`counted`, `tiled`, `scheduled`, `folders`), `PlaceRow`'s `label_of`, and
-  `App`'s seeding hook, effect and first-frame badge fallback.
-- Badges are joined to places by position (`badges().get(index)`), from two signals that move at
-  different times.
-- One hand-bumped counter, `revision`, says something changed. A write that forgets to bump it,
-  or a commit no one bumps for, leaves the window stale (gone with stage 4).
-- `SqliteStore::data_version` does not count this store's own commits. On macOS the in-process
-  background watch (`background::start`) writes through the window's own store, so mail it
-  fetches does not move `revision`.
-- About 15 `edge::block_on` calls in `ui` waited on the network on the UI thread (gone with
-  stage 4).
+- The window read the store while it rendered: 196 `consume_context::<Arc<SqliteStore>>` in 92
+  files, the sidebar's memos (`counted`, `tiled`, `scheduled`, `folders`), `PlaceRow`'s
+  `label_of`, and `App`'s seeding hook, effect and first-frame badge fallback.
+- Badges were joined to places by position (`badges().get(index)`), from two signals that moved
+  at different times.
+- One hand-bumped counter, `revision`, said something changed. A write that forgot to bump it,
+  or a commit no one bumped for, left the window stale.
+- `SqliteStore::data_version` does not count this store's own commits, and on macOS the
+  in-process background watch (`background::start`) writes through the window's own store, so
+  mail it fetched did not move `revision`. The client hears its own process's commits by
+  subscribing to the store and other processes' by watching the file.
+- About 15 `edge::block_on` calls in `ui` waited on the network on the UI thread.
 
 ## Crates
 
@@ -231,8 +231,7 @@ Each leaves the app working.
    body, a part, a drain, rules pushed, a key looked up, a server search, an unsubscribe,
    discovery, adding, signing in and removing an account, and the passes and watches the fetch
    seams lend (`net().pass()`, `net().listen()`). No `edge::block_on` or `edge::mail` is left in
-   `ui`. The root still hands the store to `launch` (the program's) and to a test's window, whose
-   `use_client()` makes an inline client over it; stage 5 takes it away.
+   `ui`.
    **b.** `revision` goes: what moved is the client's to say (`Client::moved`). The window
    follows it in one root signal (`live::moved`), which every memo and component that still reads
    the store itself reads; nobody bumps anything by hand, and a write the window makes moves it
@@ -242,8 +241,6 @@ Each leaves the app working.
    `subscribe_waking`) and settles there.
 5. The fence: `ui`, `settings` and the platform seams (the launcher's count, the mail-link
    handler, another program's hand-off, the damaged-settings gate, the words of a finished
-   import or export) move to `mail-ui`, whose dependencies hold no store. `mail-app` re-exports
-   them under their old paths (`mail_app::ui`), so the command line and the integration tests
-   read as before. The program makes the client over the store it opened, reaching servers as
+   import or export) move to `mail-ui`, whose dependencies hold no store. The program makes the client over the store it opened, reaching servers as
    `edge` says, and hands it to the window with whose mail it is (`window::open`,
    `ui::Program`); every window, a test's included, is handed a client and never a store.

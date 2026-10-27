@@ -384,7 +384,6 @@ fn the_entry_the_window_the_manifest_and_the_provider_unit_are_one_app() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let manifest: toml::Table = MANIFEST.parse().expect("the manifest is TOML");
     assert_eq!(manifest["app"].as_str(), Some(APP));
-    assert_eq!(mail_ui::ui::native::APP_ID, APP);
     assert_eq!(mail_ui::launcher::unity::DESKTOP_ID, APP);
     for dir in ["packaging", "dist"] {
         let entry = root.join(dir).join(format!("{APP}.desktop"));

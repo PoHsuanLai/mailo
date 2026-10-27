@@ -194,8 +194,8 @@ mod tests {
     fn each_entry_names_the_bus_names_the_program_owns() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let want = (
-            format!("{};{};", crate::handoff::NAME, crate::ui::native::APP_ID),
-            crate::ui::native::APP_ID.to_owned(),
+            format!("{};{};", crate::handoff::NAME, crate::APP_ID),
+            crate::APP_ID.to_owned(),
         );
         for entry in [
             "packaging/org.quire.Mail.desktop",
