@@ -456,3 +456,95 @@ fn a_wrapped_indented_paragraph_is_led_on_its_first_line_only() {
         "the rest join straight on: {flowed:?}"
     );
 }
+
+/// A document from a spec: `N1` a numbered item at depth 1, `B0` a bullet, `P` a paragraph.
+fn listed(spec: &str) -> Doc {
+    doc_of(
+        spec.split_whitespace()
+            .map(|item| {
+                let depth = item[1..].parse().unwrap_or(0);
+                match &item[..1] {
+                    "N" => deep(ParaKind::Numbered, "x", depth),
+                    "B" => deep(ParaKind::Bullet, "x", depth),
+                    _ => plain(ParaKind::Paragraph, "x"),
+                }
+            })
+            .collect(),
+    )
+}
+
+/// The number each numbered item of the plain-text body carries, `None` for any other line.
+fn written_numbers(doc: &Doc) -> Vec<Option<usize>> {
+    to_flowed(doc)
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            let (number, _) = line.trim_start().split_once(". ")?;
+            number.parse().ok()
+        })
+        .collect()
+}
+
+/// One rule numbers items, whoever shows it: the plain text a message is sent as, and the
+/// editor drawing the same list. `(what, spec, the number of each node)`.
+pub(crate) const NUMBERING: &[(&str, &str, &[Option<usize>])] = &[
+    (
+        "one level counts on",
+        "N0 N0 N0",
+        &[Some(1), Some(2), Some(3)],
+    ),
+    (
+        "a list goes on counting after a nested one",
+        "N0 N1 N1 N0",
+        &[Some(1), Some(1), Some(2), Some(2)],
+    ),
+    (
+        "a paragraph ends the list",
+        "N0 P N0",
+        &[Some(1), None, Some(1)],
+    ),
+    (
+        "a bullet at the top ends it too",
+        "N0 B0 N0",
+        &[Some(1), None, Some(1)],
+    ),
+    (
+        "a nested bullet does not",
+        "N0 B1 N0",
+        &[Some(1), None, Some(2)],
+    ),
+    (
+        "each level out and in again counts its own",
+        "N0 N1 N2 N1 N0",
+        &[Some(1), Some(1), Some(1), Some(2), Some(2)],
+    ),
+    (
+        "numbers nested in a bullet start at one",
+        "B0 N1 N1",
+        &[None, Some(1), Some(2)],
+    ),
+    (
+        "a list cannot skip a level: it is written one below the item before",
+        "N0 N2 N1",
+        &[Some(1), Some(1), Some(2)],
+    ),
+    (
+        "nor start below the first: both are the outer list's, then one nests",
+        "N2 N2",
+        &[Some(1), Some(1)],
+    ),
+];
+
+#[test]
+fn the_plain_text_numbers_items_by_the_one_rule() {
+    for (what, spec, want) in NUMBERING {
+        assert_eq!(written_numbers(&listed(spec)), *want, "{what}: {spec}");
+    }
+}
+
+#[test]
+fn the_editor_numbers_items_by_the_same_rule() {
+    for (what, spec, want) in NUMBERING {
+        assert_eq!(item_numbers(&listed(spec).nodes), *want, "{what}: {spec}");
+    }
+}

@@ -3,9 +3,11 @@
 
 mod flowed;
 mod html;
+mod numbering;
 
 pub use flowed::to_flowed;
 pub use html::to_html;
+pub use numbering::item_numbers;
 
 use mail_mime::{Block, Span};
 

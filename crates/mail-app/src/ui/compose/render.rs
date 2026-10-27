@@ -18,7 +18,7 @@ use super::super::menu::Floating;
 use super::float::{object_items, pick_object};
 use super::page::{Float, Fold, Page};
 use mail_core::editor::{
-    Align, Check, Layout, Mark, Node, Object, Op, ParaKind, Pos, Range, Run, TextSize,
+    Align, Check, Layout, Mark, Node, Object, Op, ParaKind, Pos, Range, Run, TextSize, item_numbers,
 };
 
 #[cfg(test)]
@@ -102,37 +102,6 @@ fn groups(nodes: &[Node]) -> Vec<Group> {
     out
 }
 
-/// The number each numbered item shows, by node: counted per depth through a run of items, so
-/// a list that goes on after a nested one goes on counting. Blitz draws no `<ol start>`, and a
-/// nested list is drawn as a list of its own, so an item past the first of a list that was
-/// interrupted carries its number as its marker.
-fn numbers(nodes: &[Node]) -> Vec<Option<usize>> {
-    let mut out = vec![None; nodes.len()];
-    let mut counts: Vec<(ListTag, usize)> = Vec::new();
-    for (index, node) in nodes.iter().enumerate() {
-        let Some((tag, depth)) = (match node {
-            Node::Para { kind, layout, .. } => list_tag(*kind).map(|tag| (tag, layout.depth)),
-            Node::Object(_) => None,
-        }) else {
-            counts.clear();
-            continue;
-        };
-        let depth = usize::from(depth);
-        counts.truncate(depth + 1);
-        while counts.len() <= depth {
-            counts.push((tag, 0));
-        }
-        if counts[depth].0 != tag {
-            counts[depth] = (tag, 0);
-        }
-        counts[depth].1 += 1;
-        if tag == ListTag::Numbered {
-            out[index] = Some(counts[depth].1);
-        }
-    }
-    out
-}
-
 /// A nested list's own style: how far in its depth puts it, and the bullet it draws. `None` at
 /// the top.
 fn list_style(tag: ListTag, depth: u8) -> Option<String> {
@@ -163,7 +132,7 @@ pub(in crate::ui) fn body(page: Signal<Page>) -> Element {
     let quoted = read.quoted;
     let keys: Vec<String> = (0..nodes.len()).map(|index| read.node_key(index)).collect();
     drop(read);
-    let numbers = numbers(&nodes);
+    let numbers = item_numbers(&nodes);
     rsx! {
         for group in groups(&nodes) {
             match group {

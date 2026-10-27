@@ -49,4 +49,4 @@ pub use session::Session;
 pub use slash::{Action, Item, SNIPPET, catalog, filter, turn_into};
 pub use text::{grapheme_len, node_len, para_len, runs_text};
 pub use undo::{Burst, Log, PAUSE_MS};
-pub use write::{to_flowed, to_html};
+pub use write::{item_numbers, to_flowed, to_html};

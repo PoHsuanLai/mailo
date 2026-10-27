@@ -17,7 +17,7 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{ListTag, block_text, list_end, same_list, todo_box, written_depths};
+use super::{ListTag, block_text, item_numbers, list_end, todo_box, written_depths};
 use crate::editor::doc::{Doc, Layout, Node, Object, ParaKind};
 use crate::editor::text::runs_text;
 
@@ -102,35 +102,19 @@ fn flow_para(kind: ParaKind, layout: Layout, text: &str) -> String {
 }
 
 /// A run of list items, each on its line, a nested one indented under the one before. A
-/// numbered item counts among the numbered items of its own level since the last item that
-/// was shallower.
+/// numbered item is counted by [`item_numbers`].
 fn flow_list(nodes: &[Node]) -> String {
-    let mut counts: Vec<(ListTag, usize)> = Vec::new();
+    let numbers = item_numbers(nodes);
     let mut lines = Vec::new();
-    for (node, depth) in nodes.iter().zip(written_depths(nodes)) {
+    for ((node, depth), number) in nodes.iter().zip(written_depths(nodes)).zip(numbers) {
         let Node::Para { kind, runs, .. } = node else {
             continue;
         };
         let Some(tag) = ListTag::of(*kind) else {
             continue;
         };
-        counts.truncate(depth + 1);
-        let number = match counts.get_mut(depth) {
-            Some((last, count)) if same_list(*last, tag) => {
-                *count += 1;
-                *count
-            }
-            Some(slot) => {
-                *slot = (tag, 1);
-                1
-            }
-            None => {
-                counts.push((tag, 1));
-                1
-            }
-        };
         let marker = match (tag, kind) {
-            (ListTag::Numbered, _) => format!("{number}. "),
+            (ListTag::Numbered, _) => format!("{}. ", number.unwrap_or(1)),
             (ListTag::Todo, ParaKind::Todo(check)) => todo_box(*check).to_owned(),
             (ListTag::Bullet | ListTag::Todo, _) => "- ".to_owned(),
         };
