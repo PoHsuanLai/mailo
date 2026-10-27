@@ -63,6 +63,8 @@ pub enum Handoff {
     Open(ThreadId),
     /// `mailo open --inbox <account>`: show the account's inbox.
     Inbox(AccountId),
+    /// `mailo reply <thread>`: open a reply to the conversation.
+    Reply(ThreadId),
     /// `mailo mailto:…`: compose on the link.
     Mailto(String),
     /// A bare `mailo`: raise the window.
@@ -77,6 +79,7 @@ impl Handoff {
         match (start, mailto) {
             (_, Some(uri)) => Some(Handoff::Mailto(uri.to_owned())),
             (Some(Start::Thread(thread)), None) => Some(Handoff::Open(*thread)),
+            (Some(Start::Reply(thread)), None) => Some(Handoff::Reply(*thread)),
             (Some(Start::InboxOf(account)), None) => Some(Handoff::Inbox(account.clone())),
             (Some(Start::Inbox), None) => Some(Handoff::Activate),
             _ => None,
@@ -89,6 +92,7 @@ impl Handoff {
         match self {
             Handoff::Open(thread) => deliver(profile, *thread, token),
             Handoff::Inbox(account) => deliver_inbox(profile, account, token),
+            Handoff::Reply(thread) => deliver_reply(profile, *thread, token),
             Handoff::Mailto(uri) => deliver_mailto(profile, uri, token),
             Handoff::Activate => deliver_activate(profile, token),
         }
@@ -127,6 +131,11 @@ pub enum Request {
         account: AccountId,
         token: Option<ActivationToken>,
     },
+    /// Open a reply to this conversation, and raise the window.
+    Reply {
+        thread: ThreadId,
+        token: Option<ActivationToken>,
+    },
     /// Open the composer on what this `mailto:` link asks for, and raise the window.
     Mailto {
         link: MailtoUri,
@@ -145,6 +154,20 @@ pub fn uri_of(thread: ThreadId) -> String {
 /// The conversation `uri` names, or `None` for one that is not a conversation of ours.
 pub fn thread_of(uri: &str) -> Option<ThreadId> {
     let id = uri.strip_prefix(THREAD_PREFIX)?;
+    id.parse().ok().map(ThreadId::from_uuid)
+}
+
+/// The scheme and path of a reply to a conversation: `mailo:reply/<id>`.
+const REPLY_PREFIX: &str = "mailo:reply/";
+
+/// The URI that asks a running window for a reply to `thread`.
+pub fn reply_uri(thread: ThreadId) -> String {
+    format!("{REPLY_PREFIX}{thread}")
+}
+
+/// The conversation `uri` asks to reply to, or `None` for one that is not of ours.
+pub fn reply_of(uri: &str) -> Option<ThreadId> {
+    let id = uri.strip_prefix(REPLY_PREFIX)?;
     id.parse().ok().map(ThreadId::from_uuid)
 }
 
@@ -173,6 +196,11 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
                     thread,
                     token: None,
                 })
+            } else if let Some(thread) = reply_of(uri) {
+                Some(Request::Reply {
+                    thread,
+                    token: None,
+                })
             } else if let Some(account) = inbox_of(uri) {
                 Some(Request::Inbox {
                     account,
@@ -188,6 +216,7 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
     match requests.first_mut() {
         Some(
             Request::Thread { token: first, .. }
+            | Request::Reply { token: first, .. }
             | Request::Inbox { token: first, .. }
             | Request::Mailto { token: first, .. },
         ) => {
@@ -201,19 +230,24 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
 #[cfg(not(any(target_os = "macos", windows)))]
 mod bus;
 #[cfg(not(any(target_os = "macos", windows)))]
-pub use bus::{Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, serve};
+pub use bus::{
+    Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, deliver_reply, serve,
+};
 
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::{
-    Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, hear_reopen, serve,
+    Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, deliver_reply, hear_reopen,
+    serve,
 };
 
 #[cfg(windows)]
 mod none;
 #[cfg(windows)]
-pub use none::{Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, serve};
+pub use none::{
+    Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, deliver_reply, serve,
+};
 
 #[cfg(test)]
 mod tests {
@@ -246,6 +280,10 @@ mod tests {
         assert_eq!(
             Handoff::of(Some(&Start::InboxOf(account.clone())), None),
             Some(Handoff::Inbox(account))
+        );
+        assert_eq!(
+            Handoff::of(Some(&Start::Reply(thread)), None),
+            Some(Handoff::Reply(thread))
         );
         assert_eq!(Handoff::of(None, None), None);
 
@@ -287,6 +325,24 @@ mod tests {
         assert_eq!(
             requests_of(&[inbox_uri(&account)], token.clone()),
             vec![Request::Inbox { account, token }]
+        );
+    }
+
+    /// A banner's Reply asks for a reply to its conversation, by a URI of its own, which is not
+    /// the conversation's own and not any other.
+    #[test]
+    fn a_reply_round_trips_through_its_uri_and_is_a_request() {
+        let thread = ThreadId::from_uuid(uuid::Uuid::from_u128(0x1234));
+        assert_eq!(reply_of(&reply_uri(thread)), Some(thread));
+        assert_eq!(thread_of(&reply_uri(thread)), None);
+        assert_eq!(reply_of(&uri_of(thread)), None);
+        for uri in ["mailo:reply", "mailo:reply/", "mailo:reply/not-a-uuid"] {
+            assert_eq!(reply_of(uri), None, "{uri:?}");
+        }
+        let token = ActivationToken::new("t");
+        assert_eq!(
+            requests_of(&[reply_uri(thread)], token.clone()),
+            vec![Request::Reply { thread, token }]
         );
     }
 

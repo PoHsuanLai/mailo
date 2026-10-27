@@ -269,14 +269,19 @@ pub struct Launch {
 
 impl Launch {
     /// The arguments that start the program: `open <thread>`, or `open --inbox <account>` for a
-    /// summary's account's inbox, `archive <thread>` for the Archive button, and the `mailto:`
-    /// link itself for Reply, as the desktop runs the handler for the scheme.
+    /// summary's account's inbox, `archive <thread>` for the Archive button, and `open --reply <thread>`
+    /// for Reply.
     pub fn args(&self) -> Vec<String> {
         match (&self.act, &self.opens) {
             (Act::Archive, Opens::Thread(thread)) => {
                 vec!["archive".to_owned(), thread.to_string()]
             }
-            (Act::Reply(link), _) => vec![link.clone()],
+            // The reply to the conversation the banner is about, in the account it is in: a
+            // `mailto:` link names neither.
+            (Act::Reply(_), Opens::Thread(thread)) => {
+                vec!["open".to_owned(), "--reply".to_owned(), thread.to_string()]
+            }
+            (Act::Reply(link), Opens::Inbox(_)) => vec![link.clone()],
             (Act::Open, Opens::Thread(thread)) => {
                 vec!["open".to_owned(), thread.to_string()]
             }
@@ -502,7 +507,7 @@ mod tests {
                 "reply",
                 Opens::Thread(one),
                 Act::Reply("mailto:ada%40example.test".to_owned()),
-                vec!["mailto:ada%40example.test"],
+                vec!["open", "--reply", "00000000-0000-0000-0000-000000000001"],
             ),
         ];
         for (name, opens, act, args) in cases {

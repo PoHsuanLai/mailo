@@ -53,6 +53,18 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>, spaces: Handle) {
                         arrive(spaces, shell, &super::Start::Thread(thread));
                         token
                     }
+                    Request::Reply { thread, token } => {
+                        log::info!(target: crate::ui::TRACE, "asked for a reply to {thread}");
+                        let client = crate::ui::live::client();
+                        // From the account the conversation is in, with its newest message
+                        // answered, as the Reply key does.
+                        let writes = super::ops::Writes::On(
+                            thread,
+                            super::ops::Composes::Reply(mail_domain::ReplyScope::Sender),
+                        );
+                        let _ = super::ops::open_composer(&client, shell, writes);
+                        token
+                    }
                     Request::Inbox { account, token } => {
                         log::info!(target: crate::ui::TRACE, "opened the inbox of {account}");
                         arrive(spaces, shell, &super::Start::InboxOf(account));

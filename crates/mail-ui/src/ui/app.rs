@@ -79,6 +79,22 @@ pub(super) fn App() -> Element {
                     log::warn!("compose: {why}");
                 }
             }
+            // A banner's Reply: the reply to that conversation, in its own account.
+            Some(super::Start::Reply(thread)) => {
+                super::start::show(&mut shell, &super::Start::Reply(thread));
+                let client = crate::ui::live::client();
+                let started = super::ops::start_composing_on(
+                    &client,
+                    thread,
+                    None,
+                    super::ops::Composes::Reply(mail_domain::ReplyScope::Sender),
+                    None,
+                );
+                match started {
+                    Ok(draft) => shell.compose(&draft),
+                    Err(why) => log::warn!("compose: {why}"),
+                }
+            }
             Some(super::Start::Inbox) | None => {}
         }
         shell

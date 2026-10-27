@@ -225,6 +225,34 @@ fn a_window_started_from_a_mailto_link_opens_the_composer_on_its_draft() {
     );
 }
 
+/// A banner's Reply launches the window on a reply to that conversation, not on a `mailto:` link
+/// that names neither the conversation nor its account.
+#[test]
+fn a_banners_reply_starts_the_window_on_a_reply_to_its_conversation() {
+    let one = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
+    let args_of = mail_core::notify::desktop::Launch {
+        opens: mail_core::notify::Opens::Thread(one),
+        act: mail_core::notify::Act::Reply("mailto:ada%40example.test".to_owned()),
+    }
+    .args();
+    assert_eq!(
+        args_of,
+        ["open".to_owned(), "--reply".to_owned(), one.to_string()]
+    );
+    assert_eq!(
+        super::start_of(&args_of),
+        Some(Ok(super::Start::Reply(one)))
+    );
+    assert!(matches!(
+        super::start_of(&args(&["open", "--reply"])),
+        Some(Err(_))
+    ));
+    assert!(matches!(
+        super::start_of(&args(&["open", "--reply", "not an id!"])),
+        Some(Err(_))
+    ));
+}
+
 /// What a desktop notification's click launches, and what the window makes of those arguments.
 #[test]
 fn a_click_starts_the_window_on_the_conversation_or_the_accounts_inbox() {

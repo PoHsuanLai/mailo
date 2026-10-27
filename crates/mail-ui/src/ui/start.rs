@@ -21,10 +21,19 @@ use porter_core::AccountId;
 pub enum Start {
     Inbox,
     Thread(ThreadId),
+    /// A reply to the conversation, opened in the composer: a banner's Reply button.
+    Reply(ThreadId),
     /// The inbox, in a Space that shows this account: a summary banner's click.
     InboxOf(AccountId),
     /// The composer, on a draft already saved (the one a `mailto:` link made).
     Compose(DraftId),
+}
+
+/// The conversation a command-line word names.
+fn thread_arg(text: &str) -> Result<ThreadId, String> {
+    text.parse()
+        .map(ThreadId::from_uuid)
+        .map_err(|_| format!("{text:?} is not a thread id"))
 }
 
 /// The window's reading of the command line: `None` when the arguments are a CLI command, else
@@ -39,13 +48,12 @@ pub fn start_of(args: &[String]) -> Option<Result<Start, String>> {
             [inbox] if inbox == "--inbox" => {
                 Err(crate::ui::copy::errors::OPEN_INBOX_NEEDS_ACCOUNT.to_owned())
             }
-            [thread] => thread
-                .parse()
-                .map(|uuid| Start::Thread(ThreadId::from_uuid(uuid)))
-                .map_err(|_| format!("{thread:?} is not a thread id")),
+            [reply, thread] if reply == "--reply" => thread_arg(thread).map(Start::Reply),
+            [thread] => thread_arg(thread).map(Start::Thread),
             [] => Err("open needs a thread id: mailo open <thread>".to_owned()),
             _ => Err("open takes one thread id: mailo open <thread>".to_owned()),
         }),
+
         _ => None,
     }
 }
@@ -111,7 +119,7 @@ fn select_inbox(shell: &mut Shell) {
 /// the shell as it is.
 pub fn show(shell: &mut Shell, start: &Start) {
     match start {
-        Start::Thread(thread) => open_thread(shell, *thread),
+        Start::Thread(thread) | Start::Reply(thread) => open_thread(shell, *thread),
         Start::InboxOf(_) => select_inbox(shell),
         Start::Inbox | Start::Compose(_) => {}
     }
@@ -124,7 +132,7 @@ pub fn account_of(client: &Client, start: &Start) -> Option<AccountId> {
     match start {
         // A conversation that cannot be read names no account; it is still opened, where the
         // window is, and the reader says what it can.
-        Start::Thread(thread) => client
+        Start::Thread(thread) | Start::Reply(thread) => client
             .stored()
             .thread(*thread)
             .ok()
