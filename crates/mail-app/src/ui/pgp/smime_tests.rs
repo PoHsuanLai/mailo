@@ -370,7 +370,10 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     let message = arrive(&store, sealed(&raw, Smime::Sign, &bea(), &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| {
-        super::tests::mark(page).is_some() && page.contains("map.bin")
+        // The signature's own row leaves once the seal is read, fading out before it is gone.
+        super::tests::mark(page).is_some()
+            && page.contains("map.bin")
+            && !super::tests::without_leaving(page).contains("smime.p7s")
     })
     .await;
     assert_eq!(
