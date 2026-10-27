@@ -147,11 +147,7 @@ fn start_reply(store: &SqliteStore, thread: ThreadId, scope: ReplyScope) -> Resu
         .map_err(String::from)
 }
 
-/// Apply a hover action, returning whether anything changed.
-///
-/// A free function rather than a closure so it can be called from several handlers, and so the
-/// store it needs is an argument rather than a capture.
-/// Put a label on a conversation, or take it off.
+/// Put a label on a conversation, or take it off, as a test does to set one up.
 ///
 /// Separate from `apply_op` because `Op::Label` carries a payload no `OpKind` can supply — which
 /// is exactly why the row's "Label" button opened nothing for as long as it existed.
@@ -165,6 +161,8 @@ pub(super) fn apply_label(
     apply(store, thread, Op::Label(label, membership))
 }
 
+/// Apply the op a button means for `thread`, as a test does to set one up: whether anything
+/// changed.
 #[cfg(test)]
 pub(super) fn apply_op(store: &SqliteStore, thread: ThreadId, kind: OpKind) -> bool {
     resolve(store, thread, kind).is_some_and(|op| apply(store, thread, op))
