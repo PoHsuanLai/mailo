@@ -1,7 +1,7 @@
 //! Mail files in the window: "Import mail…" and "Export mail…" from ⌘K.
 //!
 //! [`work`] is every question and every write, as functions of a store and a path; the two
-//! sheets only draw what it answers. The path is typed, and a Maildir is a directory. The native
+//! sheets only draw what it answers. The path is typed, and a Maildir, Apple Mail's mailboxes and a Thunderbird profile are directories. The native
 //! dialog beside the field (`ui::pick`) goes through the desktop portal.
 //!
 //! Both jobs run on a blocking thread, spawned from the click, and their progress comes

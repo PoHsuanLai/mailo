@@ -17,9 +17,10 @@ use dioxus::prelude::*;
 /// What to ask the dialog for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Ask {
-    /// One file: an mbox or a `.eml`.
+    /// One file: an mbox, a `.eml` or an `.emlx`.
     File,
-    /// A directory: a Maildir, or where an export goes.
+    /// A directory: a Maildir, Apple Mail's mailboxes, a Thunderbird profile, or where an export
+    /// goes.
     Folder,
     /// Any number of files of any kind, to attach to a draft.
     Attachments,

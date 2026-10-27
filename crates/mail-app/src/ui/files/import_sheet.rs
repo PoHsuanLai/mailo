@@ -69,7 +69,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
     let (validity, look_words) = match &shown {
         Looked::Blank => (
             Validity::Valid,
-            "An mbox file, a Maildir or an .eml message".to_owned(),
+            "A mail file or folder: mbox, Maildir, .eml, Apple Mail or Thunderbird".to_owned(),
         ),
         Looked::Mail { said, .. } => (Validity::Valid, said.clone()),
         Looked::Refused(why) => (
@@ -140,7 +140,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             }
                             Button {
                                 label: "File…".to_owned(),
-                                title: "Choose an mbox or .eml file".to_owned(),
+                                title: "Choose an mbox, .eml or .emlx file".to_owned(),
                                 onclick: on_primary(move || {
                                     choose(Ask::File, Some(super::save_dir()), move |paths| {
                                         set_typed(shell, paths[0].display().to_string());
@@ -149,7 +149,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                             }
                             Button {
                                 label: "Folder…".to_owned(),
-                                title: "Choose a Maildir directory".to_owned(),
+                                title: "Choose a Maildir, Apple Mail mailboxes or a Thunderbird profile".to_owned(),
                                 onclick: on_primary(move || {
                                     choose(Ask::Folder, Some(super::save_dir()), move |paths| {
                                         set_typed(shell, paths[0].display().to_string());

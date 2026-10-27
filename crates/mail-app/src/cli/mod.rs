@@ -217,7 +217,8 @@ pub enum Command {
     Contacts(contacts::Contacts),
     /// A calendar invitation: show it, answer it, or save it as an `.ics` file.
     Invite(invite::InviteCommand),
-    /// Mail from an mbox, a Maildir or an `.eml`, kept locally or uploaded into a mailbox.
+    /// Mail from an mbox, a Maildir, an `.eml`, Apple Mail's mailboxes or `.emlx` files, or a
+    /// Thunderbird profile, kept locally or uploaded into a mailbox.
     Import {
         path: std::path::PathBuf,
         into: mail_core::import::Destination,
@@ -1041,7 +1042,7 @@ fn parse_import(args: &[String]) -> Result<Command, String> {
             })
         }
         _ => Err(format!(
-            "import takes a file or a Maildir, and optionally --to-mailbox ACCOUNT FOLDER\n\n{}",
+            "import takes a file or a folder of mail, and optionally --to-mailbox ACCOUNT FOLDER\n\n{}",
             usage()
         )),
     }
@@ -1424,11 +1425,12 @@ usage: mailo <command>
   sync                       fetch mail and send anything queued
   sync --folder <account> <path>
                              fetch one folder now, followed or not
-  import <file|maildir> [--to-mailbox <account> <folder>]
-                             mail from an mbox (Google Takeout's too), a Maildir or
-                             one .eml, kept in \"local folders\" on this computer, or
-                             uploaded into a folder on an IMAP account. Running it
-                             again adds nothing already there
+  import <path> [--to-mailbox <account> <folder>]
+                             mail from an mbox (Google Takeout's too), a Maildir,
+                             one .eml, Apple Mail's mailboxes (an export or its .emlx
+                             files) or a Thunderbird profile, kept in \"local folders\"
+                             on this computer, or uploaded into a folder on an IMAP
+                             account. Running it again adds nothing already there
   export <search|inbox|sent|all…> --mbox FILE | --maildir DIR | --eml DIR
                              write the messages a search finds; bodies not yet
                              downloaded are skipped and counted

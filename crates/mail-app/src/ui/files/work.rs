@@ -16,6 +16,7 @@ use mail_core::transfer::{self, IoCause, Refusal, Seen};
 use mail_domain::{Filter, MailboxRole, Star};
 use porter_core::AccountId;
 
+use crate::ui::copy;
 use crate::ui::view::{Shell, Source as Listed};
 use mail_core::export::{self, Exported, Target};
 use mail_core::import::{Destination, Imported, Source};
@@ -48,6 +49,9 @@ pub(in crate::ui) fn look(path: &Path) -> Looked {
                 Source::Mbox(_) => "mbox",
                 Source::Maildir(_) => "Maildir",
                 Source::Eml(_) => "One message file",
+                Source::Emlx(_) => copy::status::SOURCE_EMLX,
+                Source::AppleMail(_) => copy::status::SOURCE_APPLE_MAIL,
+                Source::Thunderbird(_) => copy::status::SOURCE_THUNDERBIRD,
             };
             let said = format!("{kind}, {}", messages(count));
             Looked::Mail {
