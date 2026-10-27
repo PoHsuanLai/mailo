@@ -724,10 +724,17 @@ pub(super) fn App() -> Element {
                     // Parked, not closed: saved, and waiting in Today.
                     compose::park_current(desk, shell);
                     revision += 1;
-                } else {
+                } else if open.is_some() {
                     let mut write = shell.write();
                     write.open = None;
                     write.focus = None;
+                } else if matches!(
+                    super::command::affordance(&shell.read().search, &shell.read().bar),
+                    super::command::Affordance::Searching(_)
+                ) {
+                    // With nothing open, Esc lets go of the search narrowing the list, as the
+                    // × at the end of its header does.
+                    super::command::clear(shell, pages);
                 }
             }
             Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {

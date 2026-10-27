@@ -39,6 +39,11 @@ pub fn actions_for(name: &str) -> String {
 // The list's toolbar.
 pub const SHOW_SIDEBAR: &str = "Show Sidebar";
 pub const SAVE_AS_VIEW: &str = "Save as View";
+/// The search shown across the list's header while it narrows the list: a press brings the panel
+/// back over it.
+pub const EDIT_SEARCH: &str = "Edit Search";
+/// The × at the end of the search shown, which lets go of it.
+pub const CLEAR_SEARCH: &str = "Clear search";
 pub const EDIT_VIEW: &str = "Edit View";
 /// The Saved-view editor's button that forgets the view.
 pub const DELETE_VIEW: &str = "Delete View";

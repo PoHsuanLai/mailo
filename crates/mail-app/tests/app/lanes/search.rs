@@ -4,7 +4,8 @@
 //! up over an open conversation, where ⌘F finds in the conversation instead (`find`). A search
 //! kept with Save as View is a place in the sidebar, grouped as it was saved, and is deleted
 //! from its editor. A search that finds nothing here offers the server, which is asked only
-//! when that is pressed, or at once when Settings says so.
+//! when that is pressed, or at once when Settings says so. A search the panel leaves behind is
+//! the list's header until it is cleared, by its × or Esc.
 
 use mail_app::ui::copy;
 use mail_app::ui::native::ServerSearcher;
@@ -239,7 +240,7 @@ fn the_search_panel_filters_the_list_saves_a_view_and_offers_the_server() {
     assert_eq!(views[0].name, "Mine");
     assert_eq!(views[0].group_by, Some(GroupKey::Read));
     window.until("the view is a place, and shown", |h| {
-        h.count(&place("Mine")) == 1 && h.count(".list-head .search-shown") == 0
+        h.count(&place("Mine")) == 1 && h.count(".list-head .search-face") == 0
     });
     assert_eq!(
         lines(&window),
@@ -317,4 +318,101 @@ fn turned_on_in_settings_the_server_is_asked_once_as_the_search_is_shown() {
     let mut once = asked.clone();
     once.dedup();
     assert_eq!(once, asked, "a line asked twice: {asked:?}");
+}
+
+/// While a search narrows the list and the panel is down, the search is the list's header: the
+/// search as the panel's field shows it, its operators as chips, where it looked at its end,
+/// Save as View and the ×, and none of the place's own tools. A press on it brings the panel back
+/// over it; the ×, or Esc in the list, lets go of it and the place's header comes back.
+#[test]
+fn a_search_shown_is_the_lists_header_until_it_is_cleared() {
+    let mut window = Window::open(|store| {
+        let raw = format!(
+            "From: Ada Lovelace <ada@example.test>\r\nTo: {ME}\r\nSubject: Lunch on Friday?\r\n\
+             Date: {}\r\nMessage-ID: <lunch@example.test>\r\n\r\nShall we?\r\n",
+            super::window::hours_ago(1)
+        );
+        super::window::deliver(store, "lunch", &raw);
+    });
+    let all = INBOX.len() + 1;
+    let named = |name: &str| format!(".list-head [*|aria-label=\"{name}\"]");
+    let face = ".list-head .search-face";
+    let applied = |window: &mut Window| {
+        search(window, "from:ada lunch");
+        window.harness.advance(ms(800));
+        window.press(&[], Key::Enter, 1);
+        window.until("Return leaves the search in the list", |h| {
+            h.count(".ds-search-card") == 0 && h.count(face) == 1
+        });
+        window.until("only Ada's lunch is listed", |h| {
+            h.count(".list .ds-thread") == 1
+        });
+    };
+
+    applied(&mut window);
+    let h = &window.harness;
+    assert_eq!(
+        h.attr(face, "aria-label").as_deref(),
+        Some(copy::aria::EDIT_SEARCH)
+    );
+    assert_eq!(
+        h.text_of(&format!("{face} .ds-chip"))
+            .as_deref()
+            .map(str::trim),
+        Some("from:ada")
+    );
+    assert_eq!(
+        h.text_of(&format!("{face} .search-words"))
+            .as_deref()
+            .map(str::trim),
+        Some("lunch")
+    );
+    assert_eq!(
+        h.text_of(&format!("{face} .search-scope"))
+            .as_deref()
+            .map(str::trim),
+        Some(copy::status::SEARCHED_ALL_MAIL)
+    );
+    assert_eq!(h.count(&named(copy::aria::SAVE_AS_VIEW)), 1);
+    assert_eq!(h.count(&named(copy::aria::CLEAR_SEARCH)), 1);
+    assert_eq!(h.count(&named(copy::aria::NEW_MESSAGE)), 0, "New Message");
+    assert_eq!(h.count(&named(copy::aria::MORE)), 0, "the ⋯");
+    assert_eq!(h.count(".list-head .list-title"), 0, "the place's title");
+    // The search takes the header's width but for Save as View and the ×.
+    let head = h.rect(".list-head").expect("the header");
+    let shown = h.rect(face).expect("the search");
+    assert!(
+        shown.size.width.0 > head.size.width.0 * 0.6,
+        "{shown:?} in {head:?}"
+    );
+
+    // A press on it brings the panel back over the search.
+    window.click(face);
+    window.until("the panel comes back over it", |h| {
+        h.is_focused(FIELD) && h.attr(FIELD, "value").as_deref() == Some("from:ada lunch")
+    });
+    put_away(&mut window);
+    assert_eq!(
+        window.harness.count(face),
+        1,
+        "the search went with the panel"
+    );
+
+    // The × lets go of it: the place's header and its rows come back.
+    window.click(&named(copy::aria::CLEAR_SEARCH));
+    window.until("the × gives the place back", |h| {
+        h.count(face) == 0
+            && h.count(&named(copy::aria::NEW_MESSAGE)) == 1
+            && h.count(&named(copy::aria::MORE)) == 1
+            && h.count(".list .ds-thread") == all
+    });
+
+    // So does Esc in the list, with nothing open.
+    applied(&mut window);
+    window.press(&[], Key::Escape, 1);
+    window.until("Esc gives the place back", |h| {
+        h.count(face) == 0
+            && h.count(&named(copy::aria::NEW_MESSAGE)) == 1
+            && h.count(".list .ds-thread") == all
+    });
 }

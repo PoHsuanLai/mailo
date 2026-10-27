@@ -348,3 +348,15 @@ pub fn too_large(size: &str, limit: &str, said: mail_core::compose::Said) -> Str
         }
     }
 }
+
+// Where a search applied to the list looks, said at the end of the search shown in its header.
+/// A search of every account in view.
+pub const SEARCHED_ALL_MAIL: &str = "in all mail";
+/// A search of one account of several: "in ada@example.com".
+pub fn searched_in(account: &str) -> String {
+    format!("in {account}")
+}
+/// A bare pattern, matched against the rows the place had loaded: "on this page of Inbox".
+pub fn searched_page_of(place: &str) -> String {
+    format!("on this page of {place}")
+}
