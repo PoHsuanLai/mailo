@@ -211,8 +211,9 @@ impl PrivacySettings {
         match self.protect {
             Protect::Off => Ok(Route::Direct),
             Protect::Relay => {
+                // Only over `https`: the relay is sent the key or token, and every image's address.
                 let base = url_with_host(&self.relay)
-                    .filter(|url| matches!(url.scheme(), "http" | "https"))
+                    .filter(|url| url.scheme() == "https")
                     .ok_or(RouteProblem::Relay)?;
                 let key = self.relay_key.trim().to_owned();
                 if key.is_empty() {
@@ -242,7 +243,7 @@ impl PrivacySettings {
 /// Why the chosen way to fetch remote images cannot be used.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteProblem {
-    /// The relay's address is not an `http` or `https` URL.
+    /// The relay's address is not an `https` URL.
     Relay,
     /// The relay has no key.
     RelayKey,

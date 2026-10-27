@@ -338,6 +338,14 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
         (
             private(|p| {
                 p.protect = Protect::Relay;
+                p.relay = "http://relay.example.test".to_owned();
+                p.relay_key = "k".to_owned();
+            }),
+            Err(RouteProblem::Relay),
+        ),
+        (
+            private(|p| {
+                p.protect = Protect::Relay;
                 p.relay = "https://relay.example.test".to_owned();
             }),
             Err(RouteProblem::RelayKey),

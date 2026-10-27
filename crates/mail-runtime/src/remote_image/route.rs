@@ -86,11 +86,6 @@ impl Route {
             _ => None,
         }
     }
-
-    /// Whether this fetch goes through a relay, which answers for the image's host.
-    pub fn relayed(&self) -> bool {
-        matches!(self, Route::Camo { .. } | Route::Token { .. })
-    }
 }
 
 /// HMAC-SHA1 of `message` under `key`, as Camo signs.
