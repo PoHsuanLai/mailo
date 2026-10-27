@@ -7,6 +7,7 @@ use mail_app::ui::copy;
 use mail_core::SqliteStore;
 use std::sync::Arc;
 
+use super::drive::Drive;
 use super::hands::{click, scroll_to, type_text, until};
 use super::look::inbox_at;
 use super::window::{Window, hours_ago, row_of};
