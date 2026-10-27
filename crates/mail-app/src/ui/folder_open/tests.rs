@@ -78,6 +78,7 @@ fn a_folder_place_lists_its_account_and_exactly_its_path() {
                 folders.to_vec(),
                 &FolderRoles::default(),
                 &[],
+                Vec::new(),
             );
             filter.fit(&MatchCtx {
                 summary: &summary(account),

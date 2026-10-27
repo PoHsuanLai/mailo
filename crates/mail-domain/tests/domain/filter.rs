@@ -1002,7 +1002,7 @@ fn in_folder_matches_a_message_held_there_and_filed_as_held() {
             .into_iter()
             .flat_map(|M(role, addresses, moving)| {
                 let moving: Vec<String> = moving.into_iter().map(str::to_owned).collect();
-                Placed::of_message(role, addresses, &roles, &moving)
+                Placed::of_message(role, addresses, &roles, &moving, Vec::new())
             })
             .collect();
         let ctx = MatchCtx {
@@ -1055,9 +1055,8 @@ fn a_queued_copy_lists_the_message_in_its_folder() {
     ];
     let s = summary(|_| {});
     for (case, role, addresses, moving, want) in cases {
-        let none = Placed::of_message(role, addresses.clone(), &roles, &moving);
-        let copied =
-            Placed::of_message_copied(role, addresses, &roles, &moving, vec![projects.clone()]);
+        let none = Placed::of_message(role, addresses.clone(), &roles, &moving, Vec::new());
+        let copied = Placed::of_message(role, addresses, &roles, &moving, vec![projects.clone()]);
         let fits = |folders: &[Placed]| {
             Filter::InFolder(projects.clone()).fit(&MatchCtx {
                 summary: &s,

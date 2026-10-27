@@ -190,25 +190,16 @@ pub enum Leaving {
 
 impl Placed {
     /// Every address of one message filed as `role` here, on an account whose folders `roles`
-    /// names, with `moving` the target folders of the `File` moves still queued for it.
-    pub fn of_message(
-        role: MailboxRole,
-        addresses: Vec<MailboxRef>,
-        roles: &crate::FolderRoles,
-        moving: &[String],
-    ) -> Vec<Placed> {
-        Placed::of_message_copied(role, addresses, roles, moving, Vec::new())
-    }
-
-    /// [`Placed::of_message`], and a place in each of `copying`, the folders a copy still
-    /// queued for the message is putting it in ([`crate::Op::Copy`]).
+    /// names, with `moving` the target folders of the `File` moves still queued for it, and a
+    /// place in each of `copying`, the folders a copy still queued for the message is putting
+    /// it in ([`crate::Op::Copy`]).
     ///
     /// Listed there from the moment it is copied, as a move takes it out of the folder it leaves
     /// at once, and until the server has answered: then by the address the server gave the
     /// copy, or, where it gave none, from the sync of that folder that finds it. Whether it is
     /// filed as held is the message's, weighed against the addresses it has; a place it is only
     /// being copied to is not one of them.
-    pub fn of_message_copied(
+    pub fn of_message(
         role: MailboxRole,
         addresses: Vec<MailboxRef>,
         roles: &crate::FolderRoles,

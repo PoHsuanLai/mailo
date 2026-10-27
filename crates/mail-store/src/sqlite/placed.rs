@@ -43,7 +43,7 @@ impl SqliteStore {
         };
         let addresses = paths.into_iter().map(folder).collect();
         let copying = copying.into_iter().map(folder).collect();
-        Ok(Placed::of_message_copied(
+        Ok(Placed::of_message(
             held.mailbox,
             addresses,
             &roles,

@@ -1035,7 +1035,7 @@ impl Inner {
         };
         let addresses = paths.into_iter().map(folder).collect();
         let copying = copying.iter().map(|path| folder(path)).collect();
-        mail_domain::Placed::of_message_copied(held.mailbox, addresses, &roles, &moving, copying)
+        mail_domain::Placed::of_message(held.mailbox, addresses, &roles, &moving, copying)
     }
 
     fn summary_of(&self, id: ThreadId) -> Option<ThreadSummary> {

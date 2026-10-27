@@ -159,7 +159,7 @@ const IN_FOLDER: &str = "SELECT m.thread FROM remote_map r \
 
 /// The threads with a message a queued copy is putting in one mailbox, for [`Filter::InFolder`]
 /// beside [`IN_FOLDER`]: the copy stands for an address there until the server answers
-/// (`Placed::of_message_copied`). Binds the account, then the path, as `IN_FOLDER` does.
+/// (`Placed::of_message`). Binds the account, then the path, as `IN_FOLDER` does.
 ///
 /// The other two conditions are `IN_FOLDER`'s, with the copy's folder where the address's
 /// mailbox was: filed as one of the addresses the message has, and no move of it elsewhere
