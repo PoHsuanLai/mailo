@@ -21,13 +21,6 @@
 //! `x-mailo-account`, beside `category` (`email.arrived`) and `desktop-entry` (`org.quire.Mail`).
 //! The one action offered is `default`, the key a server invokes when the bubble itself is clicked.
 //!
-//! A notification that leads with a one-time code offers Copy Code beside it where the press can
-//! be heard, and a press puts the code on the clipboard ([`SystemClipboard`]): on Linux as a
-//! second action, heard by the same listener; on Windows as a button on the toast, heard by the
-//! thread that waits on it; on macOS as the banner's action button, only from the window, which
-//! is the one process that hears a click there. Everywhere else the code is still the headline,
-//! to be read off the banner.
-//!
 //! What each platform does not do:
 //! - macOS: only the window hears a click ([`Desktop::connect_in_window`]): the click is delivered
 //!   on the application's main run loop, which winit's is, and `mailo watch` is a command in a
@@ -40,7 +33,7 @@
 //!   all, so the registered PowerShell id is the one that always works. No activation token: it
 //!   is a Wayland and X11 notion.
 
-use super::{COPY_CODE_ACTION, COPY_CODE_LABEL, Clipboard, Notification, Notifier, Opens};
+use super::{Notification, Notifier, Opens};
 #[cfg(any(windows, target_os = "macos"))]
 use notify_rust::NotificationResponse;
 #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -49,7 +42,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(all(unix, not(target_os = "macos")))]
-use super::click::{Clicked, Clicks, Heard};
+use super::click::{Clicked, Clicks};
 
 /// What hears a click: on Linux the one listener, elsewhere a bound on the threads that wait.
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -104,10 +97,9 @@ impl Desktop {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn hearing(reach: Reach) -> Hearing {
     match reach {
-        Reach::Service => Clicks::start(|heard| match heard {
-            Heard::Open(Clicked { opens, token }) => start(Launch { opens }, token.as_deref()),
-            Heard::Copy(code) => SystemClipboard.copy(&code),
-        }),
+        Reach::Service => {
+            Clicks::start(|Clicked { opens, token }| start(Launch { opens }, token.as_deref()))
+        }
         Reach::Nowhere => Clicks::default(),
     }
 }
@@ -150,17 +142,13 @@ macro_rules! wait_on {
     ($shown:expr, $notification:expr, $waiting:expr) => {{
         // Past the bound the notification is still shown; only its click opens nothing.
         if let Some(_place) = $waiting.enter() {
-            let (mut clicked, mut copy) = (None, None);
+            let mut clicked = None;
             // A notification closed without an answer is a click nobody made.
             let _ = $shown.wait_for_response(|response: &NotificationResponse| {
                 clicked = answer(response, &$notification.opens);
-                copy = copy_asked(response, $notification.code.as_deref());
             });
             if let Some(launch) = clicked {
                 start(launch, None);
-            }
-            if let Some(code) = copy {
-                SystemClipboard.copy(&code);
             }
         }
     }};
@@ -179,17 +167,12 @@ impl Notifier for Desktop {
         // registered and wedged — holds the call for its whole timeout, and this is called
         // between passes of a loop that fetches mail for every account on one thread. The same
         // thread then waits for the click, where the platform lets it.
-        // Copy Code is offered only where its press is heard: on macOS, by the window alone.
-        #[cfg(not(target_os = "macos"))]
-        let heard = true;
-        #[cfg(target_os = "macos")]
-        let heard = run_loop;
         std::thread::spawn(move || {
-            let Ok(shown) = built(&notification, heard).show() else {
+            let Ok(shown) = built(&notification).show() else {
                 return;
             };
             #[cfg(all(unix, not(target_os = "macos")))]
-            hearing.show(shown.id(), notification.opens.clone(), notification.code.clone());
+            hearing.show(shown.id(), notification.opens.clone());
             #[cfg(windows)]
             wait_on!(shown, notification, hearing);
             // On macOS only the window hears a click (the module's notes say why); `shown` sends
@@ -290,60 +273,6 @@ pub fn answer(response: &NotificationResponse, opens: &Opens) -> Option<Launch> 
     }
 }
 
-/// The code to copy when the service's answer is a press of Copy Code on a notification that
-/// offers `code`. macOS hands back the button's label rather than its name, so either is the
-/// press.
-#[cfg(any(windows, target_os = "macos"))]
-pub fn copy_asked(response: &NotificationResponse, code: Option<&str>) -> Option<String> {
-    match response {
-        NotificationResponse::Action(action)
-            if action == COPY_CODE_ACTION || action == COPY_CODE_LABEL =>
-        {
-            code.map(str::to_owned)
-        }
-        _ => None,
-    }
-}
-
-/// The desktop's own clipboard, through `arboard`.
-///
-/// Each copy is made on a thread of its own. On Linux the clipboard is served by the program
-/// that set it, for as long as it holds it, so the thread stays until another program takes the
-/// clipboard (a later copy of ours among them); elsewhere the system keeps what was set, and the
-/// thread ends at once. A clipboard that cannot be reached is said in the log, and the code is
-/// still on the banner.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct SystemClipboard;
-
-impl Clipboard for SystemClipboard {
-    fn copy(&self, text: &str) {
-        let text = text.to_owned();
-        let spawned = std::thread::Builder::new()
-            .name("mailo-clipboard".to_owned())
-            .spawn(move || {
-                if let Err(e) = put(text) {
-                    log::warn!("a code could not be copied: {e}");
-                }
-            });
-        if let Err(e) = spawned {
-            log::warn!("a code could not be copied: {e}");
-        }
-    }
-}
-
-/// Put `text` on the clipboard and serve it until another program takes it.
-#[cfg(all(unix, not(target_os = "macos")))]
-fn put(text: String) -> Result<(), arboard::Error> {
-    use arboard::SetExtLinux as _;
-    arboard::Clipboard::new()?.set().wait().text(text)
-}
-
-/// Put `text` on the clipboard, which the system keeps.
-#[cfg(not(all(unix, not(target_os = "macos"))))]
-fn put(text: String) -> Result<(), arboard::Error> {
-    arboard::Clipboard::new()?.set_text(text)
-}
-
 /// Start this same binary as the window, and leave it running.
 ///
 /// `token` is the activation token the server minted for the click: handed on in the
@@ -382,15 +311,11 @@ fn start(launch: Launch, token: Option<&str>) {
     }
 }
 
-/// The notification as this platform's service is handed it, with Copy Code when it leads with
-/// a code and a press of it would be `heard`.
-fn built(n: &Notification, heard: bool) -> notify_rust::Notification {
+/// The notification as this platform's service is handed it.
+fn built(n: &Notification) -> notify_rust::Notification {
     let mut out = notify_rust::Notification::new();
     out.appname("mailo").summary(&n.summary);
     platform(&mut out, n);
-    if heard && n.code.is_some() {
-        out.action(COPY_CODE_ACTION, COPY_CODE_LABEL);
-    }
     out
 }
 
@@ -421,8 +346,7 @@ fn platform(out: &mut notify_rust::Notification, n: &Notification) {
 }
 
 /// macOS and Windows show the body as text, and a click on a toast is its own activation, so
-/// no action is added for it (on Windows one would be drawn as a button); Copy Code is, as one
-/// ([`built`]).
+/// no action is added for it (on Windows one would be drawn as a button).
 #[cfg(not(all(unix, not(target_os = "macos"))))]
 fn platform(out: &mut notify_rust::Notification, n: &Notification) {
     out.body(&n.body);
@@ -458,62 +382,6 @@ mod tests {
     #[cfg(any(windows, target_os = "macos"))]
     fn thread(n: u128) -> Opens {
         Opens::Thread(mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(n)))
-    }
-
-    fn coded() -> Notification {
-        Notification {
-            account: mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(1)),
-            summary: "Ada".to_owned(),
-            body: "Sign in".to_owned(),
-            opens: Opens::Inbox(mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(1))),
-            code: None,
-        }
-        .with_code("482913".to_owned())
-    }
-
-    /// Copy Code is offered on a notification that leads with a code, where its press is heard,
-    /// and nowhere else.
-    #[test]
-    fn copy_code_is_offered_only_for_a_code_and_only_where_it_is_heard() {
-        let offers = |n: &Notification, heard| {
-            built(n, heard)
-                .actions
-                .iter()
-                .any(|a| a == COPY_CODE_ACTION)
-        };
-        assert!(offers(&coded(), true));
-        assert!(!offers(&coded(), false), "nobody to hear the press");
-        let plain = Notification {
-            code: None,
-            ..coded()
-        };
-        assert!(!offers(&plain, true), "no code to copy");
-        assert_eq!(coded().summary, "Your code: 482913");
-        assert_eq!(coded().body, "Ada \u{b7} Sign in");
-    }
-
-    #[cfg(any(windows, target_os = "macos"))]
-    #[test]
-    fn a_press_of_copy_code_by_its_name_or_its_label_copies_the_code() {
-        use notify_rust::CloseReason;
-        let code = Some("482913");
-        for action in [COPY_CODE_ACTION, COPY_CODE_LABEL] {
-            let pressed = NotificationResponse::Action(action.to_owned());
-            assert_eq!(copy_asked(&pressed, code).as_deref(), code, "{action}");
-            assert_eq!(copy_asked(&pressed, None), None, "{action}, with no code");
-            assert_eq!(
-                answer(&pressed, &inbox()),
-                None,
-                "{action} opened something"
-            );
-        }
-        for other in [
-            NotificationResponse::Default,
-            NotificationResponse::Action("default".to_owned()),
-            NotificationResponse::Closed(CloseReason::Dismissed),
-        ] {
-            assert_eq!(copy_asked(&other, code), None, "{other:?}");
-        }
     }
 
     #[cfg(any(windows, target_os = "macos"))]

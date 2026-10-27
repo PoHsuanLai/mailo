@@ -263,7 +263,6 @@ pub fn notifications(returned: &[ThreadSummary]) -> Vec<Notification> {
             summary: "No reply yet".to_owned(),
             body: mail_domain::subject_or_none(&summary.subject).into_owned(),
             opens: Opens::Thread(summary.id),
-            code: None,
         })
         .collect()
 }

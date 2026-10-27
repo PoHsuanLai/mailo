@@ -75,6 +75,7 @@ mod remedy;
 mod revisions;
 mod row;
 mod rules;
+mod sensitive_copy;
 mod server_search;
 mod settings_window;
 mod sidebar;
@@ -123,6 +124,7 @@ pub mod native {
     pub use super::provider_chip::read as read_icons;
     pub use super::reading::OriginalFrame;
     pub use super::revisions::{Configured, Revisions};
+    pub use super::sensitive_copy::SensitiveCopy;
     pub use super::server_search::{Search, ServerSearcher};
     pub use super::settings_window::{
         OpenSettings, SettingsAsked, SettingsAt, SettingsWindows, settings_root,

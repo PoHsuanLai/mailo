@@ -289,37 +289,51 @@ fn the_window_opens_on_the_inbox_and_reads_what_a_click_opens() {
 }
 
 /// A sign-in email in HTML alone, its code in bold, and an ordinary letter beside it: the code is
-/// offered under the email's header and Copy Code puts it on the clipboard (the harness's, never
-/// the desktop's); the letter offers nothing.
+/// offered under the email's header and Copy Code copies it as a sensitive text, kept out of
+/// clipboard history (a recorder's, never the desktop's), not through the plain clipboard; the
+/// letter offers nothing.
 #[test]
 fn a_one_time_code_is_offered_under_the_header_and_copied() {
     const SIGN_IN: &str = "Sign in to Example";
     const LUNCH: &str = "Lunch on Friday";
-    let mut window = Window::open(|store| {
-        let at =
-            |minutes: i64| (chrono::Utc::now() - chrono::Duration::minutes(minutes)).to_rfc2822();
-        deliver(
-            store,
-            "otp1",
-            &format!(
-                "To: me@example.test\r\nDate: {}\r\nFrom: no-reply@example.test\r\n\
+    let copied = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = copied.clone();
+    let mut window = Window::open_with(
+        chrono::Utc::now(),
+        |store| {
+            let at = |minutes: i64| {
+                (chrono::Utc::now() - chrono::Duration::minutes(minutes)).to_rfc2822()
+            };
+            deliver(
+                store,
+                "otp1",
+                &format!(
+                    "To: me@example.test\r\nDate: {}\r\nFrom: no-reply@example.test\r\n\
                  Subject: {SIGN_IN}\r\nMessage-ID: <otp1@example.test>\r\nMIME-Version: 1.0\r\n\
                  Content-Type: text/html; charset=utf-8\r\n\r\n<html><body><p>Your verification \
                  code is <b>482913</b>.</p><p>It expires in 10 minutes.</p></body></html>\r\n",
-                at(3)
-            ),
-        );
-        deliver(
-            store,
-            "otp2",
-            &format!(
-                "To: me@example.test\r\nDate: {}\r\nFrom: ada@example.test\r\n\
+                    at(3)
+                ),
+            );
+            deliver(
+                store,
+                "otp2",
+                &format!(
+                    "To: me@example.test\r\nDate: {}\r\nFrom: ada@example.test\r\n\
                  Subject: {LUNCH}\r\nMessage-ID: <otp2@example.test>\r\n\r\n\
                  Order 4521 is in; see you at 12:30 in room 2048.\r\n",
-                at(4)
-            ),
-        );
-    });
+                    at(4)
+                ),
+            );
+        },
+        move |_, contexts| {
+            contexts.with(mail_app::ui::native::SensitiveCopy::with_sink(
+                move |text| {
+                    sink.lock().unwrap().push(text.to_owned());
+                },
+            ))
+        },
+    );
     const LINE: &str = ".reader-body .otp-code";
 
     window.open_subject(SIGN_IN);
@@ -338,9 +352,13 @@ fn a_one_time_code_is_offered_under_the_header_and_copied() {
         copy::controls::copy_code("482913")
     );
     window.click(&button);
-    window.until("the code is copied", |h| {
-        h.clipboard_text().as_deref() == Some("482913")
-    });
+    window.harness.advance(ms(100));
+    assert_eq!(*copied.lock().unwrap(), ["482913"]);
+    assert_eq!(
+        window.harness.clipboard_text(),
+        None,
+        "the plain clipboard, which history keeps, was not used"
+    );
 
     window.open_subject(LUNCH);
     window.harness.advance(ms(600));

@@ -56,18 +56,6 @@ pub enum NewMail {
     Off,
 }
 
-/// `notifications.copy_codes`: whether `mailo watch` puts a new message's one-time code on the
-/// clipboard as it announces it. Off unless the person turns it on: the clipboard is theirs, and
-/// what is on it should not change under them without their asking.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
-#[serde(rename_all = "snake_case")]
-#[word(case = snake)]
-pub enum CopyCodes {
-    On,
-    #[default]
-    Off,
-}
-
 /// `compose.spelling`: whether the composer marks misspelt words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]

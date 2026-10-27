@@ -1,12 +1,11 @@
 //! A message's one-time code in the reader: one quiet line under its header, the code and Copy
 //! Code, for the verification and sign-in mail a person opens only to copy a number out of.
 //!
-//! Which code a message carries is [`mail_core::otp`]'s, the same guess the watch's notification
-//! leads with, so the reader and the banner cannot disagree. Finding it may read the stored
+//! Which code a message carries is [`mail_core::otp`]'s. Finding it may read the stored
 //! blob (most of this mail is HTML alone), so it runs off the thread that draws and is kept per
 //! message and body in the app's [`Looks`](mail_core::message::Looks), as an invitation is.
-//! Copy Code goes through the window's host (`ui::host`), the one way the window reaches the
-//! clipboard, which a test's harness keeps in memory.
+//! Copy Code goes through `ui::sensitive_copy`, not the window's host: the code is kept out of
+//! clipboard history and cloud sync, which the host's plain copy does not do.
 
 use crate::ui::copy::{controls, status, toasts};
 use crate::ui::press::on_primary;
@@ -58,7 +57,7 @@ pub(super) fn CodeLine(message: MessageId, body: Option<BlobId>) -> Element {
                 label: controls::COPY_CODE,
                 common: Common { aria_label: Some(label), ..Common::default() },
                 onclick: on_primary(move || {
-                    crate::ui::hover::copy(&copied);
+                    crate::ui::sensitive_copy::copy(&copied);
                     crate::ui::motion::tell(toasts::CODE_COPIED.to_owned(), crate::ui::motion::Follow::Nothing);
                 }),
             }

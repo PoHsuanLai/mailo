@@ -62,7 +62,6 @@ pub(super) const SECTIONS: [Section; 4] = [
         lines: &[
             Line::DefaultMail,
             Line::Key("notifications.new_mail"),
-            Line::Key("notifications.copy_codes"),
             Line::Key(crate::settings::WHILE_QUIT),
             Line::Key("reading.read_receipts"),
             Line::Key("search.server_automatically"),

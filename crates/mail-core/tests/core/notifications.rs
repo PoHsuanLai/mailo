@@ -7,7 +7,7 @@
 
 use crate::support::account;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_core::notify::{self, Clipboard, Notification, Notifier, Opens};
+use mail_core::notify::{self, Notification, Notifier, Opens};
 use mail_core::sync;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
@@ -36,16 +36,6 @@ impl Notifier for Recorder {
 impl Recorder {
     fn seen(&self) -> Vec<Notification> {
         self.0.lock().unwrap().clone()
-    }
-}
-
-/// Every code copied, in order: the clipboard a test hands over, which never reaches the real one.
-#[derive(Debug, Default)]
-struct Copies(Mutex<Vec<String>>);
-
-impl Clipboard for Copies {
-    fn copy(&self, text: &str) {
-        self.0.lock().unwrap().push(text.to_owned());
     }
 }
 
@@ -175,7 +165,7 @@ fn an_accounts_first_backfill_raises_nothing() {
         })
         .collect();
     let recorder = Recorder::default();
-    let raised = notify::announce(&store, account(), &arrived, &recorder, None, watched).unwrap();
+    let raised = notify::announce(&store, account(), &arrived, &recorder, watched).unwrap();
     assert_eq!(raised, 0);
     assert!(recorder.seen().is_empty(), "{:?}", recorder.seen());
 
@@ -183,7 +173,7 @@ fn an_accounts_first_backfill_raises_nothing() {
     let later = watched + chrono::Duration::minutes(5);
     let new = stored(&store, 500, "bob@example.test", later);
     let mine = stored(&store, 501, "ME@example.test", later);
-    notify::announce(&store, account(), &[new, mine], &recorder, None, later).unwrap();
+    notify::announce(&store, account(), &[new, mine], &recorder, later).unwrap();
     let seen = recorder.seen();
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0].summary, "bob@example.test");
@@ -194,11 +184,12 @@ fn an_accounts_first_backfill_raises_nothing() {
     );
 }
 
-/// A new message with a one-time code is announced by its code, and the code is copied as it is
-/// announced when a clipboard is handed over: from the subject of one whose body is not here,
-/// and from the HTML of one that has no plain part. The newest code is the one left copied.
+/// A new message with a one-time code is announced as every other is, by its sender and its
+/// subject, as Apple Mail, Gmail and Outlook do: the code is never the headline, never offered
+/// to copy and never copied on arrival, whether it is in the subject, in a body not here or in
+/// the HTML of a message that has no plain part.
 #[test]
-fn an_announcement_leads_with_the_code_and_copies_it_when_asked() {
+fn an_announcement_is_the_ordinary_banner_whatever_code_the_message_carries() {
     let dir = tempfile::tempdir().unwrap();
     let store = open(dir.path());
     with_account(&store, &plan(1));
@@ -227,46 +218,25 @@ fn an_announcement_leads_with_the_code_and_copies_it_when_asked() {
     let plain = stored(&store, 602, "ada@example.test", later);
 
     let recorder = Recorder::default();
-    let copies = Copies::default();
     let raised = notify::announce(
         &store,
         account(),
         &[headers, html_only, plain],
         &recorder,
-        Some(&copies),
         later,
     )
     .unwrap();
     assert_eq!(raised, 3);
     let seen = recorder.seen();
-    assert_eq!(seen[0].summary, "Your code: 482913");
-    assert_eq!(seen[0].code.as_deref(), Some("482913"));
-    assert_eq!(
-        seen[0].body,
-        "no-reply@service.example \u{b7} 482913 is your Example code"
+    assert_eq!(seen[0].summary, "no-reply@service.example");
+    assert_eq!(seen[0].body, "482913 is your Example code");
+    assert_eq!(seen[1].summary, "no-reply@bank.example");
+    assert_eq!(seen[1].body, "Sign in to your bank");
+    assert_eq!(seen[2].summary, "ada@example.test");
+    assert!(
+        seen.iter().all(|n| !n.summary.contains("771204")),
+        "a code read from a body is not on the banner"
     );
-    assert_eq!(seen[1].summary, "Your code: 771204");
-    assert_eq!(seen[2].summary, "ada@example.test", "no code, no lead");
-    assert_eq!(seen[2].code, None);
-    assert_eq!(
-        *copies.0.lock().unwrap(),
-        ["771204"],
-        "the newest code, once"
-    );
-
-    // Without a clipboard the notification still leads with the code, and nothing is copied.
-    let quiet = Recorder::default();
-    let again = stored_as(
-        &store,
-        603,
-        "no-reply@service.example",
-        later,
-        "Your login code: 3907",
-        Body::Absent,
-    );
-    notify::announce(&store, account(), &[again], &quiet, None, later).unwrap();
-    assert_eq!(quiet.seen()[0].summary, "Your code: 3907");
-    assert_eq!(copies.0.lock().unwrap().len(), 1);
 }
 
 /// What the fake server holds: UID, raw bytes and flags, which a test adds to while the client
@@ -487,7 +457,6 @@ async fn watching<F: std::future::Future<Output = ()>>(
     let announce = sync::Announce::To {
         store,
         notifier: recorder,
-        copies: None,
     };
     let loop_ = async {
         loop {

@@ -40,7 +40,6 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         ("window.label_chips", pair("on", "off")),
         ("window.group_by_date", pair("on", "off")),
         ("notifications.new_mail", pair("on", "off")),
-        ("notifications.copy_codes", pair("on", "off")),
         ("compose.spelling", pair("on", "off")),
         (
             "compose.copy_myself",

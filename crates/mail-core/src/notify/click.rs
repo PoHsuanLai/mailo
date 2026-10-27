@@ -8,10 +8,6 @@
 //! does not surface the first, and a window opened without the token may open behind the one in
 //! focus, so the token is the reason this is here.
 //!
-//! A notification that leads with a one-time code also offers Copy Code
-//! ([`COPY_CODE_ACTION`](super::COPY_CODE_ACTION)), and a press of it is heard here too: the
-//! code is remembered with what the notification opens, and handed back to be copied.
-//!
 //! What each signal means is [`Held::hear`], a pure function over what was shown; the bus is the
 //! seam around it ([`Clicks::start`]). Bounded by [`REMEMBERED`]: a server that never says closed
 //! must not make a week-long watch grow without end, so the oldest notification is forgotten
@@ -42,31 +38,17 @@ pub struct Clicked {
     pub token: Option<String>,
 }
 
-/// What a press on a notification of ours asks for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Heard {
-    /// The bubble itself: open what it was about.
-    Open(Clicked),
-    /// Copy Code: put this code on the clipboard.
-    Copy(String),
-}
-
 /// The notifications shown and not yet closed, oldest first.
 #[derive(Debug, Default)]
 pub struct Held {
     order: VecDeque<u32>,
     opens: HashMap<u32, Opens>,
-    codes: HashMap<u32, String>,
     tokens: HashMap<u32, String>,
 }
 
 impl Held {
-    /// Remember that notification `id` opens `opens` and offers to copy `code`, forgetting the
-    /// oldest past [`REMEMBERED`].
-    pub fn show(&mut self, id: u32, opens: Opens, code: Option<String>) {
-        if let Some(code) = code {
-            self.codes.insert(id, code);
-        }
+    /// Remember that notification `id` opens `opens`, forgetting the oldest past [`REMEMBERED`].
+    pub fn show(&mut self, id: u32, opens: Opens) {
         if self.opens.insert(id, opens).is_none() {
             self.order.push_back(id);
         }
@@ -79,7 +61,6 @@ impl Held {
 
     fn forget(&mut self, id: u32) {
         self.opens.remove(&id);
-        self.codes.remove(&id);
         self.tokens.remove(&id);
         self.order.retain(|held| *held != id);
     }
@@ -94,11 +75,10 @@ impl Held {
     }
 
     /// What follows from `signal`: a click when the bubble itself was clicked on a notification
-    /// of ours, and a code to copy when its Copy Code was. The actions offered are `default`,
-    /// the key a server invokes for a click on the bubble, and Copy Code on a notification that
-    /// has a code; any other action is nothing we offered, and a close is only forgotten. Ids
-    /// that are not ours (another program's notifications pass this bus too) are ignored.
-    pub fn hear(&mut self, signal: Signal) -> Option<Heard> {
+    /// of ours. The one action offered is `default`, the key a server invokes for a click on the
+    /// bubble; any other action is nothing we offered, and a close is only forgotten. Ids that
+    /// are not ours (another program's notifications pass this bus too) are ignored.
+    pub fn hear(&mut self, signal: Signal) -> Option<Clicked> {
         match signal {
             Signal::Token { id, token } => {
                 if self.opens.contains_key(&id) {
@@ -108,14 +88,10 @@ impl Held {
             }
             Signal::Invoked { id, action } => {
                 let opens = self.opens.get(&id)?.clone();
-                match action.as_str() {
-                    "default" => Some(Heard::Open(Clicked {
-                        opens,
-                        token: self.tokens.get(&id).cloned().filter(|t| !t.is_empty()),
-                    })),
-                    super::COPY_CODE_ACTION => self.codes.get(&id).cloned().map(Heard::Copy),
-                    _ => None,
-                }
+                (action == "default").then(|| Clicked {
+                    opens,
+                    token: self.tokens.get(&id).cloned().filter(|t| !t.is_empty()),
+                })
             }
             Signal::Closed { id } => {
                 self.forget(id);
@@ -133,17 +109,16 @@ pub struct Clicks {
 }
 
 impl Clicks {
-    /// Remember what notification `id` opens and what code it offers to copy. Called right
-    /// after the server answered `Notify`.
-    pub fn show(&self, id: u32, opens: Opens, code: Option<String>) {
+    /// Remember what notification `id` opens. Called right after the server answered `Notify`.
+    pub fn show(&self, id: u32, opens: Opens) {
         self.held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .show(id, opens, code);
+            .show(id, opens);
     }
 
     /// Feed one signal through the held notifications.
-    pub fn hear(&self, signal: Signal) -> Option<Heard> {
+    pub fn hear(&self, signal: Signal) -> Option<Clicked> {
         self.held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -152,7 +127,7 @@ impl Clicks {
 
     /// Listen on the session bus, on a thread of its own, calling `on_click` for each press.
     /// A desktop with no bus listens to nothing and says so once, as every notification does.
-    pub fn start(on_click: impl Fn(Heard) + Send + 'static) -> Clicks {
+    pub fn start(on_click: impl Fn(Clicked) + Send + 'static) -> Clicks {
         let clicks = Clicks::default();
         let heard = clicks.clone();
         let spawned = std::thread::Builder::new()
@@ -251,7 +226,7 @@ mod tests {
     #[test]
     fn a_click_opens_what_the_notification_was_about_with_the_token_the_server_sent_first() {
         let mut held = Held::default();
-        held.show(7, thread(1), None);
+        held.show(7, thread(1));
         assert_eq!(
             held.hear(token(7, "tok-7")),
             None,
@@ -259,44 +234,44 @@ mod tests {
         );
         assert_eq!(
             held.hear(invoked(7, "default")),
-            Some(Heard::Open(Clicked {
+            Some(Clicked {
                 opens: thread(1),
                 token: Some("tok-7".to_owned())
-            }))
+            })
         );
     }
 
     #[test]
     fn a_server_that_sends_no_token_still_opens_the_message() {
         let mut held = Held::default();
-        held.show(1, Opens::Inbox(account()), None);
+        held.show(1, Opens::Inbox(account()));
         assert_eq!(
             held.hear(invoked(1, "default")),
-            Some(Heard::Open(Clicked {
+            Some(Clicked {
                 opens: Opens::Inbox(account()),
                 token: None
-            }))
+            })
         );
-        held.show(2, Opens::Inbox(account()), None);
+        held.show(2, Opens::Inbox(account()));
         held.hear(token(2, ""));
         assert_eq!(
             held.hear(invoked(2, "default")),
-            Some(Heard::Open(Clicked {
+            Some(Clicked {
                 opens: Opens::Inbox(account()),
                 token: None
-            }))
+            })
         );
     }
 
     #[test]
     fn nothing_but_the_default_action_on_our_own_notification_opens_anything() {
         let mut held = Held::default();
-        held.show(3, thread(3), None);
+        held.show(3, thread(3));
         let cases = [
             ("an action we never offered", invoked(3, "reply")),
             (
-                "Copy Code on a notification with no code",
-                invoked(3, super::super::COPY_CODE_ACTION),
+                "a Copy Code press, which is no longer offered",
+                invoked(3, "copy-code"),
             ),
             ("another program's notification", invoked(99, "default")),
             ("a close", Signal::Closed { id: 3 }),
@@ -306,24 +281,6 @@ mod tests {
             assert_eq!(held.hear(signal), None, "{name}");
         }
         assert!(held.is_empty(), "the close forgot it");
-    }
-
-    /// Copy Code on a notification that leads with a code hands the code back to be copied,
-    /// and opens nothing; the bubble itself still opens the message.
-    #[test]
-    fn copy_code_copies_the_code_the_notification_shows() {
-        let mut held = Held::default();
-        held.show(5, thread(5), Some("482913".to_owned()));
-        assert_eq!(
-            held.hear(invoked(5, super::super::COPY_CODE_ACTION)),
-            Some(Heard::Copy("482913".to_owned()))
-        );
-        assert!(matches!(
-            held.hear(invoked(5, "default")),
-            Some(Heard::Open(_))
-        ));
-        held.hear(Signal::Closed { id: 5 });
-        assert_eq!(held.hear(invoked(5, super::super::COPY_CODE_ACTION)), None);
     }
 
     #[test]
@@ -337,7 +294,7 @@ mod tests {
     fn a_server_that_never_says_closed_cannot_grow_the_memory_without_end() {
         let mut held = Held::default();
         for id in 0..(REMEMBERED as u32 + 10) {
-            held.show(id, thread(u128::from(id)), Some(format!("{id:06}")));
+            held.show(id, thread(u128::from(id)));
             held.hear(token(id, "t"));
         }
         assert_eq!(held.len(), REMEMBERED);
@@ -346,7 +303,6 @@ mod tests {
             REMEMBERED,
             "the tokens are forgotten with them"
         );
-        assert_eq!(held.codes.len(), REMEMBERED, "and the codes");
         assert_eq!(held.hear(invoked(0, "default")), None, "the oldest is gone");
         assert!(
             held.hear(invoked(REMEMBERED as u32 + 9, "default"))

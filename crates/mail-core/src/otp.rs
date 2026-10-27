@@ -1,5 +1,5 @@
-//! One-time codes: the verification or sign-in code a message carries, found so the notification
-//! that announces it can lead with it and the reader can offer it for copying.
+//! One-time codes: the verification or sign-in code a message carries, found so the reader
+//! can offer it for copying.
 //!
 //! [`code`] is a pure function of a subject and a plain body, and a guess, so it guesses
 //! narrowly. A code is four to eight digits standing alone, or a short upper-case group joined
