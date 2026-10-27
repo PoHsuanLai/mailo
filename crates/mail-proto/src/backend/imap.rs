@@ -152,10 +152,6 @@ impl ImapBackend {
         }
     }
 
-    /// Select a mailbox read-only unless the walk needs to change something.
-    ///
-    /// `EXAMINE` rather than `SELECT` wherever possible: a read-only selection cannot set
-    /// `\Recent` or implicitly expunge, and fetching should never have a side effect.
     /// Whether the server keeps keywords on its messages: Gmail does, and so does a server
     /// whose `PERMANENTFLAGS` lists `\*`. Elsewhere a keyword may be refused, or kept for the
     /// session and lost, so none is written and none is read for a meaning.
@@ -232,6 +228,10 @@ impl ImapBackend {
             .collect()
     }
 
+    /// Select a mailbox read-only unless the walk needs to change something.
+    ///
+    /// `EXAMINE` rather than `SELECT` wherever possible: a read-only selection cannot set
+    /// `\Recent` or implicitly expunge, and fetching should never have a side effect.
     fn select(mailbox: &MailboxRef, access: Access) -> ImapCommand {
         ImapCommand::Select {
             mailbox: mailbox.path.clone(),
