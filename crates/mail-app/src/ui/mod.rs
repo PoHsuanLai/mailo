@@ -10,6 +10,7 @@ pub mod copy;
 pub mod emoji;
 pub mod handoff;
 pub mod keymap;
+pub mod quick;
 pub mod saved;
 pub mod selection;
 pub mod space;

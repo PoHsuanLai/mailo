@@ -6,7 +6,8 @@
 //!
 //! - the actions mailo declares, with portable default chords written with `Primary` (⌘ on a Mac
 //!   and on our desktop, Ctrl elsewhere): the single-key mail actions of [`DEFAULTS`]
-//!   (`mail.next` is `j` and Down) and the chords of [`Own`] (`mail.search` is `Primary+K`).
+//!   (`mail.next` is `j` and Down) and the chords of [`Own`] (`mail.search` is `Primary+K`,
+//!   `mail.filter-unread` `Alt+Primary+U`).
 //!   Standard actions are never declared: ⌘N is `StandardAction::New`, ⌘F `Find`, ⌘P `Print`,
 //!   ⌘Z `Undo`, ⌘, `Settings`, ⌃⌘S `ToggleSidebar`, ⌘A `SelectAll`, ⌘⌫ `MoveToTrash` (Delete
 //!   where the platform says so), ⌘B, ⌘I, ⌘U the editor's.
@@ -103,6 +104,9 @@ pub(in crate::ui) enum Own {
     TextBigger,
     /// ⌘<: a size smaller, for the same reason.
     TextSmaller,
+    /// ⌥⌘U: the quick filter's Unread, on or off. Not ⇧⌘U, which is Mark as Unread in Apple
+    /// Mail.
+    FilterUnread,
 }
 
 /// Each [`Own`] action with its id and its default chords. `Primary` is ⌘ or Ctrl.
@@ -131,6 +135,7 @@ const OWN: &[(Own, &str, &[&str])] = &[
     (Own::AlignRight, "mail.align-right", &["Primary+Shift+}"]),
     (Own::TextBigger, "mail.text-bigger", &["Primary+Shift+>"]),
     (Own::TextSmaller, "mail.text-smaller", &["Primary+Shift+<"]),
+    (Own::FilterUnread, "mail.filter-unread", &["Alt+Primary+U"]),
 ];
 
 /// What a key press asks of a mailo window.

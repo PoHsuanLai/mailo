@@ -36,6 +36,15 @@
 .server-search { display: flex; flex-direction: column; gap: var(--s-8); padding: var(--s-10) var(--s-8); }
 .server-search-one { display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
 .server-search-one .status { text-align: center; }
+/* Why the list is empty, laid over the empty list rather than after it, where it would be past
+   the pane's end. */
+.list-empty { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; }
+/* The quick filter's row under the toolbar: its toggles in a line, set in as the list's progress
+   bar is, and Clear Filter after them. It wraps rather than run past the list's edge. */
+.quick-filter {
+  display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--s-4) var(--s-6);
+  padding: 0 var(--s-10) var(--s-8);
+}
 /* What the accounts are doing: a bar across the list's top, under its toolbar, while a download
    counts (its words are the sidebar's sync mark's tip), the placeholder rows before the first
    mail, the sheet that lists accounts needing attention, and the mark beside an account's name.

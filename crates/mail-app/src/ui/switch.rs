@@ -34,6 +34,7 @@ pub(super) fn restore(shell: &mut Shell, recall: &Recall) {
     shell.picked = crate::ui::selection::Picked::none();
     shell.show_remote_images = false;
     shell.search.clear();
+    shell.quick = crate::ui::quick::Quick::default();
     shell.page_menu = PageMenu::Closed;
     shell.further = None;
 }

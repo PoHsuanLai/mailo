@@ -33,7 +33,7 @@ pub(super) struct Search {
     pub input: String,
     /// `label:` resolves against these, as it does everywhere else in the window.
     pub labels: Vec<(String, LabelId)>,
-    /// The Space's narrowing, applied to every candidate.
+    /// The Space's narrowing and the quick filter's, applied to every candidate.
     pub scope: Option<Filter>,
     /// The place's own query, for a bare pattern. `None` while Drafts is selected.
     pub page: Option<Query>,
@@ -62,7 +62,7 @@ impl Request {
         Self::Search(Search {
             input: text.to_owned(),
             labels: shell.labels.clone(),
-            scope: shell.account_filter(),
+            scope: shell.list_scope(),
             page,
             limit,
         })

@@ -71,3 +71,6 @@ mod clicks;
 
 // 20: sorting the list.
 mod sort;
+
+// 21: the quick filter.
+mod quick;

@@ -278,7 +278,7 @@ pub(super) fn sort_list(mut shell: Signal<Shell>, mut revision: Signal<u64>, sor
 }
 
 /// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one
-/// menu so the header is its title and three icons. Sort By asks the store for the list in
+/// menu so the header is its title and four icons. Sort By asks the store for the list in
 /// another order; grouping and the rows' parts are kept as settings ([`kept`]), so every window
 /// opens with them. Sync Now is the sidebar's sync mark's press, so it is here only while the
 /// sidebar is hidden; `syncs` is false with only local folders in view.
