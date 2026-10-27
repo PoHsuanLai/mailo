@@ -1,5 +1,6 @@
 //! `NSApplicationDelegate` for the one thing AppKit sends it that winit does not: the Dock icon
 //! clicked while mailo runs. The `unsafe` is `define_class!`, which objc2 cannot expand without.
+// The crate denies `unsafe_code`; objc2 cannot expand its class and URL macros without it.
 #![allow(unsafe_code)]
 
 use objc2::rc::Retained;

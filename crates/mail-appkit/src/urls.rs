@@ -1,5 +1,6 @@
 //! The Apple event a URL arrives as, taken before the run loop starts. The one `unsafe` here is
 //! `define_class!` and the untyped message to `NSAppleEventManager`.
+// The crate denies `unsafe_code`; objc2 cannot expand its class and URL macros without it.
 #![allow(unsafe_code)]
 
 use objc2::rc::Retained;
