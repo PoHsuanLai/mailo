@@ -2,8 +2,8 @@
 //! another action holds, and the main window, open all along, archives on the new key at once
 //! and on the shipped one again after Reset; Accounts pushes an account's page, which Escape and
 //! ⌘[ come back from and whose Remove question Escape answers; Spaces are put in order by
-//! dragging a row's grip; an account's page names it, pauses it and refuses a wrong port; and
-//! every page keeps the button size rule.
+//! dragging a row's grip; an account's page names it, pauses it and shows its servers without
+//! editing them; and every page keeps the button size rule.
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
@@ -304,10 +304,10 @@ fn typed_by_hand() -> mail_domain::AccountPlan {
 }
 
 /// Lane 14, the account's page: a description typed there names the account in the main
-/// window, the Sync switch pauses it, and a server row typed wrong is refused under that row
-/// on Save, the account keeping the servers it had.
+/// window, the Sync switch pauses it, and its servers are shown as they are, with nothing to
+/// type into: editing them is porter's server editor's.
 #[test]
-fn an_account_s_page_names_pauses_and_refuses_a_wrong_port() {
+fn an_account_s_page_names_pauses_and_shows_its_servers() {
     let plan = typed_by_hand();
     let mut window = Window::open(|store| {
         store
@@ -348,13 +348,18 @@ fn an_account_s_page_names_pauses_and_refuses_a_wrong_port() {
             h.html().contains(copy::status::account::PAUSED_HELP)
         });
 
-        click(settings, "#acct-in-port");
-        settings.chord(&[Key::Super], Key::Char('a'));
-        type_text(settings, "99999");
-        click(settings, "#acct-save-servers");
-        until(settings, "the port is refused under its row", |h| {
-            h.html().contains(copy::errors::BAD_PORT)
-        });
+        let page = settings.html();
+        assert!(
+            page.contains("imap.example.test"),
+            "the incoming server is shown: {page}"
+        );
+        for field in ["#acct-in-host", "#acct-in-port", "#acct-save-servers"] {
+            assert_eq!(
+                settings.count(field),
+                0,
+                "{field}: the servers are edited here"
+            );
+        }
     });
     window.until("the sidebar names the account by its description", |h| {
         h.html().contains("Work mail")
@@ -364,5 +369,5 @@ fn an_account_s_page_names_pauses_and_refuses_a_wrong_port() {
         .account(account())
         .expect("the account is read")
         .and_then(|kept| kept.plan.ok());
-    assert_eq!(kept, Some(plan), "a refused port changed the servers");
+    assert_eq!(kept, Some(plan), "the page changed the servers");
 }

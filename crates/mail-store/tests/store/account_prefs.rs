@@ -118,14 +118,58 @@ fn a_picked_folder_survives_a_refresh_of_the_capabilities() {
         Some("Outbox/Sent Items")
     );
 
-    // Given back, the role plays no folder until the next refresh says which one it is.
+    // Given back to Automatic, the role plays the folder the server named for it at once.
     store
         .set_folder_role(id.clone(), MailboxRole::Sent, None)
         .unwrap();
     let given_back = store.account_caps(id.clone()).unwrap().unwrap();
-    assert_eq!(given_back.folders.path(MailboxRole::Sent), None);
+    assert_eq!(given_back.folders.path(MailboxRole::Sent), Some("Sent"));
     assert_eq!(given_back.folders.path(MailboxRole::Trash), Some("Bin"));
+}
+
+#[test]
+fn a_role_given_back_before_any_refresh_plays_the_folder_first_observed() {
+    let store = in_memory();
+    let id = added(&store);
+    let mut observed = store.account_caps(id.clone()).unwrap().unwrap();
+    observed.folders = FolderRoles(vec![("Junk".to_owned(), MailboxRole::Spam)]);
     store.put_caps(id.clone(), &observed, Utc::now()).unwrap();
-    let observed_again = store.account_caps(id).unwrap().unwrap();
-    assert_eq!(observed_again.folders.path(MailboxRole::Sent), Some("Sent"));
+    store
+        .set_folder_role(id.clone(), MailboxRole::Spam, Some("Spam"))
+        .unwrap();
+    store
+        .set_folder_role(id.clone(), MailboxRole::Trash, Some("Junk"))
+        .unwrap();
+    assert_eq!(
+        store
+            .account_caps(id.clone())
+            .unwrap()
+            .unwrap()
+            .folders
+            .role("Junk"),
+        Some(MailboxRole::Trash)
+    );
+    store
+        .set_folder_role(id.clone(), MailboxRole::Spam, None)
+        .unwrap();
+    store
+        .set_folder_role(id.clone(), MailboxRole::Trash, None)
+        .unwrap();
+    let back = store.account_caps(id).unwrap().unwrap();
+    assert_eq!(back.folders.path(MailboxRole::Spam), Some("Junk"));
+    assert_eq!(back.folders.path(MailboxRole::Trash), None);
+}
+
+#[test]
+fn a_folder_role_for_an_account_that_is_not_there_writes_nothing() {
+    let store = in_memory();
+    let stranger = new_account_id();
+    assert!(matches!(
+        store.set_folder_role(stranger.clone(), MailboxRole::Sent, Some("Sent")),
+        Err(StoreError::NoAccount(_))
+    ));
+    assert_eq!(
+        store.account_prefs(stranger).unwrap(),
+        AccountPrefs::default()
+    );
 }

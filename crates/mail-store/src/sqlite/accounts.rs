@@ -172,7 +172,7 @@ impl SqliteStore {
                 )?;
             }
         }
-        write_caps(&tx, &account, new.caps, new.at)?;
+        super::account_prefs::write_caps(&tx, new.id, new.caps, &new.at.to_rfc3339())?;
         tx.commit()?;
         Ok(())
     }
@@ -678,21 +678,4 @@ fn reply_to_column(reply_to: Option<&Address>) -> Result<Option<String>, StoreEr
     reply_to
         .map(|reply_to| to_json("Identity.reply_to", &Some(reply_to)))
         .transpose()
-}
-
-/// Write the capabilities of an account, replacing what was observed before. The same row
-/// [`crate::Store::put_caps`] writes, inside the caller's transaction.
-fn write_caps(
-    db: &rusqlite::Connection,
-    account: &str,
-    caps: &AccountCaps,
-    at: DateTime<Utc>,
-) -> Result<(), StoreError> {
-    db.execute(
-        "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
-         ON CONFLICT(account) DO UPDATE
-             SET caps = excluded.caps, observed_at = excluded.observed_at",
-        params![account, to_json("AccountCaps", caps)?, at.to_rfc3339()],
-    )?;
-    Ok(())
 }

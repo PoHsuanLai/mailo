@@ -272,10 +272,6 @@ pub mod account {
 
     /// What an account's tile says while the person has paused its syncing.
     pub const PAUSED: &str = "Syncing is paused.";
-    /// How a server's connection is protected, as its menu names each choice.
-    pub const TLS_CHOICE: &str = "TLS";
-    pub const STARTTLS_CHOICE: &str = "STARTTLS";
-    pub const NONE_CHOICE: &str = "None";
     /// A folder role left to the server: "Automatic (Sent Items)", or plain "Automatic" before
     /// the server has named one.
     pub fn automatic(observed: Option<&str>) -> String {
@@ -288,9 +284,6 @@ pub mod account {
     pub const DESCRIPTION_HELP: &str = "Shown in the sidebar in place of the address.";
     /// The help under Sync while it is off.
     pub const PAUSED_HELP: &str = "mailo won\u{2019}t sync this account until you turn this on.";
-    /// The help under the servers: what Save does first.
-    pub const SAVE_HELP: &str =
-        "Save signs in with the new settings first, and keeps them only if the server takes them.";
 }
 
 /// What a signature's row in Settings says of it: which default it is.

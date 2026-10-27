@@ -4,9 +4,10 @@
 //! ([`sends_as`]), its servers and sign-in, its own keys and certificates (`pgp::keys`), and,
 //! last and alone, Remove Account….
 //!
-//! What the account is called, whether it syncs, its servers and its folders' roles are
-//! changed here ([`edit`]). Remove asks first
-//! in quire's alert, naming how much mail goes and whether the server still has it. Only the
+//! What the account is called, whether it syncs and its folders' roles are changed here
+//! ([`edit`]). The servers are read, not edited: changing them is porter's server editor's,
+//! which the page will offer once mailo is on a porter that has it. Remove asks first in quire's
+//! alert, naming how much mail goes and whether the server still has it. Only the
 //! confirming button removes; Escape and Cancel leave the page as it was. A removal runs off the
 //! thread that draws (the keyring blocks), on the window's own task, so turning to another page
 //! does not cut it short. When it is done the offline setting forgets the account, the revision
@@ -16,7 +17,6 @@
 
 mod edit;
 mod sends_as;
-mod servers;
 mod words;
 
 use crate::ui::appearance::WindowDirs;
@@ -244,7 +244,13 @@ pub(super) fn AccountPage(
                 edit::About { row: row.clone(), revision }
                 sends_as::SendsAs { account: account.clone(), revision }
             }
-            edit::Servers { row: row.clone(), revision }
+            FormSection { title: Some(copy::headers::SERVERS.to_owned()),
+                for line in words::settings(&row.plan) {
+                    FieldRow { key: "{line.label}", label: line.label,
+                        Label { text: line.value }
+                    }
+                }
+            }
             if !row.is_local() {
                 edit::FolderRoles { row: row.clone(), revision }
             }

@@ -757,18 +757,11 @@ impl Store for SqliteStore {
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
         // What was observed, with what the person picked laid over it: a refresh replaces the
-        // first and keeps the second.
-        let caps = self.picked(&account, caps.clone())?;
-        self.connection().execute(
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
-             ON CONFLICT(account) DO UPDATE SET
-                 caps = excluded.caps, observed_at = excluded.observed_at",
-            rusqlite::params![
-                account.to_string(),
-                row::to_json("AccountCaps", &caps)?,
-                row::from_time(now),
-            ],
-        )?;
+        // first and keeps the second. One transaction, so a pick made meanwhile is not lost.
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        account_prefs::write_caps(&tx, &account, caps, &row::from_time(now))?;
+        tx.commit()?;
         Ok(())
     }
 

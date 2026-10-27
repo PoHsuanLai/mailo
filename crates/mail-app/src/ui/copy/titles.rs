@@ -42,6 +42,8 @@ pub const NOT_VERIFIED: &str = "Not Verified";
 // A failure in Settings, as its dialog's title; the reason is the dialog's message.
 /// A setting, a sender or an account's switch that could not be written: nothing changed.
 pub const NOT_SAVED: &str = "The Change Wasn’t Saved";
+/// A setting that could not be read from the store, so its group is not drawn.
+pub const NOT_READ: &str = "This Couldn’t Be Read";
 /// A key the Keyboard page cannot take for an action.
 pub const KEY_NOT_USED: &str = "That Key Can’t Be Used";
 /// "Check for mail when quit" that the system would not start at login, or stop starting.

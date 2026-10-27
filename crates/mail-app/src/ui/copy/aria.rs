@@ -26,6 +26,11 @@ pub const FAVOURITES: &str = "Favourites";
 pub const PLACES: &str = "Places";
 pub const FOLDERS: &str = "Folders";
 
+/// An account's page in Settings: the menu of the folder that plays a role, "Sent Folder".
+pub fn folder_for(role: &str) -> String {
+    format!("{role} Folder")
+}
+
 /// A row's menu: "Actions for Projects".
 pub fn actions_for(name: &str) -> String {
     format!("Actions for {name}")
