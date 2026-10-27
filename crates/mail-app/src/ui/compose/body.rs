@@ -1,7 +1,7 @@
 //! The message body: quire's `EditSurface` (`surface.rs`), the `/`, `@` and `:` menus at the
 //! caret, and the selection bubble.
 //!
-//! Every handler here calls `editor::` through [`super::wire`] and [`super::float`]. The only
+//! Every handler here calls `rich_text::` through [`super::wire`] and [`super::float`]. The only
 //! thing this file decides is which key goes where.
 
 use chordkit::StandardAction;
@@ -22,11 +22,12 @@ use super::float::{
     turn_items,
 };
 use super::page::{Float, Page};
+use super::styling;
 use super::templates::{self, TemplateFloat, page_slash_items};
 use crate::ui::actions::{Heard, Own};
 use crate::ui::copy;
 use crate::ui::view::Shell;
-use mail_core::rich_text::{InputEvent, Mark, Node, Op, Presence, Range};
+use mail_core::rich_text::{self, InputEvent, Mark, Nest, Node, Op, Presence, Range};
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -59,7 +60,7 @@ pub(in crate::ui) fn Body(
     // Plain text carries no formatting, so there is none to offer.
     let bar = read.selection.is_some()
         && read.format == crate::settings::MessageFormat::Rich
-        && (focus() == EditFocus::In || matches!(read.float, Float::Link(_)));
+        && (focus() == EditFocus::In || matches!(read.float, Float::Link(_) | Float::Colour));
     drop(read);
     let editable =
         rsx! { super::surface::Surface { page, shell, on_attach, class: "c-body", marks, focus } };
@@ -209,15 +210,17 @@ fn pick(mut page: Signal<Page>, on_attach: EventHandler<()>, key: &str) {
 }
 
 /// Whether `key` is the menus' or an action's, and if it is, do it: an open menu's arrows, Enter
-/// and Escape, then the editor's actions: bold, italic, underline, undo and redo (the standard
-/// ones, on the platform's own chords), strikethrough, code and link. `heard` is what the press
-/// asked of the window in a text field (`actions::heard_key`). The surface (`surface.rs`) asks
-/// this first; a taken key goes no further.
+/// and Escape, Tab and Shift-Tab in a list item, then the editor's actions: bold, italic,
+/// underline, undo and redo (the standard ones, on the platform's own chords), strikethrough,
+/// code, link, indentation, quote level, alignment and size. `heard` is what the press asked of
+/// the window in a text field (`actions::heard_key`); `shifted` is whether Shift is held. The
+/// surface (`surface.rs`) asks this first; a taken key goes no further.
 pub(super) fn key_taken(
     mut page: Signal<Page>,
     shell: Signal<Shell>,
     on_attach: EventHandler<()>,
     key: &str,
+    shifted: bool,
     heard: Option<Heard>,
 ) -> bool {
     let float = page.read().float.clone();
@@ -262,6 +265,10 @@ pub(super) fn key_taken(
             return true;
         }
     }
+    if key == "Tab" && heard.is_none() {
+        let nest = if shifted { Nest::Out } else { Nest::In };
+        return styling::tab_key(page, nest);
+    }
     match heard {
         Some(Heard::Standard(StandardAction::Bold)) => format(page, "formatBold"),
         Some(Heard::Standard(StandardAction::Italic)) => format(page, "formatItalic"),
@@ -278,6 +285,21 @@ pub(super) fn key_taken(
         }
         Some(Heard::Standard(StandardAction::Undo)) => format(page, "historyUndo"),
         Some(Heard::Standard(StandardAction::Redo)) => format(page, "historyRedo"),
+        Some(Heard::Own(Own::Indent)) => styling::indentation(page, Nest::In),
+        Some(Heard::Own(Own::Outdent)) => styling::indentation(page, Nest::Out),
+        Some(Heard::Own(Own::QuoteMore)) => styling::quote_level(page, Nest::In),
+        Some(Heard::Own(Own::QuoteLess)) => styling::quote_level(page, Nest::Out),
+        Some(Heard::Own(Own::AlignLeft)) => styling::align(page, rich_text::Align::Left),
+        Some(Heard::Own(Own::AlignCenter)) => styling::align(page, rich_text::Align::Center),
+        Some(Heard::Own(Own::AlignRight)) => styling::align(page, rich_text::Align::Right),
+        // ⌘+ and ⌘− are the window's zoom, which its shell answers before the page hears them;
+        // where they do reach the body they size the text, as in Apple Mail.
+        Some(Heard::Own(Own::TextBigger) | Heard::Standard(StandardAction::Bigger)) => {
+            styling::step(page, Nest::In)
+        }
+        Some(Heard::Own(Own::TextSmaller) | Heard::Standard(StandardAction::Smaller)) => {
+            styling::step(page, Nest::Out)
+        }
         _ => false,
     }
 }
@@ -449,6 +471,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                         }
                     }
                 },
+                Float::Colour => rsx! { styling::Swatches { page } },
                 // The bar acts on a press and leaves the keyboard in the body, as a Mac format
                 // bar does: Bold, then Ctrl-I, italicises the same words.
                 _ => rsx! { FocusOnPressScope { focus: FocusOnPress::Refuses,
@@ -480,6 +503,7 @@ fn Bubble(page: Signal<Page>, place: Option<String>) -> Element {
                         image: ImagePosition::Only,
                         onclick: on_primary(move || page.write().float = Float::Link(String::new())),
                     }
+                    styling::Controls { page }
                 } },
             }
         }

@@ -1,9 +1,9 @@
-//! Setting an inline mark or a link over a range, one paragraph at a time.
+//! Setting an inline mark, a link, a size or a colour over a range, one paragraph at a time.
 
-use mail_mime::SafeUrl;
+use mail_mime::{SafeUrl, TextColor, TextSize};
 
 use super::{Op, check_range, covers, one_or_seq, paragraph_mut};
-use crate::rich_text::doc::{Doc, Mark, Node, Pos, Presence, Range, Run};
+use crate::rich_text::doc::{Doc, Mark, Marks, Node, Pos, Presence, Range, Run};
 use crate::rich_text::error::OpError;
 use crate::rich_text::text::{grapheme_len, normalize_runs, para_len, split_at};
 
@@ -43,6 +43,60 @@ pub(super) fn set_mark(
 }
 
 pub(super) fn set_link(doc: &mut Doc, range: Range, url: Option<SafeUrl>) -> Result<Op, OpError> {
+    set_field(
+        doc,
+        range,
+        url,
+        |marks| marks.link.clone(),
+        |marks, url| marks.link = url,
+        |range, url| Op::SetLink { range, url },
+    )
+}
+
+pub(super) fn set_size(doc: &mut Doc, range: Range, size: Option<TextSize>) -> Result<Op, OpError> {
+    set_field(
+        doc,
+        range,
+        size,
+        |marks| marks.size,
+        |marks, size| marks.size = size,
+        |range, size| Op::SetSize { range, size },
+    )
+}
+
+pub(super) fn set_color(
+    doc: &mut Doc,
+    range: Range,
+    color: Option<TextColor>,
+) -> Result<Op, OpError> {
+    set_field(
+        doc,
+        range,
+        color,
+        |marks| marks.color,
+        |marks, color| marks.color = color,
+        |range, color| Op::SetColor { range, color },
+    )
+}
+
+/// One of a run's valued marks (its link, size or colour): how it is read, how it is written,
+/// and the edit that sets it over a range.
+struct Field<T> {
+    get: fn(&Marks) -> T,
+    put: fn(&mut Marks, T),
+}
+
+/// Set a valued mark to `value` over `range`, and answer with the edits that put back what each
+/// stretch had before, made by `op`.
+fn set_field<T: Clone + PartialEq>(
+    doc: &mut Doc,
+    range: Range,
+    value: T,
+    get: fn(&Marks) -> T,
+    put: fn(&mut Marks, T),
+    op: fn(Range, T) -> Op,
+) -> Result<Op, OpError> {
+    let field = Field { get, put };
     let range = range.ordered();
     check_range(doc, range)?;
     let mut inverses = Vec::new();
@@ -54,21 +108,21 @@ pub(super) fn set_link(doc: &mut Doc, range: Range, url: Option<SafeUrl>) -> Res
             let Node::Para { runs, .. } = &doc.nodes[index] else {
                 continue;
             };
-            differing_links(runs, from, to, &url)
+            differing(runs, from, to, &value, &field)
         };
         let runs = paragraph_mut(doc, Pos::new(index, 0))?;
-        paint_link(runs, from, to, url.clone())?;
+        paint(runs, from, to, &value, &field)?;
         for (start, end, previous) in segments {
-            inverses.push(Op::SetLink {
-                range: Range {
+            inverses.push(op(
+                Range {
                     start: Pos::new(index, start),
                     end: Pos::new(index, end),
                 },
-                url: previous,
-            });
+                previous,
+            ));
         }
     }
-    Ok(one_or_seq(inverses, Op::SetLink { range, url }))
+    Ok(one_or_seq(inverses, op(range, value)))
 }
 
 fn text_overlap(doc: &Doc, index: usize, range: Range) -> Option<(usize, usize)> {
@@ -113,28 +167,31 @@ fn differing_marks(
     out
 }
 
-fn differing_links(
+/// The stretches of `[from, to)` whose value of `field` is not `value`, with the value each had.
+fn differing<T: Clone + PartialEq>(
     runs: &[Run],
     from: usize,
     to: usize,
-    url: &Option<SafeUrl>,
-) -> Vec<(usize, usize, Option<SafeUrl>)> {
-    let mut out: Vec<(usize, usize, Option<SafeUrl>)> = Vec::new();
+    value: &T,
+    field: &Field<T>,
+) -> Vec<(usize, usize, T)> {
+    let mut out: Vec<(usize, usize, T)> = Vec::new();
     let mut seen = 0usize;
     for run in runs {
         let end = seen + grapheme_len(&run.text);
         let start = from.max(seen);
         let stop = to.min(end);
-        if start < stop && run.marks.link != *url {
-            let extend = out.last().is_some_and(|(_, prev_end, previous)| {
-                *prev_end == start && previous == &run.marks.link
-            });
+        let had = (field.get)(&run.marks);
+        if start < stop && had != *value {
+            let extend = out
+                .last()
+                .is_some_and(|(_, prev_end, previous)| *prev_end == start && *previous == had);
             if extend {
                 if let Some((_, prev_end, _)) = out.last_mut() {
                     *prev_end = stop;
                 }
             } else {
-                out.push((start, stop, run.marks.link.clone()));
+                out.push((start, stop, had));
             }
         }
         seen = end;
@@ -177,11 +234,12 @@ fn paint_mark(
     Ok(())
 }
 
-fn paint_link(
+fn paint<T: Clone>(
     runs: &mut Vec<Run>,
     from: usize,
     to: usize,
-    url: Option<SafeUrl>,
+    value: &T,
+    field: &Field<T>,
 ) -> Result<(), OpError> {
     if from == to {
         return Ok(());
@@ -191,7 +249,7 @@ fn paint_link(
     let mut left = to - from;
     while left > 0 {
         let len = grapheme_len(&runs[index].text);
-        runs[index].marks.link = url.clone();
+        (field.put)(&mut runs[index].marks, value.clone());
         left -= len;
         index += 1;
     }

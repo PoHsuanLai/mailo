@@ -155,3 +155,11 @@ pub fn attachment_menu(name: &str) -> String {
 
 /// Settings' Choose… for the folder Save writes into.
 pub const CHOOSE_DOWNLOADS_FOLDER: &str = "Choose Folder for Attachments";
+
+// The composer's format bar.
+/// The pop-up of text sizes.
+pub const TEXT_SIZE: &str = "Text Size";
+/// The button that shows the colours, and the row of them.
+pub const TEXT_COLOUR: &str = "Text Colour";
+/// The pull-down of alignment, indentation and quote level.
+pub const PARAGRAPH: &str = "Paragraph";

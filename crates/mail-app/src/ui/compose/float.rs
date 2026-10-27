@@ -1,5 +1,5 @@
 //! The `/` menu, the `@` menu, the `:` emoji menu, Turn into and the ⋮⋮ object menu: when they
-//! open, what they list, and what a choice does. Every choice is an `editor::` op; nothing here
+//! open, what they list, and what a choice does. Every choice is an `rich_text::` op; nothing here
 //! edits text.
 
 use unicode_segmentation::UnicodeSegmentation;

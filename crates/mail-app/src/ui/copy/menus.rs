@@ -225,3 +225,27 @@ pub const PICTURES_SMALL: &str = "Small";
 pub const PICTURES_MEDIUM: &str = "Medium";
 pub const PICTURES_LARGE: &str = "Large";
 pub const PICTURES_ACTUAL: &str = "Actual Size";
+
+// The composer's format bar: the text sizes, Apple Mail's and Gmail's four.
+pub const SIZE_SMALL: &str = "Small";
+pub const SIZE_NORMAL: &str = "Normal";
+pub const SIZE_LARGE: &str = "Large";
+pub const SIZE_HUGE: &str = "Huge";
+
+// The format bar's Paragraph menu, in Apple Mail's words.
+pub const ALIGN_LEFT: &str = "Align Left";
+pub const ALIGN_CENTER: &str = "Center";
+pub const ALIGN_RIGHT: &str = "Align Right";
+pub const INDENT: &str = "Increase Indentation";
+pub const OUTDENT: &str = "Decrease Indentation";
+pub const QUOTE_MORE: &str = "Increase Quote Level";
+pub const QUOTE_LESS: &str = "Decrease Quote Level";
+
+// The format bar's colours: none, then the palette.
+pub const NO_COLOUR: &str = "No Colour";
+pub const GREY: &str = "Grey";
+pub const RED: &str = "Red";
+pub const ORANGE: &str = "Orange";
+pub const GREEN: &str = "Green";
+pub const BLUE: &str = "Blue";
+pub const PURPLE: &str = "Purple";

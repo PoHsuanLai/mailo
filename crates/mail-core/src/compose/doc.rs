@@ -7,7 +7,8 @@
 
 use mail_domain::Draft;
 use mail_mime::{
-    Block, Delsp, Dir, ParsedPart, RemoteImages, SanitizePolicy, Span, from_html, sanitize, unflow,
+    Block, Delsp, Dir, ParaStyle, ParsedPart, RemoteImages, SanitizePolicy, Span, from_html, sanitize,
+    unflow,
 };
 
 use crate::rich_text::{
@@ -118,6 +119,7 @@ fn quoted_blocks(lines: &[&str]) -> Vec<Block> {
         .map(|line| Block::Paragraph {
             spans: vec![Span::Text(line.to_owned())],
             dir: Dir::Auto,
+            style: ParaStyle::default(),
         })
         .collect()
 }

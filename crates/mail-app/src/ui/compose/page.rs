@@ -149,6 +149,8 @@ pub(in crate::ui) enum Float {
     },
     /// The bubble's link field, with what has been typed.
     Link(String),
+    /// The bubble's row of text colours.
+    Colour,
     /// The ⋮⋮ menu of the object at this node.
     Object(usize),
     /// Send from.

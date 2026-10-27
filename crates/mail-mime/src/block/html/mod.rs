@@ -293,7 +293,11 @@ impl<'a> Builder<'a> {
                 let dir = first_strong(&span_text(&spans));
                 if self.block_count < Limits::MAX_BLOCKS {
                     self.block_count += 1;
-                    root.blocks.push(Block::Paragraph { spans, dir });
+                    root.blocks.push(Block::Paragraph {
+                        spans,
+                        dir,
+                        style: root.para,
+                    });
                 } else {
                     self.note(Reached::Blocks);
                 }

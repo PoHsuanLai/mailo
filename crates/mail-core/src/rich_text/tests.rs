@@ -5,6 +5,7 @@
 //! the seeds recorded there are replayed before any new case.
 
 mod events;
+mod format;
 mod keys;
 mod markdown;
 mod menus;
@@ -15,7 +16,7 @@ use mail_mime::{RemoteImages, SafeUrl, SanitizePolicy, from_html, sanitize};
 use proptest::prelude::*;
 
 use super::*;
-use strategies::{doc_and_ops, marks_strategy};
+use strategies::{doc_and_ops, layout_strategy, marks_strategy};
 
 const FAMILY: &str = "\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}";
 
@@ -65,6 +66,32 @@ fn kinds(doc: &Doc) -> String {
         })
         .collect::<Vec<_>>()
         .join("|")
+}
+
+/// Each paragraph's kind and depth (`ul1` is a bullet one level in), `|` between nodes; `hr`
+/// and `obj` for objects.
+fn levels(doc: &Doc) -> String {
+    doc.nodes
+        .iter()
+        .map(|node| match node {
+            Node::Para { kind, layout, .. } => format!("{}{}", kind_name(*kind), layout.depth),
+            Node::Object(Object::Divider) => "hr".to_owned(),
+            Node::Object(_) => "obj".to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+/// A paragraph of `kind` holding `text`, `depth` deep.
+fn deep(kind: ParaKind, text: &str, depth: u8) -> Node {
+    Node::laid(
+        kind,
+        vec![Run::new(text, Marks::new())],
+        Layout {
+            depth,
+            ..Layout::default()
+        },
+    )
 }
 
 fn apply_ops(doc: &mut Doc, ops: Vec<Op>) {
@@ -186,28 +213,75 @@ fn buttonized(kind: ParaKind, runs: &[Run]) -> bool {
 #[derive(Debug, PartialEq, Eq)]
 struct Canon {
     kind: &'static str,
-    runs: Vec<(String, u8, Option<String>)>,
+    align: Align,
+    depth: u8,
+    runs: Vec<CanonRun>,
+}
+
+/// A run's text, its bold, italic and code as bits, its link, size and colour.
+#[derive(Debug, PartialEq, Eq)]
+struct CanonRun {
+    text: String,
+    bits: u8,
+    link: Option<String>,
+    size: Option<TextSize>,
+    color: Option<TextColor>,
+}
+
+impl CanonRun {
+    fn same_look(&self, other: &CanonRun) -> bool {
+        (self.bits, &self.link, self.size, self.color)
+            == (other.bits, &other.link, other.size, other.color)
+    }
 }
 
 /// What `from_html(to_html(doc))` is expected to preserve, and nothing more:
 /// - objects are left out (the writer and the reader disagree on them by design);
 /// - an empty paragraph is left out, since `from_html` drops it;
 /// - underline and strike are dropped, since `Span` has neither;
-/// - code keeps its text only; a lone short link keeps its label and URL only;
-/// - space at either end of a paragraph is dropped, as HTML does.
+/// - code keeps its text only; a lone short link keeps its label and URL only, and its depth
+///   only in a list or a quote;
+/// - space at either end of a paragraph is dropped, as HTML does;
+/// - a list item is no deeper than one below the item before it, and the first of a list is at
+///   the outer level, since a list nests inside an item.
 fn canon(doc: &Doc) -> Vec<Canon> {
-    doc.nodes
-        .iter()
-        .filter_map(|node| match node {
-            Node::Para { kind, runs } => canon_para(*kind, runs),
-            Node::Object(_) => None,
-        })
-        .collect()
+    let mut out = Vec::new();
+    let mut index = 0;
+    while index < doc.nodes.len() {
+        let Node::Para { kind, runs, layout } = &doc.nodes[index] else {
+            index += 1;
+            continue;
+        };
+        if is_item(*kind) {
+            // One run of items, as the writer groups them: until a non-item, or an item back at
+            // the outer level that is another list.
+            let began = std::mem::discriminant(kind);
+            let mut before: Option<u8> = None;
+            while let Some(Node::Para { kind, runs, layout }) = doc.nodes.get(index) {
+                let goes_on = is_item(*kind)
+                    && (before.is_none()
+                        || layout.depth > 0
+                        || std::mem::discriminant(kind) == began);
+                if !goes_on {
+                    break;
+                }
+                let depth = layout.depth.min(before.map_or(0, |depth| depth + 1));
+                before = Some(depth);
+                out.extend(canon_para(*kind, runs, Layout { depth, ..*layout }));
+                index += 1;
+            }
+            continue;
+        }
+        out.extend(canon_para(*kind, runs, *layout));
+        index += 1;
+    }
+    out
 }
 
-fn canon_para(kind: ParaKind, runs: &[Run]) -> Option<Canon> {
-    let styled = !matches!(kind, ParaKind::Code) && !buttonized(kind, runs);
-    let mut kept: Vec<(String, u8, Option<String>)> = Vec::new();
+fn canon_para(kind: ParaKind, runs: &[Run], layout: Layout) -> Option<Canon> {
+    let button = buttonized(kind, runs);
+    let styled = !matches!(kind, ParaKind::Code) && !button;
+    let mut kept: Vec<CanonRun> = Vec::new();
     for run in runs.iter().filter(|run| !run.text.is_empty()) {
         let bits = if styled {
             [Mark::Bold, Mark::Italic, Mark::Code]
@@ -222,22 +296,37 @@ fn canon_para(kind: ParaKind, runs: &[Run]) -> Option<Canon> {
             ParaKind::Code => None,
             _ => run.marks.link.as_ref().map(|url| url.as_str().to_owned()),
         };
+        let next = CanonRun {
+            text: run.text.clone(),
+            bits,
+            link,
+            size: run.marks.size.filter(|_| styled),
+            color: run.marks.color.filter(|_| styled),
+        };
         match kept.last_mut() {
-            Some((text, prev_bits, prev_link)) if *prev_bits == bits && *prev_link == link => {
-                text.push_str(&run.text);
-            }
-            _ => kept.push((run.text.clone(), bits, link)),
+            Some(last) if last.same_look(&next) => last.text.push_str(&next.text),
+            _ => kept.push(next),
         }
     }
-    if let Some((text, ..)) = kept.first_mut() {
-        *text = text.trim_start().to_owned();
+    if let Some(first) = kept.first_mut() {
+        first.text = first.text.trim_start().to_owned();
     }
-    if let Some((text, ..)) = kept.last_mut() {
-        *text = text.trim_end().to_owned();
+    if let Some(last) = kept.last_mut() {
+        last.text = last.text.trim_end().to_owned();
     }
-    kept.retain(|(text, ..)| !text.is_empty());
+    kept.retain(|run| !run.text.is_empty());
+    let (align, depth) = match kind {
+        ParaKind::Code => (Align::Left, 0),
+        // A button keeps only its label and link: a paragraph's indent goes with its alignment,
+        // and an item's or a quote's depth is the lists or quotes around it.
+        ParaKind::Paragraph if button => (Align::Left, 0),
+        _ if button => (Align::Left, layout.depth),
+        _ => (layout.align, layout.depth),
+    };
     (!kept.is_empty()).then(|| Canon {
         kind: kind_name(kind),
+        align,
+        depth,
         runs: kept,
     })
 }
@@ -259,18 +348,20 @@ fn html_doc_strategy() -> impl Strategy<Value = Doc> {
         ParaKind::Quote,
         ParaKind::Code,
     ]);
-    let para = (kind, prop::collection::vec(run, 1..5)).prop_map(|(kind, words)| {
-        let last = words.len() - 1;
-        let runs = words
-            .into_iter()
-            .enumerate()
-            .map(|(index, (word, marks))| {
-                let space = if index == last { "" } else { " " };
-                Run::new(format!("{word}{space}"), marks)
-            })
-            .collect();
-        Node::para(kind, runs)
-    });
+    let para = (kind, prop::collection::vec(run, 1..5), layout_strategy()).prop_map(
+        |(kind, words, layout)| {
+            let last = words.len() - 1;
+            let runs = words
+                .into_iter()
+                .enumerate()
+                .map(|(index, (word, marks))| {
+                    let space = if index == last { "" } else { " " };
+                    Run::new(format!("{word}{space}"), marks)
+                })
+                .collect();
+            Node::laid(kind, runs, layout)
+        },
+    );
     prop::collection::vec(para, 1..6).prop_map(|nodes| Doc { nodes })
 }
 
@@ -330,7 +421,6 @@ proptest! {
     #[test]
     fn html_round_trip_random(doc in html_doc_strategy()) {
         let html = to_html(&doc);
-        prop_assert!(!html.contains("style="), "{}", html);
         prop_assert_eq!(canon(&round_trip(&doc)), canon(&doc), "{}", html);
     }
 }
@@ -338,13 +428,13 @@ proptest! {
 #[test]
 fn the_recorded_seed_is_a_lone_link_that_becomes_a_button() {
     let doc = sample_marked_doc(2);
-    let Some(Node::Para { kind, runs }) = doc.nodes.last() else {
+    let Some(Node::Para { kind, runs, .. }) = doc.nodes.last() else {
         panic!("the sample ends in a paragraph");
     };
     assert_eq!(*kind, ParaKind::Numbered);
     assert!(buttonized(*kind, runs), "{runs:?}");
     let back = round_trip(&doc);
-    let Some(Node::Para { kind, runs }) = back.nodes.last() else {
+    let Some(Node::Para { kind, runs, .. }) = back.nodes.last() else {
         panic!("the round trip ends in a paragraph: {back:?}");
     };
     assert_eq!(*kind, ParaKind::Numbered, "the item stays an item");

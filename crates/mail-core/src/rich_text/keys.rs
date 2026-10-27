@@ -1,8 +1,10 @@
 //! Enter and Backspace at the edges of a paragraph, where the browser would do the wrong thing.
 //!
-//! Enter ends a heading. An empty list, to-do, or quote leaves that kind. Backspace at the
-//! start of a styled paragraph turns it back into a paragraph before it will merge, and
-//! Backspace just after an object arms the object so a second press deletes it.
+//! Enter ends a heading. An empty list, to-do, or quote leaves that kind, a level at a time when
+//! it is nested. Backspace at the start of a nested item, a quote below the first level or an
+//! indented paragraph takes it out a level; at the start of a styled paragraph it turns it back
+//! into a paragraph before it will merge, and just after an object it arms the object so a second
+//! press deletes it.
 
 use crate::rich_text::doc::{Check, Doc, Marks, Node, ParaKind, Pos, Range};
 use crate::rich_text::error::OpError;
@@ -70,11 +72,18 @@ pub fn enter(doc: &Doc, caret: Caret) -> Result<Motion, OpError> {
                 0,
             ),
         }),
-        Node::Para { kind, runs } => {
+        Node::Para { kind, runs, layout } => {
             let len = para_len(runs);
             let empty = runs_text(runs).trim().is_empty();
             if *kind == ParaKind::Code {
                 return Ok(insert_newline(caret));
+            }
+            // An empty nested item, or quote, comes out one level before it leaves.
+            if empty && leaves_when_empty(*kind) && layout.depth > 0 {
+                return Ok(Motion {
+                    ops: vec![set_depth(caret.pos.node, layout.depth - 1)],
+                    caret: Caret::at(caret.pos.node, 0),
+                });
             }
             if empty && leaves_when_empty(*kind) {
                 return Ok(Motion {
@@ -93,6 +102,13 @@ pub fn enter(doc: &Doc, caret: Caret) -> Result<Motion, OpError> {
             let right_kind = right_kind_after_enter(*kind, caret.pos.offset == len);
             if let Some(kind) = right_kind {
                 ops.push(set_kind(right, kind));
+            }
+            // The line after a quote is out of it at every level, not indented by them.
+            if right_kind == Some(ParaKind::Paragraph)
+                && *kind == ParaKind::Quote
+                && layout.depth > 0
+            {
+                ops.push(set_depth(right, 0));
             }
             Ok(Motion {
                 ops,
@@ -121,7 +137,7 @@ pub fn backspace(doc: &Doc, caret: Caret) -> Result<Motion, OpError> {
                 boundary(doc, caret.pos.node, caret.pos)
             }
         }
-        Node::Para { kind, .. } => {
+        Node::Para { kind, layout, .. } => {
             if caret.pos.offset > 0 {
                 let start = one_cluster_back(caret.pos.offset);
                 return Ok(Motion {
@@ -132,6 +148,14 @@ pub fn backspace(doc: &Doc, caret: Caret) -> Result<Motion, OpError> {
                         },
                     }],
                     caret: Caret::at(caret.pos.node, start),
+                });
+            }
+            // A nested item, a deeper quote or an indented paragraph comes out a level first.
+            let levels = leaves_when_empty(*kind) || *kind == ParaKind::Paragraph;
+            if levels && layout.depth > 0 {
+                return Ok(Motion {
+                    ops: vec![set_depth(caret.pos.node, layout.depth - 1)],
+                    caret: Caret::at(caret.pos.node, 0),
                 });
             }
             // A styled paragraph gives up its kind before a later press may merge it.
@@ -240,6 +264,16 @@ fn set_kind(node: usize, kind: ParaKind) -> Op {
             end: Pos::new(node, 0),
         },
         kind,
+    }
+}
+
+fn set_depth(node: usize, depth: u8) -> Op {
+    Op::SetDepth {
+        range: Range {
+            start: Pos::new(node, 0),
+            end: Pos::new(node, 0),
+        },
+        depth,
     }
 }
 

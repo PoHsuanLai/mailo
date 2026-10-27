@@ -12,6 +12,7 @@
 mod convert;
 mod doc;
 mod error;
+mod format;
 mod input;
 mod keys;
 mod markdown;
@@ -29,12 +30,16 @@ mod tests;
 
 pub use convert::{nodes_from_blocks, nodes_from_plain};
 pub use doc::{
-    AttachmentRef, Check, Doc, ImageRef, Level, Mark, Marks, Node, Object, ParaKind, Pos, Presence,
-    Range, Run, Table,
+    AttachmentRef, Check, Doc, ImageRef, Layout, Level, Mark, Marks, Node, Object, ParaKind, Pos,
+    Presence, Range, Run, Table,
 };
 pub use error::OpError;
+pub use format::{
+    Nest, align_at, color_at, indent, is_item, marks_at_start, quote, size_at, step_size, tab,
+};
 pub use input::{Edit, InputEvent, Record, interpret};
 pub use keys::{Caret, Grip, Motion, backspace, enter};
+pub use mail_mime::{Align, TextColor, TextSize};
 pub use markdown::{Shortcut, shortcuts};
 pub use mention::{
     Person, has_attachment, joins_cc, mentions_attachment, missing_attachment, resolve,

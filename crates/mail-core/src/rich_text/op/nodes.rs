@@ -68,8 +68,8 @@ pub(super) fn insert_nodes(doc: &mut Doc, at: Pos, nodes: Vec<Node>) -> Result<O
                     nodes: Vec::new(),
                 })
             } else {
-                let kind = match &doc.nodes[at.node] {
-                    Node::Para { kind, .. } => *kind,
+                let (kind, layout) = match &doc.nodes[at.node] {
+                    Node::Para { kind, layout, .. } => (*kind, *layout),
                     Node::Object(_) => return Err(OpError::NotText),
                 };
                 let right = {
@@ -78,7 +78,8 @@ pub(super) fn insert_nodes(doc: &mut Doc, at: Pos, nodes: Vec<Node>) -> Result<O
                     delete_text(runs, at.offset, len)?
                 };
                 let count = nodes.len();
-                doc.nodes.insert(at.node + 1, Node::para(kind, right));
+                doc.nodes
+                    .insert(at.node + 1, Node::laid(kind, right, layout));
                 doc.nodes.splice(at.node + 1..at.node + 1, nodes);
                 Ok(Op::Delete {
                     range: Range {

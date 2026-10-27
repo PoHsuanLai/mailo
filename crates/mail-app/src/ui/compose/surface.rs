@@ -72,6 +72,9 @@ pub(super) struct Marks {
     /// The height the bubble's distance from the bottom is measured against: from the marks'
     /// corner to the surface's bottom.
     pub height: f32,
+    /// From the marks' corner to the surface's right edge: what a bubble over a selection on
+    /// the right half is placed from.
+    pub width: f32,
 }
 
 impl Marks {
@@ -85,13 +88,21 @@ impl Marks {
         ))
     }
 
-    /// The bubble's place, above the selection's first line, as its inline style.
+    /// The bubble's place, above the selection's first line, as its inline style: from its
+    /// start, or, for a selection that starts on the right half (right-aligned text), from its
+    /// end, so the bar stays in the box.
     pub(super) fn above_selection(&self) -> Option<String> {
         let first = self.selection.first()?;
+        let bottom = self.height - first.origin.y.0 + GAP;
+        if self.width > 0.0 && first.origin.x.0 > self.width / 2.0 {
+            let right = (self.width - first.origin.x.0 - first.size.width.0).max(0.0);
+            return Some(format!(
+                "left:auto;right:{right:.1}px;top:auto;bottom:{bottom:.1}px"
+            ));
+        }
         Some(format!(
-            "left:{:.1}px;top:auto;bottom:{:.1}px",
-            first.origin.x.0,
-            self.height - first.origin.y.0 + GAP
+            "left:{:.1}px;top:auto;bottom:{bottom:.1}px",
+            first.origin.x.0
         ))
     }
 }
@@ -107,6 +118,8 @@ struct Place {
     offset: Point,
     /// From the marks' corner to the surface's bottom.
     height: f32,
+    /// From the marks' corner to the surface's right edge, which is the box's.
+    width: f32,
 }
 
 impl Place {
@@ -328,6 +341,7 @@ fn place_of(handle: EditHandle, layer: &MountedData) -> Option<Place> {
             y: Px(bounds.origin.y.0 - origin.y.0),
         },
         height: bounds.origin.y.0 + bounds.size.height.0 - origin.y.0,
+        width: bounds.origin.x.0 + bounds.size.width.0 - origin.x.0,
     })
 }
 
@@ -341,6 +355,7 @@ fn marks_of(place: Option<Place>, caret: Option<Rect>, selection: &[Rect]) -> Ma
         caret: caret.map(|rect| place.inside(rect)),
         selection: selection.iter().map(|rect| place.inside(*rect)).collect(),
         height: place.height,
+        width: place.width,
     }
 }
 
@@ -361,7 +376,8 @@ fn heard(
     let mut said = None;
     if let EditInput::Key(key) = &input {
         said = actions::heard_key(keys, &key.key, key.modifiers, true);
-        if key_taken(page, shell, on_attach, &key.key.to_string(), said) {
+        let shifted = key.modifiers.contains(Modifiers::SHIFT);
+        if key_taken(page, shell, on_attach, &key.key.to_string(), shifted, said) {
             taken.set(true);
             return;
         }

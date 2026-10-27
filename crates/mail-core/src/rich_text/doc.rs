@@ -4,8 +4,8 @@
 //! character, including an emoji family joined by ZWJ.
 
 use crate::rich_text::text::normalize_runs;
-use mail_mime::SafeUrl;
 use mail_mime::block::Block;
+use mail_mime::{Align, ParaStyle, SafeUrl, TextColor, TextSize};
 
 /// A heading's level. One, two, or three: deeper headings are not a thing this editor writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,14 +91,36 @@ pub enum Presence {
     Off,
 }
 
-/// Inline marks on one run, plus an optional link.
+/// A paragraph's alignment, and how deep it sits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Layout {
+    /// How its lines sit across the column. A code block ignores it.
+    pub align: Align,
+    /// What depth means is the paragraph's kind's: a list item's nesting (0 is the outer list),
+    /// a quote's level less one (0 is one level of quoting), and an indent for a paragraph or a
+    /// heading. A code block ignores it. At most [`Layout::MAX_DEPTH`].
+    pub depth: u8,
+}
+
+impl Layout {
+    /// The deepest a list nests, a quote quotes, or a paragraph is indented: what a sent
+    /// message keeps ([`ParaStyle::MAX_INDENT`]).
+    pub const MAX_DEPTH: u8 = ParaStyle::MAX_INDENT;
+}
+
+/// Inline marks on one run, plus an optional link, size and colour.
 ///
-/// The five styles are bits. The link is its own field because a URL is not a flag.
+/// The five styles are bits. The link, the size and the colour are their own fields, because
+/// none of them is a flag.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Marks {
     bits: u8,
     /// Where this run links, when it links.
     pub link: Option<SafeUrl>,
+    /// Its size, `None` for the body's.
+    pub size: Option<TextSize>,
+    /// Its colour, `None` for the text's own.
+    pub color: Option<TextColor>,
 }
 
 const BIT_BOLD: u8 = 1 << 0;
@@ -113,6 +135,8 @@ impl Marks {
         Self {
             bits: 0,
             link: None,
+            size: None,
+            color: None,
         }
     }
 
@@ -268,6 +292,8 @@ pub enum Node {
         kind: ParaKind,
         /// Its text, split where the marks change.
         runs: Vec<Run>,
+        /// Its alignment and depth.
+        layout: Layout,
     },
     /// An atomic object.
     Object(Object),
@@ -276,9 +302,14 @@ pub enum Node {
 impl Node {
     /// A paragraph of `kind` whose runs are normalized.
     pub(crate) fn para(kind: ParaKind, runs: Vec<Run>) -> Self {
+        Self::laid(kind, runs, Layout::default())
+    }
+
+    /// A paragraph of `kind` laid out as `layout`, whose runs are normalized.
+    pub fn laid(kind: ParaKind, runs: Vec<Run>, layout: Layout) -> Self {
         let mut runs = runs;
         normalize_runs(&mut runs);
-        Self::Para { kind, runs }
+        Self::Para { kind, runs, layout }
     }
 
     /// A paragraph of `kind` holding `text` with no marks.

@@ -63,6 +63,7 @@ fn flowed_table() {
                 body: vec![mail_mime::Block::Paragraph {
                     spans: vec![mail_mime::Span::Text("See you there.".to_owned())],
                     dir: mail_mime::Dir::Auto,
+                    style: mail_mime::ParaStyle::default(),
                 }],
             })]),
             "On Wed, 07 Oct 2026 at 21:02, Ada Lovelace wrote:\n> See you there.\n".into(),

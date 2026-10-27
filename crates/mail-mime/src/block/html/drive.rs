@@ -6,6 +6,7 @@ use crate::block::image::{is_spacer, resolve};
 use crate::block::kind::{Block, Dir, ListKind, Span, first_strong, span_text, strip_overrides};
 use crate::block::limits::Limits;
 use crate::block::limits::Reached;
+use crate::block::style::{self, ParaStyle};
 use crate::block::url::SafeUrl;
 use html5ever::tokenizer::Tag;
 
@@ -76,6 +77,28 @@ impl<'a> Builder<'a> {
         };
         frame.header = name == "th";
         frame.raw = kind == Kind::Pre;
+        let read = style::read(attr(tag, "style").unwrap_or(""));
+        if kind.is_inline() {
+            frame.run = read.run;
+        }
+        // Alignment is inherited, as CSS has it, and an indent adds to the one it sits in. A
+        // table starts over: its cells are laid out by it, not by the text around it.
+        let around = match kind {
+            Kind::Table => ParaStyle::default(),
+            _ => self
+                .stack
+                .last()
+                .map(|frame| frame.para)
+                // The root has no parent: a plain paragraph is what it sits in.
+                .unwrap_or_default(),
+        };
+        frame.para = ParaStyle {
+            align: read.align.unwrap_or(around.align),
+            indent: around
+                .indent
+                .saturating_add(read.indent)
+                .min(ParaStyle::MAX_INDENT),
+        };
         if kind == Kind::Anchor {
             frame.link = attr(tag, "href").and_then(SafeUrl::link);
             if frame.link.is_some() {
@@ -210,18 +233,22 @@ impl<'a> Builder<'a> {
         if !accepts {
             return;
         }
-        let (spans, forced) = {
+        let (spans, forced, style) = {
             let Some(parent) = self.stack.last_mut() else {
                 return;
             };
             flush_buf(parent);
-            (std::mem::take(&mut parent.spans), parent.forced)
+            (
+                std::mem::take(&mut parent.spans),
+                parent.forced,
+                parent.para,
+            )
         };
         if span_text(&spans).trim().is_empty() {
             return;
         }
         let dir = forced.unwrap_or_else(|| first_strong(&span_text(&spans)));
-        self.emit_here(Block::Paragraph { spans, dir }, false);
+        self.emit_here(Block::Paragraph { spans, dir, style }, false);
     }
 
     pub(super) fn emit_here(&mut self, block: Block, from_p: bool) {

@@ -35,6 +35,7 @@ mod seal;
 mod signoff;
 mod sizing;
 mod spell;
+mod styling;
 mod surface;
 mod templates;
 mod wire;

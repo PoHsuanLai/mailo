@@ -20,7 +20,7 @@ What is a visible literal is a heuristic, kept simple and deterministic:
   an event name, a search operator); lowercase words joined by `-` or `_` (a class list); one
   token in capitals or in camelCase (an environment variable, a region code, a command name); a
   CSS selector or CSS (`px`, `var(`, `:` with `;`); a URL; a locale code; a DOM key name; a font;
-  a key chord as the keymap spells it (`Primary+Shift+F`, `Alt+Primary+C`).
+  a key chord as the keymap spells it (`Primary+Shift+F`, `Alt+Primary+C`, `Primary+]`).
 
 Everything else is counted: a capitalised word ("Inbox"), any words with a space between them
 ("no mail from them"), anything with typographic marks ("Settings…").
@@ -74,7 +74,9 @@ FONT = re.compile(
     r"P?MingLiU|Batang|Malgun|Apple ?(?:SD|Myungjo)|Georgia$|Times New Roman|Helvetica|Arial|"
     r"Segoe|Menlo|Consolas|Courier|DejaVu|Liberation|Cantarell|Inter$)"
 )
-CHORD = re.compile(r"^(?:(?:Primary|Shift|Alt|Ctrl|Control|Super|Meta|Cmd|Option)\+)+[A-Za-z0-9]+$")
+CHORD = re.compile(
+    r"^(?:(?:Primary|Shift|Alt|Ctrl|Control|Super|Meta|Cmd|Option)\+)+(?:[A-Za-z0-9]+|[^\sA-Za-z0-9])$"
+)
 # The head of an `impl Debug for T` block, up to its `{`: what it writes is for a developer.
 DEBUG_IMPL = re.compile(r"\bimpl\b[^{};]*\bDebug\s+for\b[^{};]*$")
 PLACEHOLDER = re.compile(r"\{[^{}]*\}")

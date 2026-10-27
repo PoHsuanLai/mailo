@@ -31,14 +31,42 @@ impl ListTag {
     }
 }
 
-/// The index just past the run of items of the list `tag` that starts at `start`.
+/// The index just past the run of list items that starts at `start`: every item after it, at
+/// any depth, until one that is not an item, or one back at the outer list's depth that is
+/// another list (`tag` is the first item's).
 fn list_end(nodes: &[Node], start: usize, tag: ListTag) -> usize {
-    let same = |node: &Node| match node {
-        Node::Para { kind, .. } => ListTag::of(*kind)
-            .is_some_and(|other| std::mem::discriminant(&other) == std::mem::discriminant(&tag)),
+    let goes_on = |node: &Node| match node {
+        Node::Para { kind, layout, .. } => ListTag::of(*kind).is_some_and(|other| {
+            layout.depth > 0 || std::mem::discriminant(&other) == std::mem::discriminant(&tag)
+        }),
         Node::Object(_) => false,
     };
-    start + nodes[start..].iter().take_while(|node| same(node)).count()
+    start
+        + 1
+        + nodes[start + 1..]
+            .iter()
+            .take_while(|node| goes_on(node))
+            .count()
+}
+
+/// The depth each item of a run is written at: its own, but at most one below the item before
+/// it, and the first at the outer list's. A list nests inside an item, so it cannot skip one.
+fn written_depths(items: &[Node]) -> Vec<usize> {
+    let mut out: Vec<usize> = Vec::with_capacity(items.len());
+    for node in items {
+        let depth = match node {
+            Node::Para { layout, .. } => usize::from(layout.depth),
+            Node::Object(_) => 0,
+        };
+        let most = out.last().map_or(0, |before| before + 1);
+        out.push(depth.min(most));
+    }
+    out
+}
+
+/// Whether two items are of the same list: both bullets, both numbered, or both to-dos.
+fn same_list(one: ListTag, other: ListTag) -> bool {
+    std::mem::discriminant(&one) == std::mem::discriminant(&other)
 }
 
 /// The box a to-do item is written with in plain text.
@@ -96,7 +124,10 @@ fn spans_plain(spans: &[Span]) -> String {
         match span {
             Span::Text(text) | Span::Code(text) => out.push_str(text),
             Span::Break => out.push('\n'),
-            Span::Strong(inner) | Span::Emphasis(inner) | Span::Link { spans: inner, .. } => {
+            Span::Strong(inner)
+            | Span::Emphasis(inner)
+            | Span::Link { spans: inner, .. }
+            | Span::Styled { spans: inner, .. } => {
                 out.push_str(&spans_plain(inner));
             }
         }

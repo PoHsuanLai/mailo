@@ -1,5 +1,5 @@
 //! Where an editor event meets the page: [`hear`] turns what the surface handed over
-//! (`surface.rs`, through `adapt.rs`) into `editor::` calls on the page's session, with the IME
+//! (`surface.rs`, through `adapt.rs`) into `rich_text::` calls on the page's session, with the IME
 //! rule and the choice of which range an event acts on.
 
 use super::float;
