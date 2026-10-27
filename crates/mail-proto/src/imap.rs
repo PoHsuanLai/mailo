@@ -808,10 +808,14 @@ impl ImapSession {
             ImapCommand::Compress => "COMPRESS DEFLATE".to_owned(),
             ImapCommand::Notify { mailboxes } => {
                 let names: Vec<String> = mailboxes.iter().map(|m| wire(m)).collect();
+                // RFC 5465: `mailboxes` takes one mailbox, or a parenthesised list of them.
+                let named = match names.as_slice() {
+                    [one] => one.clone(),
+                    many => format!("({})", many.join(" ")),
+                };
                 format!(
                     "NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
-                     (mailboxes {} (MessageNew MessageExpunge))",
-                    names.join(" ")
+                     (mailboxes {named} (MessageNew MessageExpunge))"
                 )
             }
             ImapCommand::List => "LIST \"\" \"*\"".to_owned(),
@@ -1294,7 +1298,7 @@ impl ImapSession {
                     }
                     _ if matches!(
                         self.commands.get(index),
-                        Some(ImapCommand::UidStore { tolerate: true, .. })
+                        Some(ImapCommand::UidStore { tolerate: true, .. } | ImapCommand::Compress)
                     ) =>
                     {
                         Some(self.issue(index + 1))

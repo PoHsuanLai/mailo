@@ -1581,8 +1581,13 @@ fn pushed_folders(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
         .into_iter()
         .skip(1)
         .filter(|m| sent != Some(m.path.as_str()))
+        .take(PUSHED_FOLDERS)
         .collect()
 }
+
+/// At most this many folders beside the inbox are named to a server's `NOTIFY`: a server that
+/// lists hundreds would be sent a command it may refuse for its length.
+const PUSHED_FOLDERS: usize = 50;
 
 /// Whether a pass fetches this folder, beside the inbox and Sent.
 ///

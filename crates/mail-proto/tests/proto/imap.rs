@@ -756,7 +756,7 @@ fn notify_names_the_other_mailboxes_and_their_news_ends_the_idle() {
         written(&needs),
         [
             "a002 NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
-             (mailboxes \"Lists\" \"Archiv/&AMQ-rzte\" (MessageNew MessageExpunge))\r\n"
+             (mailboxes (\"Lists\" \"Archiv/&AMQ-rzte\") (MessageNew MessageExpunge))\r\n"
         ]
     );
     let needs = fed(&mut session, "a002 OK done\r\n");
@@ -766,6 +766,46 @@ fn notify_names_the_other_mailboxes_and_their_news_ends_the_idle() {
         "+ idling\r\n* STATUS \"Lists\" (UIDNEXT 9)\r\n",
     );
     assert_eq!(written(&needs), ["DONE\r\n"]);
+}
+
+/// One mailbox is named bare and several as a list (RFC 5465 `mailboxes`), which is the grammar.
+#[test]
+fn notify_names_one_mailbox_bare() {
+    let mut session = session(vec![
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned()],
+        },
+        ImapCommand::Noop,
+    ]);
+    use mail_proto::machine::{Machine, Progress};
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(&mut session, "* OK ready\r\n");
+    assert_eq!(
+        written(&needs),
+        [
+            "a001 NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
+          (mailboxes \"Lists\" (MessageNew MessageExpunge))\r\n"
+        ]
+    );
+}
+
+/// A server that refuses `COMPRESS` with NO goes on uncompressed instead of failing the session.
+#[test]
+fn a_refused_compress_is_skipped() {
+    let mut session = session(vec![ImapCommand::Compress, ImapCommand::Noop]);
+    use mail_proto::machine::{Machine, Progress};
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(
+        &mut session,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    assert_eq!(written(&needs), ["a001 COMPRESS DEFLATE\r\n"]);
+    let needs = fed(&mut session, "a001 NO [COMPRESSIONACTIVE] already\r\n");
+    assert_eq!(written(&needs), ["a002 NOOP\r\n"]);
 }
 
 /// A server without `NOTIFY` is refused before anything is sent, which is how a watch learns to
