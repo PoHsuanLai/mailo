@@ -185,3 +185,6 @@ pub const APPLY_AND_SEND: &str = "Apply and Send";
 
 /// Apply Rules' alert: apply the rules but leave out what sends mail.
 pub const APPLY_WITHOUT_SENDING: &str = "Apply Without Sending";
+
+/// The relay key row: take the kept key out of the keyring.
+pub const FORGET_KEY: &str = "Forget Key";

@@ -63,7 +63,27 @@ pub(in crate::ui) fn use_window_settings() {
     });
     use_context_provider(|| values);
     // The window's images are fetched the way `privacy.*` says, and follow it as it changes.
-    use_effect(move || crate::ui::original::follow_privacy(&values.read().privacy));
+    // The relay's key comes from the keyring, not the settings file, and is read again when the
+    // file says it changed (`privacy.relay_key_changed`). Off the thread that draws: a keyring
+    // answers when it likes.
+    let mut relay_key = use_signal(|| None::<String>);
+    let _reading = use_resource(move || {
+        let _changed = values.read().privacy.relay_key_changed;
+        async move {
+            let Some(client) = crate::ui::live::try_client() else {
+                return;
+            };
+            let read = tokio::task::spawn_blocking(move || client.net().relay_key())
+                .await
+                .ok()
+                .and_then(Result::ok)
+                .flatten();
+            relay_key.set(read);
+        }
+    });
+    use_effect(move || {
+        crate::ui::original::follow_privacy(&values.read().privacy, relay_key.read().as_deref());
+    });
     use_future(move || {
         let root = root.clone();
         let spawner: std::sync::Arc<dyn ds::base::spawner::Spawner> =

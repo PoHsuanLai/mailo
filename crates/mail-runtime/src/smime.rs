@@ -34,9 +34,11 @@ pub fn private_key(
             let pem = zeroize::Zeroizing::new(pem);
             Ok(PrivateKey::from_pkcs8_pem(&pem)?)
         }
-        SigningSecret::OpenPgp(_) => Err(RuntimeError::Secrets(Failure::said(format!(
-            "the keyring entry for S/MIME certificate {fingerprint} holds something else"
-        )))),
+        SigningSecret::OpenPgp(_) | SigningSecret::Relay(_) => {
+            Err(RuntimeError::Secrets(Failure::said(format!(
+                "the keyring entry for S/MIME certificate {fingerprint} holds something else"
+            ))))
+        }
     }
 }
 

@@ -45,6 +45,7 @@ notify = "8.2"
 
 [dev-dependencies]
 mail-client = { path = ".", features = ["testing"] }
+mail-core = { workspace = true, features = ["testing"] }
 mail-domain = { workspace = true, features = ["testing"] }
 mail-store = { workspace = true, features = ["testing"] }
 tempfile = "3"

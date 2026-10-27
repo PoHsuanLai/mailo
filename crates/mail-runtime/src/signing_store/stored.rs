@@ -23,6 +23,8 @@ pub(crate) enum Stored {
     OpenPgp(String),
     #[serde(rename = "smime_key")]
     SmimeKey(String),
+    #[serde(rename = "relay_key")]
+    RelayKey(String),
 }
 
 // Written by hand, like every secret's: a derived Debug would print it.

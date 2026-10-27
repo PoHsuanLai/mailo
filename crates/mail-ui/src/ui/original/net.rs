@@ -115,8 +115,8 @@ impl AppNet for MailNet {
 static ROUTE: Mutex<Option<Route>> = Mutex::new(Some(Route::Direct));
 
 /// Fetch the window's images the way `privacy` says from now on.
-pub(crate) fn follow(privacy: &crate::settings::PrivacySettings) {
-    let route = privacy.route().ok();
+pub(crate) fn follow(privacy: &crate::settings::PrivacySettings, relay_key: Option<&str>) {
+    let route = privacy.route(relay_key).ok();
     *ROUTE.lock().unwrap_or_else(PoisonError::into_inner) = route;
 }
 

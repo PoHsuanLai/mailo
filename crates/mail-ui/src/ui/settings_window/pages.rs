@@ -36,6 +36,9 @@ pub(super) enum Line {
     DefaultMail,
     /// A switch per account: whether its new mail is announced (`notifications.muted_accounts`).
     MutedAccounts,
+    /// The privacy relay's key: a field that keeps what is typed in the keyring, never in the
+    /// settings file ([`RelayKey`]).
+    RelayKey,
     /// The schema's text key at this path, holding a folder: drawn as the folder, with Choose…
     /// to pick another in the system's dialog, and Use Downloads to go back to the default.
     Folder(&'static str),
@@ -147,7 +150,7 @@ pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
                     Line::Key("privacy.protect"),
                     Line::Key("privacy.relay_kind"),
                     Line::Key("privacy.relay"),
-                    Line::Key("privacy.relay_key"),
+                    Line::RelayKey,
                     Line::Key("privacy.proxy"),
                 ],
             },
@@ -281,6 +284,7 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandle
                             },
                             Line::DefaultMail => rsx! { crate::ui::default_mail::DefaultMailRow {} },
                             Line::MutedAccounts => rsx! { MutedAccounts { failed } },
+                            Line::RelayKey => rsx! { RelayKey { failed } },
                             Line::Folder(path) => match key_at(path) {
                                 Some(spec) => rsx! {
                                     FolderRow { key: "{path}", value: value_of(&values, &spec), spec, onedit }
@@ -462,6 +466,77 @@ fn MutedAccounts(mut failed: Signal<Option<String>>) -> Element {
                             failed.set(changed.err());
                         },
                     }
+                }
+            }
+        }
+    }
+}
+
+/// The privacy relay's key. It is typed here and goes to the keyring, which holds it from then
+/// on; the settings file is told only that it changed, so the windows that fetch images read it
+/// again. The field never shows a kept key, only that one is kept.
+#[component]
+fn RelayKey(mut failed: Signal<Option<String>>) -> Element {
+    let mut typed = use_signal(String::new);
+    let mut kept = use_resource(|| async {
+        let Some(client) = crate::ui::live::try_client() else {
+            return false;
+        };
+        tokio::task::spawn_blocking(move || client.net().relay_key())
+            .await
+            .is_ok_and(|read| read.ok().flatten().is_some())
+    });
+    let is_kept = (*kept.read()).unwrap_or(false);
+    let keep = move |key: String| {
+        let Some(client) = crate::ui::live::try_client() else {
+            return;
+        };
+        spawn(async move {
+            let done = tokio::task::spawn_blocking(move || client.net().set_relay_key(&key))
+                .await
+                .unwrap_or_else(|why| Err(why.to_string()));
+            match done {
+                Ok(()) => {
+                    typed.set(String::new());
+                    let bumped = crate::ui::prefs::change(|settings| {
+                        settings.privacy.relay_key_changed =
+                            settings.privacy.relay_key_changed.wrapping_add(1);
+                    });
+                    failed.set(bumped.err());
+                    kept.restart();
+                }
+                Err(why) => failed.set(Some(crate::ui::remedy::plainly(
+                    copy::errors::RELAY_KEY_NOT_KEPT,
+                    why,
+                ))),
+            }
+        });
+    };
+    rsx! {
+        FieldRow {
+            label: copy::fields::RELAY_KEY,
+            help: Some(TextLine::from(if is_kept {
+                copy::fields::RELAY_KEY_KEPT
+            } else {
+                copy::fields::RELAY_KEY_HELP
+            })),
+            TextField {
+                label: copy::fields::RELAY_KEY,
+                kind: FieldKind::Secure,
+                value: typed(),
+                placeholder: if is_kept { copy::fields::RELAY_KEY_PLACEHOLDER_KEPT } else { copy::fields::RELAY_KEY_PLACEHOLDER },
+                oninput: move |text: String| typed.set(text),
+                onblur: move |()| {
+                    let key = typed.peek().trim().to_owned();
+                    if !key.is_empty() {
+                        keep(key);
+                    }
+                },
+            }
+            if is_kept {
+                Button {
+                    label: copy::controls::FORGET_KEY,
+                    onclick: on_primary(move || keep(String::new())),
                 }
             }
         }

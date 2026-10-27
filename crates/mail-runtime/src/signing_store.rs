@@ -47,6 +47,7 @@ pub(crate) fn signing_entry_name(key: &SigningKeyRef) -> String {
     match key.key {
         SigningKeyId::OpenPgp(fingerprint) => format!("openpgp:{fingerprint}"),
         SigningKeyId::Smime(fingerprint) => format!("smime:{fingerprint}"),
+        SigningKeyId::PrivacyRelay => "privacy-relay".to_owned(),
     }
 }
 
@@ -54,6 +55,7 @@ pub(crate) fn signing_secret(stored: Stored) -> Result<SigningSecret, RuntimeErr
     match stored {
         Stored::OpenPgp(armored) => Ok(SigningSecret::OpenPgp(armored)),
         Stored::SmimeKey(pem) => Ok(SigningSecret::SmimeKey(pem)),
+        Stored::RelayKey(key) => Ok(SigningSecret::Relay(key)),
         Stored::Password(_) | Stored::OAuth { .. } => Err(RuntimeError::Secrets(Failure::said(
             "the keyring entry holds an account's credential, not a signing key",
         ))),
@@ -64,6 +66,7 @@ pub(crate) fn stored_signing(value: &SigningSecret) -> Stored {
     match value {
         SigningSecret::OpenPgp(armored) => Stored::OpenPgp(armored.clone()),
         SigningSecret::SmimeKey(pem) => Stored::SmimeKey(pem.clone()),
+        SigningSecret::Relay(key) => Stored::RelayKey(key.clone()),
     }
 }
 

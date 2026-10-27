@@ -185,6 +185,7 @@ fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
             super::pages::Line::TrustedSenders
             | super::pages::Line::DefaultMail
             | super::pages::Line::Vips
+            | super::pages::Line::RelayKey
             | super::pages::Line::MutedAccounts => None,
         })
         .collect();

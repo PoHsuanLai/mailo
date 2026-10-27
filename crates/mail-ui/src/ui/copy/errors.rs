@@ -210,3 +210,6 @@ pub fn in_address_book(name: &str) -> String {
 
 /// A read receipt that could not be sent or declined: the mark stays, to try again.
 pub const RECEIPT_NOT_KEPT: &str = "The answer to the read receipt couldn’t be kept. Try again.";
+
+/// The relay key could not be kept in, or taken out of, the keyring.
+pub const RELAY_KEY_NOT_KEPT: &str = "The relay key couldn’t be kept in the keyring.";

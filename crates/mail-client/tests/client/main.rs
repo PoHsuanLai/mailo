@@ -815,3 +815,29 @@ fn a_local_accounts_labels_are_read_with_it() {
     let names: Vec<&str> = read[0].labels().iter().map(|l| l.name.as_str()).collect();
     assert_eq!(names, ["Kept"]);
 }
+
+/// The privacy relay's key lives in the keyring and nowhere else: kept, read back, and forgotten
+/// by keeping nothing.
+#[test]
+fn the_relay_key_is_kept_in_the_keyring() {
+    let store = Arc::new(in_memory());
+    let client = Client::inline(store, Arc::new(mail_core::mail::SystemClock));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let handle = runtime.handle().clone();
+    let keyring = Arc::new(mail_core::testing::MapSigningStore::default());
+    let held = keyring.clone();
+    client.reach(mail_client::Reach::new(move |store| {
+        mail_core::Mail::new(store, handle.clone()).with_signing(held.clone())
+    }));
+    assert_eq!(client.net().relay_key(), Ok(None), "none kept yet");
+    client.net().set_relay_key("  s3cret ").unwrap();
+    assert_eq!(client.net().relay_key(), Ok(Some("s3cret".to_owned())));
+    client.net().set_relay_key("").unwrap();
+    assert_eq!(
+        client.net().relay_key(),
+        Ok(None),
+        "an empty key forgets it"
+    );
+}

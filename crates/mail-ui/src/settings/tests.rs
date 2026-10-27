@@ -135,7 +135,6 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         ),
         ("privacy.relay_kind", pair("camo", "token")),
         ("privacy.relay", KeyKind::Text),
-        ("privacy.relay_key", KeyKind::Text),
         ("privacy.proxy", KeyKind::Text),
         ("mailboxes.delete", pair("trash", "now")),
         (
@@ -683,31 +682,40 @@ fn privacy_starts_straight_and_unblocked() {
     let privacy = MailSettings::default().privacy;
     assert_eq!(privacy.protect, Protect::Off);
     assert_eq!(privacy.block_remote_content, BlockRemote::Off);
-    assert_eq!(privacy.route(), Ok(mail_core::remote_image::Route::Direct));
+    assert_eq!(
+        privacy.route(None),
+        Ok(mail_core::remote_image::Route::Direct)
+    );
 }
 
 #[test]
 fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
     use mail_core::remote_image::Route;
-    let cases: Vec<(super::PrivacySettings, Result<(), RouteProblem>)> = vec![
+    // (what is set, the relay's key as the keyring holds it, what the route is)
+    let cases: Vec<(
+        super::PrivacySettings,
+        Option<&str>,
+        Result<(), RouteProblem>,
+    )> = vec![
         (
             private(|p| p.protect = Protect::Relay),
+            Some("k"),
             Err(RouteProblem::Relay),
         ),
         (
             private(|p| {
                 p.protect = Protect::Relay;
                 p.relay = "ftp://relay.example.test".to_owned();
-                p.relay_key = "k".to_owned();
             }),
+            Some("k"),
             Err(RouteProblem::Relay),
         ),
         (
             private(|p| {
                 p.protect = Protect::Relay;
                 p.relay = "http://relay.example.test".to_owned();
-                p.relay_key = "k".to_owned();
             }),
+            Some("k"),
             Err(RouteProblem::Relay),
         ),
         (
@@ -715,10 +723,20 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
                 p.protect = Protect::Relay;
                 p.relay = "https://relay.example.test".to_owned();
             }),
+            None,
+            Err(RouteProblem::RelayKey),
+        ),
+        (
+            private(|p| {
+                p.protect = Protect::Relay;
+                p.relay = "https://relay.example.test".to_owned();
+            }),
+            Some("  "),
             Err(RouteProblem::RelayKey),
         ),
         (
             private(|p| p.protect = Protect::Proxy),
+            None,
             Err(RouteProblem::Proxy),
         ),
         (
@@ -726,6 +744,7 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
                 p.protect = Protect::Proxy;
                 p.proxy = "127.0.0.1:9050".to_owned();
             }),
+            None,
             Err(RouteProblem::Proxy),
         ),
         (
@@ -733,6 +752,7 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
                 p.protect = Protect::Proxy;
                 p.proxy = "socks5h://127.0.0.1:9050".to_owned();
             }),
+            None,
             Ok(()),
         ),
         // `socks5://` looks the host up outside the proxy.
@@ -741,6 +761,7 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
                 p.protect = Protect::Proxy;
                 p.proxy = "socks5://127.0.0.1:9050".to_owned();
             }),
+            None,
             Err(RouteProblem::Proxy),
         ),
         (
@@ -748,13 +769,13 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
                 p.protect = Protect::Relay;
                 p.relay_kind = RelayKind::Token;
                 p.relay = "https://relay.example.test".to_owned();
-                p.relay_key = " t ".to_owned();
             }),
+            Some(" t "),
             Ok(()),
         ),
     ];
-    for (privacy, want) in cases {
-        let got = privacy.route();
+    for (privacy, key, want) in cases {
+        let got = privacy.route(key);
         assert_eq!(
             got.as_ref().map(|_| ()).map_err(|e| *e),
             want,
@@ -764,6 +785,23 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
             assert_eq!(token, "t");
         }
     }
+}
+
+/// The relay's key is not a setting: it is in the keyring, and the settings file has nothing of
+/// it, whatever the rest of the privacy section says.
+#[test]
+fn the_relay_key_is_not_in_the_settings_file() {
+    let (dir, root) = scratch();
+    change(&root, |s| {
+        s.privacy.protect = Protect::Relay;
+        s.privacy.relay = "https://relay.example.test".to_owned();
+        s.privacy.relay_key_changed = 3;
+    })
+    .unwrap();
+    let text = std::fs::read_to_string(dir.path().join("mailo").join("settings.toml")).unwrap();
+    assert!(text.contains("relay.example.test"), "{text}");
+    assert!(!text.contains("relay_key ="), "{text}");
+    assert!(!text.contains("secret"), "{text}");
 }
 
 /// "Notify for" is all new mail until the file says VIPs only, reads back as written, says its

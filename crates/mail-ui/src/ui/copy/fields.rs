@@ -227,3 +227,19 @@ pub const REPLY_AGAIN_AFTER: &str = "Reply again after (days)";
 /// What that field means.
 pub const REPLY_AGAIN_FOOTER: &str =
     "A sender is answered once, then again only after this many days.";
+
+/// The privacy relay's key, kept in the keyring.
+pub const RELAY_KEY: &str = "Relay key";
+
+/// What the relay key is, while none is kept.
+pub const RELAY_KEY_HELP: &str =
+    "The key the relay was set up with, or its token. It is kept in the keyring, not in a file.";
+
+/// What the relay key says once one is kept.
+pub const RELAY_KEY_KEPT: &str = "A key is kept in the keyring. Type another to replace it.";
+
+/// The relay key's field, while none is kept.
+pub const RELAY_KEY_PLACEHOLDER: &str = "Paste the key";
+
+/// The relay key's field, once one is kept.
+pub const RELAY_KEY_PLACEHOLDER_KEPT: &str = "Kept in the keyring";

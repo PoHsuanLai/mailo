@@ -93,6 +93,34 @@ impl Net<'_> {
         self.mail().signing()
     }
 
+    /// The privacy relay's key or token, kept in the keyring: `None` while none is kept. Blocks on
+    /// the keyring, so a caller reads it off the thread that draws.
+    pub fn relay_key(&self) -> Result<Option<String>, String> {
+        use mail_domain::signing::{SigningKeyRef, SigningSecret};
+        match self.signing().get(&SigningKeyRef::privacy_relay()) {
+            Ok(SigningSecret::Relay(key)) => Ok(Some(key).filter(|key| !key.is_empty())),
+            Ok(_) => Ok(None),
+            Err(why) => match mail_runtime::SecretTrouble::of(&why) {
+                mail_runtime::SecretTrouble::Absent => Ok(None),
+                mail_runtime::SecretTrouble::Unreachable(said) => Err(said.to_owned()),
+            },
+        }
+    }
+
+    /// Keep `key` as the privacy relay's, in the keyring; an empty one forgets it. Blocks.
+    pub fn set_relay_key(&self, key: &str) -> Result<(), String> {
+        use mail_domain::signing::{SigningKeyRef, SigningSecret};
+        let at = SigningKeyRef::privacy_relay();
+        let key = key.trim();
+        let done = if key.is_empty() {
+            self.signing().forget(&at)
+        } else {
+            self.signing()
+                .put(&at, &SigningSecret::Relay(key.to_owned()))
+        };
+        done.map_err(|why| why.to_string())
+    }
+
     /// What the program was started with.
     pub fn environment(&self) -> Environment {
         self.mail().environment().clone()

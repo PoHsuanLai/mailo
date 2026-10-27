@@ -422,12 +422,11 @@ pub struct PrivacySettings {
         section = "Privacy"
     )]
     pub relay: String,
-    #[settings(
-        label = "Relay key",
-        help = "The key the relay was set up with, or its token.",
-        section = "Privacy"
-    )]
-    pub relay_key: String,
+    /// How many times the relay's key was kept or forgotten: the one thing the file says of it.
+    /// The key itself is in the keyring (`Net::set_relay_key`), never here, so a window that
+    /// hears the count change reads it again.
+    #[settings(skip)]
+    pub relay_key_changed: u32,
     #[settings(
         label = "Proxy",
         help = "An HTTP or SOCKS5 proxy, such as socks5h://127.0.0.1:9050 for Tor. The proxy decides what it can reach.",
@@ -441,7 +440,10 @@ impl PrivacySettings {
     /// relay or a proxy chosen with no usable address. An address that cannot be used is never
     /// quietly taken as `Off`: the fetch would go straight to the image's host, which is what
     /// the person chose against.
-    pub fn route(&self) -> Result<mail_client::remote_image::Route, RouteProblem> {
+    pub fn route(
+        &self,
+        relay_key: Option<&str>,
+    ) -> Result<mail_client::remote_image::Route, RouteProblem> {
         use mail_client::remote_image::Route;
         match self.protect {
             Protect::Off => Ok(Route::Direct),
@@ -450,7 +452,7 @@ impl PrivacySettings {
                 let base = url_with_host(&self.relay)
                     .filter(|url| url.scheme() == "https")
                     .ok_or(RouteProblem::Relay)?;
-                let key = self.relay_key.trim().to_owned();
+                let key = relay_key.unwrap_or_default().trim().to_owned();
                 if key.is_empty() {
                     return Err(RouteProblem::RelayKey);
                 }
