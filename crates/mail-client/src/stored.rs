@@ -168,10 +168,6 @@ impl Stored<'_> {
         self.0.store().put_contact(address, name, origin)
     }
 
-    pub fn delete_contact(&self, address: &str) -> Result<bool, StoreError> {
-        self.0.store().delete_contact(address)
-    }
-
     pub fn groups(&self) -> Result<Vec<Group>, StoreError> {
         self.0.store().groups()
     }
@@ -182,10 +178,6 @@ impl Stored<'_> {
 
     pub fn put_group(&self, group: &Group) -> Result<(), StoreError> {
         self.0.store().put_group(group)
-    }
-
-    pub fn delete_group(&self, id: &GroupId) -> Result<bool, StoreError> {
-        self.0.store().delete_group(id)
     }
 
     pub fn pgp_keys(&self) -> Result<Vec<PgpKey>, StoreError> {
