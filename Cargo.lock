@@ -5246,6 +5246,7 @@ dependencies = [
  "const-oid 0.9.6",
  "der",
  "dirs",
+ "flate2",
  "futures-util",
  "hickory-resolver",
  "hmac 0.12.1",

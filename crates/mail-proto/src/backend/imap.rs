@@ -133,14 +133,20 @@ impl ImapBackend {
     fn queue_as(
         &mut self,
         auth: Authenticate,
-        commands: Vec<ImapCommand>,
+        mut commands: Vec<ImapCommand>,
     ) -> Progress<ProtoOutcome> {
         // Resumed, the connection is signed in already, and signing in twice is refused.
         let going_on = self.going_on.take();
+        let going_on_is_new = going_on.is_none();
         let auth = match going_on {
             Some(_) => Authenticate::No,
             None => auth,
         };
+        // Compressed on a connection this operation signs in on, when the server offers it. A
+        // connection gone on from keeps what it was given, and a relay's is its own.
+        if going_on_is_new && auth != Authenticate::No {
+            commands.insert(0, ImapCommand::Compress);
+        }
         let session = match (self.build)(auth, commands) {
             Ok(session) => session,
             Err(e) => return Progress::Failed(e),
@@ -921,13 +927,29 @@ impl Backend for ImapBackend {
                     },
                 ])
             }
-            ProtoOp::Watch { mailbox, uidnext } => {
+            ProtoOp::Watch {
+                mailbox,
+                uidnext,
+                also,
+            } => {
                 self.job = Job::Watching;
                 let idle = match uidnext {
                     Some(uidnext) => ImapCommand::IdleAfter { uidnext },
                     None => ImapCommand::Idle,
                 };
-                self.queue(vec![Self::select(&mailbox, Access::ReadOnly), idle])
+                let mut walk = Vec::new();
+                // Other mailboxes through NOTIFY, and nothing at all where the server has none:
+                // the guard ends the walk as unsupported before a mailbox is selected, which is
+                // how the caller learns to watch them another way.
+                if !also.is_empty() {
+                    walk.push(ImapCommand::RequireCapability(vec!["NOTIFY".to_owned()]));
+                }
+                walk.push(Self::select(&mailbox, Access::ReadOnly));
+                if !also.is_empty() {
+                    walk.push(ImapCommand::Notify { mailboxes: also });
+                }
+                walk.push(idle);
+                self.queue(walk)
             }
             ProtoOp::Expunge { .. } => Progress::Failed(ProtoError::Unsupported(
                 "expunging is forbidden: Gmail may be configured to delete permanently, and \

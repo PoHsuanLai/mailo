@@ -6,7 +6,7 @@
 //! happen when it was asked to. So the wait is a race between the server and the outbox, and
 //! the outbox side is local: a query against the store, never a connection.
 
-use super::AccountEngine;
+use super::{AccountEngine, Notify};
 use crate::error::Logged;
 use crate::{Cancel, RuntimeError};
 use chrono::{DateTime, Utc};
@@ -73,6 +73,7 @@ impl<B: Backend> AccountEngine<B> {
             self.schedule.outbox,
         );
         let alarm = || due_alarm(store.clone(), account.clone(), started, every);
+        let learning = self.notifies() == Notify::Unasked;
 
         // An account that keeps its mail here has no server to park in IDLE on, whatever its
         // stored capabilities say: it only ever sleeps.
@@ -84,28 +85,32 @@ impl<B: Backend> AccountEngine<B> {
             // between proves the account is reachable rather than assuming it.
             let rearm = tokio::time::sleep(IDLE_REARM);
             let (tx, mut inner) = watch::channel(false);
-            let watched = self.watch(mailbox, &mut inner);
-            tokio::pin!(watched, alarm, rearm);
-            let mut ended = None;
-            let result = loop {
-                tokio::select! {
-                    result = &mut watched => break result,
-                    () = &mut alarm, if ended.is_none() => {
-                        ended = Some(Ended::Due);
-                        let _ = tx.send(true);
-                    }
-                    () = &mut rearm, if ended.is_none() => {
-                        ended = Some(Ended::Rearm);
-                        // The watch ends on its own once it is gone; nothing waits on this send.
-                        let _ = tx.send(true);
-                    }
-                    changed = cancel.changed(), if ended.is_none() => {
-                        if changed.is_err() || *cancel.borrow() {
-                            ended = Some(Ended::Cancelled);
+            // Scoped, so the watch lets go of the engine before the arms below read it.
+            let (ended, result) = {
+                let watched = self.watch(mailbox, &mut inner);
+                tokio::pin!(watched, alarm, rearm);
+                let mut ended = None;
+                let result = loop {
+                    tokio::select! {
+                        result = &mut watched => break result,
+                        () = &mut alarm, if ended.is_none() => {
+                            ended = Some(Ended::Due);
                             let _ = tx.send(true);
                         }
+                        () = &mut rearm, if ended.is_none() => {
+                            ended = Some(Ended::Rearm);
+                            // The watch ends on its own once it is gone; nothing waits on this send.
+                            let _ = tx.send(true);
+                        }
+                        changed = cancel.changed(), if ended.is_none() => {
+                            if changed.is_err() || *cancel.borrow() {
+                                ended = Some(Ended::Cancelled);
+                                let _ = tx.send(true);
+                            }
+                        }
                     }
-                }
+                };
+                (ended, result)
             };
             match (ended, result) {
                 // Interrupted for the outbox. However the session wound down — a clean `DONE`, or
@@ -119,6 +124,12 @@ impl<B: Backend> AccountEngine<B> {
                 (Some(Ended::Cancelled), Ok(_)) => return Err(RuntimeError::Cancelled),
                 (_, Err(e)) => return Err(e),
                 (None, Ok(true)) => return Ok(Woke::Mail),
+                // The server has no `NOTIFY`, which this watch has just found out: the caller
+                // watches the other mailboxes itself, and is told to begin now rather than after
+                // an interval.
+                (None, Ok(false)) if learning && self.notifies() == Notify::Absent => {
+                    return Ok(Woke::Interval);
+                }
                 // IDLE ended without news: the poll interval below is the floor.
                 (None, Ok(false)) => {}
             }

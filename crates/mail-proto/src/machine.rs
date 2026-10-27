@@ -21,6 +21,18 @@ pub enum IoNeed {
         port: u16,
         mode: Tls,
     },
+    /// Compress everything on the connection from here on, both ways, as raw DEFLATE (RFC 1951)
+    /// flushed at the end of each write: IMAP `COMPRESS DEFLATE` (RFC 4978) was accepted, and the
+    /// next byte either side sends is compressed.
+    ///
+    /// Satisfied with nothing fed back, like a write. Whatever follows in the same list is
+    /// already compressed.
+    ///
+    /// `leftover` is what the machine had already read past the accepting `OK` line: compressed
+    /// bytes, to be inflated and handed back by the next read before the socket is read again.
+    Deflate {
+        leftover: Vec<u8>,
+    },
     /// Wait. Used for poll intervals and for IDLE's re-issue deadline.
     Sleep(Duration),
     Close,

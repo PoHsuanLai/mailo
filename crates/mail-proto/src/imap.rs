@@ -229,6 +229,16 @@ pub enum ImapCommand {
     IdleAfter {
         uidnext: u32,
     },
+    /// `COMPRESS DEFLATE` (RFC 4978), when the server offers it and left out when not. Once the
+    /// server accepts, the session asks the transport to compress ([`IoNeed::Deflate`]) before
+    /// anything else is sent.
+    Compress,
+    /// `NOTIFY SET` (RFC 5465): hear of new and expunged mail in these mailboxes while idling, as
+    /// `STATUS` responses, beside the selected one's own news. Behind a
+    /// [`ImapCommand::RequireCapability`] guard for `NOTIFY`.
+    Notify {
+        mailboxes: Vec<String>,
+    },
     Noop,
     Logout,
 }
@@ -450,6 +460,8 @@ pub struct ImapSession {
     /// The server's name and port, when the connection is to be upgraded with `STARTTLS` before
     /// anything else is said ([`Self::with_starttls`]).
     starttls: Option<(String, u16)>,
+    /// `COMPRESS` was just accepted and the switch has not yet been handed what was read past it.
+    compressing: bool,
 }
 
 /// What a session that finished leaves for the next one on its connection.
@@ -516,6 +528,7 @@ impl ImapSession {
             resumed: false,
             selected: None,
             starttls: None,
+            compressing: false,
         })
     }
 
@@ -694,6 +707,11 @@ impl ImapSession {
                 any.join(" or ")
             )));
         }
+        if matches!(command, ImapCommand::Compress)
+            && !has_capability(&self.transcript.capabilities, "COMPRESS=DEFLATE")
+        {
+            return self.issue(index + 1);
+        }
         let tag = self.next_tag();
         self.held = 0;
         if let ImapCommand::Search { keys } = &command {
@@ -787,6 +805,15 @@ impl ImapSession {
             ImapCommand::Noop => "NOOP".to_owned(),
             ImapCommand::Logout => "LOGOUT".to_owned(),
             ImapCommand::Idle | ImapCommand::IdleAfter { .. } => "IDLE".to_owned(),
+            ImapCommand::Compress => "COMPRESS DEFLATE".to_owned(),
+            ImapCommand::Notify { mailboxes } => {
+                let names: Vec<String> = mailboxes.iter().map(|m| wire(m)).collect();
+                format!(
+                    "NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
+                     (mailboxes {} (MessageNew MessageExpunge))",
+                    names.join(" ")
+                )
+            }
             ImapCommand::List => "LIST \"\" \"*\"".to_owned(),
             ImapCommand::Lsub => "LSUB \"\" \"*\"".to_owned(),
             // Every name goes out as modified UTF-7, quoted: the wire name is the identity.
@@ -1102,7 +1129,15 @@ impl ImapSession {
                     "the server sent more after agreeing to STARTTLS".to_owned(),
                 ));
             }
-            if let Some(progress) = progress {
+            if let Some(mut progress) = progress {
+                // What was read past the `OK` that accepted `COMPRESS` is the inflater's, not the
+                // parser's: it goes with the switch.
+                if std::mem::take(&mut self.compressing)
+                    && let Progress::Need(needs) = &mut progress
+                    && let Some(IoNeed::Deflate { leftover }) = needs.first_mut()
+                {
+                    *leftover = std::mem::take(&mut self.buf);
+                }
                 return progress;
             }
         }
@@ -1236,7 +1271,26 @@ impl ImapSession {
                         {
                             return Some(self.fail(refusal));
                         }
-                        Some(self.issue(index + 1))
+                        let compressed =
+                            matches!(self.commands.get(index), Some(ImapCommand::Compress));
+                        let next = self.issue(index + 1);
+                        Some(match next {
+                            // Accepted: what the server sends from here is compressed, and so is
+                            // what goes next.
+                            Progress::Need(mut needs) if compressed => {
+                                // The buffer is out being parsed just now; the drain fills in
+                                // what followed the `OK`, which is compressed already.
+                                self.compressing = true;
+                                needs.insert(
+                                    0,
+                                    IoNeed::Deflate {
+                                        leftover: Vec::new(),
+                                    },
+                                );
+                                Progress::Need(needs)
+                            }
+                            other => other,
+                        })
                     }
                     _ if matches!(
                         self.commands.get(index),
@@ -1402,6 +1456,10 @@ fn is_news(text: &str) -> bool {
     let Some(first) = parts.next() else {
         return false;
     };
+    // NOTIFY's news of a mailbox that is not selected (RFC 5465 §5.4).
+    if first == "STATUS" {
+        return true;
+    }
     if first.parse::<u64>().is_err() {
         return false;
     }

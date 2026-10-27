@@ -32,6 +32,8 @@ tokio-rustls = "0.26"
 # TCP keepalive on the sockets this crate opens (`transport.rs`): tokio has no setter for it.
 # MIT OR Apache-2.0, already in the tree through tokio, at its version.
 socket2 = "0.6"
+# IMAP COMPRESS=DEFLATE (RFC 4978): raw DEFLATE on the connection, see `transport::Deflate`.
+flate2 = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 rustls-pki-types = "1"

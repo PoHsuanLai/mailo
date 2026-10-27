@@ -9,6 +9,7 @@ pub mod authorize;
 pub mod bimi;
 pub mod carddav;
 pub mod clients;
+pub(crate) mod deflate;
 pub mod drive;
 pub mod engine;
 pub mod epoch;
@@ -46,7 +47,7 @@ pub use account_secrets::{
 };
 pub use assemble::{Absorbed, Arrival, Destination, absorb, absorb_counted, absorb_into, assemble};
 pub use drive::{Cancel, drive, drive_within};
-pub use engine::{AccountEngine, IDLE_REARM, PartBudget, SyncReport, Woke};
+pub use engine::{AccountEngine, IDLE_REARM, Notify, PartBudget, SyncReport, Woke};
 pub use error::{Failure, Logged, RuntimeError, Source};
 pub use jmap::JmapEngine;
 pub use no_keyring::NoKeyring;

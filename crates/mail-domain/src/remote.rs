@@ -334,6 +334,13 @@ pub enum ProtoOp {
         /// unrelated wake-up.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         uidnext: Option<u32>,
+        /// Other mailboxes to hear about on the same connection, IMAP `NOTIFY` (RFC 5465).
+        ///
+        /// Empty to watch only `mailbox`. Where the server has no `NOTIFY` a watch that names
+        /// any ends with `ProtoError::Unsupported` and the caller watches them another
+        /// way.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        also: Vec<String>,
     },
     /// Create, rename, delete or follow a mailbox. IMAP only.
     Folder(crate::folder::FolderWork),

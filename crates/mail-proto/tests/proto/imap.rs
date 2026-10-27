@@ -704,3 +704,146 @@ fn a_refused_sasl_plain_is_a_refused_password() {
         other => panic!("should be a refused password: {other:?}"),
     }
 }
+
+/// The writes in a list of needs, as text.
+fn written(needs: &[mail_proto::IoNeed]) -> Vec<String> {
+    needs
+        .iter()
+        .filter_map(|need| match need {
+            mail_proto::IoNeed::Write(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Feed `bytes`, expecting the session to want more.
+fn fed(session: &mut ImapSession, bytes: &str) -> Vec<mail_proto::IoNeed> {
+    use mail_proto::machine::{IoReady, Machine, Progress};
+    match session.feed(IoReady::Bytes(bytes.as_bytes().to_vec())) {
+        Progress::Need(needs) => needs,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// With `NOTIFY` (RFC 5465) a watch hears of other mailboxes on its own connection: they are
+/// named once, after the inbox is selected, and a `STATUS` the server sends while idling ends
+/// the idle like mail in the inbox does.
+#[test]
+fn notify_names_the_other_mailboxes_and_their_news_ends_the_idle() {
+    let mut session = session(vec![
+        ImapCommand::RequireCapability(vec!["NOTIFY".to_owned()]),
+        ImapCommand::Select {
+            mailbox: "INBOX".to_owned(),
+            access: Access::ReadOnly,
+            qresync: None,
+        },
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned(), "Archiv/Ärzte".to_owned()],
+        },
+        ImapCommand::Idle,
+    ]);
+    use mail_proto::machine::{Machine, Progress};
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(
+        &mut session,
+        "* OK [CAPABILITY IMAP4rev1 IDLE NOTIFY] ready\r\n",
+    );
+    assert_eq!(written(&needs), ["a001 EXAMINE \"INBOX\"\r\n"]);
+    let needs = fed(&mut session, "a001 OK [READ-ONLY] done\r\n");
+    assert_eq!(
+        written(&needs),
+        [
+            "a002 NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
+             (mailboxes \"Lists\" \"Archiv/&AMQ-rzte\" (MessageNew MessageExpunge))\r\n"
+        ]
+    );
+    let needs = fed(&mut session, "a002 OK done\r\n");
+    assert_eq!(written(&needs), ["a003 IDLE\r\n"]);
+    let needs = fed(
+        &mut session,
+        "+ idling\r\n* STATUS \"Lists\" (UIDNEXT 9)\r\n",
+    );
+    assert_eq!(written(&needs), ["DONE\r\n"]);
+}
+
+/// A server without `NOTIFY` is refused before anything is sent, which is how a watch learns to
+/// hear of the other mailboxes another way.
+#[test]
+fn notify_is_not_sent_to_a_server_without_it() {
+    use mail_proto::machine::{IoReady, Machine, Progress};
+    let mut session = session(vec![
+        ImapCommand::RequireCapability(vec!["NOTIFY".to_owned()]),
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned()],
+        },
+    ]);
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    let progress = session.feed(IoReady::Bytes(
+        b"* OK [CAPABILITY IMAP4rev1 IDLE] ready\r\n".to_vec(),
+    ));
+    assert!(
+        matches!(progress, Progress::Failed(ProtoError::Unsupported(_))),
+        "{progress:?}"
+    );
+}
+
+/// `COMPRESS DEFLATE` (RFC 4978) goes only to a server that offers it, and once it is accepted
+/// the session asks for the connection to be compressed before it sends anything else.
+#[test]
+fn compress_is_asked_for_when_offered_and_the_connection_follows() {
+    use mail_proto::machine::{IoNeed, Machine, Progress};
+
+    let commands = || vec![ImapCommand::Compress, ImapCommand::Noop];
+    let mut offered = session(commands());
+    let Progress::Need(_) = offered.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(
+        &mut offered,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    assert_eq!(written(&needs), ["a001 COMPRESS DEFLATE\r\n"]);
+    let needs = fed(&mut offered, "a001 OK DEFLATE active\r\n");
+    assert_eq!(
+        needs.first(),
+        Some(&IoNeed::Deflate {
+            leftover: Vec::new()
+        }),
+        "{needs:?}"
+    );
+    assert_eq!(written(&needs), ["a002 NOOP\r\n"]);
+
+    let mut absent = session(commands());
+    let Progress::Need(_) = absent.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(&mut absent, "* OK [CAPABILITY IMAP4rev1] ready\r\n");
+    assert_eq!(written(&needs), ["a001 NOOP\r\n"]);
+    assert!(
+        !needs
+            .iter()
+            .any(|need| matches!(need, IoNeed::Deflate { .. }))
+    );
+
+    // Bytes read in the same chunk as the `OK` are the inflater's, and the session keeps none.
+    let mut early = session(commands());
+    let Progress::Need(_) = early.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(
+        &mut early,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    let needs = fed(&mut early, "a001 OK DEFLATE active\r\n\x01\x02\x03");
+    assert_eq!(
+        needs.first(),
+        Some(&IoNeed::Deflate {
+            leftover: vec![1, 2, 3]
+        }),
+        "{needs:?}"
+    );
+}

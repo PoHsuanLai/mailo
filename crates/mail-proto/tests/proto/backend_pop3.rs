@@ -247,6 +247,7 @@ fn watch_completes_at_once_because_pop3_has_no_push() {
     match backend.begin(ProtoOp::Watch {
         mailbox: mailbox(),
         uidnext: None,
+        also: Vec::new(),
     }) {
         Progress::Done(ProtoOutcome::Woken) => {}
         other => panic!("expected Woken, got {other:?}"),

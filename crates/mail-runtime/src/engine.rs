@@ -333,6 +333,23 @@ pub struct AccountEngine<B: Backend> {
     /// roles laid over it ([`mail_store::with_picks`]), read back from the store after each
     /// refresh. `None` while nothing is picked, and the backend's own belief stands.
     picked: Option<AccountCaps>,
+    /// The mailboxes besides the one watched that a watch also hears of through `NOTIFY`
+    /// ([`AccountEngine::with_also`]).
+    also: Vec<MailboxRef>,
+    /// Whether the server answers `NOTIFY`, as far as a watch has found out.
+    notify: Notify,
+}
+
+/// Whether the server has `NOTIFY` (RFC 5465), as far as a watch with other mailboxes to hear of
+/// has found out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Notify {
+    /// No watch has asked, or none with another mailbox to name.
+    Unasked,
+    /// A watch named other mailboxes and the server took them.
+    Works,
+    /// The server has no `NOTIFY`: those mailboxes are for the caller to watch another way.
+    Absent,
 }
 
 /// How long a kept connection waits for the next operation before a new one is opened instead.
@@ -437,6 +454,8 @@ impl<B: Backend> AccountEngine<B> {
             sending: None,
             since: None,
             picked: None,
+            also: Vec::new(),
+            notify: Notify::Unasked,
         }
     }
 
@@ -494,6 +513,21 @@ impl<B: Backend> AccountEngine<B> {
     pub fn with_tokens(mut self, tokens: Arc<dyn TokenSource>) -> Self {
         self.tokens = Some(tokens);
         self
+    }
+
+    /// Hear of these mailboxes on the watch's own connection too, where the server has `NOTIFY`.
+    ///
+    /// Where it has not, the first watch finds out ([`AccountEngine::notifies`]) and these are
+    /// for the caller to watch on connections of their own.
+    #[must_use]
+    pub fn with_also(mut self, also: Vec<MailboxRef>) -> Self {
+        self.also = also;
+        self
+    }
+
+    /// Whether the server has `NOTIFY`, as far as a watch has found out.
+    pub fn notifies(&self) -> Notify {
+        self.notify
     }
 
     /// Send [`Outgoing::Graph`] mail somewhere other than Graph: a test's own listener.
@@ -1662,17 +1696,34 @@ impl<B: Backend> AccountEngine<B> {
             Ok(Some(SyncCursor::Imap { uidnext, .. })) => Some(uidnext),
             _ => None,
         };
+        let also: Vec<String> = match self.notify {
+            Notify::Absent => Vec::new(),
+            Notify::Unasked | Notify::Works => self.also.iter().map(|m| m.path.clone()).collect(),
+        };
+        let asking = !also.is_empty();
         match self
             .run(
                 ProtoOp::Watch {
                     mailbox: mailbox.clone(),
                     uidnext,
+                    also,
                 },
                 cancel,
             )
             .await
         {
+            // The server took the other mailboxes, or was never asked to.
+            Ok(ProtoOutcome::Woken) if asking => {
+                self.notify = Notify::Works;
+                Ok(true)
+            }
             Ok(ProtoOutcome::Woken) => Ok(true),
+            // No `NOTIFY`: nothing was sent past the capability check, and the other mailboxes
+            // are the caller's to watch.
+            Err(RuntimeError::Proto(mail_proto::ProtoError::Unsupported(_))) if asking => {
+                self.notify = Notify::Absent;
+                Ok(false)
+            }
             // Any other completion is a server that answered something unexpected rather than
             // an error worth stopping for; the caller's interval still applies.
             Ok(_) => Ok(false),
