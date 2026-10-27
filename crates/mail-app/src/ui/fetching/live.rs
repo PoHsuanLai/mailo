@@ -62,11 +62,7 @@ impl Listener {
                     // A `mailo watch`, or mailo.app's own (`crate::background`), is the one
                     // that holds the connection, and the window leaves scheduled fetching to it
                     // (`super::delegate`).
-                    _ if crate::background::watching_here()
-                        || mail_core::ipc::watching::running(crate::edge::profile().id()) =>
-                    {
-                        Daemon::Holding
-                    }
+                    _ if crate::background::watched() => Daemon::Holding,
                     _ => Daemon::Absent,
                 }
             }),

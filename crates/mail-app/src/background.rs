@@ -105,8 +105,14 @@ const ACCOUNTS_EVERY: Duration = Duration::from_secs(30);
 static WATCHING_HERE: AtomicBool = AtomicBool::new(false);
 
 /// Whether this process is the one watching.
-pub fn watching_here() -> bool {
+fn watching_here() -> bool {
     WATCHING_HERE.load(Ordering::Acquire)
+}
+
+/// Whether the app's Profile has a watch fetching for it, this process's own or another's: what
+/// a window asks before it fetches or opens a connection of its own.
+pub fn watched() -> bool {
+    watching_here() || mail_core::ipc::watching::running(crate::edge::profile().id())
 }
 
 /// Start the app's own watch over `store`, the Profile `profile`'s, on a thread of its own: take
@@ -246,7 +252,7 @@ impl Notifier for AsSet {
 }
 
 /// Whether the settings under `root` have new mail said; on, as they ship, where there are none.
-pub fn says_new_mail(root: Option<&ds_settings::ConfigRoot>) -> bool {
+fn says_new_mail(root: Option<&ds_settings::ConfigRoot>) -> bool {
     root.map_or(crate::settings::NewMail::default(), |root| {
         crate::settings::load(root).notifications.new_mail
     }) == crate::settings::NewMail::On

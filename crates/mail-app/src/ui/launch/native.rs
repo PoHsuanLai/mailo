@@ -152,9 +152,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
             }
             config
         }
-        Some(launcher) if !mail_core::ipc::watching::running(crate::edge::profile().id()) => {
-            config.with_context(launcher)
-        }
+        Some(launcher) if !crate::background::watched() => config.with_context(launcher),
         _ => config,
     };
     // "Check for mail when quit": where the system keeps `mailo watch` to start at login. Only

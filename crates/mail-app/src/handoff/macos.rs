@@ -1,12 +1,12 @@
 //! macOS's half of [`super`]: no session bus, so the running window listens on a Unix socket in
-//! the user's temporary directory, and AppKit's own events (a URL opened, the Dock icon clicked again)
-//! reach it through the application delegate in `mail-appkit`.
+//! the user's temporary directory, and AppKit's own events (a URL opened, the Dock icon clicked
+//! again) reach it through the application delegate in `mail-appkit`.
 //!
 //! Two ways in, one queue. `mailo open <thread>` from a terminal or a banner's helper is a second
 //! process: [`deliver`] writes the conversation's URI to the socket and waits for the window's
 //! `ok`. The system's own launch of an app that is already running is not a second process at all:
-//! LaunchServices tells the one running, and [`hear_urls`] and [`hear_reopen`] turn what it says into the same requests.
-//! The socket is also how a second `mailo` with nothing to do ([`deliver_activate`]) raises the
+//! LaunchServices tells the one running, and [`hear_urls`] and [`hear_reopen`] turn what it says
+//! into the same requests. The socket is also how a second `mailo` with nothing to do ([`deliver_activate`]) raises the
 //! window instead of opening another.
 //!
 //! One line per request: `mailo:thread/<id>`, or `mailo:activate` for the window alone. A path the
@@ -66,7 +66,8 @@ impl std::fmt::Debug for Requests {
 }
 
 impl Requests {
-    /// A queue with nobody serving it, for a test to push into.
+    /// A queue that waits for a window to read it: [`serve_at`]'s to fill from the socket, and a
+    /// test's to push into.
     pub fn local() -> (Requests, UnboundedSender<Request>) {
         let (sender, queue) = unbounded_channel();
         let requests = Requests {

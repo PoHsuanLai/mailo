@@ -11,8 +11,8 @@ emits, and where each part is tested. Nothing here needs the shell to know anyth
 a window. `dist/install.sh` installs it into `/etc/systemd/user` and enables it for every user's
 graphical session (`systemctl --global enable`); `dist/uninstall.sh` reverses it.
 
-`mailo watch` takes a per-user lock (`mail_core::ipc::watching`, a latchkey file lock under the
-name `mailo-watch`), and a second one exits 0 saying so: a person typing it in a terminal while the
+`mailo watch` takes a per-user, per-Profile lock (`mail_core::ipc::watching`, a latchkey file lock;
+the default Profile's is under the name `mailo-watch`), and a second one exits 0 saying so: a person typing it in a terminal while the
 unit runs must not make every message announce twice, and a unit that starts while one runs by
 hand must not restart in a loop.
 
