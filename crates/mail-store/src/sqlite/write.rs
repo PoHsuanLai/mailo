@@ -28,6 +28,80 @@ fn remote_key(
     (account.to_string(), mailbox, uidvalidity, uid, uidl)
 }
 
+/// How many entries of an [`Ingest`] one transaction writes: messages, flags, label lists and
+/// removals, counted alike.
+///
+/// A few hundred, the size of the fetch batches the scale tests time in milliseconds, so a
+/// write queued behind an ingest waits that long and not for the mailbox.
+pub(crate) const INGEST_CHUNK: usize = 200;
+
+/// `ingest` as a run of ingests of at most `size` entries, each written in its own transaction.
+///
+/// The entries keep their order — messages, then flags, then label lists, then removals — so a
+/// flag still lands after the message it sits on, and a removal after the arrival it removes.
+/// What may be split is what the batch was already made of: every entry is about one message,
+/// and writing one is idempotent (a message is found by its key, an address is an upsert, the
+/// address book counts a message once), so a crash between chunks leaves mail that the next pass
+/// writes again rather than mail half-written. Each chunk refreshes the summaries and re-layers
+/// the pending changes of the threads it touched before it commits, so a reader between chunks
+/// sees whole threads with the user's changes on top, as it would between two ingests.
+///
+/// What is about the mailbox rather than a message goes where it has to:
+/// - the `UIDVALIDITY` reset and the label definitions in the first chunk, before anything that
+///   is addressed by a uid or names a label;
+/// - the cursor in the last, so the place the next pass resumes from is never ahead of what is
+///   stored. A pass that stops halfway resumes from the old cursor and refetches the rest.
+fn chunks(ingest: Ingest, size: usize) -> Vec<Ingest> {
+    let Ingest {
+        mailbox,
+        validity,
+        cursor,
+        messages,
+        flags,
+        labels,
+        label_names,
+        gone,
+    } = ingest;
+    let size = size.max(1);
+    let entries = messages.len() + flags.len() + label_names.len() + gone.len();
+    let count = entries.div_ceil(size).max(1);
+    let mut out: Vec<Ingest> = (0..count)
+        .map(|_| Ingest {
+            mailbox: mailbox.clone(),
+            validity: UidValidity::Same,
+            cursor: None,
+            messages: Vec::new(),
+            flags: Vec::new(),
+            labels: Vec::new(),
+            label_names: Vec::new(),
+            gone: Vec::new(),
+        })
+        .collect();
+    // The n-th entry of the batch, across all four lists in order, goes in chunk n / size.
+    let mut n = 0;
+    let mut next = || {
+        let at = n / size;
+        n += 1;
+        at
+    };
+    for message in messages {
+        out[next()].messages.push(message);
+    }
+    for flag in flags {
+        out[next()].flags.push(flag);
+    }
+    for named in label_names {
+        out[next()].label_names.push(named);
+    }
+    for remote in gone {
+        out[next()].gone.push(remote);
+    }
+    out[0].validity = validity;
+    out[0].labels = labels;
+    out[count - 1].cursor = cursor;
+    out
+}
+
 impl SqliteStore {
     /// Apply one domain change. Does not recompute summaries; the caller batches that.
     pub(super) fn write_change(&self, change: &Change) -> Result<Option<ThreadId>, StoreError> {
@@ -176,7 +250,7 @@ impl SqliteStore {
     /// The folder roles the account's server last reported, or none before it has reported any.
     pub(super) fn folder_roles(&self, account: AccountId) -> Result<FolderRoles, StoreError> {
         let stored: Option<String> = self
-            .connection()
+            .reader()
             .prepare_cached("SELECT caps FROM account_caps WHERE account = ?1")?
             .query_row(params![account.to_string()], |r| r.get(0))
             .optional()?;
@@ -363,11 +437,35 @@ impl SqliteStore {
     /// the poll after a user stars a message sees the server's unstarred value, writes it, and
     /// the star flips back under the cursor. The local change is not wrong — it simply has not
     /// reached the server yet — so server truth is the *base*, not the last word.
+    ///
+    /// Committed every [`INGEST_CHUNK`] entries rather than once, so the writer is never held
+    /// for a whole mailbox: a survey's flags or a band of headers can be thousands long, and
+    /// every other write — the click that stars a message — waited for all of it. See
+    /// [`chunks`] for why a chunk is as good a unit as the batch. An error stops the ingest at
+    /// the chunk it is in; what earlier chunks wrote stays, and the next pass writes the rest.
     pub(super) fn write_ingest(
         &self,
         account: AccountId,
         ingest: Ingest,
     ) -> Result<Patch, StoreError> {
+        let mut changes = Vec::new();
+        for chunk in chunks(ingest, INGEST_CHUNK) {
+            changes.extend(self.write_ingest_chunk(account.clone(), chunk)?);
+            #[cfg(feature = "testing")]
+            self.chunk_committed();
+        }
+        Ok(Patch {
+            id: mail_domain::ChangeId::generate(),
+            changes,
+        })
+    }
+
+    /// One chunk of [`Self::write_ingest`], in one transaction.
+    fn write_ingest_chunk(
+        &self,
+        account: AccountId,
+        ingest: Ingest,
+    ) -> Result<Vec<Change>, StoreError> {
         let db = self.connection();
         let tx = db.unchecked_transaction()?;
         let mut changes: Vec<Change> = Vec::new();
@@ -556,11 +654,7 @@ impl SqliteStore {
             self.refresh_summary(thread)?;
         }
         tx.commit()?;
-
-        Ok(Patch {
-            id: mail_domain::ChangeId::generate(),
-            changes,
-        })
+        Ok(changes)
     }
 
     /// Where the server says messages are filed. See [`crate::Store::refile`].
@@ -711,7 +805,7 @@ impl SqliteStore {
         key: &mail_domain::MessageKey,
     ) -> Result<Option<MessageId>, StoreError> {
         let found: Option<String> = self
-            .connection()
+            .reader()
             .prepare_cached("SELECT id FROM messages WHERE account = ?1 AND msg_key = ?2")?
             .query_row(
                 params![account.to_string(), to_json("MessageKey", key)?],
@@ -883,7 +977,7 @@ impl SqliteStore {
         message: MessageId,
     ) -> Result<Option<crate::dispatch::Unplaced>, StoreError> {
         Ok(self
-            .connection()
+            .reader()
             .prepare_cached(
                 "SELECT mailbox, syncs, passes FROM unplaced WHERE account = ?1 AND message = ?2",
             )?

@@ -495,7 +495,7 @@ impl SqliteStore {
         rfc_id: &str,
     ) -> Result<Option<String>, StoreError> {
         Ok(self
-            .connection()
+            .reader()
             .query_row(
                 &format!(
                     "SELECT {column} FROM messages WHERE account = ?1 AND rfc_message_id = ?2

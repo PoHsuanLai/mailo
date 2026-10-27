@@ -82,7 +82,7 @@ impl SqliteStore {
     /// One draft by id.
     pub(super) fn load_draft(&self, id: DraftId) -> Result<Draft, StoreError> {
         let sql = format!("SELECT {DRAFT_COLUMNS} FROM drafts WHERE id = ?1");
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![id.to_string()])?;
         match rows.next()? {
@@ -99,7 +99,7 @@ impl SqliteStore {
         let sql = format!(
             "SELECT {DRAFT_COLUMNS} FROM drafts WHERE account = ?1 ORDER BY updated_at DESC"
         );
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![account.to_string()])?;
         let mut out = Vec::new();

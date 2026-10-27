@@ -35,6 +35,7 @@ mod template;
 mod views;
 mod vips;
 mod write;
+pub(crate) use write::INGEST_CHUNK;
 
 use crate::blob::BlobStore;
 use crate::{StoreError, migrate};
@@ -57,7 +58,13 @@ use std::path::{Path, PathBuf};
 /// to have: a second connection reading a half-written thread summary *is* a wrong answer, so
 /// the readers are never used inside a write. What keeps that true is a signature rather than
 /// a rule — `summary_of`, `messages_of`, `labels_of` and `read_message` take the connection
-/// they should read from, so a write path physically cannot hand them a reader.
+/// they should read from, so a write path physically cannot hand them a reader. Every other read
+/// asks [`SqliteStore::reader`], which hands a thread that already holds the writer the writer
+/// again, so a read inside a write is a read of that write.
+///
+/// The second half is that a write does not hold the writer for long: an ingest commits every
+/// `INGEST_CHUNK` entries rather than once per batch, so a write that has to wait waits for one
+/// chunk and not a mailbox.
 #[derive(Debug)]
 pub struct SqliteStore {
     /// Behind a mutex because `rusqlite::Connection` is `Send` but **not `Sync`**, so an
@@ -95,6 +102,9 @@ pub struct SqliteStore {
     /// The directory a test store's blobs live in, removed with the store.
     #[cfg(feature = "testing")]
     pub(crate) scratch: Option<tempfile::TempDir>,
+    /// What a test runs after each chunk of an ingest commits; see `testing::on_ingest_chunk`.
+    #[cfg(feature = "testing")]
+    pub(crate) on_chunk: parking_lot::Mutex<Option<crate::testing::ChunkHook>>,
 }
 
 /// Make the database at `path` its owner's alone (0600), before SQLite opens it: created so if it
@@ -216,6 +226,8 @@ impl SqliteStore {
             replaced: std::sync::Mutex::new(std::collections::BTreeSet::new()),
             #[cfg(feature = "testing")]
             scratch: None,
+            #[cfg(feature = "testing")]
+            on_chunk: parking_lot::Mutex::new(None),
         };
         store.refresh_queued_summaries()?;
         store.backfill_contacts()?;
@@ -419,14 +431,25 @@ impl SqliteStore {
     /// change it is part of. That is why `summary_of`, `messages_of`, `labels_of` and
     /// `read_message` take a `&Connection` instead of reaching for one: the caller says which
     /// world it means, and the compiler will not let a write path forget.
+    ///
+    /// Every other read can come here without that care, because this is what keeps the rule:
+    /// a thread already holding the writer is handed the writer again. Every write holds it for
+    /// as long as its transaction is open (the transaction borrows the guard), so a read made
+    /// anywhere inside one — `write_folders` asking what folder work is queued, an ingest asking
+    /// which message a key names — reads the transaction it is part of, and takes nothing it
+    /// could wait on. Only a thread that holds no part of the writer reads beside it.
     pub(crate) fn reader(&self) -> ReentrantMutexGuard<'_, Connection> {
+        if self.db.is_owned_by_current_thread() {
+            return self.db.lock();
+        }
         for reader in &self.readers {
             if let Some(free) = reader.try_lock() {
                 return free;
             }
         }
         // Every reader busy: wait on one of them rather than on the writer, which may hold its
-        // lock for a whole ingest batch.
+        // lock for a whole ingest chunk. A thread holding the writer never gets here, so this wait
+        // cannot close a cycle with one.
         match self.readers.first() {
             Some(reader) => reader.lock(),
             None => self.db.lock(),
@@ -718,7 +741,7 @@ impl Store for SqliteStore {
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError> {
         // A message may have several remote addresses; any one of them can fetch the body, so
         // take the first per message rather than returning the same work several times.
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
              FROM messages m
@@ -743,7 +766,7 @@ impl Store for SqliteStore {
     ) -> Result<Vec<RemoteRef>, StoreError> {
         // The address in this mailbox, one per message: a server may hold two copies of one
         // message in one folder, and one fetch fills both.
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
              FROM remote_map r
@@ -781,7 +804,7 @@ impl Store for SqliteStore {
         let ids: Vec<String> = threads.iter().map(ToString::to_string).collect();
         let ids =
             serde_json::to_string(&ids).map_err(|e| StoreError::db(format!("threads: {e}")))?;
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl, m.thread
              FROM remote_map r
@@ -815,7 +838,7 @@ impl Store for SqliteStore {
         // `sync_state` has been written by every ingest since the store was created. Nothing
         // had ever read it back, which is why the CONDSTORE path could never start.
         let text: Option<String> = self
-            .connection()
+            .reader()
             .query_row(
                 "SELECT cursor FROM sync_state WHERE account = ?1 AND mailbox = ?2",
                 rusqlite::params![mailbox.account.to_string(), mailbox.path],
@@ -866,9 +889,12 @@ impl Store for SqliteStore {
         blob: mail_domain::BlobId,
         size: u64,
     ) -> Result<(), StoreError> {
+        // The writer for the read too, so no other write to the attachments lands between it
+        // and this one.
+        let db = self.connection();
         let mut attachments = self.message(message)?.attachments;
         held(&mut attachments, message, section, blob, size)?;
-        self.connection().execute(
+        db.execute(
             "UPDATE messages SET attachments = ?2 WHERE id = ?1",
             rusqlite::params![
                 message.to_string(),
@@ -912,7 +938,7 @@ impl Store for SqliteStore {
     }
 
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT mailbox, uidvalidity, uid, uidl FROM remote_map
              WHERE account = ?1 AND mailbox = ?2",
