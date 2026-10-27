@@ -127,17 +127,18 @@ places is being read again, and an account's labels go with it, in the same valu
 
 ## Commands
 
-- `act` returns a `Ticket` that resolves to `Done { said, undo: Option<Undo>, generation }`.
-  Commands are `Ops`, `Folder`, `TakeBack`, `Restore`, label, view and VIP edits, and later sends.
-  The act thread calls `mail_core::act::perform`, `folder::change` and `act::take_back`, the
-  same rules the CLI uses.
-- Undo and toasts stay in the window: `use_act()` sends the command, awaits the ticket in a task,
-  then records the undo and says what happened.
-- Errors are `ClientError { Refused, Store, Network }`, put into words by `ui/copy`.
-- Optimism is explicit: the window keeps `Pending { hides, until: Generation }`, so rows leave on
-  the press. It lets go once the list's `as_of` reaches the ticket's generation, or when the
-  command fails (with a toast). It cannot stick, and a list cannot show the world before the
-  write once it has shown it after.
+- `act` returns a `Ticket` that resolves to `Acted { done, generation }`: `done` is
+  `Done::Performed`, `TookBack` or `Destroyed`, saying what the command did, and `generation` is
+  the commit a list read at or after it has. Commands are `Perform`, `TakeBack` and `Destroy`;
+  the act thread calls `mail_core::act::perform`, `take_back` and `destroy`, the same rules the
+  CLI uses. An op the store refuses is missing from `Performed`, and a ticket the client stopped
+  before answering resolves to `None`.
+- Undo and toasts stay in the window: it sends the command, awaits the ticket in a task of its
+  own (`motion::when_done`), then records the undo and says what happened.
+- Optimism is explicit: the list hides on the press what an op takes out of it
+  (`list_query::hide`), so rows leave at once. It lets go once the list is read at the ticket's
+  generation, or when the command is refused. It cannot stick, and a list cannot show the world
+  before the write once it has shown it after.
 
 ## In Dioxus
 
