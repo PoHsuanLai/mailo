@@ -25,6 +25,8 @@ pub struct Draft {
     /// what it lists.
     pub kept: Option<Filter>,
     pub group: Option<GroupKey>,
+    /// What the view's list sorts by, and which way.
+    pub property: Property,
     pub dir: SortDir,
     /// Conversations, or a message to a row. Not a field of the sheet: the list's Organise by
     /// Conversation sets it, and an edit keeps what it was.
@@ -51,6 +53,7 @@ impl Draft {
             query: search.to_owned(),
             kept: None,
             group: None,
+            property: Property::Date,
             dir: SortDir::Desc,
             threading: Threading::Threaded,
         }
@@ -65,6 +68,7 @@ impl Draft {
             kept: words.is_none().then(|| view.filter.clone()),
             query: words.unwrap_or_default(),
             group: view.group_by.clone(),
+            property: view.sort.property,
             dir: view.sort.dir,
             threading: view.threading,
         }
@@ -94,7 +98,7 @@ impl Draft {
             kind: ViewKind::Query,
             filter,
             sort: Sort {
-                property: Property::Date,
+                property: self.property,
                 dir: self.dir,
             },
             group_by: self.group.clone(),
@@ -166,6 +170,18 @@ mod tests {
             Threading::Threaded,
             "conversations at first"
         );
+    }
+
+    #[test]
+    fn a_view_keeps_the_order_it_was_saved_in() {
+        let mut view = saved("Big", "has:attachment");
+        view.sort = Sort {
+            property: Property::Size,
+            dir: SortDir::Desc,
+        };
+        let draft = Draft::of(&view, &labels(), &Utc);
+        assert_eq!((draft.property, draft.dir), (Property::Size, SortDir::Desc));
+        assert_eq!(draft.build(&labels(), &Utc).unwrap().sort, view.sort);
     }
 
     #[test]

@@ -68,3 +68,6 @@ mod syncing;
 
 // 19: a notification's click, in the Space that holds its account.
 mod clicks;
+
+// 20: sorting the list.
+mod sort;

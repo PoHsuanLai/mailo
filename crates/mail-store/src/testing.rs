@@ -493,7 +493,15 @@ fn table_names(db: &Connection) -> Vec<String> {
 pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
     let db = Connection::open(db_path).expect("open the database");
     db.execute_batch(
-        "DROP TABLE messages_to_reparse;
+        "DROP INDEX thread_summary_sort_subject; DROP INDEX thread_summary_sort_sender;
+             DROP INDEX thread_summary_sort_size; DROP INDEX thread_summary_sort_unread;
+             DROP INDEX thread_summary_sort_starred; DROP INDEX thread_summary_sort_pin;
+             ALTER TABLE thread_summary DROP COLUMN sort_subject;
+             ALTER TABLE thread_summary DROP COLUMN sort_sender;
+             ALTER TABLE thread_summary DROP COLUMN size;
+             ALTER TABLE thread_summary DROP COLUMN unread;
+             ALTER TABLE thread_summary DROP COLUMN starred;
+             DROP TABLE messages_to_reparse;
              DROP TABLE contacts; DROP TABLE contacts_counted; DROP TABLE contacts_sent;
              DROP TABLE address_books; DROP TABLE contacts_to_backfill;
              DROP TABLE templates;
@@ -528,9 +536,6 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE messages DROP COLUMN stored_at;
              DROP INDEX messages_thread_order;
              CREATE INDEX messages_thread ON messages(thread);
-             DROP INDEX thread_summary_subject;
-             DROP INDEX thread_summary_from;
-             DROP INDEX thread_summary_pin;
              CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
                  filter TEXT NOT NULL, sort TEXT NOT NULL, group_by TEXT,
                  threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,

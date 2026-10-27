@@ -64,6 +64,9 @@ pub(super) fn App() -> Element {
             keymap: try_consume_context::<crate::ui::appearance::WindowDirs>()
                 .map(|dirs| crate::ui::keymap::load(&dirs.config))
                 .unwrap_or_default(),
+            // The orders chosen for the places, where the window's root already read them; the
+            // effect after `use_prefs` below reads them where it did not.
+            sorts: crate::settings::sorts_of(&crate::ui::prefs::current().window),
             ..Shell::default()
         };
         match try_consume_context::<super::Start>() {
@@ -148,6 +151,13 @@ pub(super) fn App() -> Element {
     super::downloads::use_provide_shelf(dirs.as_ref());
     let mut side_hidden = use_signal(|| false);
     let prefs = super::prefs::use_prefs(dirs.as_ref());
+    // The places' orders follow `settings.toml`, so one chosen in another window sorts this one.
+    use_effect(move || {
+        let sorts = crate::settings::sorts_of(&prefs.read().window);
+        if shell.peek().sorts != sorts {
+            shell.write().sorts = sorts;
+        }
+    });
     // Another window (Settings) may have written a key binding or the Spaces: the desk's hook
     // reads them again. `settings.toml` needs nothing here: the window's root watches it.
     let desk = use_window_desk(core, shell, spaces, Some(handle), today_list, dirs.clone());

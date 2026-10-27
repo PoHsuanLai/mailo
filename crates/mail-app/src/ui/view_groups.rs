@@ -64,6 +64,9 @@ where
             Property::Pin => two(threads, "Pinned", "Not pinned", |t| {
                 matches!(t.pin, Pin::Rank(_))
             }),
+            // The sorts by read state and by star band as those groupings do.
+            Property::Unread => saved_bands(threads, &GroupKey::Read, names, now, zone),
+            Property::Starred => saved_bands(threads, &GroupKey::Star, names, now, zone),
             // A summary carries no size, so there is nothing to band by: one list.
             Property::Size => vec![Band {
                 title: None,

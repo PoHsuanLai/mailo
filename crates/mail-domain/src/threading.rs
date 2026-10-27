@@ -424,6 +424,12 @@ fn subject_merge(forest: &mut Forest, inputs: &[ThreadInput<'_>], rootless: &[bo
     }
 }
 
+/// A subject as the list sorts by it: what threading compares, so "Re: Lunch" sorts beside
+/// "lunch" and not under R.
+pub fn sort_subject(subject: &str) -> String {
+    base_subject(subject).0
+}
+
 /// A subject with its reply prefixes stripped, and whether any were there.
 ///
 /// `Re:`, `Fwd:` and `Fw:` are removed repeatedly and case-insensitively, tolerating the

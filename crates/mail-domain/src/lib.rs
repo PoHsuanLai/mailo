@@ -63,7 +63,7 @@ pub use invite::{Attendance, InviteAnswer};
 pub use jmap_id::{
     JmapAccountId, JmapBlobId, JmapEmailId, JmapIdentityId, JmapMailboxId, JmapThreadId,
 };
-pub use message::{Message, MessageKey, Thread, ThreadSummary};
+pub use message::{Message, MessageKey, SortFacts, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;
 pub use pgp::{
@@ -89,7 +89,7 @@ pub use state::{
     ReadState, Snooze, Star, Threading,
 };
 pub use template::Template;
-pub use threading::{ThreadInput, normalize_id, thread};
+pub use threading::{ThreadInput, normalize_id, sort_subject, thread};
 pub use view::{Cursor, GroupKey, Page, PageReq, Property, Query, Sort, SortDir, View, ViewKind};
 pub use words::{NO_SUBJECT, human_size, subject_or_none};
 

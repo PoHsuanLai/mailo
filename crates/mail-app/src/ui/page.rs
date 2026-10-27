@@ -1,8 +1,10 @@
 //! Group and Row Properties, applied to the loaded page only, and the list toolbar's ⋯ that
-//! holds them with Organise by Conversation and Sync Now.
+//! holds them with Sort By, Organise by Conversation and Sync Now.
 //!
-//! Neither of the first two asks the store for a different query. Organise by Conversation does:
-//! it is the place's own choice ([`super::organise`]), and a message to a row is another list.
+//! Neither Group nor Row Properties asks the store for a different query; Sort By does, and is
+//! kept: on the saved view it sorts, or under the place's key in `settings.toml`. Organise by
+//! Conversation does too: it is the place's own choice ([`super::organise`]), and a message to a
+//! row is another list.
 
 use ds::prelude::*;
 use std::collections::BTreeMap;
@@ -11,15 +13,17 @@ use super::menu::anchor_at;
 use super::press::on_primary;
 use crate::ui::copy;
 use crate::ui::fetching::use_status;
-use crate::ui::view::{PageGroup, PageMenu, PageParts, RowPart, Shell};
+use crate::ui::view::{PageGroup, PageMenu, PageParts, RowPart, Shell, SortKept};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
-use mail_domain::{ThreadSummary, Threading};
+use mail_core::{SqliteStore, Store};
+use mail_domain::{Property, Sort, SortDir, ThreadSummary, Threading};
 use std::borrow::Borrow;
+use std::sync::Arc;
 
 /// One band of the loaded page: its rows, each a conversation's summary or something that holds
 /// one (a message to a row holds its own, beside which message it is).
@@ -115,9 +119,24 @@ pub(super) fn titled<T, const N: usize>(bands: [(&str, Vec<T>); N]) -> Vec<Band<
         .collect()
 }
 
+/// The keys Sort By offers, in its order, and the saved-view sheet's Sort by with it. Sender is
+/// [`Property::From`], the one a saved view already says.
+pub(in crate::ui) const SORT_KEYS: [Property; 6] = [
+    Property::Date,
+    Property::From,
+    Property::Subject,
+    Property::Size,
+    Property::Unread,
+    Property::Starred,
+];
+
 /// What a row of the list's ⋯ asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum More {
+    /// Sort by this key, the way it first runs ([`Property::natural`]).
+    SortBy(Property),
+    /// Run the key sorted by this way.
+    SortDir(SortDir),
     /// Band the loaded page by date, or stop.
     GroupByDate,
     /// List conversations, or a message to a row, in the place shown ([`super::organise`]).
@@ -132,14 +151,41 @@ fn check(on: bool) -> Check {
     if on { Check::On } else { Check::Off }
 }
 
-/// The ⋯'s rows: Group by Date with a check while the page is banded, Organise by Conversation
-/// with a check while the place lists conversations (`organise` is `None` where the place
-/// offers no choice), then the snippets' and the labels' Show or Hide (a pick switches it and
-/// leaves the menu up, so both can be), then Sync Now with what the sync mark says under it.
-/// `sync` is `None` while the sidebar, which holds the mark, is shown, and with only local
-/// folders in view.
+/// Whether a list sorted by `property` is sorted by the offered `key`: Sender stands for both
+/// of the sender's properties.
+pub(in crate::ui) fn sorts_by(key: Property, property: Property) -> bool {
+    key == property || (key == Property::From && property == Property::Sender)
+}
+
+/// Sort By's rows: each key, the one sorted by checked, then the two ways it runs in its own
+/// words, the one it runs checked.
+fn sort_items(sort: Sort) -> Vec<MenuItem<More>> {
+    let mut rows: Vec<MenuItem<More>> = SORT_KEYS
+        .into_iter()
+        .map(|key| {
+            MenuItem::new(More::SortBy(key), copy::menus::sort_key(key))
+                .with_check(check(sorts_by(key, sort.property)))
+        })
+        .collect();
+    rows.push(MenuItem::Separator);
+    let [up, down] = copy::menus::sort_dirs(sort.property);
+    rows.extend(
+        [(SortDir::Asc, up), (SortDir::Desc, down)].map(|(dir, name)| {
+            MenuItem::new(More::SortDir(dir), name).with_check(check(sort.dir == dir))
+        }),
+    );
+    rows
+}
+
+/// The ⋯'s rows: Sort By where the list can be sorted (`sort` is `None` where it cannot), Group
+/// by Date with a check while the page is banded, Organise by Conversation with a check while the
+/// place lists conversations (`organise` is `None` where the place offers no choice), then the
+/// snippets' and the labels' Show or Hide (a pick switches it and leaves the menu up, so both can
+/// be), then Sync Now with what the sync mark says under it. `sync` is `None` while the sidebar,
+/// which holds the mark, is shown, and with only local folders in view.
 pub(super) fn more_items(
     group: PageGroup,
+    sort: Option<Sort>,
     organise: Option<Threading>,
     parts: PageParts,
     sync: Option<String>,
@@ -148,7 +194,16 @@ pub(super) fn more_items(
         MenuItem::new(More::Part(key), if part.shown() { hide } else { show })
             .with_after(AfterPick::KeepOpen)
     };
-    let mut rows = vec![
+    let mut rows: Vec<MenuItem<More>> = sort
+        .map(|sort| MenuItem::Submenu {
+            title: copy::menus::SORT_BY.to_owned(),
+            image: None,
+            availability: Availability::Enabled,
+            children: sort_items(sort),
+        })
+        .into_iter()
+        .collect();
+    rows.extend([
         MenuItem::new(More::GroupByDate, copy::menus::GROUP_BY_DATE)
             .with_image(MenuImage::Icon(Icon::Group))
             .with_check(check(group == PageGroup::Date)),
@@ -194,9 +249,38 @@ fn kept(edit: impl FnOnce(&mut crate::settings::WindowSettings)) {
     }
 }
 
+/// Sort the list by `sort`, and keep the choice: a saved view kept again in the store, which
+/// every window reads after `revision` moves; any other place's under its key in
+/// `settings.toml`, beside the window's other choices. A choice that cannot be kept still sorts
+/// this window's list, and says why in the log.
+pub(super) fn sort_list(mut shell: Signal<Shell>, mut revision: Signal<u64>, sort: Sort) {
+    let kept = shell.write().sort_by(sort);
+    match kept {
+        Some(SortKept::View(view)) => {
+            let store = consume_context::<Arc<SqliteStore>>();
+            match store.put_view(&view) {
+                Ok(()) => revision += 1,
+                Err(why) => log::warn!("the view's order was not kept: {why}"),
+            }
+        }
+        Some(SortKept::Place(key, sort)) => {
+            if let Err(why) = crate::ui::prefs::change(move |settings| {
+                settings
+                    .window
+                    .sorts
+                    .insert(key, crate::settings::ListOrder(sort));
+            }) {
+                log::warn!("the list's order was not kept: {why}");
+            }
+        }
+        None => {}
+    }
+}
+
 /// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one
-/// menu so the header is its title and three icons. Grouping and the rows' parts are kept as
-/// settings ([`kept`]), so every window opens with them. Sync Now is the sidebar's sync mark's press, so it is here only while the
+/// menu so the header is its title and three icons. Sort By asks the store for the list in
+/// another order; grouping and the rows' parts are kept as settings ([`kept`]), so every window
+/// opens with them. Sync Now is the sidebar's sync mark's press, so it is here only while the
 /// sidebar is hidden; `syncs` is false with only local folders in view.
 #[component]
 pub(super) fn ListMore(
@@ -211,7 +295,9 @@ pub(super) fn ListMore(
     let items = if open {
         let sync = (syncs && side_hidden()).then(|| line.map(|line| line.text).unwrap_or_default());
         let organise = shell.read().organises().then(|| shell.read().threading());
-        more_items(shell.read().group, organise, shell.read().parts, sync)
+        let shown = shell.read();
+        let sort = shown.sortable().then(|| shown.sort());
+        more_items(shown.group, sort, organise, shown.parts, sync)
     } else {
         Vec::new()
     };
@@ -249,6 +335,16 @@ pub(super) fn ListMore(
                     ..Common::default()
                 },
                 onpick: move |pick: More| match pick {
+                    More::SortBy(property) => {
+                        shell.write().page_menu = PageMenu::Closed;
+                        let sort = Sort { property, dir: property.natural() };
+                        sort_list(shell, revision, sort);
+                    }
+                    More::SortDir(dir) => {
+                        shell.write().page_menu = PageMenu::Closed;
+                        let property = shell.peek().sort().property;
+                        sort_list(shell, revision, Sort { property, dir });
+                    }
                     More::GroupByDate => {
                         let group = {
                             let mut written = shell.write();
@@ -430,6 +526,39 @@ mod tests {
                 ..
             }
         )));
+    }
+
+    /// Where the list can be sorted the ⋯ opens on Sort By: the keys, the one sorted by checked,
+    /// then the two ways that key runs in its own words.
+    #[test]
+    fn sort_by_lists_the_keys_and_the_ways_the_chosen_one_runs() {
+        let parts = PageParts::default();
+        let cases: [(Sort, &str); 3] = [
+            (
+                crate::ui::view::NEWEST_FIRST,
+                "Sort By ▸ [✓Date, Sender, Subject, Size, Unread, Starred, -, Oldest First, ✓Newest First]",
+            ),
+            (
+                Sort {
+                    property: Property::Subject,
+                    dir: SortDir::Asc,
+                },
+                "Sort By ▸ [Date, Sender, ✓Subject, Size, Unread, Starred, -, ✓A to Z, Z to A]",
+            ),
+            (
+                // A saved view sorted by `Sender` is the menu's Sender.
+                Sort {
+                    property: Property::Sender,
+                    dir: SortDir::Desc,
+                },
+                "Sort By ▸ [Date, ✓Sender, Subject, Size, Unread, Starred, -, A to Z, ✓Z to A]",
+            ),
+        ];
+        for (sort, want) in cases {
+            let rows = read(&more_items(PageGroup::None, Some(sort), parts, None));
+            assert_eq!(rows[0], want, "{sort:?}");
+            assert_eq!(rows[1], crate::ui::copy::menus::GROUP_BY_DATE);
+        }
     }
 
     /// The page menu's grouping: dates fall into the four bands, and no grouping is one band

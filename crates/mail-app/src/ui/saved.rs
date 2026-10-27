@@ -180,6 +180,8 @@ pub fn group_name(key: Option<&GroupKey>, labels: &[(String, LabelId)]) -> Strin
             Property::Size => "Size",
             Property::Attachments => "With attachments, then without",
             Property::Pin => "Pinned, then the rest",
+            Property::Unread => return group_name(Some(&GroupKey::Read), labels),
+            Property::Starred => return group_name(Some(&GroupKey::Star), labels),
         }
         .to_owned(),
     }

@@ -281,12 +281,18 @@ impl SqliteStore {
             json("Mute", &mute)?,
             json("FollowUp", &follow_up)?,
         );
+        // Not empty: asked above.
+        let Some(facts) = mail_domain::SortFacts::of(&messages) else {
+            return Ok(());
+        };
         self.connection()
             .prepare_cached(
                 "INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
                      participants, recipients, last_date, message_count, read, star, mailboxes,
-                     labels, attachments, snooze, pin, mute, follow_up)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
+                     labels, attachments, snooze, pin, mute, follow_up, sort_subject,
+                     sort_sender, size, unread, starred)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,
+                     ?20,?21,?22,?23,?24)
                  ON CONFLICT(thread) DO UPDATE SET
                      subject=excluded.subject, snippet=excluded.snippet, from_name=excluded.from_name,
                      from_email=excluded.from_email, participants=excluded.participants,
@@ -294,7 +300,9 @@ impl SqliteStore {
                      message_count=excluded.message_count, read=excluded.read, star=excluded.star,
                      mailboxes=excluded.mailboxes, labels=excluded.labels,
                      attachments=excluded.attachments, snooze=excluded.snooze, pin=excluded.pin,
-                     mute=excluded.mute, follow_up=excluded.follow_up",
+                     mute=excluded.mute, follow_up=excluded.follow_up,
+                     sort_subject=excluded.sort_subject, sort_sender=excluded.sort_sender,
+                     size=excluded.size, unread=excluded.unread, starred=excluded.starred",
             )?
             .execute(params![
                 s.id.to_string(),
@@ -316,6 +324,11 @@ impl SqliteStore {
                 to_json("Pin", &s.pin)?,
                 to_json("Mute", &s.mute)?,
                 to_json("FollowUp", &s.follow_up)?,
+                facts.subject,
+                facts.sender,
+                i64::try_from(facts.size).unwrap_or(i64::MAX),
+                s.read == mail_domain::ReadState::Unread,
+                s.star == mail_domain::Star::Starred,
             ])?;
         Ok(())
     }

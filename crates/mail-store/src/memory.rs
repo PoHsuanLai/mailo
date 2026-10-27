@@ -5,16 +5,15 @@
 //! semantics, and the parity test would then be comparing two wrongs.
 
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
     AccountCaps, Change, ChangeId, Cursor, Draft, DraftId, Filter, FollowUp, Ingest, Label,
     LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, Mute, OutboxId,
-    Page, Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry,
-    SendState, Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
-    UidValidity,
+    Page, Patch, Pin, Property, ProtoOp, Query, ReadState, ReceiptAnswer, RemoteIntent, RemoteRef,
+    Retry, SendState, Snooze, SortDir, Star, SyncCursor, Template, TemplateId, Thread, ThreadId,
+    ThreadSummary, UidValidity,
 };
 use porter_core::AccountId;
 use serde::Serialize;
@@ -903,28 +902,28 @@ impl Inner {
         let property = query.sort.property;
         let mut keyed = Vec::new();
         for summary in self.matching(&query.filter, now) {
-            keyed.push((sort_key(&summary, property)?, summary));
+            let messages = self.messages_of(summary.id);
+            keyed.push((sort_key(&summary, &messages, property)?, summary));
         }
         keyed.sort_by(|a, b| {
-            let ord = a.0.cmp(&b.0).then(a.1.id.cmp(&b.1.id));
+            let ord = a.0.cmp(&b.0);
             match query.sort.dir {
                 SortDir::Asc => ord,
                 SortDir::Desc => ord.reverse(),
             }
         });
         if let Some(cursor) = &query.page.after {
-            let (value, thread) = decode_cursor(cursor)?;
-            keyed.retain(|(key, summary)| {
-                after_cursor(key, summary.id, &value, &thread, query.sort.dir)
+            let after = decode_cursor(cursor, property)?;
+            keyed.retain(|(key, _)| match query.sort.dir {
+                SortDir::Asc => *key > after,
+                SortDir::Desc => *key < after,
             });
         }
         let limit = usize::try_from(query.page.limit).unwrap_or(usize::MAX);
         let more = keyed.len() > limit;
         keyed.truncate(limit);
         let next = if more {
-            keyed
-                .last()
-                .map(|(key, summary)| encode_cursor(key, summary.id))
+            keyed.last().map(|(key, _)| encode_cursor(key))
         } else {
             None
         };
@@ -1817,13 +1816,55 @@ fn timestamp(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
-fn sort_key(summary: &ThreadSummary, property: Property) -> Result<String, StoreError> {
-    Ok(match property {
-        Property::Date | Property::Size => timestamp(summary.last_date),
-        Property::Subject => summary.subject.clone(),
-        Property::From | Property::Sender => summary.from.email.clone(),
-        Property::Attachments => json_text("Attachments", &summary.attachments)?,
-        Property::Pin => json_text("Pin", &summary.pin)?,
+/// Where a thread stands in a sort: its value for the sort, then its date and its id, the
+/// tie-breaks `sqlite::order_columns` orders by.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct SortKey {
+    value: SortValue,
+    date: String,
+    thread: String,
+}
+
+/// A sort's own value, as the SQLite column holds it: text, or a number that compares as one.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum SortValue {
+    Int(i64),
+    Text(String),
+}
+
+impl SortValue {
+    fn text(&self) -> String {
+        match self {
+            SortValue::Int(n) => n.to_string(),
+            SortValue::Text(text) => text.clone(),
+        }
+    }
+}
+
+fn sort_key(
+    summary: &ThreadSummary,
+    messages: &[Message],
+    property: Property,
+) -> Result<SortKey, StoreError> {
+    // A listed thread has a message, so it has facts; one with none would sort as empty, first.
+    let (subject, sender, size) = match mail_domain::SortFacts::of(messages) {
+        Some(facts) => (facts.subject, facts.sender, facts.size),
+        None => (String::new(), String::new(), 0),
+    };
+    let value = match property {
+        Property::Date => SortValue::Text(timestamp(summary.last_date)),
+        Property::Subject => SortValue::Text(subject),
+        Property::From | Property::Sender => SortValue::Text(sender),
+        Property::Size => SortValue::Int(i64::try_from(size).unwrap_or(i64::MAX)),
+        Property::Attachments => SortValue::Text(json_text("Attachments", &summary.attachments)?),
+        Property::Pin => SortValue::Text(json_text("Pin", &summary.pin)?),
+        Property::Unread => SortValue::Int(i64::from(summary.read == ReadState::Unread)),
+        Property::Starred => SortValue::Int(i64::from(summary.star == Star::Starred)),
+    };
+    Ok(SortKey {
+        value,
+        date: timestamp(summary.last_date),
+        thread: summary.id.to_string(),
     })
 }
 
@@ -1834,25 +1875,33 @@ fn json_text<T: Serialize>(what: &str, value: &T) -> Result<String, StoreError> 
     })
 }
 
-fn encode_cursor(sort_value: &str, thread: ThreadId) -> Cursor {
-    Cursor(format!("{sort_value}\u{1f}{thread}"))
+fn encode_cursor(key: &SortKey) -> Cursor {
+    Cursor(format!(
+        "{}\u{1f}{}\u{1f}{}",
+        key.value.text(),
+        key.date,
+        key.thread
+    ))
 }
 
-fn decode_cursor(cursor: &Cursor) -> Result<(String, String), StoreError> {
-    cursor
-        .0
-        .split_once('\u{1f}')
-        .map(|(value, thread)| (value.to_owned(), thread.to_owned()))
-        .ok_or(StoreError::BadCursor)
-}
-
-fn after_cursor(key: &str, id: ThreadId, cursor_key: &str, cursor_id: &str, dir: SortDir) -> bool {
-    let id = id.to_string();
-    let ord = (key, id.as_str()).cmp(&(cursor_key, cursor_id));
-    match dir {
-        SortDir::Asc => ord == Ordering::Greater,
-        SortDir::Desc => ord == Ordering::Less,
-    }
+/// Split from the right: the date and the id never hold the separator, and only the value is
+/// free text.
+fn decode_cursor(cursor: &Cursor, property: Property) -> Result<SortKey, StoreError> {
+    let mut parts = cursor.0.rsplitn(3, '\u{1f}');
+    let (Some(thread), Some(date), Some(value)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(StoreError::BadCursor);
+    };
+    let value = match property {
+        Property::Size | Property::Unread | Property::Starred => {
+            SortValue::Int(value.parse().map_err(|_| StoreError::BadCursor)?)
+        }
+        _ => SortValue::Text(value.to_owned()),
+    };
+    Ok(SortKey {
+        value,
+        date: date.to_owned(),
+        thread: thread.to_owned(),
+    })
 }
 
 fn remote_parts(remote: &RemoteRef) -> crate::remote_row::Columns {

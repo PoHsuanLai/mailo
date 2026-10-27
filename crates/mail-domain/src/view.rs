@@ -28,6 +28,27 @@ pub enum Property {
     Size,
     Attachments,
     Pin,
+    /// Unread conversations apart from read ones. A sort, not a column: no row draws a word
+    /// for it, the unread dot already says it.
+    Unread,
+    /// Starred conversations apart from the rest: IMAP's `\Flagged`. A sort, like [`Self::Unread`].
+    Starred,
+}
+
+impl Property {
+    /// The way a person expects this sort to run when they first pick it: the newest, the
+    /// largest, the unread and the starred first, and words from A.
+    pub fn natural(self) -> SortDir {
+        match self {
+            Property::Subject | Property::From | Property::Sender => SortDir::Asc,
+            Property::Date
+            | Property::Size
+            | Property::Attachments
+            | Property::Pin
+            | Property::Unread
+            | Property::Starred => SortDir::Desc,
+        }
+    }
 }
 
 /// What a view groups its rows by.

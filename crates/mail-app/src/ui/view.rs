@@ -273,6 +273,21 @@ pub enum Grouping {
     Saved(GroupKey),
 }
 
+/// The order a place's list is in until one is chosen.
+pub const NEWEST_FIRST: Sort = Sort {
+    property: Property::Date,
+    dir: SortDir::Desc,
+};
+
+/// What keeps a sort chosen from the list's ⋯ ([`Shell::sort_by`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SortKept {
+    /// A saved view, with its new order, to be kept again in the store.
+    View(View),
+    /// One of mailo's places, a label or a folder, by its key, for `window.sorts`.
+    Place(String, Sort),
+}
+
 /// Whether the list toolbar's ⋯ menu is open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageMenu {
@@ -623,6 +638,10 @@ pub struct Shell {
     pub account: Option<AccountId>,
     /// How this page's rows are grouped. Not a store query.
     pub group: PageGroup,
+    /// The order chosen for each place's list, by [`place_key`]: `window.sorts` in
+    /// `settings.toml`, held here so [`Self::query`] stays a function of the shell. A saved view
+    /// keeps its own on the view.
+    pub sorts: std::collections::BTreeMap<String, Sort>,
     /// Which parts of a row this page draws.
     pub parts: PageParts,
     /// The list-bar menu that is open.
@@ -813,6 +832,7 @@ impl Default for Shell {
             scope: crate::ui::space::Scope::All,
             account: None,
             group: PageGroup::None,
+            sorts: std::collections::BTreeMap::new(),
             parts: PageParts::default(),
             page_menu: PageMenu::Closed,
             bar: Bar::Closed,
@@ -844,13 +864,13 @@ impl Shell {
     /// results that live in the Inbox.
     pub fn query(&self, limit: u32) -> Query {
         let needle = self.search.trim();
-        let mut sort = Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        };
+        let mut sort = NEWEST_FIRST;
         let filter = if needle.is_empty() {
             match self.places.get(self.selected).map(|place| &place.source) {
-                Some(Source::Mail(filter)) => filter.clone(),
+                Some(Source::Mail(filter)) => {
+                    sort = self.sort();
+                    filter.clone()
+                }
                 Some(Source::Saved(view)) => {
                     sort = view.sort;
                     view.filter.clone()
@@ -877,6 +897,50 @@ impl Shell {
             sort,
             page: PageReq { after: None, limit },
         }
+    }
+
+    /// The order the place's list is in: a saved view's own, else the one chosen for the place,
+    /// else newest first.
+    pub fn sort(&self) -> Sort {
+        let Some(place) = self.places.get(self.selected) else {
+            return NEWEST_FIRST;
+        };
+        match saved_of(place) {
+            Some(view) => view.sort,
+            None => self
+                .sorts
+                .get(&place_key(place))
+                .copied()
+                .unwrap_or(NEWEST_FIRST),
+        }
+    }
+
+    /// Whether the list can be sorted: a place of mail with no search typed. A search's matches
+    /// are its own list, and drafts, Waiting, History and Scheduled each keep the one order that
+    /// makes them what they are.
+    pub fn sortable(&self) -> bool {
+        self.search.trim().is_empty()
+            && matches!(
+                self.places.get(self.selected).map(|place| &place.source),
+                Some(Source::Mail(_) | Source::Saved(_))
+            )
+    }
+
+    /// Sort the place's list by `sort`, and say what keeps the choice: the saved view, changed,
+    /// for the store; or the place's key, for `settings.toml`. `None` when the list cannot be
+    /// sorted ([`Self::sortable`]).
+    pub fn sort_by(&mut self, sort: Sort) -> Option<SortKept> {
+        if !self.sortable() {
+            return None;
+        }
+        let place = self.places.get_mut(self.selected)?;
+        if let Source::Saved(view) = &mut place.source {
+            view.sort = sort;
+            return Some(SortKept::View(view.as_ref().clone()));
+        }
+        let key = place_key(place);
+        self.sorts.insert(key.clone(), sort);
+        Some(SortKept::Place(key, sort))
     }
 
     /// The saved view the list is showing, if it is showing one.
