@@ -24,7 +24,7 @@ pub(crate) mod learn;
 pub(crate) mod ledger;
 
 pub use group::{Edit, Group, GroupHome, GroupId};
-pub use learn::normalise;
+pub use learn::{no_reply, normalise};
 
 use chrono::{DateTime, Utc};
 use porter_core::AccountId;

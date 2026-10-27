@@ -153,7 +153,7 @@ fn an_accounts_first_backfill_raises_nothing() {
         })
         .collect();
     let recorder = Recorder::default();
-    let raised = notify::announce(&store, account(), &arrived, &recorder, watched).unwrap();
+    let raised = notify::announce(&store, account(), &arrived, &[], &recorder, watched).unwrap();
     assert_eq!(raised, 0);
     assert!(recorder.seen().is_empty(), "{:?}", recorder.seen());
 
@@ -161,7 +161,7 @@ fn an_accounts_first_backfill_raises_nothing() {
     let later = watched + chrono::Duration::minutes(5);
     let new = stored(&store, 500, "bob@example.test", later);
     let mine = stored(&store, 501, "ME@example.test", later);
-    notify::announce(&store, account(), &[new, mine], &recorder, later).unwrap();
+    notify::announce(&store, account(), &[new, mine], &[], &recorder, later).unwrap();
     let seen = recorder.seen();
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0].summary, "bob@example.test");

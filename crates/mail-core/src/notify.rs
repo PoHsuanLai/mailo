@@ -241,23 +241,14 @@ impl std::fmt::Debug for Announce<'_> {
 
 /// Announce what one account's pass stored, returning how many notifications were raised.
 ///
+/// `noted` are the arrivals a rule asked to be told of ([`RuleAction::Notify`]): those are said
+/// wherever the rules filed them and whether or not they are read ([`heard`]).
+///
 /// Arms the account's floor on its first watched pass, whether or not anything arrived — the
 /// pass that arms it is the start of "new", and everything dated before it is backfill.
-pub fn announce(
-    store: &SqliteStore,
-    account: AccountId,
-    arrived: &[MessageId],
-    notifier: &dyn Notifier,
-    now: DateTime<Utc>,
-) -> Result<usize, CoreError> {
-    announce_noted(store, account, arrived, &[], notifier, now)
-}
-
-/// [`announce`], with the arrivals a rule asked to be told of ([`RuleAction::Notify`]): those
-/// are said wherever the rules filed them and whether or not they are read ([`heard`]).
 ///
 /// [`RuleAction::Notify`]: mail_domain::RuleAction::Notify
-pub fn announce_noted(
+pub fn announce(
     store: &SqliteStore,
     account: AccountId,
     arrived: &[MessageId],

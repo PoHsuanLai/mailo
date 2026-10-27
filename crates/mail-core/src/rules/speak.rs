@@ -12,57 +12,38 @@ use chrono::{DateTime, Utc};
 use mail_domain::{Address, Message, MessageId, ReplyScope, RuleAction};
 use mail_store::{SqliteStore, Store};
 
-/// What carrying out a pass's left actions did.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Carried {
-    /// Messages a rule asked to hear of, for the pass's notifications to say.
-    pub noted: Vec<MessageId>,
-    /// Forwards and replies queued in the outbox.
-    pub queued: usize,
-}
-
-/// Carry out `left`, in order. A forward or reply that cannot be made — a template since
+/// Carry out `left`, in order, and return the messages a rule asked to hear of, once each, for
+/// the pass's notifications to say. A forward or reply that cannot be made — a template since
 /// deleted, an account with no server to send from — is logged and the rest go on: one rule's
 /// trouble is no reason to keep another's mail back.
 pub fn carry_out(
     store: &SqliteStore,
     left: &[(MessageId, RuleAction)],
     now: DateTime<Utc>,
-) -> Carried {
-    let mut carried = Carried::default();
+) -> Vec<MessageId> {
+    let mut noted = Vec::new();
     if left.is_empty() {
-        return carried;
+        return noted;
     }
     let own = crate::notify::own_addresses(store).or_log_default("the user's addresses");
     for (id, action) in left {
-        let sent = match action {
+        match action {
             RuleAction::Notify => {
-                if !carried.noted.contains(id) {
-                    carried.noted.push(*id);
+                if !noted.contains(id) {
+                    noted.push(*id);
                 }
-                continue;
             }
             RuleAction::Forward(to) => {
-                forward(store, *id, to, now).or_log("a rule could not forward a message")
+                forward(store, *id, to, now).or_log("a rule could not forward a message");
             }
             RuleAction::Reply(template) => {
-                reply(store, *id, template, &own, now).or_log("a rule could not reply to a message")
+                reply(store, *id, template, &own, now)
+                    .or_log("a rule could not reply to a message");
             }
-            _ => continue,
-        };
-        if sent == Some(Sent::Queued) {
-            carried.queued += 1;
+            _ => {}
         }
     }
-    carried
-}
-
-/// Whether a forward or a reply went into the outbox.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Sent {
-    Queued,
-    /// Left alone, for the reason [`answerable`] gives.
-    Withheld,
+    noted
 }
 
 fn forward(
@@ -70,15 +51,15 @@ fn forward(
     id: MessageId,
     to: &str,
     now: DateTime<Utc>,
-) -> Result<Sent, CoreError> {
+) -> Result<(), CoreError> {
     let message = store.message(id)?;
     // Never back to whoever sent it: two people's rules forwarding to each other would loop.
     if message.from.email.eq_ignore_ascii_case(to.trim()) {
-        return Ok(Sent::Withheld);
+        return Ok(());
     }
     let draft = crate::compose::draft_forward(store, id, &[Address::new(to.trim())], "", now)?;
     crate::compose::queue(store, draft.id, Leaves::Now, now)?;
-    Ok(Sent::Queued)
+    Ok(())
 }
 
 fn reply(
@@ -87,10 +68,10 @@ fn reply(
     template: &str,
     own: &Own,
     now: DateTime<Utc>,
-) -> Result<Sent, CoreError> {
+) -> Result<(), CoreError> {
     let message = store.message(id)?;
     if !answerable(&message, own) {
-        return Ok(Sent::Withheld);
+        return Ok(());
     }
     let kept = store
         .templates(message.account.clone())?
@@ -99,23 +80,14 @@ fn reply(
         .ok_or_else(|| CoreError::context(format!("template {template:?}"), "there is none"))?;
     let draft = crate::compose::draft_reply(store, id, ReplyScope::Sender, &kept.text, now)?;
     crate::compose::queue(store, draft.id, Leaves::Now, now)?;
-    Ok(Sent::Queued)
+    Ok(())
 }
 
 /// Whether a rule may answer `message`: not the user's own mail, and not an address that takes
 /// no answers, which is where automatic mail — another client's rule among it — comes from.
-pub fn answerable(message: &Message, own: &Own) -> bool {
-    let from = message.from.email.trim().to_ascii_lowercase();
-    let user = from.split_once('@').map_or(from.as_str(), |(user, _)| user);
-    let silent = [
-        "noreply",
-        "no-reply",
-        "donotreply",
-        "do-not-reply",
-        "mailer-daemon",
-        "postmaster",
-    ];
-    !from.is_empty() && !own.includes(&from) && !silent.contains(&user)
+fn answerable(message: &Message, own: &Own) -> bool {
+    let from = message.from.email.trim();
+    !from.is_empty() && !own.includes(&from.to_ascii_lowercase()) && !mail_store::no_reply(from)
 }
 
 #[cfg(test)]
@@ -194,8 +166,10 @@ mod tests {
             (message.id, RuleAction::Reply("No such template".to_owned())),
             (message.id, RuleAction::Notify),
         ];
-        let carried = carry_out(&store, &left, now);
-        assert_eq!(carried.noted, vec![message.id], "said once");
-        assert_eq!(carried.queued, 2, "the forward and the reply");
+        let queued = mail_store::testing::outbox_ops(&store).len();
+        let noted = carry_out(&store, &left, now);
+        assert_eq!(noted, vec![message.id], "said once");
+        let after = mail_store::testing::outbox_ops(&store).len();
+        assert_eq!(after - queued, 2, "the forward and the reply");
     }
 }

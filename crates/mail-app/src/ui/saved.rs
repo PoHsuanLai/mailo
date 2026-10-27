@@ -7,6 +7,7 @@
 
 use crate::ui::view::{Place, Shell, saved_of, saved_place};
 use chrono::TimeZone;
+use mail_core::query::Known;
 use mail_core::views::{Draft, Refusal};
 use mail_domain::{GroupKey, LabelId, Property, View, ViewId};
 
@@ -49,20 +50,16 @@ impl ViewDraft {
     }
 
     /// `view`, opened for editing, its filter written back as words where they say exactly it.
-    pub fn of<Tz: TimeZone>(view: &View, labels: &[(String, LabelId)], zone: &Tz) -> Self {
+    pub fn of<Tz: TimeZone>(view: &View, names: &Known<'_>, zone: &Tz) -> Self {
         Self {
-            draft: Draft::of(view, labels, zone),
+            draft: Draft::of(view, names, zone),
             refused: None,
         }
     }
 
     /// The view this draft saves as, or why it cannot be one yet, in words.
-    pub fn build<Tz: TimeZone>(
-        &self,
-        labels: &[(String, LabelId)],
-        zone: &Tz,
-    ) -> Result<View, String> {
-        self.draft.build(labels, zone).map_err(|refusal| {
+    pub fn build<Tz: TimeZone>(&self, names: &Known<'_>, zone: &Tz) -> Result<View, String> {
+        self.draft.build(names, zone).map_err(|refusal| {
             match refusal {
                 Refusal::NoName => "Give the view a name.",
                 Refusal::NoQuery => "Type a search for the view to list.",

@@ -725,6 +725,14 @@ impl Default for Shell {
 }
 
 impl Shell {
+    /// The names a search typed here resolves `label:` and `account:` against.
+    pub fn known(&self) -> mail_core::query::Known<'_> {
+        mail_core::query::Known {
+            labels: &self.labels,
+            accounts: &self.accounts,
+        }
+    }
+
     /// The query the list pane should run.
     ///
     /// A non-empty search box replaces the place rather than narrowing it, which is what every
@@ -753,14 +761,7 @@ impl Shell {
                 | None => Filter::All,
             }
         } else {
-            mail_core::query::parse_with(
-                needle,
-                &chrono::Local,
-                &mail_core::query::Known {
-                    labels: &self.labels,
-                    accounts: &self.accounts,
-                },
-            )
+            mail_core::query::parse_with(needle, &chrono::Local, &self.known())
         };
         let filter = self.with_account(filter);
         Query {

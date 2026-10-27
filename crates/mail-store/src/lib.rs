@@ -38,7 +38,7 @@ pub mod testing;
 pub use account::{NewAccount, StoredAccount};
 pub use blob::Blobs;
 pub use contact::{
-    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
+    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally, no_reply,
 };
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use file::write_atomic;

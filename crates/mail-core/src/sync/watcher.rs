@@ -42,7 +42,7 @@ pub fn told(end: &PassEnd, announce: Announce<'_>, at: DateTime<Utc>, tell: &dyn
     let Announce::To { store, notifier } = announce else {
         return;
     };
-    if let Err(why) = crate::notify::announce_noted(
+    if let Err(why) = crate::notify::announce(
         store,
         report.account.clone(),
         &report.counts.arrived,

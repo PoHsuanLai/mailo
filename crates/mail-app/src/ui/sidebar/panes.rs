@@ -42,6 +42,11 @@ pub(super) struct Counts {
 
 pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
     let labels = query::known_labels(store);
+    let accounts = query::known_accounts(store);
+    let known = query::Known {
+        labels: &labels,
+        accounts: &accounts,
+    };
     let scope = space.payload.scope().filter();
     let now = chrono::Utc::now();
     let unread = |extra: Filter| {
@@ -55,7 +60,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
         .payload
         .pins
         .iter()
-        .map(|pin| unread(pin_filter(pin, &labels)))
+        .map(|pin| unread(pin_filter(pin, &known)))
         .collect();
     let pinned = store
         .threads(
@@ -90,12 +95,10 @@ pub(super) fn titled(subject: &str) -> String {
     mail_domain::subject_or_none(subject).into_owned()
 }
 
-fn pin_filter(pin: &Pinned, labels: &[(String, LabelId)]) -> Filter {
+fn pin_filter(pin: &Pinned, known: &query::Known<'_>) -> Filter {
     match pin {
         Pinned::Person { email, .. } => Filter::From(TextMatch::Contains(email.clone())),
-        Pinned::Search { query, .. } => {
-            query::parse_with(query, &chrono::Local, &query::named(labels))
-        }
+        Pinned::Search { query, .. } => query::parse_with(query, &chrono::Local, known),
     }
 }
 

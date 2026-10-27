@@ -15,7 +15,7 @@ use super::super::files::work::{grouped, messages};
 use crate::ui::copy;
 use crate::ui::remedy::plainly;
 
-pub(in crate::ui) use mail_core::rules::manage::{Draft, Step, conversations, labels};
+pub(in crate::ui) use mail_core::rules::manage::{Draft, Step, conversations, labels, templates};
 
 /// The search words a rule's condition may use, as the refusal lists them.
 const KNOWN: &str = "from:, to:, cc:, subject:, is:, in:, has:, label:, before:, after:, \
@@ -71,11 +71,6 @@ pub(in crate::ui) fn apply_to(
         Ok(acted) => copy::status::rules_applied(acted),
         Err(why) => copy::status::rules_not_applied(&why.to_string()),
     }
-}
-
-/// The names of the account's templates, for a rule's reply.
-pub(in crate::ui) fn templates(store: &SqliteStore, account: AccountId) -> Vec<String> {
-    manage::templates(store, account)
 }
 
 /// Everything a rule does, in one line.

@@ -4,6 +4,7 @@
 //! was typed once, on Save, and says in a value ([`Refusal`]) why it cannot be a view yet. The
 //! window words the refusal and draws the editor; nothing here draws.
 
+use crate::query::Known;
 use chrono::TimeZone;
 use mail_domain::{
     Filter, GroupKey, LabelId, Property, Sort, SortDir, Threading, View, ViewId, ViewKind,
@@ -53,8 +54,8 @@ impl Draft {
     }
 
     /// `view`, opened for editing, its filter written back as words where they say exactly it.
-    pub fn of<Tz: TimeZone>(view: &View, labels: &[(String, LabelId)], zone: &Tz) -> Self {
-        let words = written(&view.filter, labels, zone);
+    pub fn of<Tz: TimeZone>(view: &View, names: &Known<'_>, zone: &Tz) -> Self {
+        let words = written(&view.filter, names, zone);
         Self {
             id: Some(view.id),
             name: view.name.clone(),
@@ -66,18 +67,14 @@ impl Draft {
     }
 
     /// The view this draft saves as, or why it cannot be one yet.
-    pub fn build<Tz: TimeZone>(
-        &self,
-        labels: &[(String, LabelId)],
-        zone: &Tz,
-    ) -> Result<View, Refusal> {
+    pub fn build<Tz: TimeZone>(&self, names: &Known<'_>, zone: &Tz) -> Result<View, Refusal> {
         let name = self.name.trim();
         if name.is_empty() {
             return Err(Refusal::NoName);
         }
         let words = self.query.trim();
         let filter = match (words.is_empty(), &self.kept) {
-            (false, _) => crate::query::parse_with(words, zone, &crate::query::named(labels)),
+            (false, _) => crate::query::parse_with(words, zone, names),
             (true, Some(kept)) => kept.clone(),
             // An empty search means "no filter" in the box, and a view of everything is the
             // Archive with extra steps; refusing beats saving a view nobody meant.
@@ -103,22 +100,19 @@ impl Draft {
 /// `filter` in the search language, when those words read back as exactly `filter`.
 ///
 /// Written by [`crate::rules::condition`] and then read again, so a filter the language cannot
-/// say — `All`, a folder, a date that is not a midnight here, a label since renamed — is `None`
+/// say — `All`, a folder, a date that is not a midnight here, an account, a label since renamed — is `None`
 /// rather than words that would quietly save as something else.
-pub fn written<Tz: TimeZone>(
-    filter: &Filter,
-    labels: &[(String, LabelId)],
-    zone: &Tz,
-) -> Option<String> {
+pub fn written<Tz: TimeZone>(filter: &Filter, names: &Known<'_>, zone: &Tz) -> Option<String> {
     let name = |id: LabelId| {
-        labels
+        names
+            .labels
             .iter()
             .find(|(_, known)| *known == id)
             .map(|(name, _)| name.clone())
             .unwrap_or_default()
     };
     let words = crate::rules::condition(filter, &name);
-    let again = crate::query::parse_with(&words, zone, &crate::query::named(labels));
+    let again = crate::query::parse_with(&words, zone, names);
     (again == *filter).then_some(words)
 }
 
@@ -137,7 +131,14 @@ mod tests {
     fn saved(name: &str, query: &str) -> View {
         let mut draft = Draft::from_search(query);
         draft.name = name.to_owned();
-        draft.build(&labels(), &Utc).unwrap()
+        draft.build(&known(&labels()), &Utc).unwrap()
+    }
+
+    fn known(labels: &[(String, LabelId)]) -> Known<'_> {
+        Known {
+            labels,
+            accounts: &[],
+        }
     }
 
     #[test]
@@ -147,12 +148,9 @@ mod tests {
             draft.name, "from:shop.example is:unread",
             "named after the search at first"
         );
-        let view = draft.build(&labels(), &Utc).unwrap();
-        let typed = crate::query::parse_with(
-            "from:shop.example is:unread",
-            &Utc,
-            &crate::query::named(&labels()),
-        );
+        let view = draft.build(&known(&labels()), &Utc).unwrap();
+        let typed =
+            crate::query::parse_with("from:shop.example is:unread", &Utc, &known(&labels()));
         assert_eq!(view.filter, typed);
         assert_eq!(view.kind, ViewKind::Query, "a saved search takes no drop");
         assert_eq!(view.sort.property, Property::Date);
@@ -163,21 +161,21 @@ mod tests {
     fn a_view_needs_a_name_and_something_to_list() {
         let mut draft = Draft::from_search("is:starred");
         draft.name = "   ".to_owned();
-        assert_eq!(draft.build(&labels(), &Utc), Err(Refusal::NoName));
+        assert_eq!(draft.build(&known(&labels()), &Utc), Err(Refusal::NoName));
         draft.name = "Stars".to_owned();
         draft.query = String::new();
-        assert_eq!(draft.build(&labels(), &Utc), Err(Refusal::NoQuery));
+        assert_eq!(draft.build(&known(&labels()), &Utc), Err(Refusal::NoQuery));
     }
 
     #[test]
     fn an_edited_view_keeps_its_id_and_reads_back_as_the_words_it_was_saved_from() {
         let view = saved("Trips", "label:travel -is:read");
-        let draft = Draft::of(&view, &labels(), &Utc);
+        let draft = Draft::of(&view, &known(&labels()), &Utc);
         assert_eq!(draft.id, Some(view.id));
         assert_eq!(draft.query, "label:Travel -is:read");
         assert_eq!(draft.kept, None);
         assert_eq!(
-            draft.build(&labels(), &Utc).unwrap(),
+            draft.build(&known(&labels()), &Utc).unwrap(),
             view,
             "saving it again changes nothing"
         );
@@ -187,14 +185,14 @@ mod tests {
     fn a_filter_the_search_language_cannot_say_is_kept_as_it_was() {
         let mut view = saved("Everything", "is:starred");
         view.filter = Filter::All;
-        let mut draft = Draft::of(&view, &labels(), &Utc);
+        let mut draft = Draft::of(&view, &known(&labels()), &Utc);
         assert_eq!(
             draft.query, "",
             "no words that would save as something else"
         );
         assert_eq!(draft.kept, Some(Filter::All));
         draft.name = "All of it".to_owned();
-        let again = draft.build(&labels(), &Utc).unwrap();
+        let again = draft.build(&known(&labels()), &Utc).unwrap();
         assert_eq!(
             again.filter,
             Filter::All,
@@ -210,16 +208,37 @@ mod tests {
             "is:unread -in:spam has:attachment",
             "label:travel",
             "\"due date\"",
+            "from:ada OR from:bob lunch",
         ];
         for typed in CASES {
-            let filter = crate::query::parse_with(typed, &Utc, &crate::query::named(&labels()));
-            let words = written(&filter, &labels(), &Utc)
+            let filter = crate::query::parse_with(typed, &Utc, &known(&labels()));
+            let words = written(&filter, &known(&labels()), &Utc)
                 .unwrap_or_else(|| panic!("{typed} is not offered as words"));
-            let again = crate::query::parse_with(&words, &Utc, &crate::query::named(&labels()));
+            let again = crate::query::parse_with(&words, &Utc, &known(&labels()));
             assert_eq!(again, filter, "{typed} -> {words}");
         }
         // A label nothing knows by name any more cannot be written back.
         let gone = Filter::HasLabel(LabelId::from_uuid(uuid::Uuid::from_u128(99)));
-        assert_eq!(written(&gone, &labels(), &Utc), None);
+        assert_eq!(written(&gone, &known(&labels()), &Utc), None);
+    }
+
+    #[test]
+    fn a_view_saved_from_a_search_resolves_its_account() {
+        let id = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(1));
+        let accounts = [("work@example.com".to_owned(), id.clone())];
+        let names = Known {
+            labels: &[],
+            accounts: &accounts,
+        };
+        let mut draft = Draft::from_search("account:work lunch");
+        draft.name = "Work lunch".to_owned();
+        let view = draft.build(&names, &Utc).unwrap();
+        assert_eq!(
+            view.filter,
+            Filter::And(vec![
+                Filter::Account(id),
+                Filter::Text(mail_domain::TextMatch::Contains("lunch".to_owned()))
+            ])
+        );
     }
 }

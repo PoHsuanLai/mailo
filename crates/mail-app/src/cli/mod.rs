@@ -1946,12 +1946,6 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
         })
 }
 
-/// Every label with this name, across every configured account.
-///
-/// All of them, not the first. `UNIQUE (account, name)` means "travel" on the Gmail account and
-/// "travel" on the work one are two different labels, and a user who types `label:travel` means
-/// the word rather than one account's row. Taking the first silently searched one mailbox — a
-/// wrong answer that looks like an empty one, which is the worst kind.
 fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String {
     let mut out = String::new();
     for summary in items {
