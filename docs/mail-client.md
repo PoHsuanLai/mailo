@@ -51,7 +51,7 @@ impl Client {
     pub fn open(store: Arc<SqliteStore>, config: ClientConfig) -> Client;
     pub fn live<Q: Query>(&self, query: Q) -> Live<Q::Output>;   // a registry lookup, never SQL
     pub fn act(&self, command: Command) -> Ticket<Done>;         // never blocks
-    pub fn prime(&self, queries: impl IntoIterator<Item = AnyQuery>);
+    pub fn prime<Q: Query>(&self, queries: impl IntoIterator<Item = Q>) -> Vec<Live<Q::Output>>;
     pub fn shutdown(self, within: Duration);
 }
 ```
@@ -152,9 +152,10 @@ pub fn use_live<Q: Query>(key: impl Fn() -> Q + 'static) -> ReadSignal<Snapshot<
 
 ## Testing
 
-- `Client::builder(store).inline()` (testing feature) computes on subscribe and on invalidation,
-  synchronously, so SSR tests see data on the first render. `client.idle()` says nothing is
-  queued or running. `ClientConfig::clock` takes the harness clock.
+- `Client::inline(store, clock)` starts no thread and computes on subscribe, synchronously, so
+  SSR tests see data on the first render; what the store has committed since is acted on at
+  `client.settle()`. `client.idle()` says nothing is queued or running. `ClientConfig::clock`
+  takes the harness clock.
 - Lanes keep seeding through the store; publishing makes the window notice.
 - `mail-client`'s own tests, on temp-dir stores: coalescing, sharing, a drop cancels a queued
   job, an undeclared commit publishes `ALL`, `remove_account` publishes `ACCOUNTS`, a pinned
