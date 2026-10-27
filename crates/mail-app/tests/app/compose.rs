@@ -1576,8 +1576,8 @@ mod choosing_the_sender {
     }
 
     #[test]
-    fn changing_the_account_moves_the_identity_with_it() {
-        // Both columns or neither. `identity` is a foreign key into the *new* account's
+    fn choosing_an_identity_moves_the_account_with_it() {
+        // Both columns or neither. `identity` is a foreign key into its own account's
         // identities, so moving one without the other leaves a draft that cannot be sent — and
         // the failure would arrive at Send, long after the choice was made.
         let (store, _dir) = seeded();
@@ -1585,8 +1585,8 @@ mod choosing_the_sender {
         let draft = compose::draft_new(&store, acct_account(), &[], "", "", at(10)).unwrap();
         assert_eq!(draft.identity, IDENTITY);
 
-        let moved =
-            compose::move_draft_to(&store, draft.id, acct_second(), at(11)).expect("it moves");
+        let moved = compose::move_draft_to_identity(&store, draft.id, SECOND_IDENTITY, at(11))
+            .expect("it moves");
         assert_eq!(moved.account, acct_second());
         assert_eq!(
             moved.identity, SECOND_IDENTITY,
@@ -1600,14 +1600,14 @@ mod choosing_the_sender {
     }
 
     #[test]
-    fn moving_to_an_account_with_no_identity_leaves_the_draft_alone() {
+    fn moving_to_an_identity_that_is_gone_leaves_the_draft_alone() {
         let (store, _dir) = seeded();
         also(&store);
         mail_store::testing::delete_identities(&store, acct_second());
         let draft = compose::draft_new(&store, acct_account(), &[], "", "", at(10)).unwrap();
 
-        compose::move_draft_to(&store, draft.id, acct_second(), at(11))
-            .expect_err("an account with no identity cannot send");
+        compose::move_draft_to_identity(&store, draft.id, SECOND_IDENTITY, at(11))
+            .expect_err("an identity that is gone cannot send");
         let reread = store.draft(draft.id).unwrap();
         assert_eq!(reread.account, acct_account(), "the draft was moved anyway");
         assert_eq!(reread.identity, IDENTITY);

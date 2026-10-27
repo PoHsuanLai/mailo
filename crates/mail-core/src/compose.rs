@@ -405,8 +405,11 @@ pub fn sending_identities(store: &SqliteStore) -> Vec<Identity> {
 
 /// Move a draft to `identity`, and to its account: what picking an address in From does.
 ///
-/// [`move_draft_to`]'s rule holds: the identity is read before anything is written, so one that
-/// is gone leaves the draft where it was. A draft already from it is returned as it is.
+/// Both columns move together. `identity` is a foreign key into its account's identities, so
+/// writing one without the other leaves a draft that `identity_of` cannot resolve and nothing can
+/// send, and the failure would arrive at Send, long after the choice was made. The identity is
+/// read before anything is written, so one that is gone leaves the draft where it was. A draft
+/// already from it is returned as it is.
 pub fn move_draft_to_identity(
     store: &SqliteStore,
     draft: DraftId,
@@ -663,31 +666,6 @@ pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<Vec<Attache
                 .or_log("an attachment's size could not be read"),
         })
         .collect())
-}
-
-/// Send this draft from a different account.
-///
-/// Both columns move together. `identity` is a foreign key into the *new* account's identities,
-/// so writing one without the other leaves a draft that `identity_of` cannot resolve and nothing
-/// can send — and the failure would arrive at Send, long after the choice was made. The identity
-/// is therefore looked up before anything is written, so an account that has none leaves the
-/// draft exactly where it was.
-pub fn move_draft_to(
-    store: &SqliteStore,
-    draft: DraftId,
-    account: AccountId,
-    now: DateTime<Utc>,
-) -> Result<Draft, CoreError> {
-    let mut draft = store.draft(draft)?;
-    if draft.account == account {
-        return Ok(draft);
-    }
-    let identity = identity_of(store, account.clone(), None)?;
-    draft.account = account;
-    draft.identity = identity.id;
-    draft.updated = now;
-    save(store, &draft)?;
-    Ok(draft)
 }
 
 /// A message just started with [`new_sealed_message`]: the draft, and what would stop it going.
