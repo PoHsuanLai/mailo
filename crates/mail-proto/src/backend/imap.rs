@@ -126,7 +126,7 @@ impl ImapBackend {
     fn queue_as(
         &mut self,
         auth: Authenticate,
-        commands: Vec<ImapCommand>,
+        mut commands: Vec<ImapCommand>,
     ) -> Progress<ProtoOutcome> {
         // Resumed, the connection is signed in already, and signing in twice is refused.
         let going_on = self.going_on.take();
@@ -137,7 +137,6 @@ impl ImapBackend {
         };
         // Compressed on a connection this operation signs in on, when the server offers it. A
         // connection gone on from keeps what it was given, and a relay's is its own.
-        let mut commands = commands;
         if going_on_is_new && auth != Authenticate::No {
             commands.insert(0, ImapCommand::Compress);
         }
