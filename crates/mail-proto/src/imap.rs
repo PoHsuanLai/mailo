@@ -1069,8 +1069,7 @@ impl ImapSession {
                         return self.read_more();
                     };
                     let line = String::from_utf8_lossy(&buf[..end]).trim_end().to_owned();
-                    self.transcript.capabilities =
-                        capability_atoms(line.get("* CAPABILITY ".len()..).unwrap_or_default());
+                    self.transcript.capabilities = capability_atoms(&line["* CAPABILITY ".len()..]);
                     (end, None)
                 }
                 Err(_) => {
@@ -1326,7 +1325,7 @@ fn capability_atoms(list: &str) -> Vec<String> {
                 .get(..5)
                 .is_some_and(|p| p.eq_ignore_ascii_case("AUTH="))
             {
-                format!("Auth({:?})", atom.get(5..).unwrap_or_default())
+                format!("Auth({:?})", &atom[5..])
             } else {
                 format!("Atom({atom:?})")
             }
@@ -1450,7 +1449,9 @@ impl Machine for ImapSession {
                             let text = String::from_utf8_lossy(&self.buf[..used])
                                 .trim_end()
                                 .to_owned();
-                            if let Some(atoms) = capabilities_in(&response) {
+                            if let Some(atoms) = capabilities_in(&response)
+                                .or_else(|| capabilities_in_code(&response, &text))
+                            {
                                 self.transcript.capabilities = atoms;
                             }
                             let preauth = matches!(
