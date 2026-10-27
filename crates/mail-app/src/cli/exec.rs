@@ -430,20 +430,6 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         let notifications = set.as_ref().map_or(mail_core::notify::Setting::Off, |set| {
             mail_core::notify::Setting::from(set.new_mail)
         });
-        // One watch per user: a second would announce every message twice. A unit that starts
-        // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
-        let watching = match mail_core::ipc::watching::claim(crate::edge::profile().id()) {
-            Ok(held) => held,
-            Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
-                println!("a mailo watch is already running; leaving it to it");
-                return Ok(());
-            }
-            Err(mail_core::ipc::watching::Refused::Failed(why)) => {
-                return Err(format!(
-                    "can't tell whether a mailo watch is running: {why}"
-                ));
-            }
-        };
         if let Some(why) = watching.doorless() {
             eprintln!("Sync in an open window will not reach this watch: {why}");
         }

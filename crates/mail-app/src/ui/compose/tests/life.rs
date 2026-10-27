@@ -110,7 +110,13 @@ fn an_autosave_queues_the_draft_s_copy_for_the_server_s_drafts_folder() {
     };
     store.put_caps(acct_account(), &caps, Utc::now()).unwrap();
     let draft = fresh_draft(&store);
-    let mut page = life::load(&store, draft.id, &mut Vec::new()).expect("the draft's page");
+    let mut page = life::load(
+        &store,
+        draft.id,
+        &mut Vec::new(),
+        &crate::settings::ComposeSettings::default(),
+    )
+    .expect("the draft's page");
     page.subject = "half a thought".to_owned();
     let now = Utc::now();
     life::save(&store, &mut page, now).unwrap();
@@ -629,7 +635,13 @@ async fn a_picture_in_the_body_reopens_drawn_and_is_saved_by_its_name() {
     stored.html = Some(format!("<p>Look</p><img alt=\"\" src=\"cid:{cid}\">"));
     mail_core::compose::save(&store, &stored).unwrap_or_else(|why| panic!("save: {why}"));
 
-    let page = life::load(&store, draft.id, &mut Vec::new()).expect("the draft's page");
+    let page = life::load(
+        &store,
+        draft.id,
+        &mut Vec::new(),
+        &crate::settings::ComposeSettings::default(),
+    )
+    .expect("the draft's page");
     let shown = page.session.doc.nodes.iter().any(|node| {
         matches!(node, Node::Object(Object::Image { src, .. }) if src.cid() == Some(cid.as_str()))
     });

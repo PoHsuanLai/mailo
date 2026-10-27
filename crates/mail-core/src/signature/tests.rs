@@ -249,7 +249,7 @@ fn a_deleted_signature_is_put_back_as_it_was() {
     assert_eq!(had, work);
     assert!(store.signatures(here).unwrap().is_empty());
     restore(&store, &had).unwrap();
-    assert_eq!(store.signatures(here).unwrap(), [work.clone()]);
+    assert_eq!(store.signatures(here).unwrap(), std::slice::from_ref(&work));
     assert_eq!(
         default_for(&store, here, SignatureUse::Replies).unwrap(),
         Some(work)

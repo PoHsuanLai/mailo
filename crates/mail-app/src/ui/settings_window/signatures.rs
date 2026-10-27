@@ -207,7 +207,7 @@ fn rows(
 /// the signature's, and the rest is what a blank page from the identity would be.
 fn editing(kept: &Signature, identity: &Identity) -> Page {
     let blank = Draft::blank(identity, chrono::Utc::now());
-    let mut page = Page::of(&blank, Vec::new(), Vec::new());
+    let mut page = Page::opened(&blank, Vec::new(), Vec::new(), &[]);
     let mut nodes = signature::nodes_of(kept);
     if !matches!(nodes.last(), Some(Node::Para { .. })) {
         nodes.push(Node::plain(ParaKind::Paragraph, ""));

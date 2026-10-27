@@ -346,7 +346,7 @@ pub(in crate::ui) fn spam_and_offer_unblock(
 ) {
     let hours = crate::ui::clock::hours();
     let moved = resolve(store, thread, OpKind::Spam)
-        .and_then(|op| perform(store, thread, op, hours))
+        .and_then(|op| mail_core::act::perform(store, thread, op, hours))
         .and_then(|undo| shell.write().undo.push_all(vec![undo]));
     revision += 1;
     tell(text, Follow::Unblock { rule, undo: moved });
