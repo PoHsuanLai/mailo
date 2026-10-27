@@ -147,8 +147,8 @@ impl From<mail_core::server_search::Automatic> for ServerSearch {
 /// `Off` fetches each image from its own host, which sees the reader's network address. `Relay`
 /// fetches it through the relay at `privacy.relay` (a Camo relay or a token relay, by
 /// `privacy.relay_kind`), so the host sees the relay's. `Proxy` sends every image fetch through
-/// the proxy at `privacy.proxy` (Tor, a VPN's). Which images load at all is still
-/// `reading.remote_images`'.
+/// the proxy at `privacy.proxy` (Tor, a VPN's). Which images load at all is
+/// `reading.remote_images`'s to say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
 #[word(case = snake)]

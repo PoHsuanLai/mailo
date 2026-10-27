@@ -68,7 +68,7 @@ fn an_image_past_the_largest_is_not_shown() {
 
 #[tokio::test]
 async fn an_image_is_fetched_only_from_a_public_https_address() {
-    let fetcher = ImageFetcher::new(tokio::runtime::Handle::current()).unwrap();
+    let fetcher = ImageFetcher::new(tokio::runtime::Handle::current(), Route::Direct).unwrap();
     for url in [
         "http://127.0.0.1/a.png",
         "ftp://example.com/a.png",
@@ -159,7 +159,7 @@ async fn a_camo_relay_gets_the_request_and_the_origin_never_does() {
         base: format!("http://{addr}/").parse().unwrap(),
         key: "k".to_owned(),
     };
-    let fetcher = ImageFetcher::routed(tokio::runtime::Handle::current(), route.clone()).unwrap();
+    let fetcher = ImageFetcher::new(tokio::runtime::Handle::current(), route.clone()).unwrap();
     let got = fetcher.get(ORIGIN).await.expect("the relay's image");
     assert_eq!(got.content_type.as_deref(), Some("image/png"));
     let head = seen.recv().await.unwrap();
@@ -176,7 +176,7 @@ async fn a_token_relay_is_asked_with_the_token_and_the_origin_never_is() {
         base: format!("http://{addr}/").parse().unwrap(),
         token: "secret-token".to_owned(),
     };
-    let fetcher = ImageFetcher::routed(tokio::runtime::Handle::current(), route).unwrap();
+    let fetcher = ImageFetcher::new(tokio::runtime::Handle::current(), route).unwrap();
     assert!(fetcher.get(ORIGIN).await.is_some());
     let head = seen.recv().await.unwrap();
     assert!(
@@ -196,7 +196,7 @@ async fn a_relay_is_never_sent_a_private_address_to_fetch() {
         base: format!("http://{addr}/").parse().unwrap(),
         token: "t".to_owned(),
     };
-    let fetcher = ImageFetcher::routed(tokio::runtime::Handle::current(), route).unwrap();
+    let fetcher = ImageFetcher::new(tokio::runtime::Handle::current(), route).unwrap();
     assert!(fetcher.get("https://192.168.1.1/a.png").await.is_none());
     assert!(fetcher.get("https://localhost/a.png").await.is_none());
     assert!(seen.try_recv().is_err());
@@ -212,7 +212,7 @@ async fn a_relay_that_redirects_is_not_followed_to_the_origin() {
         base: format!("http://{addr}/").parse().unwrap(),
         token: "t".to_owned(),
     };
-    let fetcher = ImageFetcher::routed(tokio::runtime::Handle::current(), route).unwrap();
+    let fetcher = ImageFetcher::new(tokio::runtime::Handle::current(), route).unwrap();
     assert!(fetcher.get(ORIGIN).await.is_none());
     assert!(seen.recv().await.is_some());
 }
@@ -226,7 +226,7 @@ async fn a_proxy_is_asked_to_connect_to_the_origin_and_nothing_goes_round_it() {
     let route = Route::Proxy {
         url: format!("http://{addr}"),
     };
-    let fetcher = ImageFetcher::routed(tokio::runtime::Handle::current(), route).unwrap();
+    let fetcher = ImageFetcher::new(tokio::runtime::Handle::current(), route).unwrap();
     assert!(fetcher.get(ORIGIN).await.is_none());
     let head = seen.recv().await.unwrap();
     assert!(

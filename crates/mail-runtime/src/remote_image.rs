@@ -8,8 +8,10 @@
 //! An image is fetched over `https` alone: an `http:` URL is asked for at the same address over
 //! `https`, which most image hosts also serve, and is missing where it is not.
 //!
-//! The client sends no cookies (reqwest's `cookies` feature is off) and no `Referer`; it follows
-//! at most three redirects, each to a public `https` address; it gives up after twenty seconds. A failed fetch leaves the image missing and says nothing to the person: it is logged.
+//! The client sends no cookies (reqwest's `cookies` feature is off) and no `Referer`; fetching
+//! straight or through a proxy it follows at most three redirects, each to a public `https`
+//! address; it gives up after twenty seconds. A failed fetch leaves the image missing and says
+//! nothing to the person: it is logged.
 //!
 //! [`ImageFetcher`] is owned state: one client, the [`Route`] its fetches take, and the runtime
 //! handle it spawns them on. Nothing is kept between fetches, so a front end holds as many as it
@@ -83,13 +85,8 @@ pub struct ImageFetcher {
 }
 
 impl ImageFetcher {
-    /// A fetcher that fetches straight from each image's host, on `runtime`.
-    pub fn new(runtime: Handle) -> Result<Self, RuntimeError> {
-        Self::routed(runtime, Route::Direct)
-    }
-
     /// A fetcher whose fetches go by `route`, on `runtime`.
-    pub fn routed(runtime: Handle, route: Route) -> Result<Self, RuntimeError> {
+    pub fn new(runtime: Handle, route: Route) -> Result<Self, RuntimeError> {
         let builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
             .connect_timeout(Duration::from_secs(10))

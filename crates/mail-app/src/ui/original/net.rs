@@ -142,7 +142,7 @@ impl Web {
             return Some(fetcher.clone());
         }
         let fetcher =
-            ImageFetcher::routed(crate::edge::runtime().handle().clone(), route.clone()).ok()?;
+            ImageFetcher::new(crate::edge::runtime().handle().clone(), route.clone()).ok()?;
         *held = Some((route, fetcher.clone()));
         Some(fetcher)
     }
