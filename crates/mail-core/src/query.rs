@@ -162,8 +162,7 @@ pub fn known_accounts(store: &mail_store::SqliteStore) -> Vec<(String, AccountId
 /// one that explains itself, which is the right way round while the user is still typing.
 ///
 /// `label` resolves a name to the labels that bear it, and, when it is a [`Known`], the accounts
-/// `account:` names; [`named`] builds a labels-only one
-/// from [`known_labels`]. There is deliberately no convenience wrapper that passes an empty
+/// `account:` names; [`named`] builds a labels-only one from [`known_labels`]. There is deliberately no convenience wrapper that passes an empty
 /// resolver. One existed, the window used it, and `label:travel` there quietly became a
 /// full-text search for the literal string while the same query worked in the terminal. A
 /// caller that has no index has to write `&query::unnamed` and see itself do it.
