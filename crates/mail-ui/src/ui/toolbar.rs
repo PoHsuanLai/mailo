@@ -2,7 +2,7 @@
 //! the same data as the row's menu.
 //!
 //! A button is an action's glyph ([`op_icon`], the one the menu's row wears), the word the
-//! caller names it by (the menu's, from [`mail_client::view::says`]), and the key that does the
+//! caller names it by (the menu's, from [`mail_client::conversation::says`]), and the key that does the
 //! same thing ([`shortcut_for`]), so a toolbar and the menu beside it never disagree about what
 //! a button is called, looks like or is bound to.
 

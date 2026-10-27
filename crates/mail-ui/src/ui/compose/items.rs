@@ -4,7 +4,7 @@
 use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
 use ds::prelude::*;
-use mail_client::editor::{Action, Item, ParaKind, Person, filter, turn_into};
+use mail_client::rich_text::{Action, Item, ParaKind, Person, filter, turn_into};
 
 fn tile(item: &Item) -> Tile {
     match item.action {

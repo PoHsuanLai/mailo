@@ -31,7 +31,7 @@ pub struct Draft {
 /// Why a draft is not a view yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
-    /// It has no name: the name is what the sidebar calls it.
+    /// It has no name: the name is what a list of places calls it.
     NoName,
     /// It says nothing about what it lists, and a view of everything is not what was meant.
     NoQuery,

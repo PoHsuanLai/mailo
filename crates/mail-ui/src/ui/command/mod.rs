@@ -30,7 +30,7 @@ use super::ops::{Composes, Writes, open_composer};
 use crate::ui::view::{Bar, BarListing, PageMenu, Shell, Source};
 use dioxus::prelude::*;
 use items::{Cards, Pick};
-use mail_client::place::place_filter;
+use mail_client::mailbox_filter::for_role;
 use sections::Choice;
 use spotlight::Ctx;
 
@@ -121,7 +121,7 @@ fn run_action(
         // Emptying goes to the bin first, so what is being emptied is what the window shows
         // behind the sheet that asks.
         CommandId::Empty(bin) => {
-            let source = Source::Mail(place_filter(bin.role()));
+            let source = Source::Mail(for_role(bin.role()));
             let index = shell
                 .read()
                 .places

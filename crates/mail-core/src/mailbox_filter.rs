@@ -1,14 +1,14 @@
-//! What a mailbox place lists, shared by the window's sidebar and the command line's `list`.
+//! What a mailbox place lists, shared by the window and the command line's `list`.
 //!
-//! The sidebar itself (its places, their badges, the selected row) is the window's
+//! Listing them, with their unread counts and the selected row, is the window's
 //! (`mail_ui::ui::view`); the filters here are the part both front-ends must agree on.
 
 use chrono::{DateTime, Utc};
 use mail_domain::{Filter, MailboxRole, Op, Pin, ThreadSummary};
 
-/// What a badge counts in `place`: its conversations that are unread.
+/// What an unread count counts in `place`: its conversations that are unread.
 ///
-/// One definition for the sidebar's badges and the launcher's count, so they cannot disagree about
+/// One definition for the places' unread counts and the launcher's count, so they cannot disagree about
 /// what "unread in the inbox" means.
 pub fn unread_in(place: Filter) -> Filter {
     Filter::And(vec![place, Filter::Read(mail_domain::ReadState::Unread)])
@@ -22,7 +22,7 @@ pub fn unread_in(place: Filter) -> Filter {
 /// showing what the window had put away. One definition, both callers.
 ///
 /// `Drafts` is not here: drafts are not threads and no `Filter` selects one. See [`Source`].
-pub fn place_filter(role: MailboxRole) -> Filter {
+pub fn for_role(role: MailboxRole) -> Filter {
     match role {
         // A snoozed conversation is *away* until its instant passes; that is the whole of what
         // snoozing means, and a client that leaves it in the list has a button that does
@@ -32,7 +32,7 @@ pub fn place_filter(role: MailboxRole) -> Filter {
             Filter::InMailbox(MailboxRole::Inbox),
             Filter::Not(Box::new(pending_snooze())),
         ]),
-        // Archived is filed in Archive with nothing in the inbox ([`crate::view::Whereabouts`]).
+        // Archived is filed in Archive with nothing in the inbox ([`crate::conversation::Whereabouts`]).
         // A thread's mailboxes are the union over its messages, and on Gmail All Mail is filed
         // as Archive and holds the inbox's mail too, so "has a message in Archive" listed every
         // inbox conversation here as well, and its menu offered Archive to what looked archived.
@@ -44,11 +44,11 @@ pub fn place_filter(role: MailboxRole) -> Filter {
     }
 }
 
-/// The mailbox a place's filter lists, when it is one of [`place_filter`]'s: its inverse.
-pub fn place_role(filter: &Filter) -> Option<MailboxRole> {
+/// The mailbox a place's filter lists, when it is one of [`for_role`]'s: its inverse.
+pub fn role_of(filter: &Filter) -> Option<MailboxRole> {
     MailboxRole::ALL
         .into_iter()
-        .find(|role| place_filter(*role) == *filter)
+        .find(|role| for_role(*role) == *filter)
 }
 
 /// What a click on the pin does to a conversation, given what it is now.

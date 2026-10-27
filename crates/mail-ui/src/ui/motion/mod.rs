@@ -261,7 +261,7 @@ pub(in crate::ui) fn record_through(
 
 /// Apply what a button means to each of `threads`, as one gesture ([`act_all`]).
 ///
-/// Resolved per conversation, and only where that conversation allows it (`mail_client::view::offers`):
+/// Resolved per conversation, and only where that conversation allows it (`mail_client::conversation::offers`):
 /// archiving a selection that holds something already archived archives the rest and leaves
 /// that one be, and its undo does not "restore" what the gesture never moved.
 pub(super) fn act_kind_all(
@@ -274,7 +274,7 @@ pub(super) fn act_kind_all(
         .iter()
         .filter_map(|thread| {
             let loaded = client.stored().thread(*thread).ok()?;
-            mail_client::view::offers(&loaded.summary, kind)
+            mail_client::conversation::offers(&loaded.summary, kind)
                 .then(|| resolve(client, *thread, kind))
                 .flatten()
                 .map(|op| (*thread, op))

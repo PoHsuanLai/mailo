@@ -17,7 +17,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
-use mail_client::view::mute_for_all;
+use mail_client::conversation::mute_for_all;
 use mail_domain::*;
 
 /// The ids the list drew last, in order: what a click on a row measures a range over.
@@ -153,14 +153,14 @@ pub(super) fn PickBar(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) -
     .into_iter()
     .filter_map(|action| {
         let kind = offered(action)?;
-        let say = mail_client::view::says_for_all(kind, &summaries, now)?;
+        let say = mail_client::conversation::says_for_all(kind, &summaries, now)?;
         Some((action, ToolButton::of(kind, menus::offered(say))))
     })
     .collect();
     let mute = ToolButton::of(OpKind::Mute, mute_label(&summaries));
     // The way back for what is archived, binned or in Spam: Move to Inbox, or Not Spam when all
     // of it is spam. Never Archive's other side drawn beside Archive for the same conversation.
-    let back = mail_client::view::says_for_all(OpKind::Restore, &summaries, now)
+    let back = mail_client::conversation::says_for_all(OpKind::Restore, &summaries, now)
         .map(|say| ToolButton::of(OpKind::Restore, menus::offered(say)));
     // In Trash or Spam, and only there, the picked mail can be deleted forever, once asked.
     let bin = crate::ui::bin::bin_shown(&shell.read());

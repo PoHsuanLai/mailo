@@ -1,7 +1,7 @@
 use crate::ui::view::Shell;
 use dioxus::prelude::{ReadableExt, Signal, WritableExt};
 use mail_client::Client;
-use mail_client::view::{mute_op, op_for, reply_target};
+use mail_client::conversation::{mute_op, op_for, reply_target};
 use mail_domain::*;
 use porter_core::AccountId;
 
@@ -34,7 +34,7 @@ pub(super) fn composes(kind: OpKind) -> Option<Composes> {
 
 /// Create the draft a reply button opens.
 ///
-/// Which message that answers is [`mail_client::view::reply_target`]'s decision, not this function's.
+/// Which message that answers is [`mail_client::conversation::reply_target`]'s decision, not this function's.
 /// Open a composer on the newest message of `thread`, replying or forwarding.
 /// Begin a message that answers nothing.
 ///
@@ -179,7 +179,7 @@ pub(super) fn resolve(client: &Client, thread: ThreadId, kind: OpKind) -> Option
     match kind {
         OpKind::Pin => {
             let loaded = client.stored().thread(thread).ok()?;
-            Some(mail_client::place::pin_op(
+            Some(mail_client::mailbox_filter::pin_op(
                 &loaded.summary,
                 chrono::Utc::now(),
             ))

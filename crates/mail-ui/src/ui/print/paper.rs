@@ -1,4 +1,4 @@
-//! The printout on paper, for the `native` frontend: [`mail_client::print`]'s document made into a PDF
+//! The printout on paper, for the `native` frontend: [`mail_client::html_document`]'s document made into a PDF
 //! by quire (`ds_blitz::pdf`), with no webview anywhere.
 //!
 //! Blitz lays the document out and quire cuts it into pages. Neither reads CSS fragmentation
@@ -30,7 +30,7 @@
 
 use ds_blitz::{Margins, PageSize, PageSpec};
 use mail_client::Client;
-use mail_client::print::{LABELS, Pictures, Printed};
+use mail_client::html_document::{LABELS, Pictures, Printed};
 use mail_mime::{Options, Script};
 
 /// What the top of a printout says when it names a picture instead of drawing it.

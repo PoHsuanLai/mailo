@@ -18,7 +18,7 @@ use mail_core::{Arrival, SqliteStore, absorb};
 use mail_domain::*;
 use std::sync::Arc;
 
-/// A 24-bit bitmap of one colour: a kind `mail_core::preview` does not decode.
+/// A 24-bit bitmap of one colour: a kind `mail_core::attachment_image` does not decode.
 fn bmp(width: u32, height: u32) -> Vec<u8> {
     let row = (width * 3).div_ceil(4) * 4;
     let image = row * height;

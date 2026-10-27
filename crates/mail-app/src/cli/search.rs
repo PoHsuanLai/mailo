@@ -28,7 +28,7 @@ pub(super) fn search(
 ) -> String {
     let take = usize::try_from(limit).unwrap_or(usize::MAX);
     // Asked for the top results' worth more, so removing them still leaves `limit` rows.
-    let page = mail_core::search::first(take.saturating_add(mail_core::search::STRIP));
+    let page = mail_core::search::first(take.saturating_add(mail_core::search::TOP_LIMIT));
     let searched = match mail_core::search::search_list(
         needle,
         store,

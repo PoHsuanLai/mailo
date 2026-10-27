@@ -10,7 +10,7 @@ use std::path::Path;
 
 use chrono::{DateTime, Utc};
 use mail_client::Client;
-use mail_client::place::{pending_snooze, place_filter};
+use mail_client::mailbox_filter::{for_role, pending_snooze};
 use mail_client::transfer::{self, IoCause, Refusal, Seen};
 use mail_domain::{Filter, MailboxRole, Star};
 use porter_core::AccountId;
@@ -326,7 +326,7 @@ fn place_words(source: &Listed) -> Option<&'static str> {
         (MailboxRole::Spam, "spam"),
     ]
     .into_iter()
-    .find(|(role, _)| *filter == place_filter(*role))
+    .find(|(role, _)| *filter == for_role(*role))
     .map(|(_, words)| words)
 }
 

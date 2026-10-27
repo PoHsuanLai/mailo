@@ -1,20 +1,20 @@
 //! Who draws an attachment: mailo, or anyview.
 //!
 //! mailo draws what it has always drawn itself: the pictures it decodes under its own size limits
-//! (`mail_client::preview`), a PDF a page at a time, and the calendars, contacts and messages it
+//! (`mail_client::attachment_image`), a PDF a page at a time, and the calendars, contacts and messages it
 //! reads anyway (an invitation, a contact card, a forwarded message). Everything else goes to
 //! anyview, which peeks at the stored bytes and draws what it finds: a picture it can decode, a
 //! few lines, an archive's entries, or just the file's facts. With the `anyview` feature off, that
 //! is "no preview", as it was.
 //!
 //! An SVG is neither's to draw. It is a document with scripts and references of its own, not a
-//! picture, and mailo never draws one from a sender (`mail_client::preview`); a part that looks like
+//! picture, and mailo never draws one from a sender (`mail_client::attachment_image`); a part that looks like
 //! one stays unpreviewed, whoever would have drawn it.
 //!
 //! The rule reads the part's own first bytes and name, never its declared type: the type is the
 //! sender's claim.
 
-use mail_client::preview;
+use mail_client::attachment_image;
 
 /// How many leading bytes the rule reads.
 pub(super) const HEAD: usize = 512;
@@ -22,7 +22,7 @@ pub(super) const HEAD: usize = 512;
 /// A kind mailo draws itself, or keeps from everyone.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Own {
-    /// A picture or a PDF that `mail_client::preview` decodes.
+    /// A picture or a PDF that `mail_client::attachment_image` decodes.
     Picture,
     /// An iCalendar file: an invitation or an event.
     Calendar,
@@ -49,7 +49,7 @@ pub(super) enum Hand {
 pub(super) fn own(name: &str, head: &[u8]) -> Option<Own> {
     if is_svg(name, head) {
         Some(Own::Svg)
-    } else if preview::sniff(head).is_some() {
+    } else if attachment_image::sniff(head).is_some() {
         Some(Own::Picture)
     } else if named(name, &["ics", "ical", "ifb"]) || begins(head, b"BEGIN:VCALENDAR") {
         Some(Own::Calendar)

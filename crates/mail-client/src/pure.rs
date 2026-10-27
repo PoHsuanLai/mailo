@@ -61,8 +61,8 @@ pub mod discover {
         pub use mail_core::discover::providers::set;
     }
 }
-pub mod editor {
-    pub use mail_core::editor::{
+pub mod rich_text {
+    pub use mail_core::rich_text::{
         Action, Caret, Check, Doc, ImageRef, InputEvent, Item, Mark, Marks, Node, Object, Op,
         ParaKind, Person, Pos, Presence, Range, Run, SNIPPET, Session, Table, apply_all, catalog,
         filter, grapheme_len, joins_cc, missing_attachment, node_len, nodes_from_blocks,
@@ -76,13 +76,13 @@ pub mod folder {
     pub use mail_core::folder::Refusal;
 }
 pub mod follow_up {
-    pub use mail_core::follow_up::{CHOICES, due, row_words};
+    pub use mail_core::follow_up::{CHOICES, due, returned_words};
 }
 pub mod import {
     pub use mail_core::import::{Destination, Imported, Source};
 }
 pub mod invite {
-    pub use mail_core::invite::{Answered, repeats_words, show_when};
+    pub use mail_core::invite::{Answered, repeats_words, say_when};
 }
 pub mod ipc {
     pub use mail_core::ipc::agent;
@@ -95,7 +95,7 @@ pub mod mail {
 }
 pub mod message {
     pub use mail_core::message::{
-        Bodies, FIRST_SCREEN, FrameBody, Frames, Invited, Key, Looks, ON_THE_FRAME, Offer, Opening,
+        Bodies, FIRST_PAGE, FrameBody, Frames, INLINE_BYTES, Invited, Key, Looks, Offer, Opening,
         Protection, Receipt, Scheme, Sealed, Sent, Tried, ahead,
     };
 }
@@ -118,16 +118,16 @@ pub mod pgp {
         pub use mail_core::pgp::keys::export_public;
     }
 }
-pub mod place {
-    pub use mail_core::place::{pending_snooze, pin_op, place_filter, place_role, unread_in};
+pub mod mailbox_filter {
+    pub use mail_core::mailbox_filter::{for_role, pending_snooze, pin_op, role_of, unread_in};
 }
-pub mod preview {
-    pub use mail_core::preview::{
-        Kind, PAGE, Page, Picture, THUMB, Unshown, VIEW, pdf_page, picture, sniff,
+pub mod attachment_image {
+    pub use mail_core::attachment_image::{
+        Kind, LARGE, PDF_PAGE, Page, Picture, SMALL, Unavailable, pdf_page, picture, sniff,
     };
 }
-pub mod print {
-    pub use mail_core::print::{LABELS, Pictures, Printed, write_file_into};
+pub mod html_document {
+    pub use mail_core::html_document::{LABELS, Pictures, Printed, write_file_into};
 }
 pub mod profile {
     pub use mail_core::profile::ProfileId;
@@ -204,16 +204,16 @@ pub mod undo {
 pub mod unsubscribe {
     pub use mail_core::unsubscribe::{Found, Outcome, client};
 }
-pub mod view {
-    pub use mail_core::view::{
-        Place, Say, Source, badge_filter, default_places, find_place, folder_filter, folder_of,
-        hover_actions, is_label_place, label_menu, mute_for_all, mute_op, offers, op_for,
-        place_key, places_with, reply_target, saved_of, saved_place, says, says_for_all, scoped,
-        scoped_badge, step, turns_off,
+pub mod conversation {
+    pub use mail_core::conversation::{
+        Place, Say, Source, allowed_actions, default_places, find_place, folder_filter, folder_of,
+        is_label_place, label_choices, mute_for_all, mute_op, offers, op_for, place_key,
+        places_with, reply_target, saved_of, saved_place, says, says_for_all, scoped,
+        scoped_unread_filter, step, turns_off, unread_filter,
     };
 }
-pub mod views {
-    pub use mail_core::views::{Draft, Refusal, written};
+pub mod saved_search {
+    pub use mail_core::saved_search::{Draft, Refusal, written};
 }
 pub mod wanted {
     pub use mail_core::wanted::{ask_first, claim};

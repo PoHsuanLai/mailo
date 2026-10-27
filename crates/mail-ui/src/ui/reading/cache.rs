@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use mail_client::Client;
-use mail_client::message::{FIRST_SCREEN, Frames, Key, Looks, Sent, ahead};
+use mail_client::message::{FIRST_PAGE, Frames, Key, Looks, Sent, ahead};
 use mail_client::query::Conversation;
 use mail_domain::{Message, ThreadId, ThreadSummary};
 use mail_mime::SanitizePolicy;
@@ -88,7 +88,7 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
     let open = use_memo(move || shell.read().open);
     use_effect(move || {
         let list: Vec<ThreadId> = threads.read().iter().map(|thread| thread.id).collect();
-        let order = ahead(open(), &list, FIRST_SCREEN);
+        let order = ahead(open(), &list, FIRST_PAGE);
         // The same order is what a body pass fetches first, with the open conversation ahead of
         // it: a message without its body yet cannot be rendered ahead, only fetched ahead.
         let bodies: Vec<ThreadId> = open().into_iter().chain(order.iter().copied()).collect();

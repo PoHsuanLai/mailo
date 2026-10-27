@@ -2,7 +2,7 @@
 //! table test away, and the time zone is an argument so a test can name one.
 
 use chrono::TimeZone;
-use mail_client::invite::{repeats_words, show_when};
+use mail_client::invite::{repeats_words, say_when};
 use mail_domain::{Attendance, InviteAnswer, MessageId};
 use mail_pim::ical::{PartStat, Party};
 use mail_pim::{Invite, Kind, Me, Revision};
@@ -104,7 +104,7 @@ pub(in crate::ui) fn card_of<Z: TimeZone>(
     zone: &Z,
     clock: mail_client::when::Clock,
 ) -> Card {
-    let when = show_when(&invite.when, zone, clock);
+    let when = say_when(&invite.when, zone, clock);
     let tag = match invite.kind {
         Kind::Request(Revision::First) => Tag::Invitation,
         Kind::Request(Revision::Update { .. }) => Tag::Updated,

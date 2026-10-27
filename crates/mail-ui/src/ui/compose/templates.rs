@@ -25,7 +25,7 @@ use super::float::{commit, query, slash_items};
 use super::life;
 use super::page::{Float, Page, PageKind, Phase, address};
 use crate::ui::view::Shell;
-use mail_client::editor::{Caret, Node, Op, Range, runs_text};
+use mail_client::rich_text::{Caret, Node, Op, Range, runs_text};
 
 /// The ⋯ item that keeps the message as a template.
 pub(in crate::ui) const SAVE_KEY: &str = "template:save";

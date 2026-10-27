@@ -207,7 +207,7 @@ fn what_one_frame_of_the_window_costs() {
     // 1. The list. One query for the whole visible list, deliberately — see `ui::App`.
     let list = timed(7, || {
         let _ = store.threads(
-            &page(50, mail_core::place::place_filter(MailboxRole::Inbox)),
+            &page(50, mail_core::mailbox_filter::for_role(MailboxRole::Inbox)),
             now,
         );
     });

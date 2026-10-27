@@ -4,10 +4,10 @@
 //! start of a styled paragraph turns it back into a paragraph before it will merge, and
 //! Backspace just after an object arms the object so a second press deletes it.
 
-use crate::editor::doc::{Check, Doc, Marks, Node, ParaKind, Pos, Range};
-use crate::editor::error::OpError;
-use crate::editor::op::Op;
-use crate::editor::text::{node_len, para_len, runs_text};
+use crate::rich_text::doc::{Check, Doc, Marks, Node, ParaKind, Pos, Range};
+use crate::rich_text::error::OpError;
+use crate::rich_text::op::Op;
+use crate::rich_text::text::{node_len, para_len, runs_text};
 
 /// The object Backspace will delete on the next press.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

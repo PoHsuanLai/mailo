@@ -31,7 +31,7 @@ mod session;
 #[cfg(target_os = "macos")]
 mod dock;
 
-use mail_client::place::{place_filter, unread_in};
+use mail_client::mailbox_filter::{for_role, unread_in};
 use mail_client::scope::Scope;
 use mail_domain::{Filter, MailboxRole};
 use std::sync::Arc;
@@ -47,7 +47,7 @@ pub struct Unread(pub u64);
 /// sidebar's Inbox badge cannot disagree about what "unread in the inbox" means: snoozed
 /// conversations are away, and read ones are read.
 pub fn filter(scope: &Scope) -> Filter {
-    scope.over(unread_in(place_filter(MailboxRole::Inbox)))
+    scope.over(unread_in(for_role(MailboxRole::Inbox)))
 }
 
 /// The text of a badge that draws its own label (the macOS Dock's): the number, or nothing for

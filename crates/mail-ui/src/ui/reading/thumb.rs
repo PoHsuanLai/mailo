@@ -23,7 +23,7 @@ use mail_domain::MessageId;
 
 use crate::ui::copy;
 use crate::ui::view::Shell;
-use mail_client::preview::{self, Kind, Picture, Unshown};
+use mail_client::attachment_image::{self, Kind, Picture, Unavailable};
 
 /// The thumbnail's room, in logical pixels.
 const ROOM: f32 = 56.0;
@@ -106,18 +106,19 @@ pub(super) fn thumbnail(client: &Client, message: MessageId, index: usize) -> Sh
         Ok((Kind::Pdf, bytes)) => Shown::Pdf(ds_blitz::pdf_thumb_bytes(
             bytes,
             ds_blitz::DeviceBox {
-                width: preview::THUMB.width,
-                height: preview::THUMB.height,
+                width: attachment_image::SMALL.width,
+                height: attachment_image::SMALL.height,
             },
         )),
-        Ok((kind, bytes)) => match preview::picture(&bytes, kind, preview::THUMB) {
+        Ok((kind, bytes)) => match attachment_image::picture(&bytes, kind, attachment_image::SMALL)
+        {
             Ok(picture) => Shown::Image(picture),
             Err(refusal) => Shown::Refused(refusal.sentence()),
         },
-        Err(Unshown::Refused(refusal)) => Shown::Refused(refusal.sentence()),
+        Err(Unavailable::Refused(refusal)) => Shown::Refused(refusal.sentence()),
         // Not remembered: a part downloaded later is drawn when the strip is drawn again.
-        Err(Unshown::NotHere | Unshown::Store(_)) => return Shown::Nothing,
-        Err(Unshown::NotAPicture) => beyond_mailo(client, message, index),
+        Err(Unavailable::NotHere | Unavailable::Store(_)) => return Shown::Nothing,
+        Err(Unavailable::NotAPicture) => beyond_mailo(client, message, index),
     };
     remember((message, index), &shown);
     shown

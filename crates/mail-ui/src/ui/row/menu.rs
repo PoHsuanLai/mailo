@@ -24,7 +24,7 @@ use ds::components::menus::item::item::{MenuImage, MenuItem};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_client::view::{offers, says};
+use mail_client::conversation::{offers, says};
 use mail_domain::{OpKind, ReadState, Star, ThreadSummary};
 
 /// A row of the menu.
@@ -125,7 +125,7 @@ pub(in crate::ui) fn reader_groups(
 }
 
 /// What a row is called: the side of its action the conversation is offered
-/// ([`mail_client::view::says`]), so an archived one says Move to Inbox and a pinned one Unpin. One
+/// ([`mail_client::conversation::says`]), so an archived one says Move to Inbox and a pinned one Unpin. One
 /// that opens a further menu or a sheet ends in "…", as the Mac's do.
 pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &'static str {
     match pick {

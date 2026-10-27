@@ -158,7 +158,7 @@ fn searched(
         Err(why) => return Ok(invalid(why.to_string())),
     };
     Ok(Found {
-        top: searched.strip(),
+        top: searched.top_results(),
         threads: searched.rows,
         highlight,
         how: How::Searched {

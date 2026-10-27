@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use mail_client::contacts::{Contact, Origin};
 
 use mail_client::contacts::groups::person_of;
-use mail_client::editor::Person;
+use mail_client::rich_text::Person;
 
 /// How many people a suggestion menu offers.
 pub(in crate::ui) const SUGGESTED: usize = 8;

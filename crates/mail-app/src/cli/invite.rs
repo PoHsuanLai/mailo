@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::error::CoreError;
-use mail_core::invite::{InviteState, repeats_words, show_when};
+use mail_core::invite::{InviteState, repeats_words, say_when};
 use mail_core::when::Clock;
 use mail_domain::{Address, Attendance, InviteAnswer, MessageId};
 use mail_pim::ical::PartStat;
@@ -82,7 +82,7 @@ pub fn describe(state: &InviteState, message: MessageId, clock: Clock) -> String
         return String::new();
     };
     let title = invite.title.as_deref().unwrap_or("(no title)");
-    let when = show_when(&invite.when, &Local, clock).yours;
+    let when = say_when(&invite.when, &Local, clock).yours;
     let head = match invite.kind {
         Kind::Request(Revision::First) => "invitation",
         Kind::Request(Revision::Update { .. }) => "updated invitation",
@@ -121,7 +121,7 @@ pub fn render<Z: TimeZone>(
     if invite.recurrence_id.is_some() {
         let _ = writeln!(out, "  about one occurrence of a repeating event");
     }
-    let when = show_when(&invite.when, zone, clock);
+    let when = say_when(&invite.when, zone, clock);
     let _ = writeln!(out, "  when:      {}", when.yours);
     if let Some(theirs) = &when.theirs {
         let _ = writeln!(out, "             {theirs}, the organiser's time");

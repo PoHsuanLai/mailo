@@ -80,7 +80,7 @@ pub fn start_mailto(
 pub fn open_thread(shell: &mut Shell, thread: ThreadId) {
     if let Some(inbox) = shell.places.iter().position(|place| {
         place.source
-            == crate::ui::view::Source::Mail(mail_client::place::place_filter(
+            == crate::ui::view::Source::Mail(mail_client::mailbox_filter::for_role(
                 mail_domain::MailboxRole::Inbox,
             ))
     }) {

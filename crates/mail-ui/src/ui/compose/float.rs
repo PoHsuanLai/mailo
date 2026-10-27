@@ -11,7 +11,7 @@ pub(in crate::ui) use super::items::{
     emoji_items, mention_items, object_items, people_rows, slash_items, turn_items,
 };
 use super::page::{Float, List, Page};
-use mail_client::editor::{
+use mail_client::rich_text::{
     Action, Caret, ImageRef, InputEvent, Node, Object, Op, ParaKind, Pos, Range, Table, apply_all,
     catalog, joins_cc, node_len, runs_text, turn_into,
 };
@@ -191,7 +191,7 @@ pub(in crate::ui) fn pick_slash(page: &mut Page, key: &str, today: &str) -> Pick
     let insert = |text: &str| Op::Insert {
         at,
         text: text.to_owned(),
-        marks: mail_client::editor::Marks::new(),
+        marks: mail_client::rich_text::Marks::new(),
     };
     let caret = match item.action {
         Action::Turn(kind) => {
@@ -202,17 +202,17 @@ pub(in crate::ui) fn pick_slash(page: &mut Page, key: &str, today: &str) -> Pick
             Caret::at(at.node, at.offset)
         }
         Action::Snippet => {
-            ops.push(insert(mail_client::editor::SNIPPET));
+            ops.push(insert(mail_client::rich_text::SNIPPET));
             Caret::at(
                 at.node,
-                at.offset + mail_client::editor::grapheme_len(mail_client::editor::SNIPPET),
+                at.offset + mail_client::rich_text::grapheme_len(mail_client::rich_text::SNIPPET),
             )
         }
         Action::Date => {
             ops.push(insert(today));
             Caret::at(
                 at.node,
-                at.offset + mail_client::editor::grapheme_len(today),
+                at.offset + mail_client::rich_text::grapheme_len(today),
             )
         }
         Action::Attachment => {
@@ -290,14 +290,14 @@ pub(in crate::ui) fn pick_mention(page: &mut Page, address: &str) {
     let text = format!("@{} ", person.name);
     let caret = Caret::at(
         typed.start.node,
-        typed.start.offset + mail_client::editor::grapheme_len(&text),
+        typed.start.offset + mail_client::rich_text::grapheme_len(&text),
     );
     let ops = vec![
         Op::Delete { range: typed },
         Op::Insert {
             at: typed.start,
             text,
-            marks: mail_client::editor::Marks::new(),
+            marks: mail_client::rich_text::Marks::new(),
         },
     ];
     if !commit(page, ops, caret) {
@@ -316,14 +316,14 @@ pub(in crate::ui) fn pick_emoji(page: &mut Page, glyph: &str) -> Option<&'static
     page.float = Float::Closed;
     let caret = Caret::at(
         typed.start.node,
-        typed.start.offset + mail_client::editor::grapheme_len(emoji.glyph),
+        typed.start.offset + mail_client::rich_text::grapheme_len(emoji.glyph),
     );
     let ops = vec![
         Op::Delete { range: typed },
         Op::Insert {
             at: typed.start,
             text: emoji.glyph.to_owned(),
-            marks: mail_client::editor::Marks::new(),
+            marks: mail_client::rich_text::Marks::new(),
         },
     ];
     commit(page, ops, caret).then_some(emoji)
@@ -343,11 +343,11 @@ pub(in crate::ui) fn insert_emoji(page: &mut Page, emoji: &Emoji) -> bool {
     ops.push(Op::Insert {
         at: range.start,
         text: emoji.glyph.to_owned(),
-        marks: mail_client::editor::Marks::new(),
+        marks: mail_client::rich_text::Marks::new(),
     });
     let after = Caret::at(
         range.start.node,
-        range.start.offset + mail_client::editor::grapheme_len(emoji.glyph),
+        range.start.offset + mail_client::rich_text::grapheme_len(emoji.glyph),
     );
     page.float = Float::Closed;
     commit(page, ops, after)

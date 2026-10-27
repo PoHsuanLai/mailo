@@ -3,9 +3,9 @@
 use mail_mime::SafeUrl;
 
 use super::{Op, check_range, covers, one_or_seq, paragraph_mut};
-use crate::editor::doc::{Doc, Mark, Node, Pos, Presence, Range, Run};
-use crate::editor::error::OpError;
-use crate::editor::text::{grapheme_len, normalize_runs, para_len, split_at};
+use crate::rich_text::doc::{Doc, Mark, Node, Pos, Presence, Range, Run};
+use crate::rich_text::error::OpError;
+use crate::rich_text::text::{grapheme_len, normalize_runs, para_len, split_at};
 
 pub(super) fn set_mark(
     doc: &mut Doc,

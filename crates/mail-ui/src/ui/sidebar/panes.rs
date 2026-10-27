@@ -15,7 +15,7 @@ use ds::prelude::*;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
 use mail_client::Client;
-use mail_client::place::{pending_snooze, place_filter};
+use mail_client::mailbox_filter::{for_role, pending_snooze};
 use mail_client::query::{self};
 use mail_domain::*;
 
@@ -61,7 +61,7 @@ pub(super) fn counts(client: &Client, space: &Space) -> Counts {
         .stored()
         .threads(
             &Query {
-                filter: mail_client::view::scoped(scope.clone(), Filter::Pinned),
+                filter: mail_client::conversation::scoped(scope.clone(), Filter::Pinned),
                 sort: Sort {
                     property: Property::Pin,
                     dir: SortDir::Desc,
@@ -127,7 +127,7 @@ pub(in crate::ui) fn hex_colour(text: &str) -> Colour {
 /// A built-in place's glyph, found by what the place lists rather than by what it is called: the
 /// sidebar's and ⌘K's.
 pub(in crate::ui) fn place_icon(source: &Source) -> Icon {
-    let role = |role: MailboxRole| *source == Source::Mail(place_filter(role));
+    let role = |role: MailboxRole| *source == Source::Mail(for_role(role));
     match source {
         Source::Drafts => Icon::FilePen,
         Source::Waiting => Icon::Bell,

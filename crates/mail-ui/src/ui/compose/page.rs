@@ -9,7 +9,7 @@ use mail_domain::{Address, Draft, DraftId, ReceiptRequest};
 use porter_core::AccountId;
 
 use super::opening::doc_of;
-use mail_client::editor::{Person, Pos, Range, Session};
+use mail_client::rich_text::{Person, Pos, Range, Session};
 
 /// Whether the page stands alone in the reader column or sits under a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -373,8 +373,8 @@ impl Page {
             cc: self.cc.iter().map(address).collect(),
             bcc: self.bcc.iter().map(address).collect(),
             subject: self.subject.clone(),
-            text: mail_client::editor::to_flowed(doc),
-            html: Some(mail_client::editor::to_html(doc)),
+            text: mail_client::rich_text::to_flowed(doc),
+            html: Some(mail_client::rich_text::to_html(doc)),
             receipt: self.receipt,
             openpgp: self.protection.openpgp(),
             smime: self.protection.smime(),

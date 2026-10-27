@@ -11,7 +11,7 @@ use super::super::contacts::groups::Offer;
 use super::super::menu::MenuItem;
 use super::float::people_rows;
 use super::page::{Float, List, Misread, Page, person};
-use mail_client::editor::Person;
+use mail_client::rich_text::Person;
 
 /// Someone typed into `list`'s field. A comma commits what came before it.
 ///

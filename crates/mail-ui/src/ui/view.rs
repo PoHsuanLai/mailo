@@ -8,17 +8,17 @@ use crate::ui::selection::{Click, Picked, Toward};
 use ds::prelude::*;
 use ds::style::appearance::peek::PeekMode;
 use mail_client::compose::addresses::{join_addresses, parse_addresses};
-use mail_client::place::place_filter;
-use mail_client::view::{mute_for_all, offers};
+use mail_client::conversation::{mute_for_all, offers};
+use mail_client::mailbox_filter::for_role;
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
 use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
-pub use mail_client::view::{
-    Place, Source, badge_filter, default_places, find_place, folder_filter, folder_of,
-    is_label_place, place_key, places_with, saved_of, saved_place, scoped_badge,
+pub use mail_client::conversation::{
+    Place, Source, default_places, find_place, folder_filter, folder_of, is_label_place, place_key,
+    places_with, saved_of, saved_place, scoped_unread_filter, unread_filter,
 };
 
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
@@ -808,7 +808,7 @@ impl Shell {
             Some(Source::History) => Listing::History {
                 scope: self.account_filter(),
             },
-            Some(Source::Mail(filter)) if *filter == place_filter(MailboxRole::Inbox) => {
+            Some(Source::Mail(filter)) if *filter == for_role(MailboxRole::Inbox) => {
                 Listing::Inbox {
                     query: self.query(limit),
                     scope: self.account_filter(),
@@ -820,7 +820,7 @@ impl Shell {
 
     /// Narrow `filter` to the accounts listed: the pressed tile's, else the Space's.
     fn with_account(&self, filter: Filter) -> Filter {
-        mail_client::view::scoped(self.account_filter(), filter)
+        mail_client::conversation::scoped(self.account_filter(), filter)
     }
 
     /// The accounts the list shows: the pressed tile's alone, else the Space's. A tile wins over
@@ -1083,7 +1083,7 @@ pub fn shifted(key: &str) -> &str {
 
 /// The operation a shortcut performs on this conversation, if it is one the conversation allows.
 ///
-/// Resolved through [`mail_client::view::hover_actions`] rather than by a second table, so the keyboard can reach
+/// Resolved through [`mail_client::conversation::allowed_actions`] rather than by a second table, so the keyboard can reach
 /// exactly what the row's own buttons offer and nothing else — no un-archiving something that
 /// was never in the inbox, and no starring something that is already starred.
 ///
@@ -1156,7 +1156,7 @@ pub enum Listing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_client::place::pending_snooze;
+    use mail_client::mailbox_filter::pending_snooze;
 
     #[test]
     fn inbox_is_just_a_filter() {
@@ -1490,7 +1490,7 @@ impl Nothing {
 /// What a click on Discard means, given what the composer is currently showing.
 ///
 /// A value rather than a branch inside the button, for the same reason `op_for` and
-/// `hover_actions` are: the decision is the part that can be wrong, and a decision that only
+/// `allowed_actions` are: the decision is the part that can be wrong, and a decision that only
 /// exists inside a closure attached to a DOM node cannot be tested without a DOM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Discarding {
@@ -1518,8 +1518,8 @@ pub fn discard_click(composing: Option<&Composing>) -> Option<Discarding> {
 mod keyboard {
     use super::*;
     use chrono::{TimeZone, Utc};
-    use mail_client::place::pin_op;
-    use mail_client::view::{hover_actions, op_for, step};
+    use mail_client::conversation::{allowed_actions, op_for, step};
+    use mail_client::mailbox_filter::pin_op;
 
     fn summary(read: ReadState, star: Star, mailbox: MailboxRole) -> ThreadSummary {
         ThreadSummary {
@@ -1595,7 +1595,7 @@ mod keyboard {
 
     #[test]
     fn star_and_read_resolve_against_what_the_thread_already_is() {
-        // Toggles, and resolved through `hover_actions` so the keyboard and the row's buttons
+        // Toggles, and resolved through `allowed_actions` so the keyboard and the row's buttons
         // cannot disagree about what is possible.
         let unstarred = summary(ReadState::Unread, Star::Unstarred, MailboxRole::Inbox);
         assert_eq!(
@@ -1636,7 +1636,7 @@ mod keyboard {
             ] {
                 let summary = summary(ReadState::Read, Star::Unstarred, mailbox);
                 assert!(
-                    hover_actions(&summary).contains(kind),
+                    allowed_actions(&summary).contains(kind),
                     "no {name} on a conversation in {mailbox:?}"
                 );
             }

@@ -31,7 +31,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
-use mail_client::view::says;
+use mail_client::conversation::says;
 use mail_domain::*;
 use std::path::{Path, PathBuf};
 
