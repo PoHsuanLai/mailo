@@ -294,3 +294,44 @@ fn a_link_click_never_navigates_the_frame() {
         vec!["https://shop.example.test/offer".to_owned()]
     );
 }
+
+/// A newsletter's mobile sheet sets its content cells to `display: block` under a narrow
+/// viewport (the Beefree/MoEngage builders' `.stack .column`): the cell and what it holds still
+/// lay out, as a browser's anonymous cell does, rather than at nothing.
+#[test]
+fn a_block_table_cell_in_a_narrow_frame_still_lays_out_its_text() {
+    let held = Held::new();
+    let body = "<style>@media (max-width: 590px) { .stack .column { width: 100% !important; \
+        display: block } }</style>\
+        <table width='100%'><tr><td><table class='row-content stack' width='570' \
+        style='width: 570px; margin: 0 auto'><tr><td class='column' width='100%'>\
+        <p class='copy'>Last chance to shop selected styles</p>\
+        <span class='cta'>Shop Now</span></td></tr></table></td></tr></table>";
+    let page = Page {
+        body: body.to_owned(),
+        css: String::new(),
+    };
+    let narrow = Viewport {
+        width: 500,
+        height: 600,
+        scale_percent: 100,
+    };
+    let mut harness = Harness::new(
+        Window,
+        HarnessConfig::new(narrow)
+            .with_clock(Clock::Virtual)
+            .with_context(page)
+            .with_net(held.0.net())
+            .with_frame_links(held.0.links())
+            .with_contexts(held.0.contexts()),
+    );
+    harness.advance(Duration::from_millis(50));
+    assert!(
+        frame_width(&harness, ".copy") > 0.0,
+        "the text has no width"
+    );
+    assert!(
+        frame_width(&harness, ".cta") > 0.0,
+        "the button has no width"
+    );
+}
