@@ -470,15 +470,7 @@ impl SqliteStore {
         for remote in &ingest.gone {
             // Deleted forever here, and now there too.
             self.forget_destroyed(account.clone(), remote)?;
-            {
-                let (acct, mailbox, uidvalidity, uid, _) = remote_key(account.clone(), remote);
-                self.connection()
-                    .prepare_cached(
-                        "DELETE FROM provider_thread WHERE account=?1 AND mailbox=?2
-                         AND uidvalidity IS ?3 AND uid IS ?4",
-                    )?
-                    .execute(params![acct, mailbox, uidvalidity, uid])?;
-            }
+            self.forget_provider_thread(account.clone(), remote)?;
             if let Some(id) = self.message_by_remote(account.clone(), remote)? {
                 let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account.clone(), remote);
                 self.connection()
@@ -752,6 +744,22 @@ impl SqliteStore {
                  ON CONFLICT(account, mailbox, uidvalidity, uid) DO UPDATE SET thrid = excluded.thrid",
             )?
             .execute(params![acct, mailbox, uidvalidity, uid, thrid])?;
+        Ok(())
+    }
+
+    /// Drop the thread id held for the message at `remote`, once it is gone from the server.
+    fn forget_provider_thread(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        let (acct, mailbox, uidvalidity, uid, _) = remote_key(account, remote);
+        self.connection()
+            .prepare_cached(
+                "DELETE FROM provider_thread WHERE account=?1 AND mailbox=?2
+                 AND uidvalidity IS ?3 AND uid IS ?4",
+            )?
+            .execute(params![acct, mailbox, uidvalidity, uid])?;
         Ok(())
     }
 
