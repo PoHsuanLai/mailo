@@ -1,8 +1,8 @@
 //! The window's unread count, handed to the launcher (`crate::launcher`).
 //!
-//! Counted when the store moves (any write, a sync's included) or the Space changes,
-//! on a blocking thread as the sidebar's badges are, and handed on only when the number changed,
-//! so a write that leaves it alone sends the dock nothing.
+//! Counted when the store moves (any write, a sync's included) or the Space changes, on a
+//! blocking thread, and handed on only when the number changed, so a write that leaves it alone
+//! sends the dock nothing.
 
 use crate::launcher::{self, Launcher, Unread};
 use crate::ui::view::Shell;

@@ -3,8 +3,9 @@
 //! A search is the client's ([`mail_client::query::Conversations::Searched`]), which runs
 //! [`mail_client::search::search_list`], the function `mailo search` calls, with the window's label
 //! index, over the accounts the Space shows. So `from:`, a prefix, a phrase and `re:/…/` mean the
-//! same thing in the list, in the search bar's panel and in the terminal. The rows are the matches in date order, paginated like a place; above them, a strip of the
-//! few top results ranked within the newest matches. An empty box is the place's own list.
+//! same thing in the list, in the search bar's panel and in the terminal. The rows are the
+//! matches in date order, paginated like a place; above them, a strip of the few top results
+//! ranked within the newest matches. An empty box is the place's own list.
 //!
 //! One exception, said on screen: a bare `re:/…/` narrows nothing, so it runs over the page the
 //! place already has loaded ("pattern over this page") rather than over a ranked sample of all

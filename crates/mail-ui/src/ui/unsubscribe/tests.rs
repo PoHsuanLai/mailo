@@ -3,7 +3,7 @@
 //! the alert.
 
 use super::head::{Confirm, Phase};
-use super::{Offer, archive_from, ask, leave};
+use super::{Offer, ask, inbox_from, leave};
 use crate::ui::app::App;
 use crate::ui::copy::menus::UNSUBSCRIBE;
 use crate::ui::fixtures::settle_for;
@@ -304,21 +304,12 @@ fn archive_all_takes_the_senders_inbox_and_nothing_else() {
     let second = put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
     let other = put(&store, "quiet@example.test", NO_WAY_OUT, Held::Body);
 
-    let undone = archive_from(
-        &crate::ui::fixtures::client(&store),
-        "weekly@rust.test",
-        mail_core::when::Clock::H24,
-    );
-    let archived: Vec<ThreadId> = undone.iter().filter_map(|undo| undo.thread).collect();
+    let taken = inbox_from(&crate::ui::fixtures::client(&store), "weekly@rust.test");
     assert!(
-        archived.contains(&first) && archived.contains(&second),
-        "{archived:?}"
+        taken.contains(&first) && taken.contains(&second),
+        "{taken:?}"
     );
-    assert!(!archived.contains(&other));
-    for thread in [first, second] {
-        let loaded = store.thread(thread).unwrap();
-        assert!(!loaded.summary.mailboxes.contains(MailboxRole::Inbox));
-    }
+    assert!(!taken.contains(&other));
 }
 
 #[test]
@@ -342,15 +333,19 @@ fn archive_all_is_one_undo_for_the_whole_list() {
         rsx! {}
     }
     let (store, _dir) = seeded();
-    for _ in 0..2 {
-        put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
-    }
+    let listed: Vec<ThreadId> = (0..2)
+        .map(|_| put(&store, "weekly@rust.test", ONE_CLICK, Held::Body))
+        .collect();
     let entries = Arc::new(AtomicUsize::new(usize::MAX));
     let mut dom = VirtualDom::new(Archiver)
         .with_root_context(crate::ui::fixtures::client(&store))
-        .with_root_context(Handed(store, entries.clone()));
+        .with_root_context(Handed(store.clone(), entries.clone()));
     dom.rebuild_in_place();
     assert_eq!(entries.load(Ordering::SeqCst), 1, "one list, one undo");
+    for thread in listed {
+        let loaded = store.thread(thread).unwrap();
+        assert!(!loaded.summary.mailboxes.contains(MailboxRole::Inbox));
+    }
 }
 
 #[tokio::test]
