@@ -12,24 +12,31 @@
 //!   together, and marks stale every value that reads what they touched.
 //! - **Act** (`mailo-act`) applies [`Command`]s, one at a time, in the order they were given: the
 //!   only one that waits on the store's writer.
+//! - **Clock** (`mailo-clock`) marks stale what reads the clock when a snooze ends (`clock`).
 //! - **External** (`mailo-external`) watches the store's file for another process's commits
 //!   (`external`).
+//! - **Fetch** (`mailo-fetch`), once a caller asks for mail to be fetched ([`Client::fetch`]),
+//!   runs the scheduler that fetches it, on a runtime of its own (`fetch`).
 //!
 //! A value is in the queue at most once, and read by at most one thread at a time; one that goes
 //! stale while it is read is read again when that reading ends. So the queue is never longer than
 //! the values held, however many commits a sync makes.
 
 use crate::act::{Acted, Command, Ticket};
+use crate::fetch::{Fetched, Fetcher, Seams};
 use crate::live::{Entry, Job, Live, Query};
 use chrono::{DateTime, Utc};
+use mail_core::fetch::Event;
 use mail_core::mail::{Clock, SystemClock};
+use mail_domain::MailboxRef;
 use mail_store::{Committed, SqliteStore, Topics};
 use parking_lot::{Condvar, Mutex};
+use porter_core::AccountId;
 use std::any::{Any, TypeId};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, OnceLock, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -106,7 +113,18 @@ pub(crate) struct Shared {
     pub(crate) external: Mutex<Option<std::sync::mpsc::Sender<()>>>,
     /// Where commands go to be applied; `None` for an inline client, and once stopping.
     acts: Mutex<Option<std::sync::mpsc::Sender<Asked>>>,
+    /// Fetching, once a caller asked for it.
+    fetcher: OnceLock<Fetcher>,
+    /// Stops the fetch thread.
+    fetch_stop: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    /// Wakes the clock thread to find its next moment again: set, then told.
+    clock_poked: Mutex<bool>,
+    clock_told: Condvar,
 }
+
+/// Fetching run where the caller runs it: what [`Client::fetch`] hands a client that reads on
+/// its caller's thread. Runs until it is dropped.
+pub type FetchRun = std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>;
 
 /// A command, and where to say what it did.
 type Asked = (Command, tokio::sync::oneshot::Sender<Acted>);
@@ -147,6 +165,7 @@ impl Client {
                 }
             }));
         }
+        threads.push(crate::clock::start(shared.clone()));
         if config.external
             && let Some(watching) = crate::external::start(shared.clone())
         {
@@ -251,6 +270,21 @@ impl Client {
         self.0.shared.invalidate(Topics::CLOCK);
     }
 
+    /// The next moment what reads the clock reads differently: a snooze ending. A client with
+    /// threads of its own marks it stale then, at its clock's time; a caller whose time moves
+    /// otherwise (a test's virtual clock), or whose client reads on its thread, waits for it and
+    /// says so ([`Client::set_clock`], [`Client::invalidate`]).
+    pub fn next_clock(&self) -> Option<DateTime<Utc>> {
+        let shared = &self.0.shared;
+        crate::clock::next(&shared.store, shared.now())
+    }
+
+    /// Whether this client marks stale what reads the clock by itself: one with threads of its
+    /// own does, one that reads on its caller's thread does not.
+    pub fn keeps_time(&self) -> bool {
+        !self.0.shared.inline
+    }
+
     /// Whether nothing is waiting to be read or being read.
     pub fn idle(&self) -> bool {
         self.0.shared.busy.load(Ordering::Acquire) == 0
@@ -259,19 +293,76 @@ impl Client {
     /// For an inline client: act on every commit made since the last time, here. Nothing for a
     /// client with threads of its own, which does that by itself.
     pub fn settle(&self) {
+        self.0.shared.settle();
+    }
+
+    /// Fetch mail: every account's link, polled, pushed to and fetched on request by the one
+    /// scheduler, reaching the servers through `seams`. Started once; a later call changes
+    /// nothing and is handed `None`.
+    ///
+    /// A client with threads of its own runs it on one, until the client stops. One that reads
+    /// on its caller's thread hands back what to run, on a tokio runtime, for as long as fetching
+    /// should go on.
+    pub fn fetch(&self, seams: Seams) -> Option<FetchRun> {
         let shared = &self.0.shared;
-        let topics = shared
-            .heard
-            .lock()
-            .as_ref()
-            .map(|heard| {
-                heard
-                    .try_iter()
-                    .fold(Topics::empty(), |all, commit| all | commit.topics)
-            })
-            .unwrap_or_default();
-        if !topics.is_empty() {
-            shared.invalidate(topics);
+        let fetcher = Fetcher::new(seams, &shared.store, shared.now());
+        if shared.fetcher.set(fetcher).is_err() {
+            return None;
+        }
+        if shared.inline {
+            return crate::fetch::run(shared.clone()).map(|run| Box::pin(run) as FetchRun);
+        }
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        *shared.fetch_stop.lock() = Some(stop);
+        let shared = shared.clone();
+        self.0.threads.lock().push(spawn("mailo-fetch", move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("the system starts a runtime");
+            if let Some(run) = crate::fetch::run(shared) {
+                runtime.block_on(async {
+                    tokio::select! {
+                        () = run => {}
+                        // Told to stop, or the client gone.
+                        _ = stopped => {}
+                    }
+                });
+            }
+            // A pass or a watch parked in a socket is not waited for.
+            runtime.shutdown_background();
+        }));
+        None
+    }
+
+    /// Where every account's fetching stands, told each time it moves; `None` until
+    /// [`Client::fetch`].
+    pub fn fetched(&self) -> Option<tokio::sync::watch::Receiver<Arc<Fetched>>> {
+        self.0.shared.fetcher().map(Fetcher::fetched)
+    }
+
+    /// Tell `account`'s link that `event` happened: a pass asked for, a credential replaced.
+    /// Never waits; nothing before [`Client::fetch`].
+    pub fn tell(&self, account: AccountId, event: Event) {
+        if let Some(fetcher) = self.0.shared.fetcher() {
+            fetcher.tell(account, event);
+        }
+    }
+
+    /// A folder's place was chosen: fetch it now, unless it was a moment ago or a pass is
+    /// running on its account.
+    pub fn open_folder(&self, mailbox: MailboxRef) {
+        let shared = &self.0.shared;
+        if let Some(fetcher) = shared.fetcher() {
+            fetcher.open_folder(mailbox, shared.now());
+        }
+    }
+
+    /// Every folder fetched on opening is fetched again the next time it is opened.
+    pub fn forget_folders(&self) {
+        let shared = &self.0.shared;
+        if let Some(fetcher) = shared.fetcher() {
+            fetcher.forget_folders(shared.now());
         }
     }
 
@@ -294,7 +385,12 @@ impl Inner {
         self.shared.stopping.store(true, Ordering::Release);
         // Nothing more is taken; what was given is still applied.
         self.shared.acts.lock().take();
+        if let Some(stop) = self.shared.fetch_stop.lock().take() {
+            // A fetch thread that has ended has nothing left to stop.
+            let _ = stop.send(());
+        }
         self.shared.queued.notify_all();
+        self.shared.poke_clock();
         crate::external::wake(&self.shared);
         let deadline = Instant::now() + within;
         for thread in self.threads.lock().drain(..) {
@@ -314,7 +410,7 @@ fn readers(store: &SqliteStore) -> usize {
     store.reader_count().saturating_sub(1).max(1)
 }
 
-fn spawn(name: &str, run: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
+pub(crate) fn spawn(name: &str, run: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name(name.to_owned())
         .spawn(run)
@@ -336,6 +432,10 @@ impl Shared {
             moved: tokio::sync::watch::Sender::new(0),
             external: Mutex::new(None),
             acts: Mutex::new(None),
+            fetcher: OnceLock::new(),
+            fetch_stop: Mutex::new(None),
+            clock_poked: Mutex::new(false),
+            clock_told: Condvar::new(),
         }
     }
 
@@ -343,11 +443,57 @@ impl Shared {
         &self.store
     }
 
+    pub(crate) fn store_arc(&self) -> Arc<SqliteStore> {
+        self.store.clone()
+    }
+
+    /// Sleep the clock thread up to `wait`, or until it is told to look again.
+    pub(crate) fn clock_sleep(&self, wait: Duration) {
+        let mut poked = self.clock_poked.lock();
+        if !*poked && !self.stopping() {
+            self.clock_told.wait_for(&mut poked, wait);
+        }
+        *poked = false;
+    }
+
+    fn poke_clock(&self) {
+        *self.clock_poked.lock() = true;
+        self.clock_told.notify_all();
+    }
+
+    pub(crate) fn fetcher(&self) -> Option<&Fetcher> {
+        self.fetcher.get()
+    }
+
+    /// Fetching may have written to the store. Heard by itself through the store's commits;
+    /// a client that reads on its caller's thread acts on them now, since fetching runs there.
+    pub(crate) fn stored(&self) {
+        if self.inline {
+            self.settle();
+        }
+    }
+
+    fn settle(&self) {
+        let topics = self
+            .heard
+            .lock()
+            .as_ref()
+            .map(|heard| {
+                heard
+                    .try_iter()
+                    .fold(Topics::empty(), |all, commit| all | commit.topics)
+            })
+            .unwrap_or_default();
+        if !topics.is_empty() {
+            self.invalidate(topics);
+        }
+    }
+
     pub(crate) fn stopping(&self) -> bool {
         self.stopping.load(Ordering::Acquire)
     }
 
-    fn now(&self) -> DateTime<Utc> {
+    pub(crate) fn now(&self) -> DateTime<Utc> {
         self.clock.read().now()
     }
 
@@ -366,6 +512,17 @@ impl Shared {
 
     /// Mark stale every value held that reads any of `topics`.
     pub(crate) fn invalidate(&self, topics: Topics) {
+        if let Some(fetcher) = self.fetcher() {
+            if topics.intersects(Topics::ACCOUNTS) {
+                fetcher.accounts(&self.store);
+            }
+            if topics.intersects(Topics::OUTBOX) {
+                fetcher.outbox_moved();
+            }
+        }
+        if topics.intersects(crate::clock::MOVES) {
+            self.poke_clock();
+        }
         self.moved.send_modify(|moved| *moved += 1);
         let stale: Vec<Arc<dyn Job>> = {
             let mut registry = self.registry.lock();

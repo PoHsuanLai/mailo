@@ -51,6 +51,9 @@ impl Client {
     pub fn open(store: Arc<SqliteStore>, config: ClientConfig) -> Client;
     pub fn live<Q: Query>(&self, query: Q) -> Live<Q::Output>;   // a registry lookup, never SQL
     pub fn act(&self, command: Command) -> Ticket;               // never blocks
+    pub fn fetch(&self, seams: Seams) -> Option<FetchRun>;        // once; the scheduler
+    pub fn fetched(&self) -> Option<watch::Receiver<Arc<Fetched>>>;
+    pub fn tell(&self, account: AccountId, event: Event);
     pub fn prime<Q: Query>(&self, queries: impl IntoIterator<Item = Q>) -> Vec<Live<Q::Output>>;
     pub fn shutdown(self, within: Duration);
 }
@@ -63,6 +66,10 @@ impl Client {
   - `mailo-act`: one command thread, applying commands in order; the only thing that waits on
     the writer.
   - `mailo-changes`: hears commits, marks entries dirty, queues recomputes.
+  - `mailo-clock`: marks stale what reads the clock when a snooze ends.
+  - `mailo-fetch`: the scheduler (`mail_core::schedule`), once a caller asks for mail to be
+    fetched, on a current-thread runtime of its own. Passes, watches and folder fetches run on
+    its blocking threads.
   - Network commands (`server_search`, `fetch_body`, `discover`, `unsubscribe`) run as tasks on
     the runtime `edge::runtime()` is today, which moves into `Client`.
 - Shutdown closes the queues, lets a write in progress finish, drops read jobs and joins the
@@ -94,10 +101,12 @@ impl<T> Live<T> {
   so an ingest committing every 200 entries does not recount badges per chunk. An answer equal
   to the last one wakes no one.
 - **Time.** Snoozes, follow-ups and scheduled sends change as time passes: the `CLOCK` topic is
-  invalidated (`Client::invalidate`) by a timer at the next due instant. The timer comes with the
-  fetching, in stage 3; until then the window's own wake does it. A caller whose time is not the
-  system's (a test's window, on quire's virtual clock) gives the client its own with
-  `Client::set_clock`, which reads again what reads the clock.
+  invalidated at the next due instant by `mailo-clock`, which finds that instant again whenever
+  a commit touches the conversations. A caller whose clock the client cannot sleep on (a test's
+  window, on quire's virtual time, or one whose client reads on its thread) waits for
+  `Client::next_clock` itself and says when it has passed (`use_snooze_wake`). A caller whose
+  time is not the system's (a test's window, on quire's virtual clock) gives the client its own
+  with `Client::set_clock`, which reads again what reads the clock.
 
 ## Invalidation
 
@@ -190,8 +199,17 @@ Each leaves the app working.
    tell), and shows it again when the list is read at that generation or the op is refused. The
    undo stack and the toast stay the window's, filled in when the ticket is answered. Settings,
    labels, views, VIPs and sends become commands with stage 4.
-3. Fetching moves into the client: the scheduler, the background watch and the outbox. The
-   shared `Revisions` retires for store data.
+3. Fetching moves into the client. `Client::fetch(Seams)` starts the one scheduler, on
+   `mailo-fetch` (an inline client hands back the future for its caller to run). What reaches a
+   server is lent as `Seams` (pass, watch, pushers, daemon, who schedules, folder fetch, timing):
+   the window builds them from its contexts, so a test lends its own. Every account's link, the
+   offer beside a failed pass and each folder fetched on opening are one `Fetched` value behind a
+   watch channel; the window follows it into the signals its status line, sidebar and reauth
+   read, and keeps the spinner's token. The accounts are followed from `ACCOUNTS` commits, not a
+   memo. A send that comes due (queued for later, or held for Undo) asks its account for a pass
+   (`fetch::outbox`), whether or not the compose pill is on screen. Folder refusals
+   carry the server's words only. The clock's timer is the client's (`mailo-clock`). `revision`
+   stays until stage 4 converts the memos that read it.
 4. Everything else: compose, settings, contacts, rules, keys, add account, the palette,
    downloads. Every `edge::block_on` in `ui` becomes a command.
 5. The fence: `ui`, `settings` and the platform seams move to `mail-ui`, whose `Cargo.toml` has

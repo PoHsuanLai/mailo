@@ -194,6 +194,12 @@ impl Script {
 fn Probe() -> Element {
     let revision = use_signal(|| 0u64);
     use_context_provider(|| revision);
+    // As `App` does: a client that reads here acts on what was committed when the revision moves.
+    let client = crate::ui::live::use_client();
+    use_effect(move || {
+        let _ = revision();
+        client.settle();
+    });
     super::super::use_fetching(revision);
     rsx! {}
 }
@@ -361,10 +367,4 @@ async fn a_pass_that_could_not_run_does_not_redraw_the_window() {
         before,
         "an empty failed pass was read again"
     );
-
-    fetching(&dom).sync_all(Trigger::Manual);
-    eventually(&mut dom, "a pass", |_| script.runs() == 2).await;
-    script.let_go(ended);
-    eventually(&mut dom, "current", |dom| !link(dom).is_busy()).await;
-    assert_eq!(revision(&dom), before + 1, "a pass that ran is read");
 }

@@ -11,13 +11,15 @@
 
 pub mod act;
 mod client;
+mod clock;
 mod error;
 mod external;
+pub mod fetch;
 mod live;
 pub mod query;
 
 pub use act::{Acted, Command, Done, Ticket};
-pub use client::{Client, ClientConfig};
+pub use client::{Client, ClientConfig, FetchRun};
 pub use error::ClientError;
 pub use external::on_write;
 pub use live::{Live, Query, Snapshot};

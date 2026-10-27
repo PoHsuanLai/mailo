@@ -1,7 +1,7 @@
 //! What runs one account's pass for the window: the seam a test replaces.
 //!
-//! The pass is run off the thread that draws, by [`super::host`], which hands the scheduler how it
-//! ended; this is the call it makes to the servers.
+//! The client's scheduler runs it off the thread that draws (`mail_client::fetch`); this is the
+//! call it makes to the servers.
 
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
@@ -48,15 +48,3 @@ impl Passer {
         }))
     }
 }
-
-/// Whether a pass that ended like this may have written something the window shows.
-///
-/// A pass that ran, or was cancelled part-way, may have: counts do not say everything it
-/// writes (flags are not counted). One that never got to run, or whose whole run failed, has not.
-pub(super) fn may_have_stored(done: &Result<Vec<PassEnd>, String>) -> bool {
-    done.as_ref()
-        .is_ok_and(|ends| ends.iter().any(PassEnd::may_have_stored))
-}
-
-#[cfg(test)]
-mod tests;

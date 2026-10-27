@@ -38,11 +38,6 @@ impl Delegate {
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|| Schedule::Window))
     }
-
-    /// Who schedules now.
-    pub(in crate::ui) fn schedule(&self) -> Schedule {
-        (self.0)()
-    }
 }
 
 #[cfg(test)]

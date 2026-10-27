@@ -88,26 +88,30 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
     });
 }
 
-/// Ask the list again when the next snoozed conversation comes back, so it shows in the inbox on
-/// its time rather than at the next change. A revision starts this again, with a snooze just set
-/// or woken counted; the sleep is quire's, on the window's clock, as [`use_reminders`]'s is.
-pub(in crate::ui) fn use_snooze_wake(mut revision: Signal<u64>) {
+/// Tell the client when the next snoozed conversation comes back, where it cannot tell by
+/// itself: the program's client keeps the system's time on a thread of its own, but a window
+/// whose clock is its own (a test's, on quire's virtual time) sleeps on that clock, and a client
+/// that reads on the thread that draws has no thread to keep it. The sleep is quire's, as
+/// [`use_reminders`]'s is; what the client marks stale moves the revision, which starts this
+/// again with the next one.
+pub(in crate::ui) fn use_snooze_wake(revision: Signal<u64>) {
     let client = super::live::use_client();
+    let bridging =
+        !client.keeps_time() || try_consume_context::<super::clock::WallClock>().is_some();
     let _waking = use_resource(move || {
         let client = client.clone();
         let _ = revision();
         async move {
-            let store = consume_context::<Arc<SqliteStore>>();
-            let Some(at) = mail_core::snooze::next_wake(&store, super::clock::now()) else {
+            if !bridging {
+                return;
+            }
+            let Some(at) = client.next_clock() else {
                 return;
             };
             loop {
                 let now = super::clock::now();
                 if at <= now {
-                    // What the client keeps read by the clock is read again, and what the
-                    // window still reads itself is too.
                     super::live::clock_moved(&client);
-                    revision += 1;
                     return;
                 }
                 ds::base::time::clock::sleep(wait(Some(at), now)).await;
