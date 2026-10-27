@@ -45,28 +45,6 @@ impl Postal {
         .all(|part| part.trim().is_empty())
     }
 
-    /// The address as it would go on an envelope, one line a part, empty parts left out:
-    /// street, then town, region and code on one line, then country.
-    pub fn lines(&self) -> Vec<String> {
-        let town = [&self.locality, &self.region, &self.code]
-            .iter()
-            .map(|part| part.trim())
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
-        [
-            self.po_box.trim(),
-            self.extended.trim(),
-            self.street.trim(),
-            town.as_str(),
-            self.country.trim(),
-        ]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .map(str::to_owned)
-        .collect()
-    }
-
     fn read(line: &ContentLine) -> Self {
         let mut parts = split_escaped(&line.value, ';').into_iter();
         let mut next = || parts.next().unwrap_or_default();
@@ -159,13 +137,10 @@ mod tests {
         assert_eq!(postal.len(), 2);
         assert_eq!(postal[0].kinds, ["home"]);
         assert_eq!(postal[0].street, "12 Crescent, Flat 2");
-        assert_eq!(
-            postal[0].lines(),
-            ["12 Crescent, Flat 2", "Bath Somerset BA1", "UK"]
-        );
+        assert_eq!(postal[0].locality, "Bath");
         assert_eq!(postal[1].kinds, ["work"], "pref is not a kind");
         assert_eq!(postal[1].po_box, "PO 7");
-        assert_eq!(postal[1].lines(), ["PO 7", "London"]);
+        assert_eq!(postal[1].locality, "London");
     }
 
     #[test]

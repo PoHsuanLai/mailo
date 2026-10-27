@@ -57,16 +57,7 @@ pub(super) fn put_person<S: Store + ?Sized>(
         store.delete_card(&id)?;
         return Ok(());
     };
-    let edited = store.card(&id)?.is_some_and(|held| {
-        matches!(
-            held.home,
-            GroupHome::Book {
-                edit: Edit::Edited,
-                ..
-            }
-        )
-    });
-    if edited {
+    if store.card(&id)?.is_some_and(|held| held.home.is_edited()) {
         return Ok(());
     }
     let home = GroupHome::Book {
@@ -109,7 +100,9 @@ pub(super) async fn write_back<S: Store + ?Sized>(
                 book.cards.insert(
                     href.clone(),
                     BookCard {
-                        // A card the server sent no etag for has none to match, so the next write goes unconditionally.
+                        // No etag back means the server may have changed what it stored: an empty
+                        // one differs from whatever the next listing says, so that sync fetches
+                        // it again.
                         etag: etag.unwrap_or_default(),
                         addresses: person.addresses.clone(),
                         vcard: person.vcard.clone(),

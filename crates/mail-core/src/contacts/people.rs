@@ -16,7 +16,7 @@ use crate::error::{CoreError, Logged};
 use mail_domain::filter::search_tokens;
 use mail_pim::vcard::{self, Card, Email, Phone, Postal};
 use mail_runtime::carddav::{addresses_of, person_card};
-use mail_store::{CardId, Contact, Edit, GroupHome, Origin, PersonCard, Store, StoreError};
+use mail_store::{CardId, Contact, GroupHome, Origin, PersonCard, Store, StoreError};
 
 /// What a card says, as the editor shows it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -191,10 +191,7 @@ fn origin_of(home: &GroupHome) -> Origin {
 /// named as it is, and those it no longer lists let go of.
 fn follow(store: &dyn Store, card: &PersonCard, before: &[String]) -> Result<(), StoreError> {
     let origin = origin_of(&card.home);
-    let name = vcard::parse(&card.vcard)
-        .into_iter()
-        .next()
-        .and_then(|parsed| parsed.display_name());
+    let name = parsed(card).display_name();
     for address in &card.addresses {
         let theirs = store.contact(address)?;
         // Typed by the user: a synced card does not take the entry over.
@@ -275,11 +272,12 @@ pub fn save(store: &dyn Store, id: &CardId, details: &Details) -> Result<PersonC
     check(details)?;
     let held = store.card(id)?.ok_or(PersonError::Gone)?;
     let card = apply(parsed(&held), details);
-    let mut home = held.home.clone();
-    if let GroupHome::Book { edit, .. } = &mut home {
-        *edit = Edit::Edited;
-    }
-    let person = person_card(&card, vcard::write(&card), id.clone(), home);
+    let person = person_card(
+        &card,
+        vcard::write(&card),
+        id.clone(),
+        held.home.clone().edited(),
+    );
     store.put_card(&person)?;
     follow(store, &person, &held.addresses)?;
     Ok(person)

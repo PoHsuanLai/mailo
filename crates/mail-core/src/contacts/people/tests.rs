@@ -2,7 +2,7 @@
 //! added from mail, and the book autocomplete ranks kept in step.
 
 use super::*;
-use mail_store::SqliteStore;
+use mail_store::{Edit, SqliteStore};
 
 const BOOK: &str = "https://dav.example.test/book/";
 const PHOTO: &str = "data:image/png;base64,iVBORw0KGgo=";

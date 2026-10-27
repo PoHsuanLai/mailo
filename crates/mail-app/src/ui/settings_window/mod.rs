@@ -4,19 +4,18 @@
 //! of titled groups of rows.
 //!
 //! Seven pages: General, Accounts, Contacts, Spaces, Rules, Vacation Reply and Keyboard. General
-//! draws mailo's settings schema
-//! (`crate::settings`) as two groups of rows ([`general`], each row a key's, drawn by [`keys`]),
-//! the same keys detent draws on mailo's page and writes to the same `mailo/settings.toml`.
-//! Accounts lists each account, whose row pushes its own page into the pane ([`account`]): its
-//! mail kept here, its encryption keys, and its removal. Rules and Keyboard are drawn by their
-//! modules (`rules`, `keyboard`). A page that has pages of its own pushes them, as System
-//! Settings does, with quire's `PaneStack`; a sheet is only for making something or asking
-//! before something goes. Spaces lists each Space, whose row pushes its page: its name, colour,
-//! theme and accounts, and its deletion ([`spaces`]); the Space's menu, a right click on the
-//! Space's name, is the quick way to the same, and its Edit Space… opens the Space's page here
-//! ([`open_space`]). Contacts is the address book: every person's card and every group, each
-//! pushing its page, drawn by `contacts::page`; a sender's name in mail opens it on their card
-//! ([`open_card`]), and ⌘K's Contacts on its list.
+//! draws mailo's settings schema (`crate::settings`) as two groups of rows ([`general`], each row
+//! a key's, drawn by [`keys`]), the same keys detent draws on mailo's page and writes to the same
+//! `mailo/settings.toml`. Accounts lists each account, whose row pushes its own page into the
+//! pane ([`account`]): its mail kept here, its encryption keys, and its removal. Rules and
+//! Keyboard are drawn by their modules (`rules`, `keyboard`). A page that has pages of its own
+//! pushes them, as System Settings does, with quire's `PaneStack`; a sheet is only for making
+//! something or asking before something goes. Spaces lists each Space, whose row pushes its
+//! page: its name, colour, theme and accounts, and its deletion ([`spaces`]); the Space's menu, a
+//! right click on the Space's name, is the quick way to the same, and its Edit Space… opens the
+//! Space's page here ([`open_space`]). Contacts is the address book: every person's card and
+//! every group, each pushing its page, drawn by `contacts::page`; a sender's name in mail opens
+//! it on their card ([`open_card`]), and ⌘K's Contacts on its list.
 //!
 //! Every way into one of those pages from the main window (⌘K, the composer's bar) opens the
 //! window on that page, or turns the open window to it ([`open_at`]), and the composer's way to

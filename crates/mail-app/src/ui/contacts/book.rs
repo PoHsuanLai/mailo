@@ -63,7 +63,7 @@ pub(in crate::ui) fn export(store: &dyn Store, dir: &Path) -> Result<PathBuf, St
     mail_core::attach::write_new(dir, EXPORT_NAME, text.as_bytes()).map_err(String::from)
 }
 
-/// What a card's or a group's edit came to, when it was refused: a sentence for the page.
+/// Why a card's edit was refused, as a sentence for the page.
 fn person_error(error: PersonError) -> String {
     match error {
         PersonError::Empty => crate::ui::copy::errors::CONTACT_NEEDS_SOMETHING.to_owned(),
@@ -74,6 +74,7 @@ fn person_error(error: PersonError) -> String {
     }
 }
 
+/// Why a group's edit was refused, as a sentence for the page.
 fn group_error(error: GroupError) -> String {
     match error {
         GroupError::NoName => crate::ui::copy::errors::GROUP_NEEDS_A_NAME.to_owned(),
@@ -230,7 +231,7 @@ pub(in crate::ui) fn members(store: &dyn Store, group: &Group) -> Vec<(String, S
 }
 
 /// The largest picture a card takes: a photo rides in every sync and export of the card.
-pub(in crate::ui) const PHOTO_LIMIT: usize = 1024 * 1024;
+const PHOTO_LIMIT: usize = 1024 * 1024;
 
 /// A picture file's bytes as the `data:` URL a card's `PHOTO` holds, its type from its name.
 pub(in crate::ui) fn photo_url(name: &str, bytes: &[u8]) -> Result<String, String> {

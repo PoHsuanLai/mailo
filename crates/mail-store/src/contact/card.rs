@@ -42,13 +42,3 @@ pub struct PersonCard {
     /// Where it lives, which decides where an edit goes: a group's home serves a card the same.
     pub home: GroupHome,
 }
-
-impl PersonCard {
-    /// The address book a synced card belongs to, `None` for a local one.
-    pub fn book(&self) -> Option<&str> {
-        match &self.home {
-            GroupHome::Local => None,
-            GroupHome::Book { url, .. } => Some(url),
-        }
-    }
-}

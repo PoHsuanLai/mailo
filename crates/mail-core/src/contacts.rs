@@ -177,26 +177,12 @@ pub fn export(store: &dyn Store) -> Result<String, CoreError> {
     let people = store.cards()?;
     for book in store.address_books()? {
         for (href, held) in &book.cards {
-            let edited = groups.iter().find(|g| {
-                g.id.0 == *href
-                    && matches!(
-                        g.home,
-                        GroupHome::Book {
-                            edit: Edit::Edited,
-                            ..
-                        }
-                    )
-            });
-            let person = people.iter().find(|p| {
-                p.id.0 == *href
-                    && matches!(
-                        p.home,
-                        GroupHome::Book {
-                            edit: Edit::Edited,
-                            ..
-                        }
-                    )
-            });
+            let edited = groups
+                .iter()
+                .find(|g| g.id.0 == *href && g.home.is_edited());
+            let person = people
+                .iter()
+                .find(|p| p.id.0 == *href && p.home.is_edited());
             let text = match (edited, person) {
                 (Some(group), _) => carddav::group_card(group, Some(&held.vcard)),
                 (None, Some(person)) => person.vcard.clone(),

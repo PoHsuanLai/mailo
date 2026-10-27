@@ -1,8 +1,9 @@
 //! A person, edited from their name in mail: the reader's sender name, right-clicked, offers Edit
 //! Contact…, and this popover hangs from the name; and Add to Contacts, which makes the sender a
-//! card, or Show Contact Card when one already lists them, which opens it in Settings. It holds
-//! the one thing a person writes into the book by hand, the name; Return or Save keeps it ([`book::name`]), and the entry is then
-//! the user's, so mail never renames it. Escape or a click outside leaves the book as it was.
+//! card, or Show Contact Card when one already lists them, which opens it in Settings. The popover
+//! holds the one thing a person writes into the book by hand, the name; Return or Save keeps it
+//! ([`book::name`]), and the entry is then the user's, so mail never renames it. Escape or a click
+//! outside leaves the book as it was.
 
 use std::sync::Arc;
 

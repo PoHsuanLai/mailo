@@ -11,7 +11,7 @@ use crate::error::CoreError;
 use crate::error::Logged;
 use mail_domain::filter::search_tokens;
 use mail_pim::vcard::{self, Member};
-use mail_store::{Contact, Edit, Group, GroupHome, GroupId, Store};
+use mail_store::{Contact, Group, GroupHome, GroupId, Store};
 use std::collections::BTreeSet;
 
 /// How many groups the To and Cc menus offer above the people.
@@ -299,9 +299,7 @@ pub fn create(store: &dyn Store, name: &str) -> Result<Group, GroupError> {
 /// Store `group` as the user changed it. A synced one is marked edited, so the next sync of its
 /// book writes it back as a `KIND:group` card.
 fn keep(store: &dyn Store, mut group: Group) -> Result<Group, GroupError> {
-    if let GroupHome::Book { edit, .. } = &mut group.home {
-        *edit = Edit::Edited;
-    }
+    group.home = group.home.edited();
     store.put_group(&group)?;
     Ok(group)
 }
