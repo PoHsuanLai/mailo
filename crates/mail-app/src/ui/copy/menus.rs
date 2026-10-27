@@ -94,6 +94,10 @@ pub const MARK_AS_READ: &str = "Mark as Read";
 pub const MARK_AS_UNREAD: &str = "Mark as Unread";
 pub const STAR: &str = "Star";
 pub const UNSTAR: &str = "Unstar";
+/// The submenu of flag colours, beside Star or Unstar.
+pub const FLAG: &str = "Flag";
+/// The flag submenu's last row: unflags, as Unstar does.
+pub const CLEAR_FLAG: &str = "Clear Flag";
 pub const PIN: &str = "Pin";
 pub const UNPIN: &str = "Unpin";
 pub const MUTE: &str = "Mute";
@@ -150,6 +154,20 @@ pub fn copy_within(address: &str) -> String {
         "This Account’s Folders".to_owned()
     } else {
         format!("Folders in {address}")
+    }
+}
+
+/// A flag's or a label's colour, as Apple Mail names its seven.
+pub fn hue(hue: mail_domain::Hue) -> &'static str {
+    use mail_domain::Hue;
+    match hue {
+        Hue::Red => "Red",
+        Hue::Orange => "Orange",
+        Hue::Yellow => "Yellow",
+        Hue::Green => "Green",
+        Hue::Blue => "Blue",
+        Hue::Purple => "Purple",
+        Hue::Gray => "Gray",
     }
 }
 
@@ -214,6 +232,10 @@ pub const REMOVE_FROM_VIPS: &str = "Remove from VIPs";
 
 // Words selected in a message, right-clicked: they go on the clipboard.
 pub const COPY: &str = "Copy";
+
+// A label's ⋯ in the sidebar, and its editor's first colour.
+pub const EDIT_LABEL: &str = "Edit Label…";
+pub const NO_COLOUR: &str = "None";
 
 // A link's menu, at the pointer, in the Mac's order.
 pub const OPEN_LINK: &str = "Open Link";

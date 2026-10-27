@@ -134,6 +134,7 @@ fn message() -> Message {
         rfc_message_id: Some("abc@example.test".to_owned()),
         read: ReadState::Read,
         star: Star::Starred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![LabelId::from_uuid(uuid(3))],
         body: Body::Present {
@@ -636,6 +637,7 @@ fn ingest() -> Ingest {
             message: message(),
         }],
         flags: vec![(imap_ref(), ReadState::Unread, Star::Starred)],
+        flag_colors: Vec::new(),
         labels: vec![label()],
         // Non-empty, so the round trip covers a shape a Gmail survey actually produces.
         label_names: vec![(imap_ref(), vec!["travel".to_owned(), "家人".to_owned()])],
@@ -1755,6 +1757,38 @@ fixtures! {
         Filter::NewerThan(7),
         Filter::OlderThan(365),
     ],
+    // Flag colours, added after every file above was frozen: the seven words, a message and a
+    // thread flagged orange, the op and the change, the outbox row and a survey's colours.
+    "hues.json" => Vec<Hue> = Hue::ALL.to_vec(),
+    "message_flagged.json" => Message = Message { flag: Hue::Orange, ..message() },
+    "thread_flagged.json" => Thread = Thread {
+        summary: ThreadSummary { flag: Hue::Orange, ..summary() },
+        ..thread()
+    },
+    "actions_flag.json" => Vec<Action> = vec![Action {
+        target: Target::Threads(vec![ThreadId::from_uuid(uuid(6))]),
+        op: Op::Flag(Hue::Orange),
+    }],
+    "patch_flag.json" => Patch = Patch {
+        id: ChangeId::from_uuid(uuid(9)),
+        changes: vec![
+            Change::MessageStar(MessageId::from_uuid(uuid(4)), Star::Starred),
+            Change::MessageFlag(MessageId::from_uuid(uuid(4)), Hue::Orange),
+        ],
+    },
+    "proto_ops_flag.json" => Vec<ProtoOp> = vec![ProtoOp::SetFlag {
+        remotes: vec![imap_ref()],
+        hue: Hue::Purple,
+    }],
+    "ingest_flag_colors.json" => Ingest = Ingest {
+        flag_colors: vec![(imap_ref(), Hue::Gray)],
+        ..ingest()
+    },
+    // Labels as keywords on a plain IMAP server, added after the caps files above were frozen.
+    "account_caps_keywords.json" => AccountCaps = AccountCaps {
+        labels: ServerLabels::Keywords,
+        ..caps()
+    },
 }
 
 fn cert_fingerprint() -> CertFingerprint {
@@ -2145,4 +2179,57 @@ fn mailbox_role_word_is_its_serde_name() {
         assert_eq!(role.to_string(), role.as_str());
         assert_eq!(role.as_str().parse(), Ok(role));
     }
+}
+
+/// A message and a thread written before flags had colours were red if flagged at all, and still
+/// load saying so; the colour's own spellings are a bare word, and the op, the change and the
+/// outbox row are tagged like every other.
+#[test]
+fn a_flag_from_before_colours_is_red_and_a_colour_is_its_word() {
+    for name in ["message.json", "thread.json"] {
+        let text = std::fs::read_to_string(fixture_dir().join(name)).expect("fixture");
+        assert!(
+            !text.contains("\"flag\""),
+            "{name}: the fixture must predate the field"
+        );
+    }
+    let message: Message = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("message.json")).expect("fixture"),
+    )
+    .expect("still deserializes");
+    assert_eq!(message.flag, Hue::Red);
+    let thread: Thread = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("thread.json")).expect("fixture"),
+    )
+    .expect("still deserializes");
+    assert_eq!(thread.summary.flag, Hue::Red);
+
+    assert_eq!(
+        serde_json::to_value(Op::Flag(Hue::Gray)).unwrap(),
+        serde_json::json!({"kind": "flag", "v": "gray"})
+    );
+    assert_eq!(
+        serde_json::to_value(Change::MessageFlag(
+            MessageId::from_uuid(uuid(4)),
+            Hue::Blue
+        ))
+        .unwrap(),
+        serde_json::json!({"kind": "message_flag", "v": [uuid(4).to_string(), "blue"]})
+    );
+    round_trip_each("Hue", Hue::ALL.to_vec());
+    round_trip(
+        "RemoteIntent::SetFlag",
+        RemoteIntent::SetFlag {
+            messages: vec![MessageId::from_uuid(uuid(4))],
+            hue: Hue::Yellow,
+        },
+    );
+    round_trip(
+        "ProtoOp::SetFlag",
+        ProtoOp::SetFlag {
+            remotes: vec![imap_ref()],
+            hue: Hue::Green,
+        },
+    );
+    round_trip("ServerLabels::Keywords", ServerLabels::Keywords);
 }

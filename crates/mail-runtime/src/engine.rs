@@ -1805,9 +1805,19 @@ impl<B: Backend> AccountEngine<B> {
                 )
                 .await
             {
-                Ok(ProtoOutcome::Fetched { items, flags }) => {
+                Ok(ProtoOutcome::Fetched {
+                    items,
+                    flags,
+                    flag_colors,
+                    label_names,
+                }) => {
                     report.headers_fetched += items.len();
-                    let stored = self.absorb_headers(mailbox, items, flags, now)?;
+                    let said = Said {
+                        flags,
+                        flag_colors,
+                        label_names,
+                    };
+                    let stored = self.absorb_headers(mailbox, items, said, now)?;
                     report.unreadable(mailbox, stored.unreadable);
                     report.arrived.extend(first_stored(&stored.patch));
                 }
@@ -1830,8 +1840,8 @@ impl<B: Backend> AccountEngine<B> {
         Ok(report)
     }
 
-    /// Keep the headers a `FetchHeaders` brought from `mailbox`, and the flags the server sent
-    /// with them. The patch's upserts are the messages new to the account ([`first_stored`]);
+    /// Keep the headers a `FetchHeaders` brought from `mailbox`, and what the server said of
+    /// each message's state with them. The patch's upserts are the messages new to the account ([`first_stored`]);
     /// beside it, how many of the headers were not a message at all.
     ///
     /// The one way headers are kept, whether a sync or a search of the server fetched them.
@@ -1839,7 +1849,7 @@ impl<B: Backend> AccountEngine<B> {
         &self,
         mailbox: &MailboxRef,
         items: Vec<(RemoteRef, Vec<u8>)>,
-        flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
+        said: Said,
         now: DateTime<Utc>,
     ) -> Result<crate::assemble::Absorbed, RuntimeError> {
         let arrivals = items
@@ -1867,7 +1877,9 @@ impl<B: Backend> AccountEngine<B> {
         // because that is the path the sweep already uses. Without it every message is built
         // unread and only a later sweep can correct it — which on a CONDSTORE server never
         // revisits old mail, so anything found by backfill stayed unread for ever.
-        if !flags.is_empty() {
+        //
+        // The colours and the keyword labels came on the same FETCH, for the same reason.
+        if !said.flags.is_empty() || !said.flag_colors.is_empty() || !said.label_names.is_empty() {
             self.store.ingest(
                 self.account.clone(),
                 mail_domain::Ingest {
@@ -1875,9 +1887,10 @@ impl<B: Backend> AccountEngine<B> {
                     validity: mail_domain::UidValidity::Same,
                     cursor: None,
                     messages: Vec::new(),
-                    flags,
+                    flags: said.flags,
+                    flag_colors: said.flag_colors,
                     labels: Vec::new(),
-                    label_names: Vec::new(),
+                    label_names: said.label_names,
                     provider_threads: Vec::new(),
                     gone: Vec::new(),
                 },
@@ -1936,6 +1949,7 @@ impl<B: Backend> AccountEngine<B> {
                     cursor: None,
                     messages: Vec::new(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
                     provider_threads: Vec::new(),
@@ -2672,6 +2686,14 @@ impl<B: Backend> mail_proto::Machine for BackendMachine<'_, B> {
     fn feed(&mut self, ready: mail_proto::IoReady) -> mail_proto::Progress<ProtoOutcome> {
         self.backend.feed(ready)
     }
+}
+
+/// What a header fetch heard the server say about each message beside its headers: the parts
+/// of [`ProtoOutcome::Fetched`] that are state rather than bytes.
+pub(crate) struct Said {
+    pub flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
+    pub flag_colors: Vec<(RemoteRef, mail_domain::Hue)>,
+    pub label_names: Vec<(RemoteRef, Vec<String>)>,
 }
 
 #[cfg(test)]

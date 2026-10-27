@@ -382,6 +382,7 @@ fn build(store: &SqliteStore, batch: &[&Mail]) -> BuiltMail {
             sam = Some(thread);
         }
         let message = Message {
+            flag: mail_domain::Hue::Red,
             id: MessageId::generate(),
             thread,
             account: item.account.clone(),
@@ -473,6 +474,7 @@ fn ingest(
                 cursor: Some(SyncCursor::Pop),
                 messages,
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: names,
                 provider_threads: Vec::new(),

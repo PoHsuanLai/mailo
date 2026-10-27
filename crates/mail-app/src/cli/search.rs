@@ -113,6 +113,7 @@ mod tests {
             rfc_message_id: Some(format!("m{n}@b.c")),
             read: ReadState::Read,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: vec![],
             body: Body::Present {

@@ -242,8 +242,8 @@ pub(super) fn ReaderMore(
                         }),
                         Pick::Headers => super::source::ask(shell, id, super::Raw::Headers),
                         Pick::Source => super::source::ask(shell, id, super::Raw::Source),
-                        // A draft's, never offered here.
-                        Pick::DeleteDraft | Pick::CancelSending | Pick::Vip => {}
+                        // A draft's, never offered here; Flag ▸ only opens its colours.
+                        Pick::DeleteDraft | Pick::CancelSending | Pick::Vip | Pick::Flags => {}
                     }
                 },
                 onclose: move |_| open.set(false),

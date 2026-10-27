@@ -53,6 +53,7 @@ fn message(n: u128, t: ThreadId, from: &str, at: DateTime<Utc>, role: MailboxRol
         rfc_message_id: Some(format!("m{n}@example.test")),
         read: ReadState::Read,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: role,
         labels: vec![],
         body: Body::Absent,

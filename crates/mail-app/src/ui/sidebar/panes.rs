@@ -12,8 +12,14 @@ use crate::ui::view::{
 use dioxus::prelude::*;
 use ds::base::vocab::{Emphasis, RowState};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
+use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
 use ds::components::lists::list::model::{ListItem, ListStyle};
+use ds::components::lists::row::row::RowMounted;
+use ds::components::menus::item::item::{MenuImage, MenuItem};
+use ds::components::menus::pop_up_button::{PopUpButton, PopUpKind};
+use ds::host::measure::MountedRef;
 use ds::prelude::*;
+use ds::style::tokens::control_size::ControlSize;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
 use mail_core::mailbox_filter::{for_role, pending_snooze};
@@ -299,12 +305,61 @@ fn PlaceRow(
     let state = use_hook(motion);
     let accepts = shell.read().places.get(index).is_some_and(drag::accepts);
     let drop = state.map_or(DropState::Idle, |state| drop_of(&state, index, accepts));
+    // A label's row wears the label's colour and has a ⋯ that edits it.
+    let mut editing = use_signal(|| false);
+    let mut kept = use_signal(|| 0u32);
+    let row_ref = use_signal(|| None::<MountedRef>);
+    let label = match shell.read().places.get(index).map(|place| &place.source) {
+        Some(Source::Mail(Filter::HasLabel(id))) => {
+            // Read again once a colour is kept, so the row wears it.
+            let _kept = kept();
+            let store = consume_context::<std::sync::Arc<SqliteStore>>();
+            super::label_editor::label_of(&store, *id)
+        }
+        _ => None,
+    };
+    let hue = label.as_ref().and_then(super::label_editor::hue_of);
+    let leading = match hue {
+        Some(hue) => RowLeading::Element(rsx! {
+            span { class: "label-hue", "data-hue": hue.as_str(),
+                ds::style::icon::render::Glyph { icon, size: IconSize::Compact }
+            }
+        }),
+        None => RowLeading::Icon(icon),
+    };
+    let accessory = match &label {
+        Some(label) => Accessory::Slot(rsx! {
+            if let Some(count) = count {
+                Badge { content: BadgeContent::Number(count_of(count)), tone: BadgeTone::Quiet, size: ControlSize::Small }
+            }
+            PopUpButton::<&'static str> {
+                kind: PopUpKind::Overflow,
+                title: Some(copy::aria::actions_for(&label.name)),
+                size: ControlSize::Small,
+                items: vec![MenuItem::new(copy::menus::EDIT_LABEL, copy::menus::EDIT_LABEL).with_image(MenuImage::Icon(Icon::Pen))],
+                onpick: move |_: &'static str| editing.set(true),
+            }
+        }),
+        None => count.map_or(Accessory::None, |count| Accessory::Badge(count_of(count))),
+    };
+    let editor = match (&label, editing()) {
+        (Some(label), true) => rsx! {
+            super::label_editor::LabelEditor {
+                label: label.clone(),
+                anchor: row_ref(),
+                on_change: move |_| kept += 1,
+                on_close: move |()| editing.set(false),
+            }
+        },
+        _ => rsx! {},
+    };
     rsx! {
         Row {
-            leading: RowLeading::Icon(icon),
+            leading,
             title: name.clone(),
             common: tagged("place", name),
-            accessory: count.map_or(Accessory::None, |count| Accessory::Badge(count_of(count))),
+            accessory,
+            onmounted: RowMounted::new(move |event: MountedEvent| { let mut at = row_ref; at.set(Some(MountedRef(event.data()))); }),
             state: RowState {
                 selection: if on { Selection::Selected } else { Selection::Unselected },
                 drop,
@@ -320,6 +375,7 @@ fn PlaceRow(
             },
             onpointerleave: move |_| drag::over(None, index),
         }
+        {editor}
     }
 }
 

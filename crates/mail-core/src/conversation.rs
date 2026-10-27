@@ -992,6 +992,7 @@ mod tests {
             rfc_message_id: Some(format!("m{n}@example.test")),
             read: ReadState::Unread,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: Vec::new(),
             body: Body::Absent,

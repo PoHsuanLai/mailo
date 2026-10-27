@@ -103,6 +103,7 @@ fn ingest(messages: Vec<Fetched>) -> Ingest {
         cursor: None,
         messages,
         flags: vec![],
+        flag_colors: Vec::new(),
         labels: vec![],
         label_names: Vec::new(),
         provider_threads: Vec::new(),

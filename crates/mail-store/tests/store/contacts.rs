@@ -88,6 +88,7 @@ fn deliver_at(store: &dyn Store, m: &Message, path: &str, uid: u32, raw: BlobId)
                     message: m.clone(),
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 provider_threads: Vec::new(),

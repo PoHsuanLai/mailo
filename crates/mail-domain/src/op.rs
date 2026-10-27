@@ -25,6 +25,7 @@ use crate::account::{AccountCaps, ArchiveMeans, ServerLabels};
 use crate::content::Label;
 use crate::draft::Draft;
 use crate::folder::{Folder, FolderWork};
+use crate::hue::Hue;
 use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
 use crate::receipt::{DeliveryReport, Keyword};
@@ -94,6 +95,9 @@ pub enum Op {
     /// address to the message this client already holds, as a message in two IMAP folders is
     /// one message with two addresses.
     Copy(LabelId),
+    /// Flag in a colour: starred, as [`Op::SetStar`] stars, with the flag drawn in `Hue`.
+    /// Clearing a flag is `SetStar(Star::Unstarred)`, which also puts the colour back to red.
+    Flag(Hue),
 }
 
 /// An operation with its payload stripped: "which action", without "that action's arguments".
@@ -166,6 +170,8 @@ pub enum Change {
         to: String,
         delimiter: Option<char>,
     },
+    /// A message's flag colour. Means something only while the message is starred.
+    MessageFlag(MessageId, Hue),
 }
 
 /// A set of mutations applied as one unit.
@@ -294,6 +300,9 @@ pub enum RemoteIntent {
         messages: Vec<MessageId>,
         label: LabelId,
     },
+    /// Flag messages in a colour: starred, with the colour where the server can keep one.
+    /// Resolved by the store to [`crate::ProtoOp::SetFlag`].
+    SetFlag { messages: Vec<MessageId>, hue: Hue },
 }
 
 /// The result of applying an [`Op`], or of planning a folder change with [`crate::folder::plan`].
@@ -363,6 +372,7 @@ impl Op {
             Op::Restore => restore(&selected),
             Op::SetRead(state) => set_read(&selected, *state),
             Op::SetStar(star) => set_star(&selected, *star),
+            Op::Flag(hue) => set_flag(&selected, *hue),
             Op::Label(label, membership) => set_label(&selected, *label, *membership),
             Op::File(label) => file_into(&selected, *label),
             Op::Copy(label) => set_label(&selected, *label, Membership::In),
@@ -422,6 +432,7 @@ impl Op {
         for change in &forward {
             if let Change::MessageRead(m, _)
             | Change::MessageStar(m, _)
+            | Change::MessageFlag(m, _)
             | Change::MessageMailbox(m, _)
             | Change::MessageLabel(m, _, _)
             | Change::MessageDelete(m) = change
@@ -480,9 +491,13 @@ impl Op {
                 read: None,
                 star: Some(*star),
             }),
+            Op::Flag(hue) => Some(RemoteIntent::SetFlag {
+                messages,
+                hue: *hue,
+            }),
             Op::Label(label, membership) => match caps.labels {
                 ServerLabels::LocalOnly => None,
-                ServerLabels::Supported => {
+                ServerLabels::Supported | ServerLabels::Keywords => {
                     let (add, remove) = match membership {
                         Membership::In => (vec![*label], Vec::new()),
                         Membership::Out => (Vec::new(), vec![*label]),
@@ -534,6 +549,8 @@ impl Op {
             Op::SetRead(ReadState::Unread) => OpKind::MarkUnread,
             Op::SetStar(Star::Starred) => OpKind::Star,
             Op::SetStar(Star::Unstarred) => OpKind::Unstar,
+            // A flag in a colour is a star, said in more detail.
+            Op::Flag(_) => OpKind::Star,
             Op::Label(_, Membership::In) => OpKind::AddLabel,
             Op::Label(_, Membership::Out) => OpKind::RemoveLabel,
             Op::SetSnooze(_) => OpKind::Snooze,
@@ -646,6 +663,9 @@ fn set_read(selected: &[&Message], state: ReadState) -> (Vec<Change>, Vec<Change
 }
 
 /// As [`set_read`], for the star flag.
+///
+/// Unstarring also puts a coloured flag's colour back to red, as the server's colour keywords
+/// are cleared with `\Flagged`: a star set again later, from anywhere, is a red one.
 fn set_star(selected: &[&Message], star: Star) -> (Vec<Change>, Vec<Change>) {
     let mut forward = Vec::new();
     let mut inverse = Vec::new();
@@ -653,6 +673,28 @@ fn set_star(selected: &[&Message], star: Star) -> (Vec<Change>, Vec<Change>) {
         if m.star != star {
             forward.push(Change::MessageStar(m.id, star));
             inverse.push(Change::MessageStar(m.id, m.star));
+        }
+        if star == Star::Unstarred && m.flag != Hue::Red {
+            forward.push(Change::MessageFlag(m.id, Hue::Red));
+            inverse.push(Change::MessageFlag(m.id, m.flag));
+        }
+    }
+    (forward, inverse)
+}
+
+/// Star every selected message and give its flag `hue`, remembering each one's own star and
+/// colour, so undoing an orange flag over a thread with one red flag leaves that one red.
+fn set_flag(selected: &[&Message], hue: Hue) -> (Vec<Change>, Vec<Change>) {
+    let mut forward = Vec::new();
+    let mut inverse = Vec::new();
+    for m in selected {
+        if m.star != Star::Starred {
+            forward.push(Change::MessageStar(m.id, Star::Starred));
+            inverse.push(Change::MessageStar(m.id, m.star));
+        }
+        if m.flag != hue {
+            forward.push(Change::MessageFlag(m.id, hue));
+            inverse.push(Change::MessageFlag(m.id, m.flag));
         }
     }
     (forward, inverse)

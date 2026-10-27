@@ -69,6 +69,7 @@ async fn a_right_click_on_a_row_lists_every_action_it_has() {
             menus::FORWARD,
             menus::MARK_AS_READ,
             menus::STAR,
+            menus::FLAG,
             menus::PIN,
             menus::SNOOZE,
             menus::LABEL,

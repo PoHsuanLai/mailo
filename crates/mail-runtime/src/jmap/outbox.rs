@@ -227,6 +227,10 @@ impl JmapEngine {
                 let update = patch_each(&remotes, jmap::flags_patch(read, star));
                 self.set(&client, update, Vec::new()).await
             }
+            ProtoOp::SetFlag { remotes, hue } => {
+                let update = patch_each(&remotes, jmap::flag_patch(hue));
+                self.set(&client, update, Vec::new()).await
+            }
             ProtoOp::SetMailbox { remotes, role } => {
                 let update = patch_each(&remotes, jmap::filing_patch(role, &mailboxes)?);
                 self.set(&client, update, Vec::new()).await

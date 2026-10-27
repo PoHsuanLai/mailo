@@ -573,6 +573,8 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE drafts DROP COLUMN delivery;
              DROP TABLE drafts_to_reflow;
              DROP TABLE templates_to_reflow;
+             ALTER TABLE messages DROP COLUMN flag;
+             ALTER TABLE thread_summary DROP COLUMN flag;
              DELETE FROM schema_version WHERE version >= 12;",
     )
     .expect("un-apply the migrations");

@@ -153,6 +153,7 @@ fn assemble_as(
             cursor,
             messages,
             flags: Vec::new(),
+            flag_colors: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
             provider_threads: Vec::new(),
@@ -262,6 +263,7 @@ fn build(
             rfc_message_id: fields.rfc_message_id,
             read: ReadState::Unread,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: role,
             labels: Vec::new(),
             body: Body::Present {

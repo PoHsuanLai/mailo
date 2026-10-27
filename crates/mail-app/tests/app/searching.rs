@@ -452,6 +452,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
                     cursor: None,
                     messages: vec![],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: vec![(
                         RemoteRef::Pop {
@@ -502,6 +503,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
                     cursor: None,
                     messages: vec![],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: vec![(
                         RemoteRef::Pop {

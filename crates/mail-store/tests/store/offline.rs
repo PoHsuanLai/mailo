@@ -92,6 +92,7 @@ fn deliver(store: &dyn Store, m: &Message, at: RemoteRef, raw: BlobId) {
                     message: m.clone(),
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 provider_threads: Vec::new(),

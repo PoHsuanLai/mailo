@@ -168,3 +168,5 @@ article.frame:last-of-type .html { height: auto; min-height: 320px; flex: 1 0 32
 
 /* The reader's trust glyph popover. */
 .trust-said { display: grid; gap: var(--s-6); width: 320px; }
+/* The flag before the subject, in its colour (list.css). */
+.flag-mark { display: inline-flex; align-items: center; margin-right: var(--s-8); color: var(--warn); }

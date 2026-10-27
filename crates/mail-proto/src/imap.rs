@@ -1559,6 +1559,32 @@ pub(crate) fn response_code(untagged: &[Untagged], name: &str) -> Option<u64> {
         .next_back()
 }
 
+/// Whether the mailbox just selected keeps keywords nobody has used in it before: its
+/// `PERMANENTFLAGS` lists `\*` (RFC 9051 §7.1).
+///
+/// Read from status responses only, like [`response_code`], and the last one wins. No list at
+/// all is a server that did not say, which is not a yes: a keyword it will not keep would be a
+/// label that quietly disappears.
+pub(crate) fn keeps_new_keywords(untagged: &[Untagged]) -> bool {
+    untagged
+        .iter()
+        .filter_map(|u| {
+            let head = u.text.get(..6)?;
+            if !head.eq_ignore_ascii_case("* OK [") {
+                return None;
+            }
+            let rest = &u.text[6..];
+            let (key, value) = rest[..rest.find(']')?].split_once(' ')?;
+            key.eq_ignore_ascii_case("PERMANENTFLAGS").then(|| {
+                value
+                    .split(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                    .any(|flag| flag == "\\*")
+            })
+        })
+        .next_back()
+        .unwrap_or(false)
+}
+
 /// Why a [`ImapCommand::RequireEmpty`] guard stops the walk, if it does.
 ///
 /// Read from the typed `STATUS` response that arrived during the guard, not from its text:

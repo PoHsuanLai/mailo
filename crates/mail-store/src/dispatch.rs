@@ -114,6 +114,7 @@ pub(crate) fn same_folder(a: &str, b: &str) -> bool {
 fn messages_of(intent: &RemoteIntent) -> &[MessageId] {
     match intent {
         RemoteIntent::SetFlags { messages, .. }
+        | RemoteIntent::SetFlag { messages, .. }
         | RemoteIntent::SetMailbox { messages, .. }
         | RemoteIntent::SetLabels { messages, .. }
         | RemoteIntent::File { messages, .. }
@@ -221,6 +222,7 @@ pub(crate) fn readdress(op: ProtoOp, remotes: Vec<RemoteRef>) -> ProtoOp {
             read,
             star,
         },
+        ProtoOp::SetFlag { hue, .. } => ProtoOp::SetFlag { remotes, hue },
         ProtoOp::SetMailbox { role, .. } => ProtoOp::SetMailbox { remotes, role },
         ProtoOp::SetLabels { add, remove, .. } => ProtoOp::SetLabels {
             remotes,

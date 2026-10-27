@@ -234,6 +234,8 @@ impl Reader {
                 Ok(ProtoOutcome::Fetched {
                     items,
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
+                    label_names: Vec::new(),
                 })
             }
             ProtoOp::FetchBody { remotes } => {
@@ -252,6 +254,8 @@ impl Reader {
                 Ok(ProtoOutcome::Fetched {
                     items,
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
+                    label_names: Vec::new(),
                 })
             }
             ProtoOp::SetFlags {
@@ -270,6 +274,18 @@ impl Reader {
                     };
                     patch["flag"] = json!({ "flagStatus": status });
                 }
+                for id in graph_ids(&remotes) {
+                    let url = format!("{}/messages/{}", self.me, segment(id));
+                    self.call(reqwest::Method::PATCH, &url, token, Some(&patch))
+                        .await?;
+                }
+                Ok(ProtoOutcome::Applied)
+            }
+            // Graph's flag has no colour. Outlook's categories have colours, but a category is
+            // a named label on the mailbox's own list, not a flag's colour, so the colour stays
+            // here and the server is told the message is flagged.
+            ProtoOp::SetFlag { remotes, .. } => {
+                let patch = json!({ "flag": { "flagStatus": "flagged" } });
                 for id in graph_ids(&remotes) {
                     let url = format!("{}/messages/{}", self.me, segment(id));
                     self.call(reqwest::Method::PATCH, &url, token, Some(&patch))
@@ -354,6 +370,7 @@ impl Reader {
             cursor: None,
             messages: Vec::new(),
             flags: Vec::new(),
+            flag_colors: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
             provider_threads: Vec::new(),

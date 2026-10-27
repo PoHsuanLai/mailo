@@ -113,6 +113,7 @@ fn list_message(
         rfc_message_id: Some(rfc_id),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: match body {
@@ -143,6 +144,7 @@ fn list_message(
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
                 provider_threads: Vec::new(),

@@ -9,7 +9,10 @@ use super::Mailboxes;
 use super::field::{malformed, object};
 use super::mailbox::DELIMITER;
 use crate::{ProtoError, Refusal};
-use mail_domain::{FolderWork, JmapMailboxId, Keyword, MailboxRole, ReadState, Star, Subscription};
+use mail_domain::{
+    FLAG_BIT_KEYWORDS, FolderWork, Hue, JmapMailboxId, Keyword, MailboxRole, ReadState, Star,
+    Subscription,
+};
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
@@ -21,6 +24,27 @@ pub fn flags_patch(read: Option<ReadState>, star: Option<Star>) -> Map<String, V
     }
     if let Some(star) = star {
         patch.insert("keywords/$flagged".to_owned(), on(star == Star::Starred));
+        // The colour goes with the flag, as Apple Mail clears it.
+        if star == Star::Unstarred {
+            for bit in FLAG_BIT_KEYWORDS {
+                patch.insert(format!("keywords/{bit}"), Value::Null);
+            }
+        }
+    }
+    patch
+}
+
+/// The patch that flags an email in `hue`: `$flagged`, with Apple Mail's colour keywords set
+/// and cleared ([`Hue::flag_keywords`]).
+pub fn flag_patch(hue: Hue) -> Map<String, Value> {
+    let mut patch = Map::new();
+    patch.insert("keywords/$flagged".to_owned(), json!(true));
+    let (set, clear) = hue.flag_keywords();
+    for bit in set {
+        patch.insert(format!("keywords/{bit}"), json!(true));
+    }
+    for bit in clear {
+        patch.insert(format!("keywords/{bit}"), Value::Null);
     }
     patch
 }

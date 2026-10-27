@@ -1,6 +1,7 @@
 //! Bulk facts arriving from a server. The counterpart to [`crate::Patch`].
 
 use crate::content::Label;
+use crate::hue::Hue;
 use crate::id::BlobId;
 use crate::message::{Message, MessageKey};
 use crate::remote::{MailboxRef, RemoteRef, SyncCursor, UidValidity};
@@ -47,6 +48,11 @@ pub struct Ingest {
     pub messages: Vec<Fetched>,
     /// Flag-only updates, which are far cheaper than refetching a message.
     pub flags: Vec<(RemoteRef, ReadState, Star)>,
+    /// Each message's flag colour as the server's keywords spell it, where the server keeps
+    /// keywords: IMAP and JMAP. Empty on Graph and POP3, which have none, and the colour held
+    /// here stands. Added after the first release, hence the default.
+    #[serde(default)]
+    pub flag_colors: Vec<(RemoteRef, Hue)>,
     /// Label definitions this batch learned about.
     pub labels: Vec<Label>,
     /// What the server says each message is labelled, by name.
@@ -59,7 +65,9 @@ pub struct Ingest {
     /// what was added. A label the server no longer lists has been removed there, and a client
     /// that only ever adds accumulates labels the user deleted years ago.
     ///
-    /// Empty on every protocol but Gmail, which is the only one that has them.
+    /// Empty on every protocol but Gmail, and IMAP with [`crate::ServerLabels::Keywords`], where
+    /// a name is the label a keyword stands for ([`crate::keyword_label`]) and the store matches
+    /// it to a label by keyword rather than by spelling.
     #[serde(default)]
     pub label_names: Vec<(RemoteRef, Vec<String>)>,
     /// The thread id the server gave each message, where it gives one (Gmail's `X-GM-THRID`).

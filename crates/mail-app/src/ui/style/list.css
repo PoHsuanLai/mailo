@@ -81,3 +81,13 @@
 .doctor { display: flex; flex-direction: column; gap: var(--s-12); padding: var(--s-16); }
 .doctor-foot { display: flex; justify-content: flex-end; gap: var(--s-8); }
 .doctor-acts { display: flex; align-items: center; gap: var(--s-4); }
+/* A flag's colour: the row's star (quire draws it in --warn) and the reader's mark before the
+   subject wear the tag colour of the flag's name, which has its own dark value; a label's tag in
+   the sidebar wears its colour the same way. */
+.row[data-flag="red"], .flag-mark[data-flag="red"], .label-hue[data-hue="red"] { --warn: var(--tag-red); }
+.row[data-flag="orange"], .flag-mark[data-flag="orange"], .label-hue[data-hue="orange"] { --warn: var(--tag-orange); }
+.row[data-flag="yellow"], .flag-mark[data-flag="yellow"], .label-hue[data-hue="yellow"] { --warn: var(--tag-yellow); }
+.row[data-flag="green"], .flag-mark[data-flag="green"], .label-hue[data-hue="green"] { --warn: var(--tag-green); }
+.row[data-flag="blue"], .flag-mark[data-flag="blue"], .label-hue[data-hue="blue"] { --warn: var(--tag-blue); }
+.row[data-flag="purple"], .flag-mark[data-flag="purple"], .label-hue[data-hue="purple"] { --warn: var(--tag-purple); }
+.row[data-flag="gray"], .flag-mark[data-flag="gray"], .label-hue[data-hue="gray"] { --warn: var(--tag-gray); }

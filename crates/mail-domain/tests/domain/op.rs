@@ -13,7 +13,7 @@ use mail_domain::{
     MessageKey, MoveExt, Op, OpKind, Patch, Pin, ReadState, RemoteIntent, ServerLabels,
     ServerThreads, Snooze, Star, Supported, Target, Thread, ThreadId, ThreadSummary, WatchMode,
 };
-use mail_domain::{Address, Attachment, FollowUp, Inline, Mute, PartContent, SortFacts};
+use mail_domain::{Address, Attachment, FollowUp, Hue, Inline, Mute, PartContent, SortFacts};
 use proptest::prelude::*;
 use std::time::Duration;
 use uuid::Uuid;
@@ -70,6 +70,7 @@ fn message(n: u128, date: i64) -> Message {
         rfc_message_id: Some(format!("m{n}@example.test")),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: Vec::new(),
         body: Body::Present {
@@ -182,6 +183,8 @@ fn kind_strips_the_payload() {
         (Op::SetRead(ReadState::Unread), OpKind::MarkUnread),
         (Op::SetStar(Star::Starred), OpKind::Star),
         (Op::SetStar(Star::Unstarred), OpKind::Unstar),
+        // A flag in a colour is a star, said in more detail.
+        (Op::Flag(Hue::Purple), OpKind::Star),
         (Op::Label(LABEL_A, Membership::In), OpKind::AddLabel),
         (Op::Label(LABEL_A, Membership::Out), OpKind::RemoveLabel),
         (Op::SetSnooze(Snooze::Inactive), OpKind::Snooze),
@@ -576,6 +579,39 @@ fn apply_over_a_whole_thread() {
             inverse: vec![Change::MessageStar(mid(2), Star::Starred)],
         },
         ApplyCase {
+            // Each message is starred where it was not and coloured, and each goes back to its
+            // own star: m2 was starred red already, and stays starred on undo.
+            name: "flag orange over a half-starred thread",
+            op: Op::Flag(Hue::Orange),
+            forward: vec![
+                Change::MessageStar(mid(1), Star::Starred),
+                Change::MessageFlag(mid(1), Hue::Orange),
+                Change::MessageFlag(mid(2), Hue::Orange),
+                Change::MessageStar(mid(3), Star::Starred),
+                Change::MessageFlag(mid(3), Hue::Orange),
+            ],
+            inverse: vec![
+                Change::MessageStar(mid(1), Star::Unstarred),
+                Change::MessageFlag(mid(1), Hue::Red),
+                Change::MessageFlag(mid(2), Hue::Red),
+                Change::MessageStar(mid(3), Star::Unstarred),
+                Change::MessageFlag(mid(3), Hue::Red),
+            ],
+        },
+        ApplyCase {
+            // A red flag is a star with no colour change: m2 is already exactly that.
+            name: "flag red over a half-starred thread",
+            op: Op::Flag(Hue::Red),
+            forward: vec![
+                Change::MessageStar(mid(1), Star::Starred),
+                Change::MessageStar(mid(3), Star::Starred),
+            ],
+            inverse: vec![
+                Change::MessageStar(mid(1), Star::Unstarred),
+                Change::MessageStar(mid(3), Star::Unstarred),
+            ],
+        },
+        ApplyCase {
             // The crux: m1 and m3 already carry A. They contribute nothing to `forward` and
             // nothing to `inverse`, so undoing does not strip a label the user already had.
             name: "add a label two messages already carry",
@@ -964,6 +1000,7 @@ fn replay(mut state: State, patch: &Patch) -> State {
         match change {
             Change::MessageRead(id, read) => find(&mut state.messages, *id).read = *read,
             Change::MessageStar(id, star) => find(&mut state.messages, *id).star = *star,
+            Change::MessageFlag(id, hue) => find(&mut state.messages, *id).flag = *hue,
             Change::MessageMailbox(id, role) => find(&mut state.messages, *id).mailbox = *role,
             Change::MessageLabel(id, label, Membership::In) => {
                 let m = find(&mut state.messages, *id);
@@ -999,6 +1036,10 @@ fn arb_read() -> impl Strategy<Value = ReadState> {
 
 fn arb_star() -> impl Strategy<Value = Star> {
     prop_oneof![Just(Star::Unstarred), Just(Star::Starred)]
+}
+
+fn arb_hue() -> impl Strategy<Value = Hue> {
+    proptest::sample::select(Hue::ALL.to_vec())
 }
 
 fn arb_mailbox() -> impl Strategy<Value = MailboxRole> {
@@ -1058,13 +1099,15 @@ fn arb_message(index: u128) -> impl Strategy<Value = Message> {
         1i64..1_000,
         arb_read(),
         arb_star(),
+        arb_hue(),
         arb_mailbox(),
         arb_labels(),
     )
-        .prop_map(move |(date, read, star, mailbox, labels)| {
+        .prop_map(move |(date, read, star, flag, mailbox, labels)| {
             let mut m = message(index, date);
             m.read = read;
             m.star = star;
+            m.flag = flag;
             m.mailbox = mailbox;
             m.labels = labels;
             m
@@ -1083,6 +1126,7 @@ fn arb_op() -> impl Strategy<Value = Op> {
         Just(Op::Spam),
         arb_read().prop_map(Op::SetRead),
         arb_star().prop_map(Op::SetStar),
+        arb_hue().prop_map(Op::Flag),
         (
             arb_label(),
             prop_oneof![Just(Membership::In), Just(Membership::Out)]
@@ -1504,4 +1548,80 @@ proptest! {
         prop_assert!(applied.inverse.changes.is_empty());
         prop_assert_eq!(applied.remote.is_some(), !expected.is_empty());
     }
+}
+
+// ---------------------------------------------------------------------------------------
+// Flag colours
+// ---------------------------------------------------------------------------------------
+
+/// A coloured flag asks the server for that colour, on every account kind: a server that keeps
+/// no colours still keeps the flag.
+#[test]
+fn a_flag_in_a_colour_asks_the_server_for_it() {
+    let messages = mixed_thread();
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+    let target = Target::Threads(vec![THREAD]);
+    for caps in [
+        server_caps(),
+        account_caps(ArchiveMeans::LocalOnly, ServerLabels::LocalOnly),
+    ] {
+        let applied = Op::Flag(Hue::Green).apply(&target, &thread, &messages, &caps, now());
+        assert_eq!(
+            applied.remote,
+            Some(RemoteIntent::SetFlag {
+                messages: vec![mid(1), mid(2), mid(3)],
+                hue: Hue::Green,
+            }),
+            "{:?}",
+            caps.labels
+        );
+    }
+}
+
+/// Clearing a coloured flag puts its colour back to red, as the server's keywords go with
+/// `\Flagged`, and the undo brings the colour back.
+#[test]
+fn unstarring_a_coloured_flag_puts_the_colour_back_to_red() {
+    let mut messages = mixed_thread();
+    messages[1].flag = Hue::Orange;
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+    assert_eq!(
+        thread.summary.flag,
+        Hue::Orange,
+        "the thread wears its flag's colour"
+    );
+    let applied = Op::SetStar(Star::Unstarred).apply(
+        &Target::Threads(vec![THREAD]),
+        &thread,
+        &messages,
+        &server_caps(),
+        now(),
+    );
+    assert_eq!(
+        applied.forward.changes,
+        vec![
+            Change::MessageStar(mid(2), Star::Unstarred),
+            Change::MessageFlag(mid(2), Hue::Red),
+        ]
+    );
+    assert_eq!(
+        applied.inverse.changes,
+        vec![
+            Change::MessageStar(mid(2), Star::Starred),
+            Change::MessageFlag(mid(2), Hue::Orange),
+        ]
+    );
+}
+
+/// The thread's colour is its newest starred message's, whatever older ones say.
+#[test]
+fn a_thread_wears_its_newest_flag() {
+    let mut messages = mixed_thread();
+    messages[0].star = Star::Starred;
+    messages[0].flag = Hue::Blue;
+    messages[1].flag = Hue::Yellow;
+    messages[2].flag = Hue::Purple;
+    let thread = thread_of(&messages, Snooze::Inactive, Pin::Unpinned, Mute::Unmuted);
+    // m3 is newest but not starred: its colour is not a flag.
+    assert_eq!(thread.summary.flag, Hue::Yellow);
 }

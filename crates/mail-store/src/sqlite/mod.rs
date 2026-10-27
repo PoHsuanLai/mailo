@@ -13,6 +13,7 @@ mod found;
 mod graph_push;
 mod groups;
 mod invite;
+mod keywords;
 mod offline;
 mod opened;
 mod outbox;
@@ -854,12 +855,18 @@ impl Store for SqliteStore {
         caps: &AccountCaps,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
+        let was_keywords = self.labels_as_keywords(account.clone())?;
         // What was observed, with what the person picked laid over it: a refresh replaces the
         // first and keeps the second. One transaction, so a pick made meanwhile is not lost.
-        let db = self.connection();
-        let tx = db.unchecked_transaction()?;
-        account_prefs::write_caps(&tx, &account, caps, &row::from_time(now))?;
-        tx.commit()?;
+        {
+            let db = self.connection();
+            let tx = db.unchecked_transaction()?;
+            account_prefs::write_caps(&tx, &account, caps, &row::from_time(now))?;
+            tx.commit()?;
+        }
+        if caps.labels == mail_domain::ServerLabels::Keywords && !was_keywords {
+            self.push_keyword_labels(account, now)?;
+        }
         Ok(())
     }
 

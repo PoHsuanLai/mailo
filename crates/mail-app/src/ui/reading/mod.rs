@@ -547,7 +547,15 @@ pub(super) fn Reader(
                     }
                 }
             }
-            h2 { Label { text: subject, style: LabelStyle::Title, common: crate::ui::common::classed("reader-subject") } }
+            h2 {
+                if loaded.summary.star == Star::Starred {
+                    span { class: "flag-mark", "data-flag": loaded.summary.flag.as_str(),
+                        role: "img", aria_label: super::copy::aria::flagged(loaded.summary.flag),
+                        ds::style::icon::render::Glyph { icon: Icon::Star, size: IconSize::Compact }
+                    }
+                }
+                Label { text: subject, style: LabelStyle::Title, common: crate::ui::common::classed("reader-subject") }
+            }
             super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone() }
             super::unsubscribe::Lookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: way_out }
             list_post::PostLookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: list_post }

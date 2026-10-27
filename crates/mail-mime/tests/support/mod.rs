@@ -86,6 +86,7 @@ pub fn parent(references: Vec<String>, rfc_message_id: Option<&str>) -> Message 
         rfc_message_id: rfc_message_id.map(str::to_owned),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: Vec::new(),
         body: Body::Present {

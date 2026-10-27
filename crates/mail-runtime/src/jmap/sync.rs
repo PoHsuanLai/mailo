@@ -34,6 +34,8 @@ const PAGE: u64 = 1024;
 #[derive(Debug, Default)]
 struct Truth {
     flags: Vec<(RemoteRef, ReadState, Star)>,
+    /// Each email's flag colour, from Apple Mail's keywords.
+    flag_colors: Vec<(RemoteRef, mail_domain::Hue)>,
     labels: Vec<(RemoteRef, Vec<String>)>,
     filed: Vec<(RemoteRef, MailboxRole)>,
     gone: Vec<RemoteRef>,
@@ -54,6 +56,7 @@ impl Truth {
             Filing::Filed { role, labels } => {
                 self.flags
                     .push((remote.clone(), email.read(), email.star()));
+                self.flag_colors.push((remote.clone(), email.hue()));
                 self.labels.push((remote.clone(), labels));
                 self.filed.push((remote, role));
                 Some(role)
@@ -171,6 +174,7 @@ impl JmapEngine {
                     }),
                     messages: Vec::new(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
                     provider_threads: Vec::new(),
@@ -434,6 +438,7 @@ impl JmapEngine {
     fn write(&self, truth: Truth) -> Result<(), RuntimeError> {
         let Truth {
             flags,
+            flag_colors,
             labels,
             filed,
             gone,
@@ -449,6 +454,7 @@ impl JmapEngine {
                 cursor: None,
                 messages: Vec::new(),
                 flags,
+                flag_colors,
                 labels: Vec::new(),
                 label_names: labels,
                 provider_threads: Vec::new(),

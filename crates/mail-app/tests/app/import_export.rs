@@ -405,6 +405,7 @@ fn a_message_with_no_body_yet_is_skipped_and_counted() {
         rfc_message_id: Some("headers-only@example.test".into()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Absent,
@@ -477,6 +478,7 @@ fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its
         rfc_message_id: Some("r@example.test".into()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {

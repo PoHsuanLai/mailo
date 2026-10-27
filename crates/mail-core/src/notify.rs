@@ -375,6 +375,7 @@ mod tests {
             rfc_message_id: None,
             read: ReadState::Unread,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: Vec::new(),
             body: Body::Absent,

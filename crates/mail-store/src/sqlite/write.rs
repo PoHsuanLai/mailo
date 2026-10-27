@@ -118,6 +118,12 @@ impl SqliteStore {
                     .execute(params![id.to_string(), to_json("Star", star)?])?;
                 self.thread_of(*id)?
             }
+            Change::MessageFlag(id, hue) => {
+                self.connection()
+                    .prepare_cached("UPDATE messages SET flag = ?2 WHERE id = ?1")?
+                    .execute(params![id.to_string(), to_json("Hue", hue)?])?;
+                self.thread_of(*id)?
+            }
             Change::MessageMailbox(id, role) => {
                 self.connection()
                     .prepare_cached("UPDATE messages SET mailbox = ?2 WHERE id = ?1")?
@@ -288,12 +294,13 @@ impl SqliteStore {
             .prepare_cached(
                 "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
                      recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                     body_text, body_raw, attachments, fts_text, stored_at)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)
+                     body_text, body_raw, attachments, fts_text, stored_at, flag)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)
                  ON CONFLICT(id) DO UPDATE SET
                      thread=excluded.thread, subject=excluded.subject, from_name=excluded.from_name,
                      from_email=excluded.from_email, read=excluded.read,
-                     star=excluded.star, mailbox=excluded.mailbox, body_text=excluded.body_text,
+                     star=excluded.star, flag=excluded.flag, mailbox=excluded.mailbox,
+                     body_text=excluded.body_text,
                      attachments=excluded.attachments, recipients=excluded.recipients,
                      fts_text=excluded.fts_text",
             )?
@@ -328,6 +335,7 @@ impl SqliteStore {
                 ),
                 // First stored now; a conflict keeps the first (see migration 0040).
                 from_time(chrono::Utc::now()),
+                to_json("Hue", &m.flag)?,
             ])?;
         for label in &m.labels {
             self.connection()
@@ -371,9 +379,9 @@ impl SqliteStore {
                 "INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
                      participants, recipients, last_date, message_count, read, star, mailboxes,
                      labels, attachments, snooze, pin, mute, follow_up, sort_subject,
-                     sort_sender, size, unread, starred)
+                     sort_sender, size, unread, starred, flag)
                  VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,
-                     ?20,?21,?22,?23,?24)
+                     ?20,?21,?22,?23,?24,?25)
                  ON CONFLICT(thread) DO UPDATE SET
                      subject=excluded.subject, snippet=excluded.snippet, from_name=excluded.from_name,
                      from_email=excluded.from_email, participants=excluded.participants,
@@ -383,7 +391,8 @@ impl SqliteStore {
                      attachments=excluded.attachments, snooze=excluded.snooze, pin=excluded.pin,
                      mute=excluded.mute, follow_up=excluded.follow_up,
                      sort_subject=excluded.sort_subject, sort_sender=excluded.sort_sender,
-                     size=excluded.size, unread=excluded.unread, starred=excluded.starred",
+                     size=excluded.size, unread=excluded.unread, starred=excluded.starred,
+                     flag=excluded.flag",
             )?
             .execute(params![
                 s.id.to_string(),
@@ -410,6 +419,7 @@ impl SqliteStore {
                 i64::try_from(facts.size).unwrap_or(i64::MAX),
                 s.read == mail_domain::ReadState::Unread,
                 s.star == mail_domain::Star::Starred,
+                to_json("Hue", &s.flag)?,
             ])?;
         Ok(())
     }
@@ -548,22 +558,52 @@ impl SqliteStore {
             }
         }
 
-        // 3b. Labels the server reports, where it has them — Gmail and nowhere else.
+        // 3a. Flag colours, where the server keeps keywords. Where it does not, the list is
+        //     empty and the colour held here stands.
+        for (remote, hue) in &ingest.flag_colors {
+            if let Some(id) = self.message_by_remote(account.clone(), remote)? {
+                let change = Change::MessageFlag(id, *hue);
+                self.write_change(&change)?;
+                changes.push(change);
+                if let Some(t) = self.thread_of(id)? {
+                    touched.insert(t);
+                }
+            }
+        }
+
+        // 3b. Labels the server reports, where it has them: Gmail, and keywords on a plain IMAP
+        //     server.
         //
         //     The list is complete rather than additive, like flags: a label the server no
         //     longer lists has been removed there, and a client that only ever adds accumulates
         //     labels the user deleted years ago. So the difference is applied in both
         //     directions, and only the difference — writing every membership every pass would
         //     fill the change log with nothing.
+        //
+        //     As keywords, a name is matched by the keyword it makes, and a label with no
+        //     keyword is this computer's alone: the server cannot have taken it away.
+        let mut keyed =
+            if ingest.label_names.is_empty() || !self.labels_as_keywords(account.clone())? {
+                None
+            } else {
+                Some(self.keyed_labels(account.clone())?)
+            };
         for (remote, names) in &ingest.label_names {
             let Some(id) = self.message_by_remote(account.clone(), remote)? else {
                 continue;
             };
             let mut wanted = Vec::new();
             for name in names {
-                wanted.push(self.label_by_name(account.clone(), name)?);
+                let label = match keyed.as_mut() {
+                    Some(keyed) => self.label_by_keyword(account.clone(), name, keyed)?,
+                    None => Some(self.label_by_name(account.clone(), name)?),
+                };
+                wanted.extend(label);
             }
-            let held = self.labels_of(&self.connection(), id)?;
+            let mut held = self.labels_of(&self.connection(), id)?;
+            if let Some(keyed) = &keyed {
+                held.retain(|label| keyed.iter().any(|(id, _)| id == label));
+            }
             for label in wanted.iter().filter(|l| !held.contains(l)) {
                 let change = Change::MessageLabel(id, *label, Membership::In);
                 self.write_change(&change)?;

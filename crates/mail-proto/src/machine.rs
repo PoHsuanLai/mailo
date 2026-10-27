@@ -125,6 +125,13 @@ pub enum ProtoOutcome {
         ///
         /// Empty on POP3, which has no server-side flags at all.
         flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
+        /// Each message's flag colour, from the same `FLAGS`, where the server keeps keywords;
+        /// [`mail_domain::Ingest::flag_colors`] says how it is applied.
+        flag_colors: Vec<(RemoteRef, mail_domain::Hue)>,
+        /// Each message's labels read from its keywords, where labels are keywords
+        /// ([`mail_domain::ServerLabels::Keywords`]); empty everywhere else. Complete, as
+        /// [`mail_domain::Ingest::label_names`] is.
+        label_names: Vec<(RemoteRef, Vec<String>)>,
     },
     /// A watch saw activity. The runtime schedules a fetch; the machine does not do it itself.
     Woken,

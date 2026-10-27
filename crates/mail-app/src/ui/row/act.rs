@@ -17,6 +17,8 @@ pub(in crate::ui) enum Pressed {
     Op(OpKind),
     MoveTo,
     CopyTo,
+    /// A colour from the Flag submenu, or its Clear Flag (`None`): over the selection, at once.
+    Flag(Option<Hue>),
 }
 
 /// The further menu `pressed` opens before it acts, if it opens one.
@@ -26,7 +28,7 @@ pub(in crate::ui) fn further(pressed: Pressed) -> Option<Further> {
         Pressed::CopyTo => Some(Further::Copy),
         Pressed::Op(OpKind::AddLabel) => Some(Further::Label),
         Pressed::Op(OpKind::Snooze) => Some(Further::Snooze),
-        Pressed::Op(_) => None,
+        Pressed::Op(_) | Pressed::Flag(_) => None,
     }
 }
 
@@ -53,6 +55,16 @@ pub(in crate::ui) fn press(
             further,
             opened,
         });
+        return;
+    }
+    if let Pressed::Flag(hue) = pressed {
+        crate::ui::host::Host::focus_app();
+        let op = hue.map_or(Op::SetStar(Star::Unstarred), Op::Flag);
+        let ops = with_selection(shell, id)
+            .into_iter()
+            .map(|thread| (thread, op.clone()))
+            .collect();
+        act_all(&store, shell, revision, ops);
         return;
     }
     let Pressed::Op(kind) = pressed else {

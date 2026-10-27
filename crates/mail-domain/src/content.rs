@@ -172,7 +172,8 @@ pub struct Label {
     pub id: LabelId,
     pub account: AccountId,
     pub name: String,
-    /// `#rrggbb`, or `None` to let the UI choose.
+    /// The colour the person gave it, as a [`crate::Hue`]'s word (`"orange"`), or `None` to let
+    /// the UI choose. An earlier build wrote `#rrggbb` here; that reads as no colour.
     pub color: Option<String>,
     pub origin: LabelOrigin,
 }

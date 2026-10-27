@@ -124,6 +124,7 @@ pub fn message(
         rfc_message_id: Some(format!("m{n}@b.c")),
         read,
         star,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {

@@ -88,6 +88,11 @@ pub fn add_vip(who: &str) -> String {
     format!("Add {who} to VIPs")
 }
 
+/// The flag before the reader's subject: "Flagged Orange".
+pub fn flagged(hue: mail_domain::Hue) -> String {
+    format!("Flagged {}", super::menus::hue(hue))
+}
+
 /// The contact editor's Save, for the person it names.
 pub fn save_contact(address: &str) -> String {
     format!("Save the Name for {address}")
