@@ -102,11 +102,6 @@ impl NotificationSettings {
             sound: self.sound.into(),
         }
     }
-
-    /// Whether mail for the account signed in as `address` is announced.
-    pub fn hears(&self, address: &str) -> bool {
-        self.interest().hears(address)
-    }
 }
 
 /// `compose.*`: writing mail.
@@ -270,11 +265,9 @@ fn labels_of<W: Word + Copy>() -> WordLabels {
 /// to read.
 pub fn badge_places() -> mail_core::notify::Places {
     person_root()
-        .map(|root| load(&root).notifications.badge)
-        .map_or(mail_core::notify::Places::Inbox, |badge| match badge {
-            BadgeCounts::Inbox => mail_core::notify::Places::Inbox,
-            BadgeCounts::Followed => mail_core::notify::Places::Followed,
-        })
+        .map(|root| load(&root).notifications.badge.into())
+        // No config directory to read counts the Inbox.
+        .unwrap_or_default()
 }
 
 /// The config root a mailo config directory stands for: `~/.config/mailo` is `~/.config`, the

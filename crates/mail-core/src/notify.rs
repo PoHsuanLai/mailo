@@ -20,9 +20,7 @@ use crate::error::CoreError;
 use crate::error::Logged;
 use chrono::{DateTime, Utc};
 use mail_domain::ThreadId;
-use mail_domain::{
-    Holds, MailboxRef, MailboxRole, Message, MessageId, ReadState, Snooze, Subscription,
-};
+use mail_domain::{MailboxRole, Message, MessageId, ReadState, Snooze};
 use mail_store::{SqliteStore, Store as _};
 use porter_core::AccountId;
 use std::path::Path;
@@ -110,8 +108,6 @@ pub enum Quiet {
     Snoozed,
     /// Dated before the account was first watched: backfill, not news.
     BeforeFloor,
-    /// Its account is one the person asked not to hear about.
-    Muted,
 }
 
 /// Whether one arrival is announced.
@@ -426,19 +422,10 @@ fn followed_messages(
     account: &AccountId,
 ) -> Result<Vec<MessageId>, CoreError> {
     let mut held = Vec::new();
-    for folder in store.folders(account.clone())? {
-        if folder.subscription != Subscription::Subscribed
-            || folder.holds != Holds::Mail
-            || folder.protected().is_some()
-            || folder.special.is_some()
-        {
-            continue;
+    for mailbox in store.followed_folders()? {
+        if mailbox.account == *account {
+            held.extend(store.folder_contents(&mailbox)?.mapped);
         }
-        let mailbox = MailboxRef {
-            account: account.clone(),
-            path: folder.path,
-        };
-        held.extend(store.folder_contents(&mailbox)?.mapped);
     }
     Ok(held)
 }

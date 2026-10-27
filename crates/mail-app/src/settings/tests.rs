@@ -315,17 +315,17 @@ fn the_notification_settings_say_what_the_core_listens_for() {
     let heard = settings.interest();
     assert_eq!(heard.places, Places::Inbox);
     assert_eq!(heard.sound, Sound::Default);
-    assert!(settings.hears("ada@example.test"));
+    assert!(settings.interest().hears("ada@example.test"));
     settings.places = NotifyPlaces::Followed;
     settings.sound = NotifySound::Silent;
     settings.muted_accounts = vec!["ada@example.test".to_owned()];
     let heard = settings.interest();
     assert_eq!(heard.places, Places::Followed);
     assert_eq!(heard.sound, Sound::Silent);
-    assert!(!settings.hears("ada@example.test"));
+    assert!(!settings.interest().hears("ada@example.test"));
     assert!(
-        !settings.hears("ADA@example.test"),
+        !settings.interest().hears("ADA@example.test"),
         "addresses compare in lowercase"
     );
-    assert!(settings.hears("bo@example.test"));
+    assert!(settings.interest().hears("bo@example.test"));
 }
