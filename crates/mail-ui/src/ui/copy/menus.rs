@@ -220,9 +220,9 @@ pub fn rule_action(action: &mail_domain::RuleAction) -> String {
 }
 
 // The rule actions no conversation menu has, and the pickers that finish two of them.
-pub const RULE_NOTIFY: &str = "Notify me";
+pub const RULE_NOTIFY: &str = "Notify Me";
 pub const RULE_FORWARD: &str = "Forward to…";
-pub const RULE_REPLY: &str = "Reply with template…";
+pub const RULE_REPLY: &str = "Reply with Template…";
 pub const RULE_SENDS_HELP: &str = "As mail arrives, while Mailo runs";
 pub const FORWARD_TO: &str = "Forward to";
 pub const AN_ADDRESS: &str = "Type an address";

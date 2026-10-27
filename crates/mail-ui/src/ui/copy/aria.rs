@@ -43,7 +43,7 @@ pub const SAVE_AS_VIEW: &str = "Save as View";
 /// back over it.
 pub const EDIT_SEARCH: &str = "Edit Search";
 /// The × at the end of the search shown, which lets go of it.
-pub const CLEAR_SEARCH: &str = "Clear search";
+pub const CLEAR_SEARCH: &str = "Clear Search";
 pub const EDIT_VIEW: &str = "Edit View";
 /// The Saved-view editor's button that forgets the view.
 pub const DELETE_VIEW: &str = "Delete View";
@@ -125,7 +125,6 @@ pub const FIND_IN_MESSAGE: &str = "Find in Message";
 /// Its buttons, which step through the matches and close it.
 pub const PREVIOUS_MATCH: &str = "Previous Match";
 pub const NEXT_MATCH: &str = "Next Match";
-pub const DONE_FINDING: &str = "Done";
 /// Peek showing a link's card.
 pub const LINK_DESTINATION: &str = "Link Destination";
 /// A PDF's page in Peek, counted from 1: the picture's description.

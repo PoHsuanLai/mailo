@@ -439,10 +439,10 @@ pub enum JunkTreat {
 #[serde(rename_all = "snake_case")]
 #[word(case = snake)]
 pub enum JunkOrder {
-    #[default]
-    #[word(label = "After my rules")]
+    #[word(label = "After My Rules")]
     After,
-    #[word(label = "Before my rules")]
+    #[default]
+    #[word(label = "Before My Rules")]
     Before,
 }
 
@@ -571,7 +571,7 @@ pub enum Protect {
 
 /// `privacy.relay_kind`: the URL format the relay at `privacy.relay` speaks.
 ///
-/// `Camo` is GitHub's camo format, which go-camo and imgproxy serve: the image's URL signed with
+/// `Camo` is GitHub's camo format, which go-camo serves, and relays that copy it: the image's URL signed with
 /// HMAC-SHA1 under the relay's key. `Token` is `GET <relay>/i?u=<url>` with the key sent as a
 /// bearer token, as `relay/image/worker.js` serves.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]

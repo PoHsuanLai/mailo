@@ -735,6 +735,14 @@ fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
             }),
             Ok(()),
         ),
+        // `socks5://` looks the host up outside the proxy.
+        (
+            private(|p| {
+                p.protect = Protect::Proxy;
+                p.proxy = "socks5://127.0.0.1:9050".to_owned();
+            }),
+            Err(RouteProblem::Proxy),
+        ),
         (
             private(|p| {
                 p.protect = Protect::Relay;

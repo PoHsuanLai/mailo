@@ -5,8 +5,8 @@
 //! and on which network, every time a message is opened. Three ways round that, none tied to any
 //! one host:
 //!
-//! - **A Camo relay** ([`Route::Camo`]): the URL format of GitHub's camo, which go-camo and
-//!   imgproxy also serve. The image's URL is written in hex after an HMAC-SHA1 of it under the
+//! - **A Camo relay** ([`Route::Camo`]): the URL format of GitHub's camo, which go-camo
+//!   serves, and relays that copy it. The image's URL is written in hex after an HMAC-SHA1 of it under the
 //!   key the relay was set up with, so the relay fetches only what someone holding the key asked
 //!   for. Anyone can run go-camo in one container.
 //! - **A token relay** ([`Route::Token`]): `GET {base}/i?u=<url>` with the token as a bearer
@@ -17,8 +17,8 @@
 //! Through a relay or a proxy the relay is what reaches the image's host, so the resolver that
 //! keeps a fetch on the public internet (`public.rs`) is not asked: a relay the person set up is
 //! theirs to choose, like their mail server. The image's own URL is still refused when it names
-//! a private address directly, so a message cannot point the relay inside the reader's network
-//! by a URL alone.
+//! a private address directly; what a relay or a proxy can reach beyond that is its own to
+//! decide.
 
 use hmac::{Hmac, Mac};
 use sha1::Sha1;

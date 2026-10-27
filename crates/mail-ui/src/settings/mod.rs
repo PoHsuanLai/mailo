@@ -378,8 +378,8 @@ pub struct AttachmentSettings {
     )]
     pub downloads_folder: String,
     #[settings(
-        label = "Remove unedited downloads",
-        help = "Remove the copies made to open attachments, unless you changed them.",
+        label = "Remove opened attachments",
+        help = "Copies made when you open an attachment are removed, unless you changed them. Saved files are never removed. Removal at quit happens when you quit normally.",
         section = "Reading"
     )]
     pub remove_unedited: RemoveUnedited,
@@ -412,7 +412,7 @@ pub struct PrivacySettings {
     pub protect: Protect,
     #[settings(
         label = "Relay format",
-        help = "Camo for go-camo or imgproxy; token for relay/image/worker.js.",
+        help = "Camo for go-camo or a relay with the same URL format; token for relay/image/worker.js.",
         section = "Privacy"
     )]
     pub relay_kind: RelayKind,
@@ -430,7 +430,7 @@ pub struct PrivacySettings {
     pub relay_key: String,
     #[settings(
         label = "Proxy",
-        help = "An HTTP or SOCKS5 proxy, such as socks5h://127.0.0.1:9050 for Tor.",
+        help = "An HTTP or SOCKS5 proxy, such as socks5h://127.0.0.1:9050 for Tor. The proxy decides what it can reach.",
         section = "Privacy"
     )]
     pub proxy: String,
@@ -461,7 +461,9 @@ impl PrivacySettings {
             }
             Protect::Proxy => {
                 let url = self.proxy.trim();
-                let known = ["http://", "https://", "socks5://", "socks5h://"];
+                // `socks5://` is left out: it looks the image's host up here, outside the proxy, which is
+                // what `socks5h://` does not.
+                let known = ["http://", "https://", "socks5h://"];
                 if !known.iter().any(|scheme| url.starts_with(scheme))
                     || url_with_host(url).is_none()
                 {
@@ -517,13 +519,13 @@ impl MailboxSettings {
 #[settings(file = "mailo/settings.toml", domain = "junk", page = page())]
 pub struct JunkSettings {
     #[settings(
-        label = "Junk filter",
+        label = "Junk Filter",
         help = "Judge new mail in the inbox by what you have marked as spam and not spam.",
         section = "Junk Mail"
     )]
     pub filter: JunkSwitch,
     #[settings(
-        label = "Junk mail",
+        label = "Junk Mail",
         help = "Move it to Spam, or leave it in the inbox with a Junk label.",
         section = "Junk Mail"
     )]
@@ -535,25 +537,25 @@ pub struct JunkSettings {
     )]
     pub spare_contacts: JunkSwitch,
     #[settings(
-        label = "Spare people I write to",
+        label = "Spare People I Write To",
         help = "Never call mail from someone you have written to junk.",
         section = "Junk Mail"
     )]
     pub spare_written_to: JunkSwitch,
     #[settings(
-        label = "Spare my full name",
+        label = "Spare My Full Name",
         help = "Never call mail addressed to your full name junk.",
         section = "Junk Mail"
     )]
     pub spare_full_name: JunkSwitch,
     #[settings(
-        label = "Trust the server",
+        label = "Trust the Server",
         help = "Take the server's own spam headers as its verdict.",
         section = "Junk Mail"
     )]
     pub trust_server: JunkSwitch,
     #[settings(
-        label = "Filter",
+        label = "Filter Order",
         help = "Run the junk filter before your rules, or after them.",
         section = "Junk Mail"
     )]
