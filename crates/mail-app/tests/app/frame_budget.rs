@@ -212,7 +212,7 @@ fn what_one_frame_of_the_window_costs() {
         );
     });
 
-    // 2. The badges: one count per place, every revision.
+    // 2. The badges: one count per place, every time the store moves.
     let places = view::default_places();
     let badges = timed(7, || {
         for place in &places {
@@ -222,7 +222,7 @@ fn what_one_frame_of_the_window_costs() {
         }
     });
 
-    // 3. The label index, re-read on every revision.
+    // 3. The label index, re-read every time the store moves.
     let labels = timed(7, || {
         let _ = query::known_labels(&store);
     });
@@ -305,13 +305,13 @@ fn what_one_frame_of_the_window_costs() {
     // Two different totals, because these do not all happen at the same moments and adding them
     // together was the first thing this file got wrong.
     //
-    // The badge memo reads `revision` and nothing else — that was a deliberate fix, recorded in
-    // `ui::App` — so typing does not recount anything. What a keystroke re-runs is the memo that
+    // The badges are counted by the client, which reads again only when the store moves (see
+    // `ui::App`), so typing does not recount anything. What a keystroke re-runs is the memo that
     // reads `Shell::search`: the list, or the search that replaces it, plus the open
     // conversation's reader, which re-renders with everything else.
     let keystroke = search + reader;
-    // A sync landing bumps `revision`, which re-runs all of it at once.
-    let revision = list + badges + labels + drafts + reader;
+    // A sync landing moves the store, which re-runs all of it at once.
+    let moved = list + badges + labels + drafts + reader;
     println!(
         "\n  a keystroke, reading    {}  ({:.1} frames at 60 Hz)",
         ms(keystroke),
@@ -319,8 +319,8 @@ fn what_one_frame_of_the_window_costs() {
     );
     println!(
         "  a sync landing          {}  ({:.1} frames at 60 Hz)\n",
-        ms(revision),
-        revision.as_secs_f64() / (1.0 / 60.0)
+        ms(moved),
+        moved.as_secs_f64() / (1.0 / 60.0)
     );
 }
 

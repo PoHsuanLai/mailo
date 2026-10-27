@@ -38,9 +38,9 @@ pub(in crate::ui) fn wait(next: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Du
     }
 }
 
-/// Sweep the reminders now and again whenever the next one comes due, and whenever the store moves, so
-/// a reply that just arrived or a reminder just set is seen at once. A sweep that changed
-/// anything moves the store, which redraws the list.
+/// Sweep the reminders now and again whenever the next one comes due, and whenever the store
+/// moves, so a reply that just arrived or a reminder just set is seen at once. A sweep that
+/// changed anything moves the store, which redraws the list.
 ///
 /// The first sweep is the launch's: a reminder that came due while mailo was closed comes back
 /// then. The sleep is quire's, so it runs on the window's clock (a harness's virtual one in a

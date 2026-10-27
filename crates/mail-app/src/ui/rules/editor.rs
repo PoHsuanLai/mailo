@@ -169,7 +169,6 @@ pub(super) fn RulePage(
     row: AccountRow,
     id: Option<RuleId>,
     said: Said,
-    changed: Signal<u64>,
     pushed: Callback<AccountRow>,
     applied: Callback<Rule>,
 ) -> Element {
@@ -195,9 +194,7 @@ pub(super) fn RulePage(
                 account,
                 editing,
                 on_saved: move |(rule, apply): (Rule, Check)| {
-                    let mut changed = changed;
                     pushed.call(row.clone());
-                    changed += 1;
                     if apply == Check::On {
                         applied.call(rule);
                     }

@@ -8,8 +8,8 @@
 //!
 //! The sign-in itself is `mail_core::account::sign_in_with`. What is here is its one-at-a-time
 //! state ([`Phase`], shared by every window on the event loop's thread) and what the main window
-//! says when it ends ([`DirectSignInWatch`]): a toast, and an account added joining the Space it was added from (`Join`), as
-//! the add-account window does.
+//! says when it ends ([`DirectSignInWatch`]): a toast, and an account added joining the Space it
+//! was added from (`Join`), as the add-account window does.
 //!
 //! Nothing is drawn while it waits. mailo cannot see the browser: a page that never comes back (a
 //! tab closed, an organisation's "Need admin approval") would leave a spinner up until [`WAIT`]

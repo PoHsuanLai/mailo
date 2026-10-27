@@ -43,13 +43,11 @@ pub(super) fn RulesList(
     row: Option<AccountRow>,
     rows: Vec<AccountRow>,
     said: Said,
-    changed: Signal<u64>,
     pushed: Callback<AccountRow>,
     phase: Signal<Phase>,
     running: Signal<String>,
 ) -> Element {
-    // The store's moves are read too: the toast's Undo puts a deleted rule back.
-    let _ = changed();
+    // A write of ours, or the toast's Undo putting a deleted rule back, moves the store.
     let _ = crate::ui::live::moved();
     // The rule whose menu is open, and where the right click was.
     let menu = use_signal(|| None::<(Listed, Rect)>);
@@ -58,7 +56,7 @@ pub(super) fn RulesList(
         let row = row.clone();
         move |(key, rule): (String, Rule)| {
             if let Some(row) = &row {
-                act(&key, &rule, row, said, changed, pushed);
+                act(&key, &rule, row, said, pushed);
             }
         }
     });
@@ -97,7 +95,6 @@ pub(super) fn RulesList(
                     shell,
                     row: row.clone(),
                     said,
-                    changed,
                     pushed,
                     menu,
                 }
@@ -189,7 +186,6 @@ fn RuleRow(
     shell: Signal<Shell>,
     row: AccountRow,
     said: Said,
-    changed: Signal<u64>,
     pushed: Callback<AccountRow>,
     menu: Signal<Option<(Listed, Rect)>>,
 ) -> Element {
@@ -207,7 +203,7 @@ fn RuleRow(
                 on_toggle: EventHandler::new(move |_| {
                     let client = crate::ui::live::client();
                     let state = if on { RuleState::Disabled } else { RuleState::Enabled };
-                    wrote(work::switch(&client, &toggled, state), &row, said, changed, pushed);
+                    wrote(work::switch(&client, &toggled, state), &row, said, pushed);
                 }),
             },
             onclick: move |press: Press| {
@@ -223,19 +219,18 @@ fn RuleRow(
     }
 }
 
-/// A write's end: a failure said, the list read again, and the script put on the server.
+/// A write's end: a failure said, or the script put on the server. The list reads the store
+/// again as it moves.
 pub(super) fn wrote(
     done: Result<(), String>,
     row: &AccountRow,
     mut said: Said,
-    mut changed: Signal<u64>,
     pushed: Callback<AccountRow>,
 ) {
     match done {
         Ok(()) => pushed.call(row.clone()),
         Err(why) => said.set(Some(Err(why))),
     }
-    changed += 1;
 }
 
 /// The keys of a rule's menu.
@@ -301,7 +296,6 @@ fn act(
     rule: &Rule,
     row: &AccountRow,
     said: Said,
-    changed: Signal<u64>,
     pushed: Callback<AccountRow>,
 ) {
     let client = crate::ui::live::client();
@@ -309,12 +303,12 @@ fn act(
         UP | DOWN => {
             let step = if key == UP { Step::Up } else { Step::Down };
             let moved = work::reorder(&client, rule.account.clone(), rule.id, step);
-            wrote(moved, row, said, changed, pushed);
+            wrote(moved, row, said, pushed);
         }
         DELETE => {
             let deleted = work::delete(&client, rule)
                 .map(|text| tell(text, Follow::Restore(Restore::Rule(rule.clone()))));
-            wrote(deleted, row, said, changed, pushed);
+            wrote(deleted, row, said, pushed);
         }
         _ => {}
     }

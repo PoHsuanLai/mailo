@@ -50,14 +50,11 @@ impl Whose {
 /// The group: its rows, then what the last act came to under them.
 #[component]
 pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
-    // Bumped by every change, so the keys are read again; and the store's moves, as a toast's
-    // Undo that puts a deleted key back.
-    let mut changed = use_signal(|| 0u64);
+    // Every change, and a toast's Undo that puts a deleted key back, moves the store.
     let _ = crate::ui::live::moved();
     let mut said = use_signal(|| None::<Result<String, String>>);
     let mut busy = use_signal(|| Busy::Idle);
     let mut confirm = use_signal(|| Confirm::Nothing);
-    let _ = changed();
     let client = crate::ui::live::client();
     let accounts: Vec<String> = account_rows(&client)
         .into_iter()
@@ -125,7 +122,6 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
                 Err(why) => said.set(Some(Err(why))),
             }
             busy.set(Busy::Idle);
-            changed += 1;
         });
     });
     let working = busy() == Busy::Working;

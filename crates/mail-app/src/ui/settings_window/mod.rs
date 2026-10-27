@@ -25,9 +25,9 @@
 //! app is given. It keeps its own `Shell` for its pages and the sheets it opens. What it changes
 //! in the store every window hears from the one client; what it writes to the configuration files
 //! it tells the other windows (`ui::configured`), which read the settings, the keymap and the
-//! Spaces again, so a switch here is followed there without a watch on the file. The call goes through [`SettingsWindows`] when
-//! the window was given one, which is how a test sees what would open: quire's harness has no
-//! event loop to open a window on.
+//! Spaces again, so a switch here is followed there without a watch on the file. The call goes
+//! through [`SettingsWindows`] when the window was given one, which is how a test sees what would
+//! open: quire's harness has no event loop to open a window on.
 
 mod account;
 mod accounts;

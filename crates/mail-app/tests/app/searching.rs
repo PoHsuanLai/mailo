@@ -482,7 +482,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
     }
 
     /// The index has to survive the sync that creates it, which is the whole point of rebuilding
-    /// it on each revision rather than once at startup.
+    /// it each time the store moves rather than once at startup.
     #[test]
     fn a_label_that_did_not_exist_at_startup_is_found_once_it_does() {
         let (store, _dir) = seeded();
