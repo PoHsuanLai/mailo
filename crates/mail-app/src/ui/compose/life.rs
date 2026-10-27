@@ -126,6 +126,20 @@ fn written() -> MutexGuard<'static, BTreeMap<DraftId, u64>> {
     WRITTEN.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// The picture size each draft was last queued to send at. The draft keeps its pictures as
+/// attached and the size is the page's choice, so a send taken back and queued again
+/// ([`pictures_queued`]) asks here rather than send at full size. Held for the process, as a page
+/// is: after a restart a draft sends its pictures as attached, as it always has.
+fn queued_at() -> MutexGuard<'static, BTreeMap<DraftId, PictureSize>> {
+    static QUEUED: Mutex<BTreeMap<DraftId, PictureSize>> = Mutex::new(BTreeMap::new());
+    QUEUED.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// How large the pictures of `draft`'s last queued send were to go.
+pub(in crate::ui) fn pictures_queued(draft: DraftId) -> PictureSize {
+    queued_at().get(&draft).copied().unwrap_or_default()
+}
+
 /// Discard `draft` from the store, as every discard in this process does: under the lock the
 /// writes hold, so an autosave already writing finishes first, and recorded as written by a page
 /// taken now, so an autosave of a page taken before the discard is refused ([`save_stamped`]'s
@@ -444,6 +458,10 @@ pub(in crate::ui) fn queue_reminding(
             let (queued, post) = queue(Leaves::At(at), now)?;
             (queued, post, at)
         }
+    };
+    match pictures {
+        PictureSize::Actual => queued_at().remove(&draft),
+        size => queued_at().insert(draft, size),
     };
     // The send is queued whatever becomes of the reminder: one that could not be kept is said
     // where the window says what it could not do, and is no reason to take back mail the outbox

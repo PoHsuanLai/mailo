@@ -227,7 +227,11 @@ pub(in crate::ui) fn cancel_scheduled(shell: Signal<Shell>, draft: DraftId) -> R
             forward: nothing(),
             inverse: nothing(),
             remote: None,
-            resend: Some(Resend { draft, at }),
+            resend: Some(Resend {
+                draft,
+                at,
+                pictures: super::life::pictures_queued(draft),
+            }),
         }],
         copy::toasts::SENDING_CANCELLED.to_owned(),
     );
@@ -244,11 +248,11 @@ pub(in crate::ui) fn send_again(store: &SqliteStore, resend: Resend) -> bool {
         &mail_core::pgp::no_passphrase,
         resend.draft,
         // A time of its own: no grace is counted before it. The page that chose a picture size is
-        // gone by now: its pictures go as attached.
+        // gone by now, so the size is the one the send was queued with.
         super::life::Going {
             leaves: Leaves::At(resend.at),
             grace: chrono::TimeDelta::zero(),
-            pictures: mail_core::compose::PictureSize::Actual,
+            pictures: resend.pictures,
         },
         None,
         Utc::now(),

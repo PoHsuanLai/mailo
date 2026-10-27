@@ -254,6 +254,11 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
     let at = a_day_from_now();
     let (mut window, seen) = Window::open(store.clone(), draft.clone(), None);
     scheduled_page(&mut window, at);
+    // Pictures sent smaller are the page's choice, and the draft does not keep it.
+    let mut page = window.page();
+    window.dom.in_runtime(|| {
+        page.write().pictures = mail_core::compose::PictureSize::Small;
+    });
     let sent = click(
         &mut window.dom,
         seen.one("aria-label", crate::ui::copy::controls::SEND),
@@ -310,6 +315,13 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
             .all(|resend| super::super::send_again(&store, resend))
     });
     assert!(resent, "the undo was refused");
+    assert!(
+        entry
+            .iter()
+            .filter_map(|part| part.resend)
+            .all(|resend| resend.pictures == mail_core::compose::PictureSize::Small),
+        "the undo forgot the picture size the send was queued with"
+    );
     assert_eq!(
         store.draft(draft.id).map(|d| d.state).ok(),
         Some(SendState::Scheduled { at }),

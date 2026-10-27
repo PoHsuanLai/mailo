@@ -153,6 +153,17 @@ impl Weight {
     pub fn pictures(&self) -> usize {
         self.pictures
     }
+
+    /// Whether any picture is sent made smaller at `size`, which is when it also loses its
+    /// metadata (`pictures::sized`): a picture that already fits, or comes out no smaller,
+    /// goes as it was, location and all.
+    pub fn resizes_at(&self, size: PictureSize) -> bool {
+        let at = PictureSize::ALL
+            .iter()
+            .position(|each| *each == size)
+            .unwrap_or(3);
+        self.content[at] < self.content[3]
+    }
 }
 
 /// Whether a file is a picture a smaller size could change.

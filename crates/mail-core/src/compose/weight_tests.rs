@@ -252,3 +252,21 @@ fn delivery_reports_are_offered_for_every_account_but_graph() {
     assert!(super::can_ask_delivery_report(&store, &jmap));
     assert!(super::can_ask_delivery_report(&store, &smtp));
 }
+
+/// The strip says a picture goes without its location only where one is made smaller: one that
+/// already fits goes as it was, so the size it is sent at changes nothing.
+#[test]
+fn a_size_resizes_only_where_a_picture_comes_out_smaller() {
+    // One photo that shrinks at every size but Large, which is as large as it is; and a file.
+    let photo = [10, 20, 40, 40];
+    let weight = carrying(&[(photo, Picture::Yes), ([5; 4], Picture::No)]);
+    assert!(weight.resizes_at(PictureSize::Small));
+    assert!(weight.resizes_at(PictureSize::Medium));
+    assert!(!weight.resizes_at(PictureSize::Large));
+    assert!(!weight.resizes_at(PictureSize::Actual));
+    // A picture that already fits comes out the same at every size.
+    let fits = carrying(&[([30; 4], Picture::Yes)]);
+    for size in PictureSize::ALL {
+        assert!(!fits.resizes_at(size), "{size:?}");
+    }
+}

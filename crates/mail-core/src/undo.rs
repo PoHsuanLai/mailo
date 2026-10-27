@@ -42,11 +42,13 @@ pub struct Undo {
     pub resend: Option<Resend>,
 }
 
-/// A send held for a time, taken back: the draft, and when it was to leave.
+/// A send held for a time, taken back: the draft, when it was to leave, and how large its pictures
+/// were to be sent, which the draft itself does not keep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Resend {
     pub draft: DraftId,
     pub at: DateTime<Utc>,
+    pub pictures: crate::compose::PictureSize,
 }
 
 /// Which entry of the stack an undo means: what the toast carries back when it is pulled, so

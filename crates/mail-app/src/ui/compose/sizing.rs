@@ -122,7 +122,7 @@ pub(in crate::ui) fn items(measured: &Measured, chosen: PictureSize) -> Vec<Menu
 }
 
 /// The end of the attachment strip: Picture Size while the draft carries a picture, what the
-/// message comes to, and, while pictures go smaller, that they go without their location.
+/// message comes to, and, while a picture goes smaller, that it goes without its location.
 #[component]
 pub(super) fn Sizing(page: Signal<Page>) -> Element {
     let mut at = use_signal(|| None::<MountedRef>);
@@ -181,7 +181,8 @@ pub(super) fn Sizing(page: Signal<Page>) -> Element {
             role: LabelRole::Secondary,
             style: LabelStyle::Footnote,
         }
-        if pictures && chosen != PictureSize::Actual {
+        // Only when a picture is made smaller: one that already fits goes as it was.
+        if pictures && measured.weight.resizes_at(chosen) {
             Label {
                 text: copy::status::PICTURES_WITHOUT_LOCATION.to_owned(),
                 role: LabelRole::Secondary,
