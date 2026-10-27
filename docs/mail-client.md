@@ -109,9 +109,10 @@ Every write goes through the store, so the store says what changed.
   OUTBOX, VIEWS, VIPS, CONTACTS, RULES, KEYS, TEMPLATES, SIGNATURES, IDENTITIES, PREFS,
   FOLLOW_UPS, CLOCK`. Each query declares the topics it reads.
 - **In this process.** `connection()` returns a `Writer` guard that counts how deep the thread
-  holds the writer. A `commit_hook` marks the store dirty and a `rollback_hook` clears it;
-  `update_hook` cannot, because SQLite does not call it for WITHOUT ROWID tables (`folders`,
-  `vips`, `message_labels`, `sync_state`, `pending_changes`). Write methods say what they touch
+  holds the writer. A `commit_hook` marks the store dirty (a rolled-back transaction never
+  reaches it, so there is no `rollback_hook`); `update_hook` cannot say which tables, because
+  SQLite does not call it for WITHOUT ROWID tables (`folders`, `vips`, `message_labels`,
+  `sync_state`, `pending_changes`). Write methods say what they touch
   (`self.touch(Topics::FOLDERS)`). When the outermost guard drops, after the commit is visible
   to readers, the store publishes `Committed { topics, generation }`. A commit that said nothing
   publishes `ALL`, so a missing declaration costs a recount, never a stale window.
