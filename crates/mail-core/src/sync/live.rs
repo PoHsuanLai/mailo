@@ -1,7 +1,8 @@
 //! Waiting for the server to say something, as data.
 //!
 //! The scheduler (`mail_runtime::schedule`) runs the passes, and wants only the waiting from
-//! here: one connection kept open, and a typed [`Heard`] each time the server, the outbox or the
+//! here: one connection kept open (and, for an IMAP server with no `NOTIFY`, a few more for the
+//! folders besides the inbox), and a typed [`Heard`] each time the server, the outbox or the
 //! interval has something to say. [`SyncOps::listen`](crate::SyncOps) is that, built from the
 //! engine calls a pass makes (`AccountEngine::wait`, `JmapEngine::wait`) and the floor under
 //! them ([`super::poll_floor`]), so the window and `mailo watch` cannot disagree about how a
