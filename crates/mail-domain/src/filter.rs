@@ -163,7 +163,7 @@ impl Filter {
 }
 
 /// `days` whole days before `now`.
-pub fn days_before(now: chrono::DateTime<chrono::Utc>, days: u32) -> chrono::DateTime<chrono::Utc> {
+fn days_before(now: chrono::DateTime<chrono::Utc>, days: u32) -> chrono::DateTime<chrono::Utc> {
     now - chrono::TimeDelta::days(i64::from(days))
 }
 

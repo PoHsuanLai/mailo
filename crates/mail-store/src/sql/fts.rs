@@ -36,9 +36,9 @@ pub(crate) const MATCHING: &str = concat!(
 ///
 /// Three writers need this — insert, body arrival, and the backfill — and they used to list the
 /// fields separately, which is how a field gets added to two of them. Attachment names are here
-/// too, after the body. `To` and `Cc` are here
-/// because a thread is found by who it was addressed to as well as by who wrote it; `Bcc` is
-/// not, for the reason `ThreadSummary::recipients` gives.
+/// too, after the body. `To` and `Cc` are here because a thread is found by who it was
+/// addressed to as well as by who wrote it; `Bcc` is not, for the reason
+/// `ThreadSummary::recipients` gives.
 ///
 /// [`Filter::Text`]: mail_domain::Filter::Text
 pub(crate) fn message_index(
