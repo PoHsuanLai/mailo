@@ -11,7 +11,7 @@ use mail_core::contacts::{Group, GroupHome, GroupId};
 #[test]
 fn a_group_is_offered_first_and_choosing_it_puts_each_member_on_once() {
     let (store, _dir) = the_book();
-    let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new());
+    let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new(), &[]);
     // Daniel is on the message already: the group adds only who is not.
     typed(&mut page, List::To, "dan".to_owned(), store.as_ref());
     pick_person(&mut page, List::To, WRITTEN);

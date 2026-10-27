@@ -282,16 +282,11 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
             rsx! {
                 figure { class: "obj o-img", ..obj_attrs(n),
                     {grip(n, menu, page, handle)}
-                    if drawn.is_empty() {
-                        div { class: "pick",
-                            Glyph { icon: Icon::Paperclip, size: IconSize::Base }
-                            span { "Add an image" }
-                        }
-                    } else {
+                    if !drawn.is_empty() {
                         div { class: "imgbox", img { src: "{drawn}", alt: "{alt}" } }
-                        if !alt.is_empty() {
-                            figcaption { "{alt}" }
-                        }
+                    }
+                    if !alt.is_empty() {
+                        figcaption { "{alt}" }
                     }
                 }
             }

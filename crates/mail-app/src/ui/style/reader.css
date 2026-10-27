@@ -12,8 +12,8 @@
 /* Code in a block: the code face, the reading line height. */
 .c-body pre, .plain { font-family: var(--font-code); font-size: var(--fs-meta); line-height: var(--lh-read); }
 /* An inset box: a hairline, the media radius and the second surface. The composer's and the
-   plain text's draw their line softer, and a picker's is dashed (`composer.css`). */
-.att-tile, .unlock, .o-img .pick, .o-table .tbl, .plain, .c-body pre {
+   plain text's draw their line softer (`composer.css`). */
+.att-tile, .unlock, .o-table .tbl, .plain, .c-body pre {
   border: var(--hair) solid var(--line); border-radius: var(--r-media); background: var(--surface-2);
 }
 /* The bar over the subject, a message's and a new one's alike (`.c-head`, `composer.css`). */

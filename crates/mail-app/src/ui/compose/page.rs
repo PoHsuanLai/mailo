@@ -339,20 +339,9 @@ pub(in crate::ui) struct Page {
 }
 
 impl Page {
-    /// The page for `draft`, with `people` to suggest and `attached` to list, and no pictures
-    /// to draw its images from.
-    #[cfg(test)]
+    /// The page for `draft`, with `people` to suggest and `attached` to list, the body's images
+    /// drawn from `inline`, the draft's own pictures (`mail_core::compose::inline_parts`).
     pub(in crate::ui) fn of(
-        draft: &Draft,
-        people: Vec<Person>,
-        attached: Vec<(String, String)>,
-    ) -> Self {
-        Self::opened(draft, people, attached, &[])
-    }
-
-    /// [`Page::of`], the body's images drawn from `inline`, the draft's own pictures
-    /// (`mail_core::compose::inline_parts`).
-    pub(in crate::ui) fn opened(
         draft: &Draft,
         people: Vec<Person>,
         attached: Vec<(String, String)>,

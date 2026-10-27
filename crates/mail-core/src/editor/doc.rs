@@ -196,14 +196,10 @@ impl ImageRef {
     }
 
     /// The `Content-ID` of an image carried on the draft, when this is one and the id can be
-    /// written into the HTML as it is: printable ASCII with no space, bracket or quote.
+    /// written into the HTML as it is (`mail_mime::is_content_id`).
     pub fn cid(&self) -> Option<&str> {
         let cid = self.0.strip_prefix("cid:")?;
-        let plain = !cid.is_empty()
-            && cid
-                .bytes()
-                .all(|byte| byte.is_ascii_graphic() && !matches!(byte, b'<' | b'>' | b'"' | b'\''));
-        plain.then_some(cid)
+        mail_mime::is_content_id(cid).then_some(cid)
     }
 }
 

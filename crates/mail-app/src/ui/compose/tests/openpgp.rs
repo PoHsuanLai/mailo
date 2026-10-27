@@ -141,7 +141,7 @@ fn the_row_writes_the_drafts_openpgp() {
     let mut draft = draft_of("");
     draft.openpgp = OpenPgp::Sign;
     assert_eq!(
-        Page::of(&draft, Vec::new(), Vec::new()).protection,
+        Page::of(&draft, Vec::new(), Vec::new(), &[]).protection,
         Protection::OpenPgp(Mode::Sign)
     );
 }

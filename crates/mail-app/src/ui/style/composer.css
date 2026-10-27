@@ -97,10 +97,6 @@
 .o-img { margin-inline: 0; }
 .o-img .imgbox { border-radius: var(--r-media); overflow: hidden; border: var(--hair) solid var(--line-soft); background: var(--surface-2); }
 .o-img .imgbox img { display: block; width: 100%; height: auto; }
-.o-img .pick {
-  display: flex; align-items: center; gap: var(--s-10); padding: var(--s-14); color: var(--ink-faint); font-size: var(--fs-help);
-  border-style: dashed;
-}
 .o-img figcaption { font-size: var(--fs-help); color: var(--ink-faint); margin-top: var(--s-5); }
 .o-table .tbl { overflow-x: auto; }
 .o-table table { border-collapse: collapse; width: 100%; }

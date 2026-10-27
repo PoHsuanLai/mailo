@@ -500,15 +500,18 @@ pub fn attach_inline(
         .blobs()
         .put(bytes)
         .map_err(|e| CoreError::cannot(format!("store {name}"), e))?;
-    let cid = (1..)
-        .map(|n| format!("img{n}.{}@mailo", draft.id))
-        .find(|cid| {
-            !draft
-                .attachments
-                .iter()
-                .any(|a| a.cid.as_ref() == Some(cid))
-        })
-        .unwrap_or_else(|| format!("img.{}@mailo", draft.id));
+    let mut n = 1;
+    let cid = loop {
+        let cid = format!("img{n}.{}@mailo", draft.id);
+        if !draft
+            .attachments
+            .iter()
+            .any(|a| a.cid.as_ref() == Some(&cid))
+        {
+            break cid;
+        }
+        n += 1;
+    };
     draft.attachments.push(PendingAttachment {
         mime: mime.to_owned(),
         name,

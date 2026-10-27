@@ -28,7 +28,7 @@ fn book_order(store: &SqliteStore, text: &str) -> Vec<String> {
 #[test]
 fn the_people_menu_is_the_books_order_less_whoever_is_on_the_message() {
     let (store, _dir) = the_book();
-    let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new());
+    let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new(), &[]);
     let before = keys(&page, List::To);
     assert_eq!(
         before,
@@ -97,7 +97,7 @@ pub(in crate::ui) fn drawn_states() -> String {
 fn ctrl_t_names_the_same_people_as_the_to_field_for_the_same_text() {
     let (store, _dir) = the_book();
     for text in ["da", "dan", "okafor", "quinn", "example"] {
-        let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new());
+        let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new(), &[]);
         typed(&mut page, List::To, text.to_owned(), store.as_ref());
         let composer = keys(&page, List::To);
         let menu = crate::ui::command::tests::people_for(&store, text);

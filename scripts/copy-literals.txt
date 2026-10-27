@@ -50,7 +50,7 @@ crates/mail-app/src/ui/compose/protection.rs 22
 crates/mail-app/src/ui/compose/receipt.rs 5
 crates/mail-app/src/ui/compose/recipients.rs 3
 crates/mail-app/src/ui/compose/remind.rs 11
-crates/mail-app/src/ui/compose/render.rs 7
+crates/mail-app/src/ui/compose/render.rs 6
 crates/mail-app/src/ui/compose/seal.rs 20
 crates/mail-app/src/ui/compose/surface.rs 1
 crates/mail-app/src/ui/compose/templates.rs 15

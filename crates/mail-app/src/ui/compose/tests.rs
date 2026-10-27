@@ -69,7 +69,7 @@ fn sam() -> Person {
 }
 
 fn page_of(text: &str) -> Page {
-    Page::of(&draft_of(text), vec![dana(), sam()], Vec::new())
+    Page::of(&draft_of(text), vec![dana(), sam()], Vec::new(), &[])
 }
 
 /// One recorded editor event, as a line of a transcript: its number `k`, its input type `t`,

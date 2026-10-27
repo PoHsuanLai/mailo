@@ -74,7 +74,7 @@ fn the_one_control_can_never_ask_for_both_protections() {
     let mut both = draft_of("");
     both.openpgp = OpenPgp::Sign;
     both.smime = Smime::Encrypt;
-    let read = Page::of(&both, Vec::new(), Vec::new());
+    let read = Page::of(&both, Vec::new(), Vec::new(), &[]);
     assert_eq!(read.protection, Protection::OpenPgp(Mode::Sign));
     let saved = read.apply_to(&both, at(1));
     assert_eq!((saved.openpgp, saved.smime), (OpenPgp::Sign, Smime::None));
@@ -83,7 +83,7 @@ fn the_one_control_can_never_ask_for_both_protections() {
     let keys = keys();
     for from in &keys {
         for to in &keys {
-            let mut page = Page::of(&both, Vec::new(), Vec::new());
+            let mut page = Page::of(&both, Vec::new(), Vec::new(), &[]);
             pick(&mut page, from);
             pick(&mut page, to);
             let draft = page.apply_to(&both, at(2));
@@ -121,7 +121,7 @@ fn the_one_control_can_never_ask_for_both_protections() {
 fn picking_smime_clears_openpgp() {
     let mut base = draft_of("");
     base.openpgp = OpenPgp::SignAndEncrypt;
-    let mut page = Page::of(&base, Vec::new(), Vec::new());
+    let mut page = Page::of(&base, Vec::new(), Vec::new(), &[]);
     assert_eq!(label(page.protection), "OpenPGP · Sign and Encrypt");
     page.seal_bar = SealBar::NoOwnKey("me@example.test".to_owned());
     pick(&mut page, "smime-sign");

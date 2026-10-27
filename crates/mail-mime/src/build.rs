@@ -238,7 +238,7 @@ fn placement<'a>(attachment: &'a PendingAttachment, html: Option<&str>) -> Place
 
 /// Whether `cid` can be a `Content-ID` written raw between angle brackets: printable ASCII with
 /// no space, bracket or quote, so it neither breaks the header nor the `src` that names it.
-fn is_content_id(cid: &str) -> bool {
+pub fn is_content_id(cid: &str) -> bool {
     !cid.is_empty()
         && cid
             .bytes()
