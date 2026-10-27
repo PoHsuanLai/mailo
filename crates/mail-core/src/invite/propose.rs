@@ -6,7 +6,7 @@
 //! on this side: the event stays as the organiser has it until the organiser says otherwise, so
 //! no answer is recorded and no calendar is touched.
 
-use super::{Itip, addresses, one_line, queue, raw_of, show_when};
+use super::{Itip, addresses, one_line, product, queue, raw_of, show_when};
 use crate::error::CoreError;
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{Address, MessageId};
@@ -93,7 +93,7 @@ pub fn propose(
             end,
             comment,
             at: now,
-            product: &format!("-//mailo//mailo {}//EN", env!("CARGO_PKG_VERSION")),
+            product: &product(),
         },
     )?;
 

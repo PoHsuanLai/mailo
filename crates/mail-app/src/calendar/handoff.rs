@@ -75,14 +75,35 @@ impl Handoff {
     }
 }
 
-/// A file name for `uid`: its letters and digits, so no UID can name a path.
+/// A file name for `uid`: its letters and digits, so no UID can name a path, and a hash of the
+/// whole UID, so two UIDs that differ only in what was dropped or cut do not share a file.
 fn file_name(uid: &str) -> String {
+    use std::hash::{DefaultHasher, Hash, Hasher};
     let stem: String = uid
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .take(64)
+        .take(48)
         .collect();
-    format!("{stem}.ics")
+    // `DefaultHasher::new` is keyed the same every time, so a UID keeps its file name.
+    let mut hasher = DefaultHasher::new();
+    uid.hash(&mut hasher);
+    format!("{stem}-{:016x}.ics", hasher.finish())
+}
+
+/// Write `bytes` to a file at `path` that is made new: one already there, a link a stranger left
+/// in a shared temporary directory included, is removed rather than written through.
+fn write_new(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?
+        .write_all(bytes)
 }
 
 impl CalendarStore for Handoff {
@@ -103,8 +124,7 @@ impl CalendarStore for Handoff {
     async fn put(&self, calendar: &str, event: &Event) -> Result<Stored, CalendarError> {
         std::fs::create_dir_all(&self.dir).map_err(|e| CalendarError::Bus(e.to_string()))?;
         let path = self.dir.join(file_name(&event.uid));
-        std::fs::write(&path, event.ics.as_bytes())
-            .map_err(|e| CalendarError::Bus(e.to_string()))?;
+        write_new(&path, event.ics.as_bytes()).map_err(|e| CalendarError::Bus(e.to_string()))?;
         self.opens.open(&path).map_err(CalendarError::Bus)?;
         Ok(Stored {
             calendar: calendar.to_owned(),
@@ -184,6 +204,30 @@ mod tests {
                 .unwrap()
                 .starts_with("BEGIN:VCALENDAR")
         );
+    }
+
+    #[test]
+    fn uids_that_differ_only_in_what_is_dropped_have_their_own_files() {
+        assert_ne!(file_name("a@b"), file_name("a-b"));
+        assert_eq!(file_name("a@b"), file_name("a@b"));
+        let long = "x".repeat(200);
+        assert_ne!(
+            file_name(&format!("{long}1")),
+            file_name(&format!("{long}2"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_left_where_the_file_goes_is_replaced_not_written_through() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        std::fs::write(&target, "mine").unwrap();
+        let path = dir.path().join("event.ics");
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        write_new(&path, b"theirs").unwrap();
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "mine");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs");
     }
 
     #[tokio::test]

@@ -96,8 +96,8 @@ pub struct CalendarReply<'a> {
 }
 
 /// The message answering the invitation in `original`: a `multipart/alternative` of the text
-/// and a `text/calendar; method=REPLY` (or `COUNTER`) part (RFC 6047 §2.4), to the organiser alone, in reply
-/// to the invitation's message.
+/// and a `text/calendar; method=REPLY` (or `COUNTER`) part (RFC 6047 §2.4), to the organiser
+/// alone, in reply to the invitation's message.
 pub fn calendar_reply(original: &[u8], reply: &CalendarReply<'_>) -> Result<Posting, MimeError> {
     let to = crate::build::mailbox(&reply.to.email);
     if !to.contains('@') {

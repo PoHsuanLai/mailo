@@ -17,6 +17,11 @@ use mail_pim::{Invite, Kind, Me};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
+/// What `PRODID` says of a calendar object mailo wrote.
+fn product() -> String {
+    format!("-//mailo//mailo {}//EN", env!("CARGO_PKG_VERSION"))
+}
+
 mod calendar;
 mod propose;
 mod when;
@@ -135,7 +140,7 @@ pub fn answer(
             attendance,
             comment,
             at: now,
-            product: &format!("-//mailo//mailo {}//EN", env!("CARGO_PKG_VERSION")),
+            product: &product(),
         },
     )?;
 

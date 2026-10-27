@@ -11,7 +11,7 @@
 //! person for access the first time it is used, and reading mail is no reason to ask. Each call
 //! is the answer to a press of a button.
 
-use super::{addresses, raw_of};
+use super::{addresses, product, raw_of};
 use crate::error::{CoreError, Logged};
 use chrono::{Datelike, LocalResult, TimeZone};
 use mail_domain::{Attendance, MessageId};
@@ -19,11 +19,6 @@ use mail_pim::ical::{self, PartStat, Standing};
 use mail_pim::{Me, When};
 use mail_store::{SqliteStore, Store};
 use porter_calendar::{CalendarRef, CalendarStore, Date, Event, Instant, Stored};
-
-/// What `PRODID` says of a calendar object mailo wrote.
-fn product() -> String {
-    format!("-//mailo//mailo {}//EN", env!("CARGO_PKG_VERSION"))
-}
 
 /// The event `message` holds, as a store takes it. With `attendance`, the reader's own line in
 /// it says that answer; without, the invitation is as it was sent.
@@ -81,8 +76,7 @@ fn placed<Z: TimeZone>(when: &When, zone: &Z) -> Result<porter_calendar::When, C
         day: day.day() as u8,
     };
     let local = |at: chrono::NaiveDateTime| match zone.from_local_datetime(&at) {
-        // The earlier of two readings a clock change repeats; a reading it skips has none, and
-        // is read as the same clock time on the zone's other side of the change.
+        // The earlier of two readings a clock change repeats; a reading it skips has none.
         LocalResult::Single(at) | LocalResult::Ambiguous(at, _) => Some(Instant(at.timestamp())),
         LocalResult::None => None,
     };

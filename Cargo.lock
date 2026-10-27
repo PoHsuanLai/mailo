@@ -5141,7 +5141,7 @@ dependencies = [
  "p256",
  "pdfrum",
  "porter-calendar",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "porter-provider",
  "porter-secrets",
  "porter-service",
@@ -5211,9 +5211,9 @@ dependencies = [
  "nucleo-matcher",
  "pdfrum",
  "porter-calendar",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "porter-discover",
- "porter-http 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-http",
  "porter-provider",
  "porter-secrets",
  "proptest",
@@ -5265,9 +5265,9 @@ dependencies = [
  "mailo-proto",
  "p256",
  "porter-client",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "porter-discover",
- "porter-http 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-http",
  "porter-oauth",
  "porter-provider",
  "porter-secrets",
@@ -5308,7 +5308,7 @@ dependencies = [
  "mail-store",
  "mailo-domain",
  "parking_lot",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "proptest",
  "rusqlite",
  "serde",
@@ -5324,7 +5324,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "mailo-domain",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "porter-provider",
  "proptest",
  "serde",
@@ -5402,7 +5402,7 @@ dependencies = [
  "mailo-domain",
  "mailo-mime",
  "nom 7.1.3",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "porter-provider",
  "proptest",
  "serde_json",
@@ -7141,9 +7141,9 @@ version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
  "dav-proto",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0)",
+ "porter-core",
  "porter-dav",
- "porter-http 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0)",
+ "porter-http",
  "serde_json",
  "thiserror 2.0.21",
 ]
@@ -7151,9 +7151,9 @@ dependencies = [
 [[package]]
 name = "porter-client"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
+source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "thiserror 2.0.21",
  "zeroize",
 ]
@@ -7162,18 +7162,6 @@ dependencies = [
 name = "porter-core"
 version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
-dependencies = [
- "peephole-core",
- "serde",
- "serde_json",
- "thiserror 2.0.21",
- "zeroize",
-]
-
-[[package]]
-name = "porter-core"
-version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
 dependencies = [
  "peephole-core",
  "serde",
@@ -7188,17 +7176,17 @@ version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
  "dav-proto",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0)",
- "porter-http 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0)",
+ "porter-core",
+ "porter-http",
 ]
 
 [[package]]
 name = "porter-discover"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
+source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
- "porter-http 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
+ "porter-http",
  "porter-provider",
  "roxmltree 0.21.1",
  "serde",
@@ -7209,34 +7197,25 @@ dependencies = [
 [[package]]
 name = "porter-fs"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
+source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 
 [[package]]
 name = "porter-http"
 version = "0.1.0"
 source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0)",
- "thiserror 2.0.21",
-]
-
-[[package]]
-name = "porter-http"
-version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
-dependencies = [
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "thiserror 2.0.21",
 ]
 
 [[package]]
 name = "porter-oauth"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
+source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
  "base64 0.22.1",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
- "porter-http 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
+ "porter-http",
  "porter-provider",
  "serde",
  "serde_json",
@@ -7249,9 +7228,9 @@ dependencies = [
 [[package]]
 name = "porter-provider"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
+source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "serde",
  "thiserror 2.0.21",
  "toml",
@@ -7260,12 +7239,12 @@ dependencies = [
 [[package]]
 name = "porter-secrets"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
+source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
  "apple-native-keyring-store",
  "keyring-core",
  "oo7",
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "porter-fs",
  "rustix",
  "serde_json",
@@ -7277,11 +7256,13 @@ dependencies = [
 [[package]]
 name = "porter-service"
 version = "0.1.0"
-source = "git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031#dcc16ada850559c7c8ae213cd7a9b153672e5031"
+source = "git+https://github.com/PoHsuanLai/porter?rev=6239f715dd445358596a50fafcea75a0460389b0#6239f715dd445358596a50fafcea75a0460389b0"
 dependencies = [
- "porter-core 0.1.0 (git+https://github.com/PoHsuanLai/porter?rev=dcc16ada850559c7c8ae213cd7a9b153672e5031)",
+ "porter-core",
  "porter-provider",
  "porter-secrets",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
