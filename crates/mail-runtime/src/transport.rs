@@ -231,8 +231,15 @@ impl Transport {
                 self.write_all(bytes).await?;
                 Ok(None)
             }
-            IoNeed::Deflate => {
-                self.deflate = Some(Box::new(Deflate::new()));
+            IoNeed::Deflate { leftover } => {
+                let mut deflate = Box::new(Deflate::new());
+                // Read with the `OK`, so not on the socket any more.
+                if !leftover.is_empty() {
+                    self.inflated = deflate
+                        .inflate(leftover)
+                        .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
+                }
+                self.deflate = Some(deflate);
                 Ok(None)
             }
             IoNeed::Flush => {

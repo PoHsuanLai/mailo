@@ -413,6 +413,8 @@ pub struct ImapSession {
     /// The mailbox the connection has selected, and how: from the last `SELECT` or `EXAMINE`
     /// that completed, this session's or the one it resumed from.
     selected: Option<Access>,
+    /// `COMPRESS` was just accepted and the switch has not yet been handed what was read past it.
+    compressing: bool,
 }
 
 /// What a session that finished leaves for the next one on its connection.
@@ -478,6 +480,7 @@ impl ImapSession {
             held: 0,
             resumed: false,
             selected: None,
+            compressing: false,
         })
     }
 
@@ -945,7 +948,15 @@ impl ImapSession {
             // again. A response that ended the session leaves nothing that matters behind it.
             self.buf = buf;
             self.buf.drain(..consumed);
-            if let Some(progress) = progress {
+            if let Some(mut progress) = progress {
+                // What was read past the `OK` that accepted `COMPRESS` is the inflater's, not the
+                // parser's: it goes with the switch.
+                if std::mem::take(&mut self.compressing)
+                    && let Progress::Need(needs) = &mut progress
+                    && let Some(IoNeed::Deflate { leftover }) = needs.first_mut()
+                {
+                    *leftover = std::mem::take(&mut self.buf);
+                }
                 return progress;
             }
         }
@@ -1057,7 +1068,15 @@ impl ImapSession {
                             // Accepted: what the server sends from here is compressed, and so is
                             // what goes next.
                             Progress::Need(mut needs) if compressed => {
-                                needs.insert(0, IoNeed::Deflate);
+                                // The buffer is out being parsed just now; the drain fills in
+                                // what followed the `OK`, which is compressed already.
+                                self.compressing = true;
+                                needs.insert(
+                                    0,
+                                    IoNeed::Deflate {
+                                        leftover: Vec::new(),
+                                    },
+                                );
                                 Progress::Need(needs)
                             }
                             other => other,

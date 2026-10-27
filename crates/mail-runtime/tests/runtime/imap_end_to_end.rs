@@ -1939,6 +1939,9 @@ mod pushing {
     struct Script {
         notify: bool,
         compress: bool,
+        /// Whether its first compressed bytes go out in the same write as the `OK` that accepts
+        /// `COMPRESS`.
+        eager: bool,
         /// What it says a moment after IDLE begins.
         announce: &'static str,
     }
@@ -2039,11 +2042,27 @@ mod pushing {
                             pipe.say(&format!("{tag} OK [CAPABILITY {caps}] in\r\n"))
                                 .await;
                         } else if upper.starts_with("COMPRESS") {
-                            pipe.say(&format!("{tag} OK DEFLATE active\r\n")).await;
-                            pipe.deflate = Some((
-                                Compress::new(Compression::default(), false),
-                                Decompress::new(false),
-                            ));
+                            let ok = format!("{tag} OK DEFLATE active\r\n");
+                            if script.eager {
+                                let mut out = Compress::new(Compression::default(), false);
+                                let mut first = Vec::with_capacity(128);
+                                out.compress_vec(
+                                    b"* 0 EXISTS\r\n",
+                                    &mut first,
+                                    FlushCompress::Sync,
+                                )
+                                .unwrap();
+                                let mut both = ok.into_bytes();
+                                both.extend(first);
+                                let _ = pipe.sock.write_all(&both).await;
+                                pipe.deflate = Some((out, Decompress::new(false)));
+                            } else {
+                                pipe.say(&ok).await;
+                                pipe.deflate = Some((
+                                    Compress::new(Compression::default(), false),
+                                    Decompress::new(false),
+                                ));
+                            }
                         } else if upper.starts_with("EXAMINE") || upper.starts_with("SELECT") {
                             pipe.say(&format!(
                                 "* 0 EXISTS\r\n* OK [UIDVALIDITY 7] v\r\n* OK [UIDNEXT 1] n\r\n\
@@ -2089,6 +2108,7 @@ mod pushing {
         let (port, heard) = serve(Script {
             notify: true,
             compress: false,
+            eager: false,
             announce: "* STATUS \"Lists\" (UIDNEXT 9)\r\n",
         })
         .await;
@@ -2115,6 +2135,7 @@ mod pushing {
         let (port, heard) = serve(Script {
             notify: false,
             compress: false,
+            eager: false,
             announce: "* 1 EXISTS\r\n",
         })
         .await;
@@ -2148,6 +2169,7 @@ mod pushing {
         let (port, heard) = serve(Script {
             notify: false,
             compress: true,
+            eager: false,
             announce: "* 3 EXISTS\r\n",
         })
         .await;
@@ -2167,5 +2189,25 @@ mod pushing {
             heard.commands
         );
         assert!(heard.inflated, "nothing after COMPRESS arrived compressed");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn compressed_bytes_in_the_read_that_accepts_compress_are_inflated() {
+        let (port, heard) = serve(Script {
+            notify: false,
+            compress: true,
+            eager: true,
+            announce: "* 3 EXISTS\r\n",
+        })
+        .await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the watch hung on bytes read with the OK")
+            .unwrap();
+        assert!(woken);
+        assert!(heard.lock().unwrap().inflated);
     }
 }

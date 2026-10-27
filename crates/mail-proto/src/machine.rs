@@ -27,7 +27,12 @@ pub enum IoNeed {
     ///
     /// Satisfied with nothing fed back, like a write. Whatever follows in the same list is
     /// already compressed.
-    Deflate,
+    ///
+    /// `leftover` is what the machine had already read past the accepting `OK` line: compressed
+    /// bytes, to be inflated and handed back by the next read before the socket is read again.
+    Deflate {
+        leftover: Vec<u8>,
+    },
     /// Wait. Used for poll intervals and for IDLE's re-issue deadline.
     Sleep(Duration),
     Close,

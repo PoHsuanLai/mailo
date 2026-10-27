@@ -658,7 +658,13 @@ fn compress_is_asked_for_when_offered_and_the_connection_follows() {
     );
     assert_eq!(written(&needs), ["a001 COMPRESS DEFLATE\r\n"]);
     let needs = fed(&mut offered, "a001 OK DEFLATE active\r\n");
-    assert_eq!(needs.first(), Some(&IoNeed::Deflate), "{needs:?}");
+    assert_eq!(
+        needs.first(),
+        Some(&IoNeed::Deflate {
+            leftover: Vec::new()
+        }),
+        "{needs:?}"
+    );
     assert_eq!(written(&needs), ["a002 NOOP\r\n"]);
 
     let mut absent = session(commands());
@@ -667,5 +673,27 @@ fn compress_is_asked_for_when_offered_and_the_connection_follows() {
     };
     let needs = fed(&mut absent, "* OK [CAPABILITY IMAP4rev1] ready\r\n");
     assert_eq!(written(&needs), ["a001 NOOP\r\n"]);
-    assert!(!needs.contains(&IoNeed::Deflate));
+    assert!(
+        !needs
+            .iter()
+            .any(|need| matches!(need, IoNeed::Deflate { .. }))
+    );
+
+    // Bytes read in the same chunk as the `OK` are the inflater's, and the session keeps none.
+    let mut early = session(commands());
+    let Progress::Need(_) = early.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(
+        &mut early,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    let needs = fed(&mut early, "a001 OK DEFLATE active\r\n\x01\x02\x03");
+    assert_eq!(
+        needs.first(),
+        Some(&IoNeed::Deflate {
+            leftover: vec![1, 2, 3]
+        }),
+        "{needs:?}"
+    );
 }
