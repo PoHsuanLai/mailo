@@ -6,13 +6,13 @@
 //! on this side: the event stays as the organiser has it until the organiser says otherwise, so
 //! no answer is recorded and no calendar is touched.
 
-use super::{Itip, addresses, one_line, product, queue, raw_of, show_when};
+use super::{Asked, Itip, asked, one_line, product, queue, show_when};
 use crate::error::CoreError;
 use chrono::{DateTime, TimeDelta, Utc};
-use mail_domain::{Address, MessageId};
+use mail_domain::MessageId;
+use mail_pim::When;
 use mail_pim::ical::{self, Proposing};
-use mail_pim::{Kind, Me, When};
-use mail_store::{SqliteStore, Store};
+use mail_store::SqliteStore;
 
 /// A proposal that is queued: who it goes to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,34 +56,17 @@ pub fn propose(
     comment: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<Proposed, CoreError> {
-    let original = store.message(message)?;
-    let bytes = raw_of(store, &original)?.ok_or(CoreError::HeadersOnly)?;
-    let part = mail_mime::calendar_part(&bytes).ok_or(CoreError::NoCalendar)?;
-    let calendar = ical::parse(&part.text).map_err(|e| CoreError::context("the invitation", e))?;
-    let mine = addresses(store, original.account.clone());
-    let me: Vec<&str> = mine.iter().map(|(_, address)| address.as_str()).collect();
-    let invite = mail_pim::summarise(&calendar, &me).ok_or(CoreError::NoInvitation)?;
-    match invite.kind {
-        Kind::Request(_) => {}
-        Kind::Cancelled => return Err(CoreError::EventCancelled),
-        Kind::Reply => return Err(CoreError::IsAnAnswer),
-        Kind::Published => return Err(CoreError::PublishedEvent),
-        Kind::Counter | Kind::Refresh => return Err(CoreError::NothingToAnswer),
-    }
-    let address = match &invite.me {
-        Me::Invited { address, .. } => address.clone(),
-        Me::Organiser => return Err(CoreError::YouOrganised),
-        Me::NotListed => return Err(CoreError::NotInvited),
-    };
-    let organiser = invite.organiser.as_ref().ok_or(CoreError::NoOrganiser)?;
+    let Asked {
+        original,
+        bytes,
+        calendar,
+        invite,
+        address,
+        organiser,
+        identity,
+    } = asked(store, message)?;
     let event = calendar.main_event().ok_or(CoreError::NoInvitation)?;
     let end = start + length(&invite.when);
-
-    let identity_id = mine
-        .iter()
-        .find(|(_, mail)| mail.eq_ignore_ascii_case(&address))
-        .map(|(id, _)| *id);
-    let identity = crate::compose::identity_of(store, original.account.clone(), identity_id)?;
     let comment = comment.map(str::trim).filter(|c| !c.is_empty());
     let calendar_text = ical::counter(
         event,
@@ -115,16 +98,20 @@ pub fn propose(
     if let Some(comment) = comment {
         text.push_str(&format!("\r\n{}\r\n", comment.replace('\n', "\r\n")));
     }
-    let to = Address {
-        name: organiser.name.clone(),
-        email: organiser.email.clone(),
-    };
     let sent = Itip {
         method: "COUNTER",
         subject: &subject,
         text: &text,
         calendar: &calendar_text,
     };
-    let to = queue(store, &original, &bytes, &identity.from, &to, &sent, now)?;
+    let to = queue(
+        store,
+        &original,
+        &bytes,
+        &identity.from,
+        &organiser,
+        &sent,
+        now,
+    )?;
     Ok(Proposed { to })
 }

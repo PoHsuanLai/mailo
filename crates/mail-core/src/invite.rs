@@ -82,6 +82,62 @@ pub fn state(store: &SqliteStore, message: &Message) -> Result<InviteState, Core
     })
 }
 
+/// An invitation to the reader that asks for a reply, with what a reply to it needs.
+struct Asked {
+    original: Message,
+    bytes: Vec<u8>,
+    calendar: ical::Calendar,
+    invite: Invite,
+    /// The reader's address the invitation lists.
+    address: String,
+    organiser: Address,
+    /// The identity that address belongs to: the one the reply leaves as.
+    identity: Identity,
+}
+
+/// The invitation in `message`, when it is one the reader can reply to: not a cancellation, an
+/// answer, an event the reader organised or is not invited to, or one that names no organiser.
+fn asked(store: &SqliteStore, message: MessageId) -> Result<Asked, CoreError> {
+    let original = store.message(message)?;
+    let bytes = raw_of(store, &original)?.ok_or(CoreError::HeadersOnly)?;
+    let part = mail_mime::calendar_part(&bytes).ok_or(CoreError::NoCalendar)?;
+    let calendar = ical::parse(&part.text).map_err(|e| CoreError::context("the invitation", e))?;
+    let mine = addresses(store, original.account.clone());
+    let me: Vec<&str> = mine.iter().map(|(_, address)| address.as_str()).collect();
+    let invite = mail_pim::summarise(&calendar, &me).ok_or(CoreError::NoInvitation)?;
+    match invite.kind {
+        Kind::Request(_) => {}
+        Kind::Cancelled => return Err(CoreError::EventCancelled),
+        Kind::Reply => return Err(CoreError::IsAnAnswer),
+        Kind::Published => return Err(CoreError::PublishedEvent),
+        Kind::Counter | Kind::Refresh => return Err(CoreError::NothingToAnswer),
+    }
+    let address = match &invite.me {
+        Me::Invited { address, .. } => address.clone(),
+        Me::Organiser => return Err(CoreError::YouOrganised),
+        Me::NotListed => return Err(CoreError::NotInvited),
+    };
+    let organiser = invite.organiser.as_ref().ok_or(CoreError::NoOrganiser)?;
+    let organiser = Address {
+        name: organiser.name.clone(),
+        email: organiser.email.clone(),
+    };
+    let identity_id = mine
+        .iter()
+        .find(|(_, mail)| mail.eq_ignore_ascii_case(&address))
+        .map(|(id, _)| *id);
+    let identity = crate::compose::identity_of(store, original.account.clone(), identity_id)?;
+    Ok(Asked {
+        original,
+        bytes,
+        calendar,
+        invite,
+        address,
+        organiser,
+        identity,
+    })
+}
+
 /// Answer the invitation in `message`: queue the iTIP reply to its organiser, and record the
 /// answer. Answering again sends a new reply, which supersedes the last, and replaces the record.
 ///
@@ -95,42 +151,16 @@ pub fn answer(
     comment: Option<&str>,
     now: DateTime<Utc>,
 ) -> Result<Answered, CoreError> {
-    let original = store.message(message)?;
-    let bytes = raw_of(store, &original)?.ok_or(CoreError::HeadersOnly)?;
-    let part = mail_mime::calendar_part(&bytes).ok_or(CoreError::NoCalendar)?;
-    let calendar = ical::parse(&part.text).map_err(|e| CoreError::context("the invitation", e))?;
-    let mine = addresses(store, original.account.clone());
-    let me: Vec<&str> = mine.iter().map(|(_, address)| address.as_str()).collect();
-    let invite = mail_pim::summarise(&calendar, &me).ok_or(CoreError::NoInvitation)?;
-
-    match invite.kind {
-        Kind::Request(_) => {}
-        Kind::Cancelled => {
-            return Err(CoreError::EventCancelled);
-        }
-        Kind::Reply => {
-            return Err(CoreError::IsAnAnswer);
-        }
-        Kind::Published => {
-            return Err(CoreError::PublishedEvent);
-        }
-        Kind::Counter | Kind::Refresh => {
-            return Err(CoreError::NothingToAnswer);
-        }
-    }
-    let address = match &invite.me {
-        Me::Invited { address, .. } => address.clone(),
-        Me::Organiser => return Err(CoreError::YouOrganised),
-        Me::NotListed => return Err(CoreError::NotInvited),
-    };
-    let organiser = invite.organiser.as_ref().ok_or(CoreError::NoOrganiser)?;
+    let Asked {
+        original,
+        bytes,
+        calendar,
+        invite,
+        address,
+        organiser,
+        identity,
+    } = asked(store, message)?;
     let event = calendar.main_event().ok_or(CoreError::NoInvitation)?;
-
-    let identity_id = mine
-        .iter()
-        .find(|(_, mail)| mail.eq_ignore_ascii_case(&address))
-        .map(|(id, _)| *id);
-    let identity = crate::compose::identity_of(store, original.account.clone(), identity_id)?;
     let comment = comment.map(str::trim).filter(|c| !c.is_empty());
     let calendar_text = ical::reply(
         &calendar,
@@ -147,17 +177,21 @@ pub fn answer(
     let title = invite.title.as_deref().unwrap_or("(no title)");
     let subject = format!("{}: {title}", verb(attendance));
     let text = human_text(&invite, &identity.from, attendance, comment);
-    let to = Address {
-        name: organiser.name.clone(),
-        email: organiser.email.clone(),
-    };
     let sent = Itip {
         method: "REPLY",
         subject: &subject,
         text: &text,
         calendar: &calendar_text,
     };
-    let rcpt_to = queue(store, &original, &bytes, &identity.from, &to, &sent, now)?;
+    let rcpt_to = queue(
+        store,
+        &original,
+        &bytes,
+        &identity.from,
+        &organiser,
+        &sent,
+        now,
+    )?;
     store.answer_invite(&InviteAnswer {
         message,
         attendance,
