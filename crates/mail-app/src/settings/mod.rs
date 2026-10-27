@@ -191,6 +191,8 @@ pub fn schema() -> Schema {
         file: FilePath(FILE.to_owned()),
         version: 1,
         key,
+        // mailo's settings structs declare no section footnotes.
+        footnotes: Vec::new(),
         // mailo keeps no tables of another app's.
         foreign: Default::default(),
         // Every key sits on one of the built-in pages; mailo declares none of its own.
