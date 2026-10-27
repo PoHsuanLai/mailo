@@ -136,7 +136,14 @@ fn block_sender_makes_a_rule_and_files_the_conversation_in_spam() {
     assert_eq!(block.actions, vec![RuleAction::Spam]);
     assert!(rules.iter().all(|rule| rule.position >= block.position));
 
-    // The one toast's Undo takes back both: the rule and the move to Spam.
+    // The one toast's Undo takes back both: the rule and the move to Spam. The toast came up
+    // under a still pointer, which it ignores until the pointer moves, so it moves, as a
+    // person's does on the way to the button.
+    let body = window
+        .harness
+        .centre(".ds-toast-body")
+        .expect("the toast is drawn");
+    window.harness.pointer_move(body);
     window.click(".ds-toast-action");
     let store = window.store.clone();
     window.until("the conversation is out of Spam", |_| {
