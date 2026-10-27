@@ -5,8 +5,9 @@
 //! `io.github.PoHsuanLai.mailo` on the session bus and answers `org.freedesktop.Application`, the
 //! freedesktop interface a launcher or a notification server may call on an application:
 //! `Open(uris, platform_data)` with `mailo:thread/<id>` for a conversation, `mailo:inbox/<account>`
-//! for an account's inbox (a summary banner's click), `Activate` for the window itself. The name is the app id mailo's Flatpak already has, because a D-Bus name needs a
-//! dot and the desktop entry's own id (`mailo`) has none.
+//! for an account's inbox (a summary banner's click), `Activate` for the window itself. The name
+//! is the app id mailo's Flatpak already has, because a D-Bus name needs a dot and the desktop
+//! entry's own id (`mailo`) has none.
 //!
 //! Two ends. [`serve`] is the window's: it queues each request for the window to read on the
 //! thread that draws (`ui::handoff::use_handoff`). [`deliver`] is the client's, used by `mailo open` before it

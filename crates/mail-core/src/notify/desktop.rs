@@ -7,14 +7,13 @@
 //! pass, because there is nowhere to show a bubble.
 //!
 //! A click opens what the notification was about: `mailo open <thread>` for one
-//! conversation, `mailo open --inbox <account>` for a summary's
-//! account's inbox, started with the activation token the server minted
-//! for the click so the compositor lets the window take focus. On Linux one listener for the whole
-//! process hears the server's `ActivationToken`, `ActionInvoked` and `NotificationClosed`
-//! ([`super::click`]); on Windows each notification shown is waited on by the thread that showed
-//! it, and what the service answers goes through [`answer`], a pure function of the answer and
-//! what the notification opens. `mailo open` hands the thread to a window already running, if
-//! there is one, before it opens one of its own.
+//! conversation, `mailo open --inbox <account>` for a summary's account's inbox, started with the
+//! activation token the server minted for the click so the compositor lets the window take
+//! focus. On Linux one listener for the whole process hears the server's `ActivationToken`,
+//! `ActionInvoked` and `NotificationClosed` ([`super::click`]); on Windows each notification
+//! shown is waited on by the thread that showed it, and what the service answers goes through
+//! [`answer`], a pure function of the answer and what the notification opens. `mailo open` hands
+//! the thread to a window already running, if there is one, before it opens one of its own.
 //!
 //! On Linux, what a click opens also rides along in the hints, for any other listener:
 //! `x-mailo-thread` (a thread id, absent on a summary, which opens the inbox) and
