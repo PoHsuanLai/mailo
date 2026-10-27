@@ -6,7 +6,7 @@
 pub use mail_domain::NO_SUBJECT;
 /// A draft with nobody to go to yet, where its recipients would be.
 pub const NO_RECIPIENT: &str = "(no recipient)";
-/// Settings › General › Trusted Senders, before anyone is trusted.
+/// Settings › Privacy › Trusted Senders, before anyone is trusted.
 pub const NO_TRUSTED_SENDERS: &str = "No trusted senders yet";
 /// Settings › Accounts › Other Keys, with nothing on it.
 pub const NO_OTHER_KEYS: &str = "No other keys or certificates yet";

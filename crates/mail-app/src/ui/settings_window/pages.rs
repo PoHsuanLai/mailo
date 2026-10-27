@@ -91,6 +91,8 @@ fn trusted_row(page: SettingsPage) -> String {
     format!("{}-open-trusted", stack(page))
 }
 
+/// One of the pages that draw the schema: its groups at the root, the trusted senders pushed over
+/// them on Privacy.
 #[component]
 pub(super) fn Page(page: SettingsPage) -> Element {
     let mut path = use_signal(|| PanePath::new(PageAt::Root));
