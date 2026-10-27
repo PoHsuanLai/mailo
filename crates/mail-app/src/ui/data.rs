@@ -8,8 +8,8 @@ pub(super) const PAGE: u32 = 100;
 
 /// The conversations a listing asks for.
 ///
-/// Shared by the blocking task and the first frame's fallback, for the reason `count_badges` is:
-/// two copies would be two chances to disagree about what the list contains.
+/// Shared by the blocking task and the first frame's fallback: two copies would be two chances to
+/// disagree about what the list contains.
 pub(super) fn list_for(
     store: &SqliteStore,
     listing: Listing,
@@ -54,49 +54,16 @@ pub(super) fn singles_for(
     }
 }
 
-/// One count per place, for the sidebar's badges.
-///
-/// A free function rather than a closure, because it is called from two places: once on a
-/// blocking thread, and once on the render thread for the first frame, when there is no answer
-/// yet. Two copies of it would be two chances for them to disagree about what a badge counts.
-pub(super) fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> Vec<Option<u64>> {
-    let now = chrono::Utc::now();
-    filters
-        .iter()
-        .map(|filter| match store.count(filter.as_ref()?, now) {
-            Ok(0) => None,
-            Ok(n) => Some(n),
-            // No badge rather than a wrong one, but said: a count that fails every time is a
-            // store to look at, not a place with nothing unread.
-            Err(why) => {
-                log::warn!("a sidebar count failed: {why}");
-                None
-            }
-        })
-        .collect()
-}
-
-/// The sidebar's counts, beside the filters they were counted for.
-pub(super) type Counted = (Vec<Option<Filter>>, Vec<Option<u64>>);
-
-/// The badges for `filters` out of an answer counted for another list of them: each filter's
-/// count where the answer counted it too, and no badge where it did not.
-///
-/// The badges go by position, so an answer read for a list it was not counted for puts every
-/// count after a label that came or went on the row beside its own.
-pub(super) fn matched(
-    filters: &[Option<Filter>],
-    counted_for: &[Option<Filter>],
-    counts: &[Option<u64>],
-) -> Vec<Option<u64>> {
-    filters
-        .iter()
-        .map(|filter| {
-            filter.as_ref()?;
-            let at = counted_for.iter().position(|was| was == filter)?;
-            counts.get(at).copied().flatten()
-        })
-        .collect()
+/// The account's name as the window writes it: the description the person gave it, else its
+/// address, or "Local folders".
+pub(super) fn named(account: &mail_client::query::Account) -> String {
+    if let Some(description) = &account.description {
+        description.clone()
+    } else if account.local {
+        LOCAL_FOLDERS.to_owned()
+    } else {
+        account.address.clone()
+    }
 }
 
 /// One account as the sidebar draws it: the id, the address, and the plan the provider comes from.
@@ -153,11 +120,6 @@ impl AccountRow {
         } else {
             self.address.clone()
         }
-    }
-
-    /// Whether the person paused this account's syncing ([`mail_core::sync::paused`]).
-    pub(in crate::ui) fn paused(&self) -> bool {
-        self.syncing == Syncing::Paused
     }
 }
 
@@ -239,6 +201,20 @@ mod tests {
 }
 
 #[cfg(test)]
+/// What the client counts for `filter`, the way the sidebar asks for a badge: none for none.
+fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> Vec<Option<u64>> {
+    use mail_client::Query as _;
+    let asked: Vec<Filter> = filters.iter().flatten().cloned().collect();
+    let counted = mail_client::query::Counts(asked)
+        .run(store, chrono::Utc::now())
+        .expect("counted");
+    filters
+        .iter()
+        .map(|filter| mail_client::query::Counts::of(&counted, filter.as_ref()?).filter(|n| *n > 0))
+        .collect()
+}
+
+#[cfg(test)]
 mod badge_tests {
     use super::*;
     use crate::ui::view::{Listing, Shell, Source, default_places, scoped_unread_filter};
@@ -257,21 +233,6 @@ mod badge_tests {
             }
             _ => None,
         }
-    }
-
-    /// An answer counted before a label came in front of the folders keeps each count on its own
-    /// place, not on the row that moved into its index.
-    #[test]
-    fn an_answer_for_another_list_puts_each_count_on_its_own_place() {
-        let [one, two, new] = [(); 3].map(|()| Some(Filter::HasLabel(LabelId::generate())));
-        let counted_for = vec![None, one.clone(), two.clone()];
-        let counts = vec![None, Some(3), Some(5)];
-        let now = vec![None, new, one.clone(), two];
-        assert_eq!(
-            matched(&now, &counted_for, &counts),
-            [None, None, Some(3), Some(5)]
-        );
-        assert_eq!(matched(&[one], &[], &[]), [None]);
     }
 
     /// One source of truth: in every scope the window can show (every account, or a Space of

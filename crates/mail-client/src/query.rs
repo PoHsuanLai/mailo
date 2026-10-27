@@ -23,6 +23,10 @@ pub struct Account {
     pub plan: Option<AccountPlan>,
     /// Mail kept on this computer and never synced.
     pub local: bool,
+    /// What the person calls the account, in place of its address.
+    pub description: Option<String>,
+    /// Whether the person paused its syncing.
+    pub paused: bool,
     pub mailboxes: Mailboxes,
 }
 
@@ -80,7 +84,10 @@ impl Query for Accounts {
                             .map_or(ServerLabels::LocalOnly, |caps| caps.labels),
                     },
                 };
+                let prefs = store.account_prefs(account.id.clone()).unwrap_or_default();
                 Account {
+                    description: prefs.description,
+                    paused: prefs.syncing == mail_store::Syncing::Paused,
                     id: account.id,
                     address: account.address,
                     plan,
@@ -153,5 +160,23 @@ impl Query for Counts {
                 (filter.clone(), n)
             })
             .collect())
+    }
+}
+
+/// The people marked as VIPs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct VipList;
+
+impl Query for VipList {
+    type Output = mail_core::vip::Vips;
+
+    const READS: Topics = Topics::CONTACTS.union(Topics::SUMMARIES);
+
+    fn run(
+        &self,
+        store: &SqliteStore,
+        _now: DateTime<Utc>,
+    ) -> Result<mail_core::vip::Vips, ClientError> {
+        Ok(mail_core::vip::read(store))
     }
 }

@@ -52,6 +52,7 @@ mod launcher_count;
 mod list;
 mod list_query;
 mod list_search;
+mod live;
 mod marked;
 mod menu;
 mod menus;
@@ -103,7 +104,6 @@ mod tips_tests;
 #[cfg(test)]
 mod vip_tests;
 
-pub(crate) use fetching::on_write;
 pub use launch::run;
 
 /// The window on Blitz, for a test to drive through `ds_harness::Harness`.

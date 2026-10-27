@@ -25,9 +25,10 @@ use ds::components::content::provider_mark::{MarkProvider, MarkStyle};
 use ds::host::measure::MountedRef;
 use ds::prelude::Point;
 use ds::root::common::Common;
+use mail_client::query::{Account, Counted, Counts};
+use mail_core::SqliteStore;
 use mail_core::profile::ProfileId;
 use mail_core::provider::{Provider, provider};
-use mail_core::{SqliteStore, Store};
 use mail_domain::{Filter, ReadState};
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -45,33 +46,38 @@ pub(super) struct TileRow {
     pub paused: bool,
 }
 
+/// What a tile's count counts: its account's unread.
+pub(super) fn tile_filter(account: AccountId) -> Filter {
+    Filter::And(vec![
+        Filter::Read(ReadState::Unread),
+        Filter::Account(account),
+    ])
+}
+
 /// The tiles for `space`: each account it shows, in the order they were put in it, that the
-/// store still has.
-pub(super) fn tile_rows(store: &SqliteStore, space: &Space) -> Vec<TileRow> {
-    let rows = account_rows(store);
-    let now = chrono::Utc::now();
+/// store still has, with the unread `counted` has for it (none until counted).
+pub(super) fn tile_rows(
+    accounts: &[Account],
+    counted: Option<&Counted>,
+    space: &Space,
+) -> Vec<TileRow> {
     space
         .payload
         .accounts
         .iter()
-        .filter_map(|id| rows.iter().find(|row| row.id == *id))
-        .map(|row| {
-            let unread = store
-                .count(
-                    &Filter::And(vec![
-                        Filter::Read(ReadState::Unread),
-                        Filter::Account(row.id.clone()),
-                    ]),
-                    now,
-                )
-                .unwrap_or(0);
-            TileRow {
-                id: row.id.clone(),
-                name: row.shown(),
-                unread,
-                via: (!row.is_local()).then(|| provider(&row.plan)),
-                paused: row.paused(),
-            }
+        .filter_map(|id| accounts.iter().find(|account| account.id == *id))
+        .map(|account| TileRow {
+            id: account.id.clone(),
+            name: crate::ui::data::named(account),
+            unread: counted
+                .and_then(|counted| Counts::of(counted, &tile_filter(account.id.clone())))
+                .unwrap_or(0),
+            via: if account.local {
+                None
+            } else {
+                account.plan.as_ref().map(provider)
+            },
+            paused: account.paused,
         })
         .collect()
 }

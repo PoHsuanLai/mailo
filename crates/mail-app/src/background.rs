@@ -210,7 +210,7 @@ fn follow_accounts(store: &Arc<SqliteStore>) -> mail_core::ipc::watching::Asked 
             let (tx, written) = std::sync::mpsc::channel();
             // Gone only with this thread, which is not a write to say anything about.
             let _watching = store.file().and_then(|file| {
-                crate::ui::on_write(file, move || {
+                mail_client::on_write(file, move || {
                     // Nobody left to hear it once this thread has ended.
                     let _ = tx.send(());
                 })

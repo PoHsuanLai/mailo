@@ -1,50 +1,41 @@
 //! What a folder action does from the window: through `folder::change`, the one path the CLI
 //! takes too, onto the undo stack, and into words.
-
-use super::super::data::account_rows;
 use super::super::motion::record;
 use super::folder_tree::{AccountFolders, Mailboxes, placed};
 use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use mail_client::query::Mailboxes as ClientMailboxes;
+use mail_core::SqliteStore;
 use mail_core::folder::{Refusal, change};
 use mail_core::undo::{Undo, reverse_folder};
-use mail_core::{SqliteStore, Store};
-use mail_domain::{
-    FolderError, FolderWork, Incoming, MailboxRef, NonEmpty, ServerLabels, Subscription,
-};
+use mail_domain::{FolderError, FolderWork, LabelId, MailboxRef, NonEmpty, Subscription};
 use porter_core::AccountId;
 
-/// Every account in `scope` (empty meaning all), with what the section needs of each.
-///
-/// Read with [`account_rows`], which tolerates a plan it cannot parse, so one odd account does
-/// not take the section away from the others.
+/// Every account in `scope` (empty meaning all), with what the section needs of each, from the
+/// accounts the client keeps read.
 pub(in crate::ui) fn load(
-    store: &SqliteStore,
+    accounts: &[mail_client::query::Account],
     scope: &crate::ui::space::Scope,
 ) -> Vec<AccountFolders> {
-    account_rows(store)
-        .into_iter()
-        .filter(|row| scope.shows(row.id.clone()))
-        .map(|row| {
-            let mailboxes = match row.plan.incoming {
-                // Local mail has no server folders to make either; its places are labels.
-                Incoming::Pop3 { .. } | Incoming::Local => Mailboxes::One,
-                Incoming::Imap { .. } | Incoming::Graph | Incoming::Jmap { .. } => {
-                    Mailboxes::Many {
-                        folders: store.folders(row.id.clone()).unwrap_or_default(),
-                        labels: store.labels(row.id.clone()).unwrap_or_default(),
-                        // Before the first connection nothing is known, and nothing is assumed.
-                        server_labels: mail_core::sync::caps_of(store, row.id.clone())
-                            .map_or(ServerLabels::LocalOnly, |caps| caps.labels),
-                    }
-                }
-            };
-            AccountFolders {
-                address: row.shown(),
-                account: row.id,
-                mailboxes,
-            }
+    accounts
+        .iter()
+        .filter(|account| scope.shows(account.id.clone()))
+        .map(|account| AccountFolders {
+            address: crate::ui::data::named(account),
+            account: account.id.clone(),
+            mailboxes: match &account.mailboxes {
+                ClientMailboxes::One => Mailboxes::One,
+                ClientMailboxes::Many {
+                    folders,
+                    labels,
+                    server_labels,
+                } => Mailboxes::Many {
+                    folders: folders.clone(),
+                    labels: labels.clone(),
+                    server_labels: *server_labels,
+                },
+            },
         })
         .collect()
 }
@@ -53,28 +44,41 @@ pub(in crate::ui) fn load(
 ///
 /// Every account and not the Space's: the places are the window's, and a Space narrows which
 /// of them the sidebar draws.
-pub(in crate::ui) fn folder_places(store: &SqliteStore) -> Vec<(String, MailboxRef)> {
-    placed(&load(store, &crate::ui::space::Scope::All))
+pub(in crate::ui) fn folder_places(
+    accounts: &[mail_client::query::Account],
+) -> Vec<(String, MailboxRef)> {
+    placed(&load(accounts, &crate::ui::space::Scope::All))
 }
 
 /// The labels of every account in `scope`: the ones the Labels section draws.
 ///
 /// The places hold every account's labels, as they hold every account's folders, so a label's
-/// place and its badge keep their index whatever the Space; the Space, or the pressed tile,
-/// narrows which of them are drawn. Without it a Space whose accounts were all taken out still
-/// listed every other account's labels.
+/// place keeps its index whatever the Space; the Space, or the pressed tile, narrows which of
+/// them are drawn. Without it a Space whose accounts were all taken out still listed every other
+/// account's labels.
 pub(in crate::ui) fn labels_in(
-    store: &SqliteStore,
+    accounts: &[mail_client::query::Account],
     scope: &crate::ui::space::Scope,
-) -> Vec<mail_domain::LabelId> {
-    account_rows(store)
-        .into_iter()
-        .filter(|row| scope.shows(row.id.clone()))
-        .flat_map(|row| {
-            // An account whose labels cannot be read draws none, and the others still draw.
-            store.labels(row.id).unwrap_or_default()
+) -> Vec<LabelId> {
+    accounts
+        .iter()
+        .filter(|account| scope.shows(account.id.clone()))
+        .flat_map(|account| account.labels().iter().map(|label| label.id))
+        .collect()
+}
+
+/// Every account's labels, by name: what the search box resolves `label:` against.
+pub(in crate::ui) fn known_labels(
+    accounts: &[mail_client::query::Account],
+) -> Vec<(String, LabelId)> {
+    accounts
+        .iter()
+        .flat_map(|account| {
+            account
+                .labels()
+                .iter()
+                .map(|label| (label.name.clone(), label.id))
         })
-        .map(|label| label.id)
         .collect()
 }
 

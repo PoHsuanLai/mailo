@@ -10,7 +10,7 @@
 //! Read when the store is written to. The store is shared by the watch, the window and the command
 //! line, and what changes the count is any of them reading or archiving a message, each of which
 //! is a commit to the database's file or the `-wal` beside it; the system says when one is
-//! written to (`ui::on_write`, what the window hears another process's commits by), so the count
+//! written to (`mail_client::on_write`, what the client hears another process's commits by), so the count
 //! is read then, at most once every [`EVERY`], and not at all while nothing is written. Without
 //! that word (a store in memory, or a system that will not watch the file) it is read every
 //! [`EVERY`]. The count is read and said again every [`REPEAT`] even when nothing was written,
@@ -88,7 +88,7 @@ where
             let (tx, written) = std::sync::mpsc::channel();
             // Gone only with this thread, which is not a write to say anything about.
             let watching = file.as_deref().and_then(|file| {
-                crate::ui::on_write(file, move || {
+                mail_client::on_write(file, move || {
                     let _ = tx.send(());
                 })
             });

@@ -348,7 +348,10 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     let (store, _dir, threads) = store();
     let places = places_with(
         &[],
-        &super::folder_places(&store),
+        &super::folder_places(&crate::ui::live::read_now(
+            &store,
+            mail_client::query::Accounts,
+        )),
         &[],
         &mail_core::vip::Vips::default(),
     );

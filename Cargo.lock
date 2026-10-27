@@ -5124,6 +5124,7 @@ dependencies = [
  "latchkey",
  "log",
  "mail-appkit",
+ "mail-client",
  "mail-core",
  "mail-runtime",
  "mail-store",
