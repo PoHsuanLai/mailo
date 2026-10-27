@@ -7,16 +7,12 @@ has to remember to read again after a write.
 
 ## Where it stands
 
-- The UI reads the store while it renders: 196 `consume_context::<Arc<SqliteStore>>` in 92 files,
-  the sidebar's memos (`counted`, `tiled`, `scheduled`, `folders`), `PlaceRow`'s `label_of`, and
-  `App`'s seeding hook, effect and first-frame badge fallback.
-- Badges are joined to places by position (`badges().get(index)`), from two signals that move at
-  different times.
-- One hand-bumped counter, `revision`, says something changed. A write that forgets to bump it,
-  or a commit no one bumps for, leaves the window stale.
-- `SqliteStore::data_version` does not count this store's own commits. On macOS the in-process
-  background watch (`background::start`) writes through the window's own store, so mail it
-  fetches does not move `revision`.
+- The UI reads the store while it renders: 148 `consume_context::<Arc<SqliteStore>>` in 69 files,
+  among them the sidebar's memos `counted` (the Favourites' counts) and `scheduled`.
+- One hand-bumped counter, `revision`, says something changed in what the window still reads
+  itself. A write that forgets to bump it leaves that stale; the counter moves with every commit
+  the client hears, so a commit no one bumps for, the background watch's or another process's,
+  no longer does.
 - About 15 `edge::block_on` calls in `ui` wait on the network on the UI thread.
 
 ## Crates

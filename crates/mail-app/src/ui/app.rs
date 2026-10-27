@@ -32,10 +32,8 @@ use std::sync::Arc;
 
 #[component]
 pub(super) fn App() -> Element {
-    // No store handle in the component body. Every read this component makes goes through a
-    // `use_resource` that takes its own clone for a blocking thread, or through the first-frame
-    // fallback beside it, which asks the context where it stands. A handle held here is a
-    // handle that invites a query back onto the thread that draws.
+    // The places, labels and badges are values the client keeps read (`use_live`), never a read
+    // on the thread that draws.
     // The launched look, when `main` provided one. A test that builds `App` with only the
     // store keeps the first-run appearance.
     // Opened on a conversation when the window was started to show one (`mailo open`), or on
