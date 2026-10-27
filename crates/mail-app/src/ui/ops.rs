@@ -200,11 +200,6 @@ fn apply(client: &Client, thread: ThreadId, op: Op) -> bool {
         .is_some()
 }
 
-// What the window and `mailo intents` both do to conversations lives in the core
-// (`mail_core::act`): two code paths for "archive this" is how two front-ends start disagreeing.
-#[cfg(test)]
-pub(super) use mail_core::act::{perform, take_back};
-
 #[cfg(test)]
 mod tests {
     use super::apply_op;
