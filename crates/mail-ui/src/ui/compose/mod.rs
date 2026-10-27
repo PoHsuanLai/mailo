@@ -65,11 +65,12 @@ use seal::{BarAct, SealBar, SealWarn, Sealed, seal_and_queue};
 /// The body, on its own: Settings writes a signature in it.
 pub(in crate::ui) use body::Body;
 pub(in crate::ui) use desk::{Desk, park_current, reopen, show_queued, use_desk};
-pub(in crate::ui) use later::{cancel_scheduled, scheduled, send_again};
+pub(in crate::ui) use later::{cancel_scheduled, scheduled, scheduled_in, send_again, sending_in};
 /// Discarding a draft, for every caller in this process: the window's and the intents'.
 pub use life::discarding as discarding_draft;
 pub(in crate::ui) use page::Page;
 pub(in crate::ui) use page::PageKind;
+pub(in crate::ui) use page::When;
 pub(in crate::ui) use pill::SendPill;
 pub(in crate::ui) use props::{Line, list_label};
 pub use spell::Dictionaries;

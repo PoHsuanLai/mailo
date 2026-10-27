@@ -176,12 +176,33 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
 /// Every draft held for later on the accounts `scope` shows, soonest first: what the Scheduled
 /// place lists, and whether the sidebar draws it.
 pub(in crate::ui) fn scheduled(client: &Client, scope: &Scope) -> Vec<Draft> {
-    let mut out: Vec<(DateTime<Utc>, Draft)> = client
-        .compose()
-        .sending_accounts()
-        .into_iter()
+    scheduled_in(
+        client
+            .compose()
+            .sending_accounts()
+            .into_iter()
+            .filter(|(_, account)| scope.shows(account.clone()))
+            .flat_map(|(_, account)| client.stored().drafts(account).unwrap_or_default())
+            .collect(),
+    )
+}
+
+/// The accounts of `shell` that send, among those `scope` shows: whose drafts Scheduled lists.
+pub(in crate::ui) fn sending_in(
+    sending: &[(String, porter_core::AccountId)],
+    scope: &Scope,
+) -> Vec<porter_core::AccountId> {
+    sending
+        .iter()
         .filter(|(_, account)| scope.shows(account.clone()))
-        .flat_map(|(_, account)| client.stored().drafts(account).unwrap_or_default())
+        .map(|(_, account)| account.clone())
+        .collect()
+}
+
+/// The drafts among `drafts` held for later, soonest first.
+pub(in crate::ui) fn scheduled_in(drafts: Vec<Draft>) -> Vec<Draft> {
+    let mut out: Vec<(DateTime<Utc>, Draft)> = drafts
+        .into_iter()
         .filter_map(|draft| match draft.state {
             SendState::Scheduled { at } => Some((at, draft)),
             _ => None,

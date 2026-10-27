@@ -434,18 +434,43 @@ pub(super) fn App() -> Element {
     // the neighbours of the open conversation — so that opening it is a lookup.
     super::reading::use_warming(shell, threads);
 
+    // Every account's drafts, kept read, while Drafts or Scheduled is shown; nothing is read
+    // for any other place.
+    let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
+    let held = crate::ui::live::use_live(move || {
+        let listing = shell.read().listing(PAGE);
+        mail_client::query::DraftsOf(match listing {
+            Listing::Drafts => every
+                .read()
+                .value()
+                .map(|accounts| accounts.iter().map(|account| account.id.clone()).collect())
+                .unwrap_or_default(),
+            Listing::Scheduled => {
+                let sending: Vec<(String, porter_core::AccountId)> = every
+                    .read()
+                    .value()
+                    .map(|accounts| {
+                        accounts
+                            .iter()
+                            .filter(|account| !account.local)
+                            .map(|account| (account.address.clone(), account.id.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                super::compose::sending_in(&sending, &shell.read().scope)
+            }
+            _ => Vec::new(),
+        })
+    });
     let drafts = use_memo(move || {
-        let _ = crate::ui::live::moved_for(
-            mail_client::Topics::DRAFTS | mail_client::Topics::OUTBOX | mail_client::Topics::CLOCK,
-        );
-        let client = crate::ui::live::client();
+        let found = held
+            .read()
+            .value()
+            .map(|drafts| drafts.to_vec())
+            .unwrap_or_default();
         match shell.read().listing(PAGE) {
-            Listing::Drafts => accounts(&client)
-                .into_iter()
-                .filter_map(|account| client.stored().drafts(account).ok())
-                .flatten()
-                .collect::<Vec<_>>(),
-            Listing::Scheduled => super::compose::scheduled(&client, &shell.read().scope),
+            Listing::Drafts => found,
+            Listing::Scheduled => super::compose::scheduled_in(found),
             _ => Vec::new(),
         }
     });

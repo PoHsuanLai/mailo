@@ -229,6 +229,25 @@ impl Query for Pins {
     }
 }
 
+/// The drafts of some accounts, every kind: what Drafts lists, and from which Scheduled and the
+/// sidebar's wish to draw it are told. A draft written, sent, held or taken back changes it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DraftsOf(pub Vec<AccountId>);
+
+impl Query for DraftsOf {
+    type Output = Vec<mail_domain::Draft>;
+
+    const READS: Topics = Topics::DRAFTS.union(Topics::OUTBOX);
+
+    fn run(&self, store: &SqliteStore, _now: DateTime<Utc>) -> Result<Self::Output, ClientError> {
+        let mut out = Vec::new();
+        for account in &self.0 {
+            out.extend(store.drafts(account.clone())?);
+        }
+        Ok(out)
+    }
+}
+
 mod conversation;
 mod conversations;
 pub use conversation::{Conversation, Messages};
