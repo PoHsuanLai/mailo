@@ -21,8 +21,10 @@
 //! - **Bodies** are `GET /me/messages/{id}/$value`: the message's own MIME, so everything
 //!   downstream parses real RFC 5322 bytes. The message size (`PidTagMessageSize`) comes with the
 //!   delta, and the engine fetches small bodies first, as it does over IMAP.
-//! - **Changes** made here go back as `PATCH isRead`, `PATCH flag`, and `POST …/move`. A move
-//!   gives the message a new id, which the move's answer names; the engine remaps it.
+//! - **Changes** made here go back as `PATCH isRead`, `PATCH flag`, `POST …/move` and
+//!   `POST …/copy`. A move gives the message a new id, which the move's answer names; the engine
+//!   remaps it. A copy is a new message with its own id, which the engine keeps as one more
+//!   address of the message copied.
 //!
 //! Labels stay on this computer. Outlook's categories look like labels and are not the thing
 //! this client means by one: [`mail_domain::ServerLabels::Supported`] says a folder *is* a label,
@@ -120,6 +122,8 @@ pub struct Reader {
     arrivals: Vec<(RemoteRef, Vec<u8>)>,
     /// Moves made by the last operation: where each message was, and where it is now.
     moves: Vec<(RemoteRef, RemoteRef)>,
+    /// Copies made by the last operation: each message copied, and where its copy is.
+    copies: Vec<(RemoteRef, RemoteRef)>,
     /// How many messages the next delta walk may go through.
     per_pass: usize,
 }
@@ -136,6 +140,7 @@ impl Reader {
             sizes: HashMap::new(),
             arrivals: Vec::new(),
             moves: Vec::new(),
+            copies: Vec::new(),
             per_pass: PER_PASS,
         })
     }
@@ -191,6 +196,11 @@ impl Reader {
     /// The moves the last operation made, each once.
     pub fn take_moves(&mut self) -> Vec<(RemoteRef, RemoteRef)> {
         std::mem::take(&mut self.moves)
+    }
+
+    /// The copies the last operation made, each once.
+    pub fn take_copies(&mut self) -> Vec<(RemoteRef, RemoteRef)> {
+        std::mem::take(&mut self.copies)
     }
 
     /// Do `op` with the access token `token`. `staged` is the message an `Append` uploads.
@@ -284,6 +294,12 @@ impl Reader {
             ProtoOp::File { remotes, folder } => {
                 let destination = self.folder_id(&folder, token).await?;
                 self.move_all(&remotes, &destination, &folder, token)
+                    .await?;
+                Ok(ProtoOutcome::Applied)
+            }
+            ProtoOp::Copy { remotes, folder } => {
+                let destination = self.folder_id(&folder, token).await?;
+                self.copy_all(&remotes, &destination, &folder, token)
                     .await?;
                 Ok(ProtoOutcome::Applied)
             }
@@ -605,6 +621,47 @@ impl Reader {
                     self.sizes.insert(to.clone(), size);
                 }
                 self.moves.push((remote.clone(), to));
+            }
+        }
+        Ok(())
+    }
+
+    /// `POST …/copy` each of `remotes` into the folder Graph knows as `destination`, at `path`
+    /// here. A message already in that folder is left alone: a copy beside it is not what was
+    /// asked for. The copy is a new message with its own id, kept as one more address of the one
+    /// copied.
+    async fn copy_all(
+        &mut self,
+        remotes: &[RemoteRef],
+        destination: &str,
+        path: &str,
+        token: &str,
+    ) -> Result<(), RuntimeError> {
+        for remote in remotes {
+            let RemoteRef::Graph { id, mailbox } = remote else {
+                continue;
+            };
+            if mailbox == path {
+                continue;
+            }
+            let url = format!("{}/messages/{}/copy", self.me, segment(id));
+            let body = json!({ "destinationId": destination });
+            let Answer::Done(bytes) = self
+                .call(reqwest::Method::POST, &url, token, Some(&body))
+                .await?
+            else {
+                continue;
+            };
+            // An answer that names no copy leaves it to the next delta of the folder to find.
+            let copied: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+            if let Some(new) = copied.get("id").and_then(Value::as_str) {
+                self.copies.push((
+                    remote.clone(),
+                    RemoteRef::Graph {
+                        mailbox: path.to_owned(),
+                        id: new.to_owned(),
+                    },
+                ));
             }
         }
         Ok(())

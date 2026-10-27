@@ -21,6 +21,7 @@ fn remotes_mut(op: &mut ProtoOp) -> Option<&mut Vec<RemoteRef>> {
         | ProtoOp::SetMailbox { remotes, .. }
         | ProtoOp::SetLabels { remotes, .. }
         | ProtoOp::File { remotes, .. }
+        | ProtoOp::Copy { remotes, .. }
         | ProtoOp::AddKeyword { remotes, .. }
         | ProtoOp::Expunge { remotes }
         | ProtoOp::Destroy { remotes }

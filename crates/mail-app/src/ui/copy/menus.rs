@@ -115,6 +115,8 @@ pub const EDIT_AS_NEW: &str = "Edit as New";
 /// [`EDIT_AS_NEW`] for a conversation only in Sent, where the new message is the old one again.
 pub const SEND_AGAIN: &str = "Send Again";
 pub const MOVE_TO: &str = "Move to…";
+/// Into another folder of the account as well, and left where it is.
+pub const COPY_TO: &str = "Copy to…";
 pub const DOWNLOAD: &str = "Download";
 /// An attachment's right click: Save writes it where Save always does.
 pub const SAVE: &str = "Save";
@@ -135,6 +137,20 @@ pub const BLOCK_SENDER: &str = "Block Sender";
 /// The same, naming whose mail it is: the newest sender who is not the user.
 pub fn block_sender(email: &str) -> String {
     format!("Block {email}")
+}
+
+// The pick lists Move to… and Copy to… open: each one's name, which its field shares.
+pub const MOVE_TO_LIST: &str = "Move to";
+pub const COPY_TO_LIST: &str = "Copy to";
+
+/// Copy to…'s folders, under the account's address: a copy goes to another folder of the same
+/// account, never to another account.
+pub fn copy_within(address: &str) -> String {
+    if address.is_empty() {
+        "This Account’s Folders".to_owned()
+    } else {
+        format!("Folders in {address}")
+    }
 }
 
 /// The word for the side of an action a conversation is offered.

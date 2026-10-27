@@ -16,12 +16,14 @@ use std::sync::Arc;
 pub(in crate::ui) enum Pressed {
     Op(OpKind),
     MoveTo,
+    CopyTo,
 }
 
 /// The further menu `pressed` opens before it acts, if it opens one.
 pub(in crate::ui) fn further(pressed: Pressed) -> Option<Further> {
     match pressed {
         Pressed::MoveTo => Some(Further::Move),
+        Pressed::CopyTo => Some(Further::Copy),
         Pressed::Op(OpKind::AddLabel) => Some(Further::Label),
         Pressed::Op(OpKind::Snooze) => Some(Further::Snooze),
         Pressed::Op(_) => None,
@@ -29,7 +31,7 @@ pub(in crate::ui) fn further(pressed: Pressed) -> Option<Further> {
 }
 
 /// One of a conversation's actions picked, from its row (`opened`) or the reader: the op it
-/// names, at once. Label, snooze and move open their menus where they were asked for (picked
+/// names, at once. Label, snooze, move and copy open their menus where they were asked for (picked
 /// while open, they close); a reply opens the composer on its draft.
 pub(in crate::ui) fn press(
     mut shell: Signal<Shell>,

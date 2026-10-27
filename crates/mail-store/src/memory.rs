@@ -333,6 +333,23 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn copied(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        let Some(message) = inner.message_by_remote(account.clone(), from) else {
+            return Ok(());
+        };
+        // As `SqliteStore`: an address a sync mapped first stays as it is.
+        if inner.message_by_remote(account.clone(), to).is_none() {
+            inner.map_remote(account, to, message);
+        }
+        Ok(())
+    }
+
     fn unmap(
         &self,
         account: AccountId,
@@ -998,8 +1015,9 @@ impl Inner {
 
     /// Every mailbox one message has a server address in, with whether it is still filed there:
     /// what [`mail_domain::Filter::InFolder`] weighs, read from the same rows `remote_map`
-    /// holds, the account's reported roles, and the queued `File` moves pending on it. Kept in
-    /// step with `sqlite/placed.rs` and `sql::IN_FOLDER`, which the parity proptest holds it to.
+    /// holds, the account's reported roles, and the queued `File` moves and `Copy` copies pending
+    /// on it. Kept in step with `sqlite/placed.rs` and `sql::IN_FOLDER`, which the parity
+    /// proptest holds it to.
     fn placed_of(&self, message: MessageId) -> Vec<mail_domain::Placed> {
         let Some(held) = self.messages.get(&message) else {
             return Vec::new();
@@ -1018,6 +1036,17 @@ impl Inner {
                 _ => None,
             })
             .collect();
+        let mut copying: Vec<String> = self
+            .pending
+            .iter()
+            .filter(|row| row.message == message)
+            .filter_map(|row| match self.outbox.get(&row.outbox).map(|o| &o.op) {
+                Some(ProtoOp::Copy { folder, .. }) => Some(folder.clone()),
+                _ => None,
+            })
+            .collect();
+        copying.sort_unstable();
+        copying.dedup();
         let mut paths: Vec<&str> = self
             .remotes
             .iter()
@@ -1026,14 +1055,13 @@ impl Inner {
             .collect();
         paths.sort_unstable();
         paths.dedup();
-        let addresses = paths
-            .into_iter()
-            .map(|path| MailboxRef {
-                account: held.account.clone(),
-                path: path.to_owned(),
-            })
-            .collect();
-        mail_domain::Placed::of_message(held.mailbox, addresses, &roles, &moving)
+        let folder = |path: &str| MailboxRef {
+            account: held.account.clone(),
+            path: path.to_owned(),
+        };
+        let addresses = paths.into_iter().map(folder).collect();
+        let copying = copying.iter().map(|path| folder(path)).collect();
+        mail_domain::Placed::of_message_copied(held.mailbox, addresses, &roles, &moving, copying)
     }
 
     fn summary_of(&self, id: ThreadId) -> Option<ThreadSummary> {
@@ -1559,6 +1587,7 @@ impl Inner {
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
+            | RemoteIntent::Copy { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. }
             | RemoteIntent::Destroy { messages } => messages,
             RemoteIntent::Send { .. }
@@ -1599,6 +1628,13 @@ impl Inner {
             RemoteIntent::File { label, .. } => {
                 match self.label_names(std::slice::from_ref(label)).pop() {
                     Some(folder) => ProtoOp::File { remotes, folder },
+                    None => return Ok(None),
+                }
+            }
+            // As filing: the label's name is the folder's path.
+            RemoteIntent::Copy { label, .. } => {
+                match self.label_names(std::slice::from_ref(label)).pop() {
+                    Some(folder) => ProtoOp::Copy { remotes, folder },
                     None => return Ok(None),
                 }
             }

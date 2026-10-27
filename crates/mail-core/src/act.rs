@@ -58,7 +58,8 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
     true
 }
 
-/// A move to a folder taken back before the server heard of it is taken out of the outbox too.
+/// A move or a copy to a folder taken back before the server heard of it is taken out of the
+/// outbox too.
 ///
 /// A filing has no reverse the server can be sent (`undo::reverse_intent`), so once it has gone
 /// the server keeps it filed. Until it has been tried, though, it is only a queued intention, and
@@ -78,8 +79,15 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
 /// reaches the server, and its confirmation then settles an entry that is no longer here. The
 /// message is back here and filed there, and the next sync shows it filed.
 fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
-    let Some(RemoteIntent::File { messages, .. }) = &entry.remote else {
-        return;
+    let (messages, queued_as): (_, fn(&ProtoOp) -> bool) = match &entry.remote {
+        Some(RemoteIntent::File { messages, .. }) => {
+            (messages, |op| matches!(op, ProtoOp::File { .. }))
+        }
+        // Left queued, a copy would put the message back in the folder at the next sync.
+        Some(RemoteIntent::Copy { messages, .. }) => {
+            (messages, |op| matches!(op, ProtoOp::Copy { .. }))
+        }
+        _ => return,
     };
     // The whole queue, not only what is due: a later operation waiting out a retry or a
     // credential is later all the same.
@@ -90,9 +98,7 @@ fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
         return;
     };
     let Some(filing) = queued.iter().find(|waiting| {
-        matches!(waiting.op, ProtoOp::File { .. })
-            && waiting.attempts == 0
-            && waiting.undo == entry.inverse
+        queued_as(&waiting.op) && waiting.attempts == 0 && waiting.undo == entry.inverse
     }) else {
         return;
     };
@@ -154,7 +160,7 @@ fn touches(later: &mail_store::OutboxEntry, messages: &[MessageId], filing: &Pro
     {
         return true;
     }
-    let ProtoOp::File { remotes: ours, .. } = filing else {
+    let (ProtoOp::File { remotes: ours, .. } | ProtoOp::Copy { remotes: ours, .. }) = filing else {
         return true;
     };
     match &later.op {
@@ -162,6 +168,7 @@ fn touches(later: &mail_store::OutboxEntry, messages: &[MessageId], filing: &Pro
         | ProtoOp::SetMailbox { remotes, .. }
         | ProtoOp::SetLabels { remotes, .. }
         | ProtoOp::File { remotes, .. }
+        | ProtoOp::Copy { remotes, .. }
         | ProtoOp::AddKeyword { remotes, .. }
         | ProtoOp::Expunge { remotes }
         | ProtoOp::Destroy { remotes } => remotes.iter().any(|r| ours.contains(r)),

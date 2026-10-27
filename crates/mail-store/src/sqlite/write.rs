@@ -933,6 +933,22 @@ impl SqliteStore {
         Ok(())
     }
 
+    /// See [`crate::Store::copied`].
+    pub(super) fn write_copied(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        let Some(message) = self.message_by_remote(account.clone(), from)? else {
+            return Ok(());
+        };
+        if self.message_by_remote(account.clone(), to)?.is_some() {
+            return Ok(());
+        }
+        self.map_remote(account, to, message)
+    }
+
     /// See [`crate::Store::unmap`].
     pub(super) fn write_unmap(
         &self,

@@ -80,13 +80,16 @@ struct Spec {
     folders: Vec<bool>,
     /// A queued move into one of [`MOVES`], not yet confirmed by the server.
     moving: Option<usize>,
+    /// A queued copy into one of [`MOVES`], queued before the move, not yet confirmed either.
+    copying: Option<usize>,
     date: i64,
     /// An attachment named after one of [`WORDS`], of this many bytes, still on the server.
     attached: Option<(usize, u64)>,
 }
 
-/// Folders a queued `File` moves a message into: one it may already be held in, and one it is
-/// not. Only the second takes it out of `InFolder` for the folder it is in.
+/// Folders a queued `File` moves, or a queued `Copy` copies, a message into: one it may already
+/// be held in, and one it is not. Only the second takes a move out of `InFolder` for the folder
+/// it is in, and lists a copy in `InFolder` for the folder it goes to.
 const MOVES: &[(&str, LabelId)] = &[
     (
         "Projects/2026",
@@ -140,6 +143,8 @@ fn spec() -> impl Strategy<Value = Spec> {
         prop::collection::vec(any::<bool>(), FOLDERS.len()..=FOLDERS.len()),
         (
             prop::option::of(0..MOVES.len()),
+            prop::option::of(0..MOVES.len()),
+            prop::option::of(0..MOVES.len()),
             0i64..4_000,
             prop::option::of((0..WORDS.len(), 0u64..60)),
         ),
@@ -157,7 +162,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                 mailbox,
                 labels,
                 folders,
-                (moving, date, attached),
+                (moving, copying, date, attached),
             )| {
                 Spec {
                     thread,
@@ -172,6 +177,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                     labels,
                     folders,
                     moving,
+                    copying,
                     date,
                     attached,
                 }
@@ -379,10 +385,17 @@ fn build(specs: &[Spec]) -> Both {
         memory.ingest(acct_account(), ingest).unwrap();
     }
 
-    // Moves queued and not yet confirmed, as the window or a rule queues them: the op applied
-    // here, its remote half in the outbox. A message with no address queues nothing.
-    for (message, s) in &held {
-        let Some(to) = s.moving else { continue };
+    // Copies and moves queued and not yet confirmed, as the window or a rule queues them: the op
+    // applied here, its remote half in the outbox. A message with no address queues nothing.
+    let queued = held.iter().flat_map(|(message, s)| {
+        [
+            s.copying.map(|to| (message, Op::Copy(MOVES[to].1))),
+            s.moving.map(|to| (message, Op::File(MOVES[to].1))),
+        ]
+        .into_iter()
+        .flatten()
+    });
+    for (message, op) in queued {
         for store in [&sqlite as &dyn Store, &memory] {
             let thread = store.thread(message.thread).unwrap();
             let messages: Vec<Message> = thread
@@ -390,7 +403,7 @@ fn build(specs: &[Spec]) -> Both {
                 .iter()
                 .map(|id| store.message(*id).unwrap())
                 .collect();
-            let applied = Op::File(MOVES[to].1).apply(
+            let applied = op.apply(
                 &Target::Messages(vec![message.id]),
                 &thread,
                 &messages,

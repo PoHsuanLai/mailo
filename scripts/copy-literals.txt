@@ -9,7 +9,6 @@ crates/mail-app/src/ui/data.rs 1
 crates/mail-app/src/ui/destroy.rs 1
 crates/mail-app/src/ui/keyboard.rs 5
 crates/mail-app/src/ui/keymap.rs 17
-crates/mail-app/src/ui/move_to.rs 4
 crates/mail-app/src/ui/no_account.rs 3
 crates/mail-app/src/ui/ops.rs 2
 crates/mail-app/src/ui/prefs.rs 1

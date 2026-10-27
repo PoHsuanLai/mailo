@@ -19,6 +19,10 @@ pub const ADD_AN_ACCOUNT_FIRST: &str = "Add an account first.";
 
 /// The list with nothing left in it once the quick filter's toggles narrowed it.
 pub const NOTHING_MATCHES_FILTER: &str = "Nothing here matches the filter";
+/// Move to… and Copy to… on an account with no folder of its own to offer.
+pub const NO_FOLDERS: &str = "No folders";
+/// Move to… and Copy to…, when nothing typed names one of the folders.
+pub const NO_FOLDER_MATCHES: &str = "No folder matches.";
 
 /// The reader column with no conversation open.
 pub const NO_MESSAGE_SELECTED: &str = "No message selected";

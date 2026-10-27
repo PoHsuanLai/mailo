@@ -366,6 +366,16 @@ pub enum ProtoOp {
         /// The draft's `Message-ID`, without angle brackets.
         message_id: String,
     },
+    /// Copy messages into the folder at `folder`, leaving them where they are: `UID COPY` on
+    /// IMAP, the label added where mailboxes are labels (Gmail, JMAP), and `POST …/copy` on
+    /// Microsoft Graph.
+    ///
+    /// Each message is named by one address. Copying every address a message has would put as
+    /// many copies in the folder as the message has places.
+    Copy {
+        remotes: Vec<RemoteRef>,
+        folder: String,
+    },
 }
 
 #[cfg(test)]

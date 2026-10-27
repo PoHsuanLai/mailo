@@ -279,6 +279,75 @@ async fn a_flag_changed_here_reaches_the_server_as_a_patch() {
     assert_eq!(held(&s.store, 1).unwrap().star, Star::Starred);
 }
 
+/// A copy within one account is the same email in one more mailbox: the target added to its
+/// `mailboxIds` by a patch, the inbox left, and still one message here after the next sync.
+#[tokio::test]
+async fn a_copy_to_a_folder_adds_the_mailbox_and_keeps_the_rest() {
+    let mut s = setup().await;
+    let ids = seed(&s.fake);
+    pass(&mut s).await;
+    let hello = held(&s.store, 1).unwrap();
+    let work = s
+        .store
+        .labels(acct_account())
+        .unwrap()
+        .into_iter()
+        .find(|l| l.name == "Work")
+        .expect("the Work mailbox, as a label")
+        .id;
+    let thread = s.store.thread(hello.thread).unwrap();
+    let caps = AccountCaps {
+        archive: ArchiveMeans::DropInbox,
+        ..presets::jmap(USER, "https://unused.example", HttpAuth::Basic).expected_caps
+    };
+    let applied = Op::Copy(work).apply(
+        &Target::Threads(vec![hello.thread]),
+        &thread,
+        std::slice::from_ref(&hello),
+        &caps,
+        now(),
+    );
+    s.store.apply(acct_account(), &applied.forward).unwrap();
+    s.store
+        .enqueue(
+            acct_account(),
+            applied.remote.expect("a copy the server is told of"),
+            &applied.inverse,
+            now(),
+        )
+        .unwrap();
+    let held_before = s.store.count(&Filter::All, now()).unwrap();
+
+    let report = pass(&mut s).await;
+    assert_eq!(report.outbox_settled, 1);
+    let mut want = serde_json::Map::new();
+    want.insert(
+        ids[0].clone(),
+        serde_json::json!({ "mailboxIds/mbW": true }),
+    );
+    assert_eq!(
+        s.fake.calls("Email/set").last().unwrap()["update"],
+        serde_json::Value::Object(want)
+    );
+    let mut on_server = s
+        .fake
+        .state
+        .lock()
+        .unwrap()
+        .email(&ids[0])
+        .unwrap()
+        .mailboxes
+        .clone();
+    on_server.sort();
+    assert_eq!(on_server, ["mbI", "mbW"]);
+    // The sync after it reads both mailboxes back and holds one message, in the inbox and Work.
+    pass(&mut s).await;
+    assert_eq!(s.store.count(&Filter::All, now()).unwrap(), held_before);
+    let hello = held(&s.store, 1).unwrap();
+    assert_eq!(hello.mailbox, MailboxRole::Inbox);
+    assert_eq!(label_names(&s.store, &hello), ["Work"]);
+}
+
 #[tokio::test]
 async fn a_send_is_imported_submitted_with_every_recipient_and_filed_in_sent() {
     let mut s = setup().await;

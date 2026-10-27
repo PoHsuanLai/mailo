@@ -1,9 +1,14 @@
-//! "Move to…": a conversation filed into one of its account's own folders.
+//! "Move to…": a conversation filed into one of its account's own folders; and "Copy to…": put
+//! in one of them as well, and left where it is.
 //!
 //! The row's menu and the reader's tools open the one menu on the account's folders; a
 //! folder row in the sidebar takes a dropped row. All three file through [`Op::File`], the op a
 //! rule's "move to folder" performs, applied by `motion::act`, so the undo and the toast are the
-//! ones every other op has.
+//! ones every other op has. A copy is [`Op::Copy`], from the same menus and the same list.
+//!
+//! Both stay within the account. A folder is one server's, and neither goes to another
+//! account's: that would be an upload of the message there, which a move or a copy within one
+//! server is not. Copy to… says so above its folders.
 //!
 //! `Op::File` names a label: the server's label that *is* the folder, where mailboxes are labels,
 //! and elsewhere the label a move into it files under, named by its path — the same one a rule
@@ -13,6 +18,7 @@ use super::menu::{MenuItem, anchor_for, narrowed, palette_groups};
 use super::motion::drag::Drag;
 use super::motion::{act_all, motion};
 use super::picks::with_selection;
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
@@ -23,6 +29,25 @@ use mail_domain::Label;
 use mail_domain::*;
 use porter_core::AccountId;
 use std::sync::Arc;
+
+/// What a pick in the menu does with the conversation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) enum Gesture {
+    /// Out of where it is, into the folder: [`Op::File`].
+    Move,
+    /// Into the folder as well: [`Op::Copy`].
+    Copy,
+}
+
+impl Gesture {
+    /// The op that puts a conversation in the folder `label` names.
+    fn op(self, label: LabelId) -> Op {
+        match self {
+            Gesture::Move => Op::File(label),
+            Gesture::Copy => Op::Copy(label),
+        }
+    }
+}
 
 /// One folder a conversation can be moved to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +123,18 @@ pub(in crate::ui) fn file_all_into(
     threads: &[ThreadId],
     folder: &MailboxRef,
 ) -> usize {
+    put_all_into(store, shell, revision, threads, folder, Gesture::Move)
+}
+
+/// [`file_all_into`], moving or copying as `gesture` says.
+pub(in crate::ui) fn put_all_into(
+    store: &SqliteStore,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    threads: &[ThreadId],
+    folder: &MailboxRef,
+    gesture: Gesture,
+) -> usize {
     let ours: Vec<ThreadId> = threads
         .iter()
         .copied()
@@ -110,12 +147,12 @@ pub(in crate::ui) fn file_all_into(
         Ok(label) => {
             let ops = ours
                 .into_iter()
-                .map(|thread| (thread, Op::File(label)))
+                .map(|thread| (thread, gesture.op(label)))
                 .collect();
             act_all(store, shell, revision, ops)
         }
         Err(why) => {
-            log::warn!("move to {}: {why}", folder.path);
+            log::warn!("{gesture:?} to {}: {why}", folder.path);
             0
         }
     }
@@ -159,8 +196,9 @@ pub(in crate::ui) fn items(destinations: &[Destination]) -> Vec<MenuItem> {
         .collect()
 }
 
-/// The folders `thread` can be moved to, and the move: quire's `PickList` under the control
-/// that opened it, its field narrowing the account's folders as it is typed into.
+/// The folders `thread` can be moved or copied to, and the move or the copy: quire's `PickList`
+/// under the control that opened it, its field narrowing the account's folders as it is typed
+/// into.
 #[component]
 pub(in crate::ui) fn MoveMenu(
     thread: ThreadId,
@@ -170,6 +208,9 @@ pub(in crate::ui) fn MoveMenu(
     /// The opener's rect once measured, which wins over `anchor`.
     #[props(default)]
     placed: Option<Rect>,
+    /// What a pick does: Move to…'s, unless Copy to… opened it.
+    #[props(default = Gesture::Move)]
+    gesture: Gesture,
     on_close: EventHandler<()>,
 ) -> Element {
     let store = consume_context::<Arc<SqliteStore>>();
@@ -178,18 +219,36 @@ pub(in crate::ui) fn MoveMenu(
         .clone()
         .map_or_else(Vec::new, |a| destinations(&store, a));
     let mut query = use_signal(String::new);
-    let shown = narrowed(&items(&found), &query());
+    let rows = match (gesture, &account) {
+        // Said above the folders: they are this account's, and no other's.
+        (Gesture::Copy, Some(account)) => {
+            let address = shell
+                .read()
+                .accounts
+                .iter()
+                .find(|(_, id)| id == account)
+                .map(|(address, _)| address.clone())
+                .unwrap_or_default();
+            within(items(&found), &copy::menus::copy_within(&address))
+        }
+        _ => items(&found),
+    };
+    let shown = narrowed(&rows, &query());
+    let (label, placeholder) = match gesture {
+        Gesture::Move => (copy::menus::MOVE_TO_LIST, copy::menus::MOVE_TO),
+        Gesture::Copy => (copy::menus::COPY_TO_LIST, copy::menus::COPY_TO),
+    };
     rsx! {
         PickList::<String> {
             anchor: anchor_for(anchor, placed),
-            label: "Move to",
-            placeholder: "Move to…",
+            label,
+            placeholder,
             query: query(),
             groups: palette_groups(&shown, AvatarSize::Size22, None),
             empty: if found.is_empty() {
-                "No folders".to_owned()
+                copy::empty::NO_FOLDERS.to_owned()
             } else {
-                "No folder matches.".to_owned()
+                copy::empty::NO_FOLDER_MATCHES.to_owned()
             },
             oninput: move |text: String| query.set(text),
             onpick: move |path: String| {
@@ -198,17 +257,28 @@ pub(in crate::ui) fn MoveMenu(
                 let folder = MailboxRef { account, path };
                 on_close.call(());
                 // The whole selection when this row is picked, as one gesture.
-                file_all_into(
+                put_all_into(
                     &store,
                     shell,
                     revision,
                     &with_selection(shell, thread),
                     &folder,
+                    gesture,
                 );
             },
             onclose: move |()| on_close.call(()),
         }
     }
+}
+
+/// `rows` as one group, titled `title`.
+fn within(rows: Vec<MenuItem>, title: &str) -> Vec<MenuItem> {
+    rows.into_iter()
+        .map(|row| MenuItem {
+            group: Some(title.to_owned()),
+            ..row
+        })
+        .collect()
 }
 
 #[cfg(test)]

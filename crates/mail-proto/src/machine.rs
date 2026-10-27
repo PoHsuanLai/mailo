@@ -90,6 +90,12 @@ pub enum ProtoOutcome {
     /// an operation queued behind the move and sent to the old address is answered OK and does
     /// nothing, since a UID set naming no message is not an error (RFC 9051 §6.4.8).
     Moved(Vec<Moved>),
+    /// Messages were copied into another mailbox, and stay where they were: each address they
+    /// had still names them, and each copy's, where the server said it, names them too.
+    ///
+    /// Its own variant for the same reason as [`ProtoOutcome::Moved`]: the caller keeps the new
+    /// addresses, so the sync of the destination finds the copies held.
+    Copied(Vec<Moved>),
     /// A message was uploaded. `remote` is where it landed, when the server said
     /// (`APPENDUID`, RFC 4315); `None` when it did not, and then only a later sync finds it.
     Appended {
@@ -149,7 +155,8 @@ pub enum ProtoOutcome {
     },
 }
 
-/// One message moved into another mailbox: the address it had, and the one it has now.
+/// One message moved or copied into another mailbox: the address it had, and the one it has
+/// there now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Moved {
     pub from: RemoteRef,

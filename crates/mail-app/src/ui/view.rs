@@ -545,6 +545,8 @@ pub enum Further {
     Move,
     /// Redirect…'s field: whom the newest message goes to, unchanged.
     Redirect,
+    /// Copy To's folders.
+    Copy,
 }
 
 /// Where a further menu was asked for, which is where it is drawn.

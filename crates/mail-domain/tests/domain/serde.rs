@@ -565,6 +565,7 @@ fn rule_types_round_trip() {
     round_trip_each("Rule", rules());
     round_trip("Vacation", vacation());
     round_trip("Op::File", Op::File(LabelId::from_uuid(uuid(3))));
+    round_trip("Op::Copy", Op::Copy(LabelId::from_uuid(uuid(3))));
 }
 
 fn view() -> View {
@@ -1561,6 +1562,20 @@ fixtures! {
         remotes: vec![imap_ref()],
         folder: "Money/Bills".to_owned(),
     }],
+    // Copy to a folder, added after the files above were frozen: the op, and the outbox row that
+    // carries it to the server.
+    "actions_copy.json" => Vec<Action> = vec![Action {
+        target: Target::Messages(vec![MessageId::from_uuid(uuid(8))]),
+        op: Op::Copy(LabelId::from_uuid(uuid(3))),
+    }],
+    "proto_ops_copy.json" => Vec<ProtoOp> = vec![ProtoOp::Copy {
+        remotes: vec![
+            imap_ref(),
+            RemoteRef::Graph { mailbox: "INBOX".to_owned(), id: "AAMk-2".to_owned() },
+            RemoteRef::Jmap { email_id: "Mf40b5f831".into() },
+        ],
+        folder: "Money/Bills".to_owned(),
+    }],
     "message_keys.json" => Vec<MessageKey> = vec![
         MessageKey::Rfc("abc@example.test".to_owned()),
         MessageKey::Gmail(1),
@@ -1892,6 +1907,10 @@ fn remote_intent_round_trips() {
             draft: DraftId::generate(),
             mailbox: mailbox_ref(),
             message_id: "d@example.test".to_owned(),
+        },
+        RemoteIntent::Copy {
+            messages: vec![m],
+            label: l,
         },
     ] {
         let json = serde_json::to_value(&value).expect("serialize");

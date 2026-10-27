@@ -269,6 +269,7 @@ impl Backend for Pop3Backend {
             | ProtoOp::SetMailbox { .. }
             | ProtoOp::SetLabels { .. }
             | ProtoOp::File { .. }
+            | ProtoOp::Copy { .. }
             | ProtoOp::AddKeyword { .. }
             | ProtoOp::Expunge { .. } => {
                 self.job = Job::Idle;

@@ -58,6 +58,7 @@ fn remotes(op: &ProtoOp) -> &[RemoteRef] {
         | ProtoOp::SetMailbox { remotes, .. }
         | ProtoOp::SetLabels { remotes, .. }
         | ProtoOp::File { remotes, .. }
+        | ProtoOp::Copy { remotes, .. }
         | ProtoOp::AddKeyword { remotes, .. }
         | ProtoOp::Expunge { remotes }
         | ProtoOp::Destroy { remotes }

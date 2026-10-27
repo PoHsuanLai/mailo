@@ -117,6 +117,7 @@ fn messages_of(intent: &RemoteIntent) -> &[MessageId] {
         | RemoteIntent::SetMailbox { messages, .. }
         | RemoteIntent::SetLabels { messages, .. }
         | RemoteIntent::File { messages, .. }
+        | RemoteIntent::Copy { messages, .. }
         | RemoteIntent::AddKeyword { messages, .. }
         | RemoteIntent::Destroy { messages } => messages,
         RemoteIntent::Send { .. }
@@ -227,6 +228,7 @@ pub(crate) fn readdress(op: ProtoOp, remotes: Vec<RemoteRef>) -> ProtoOp {
             remove,
         },
         ProtoOp::File { folder, .. } => ProtoOp::File { remotes, folder },
+        ProtoOp::Copy { folder, .. } => ProtoOp::Copy { remotes, folder },
         ProtoOp::AddKeyword { keyword, .. } => ProtoOp::AddKeyword { remotes, keyword },
         ProtoOp::Destroy { .. } => ProtoOp::Destroy { remotes },
         other => other,
@@ -262,7 +264,7 @@ pub(crate) fn own(
             Place::At(found) if found.is_empty() => waits = true,
             Place::At(found) => {
                 held = true;
-                for remote in found {
+                for remote in copied_from(&op, found) {
                     if !remotes.contains(&remote) {
                         remotes.push(remote);
                     }
@@ -277,6 +279,24 @@ pub(crate) fn own(
         return Ok(Dispatch::Moot);
     }
     Ok(Dispatch::Send(readdress(op, remotes)))
+}
+
+/// The addresses of one message `op` is sent to: every one, except for a copy.
+///
+/// A copy names one address of each message, the first, since copying from each would put as
+/// many copies in the folder as the message has places; and none of a message the folder holds
+/// already, which needs no copy there.
+fn copied_from(op: &ProtoOp, found: Vec<RemoteRef>) -> Vec<RemoteRef> {
+    let ProtoOp::Copy { folder, .. } = op else {
+        return found;
+    };
+    if found
+        .iter()
+        .any(|remote| same_folder(&crate::remote_row::columns(remote).0, folder))
+    {
+        return Vec::new();
+    }
+    found.into_iter().take(1).collect()
 }
 
 /// What an entry asks of the server now, given the messages of every entry queued before it on

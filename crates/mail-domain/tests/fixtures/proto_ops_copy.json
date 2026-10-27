@@ -1,0 +1,31 @@
+[
+  {
+    "kind": "copy",
+    "v": {
+      "remotes": [
+        {
+          "kind": "imap",
+          "v": {
+            "mailbox": "[Gmail]/All Mail",
+            "uidvalidity": 12,
+            "uid": 4294967295
+          }
+        },
+        {
+          "kind": "graph",
+          "v": {
+            "mailbox": "INBOX",
+            "id": "AAMk-2"
+          }
+        },
+        {
+          "kind": "jmap",
+          "v": {
+            "email_id": "Mf40b5f831"
+          }
+        }
+      ],
+      "folder": "Money/Bills"
+    }
+  }
+]

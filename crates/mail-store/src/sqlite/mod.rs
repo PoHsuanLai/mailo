@@ -965,6 +965,15 @@ impl Store for SqliteStore {
         self.write_remap(account, from, to)
     }
 
+    fn copied(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        self.write_copied(account, from, to)
+    }
+
     fn unmap(
         &self,
         account: AccountId,
