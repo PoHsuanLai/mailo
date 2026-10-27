@@ -4,9 +4,9 @@
 //! Remove Account….
 //!
 //! What the account is called, whether it syncs, its servers and its folders' roles are
-//! changed here ([`edit`]). Remove asks first
-//! in quire's alert, naming how much mail goes and whether the server still has it. Only the
-//! confirming button removes; Escape and Cancel leave the page as it was. A removal runs off the
+//! changed here ([`edit`]). Remove asks first in quire's alert, naming how much mail goes and
+//! whether the server still has it. Only the confirming button removes; Escape and Cancel leave
+//! the page as it was. A removal runs off the
 //! thread that draws (the keyring blocks), on the window's own task, so turning to another page
 //! does not cut it short. When it is done the offline setting forgets the account, the revision
 //! moves and the pane goes back to the list: the links, the lists, the Spaces and the pressed tile

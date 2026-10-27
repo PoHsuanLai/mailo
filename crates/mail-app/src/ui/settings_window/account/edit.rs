@@ -190,7 +190,7 @@ fn ServerRows(
 }
 
 /// The servers, editable where they were typed by hand, with Save under them; the rows a
-/// provider decided are read-only, as they always were.
+/// provider decided are read-only.
 #[component]
 pub(super) fn Servers(row: AccountRow, revision: Signal<u64>) -> Element {
     let had = servers::form_of(&row.plan);
