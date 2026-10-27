@@ -91,7 +91,8 @@ pub(super) fn use_drop_target(page: Signal<Page>) -> FileDropHandle {
 /// brought nothing for (`crate::ui::pasted_image`).
 pub(super) fn paste_image(mut page: Signal<Page>, png: Vec<u8>) {
     let name = crate::ui::copy::fields::PASTED_IMAGE;
-    let placed = match shown_in(page.peek().format, Lands::Body) {
+    let lands = shown_in(page.peek().format, Lands::Body);
+    let placed = match lands {
         Lands::Body => into_body(page, name, &png),
         Lands::Files => as_file(page, name, &png).map_err(BodyRefused::Said),
     };

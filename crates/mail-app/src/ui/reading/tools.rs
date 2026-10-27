@@ -310,11 +310,9 @@ pub(in crate::ui) fn compose_on(
     what: Composes,
 ) {
     let store = consume_context::<Arc<SqliteStore>>();
-    match open_composer(
-        &store,
-        shell,
-        Writes::answering(&shell.peek(), thread, what),
-    ) {
+    // The peek ends before the composer opens: it writes the shell.
+    let writes = Writes::answering(&shell.peek(), thread, what);
+    match open_composer(&store, shell, writes) {
         Ok(()) => revision += 1,
         Err(why) => tell(copy::toasts::not_opened(&why), Follow::Nothing),
     }

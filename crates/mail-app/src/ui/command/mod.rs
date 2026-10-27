@@ -163,11 +163,8 @@ fn run_action(
                 return;
             };
             let store = consume_context::<Arc<SqliteStore>>();
-            match open_composer(
-                &store,
-                shell,
-                Writes::answering(&shell.peek(), open, Composes::ForwardAttached),
-            ) {
+            let writes = Writes::answering(&shell.peek(), open, Composes::ForwardAttached);
+            match open_composer(&store, shell, writes) {
                 Ok(()) => *revision += 1,
                 Err(why) => super::motion::tell(
                     format!("Not forwarded as an attachment: {why}."),
