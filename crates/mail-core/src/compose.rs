@@ -1000,7 +1000,15 @@ pub fn send_with(
     draft: DraftId,
     now: DateTime<Utc>,
 ) -> Result<(Draft, mail_mime::Posting), SendError> {
-    queue_with(store, secrets, ask, draft, Leaves::Now, now)
+    queue_sized(
+        store,
+        secrets,
+        ask,
+        draft,
+        Leaves::Now,
+        PictureSize::Actual,
+        now,
+    )
 }
 
 /// A send held for later: what was queued, and when it may leave.
@@ -1032,7 +1040,15 @@ pub fn send_later_with(
     now: DateTime<Utc>,
 ) -> Result<Scheduled, SendError> {
     let at = crate::snooze::snooze_until(phrase, now, &Local)?;
-    let (draft, post) = queue_with(store, secrets, ask, draft, Leaves::At(at), now)?;
+    let (draft, post) = queue_sized(
+        store,
+        secrets,
+        ask,
+        draft,
+        Leaves::At(at),
+        PictureSize::Actual,
+        now,
+    )?;
     Ok(Scheduled { draft, post, at })
 }
 
@@ -1069,32 +1085,22 @@ pub fn queue(
         store,
         &NoKeys,
         &crate::pgp::no_passphrase,
-        (draft, PictureSize::Actual),
+        draft,
         leaves,
+        PictureSize::Actual,
         now,
     )
 }
 
-/// [`queue`], with the keyring and the passphrase prompt named.
+/// [`queue`], with the keyring and the passphrase prompt named, and its pictures sent at
+/// `pictures`: each JPEG or PNG it carries made smaller as the bytes are frozen
+/// (`pictures::sized`). The draft keeps the originals, so the choice can be made again; only what
+/// goes is smaller. Decodes every picture, so it is for a thread that does not draw, unless
+/// `pictures` is [`PictureSize::Actual`].
 ///
 /// The keyring is read only for a draft that asks to be signed or encrypted; `ask` is asked only
 /// when that key is passphrase-protected. The OpenPGP work happens here, as the bytes are
 /// frozen, so what the outbox holds is already signed and encrypted — see `pgp::send`.
-pub fn queue_with(
-    store: &SqliteStore,
-    secrets: &dyn mail_runtime::SigningStore,
-    ask: crate::pgp::Ask<'_>,
-    draft: DraftId,
-    leaves: Leaves,
-    now: DateTime<Utc>,
-) -> Result<(Draft, mail_mime::Posting), SendError> {
-    queue_sized(store, secrets, ask, draft, leaves, PictureSize::Actual, now)
-}
-
-/// [`queue_with`], its pictures sent at `pictures`: each JPEG or PNG it carries made smaller as
-/// the bytes are frozen (`pictures::sized`). The draft keeps the originals, so the choice can be
-/// made again; only what goes is smaller. Decodes every picture, so it is for a thread that does
-/// not draw, unless `pictures` is [`PictureSize::Actual`].
 pub fn queue_sized(
     store: &SqliteStore,
     secrets: &dyn mail_runtime::SigningStore,
@@ -1104,15 +1110,16 @@ pub fn queue_sized(
     pictures: PictureSize,
     now: DateTime<Utc>,
 ) -> Result<(Draft, mail_mime::Posting), SendError> {
-    queue_inner(store, secrets, ask, (draft, pictures), leaves, now).map_err(SendError::from)
+    queue_inner(store, secrets, ask, draft, leaves, pictures, now).map_err(SendError::from)
 }
 
 fn queue_inner(
     store: &SqliteStore,
     secrets: &dyn mail_runtime::SigningStore,
     ask: crate::pgp::Ask<'_>,
-    (draft, pictures): (DraftId, PictureSize),
+    draft: DraftId,
     leaves: Leaves,
+    pictures: PictureSize,
     now: DateTime<Utc>,
 ) -> Result<(Draft, mail_mime::Posting), CoreError> {
     // Before anything is taken back, so a time that has gone leaves an existing schedule alone.
