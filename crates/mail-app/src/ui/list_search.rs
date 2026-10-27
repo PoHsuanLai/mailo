@@ -16,6 +16,7 @@ use chrono::{DateTime, Utc};
 use mail_core::search::{self, Highlight, Source, Term};
 use mail_core::{SqliteStore, Store};
 use mail_domain::{Filter, LabelId, MessageId, PageReq, Query, ThreadId, ThreadSummary};
+use porter_core::AccountId;
 use std::ops::Range;
 
 /// What the list pane was asked for, taken out of the shell so a blocking thread can run it.
@@ -33,6 +34,8 @@ pub(super) struct Search {
     pub input: String,
     /// `label:` resolves against these, as it does everywhere else in the window.
     pub labels: Vec<(String, LabelId)>,
+    /// `account:` resolves against these: each account's address.
+    pub accounts: Vec<(String, AccountId)>,
     /// The Space's narrowing and the quick filter's, applied to every candidate.
     pub scope: Option<Filter>,
     /// The place's own query, for a bare pattern. `None` while Drafts is selected.
@@ -62,6 +65,7 @@ impl Request {
         Self::Search(Search {
             input: text.to_owned(),
             labels: shell.labels.clone(),
+            accounts: shell.accounts.clone(),
             scope: shell.list_scope(),
             page,
             limit,
@@ -134,7 +138,10 @@ pub(super) fn listed(store: &SqliteStore, request: Request, now: DateTime<Utc>) 
 }
 
 fn searched(store: &SqliteStore, search: &Search, now: DateTime<Utc>) -> Listed {
-    let label = mail_core::query::named(&search.labels);
+    let label = mail_core::query::Known {
+        labels: &search.labels,
+        accounts: &search.accounts,
+    };
     let highlight = match search::list_highlight(&search.input, &chrono::Local, &label) {
         Ok(highlight) => highlight,
         Err(why) => return invalid(why.to_string()),

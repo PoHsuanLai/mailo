@@ -83,6 +83,7 @@ fn a_folder_place_lists_its_account_and_exactly_its_path() {
                 summary: &summary(account),
                 corpus: None,
                 folders: &placed,
+                sizes: &[],
                 now: at(0),
             })
         };

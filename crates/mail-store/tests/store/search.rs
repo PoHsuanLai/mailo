@@ -385,3 +385,64 @@ mod top_hits {
         }
     }
 }
+
+/// A message's attachment names are searched, and its size is what `larger:` and `smaller:`
+/// compare: in both stores alike. The SQLite store reads both from what it indexed and stored,
+/// the memory store from the message.
+#[test]
+fn attachment_names_and_sizes_are_searched() {
+    let both = Both::new();
+    seed_account(&both.sqlite, acct_account(), "me@example.test");
+    let raw = both.sqlite.blobs().put(b"raw").unwrap();
+    // 2048 bytes of attachment and the bytes of "see attached".
+    let message = Message {
+        subject: "figures".into(),
+        body: Body::Present {
+            text: Some("see attached".to_owned()),
+            raw,
+        },
+        attachments: vec![Attachment {
+            name: "quarterly-figures.pdf".to_owned(),
+            mime: "application/pdf".to_owned(),
+            size: 2048,
+            content: PartContent::Held(raw),
+            inline: Inline::Attached,
+        }],
+        ..message(1)
+    };
+    let size = 2048 + "see attached".len() as u64;
+    for (_, store) in both.each() {
+        store
+            .apply(
+                acct_account(),
+                &patch(vec![Change::MessageUpsert(Box::new(message.clone()))]),
+            )
+            .unwrap();
+    }
+    let cases: Vec<(&str, Filter, usize)> = vec![
+        (
+            "an attachment's name",
+            Filter::Text(TextMatch::Contains("quarterly".into())),
+            1,
+        ),
+        (
+            "a word of no part",
+            Filter::Text(TextMatch::Contains("annual".into())),
+            0,
+        ),
+        ("larger than a byte under", Filter::Larger(size - 1), 1),
+        ("larger than itself", Filter::Larger(size), 0),
+        ("smaller than a byte over", Filter::Smaller(size + 1), 1),
+        ("smaller than itself", Filter::Smaller(size), 0),
+    ];
+    for (case, filter, want) in cases {
+        let found = both.agree(|store| {
+            store
+                .threads(&query(filter.clone(), 10), at(0))
+                .unwrap()
+                .items
+                .len()
+        });
+        assert_eq!(found, want, "{case}");
+    }
+}

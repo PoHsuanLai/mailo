@@ -12,7 +12,6 @@ use crate::error::CoreError;
 use std::ops::Range;
 
 use chrono::TimeZone;
-use mail_domain::LabelId;
 
 use super::highlight::marks;
 use super::parsing::parse;
@@ -70,7 +69,7 @@ impl Highlight {
 pub fn list_highlight<Tz: TimeZone>(
     input: &str,
     zone: &Tz,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn crate::query::Names,
 ) -> Result<Highlight, CoreError> {
     let extracted = extract(input)?;
     let parsed = parse(&extracted.rest, zone, label);
@@ -187,7 +186,7 @@ mod tests {
             ("郵", "校園郵件通知", &["郵"]),
         ];
         for (input, text, want) in cases {
-            let highlight = list_highlight(input, &Utc, &|_| Vec::new())
+            let highlight = list_highlight(input, &Utc, &crate::query::unnamed)
                 .unwrap_or_else(|why| panic!("{input:?}: {why}"));
             let ranges = highlight.ranges(text);
             assert_eq!(marked(text, &ranges), *want, "typed {input:?}");

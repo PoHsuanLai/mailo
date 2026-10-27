@@ -13,7 +13,7 @@
 
 use super::SqlValue;
 use mail_domain::filter::search_tokens;
-use mail_domain::{Address, Filter, TextMatch};
+use mail_domain::{Address, Attachment, Filter, TextMatch};
 
 /// `messages_fts MATCH ?`. Ranking binds the same predicate this module builds for
 /// [`Filter::Text`]; the table name is required, because with the table aliased SQLite resolves
@@ -35,9 +35,10 @@ pub(crate) const MATCHING: &str = concat!(
 /// The indexed text of one message: every field [`Filter::Text`] searches, as tokens.
 ///
 /// Three writers need this — insert, body arrival, and the backfill — and they used to list the
-/// fields separately, which is how a field gets added to two of them. `To` and `Cc` are here
-/// because a thread is found by who it was addressed to as well as by who wrote it; `Bcc` is
-/// not, for the reason `ThreadSummary::recipients` gives.
+/// fields separately, which is how a field gets added to two of them. Attachment names are here
+/// too, after the body. `To` and `Cc` are here because a thread is found by who it was
+/// addressed to as well as by who wrote it; `Bcc` is not, for the reason
+/// `ThreadSummary::recipients` gives.
 ///
 /// [`Filter::Text`]: mail_domain::Filter::Text
 pub(crate) fn message_index(
@@ -46,6 +47,7 @@ pub(crate) fn message_index(
     to: &[Address],
     cc: &[Address],
     body: Option<&str>,
+    attachments: &[Attachment],
 ) -> String {
     let mut fields = vec![
         Some(subject),
@@ -57,6 +59,11 @@ pub(crate) fn message_index(
         fields.push(Some(addr.email.as_str()));
     }
     fields.push(body);
+    // What it carries, by name, so `invoice` finds the mail with `invoice-2026.pdf` attached
+    // (migration 0042). The names only: what is inside a part is not searched.
+    for attachment in attachments {
+        fields.push(Some(attachment.name.as_str()));
+    }
     fields
         .into_iter()
         .flatten()

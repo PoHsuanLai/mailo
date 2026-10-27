@@ -44,7 +44,16 @@ impl Filter {
             Filter::All => "everything".to_owned(),
             Filter::Nothing => "nothing".to_owned(),
             Filter::And(fs) => each(fs).join(" "),
-            Filter::Or(fs) => format!("({})", each(fs).join(" or ")),
+            // A group inside an either-or is parenthesised: the line has no way to say it, so it
+            // does not read back, but it reads as what it is.
+            Filter::Or(fs) => fs
+                .iter()
+                .map(|f| match f {
+                    Filter::And(_) | Filter::Or(_) => format!("({})", f.spelled(words)),
+                    _ => f.spelled(words),
+                })
+                .collect::<Vec<_>>()
+                .join(" OR "),
             Filter::Not(f) => format!("-{}", f.spelled(words)),
             Filter::Account(_) => words.account.to_owned(),
             Filter::InMailbox(role) => format!("in:{role}"),
@@ -63,7 +72,24 @@ impl Filter {
             Filter::Snoozed => "is:snoozed".to_owned(),
             Filter::SnoozeDue => words.snooze_due.to_owned(),
             Filter::Pinned => "is:pinned".to_owned(),
+            Filter::Larger(bytes) => format!("larger:{}", size(*bytes)),
+            Filter::Smaller(bytes) => format!("smaller:{}", size(*bytes)),
+            Filter::NewerThan(days) => format!("newer_than:{days}d"),
+            Filter::OlderThan(days) => format!("older_than:{days}d"),
         }
+    }
+}
+
+/// A size as the line writes it: whole mebibytes as `M`, whole kibibytes as `K`, else bytes,
+/// the units [`crate::human_size`] shows.
+fn size(bytes: u64) -> String {
+    const K: u64 = 1024;
+    const M: u64 = K * K;
+    match bytes {
+        0 => "0".to_owned(),
+        b if b % M == 0 => format!("{}M", b / M),
+        b if b % K == 0 => format!("{}K", b / K),
+        b => b.to_string(),
     }
 }
 

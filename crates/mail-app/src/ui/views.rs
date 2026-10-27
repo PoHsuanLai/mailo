@@ -34,8 +34,8 @@ pub(in crate::ui) fn open_new(mut shell: Signal<Shell>, search: &str) {
 
 /// Open the sheet on `view`.
 pub(in crate::ui) fn open_edit(mut shell: Signal<Shell>, view: &View) {
-    let labels = shell.peek().labels.clone();
-    shell.write().view_editor = Some(ViewDraft::of(view, &labels, &chrono::Local));
+    let draft = ViewDraft::of(view, &shell.peek().known(), &chrono::Local);
+    shell.write().view_editor = Some(draft);
 }
 
 /// Close the sheet and give the keyboard back to the window. Nothing typed is kept.
@@ -56,14 +56,15 @@ fn save(mut shell: Signal<Shell>, mut revision: Signal<u64>, mut pages: Signal<u
     let Some(draft) = shell.peek().view_editor.clone() else {
         return;
     };
-    let labels = shell.peek().labels.clone();
     let store = consume_context::<Arc<SqliteStore>>();
-    let kept = draft.build(&labels, &chrono::Local).and_then(|view| {
-        store
-            .put_view(&view)
-            .map(|()| view)
-            .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why))
-    });
+    let kept = draft
+        .build(&shell.peek().known(), &chrono::Local)
+        .and_then(|view| {
+            store
+                .put_view(&view)
+                .map(|()| view)
+                .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why))
+        });
     match kept {
         Ok(view) => {
             saved::show_kept(&mut shell.write(), &view);

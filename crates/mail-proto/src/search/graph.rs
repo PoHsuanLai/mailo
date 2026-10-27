@@ -149,6 +149,19 @@ fn kql(filter: &Filter) -> Result<String, Unsaid> {
                 describe(filter)
             )));
         }
+        Filter::Larger(_) | Filter::Smaller(_) => {
+            return Err(Unsaid::one(format!(
+                "{} (Graph has no search by size)",
+                describe(filter)
+            )));
+        }
+        // Fixed against a clock before a server is asked (`Filter::at`).
+        Filter::NewerThan(_) | Filter::OlderThan(_) => {
+            return Err(Unsaid::one(format!(
+                "{} (not fixed to a date)",
+                describe(filter)
+            )));
+        }
         Filter::Nothing
         | Filter::Account(_)
         | Filter::Snoozed

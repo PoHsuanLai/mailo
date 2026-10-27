@@ -791,6 +791,7 @@ fn fit_decides_every_case() {
             summary: &case.summary,
             corpus: case.body,
             folders: &[],
+            sizes: &[],
             now: case.now,
         };
         assert_eq!(
@@ -824,6 +825,7 @@ fn to_matches_thread_recipients() {
             summary: sum,
             corpus: None,
             folders: &[],
+            sizes: &[],
             now: now(),
         }
     }
@@ -855,6 +857,7 @@ fn text_matches_thread_recipients() {
         summary: &s,
         corpus: None,
         folders: &[],
+        sizes: &[],
         now: now(),
     };
     assert!(Filter::Text(TextMatch::Contains("hopper".into())).fit(&ctx));
@@ -1009,6 +1012,7 @@ fn in_folder_matches_a_message_held_there_and_filed_as_held() {
             summary: &s,
             corpus: None,
             folders: &folders,
+            sizes: &[],
             now: now(),
         };
         assert_eq!(filter.fit(&ctx), want, "{name}: {filter:?}");

@@ -96,6 +96,7 @@ pub(crate) fn in_scope(
             summary,
             corpus: None,
             folders: &[],
+            sizes: &[],
             now,
         })
     })

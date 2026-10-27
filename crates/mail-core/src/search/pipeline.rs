@@ -7,7 +7,7 @@
 
 use crate::error::CoreError;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{Filter, LabelId, PageReq, ThreadId, ThreadSummary};
+use mail_domain::{Filter, PageReq, ThreadId, ThreadSummary};
 
 use super::RankedMail;
 use super::expanding::{Expansion, expand};
@@ -42,7 +42,7 @@ pub fn prepare<Tz: TimeZone>(
     input: &str,
     source: &dyn Source,
     zone: &Tz,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn crate::query::Names,
 ) -> Result<Prepared, CoreError> {
     let extracted = extract(input)?;
     // Trailing whitespace is significant: it means the last word is finished and must not be
@@ -179,7 +179,7 @@ pub fn search_list<Tz: TimeZone>(
     source: &dyn Source,
     affinity: &Affinity,
     zone: &Tz,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn crate::query::Names,
     page: PageReq,
     now: DateTime<Utc>,
 ) -> Result<Searched, CoreError> {

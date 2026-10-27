@@ -300,11 +300,19 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
     }
 
     /// One row's worth of the columns the index is built from.
-    type Indexed = (i64, String, Option<String>, String, String, Option<String>);
+    type Indexed = (
+        i64,
+        String,
+        Option<String>,
+        String,
+        String,
+        Option<String>,
+        String,
+    );
     let rows: Vec<Indexed> = {
         let mut stmt = db
             .prepare(
-                "SELECT rowid, subject, from_name, from_email, recipients, body_text
+                "SELECT rowid, subject, from_name, from_email, recipients, body_text, attachments
                  FROM messages WHERE fts_text IS NULL",
             )
             .map_err(StoreError::db)?;
@@ -317,6 +325,7 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
                     r.get(3)?,
                     r.get(4)?,
                     r.get(5)?,
+                    r.get(6)?,
                 ))
             })
             .map_err(StoreError::db)?;
@@ -326,11 +335,14 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
     };
 
     let tx = db.unchecked_transaction().map_err(StoreError::db)?;
-    for (rowid, subject, from_name, from_email, recipients, body_text) in rows {
+    for (rowid, subject, from_name, from_email, recipients, body_text, attachments) in rows {
         // A row whose recipients no longer decode is indexed without them, rather than stopping
         // the database from opening over one message.
         let recipients: read::Recipients =
             row::json("Message.recipients", &recipients).unwrap_or_default();
+        let attachments: Vec<mail_domain::Attachment> =
+            // Its attachments likewise: indexed without their names rather than not at all.
+            row::json("Message.attachments", &attachments).unwrap_or_default();
         let from = mail_domain::Address {
             name: from_name,
             email: from_email,
@@ -341,6 +353,7 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
             &recipients.to,
             &recipients.cc,
             body_text.as_deref(),
+            &attachments,
         );
         tx.execute(
             "UPDATE messages SET fts_text = ?2 WHERE rowid = ?1",

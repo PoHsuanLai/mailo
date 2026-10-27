@@ -30,6 +30,7 @@ pub(crate) fn terms_with_prefix<'a>(
             &message.to,
             &message.cc,
             message.body.text(),
+            &message.attachments,
         );
         let mut seen = BTreeSet::new();
         for token in indexed.split_whitespace() {

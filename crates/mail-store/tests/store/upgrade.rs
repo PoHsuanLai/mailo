@@ -892,6 +892,46 @@ const CASES: &[Case] = &[
             );
         },
     },
+    Case {
+        // Attachment names joined the indexed text. A version-32 row was indexed without them,
+        // so the migration clears the text and the index together and the open backfills it.
+        migration: "0042_fts_attachment_names",
+        from: 41,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                     recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                     body_text, body_raw, attachments, fts_text)
+                 VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test', '{}',
+                     'minutes', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
+                     '\"inbox\"', 'lunch on friday', NULL,
+                     '[{\"name\":\"quarterly-figures.pdf\",\"mime\":\"application/pdf\",
+                        \"size\":12345,\"blob\":\"04040404-0404-0404-0404-040404040404\",
+                        \"inline\":{\"kind\":\"attached\"}}]',
+                     'minutes c d test lunch on friday')",
+                [OTHER, THREAD, ACCOUNT],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            assert_eq!(
+                hits(&store, "quarterly"),
+                1,
+                "an attachment's name is indexed"
+            );
+            assert_eq!(hits(&store, "lunch"), 1, "what was findable still is");
+            assert_eq!(hits(&store, "minutes"), 1, "and only once");
+            store
+                .raw_connection()
+                .execute(
+                    "INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')",
+                    [],
+                )
+                .expect("the index agrees with the table after the upgrade");
+        },
+    },
 ];
 
 fn imap(mailbox: &str, uid: u32) -> mail_domain::RemoteRef {

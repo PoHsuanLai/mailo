@@ -7,7 +7,7 @@
 use super::render_list;
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
-use mail_domain::{LabelId, ThreadSummary};
+use mail_domain::ThreadSummary;
 
 /// The column a top result is marked in. Every other line has as many spaces there, so the
 /// rows stay aligned.
@@ -22,7 +22,7 @@ pub(super) fn search(
     store: &SqliteStore,
     needle: &str,
     limit: u32,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn mail_core::query::Names,
     now: DateTime<Utc>,
     clock: mail_core::when::Clock,
 ) -> String {
@@ -184,7 +184,7 @@ mod tests {
             &*store,
             &Affinity::default(),
             &chrono::Local,
-            &|_| Vec::new(),
+            &mail_core::query::unnamed,
             mail_core::search::first(100),
             now,
         )
