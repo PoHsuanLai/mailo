@@ -1,6 +1,6 @@
 //! Printing the open conversation from the window: Print, and Save for printing.
 //!
-//! The document is [`mail_core::print`]'s, the one `mailo print` writes, so the window and the command
+//! The document is [`mail_core::html_document`]'s, the one `mailo print` writes, so the window and the command
 //! cannot disagree about what a printout holds. Building it reads every message's stored bytes,
 //! so it is done on a blocking thread started by the click or the key that asked for it, and never
 //! from a component body.
@@ -25,7 +25,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use mail_client::Client;
 #[cfg(test)]
-use mail_core::print::Printed;
+use mail_core::html_document::Printed;
 use mail_domain::ThreadId;
 use mail_mime::Pages;
 use std::path::Path;
@@ -93,7 +93,8 @@ where
 {
     saved_bytes(client, job, sources, zone, now, clock)
         .and_then(|(subject, bytes)| {
-            mail_core::print::write_file_into(dir, &subject, SAVED_AS, &bytes).map_err(String::from)
+            mail_core::html_document::write_file_into(dir, &subject, SAVED_AS, &bytes)
+                .map_err(String::from)
         })
         .map_err(|why| {
             log::warn!("save for printing: {why}");
@@ -176,7 +177,7 @@ mod native_print {
     use dioxus::prelude::*;
     use ds_blitz::{PrintError, PrintOutcome};
     use mail_client::Client;
-    use mail_core::print::{Pictures, Printed};
+    use mail_core::html_document::{Pictures, Printed};
     use mail_domain::MessageId;
     use std::collections::BTreeMap;
     use std::sync::Arc;

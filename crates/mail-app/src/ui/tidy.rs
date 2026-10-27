@@ -75,7 +75,7 @@ pub(in crate::ui) fn candidates(
     now: DateTime<Utc>,
 ) -> Vec<ThreadSummary> {
     let filter = Filter::And(vec![
-        mail_core::place::place_filter(MailboxRole::Inbox),
+        mail_core::mailbox_filter::for_role(MailboxRole::Inbox),
         Filter::Read(ReadState::Read),
         Filter::Not(Box::new(Filter::Starred(Star::Starred))),
         Filter::Not(Box::new(Filter::Pinned)),
@@ -86,7 +86,7 @@ pub(in crate::ui) fn candidates(
         }),
     ]);
     let mut query = Query {
-        filter: mail_core::view::scoped(scope, filter),
+        filter: mail_core::conversation::scoped(scope, filter),
         sort: Sort {
             property: Property::Date,
             dir: SortDir::Desc,

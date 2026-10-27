@@ -111,10 +111,10 @@ fn size(body: &FrameBody) -> usize {
 /// rendered ahead (one opened from a search, far down the list) would otherwise hold that frame
 /// for every parse and sanitize in it; what is past this renders on a blocking thread instead,
 /// and is drawn when it lands. A plain reply is a few kilobytes, a newsletter a few hundred.
-pub const ON_THE_FRAME: u64 = 128 * 1024;
+pub const INLINE_BYTES: u64 = 128 * 1024;
 
 /// How many conversations from the top of the list are rendered before anyone opens one.
-pub const FIRST_SCREEN: usize = 20;
+pub const FIRST_PAGE: usize = 20;
 
 /// Where each rendering one reader sent off the thread has got to.
 #[derive(Debug, Default)]
@@ -233,7 +233,7 @@ impl Frames {
     /// What `message` renders to under `policy`, if it can be had on this frame: from the cache,
     /// or rendered here while `room` still holds its raw size. `None` when it is to be rendered
     /// off the thread; it is then in `later`, unless it is already being rendered.
-    pub fn on_the_frame(
+    pub fn render_inline(
         &self,
         store: &SqliteStore,
         message: &Message,
@@ -331,7 +331,7 @@ impl Frames {
 /// Which conversations to render ahead, most wanted first: the two after the open one and the
 /// one before it — where `j` and `k` go next — then the top of the list. Never the open one,
 /// which the reader is rendering already, and never one twice.
-pub fn ahead(open: Option<ThreadId>, list: &[ThreadId], screen: usize) -> Vec<ThreadId> {
+pub fn ahead(open: Option<ThreadId>, list: &[ThreadId], page: usize) -> Vec<ThreadId> {
     let mut order = Vec::new();
     if let Some(here) = open.and_then(|id| list.iter().position(|it| *it == id)) {
         let neighbours = [
@@ -341,7 +341,7 @@ pub fn ahead(open: Option<ThreadId>, list: &[ThreadId], screen: usize) -> Vec<Th
         ];
         order.extend(neighbours.into_iter().flatten().filter_map(|i| list.get(i)));
     }
-    for id in list.iter().take(screen) {
+    for id in list.iter().take(page) {
         if !order.contains(id) {
             order.push(*id);
         }
@@ -458,11 +458,11 @@ mod tests {
             ("open at the last row", 3, Some(2), 0, &[1]),
             ("open at the first row", 3, Some(0), 0, &[1, 2]),
         ];
-        for (name, rows, open, screen, want) in CASES {
+        for (name, rows, open, page, want) in CASES {
             let list = ids(*rows);
             let want: Vec<ThreadId> = want.iter().map(|row| list[*row]).collect();
             assert_eq!(
-                ahead(open.map(|row| list[row]), &list, *screen),
+                ahead(open.map(|row| list[row]), &list, *page),
                 want,
                 "{name}"
             );

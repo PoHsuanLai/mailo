@@ -29,7 +29,7 @@ use ds::prelude::*;
 use mail_client::Client;
 use mail_client::Snapshot;
 use mail_client::query::Conversation;
-use mail_core::message::{FrameBody, ON_THE_FRAME, Sent};
+use mail_core::message::{FrameBody, INLINE_BYTES, Sent};
 use mail_domain::*;
 pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
@@ -214,7 +214,7 @@ pub(super) fn Reader(
     let checked_later = use_signal(|| 0u64);
     let _ = checked_later();
     let mut wanted = Vec::new();
-    let mut room = ON_THE_FRAME;
+    let mut room = INLINE_BYTES;
     let mut later = Vec::new();
     // Newest first, so the message the conversation opens on is the one the frame's room goes
     // to; drawn oldest first as before.
@@ -247,7 +247,7 @@ pub(super) fn Reader(
                     ));
             let policy = shell.read().policy_with(showing);
             let mut frame = |policy| {
-                client.framing(&frames).on_the_frame(
+                client.framing(&frames).render_inline(
                     &message,
                     policy,
                     &mut room,
@@ -403,7 +403,7 @@ pub(super) fn Reader(
         .into_iter()
         .map(|row| row.address.trim().to_lowercase())
         .collect();
-    let toolbar = tools::toolbar_ops(&mail_core::view::hover_actions(&loaded.summary));
+    let toolbar = tools::toolbar_ops(&mail_core::conversation::allowed_actions(&loaded.summary));
     rsx! {
         div { class: "reader-head",
             div { class: "head-row",

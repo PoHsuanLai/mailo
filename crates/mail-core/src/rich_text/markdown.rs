@@ -2,9 +2,11 @@
 //!
 //! The two edits are one undo step: the caller records the returned ops as a single group.
 
-use crate::editor::doc::{Check, Doc, Level, Mark, Node, Object, ParaKind, Pos, Presence, Range};
-use crate::editor::op::Op;
-use crate::editor::text::{byte_at, grapheme_len, para_len, runs_text};
+use crate::rich_text::doc::{
+    Check, Doc, Level, Mark, Node, Object, ParaKind, Pos, Presence, Range,
+};
+use crate::rich_text::op::Op;
+use crate::rich_text::text::{byte_at, grapheme_len, para_len, runs_text};
 
 /// A shortcut ready to apply, and where the caret sits afterwards.
 #[derive(Debug, Clone, PartialEq, Eq)]

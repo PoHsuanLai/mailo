@@ -95,19 +95,19 @@ pub struct Fit {
 }
 
 /// A strip thumbnail: 56 logical pixels square, drawn at up to 2x.
-pub const THUMB: Fit = Fit {
+pub const SMALL: Fit = Fit {
     width: 112,
     height: 112,
 };
 
 /// The viewer's picture.
-pub const VIEW: Fit = Fit {
+pub const LARGE: Fit = Fit {
     width: 1600,
     height: 1200,
 };
 
 /// The viewer's PDF page.
-pub const PAGE: Fit = Fit {
+pub const PDF_PAGE: Fit = Fit {
     width: 1200,
     height: 1600,
 };
@@ -154,7 +154,7 @@ impl Refusal {
 
 /// Why a part has no preview at all.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Unshown {
+pub enum Unavailable {
     /// Still on the server: nothing is fetched to preview it.
     NotHere,
     /// Not a kind that is drawn.
@@ -171,27 +171,29 @@ pub fn load(
     store: &SqliteStore,
     message: MessageId,
     index: usize,
-) -> Result<(Kind, Vec<u8>), Unshown> {
+) -> Result<(Kind, Vec<u8>), Unavailable> {
     let message = store
         .message(message)
-        .map_err(|e| Unshown::Store(e.to_string()))?;
+        .map_err(|e| Unavailable::Store(e.to_string()))?;
     let attachment = message
         .attachments
         .get(index)
-        .ok_or_else(|| Unshown::Store(format!("there is no attachment {index}")))?;
-    let blob = attachment.blob().ok_or(Unshown::NotHere)?;
+        .ok_or_else(|| Unavailable::Store(format!("there is no attachment {index}")))?;
+    let blob = attachment.blob().ok_or(Unavailable::NotHere)?;
     let blobs = store.blobs();
     let head = blobs
         .head(blob, SNIFF)
-        .map_err(|e| Unshown::Store(e.to_string()))?;
-    let kind = sniff(&head).ok_or(Unshown::NotAPicture)?;
+        .map_err(|e| Unavailable::Store(e.to_string()))?;
+    let kind = sniff(&head).ok_or(Unavailable::NotAPicture)?;
     let size = blobs
         .size(blob)
-        .map_err(|e| Unshown::Store(e.to_string()))?;
+        .map_err(|e| Unavailable::Store(e.to_string()))?;
     if size > kind.max_bytes() {
-        return Err(Unshown::Refused(Refusal::TooManyBytes(size)));
+        return Err(Unavailable::Refused(Refusal::TooManyBytes(size)));
     }
-    let bytes = blobs.get(blob).map_err(|e| Unshown::Store(e.to_string()))?;
+    let bytes = blobs
+        .get(blob)
+        .map_err(|e| Unavailable::Store(e.to_string()))?;
     Ok((kind, bytes))
 }
 
@@ -325,5 +327,5 @@ fn render_page(bytes: Vec<u8>, number: u32, fit: Fit) -> Result<Page, Refusal> {
 }
 
 #[cfg(test)]
-#[path = "preview_tests.rs"]
+#[path = "attachment_image_tests.rs"]
 mod tests;

@@ -73,7 +73,7 @@ fn each_image_kind_is_fitted_into_the_room_at_its_own_aspect() {
     for (case, kind, format) in cases {
         let bytes = encoded(400, 200, format);
         assert_eq!(sniff(&bytes[..16]), Some(kind), "{case}: sniffed");
-        let shown = picture(&bytes, kind, THUMB).unwrap_or_else(|why| panic!("{case}: {why:?}"));
+        let shown = picture(&bytes, kind, SMALL).unwrap_or_else(|why| panic!("{case}: {why:?}"));
         assert_eq!((shown.width, shown.height), (112, 56), "{case}");
         assert!(shown.uri.starts_with("data:image/png;base64,"), "{case}");
     }
@@ -82,7 +82,7 @@ fn each_image_kind_is_fitted_into_the_room_at_its_own_aspect() {
 #[test]
 fn a_small_image_is_not_blown_up() {
     let bytes = encoded(30, 20, ImageFormat::Png);
-    let shown = picture(&bytes, Kind::Png, THUMB).unwrap();
+    let shown = picture(&bytes, Kind::Png, SMALL).unwrap();
     assert_eq!((shown.width, shown.height), (30, 20));
 }
 
@@ -99,7 +99,7 @@ fn an_image_claiming_too_many_pixels_is_refused_before_it_is_decoded() {
     for (case, width, height, expect) in cases {
         let bytes = claimed_png(width, height);
         let started = std::time::Instant::now();
-        let refused = picture(&bytes, Kind::Png, VIEW);
+        let refused = picture(&bytes, Kind::Png, LARGE);
         assert_eq!(
             refused,
             Err(Refusal::TooLarge {
@@ -131,9 +131,9 @@ fn an_image_claiming_too_many_pixels_is_refused_before_it_is_decoded() {
 fn bytes_that_are_not_what_they_began_as_are_unreadable() {
     let mut bytes = encoded(40, 40, ImageFormat::Png);
     bytes.truncate(40);
-    assert_eq!(picture(&bytes, Kind::Png, THUMB), Err(Refusal::Unreadable));
+    assert_eq!(picture(&bytes, Kind::Png, SMALL), Err(Refusal::Unreadable));
     assert_eq!(
-        picture(b"%PDF-1.4", Kind::Pdf, THUMB),
+        picture(b"%PDF-1.4", Kind::Pdf, SMALL),
         Err(Refusal::Unreadable),
         "a PDF is not an image"
     );
@@ -142,19 +142,19 @@ fn bytes_that_are_not_what_they_began_as_are_unreadable() {
 #[cfg(feature = "pdf")]
 #[test]
 fn a_pdf_is_drawn_a_page_at_a_time_and_says_how_many_it_has() {
-    let first = pdf_page(TWO_PAGES.to_vec(), 0, PAGE).unwrap();
+    let first = pdf_page(TWO_PAGES.to_vec(), 0, PDF_PAGE).unwrap();
     assert_eq!((first.number, first.count), (0, 2));
     // 200 × 100 points fitted into 1200 × 1600: 1200 × 600.
     assert_eq!((first.picture.width, first.picture.height), (1200, 600));
 
-    let second = pdf_page(TWO_PAGES.to_vec(), 1, PAGE).unwrap();
+    let second = pdf_page(TWO_PAGES.to_vec(), 1, PDF_PAGE).unwrap();
     assert_eq!((second.number, second.count), (1, 2));
     // 200 × 300 into 1200 × 1600: the height binds, 1066 × 1600 (or a pixel either way).
     assert_eq!(second.picture.height, 1600);
     assert!((1066..=1067).contains(&second.picture.width));
     assert_ne!(first.picture.uri, second.picture.uri);
 
-    let past = pdf_page(TWO_PAGES.to_vec(), 9, PAGE).unwrap();
+    let past = pdf_page(TWO_PAGES.to_vec(), 9, PDF_PAGE).unwrap();
     assert_eq!(past.number, 1, "a page past the end is the last one");
 }
 
@@ -166,7 +166,7 @@ fn a_damaged_pdf_is_unreadable_and_never_panics() {
         ("noise", b"%PDF-1.4\n\xFF\xFE\x00garbage obj stream endobj"),
     ];
     for (case, bytes) in cases {
-        let got = pdf_page(bytes.to_vec(), 0, THUMB);
+        let got = pdf_page(bytes.to_vec(), 0, SMALL);
         assert!(
             matches!(got, Err(Refusal::Unreadable | Refusal::Empty)),
             "{case}: {got:?}"

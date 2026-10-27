@@ -74,7 +74,7 @@ pub(in crate::ui) fn press(
         Some(what) => if open_composer(&client, shell, Writes::On(id, what)).is_ok() {},
         // A press on a picked row acts on everything picked, as one gesture. An op that needs
         // more than the button (a pin's rank) stays with its own row.
-        None if mail_core::view::op_for(kind).is_some() => {
+        None if mail_core::conversation::op_for(kind).is_some() => {
             act_kind_all(&client, shell, &with_selection(shell, id), kind);
         }
         None => {
@@ -84,7 +84,7 @@ pub(in crate::ui) fn press(
 }
 
 /// `kind` picked where the conversation is offered it as the way out of a state it is in
-/// ([`mail_core::view::turns_off`]): that, for it and for whatever is picked with it and in the
+/// ([`mail_core::conversation::turns_off`]): that, for it and for whatever is picked with it and in the
 /// same state, as one gesture. Returns whether it was; when not, `kind` opens its menu of times.
 pub(in crate::ui) fn turn_off(
     client: &Client,
@@ -99,7 +99,7 @@ pub(in crate::ui) fn turn_off(
     let now = chrono::Utc::now();
     let off = |thread: ThreadId| {
         let loaded = client.stored().thread(thread).ok()?;
-        mail_core::view::turns_off(kind, &loaded.summary, now)
+        mail_core::conversation::turns_off(kind, &loaded.summary, now)
     };
     if off(id).is_none() {
         return false;

@@ -9,7 +9,7 @@ use super::*;
 use crate::ui::fixtures::{acct_account, click, press, seeded};
 use ds_harness::harness::SETTLE_BOUND;
 use mail_core::SqliteStore;
-use mail_core::editor::{to_flowed, to_html};
+use mail_core::rich_text::{to_flowed, to_html};
 
 fn far() -> DateTime<Utc> {
     Utc::now() + chrono::TimeDelta::days(365)
@@ -214,7 +214,7 @@ async fn autosave_writes_the_documents_two_bodies_once_typing_stops() {
     window.dom.in_runtime(|| {
         let mut write = page.write();
         type_text(&mut write, "Notes for Friday");
-        write.session.caret = mail_core::editor::Caret::at(0, 0);
+        write.session.caret = mail_core::rich_text::Caret::at(0, 0);
         type_text(&mut write, "# ");
     });
     window.render();
@@ -310,7 +310,7 @@ async fn esc_parks_the_draft_in_today_and_the_entry_brings_it_back_exactly() {
         let mut write = page.write();
         write.subject = "Offsite".to_owned();
         type_text(&mut write, "Underlined ");
-        write.selection = Some(mail_core::editor::Range {
+        write.selection = Some(mail_core::rich_text::Range {
             start: Pos::new(0, 0),
             end: Pos::new(0, 10),
         });

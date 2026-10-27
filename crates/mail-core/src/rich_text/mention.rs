@@ -2,8 +2,8 @@
 //!
 //! The detector is a guard, not a judge. "I didn't attach it" still counts: the word is there.
 
-use crate::editor::doc::{Doc, Node, Object};
-use crate::editor::text::runs_text;
+use crate::rich_text::doc::{Doc, Node, Object};
+use crate::rich_text::text::runs_text;
 
 /// Someone the composer can add to Cc.
 pub use crate::contacts::groups::Person;

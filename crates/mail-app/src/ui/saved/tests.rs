@@ -24,7 +24,7 @@ fn a_saved_view_is_a_place_after_the_folders_and_badged_by_its_filter() {
     assert_eq!(last.name, "Trips");
     assert_eq!(saved_of(last), Some(&view));
     assert_eq!(
-        crate::ui::view::badge_filter(&last.source),
+        crate::ui::view::unread_filter(&last.source),
         Some(Filter::And(vec![
             view.filter.clone(),
             Filter::Read(ReadState::Unread)

@@ -227,7 +227,7 @@ fn no_reply_brings_it_back_at_its_time_once_and_a_reply_clears_it_quietly() {
         listed.iter().map(|s| s.id).collect::<Vec<_>>(),
         vec![quiet, answered]
     );
-    assert_eq!(row_words(&listed[0].follow_up), Some("No reply yet"));
+    assert_eq!(returned_words(&listed[0].follow_up), Some("No reply yet"));
 
     // The next sweep, or the next launch's, says nothing again.
     let again = sweep_and_announce(&store, Some(&recorder), day(4)).unwrap();

@@ -156,7 +156,7 @@ pub fn on_top(top: Vec<ThreadSummary>, rows: Vec<ThreadSummary>) -> Vec<ThreadSu
 
 /// What a row says about its reminder, when it says anything: the one words a returned
 /// conversation shows, beside nothing for a reminder still waiting.
-pub fn row_words(follow_up: &FollowUp) -> Option<&'static str> {
+pub fn returned_words(follow_up: &FollowUp) -> Option<&'static str> {
     match follow_up {
         FollowUp::Returned { .. } => Some("No reply yet"),
         FollowUp::Until { .. } | FollowUp::Inactive => None,
