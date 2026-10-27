@@ -29,9 +29,10 @@ pub const TOP_RESULTS: &str = "Top results";
 /// chip on each of its rows.
 pub const FROM_SERVER: &str = "Server";
 
-// Settings › General's groups.
-pub const READING: &str = "Reading";
+// Settings › General's group, and Privacy's.
 pub const MAIL: &str = "Mail";
+/// Settings › Privacy: what a message's remote content may learn about the reader.
+pub const REMOTE_CONTENT: &str = "Remote Content";
 pub const MESSAGE_LIST: &str = "Message list";
 pub const COMPOSING: &str = "Composing";
 /// Deleting, and how long Trash and Spam keep mail.

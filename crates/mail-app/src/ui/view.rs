@@ -440,12 +440,19 @@ pub enum SettingsPage {
     Signatures,
     /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
     Spaces,
+    /// What a message is written with: spelling.
+    Composing,
+    /// How a message looks when it is read.
+    Viewing,
+    /// Whether and how new mail is announced.
+    Notifications,
+    /// What a message may fetch or tell the sender when it is read: remote images, the relay and
+    /// the proxy they go through, and read receipts.
+    Privacy,
     Rules,
     /// An account's vacation reply, which its server sends.
     Vacation,
     Keyboard,
-    /// What a message's remote content may learn about the reader: the relay, the proxy, the block.
-    Privacy,
 }
 
 /// Where an account's page is.

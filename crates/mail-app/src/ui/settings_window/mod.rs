@@ -3,12 +3,13 @@
 //! already open. Laid out as detent lays out a program's page: a sidebar of pages, each a column
 //! of titled groups of rows.
 //!
-//! Seven pages: General, Accounts, Signatures, Spaces, Rules, Vacation Reply and Keyboard.
-//! General draws mailo's settings schema (`crate::settings`) as five groups of rows ([`general`],
-//! each row a key's, drawn by [`keys`]), the same keys detent draws on mailo's page and writes to
-//! the same `mailo/settings.toml`. Accounts lists each account, whose row pushes its own page into
-//! the pane ([`account`]): its mail kept here, its encryption keys, and its removal. Signatures
-//! lists every address's signatures, each written in the composer's body on a page of its own
+//! Pages: General, Accounts, Signatures, Spaces, Composing, Viewing, Notifications, Privacy, Rules,
+//! Vacation Reply and Keyboard. General, Composing, Viewing, Notifications and Privacy draw
+//! mailo's settings schema (`crate::settings`) as groups of rows ([`pages`], each row a key's,
+//! drawn by [`keys`]), the same keys detent draws on mailo's page and writes to the same
+//! `mailo/settings.toml`. Accounts lists each account, whose row pushes its own page into the
+//! pane ([`account`]): its mail kept here, its encryption keys, and its removal. Signatures lists
+//! every address's signatures, each written in the composer's body on a page of its own
 //! ([`signatures`]). Rules and Keyboard are drawn by their
 //! modules (`rules`, `keyboard`). A page that has pages of its own pushes them, as System
 //! Settings does, with quire's `PaneStack`; a sheet is only for making something or asking
@@ -33,9 +34,9 @@
 
 mod account;
 mod accounts;
-mod general;
 mod keys;
 mod offline;
+mod pages;
 mod push_relay;
 mod root;
 mod rows;
@@ -71,15 +72,18 @@ pub(in crate::ui) const TITLE: &str = copy::titles::SETTINGS;
 const SIZE: (u32, u32) = (780, 620);
 
 impl SettingsPage {
-    pub(in crate::ui) const ALL: [SettingsPage; 7] = [
+    pub(in crate::ui) const ALL: [SettingsPage; 11] = [
         SettingsPage::General,
         SettingsPage::Accounts,
         SettingsPage::Signatures,
         SettingsPage::Spaces,
+        SettingsPage::Composing,
+        SettingsPage::Viewing,
+        SettingsPage::Notifications,
+        SettingsPage::Privacy,
         SettingsPage::Rules,
         SettingsPage::Vacation,
         SettingsPage::Keyboard,
-        SettingsPage::Privacy,
     ];
 
     /// The page's name in the sidebar, which is also the row's accessible name.
@@ -89,10 +93,13 @@ impl SettingsPage {
             SettingsPage::Accounts => copy::titles::ACCOUNTS,
             SettingsPage::Signatures => copy::titles::SIGNATURES,
             SettingsPage::Spaces => copy::titles::SPACES,
+            SettingsPage::Composing => copy::titles::COMPOSING,
+            SettingsPage::Viewing => copy::titles::VIEWING,
+            SettingsPage::Notifications => copy::titles::NOTIFICATIONS,
+            SettingsPage::Privacy => copy::titles::PRIVACY,
             SettingsPage::Rules => copy::titles::RULES,
             SettingsPage::Vacation => copy::titles::VACATION_REPLY,
             SettingsPage::Keyboard => copy::titles::KEYBOARD,
-            SettingsPage::Privacy => copy::titles::PRIVACY,
         }
     }
 
@@ -102,10 +109,13 @@ impl SettingsPage {
             SettingsPage::Accounts => Icon::Mail,
             SettingsPage::Signatures => Icon::Pen,
             SettingsPage::Spaces => Icon::Grid,
+            SettingsPage::Composing => Icon::Pen,
+            SettingsPage::Viewing => Icon::Image,
+            SettingsPage::Notifications => Icon::Bell,
+            SettingsPage::Privacy => Icon::Lock,
             SettingsPage::Rules => Icon::FolderInput,
             SettingsPage::Vacation => Icon::Sun,
             SettingsPage::Keyboard => Icon::Keyboard,
-            SettingsPage::Privacy => Icon::Lock,
         }
     }
 }
@@ -351,7 +361,11 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
             }
             div { class: "settings-scroll settings-page", "data-page": page.name(),
                 match page {
-                    SettingsPage::General => rsx! { general::General { revision } },
+                    SettingsPage::General
+                    | SettingsPage::Composing
+                    | SettingsPage::Viewing
+                    | SettingsPage::Notifications
+                    | SettingsPage::Privacy => rsx! { pages::Page { key: "{page.name()}", page, revision } },
                     SettingsPage::Accounts => rsx! { accounts::Accounts { shell, revision } },
                     SettingsPage::Signatures => rsx! { signatures::Signatures { shell, revision } },
                     SettingsPage::Spaces => match try_consume_context::<crate::ui::space::Handle>() {
@@ -361,7 +375,6 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
                     SettingsPage::Rules => rsx! { crate::ui::rules::RulesPage { shell, revision } },
                     SettingsPage::Vacation => rsx! { crate::ui::rules::VacationPage { shell } },
                     SettingsPage::Keyboard => rsx! { crate::ui::keyboard::KeyboardPage { shell } },
-                    SettingsPage::Privacy => rsx! { general::Privacy {} },
                 }
             }
         }

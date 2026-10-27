@@ -1,20 +1,20 @@
-//! General: six groups of mailo's settings, Reading, Message list, Mail, Composing, Mailboxes
-//! and Junk Mail, and the trusted senders' and the VIPs' pages pushed over them.
+//! The pages that draw mailo's settings: General, Composing, Viewing, Notifications and Privacy.
 //!
-//! Each group is a list of [`Line`]s ([`SECTIONS`]): a key of the schema, drawn by its kind
-//! ([`super::keys`]) as detent draws it, or the row that opens the trusted senders. A key is on
-//! the page once it is named there, and the tests hold every key of the schema to being named or
-//! left to detent on purpose (the provider marks). The help the schema gives each key is detent's;
-//! the page draws no captions.
+//! Each page is a list of groups of [`Line`]s ([`sections`]): a key of the schema, drawn by its
+//! kind ([`super::keys`]) as detent draws it, the row that opens the trusted senders, or the row
+//! that sets the default mail application. A key is on a page once it is named there, and the
+//! tests hold every key of the schema to being named or left to detent on purpose (the provider
+//! marks). The help the schema gives each key is detent's; the pages draw no captions.
 //!
-//! The trusted senders are a page of their own, as System Settings pushes a list it keeps: a row
-//! per sender with its Remove. The pages are quire's `PaneStack`, its path this page's own.
+//! The trusted senders are a page of Privacy's own, as System Settings pushes a list it keeps: a
+//! row per sender with its Remove. The pages are quire's `PaneStack`, its path each page's own.
 
 use super::keys::{KeyRow, value_of};
 use super::rows::link_row;
 use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::press::on_primary;
+use crate::ui::view::SettingsPage;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::ListStyle;
@@ -23,7 +23,7 @@ use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use ds_settings::schema::{Help, KeySpec};
 
-/// One row of General.
+/// One row of a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Line {
     /// The schema's key at this path.
@@ -39,164 +39,188 @@ pub(super) enum Line {
     Folder(&'static str),
 }
 
-/// A group of General: its header, and its rows in the order drawn.
-#[derive(PartialEq)]
+/// A group of a page: its header, when it has one, and its rows in the order drawn.
 pub(super) struct Section {
-    pub title: &'static str,
+    pub title: Option<&'static str>,
     pub lines: &'static [Line],
 }
 
-/// General, group by group.
-pub(super) const SECTIONS: [Section; 6] = [
-    Section {
-        title: copy::headers::READING,
-        lines: &[
-            Line::Key("reading.remote_images"),
-            Line::TrustedSenders,
-            Line::Key("reading.brand_logos"),
-            Line::Key("reading.prefer_plain_text"),
-            Line::Key("reading.mark_read"),
-            Line::Key("reading.mark_read_delay"),
-            Line::Key("reading.text_zoom"),
-            Line::Folder("attachments.downloads_folder"),
-            Line::Key("attachments.remove_unedited"),
+/// The groups `page` draws. Accounts, Signatures, Spaces, Rules, Vacation Reply and Keyboard draw
+/// their own.
+pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
+    match page {
+        SettingsPage::General => &[
+            Section {
+                title: Some(copy::headers::MAIL),
+                lines: &[
+                    Line::DefaultMail,
+                    Line::Key(crate::settings::WHILE_QUIT),
+                    Line::Key("search.server_automatically"),
+                ],
+            },
+            Section {
+                title: Some(copy::headers::MAILBOXES),
+                lines: &[
+                    Line::Key("mailboxes.delete"),
+                    Line::Key("mailboxes.erase_trash"),
+                    Line::Key("mailboxes.erase_spam"),
+                ],
+            },
+            Section {
+                title: Some(copy::headers::JUNK_MAIL),
+                lines: &[
+                    Line::Key("junk.filter"),
+                    Line::Key("junk.treat"),
+                    Line::Key("junk.spare_contacts"),
+                    Line::Key("junk.spare_written_to"),
+                    Line::Key("junk.spare_full_name"),
+                    Line::Key("junk.trust_server"),
+                    Line::Key("junk.order"),
+                ],
+            },
         ],
-    },
-    Section {
-        title: copy::headers::MESSAGE_LIST,
-        lines: &[
-            Line::Key("window.snippets"),
-            Line::Key("window.label_chips"),
-            Line::Key("window.group_by_date"),
+        SettingsPage::Composing => &[Section {
+            title: None,
+            lines: &[
+                Line::Key("compose.format"),
+                Line::Key("compose.reply_same_format"),
+                Line::Key("compose.undo_send"),
+                Line::Key("compose.spelling"),
+                Line::Key("compose.copy_myself"),
+                Line::Key("compose.signature_above_quote"),
+            ],
+        }],
+        SettingsPage::Viewing => &[
+            Section {
+                title: None,
+                lines: &[
+                    Line::Key("reading.brand_logos"),
+                    Line::Key("reading.prefer_plain_text"),
+                    Line::Key("reading.mark_read"),
+                    Line::Key("reading.mark_read_delay"),
+                    Line::Key("reading.text_zoom"),
+                    Line::Folder("attachments.downloads_folder"),
+                    Line::Key("attachments.remove_unedited"),
+                ],
+            },
+            Section {
+                title: Some(copy::headers::MESSAGE_LIST),
+                lines: &[
+                    Line::Key("window.snippets"),
+                    Line::Key("window.label_chips"),
+                    Line::Key("window.group_by_date"),
+                ],
+            },
         ],
-    },
-    Section {
-        title: copy::headers::MAIL,
-        lines: &[
-            Line::DefaultMail,
-            Line::Key("notifications.new_mail"),
-            Line::Key(crate::settings::WHILE_QUIT),
-            Line::Key("notifications.notify_for"),
-            Line::Vips,
-            Line::Key("reading.read_receipts"),
-            Line::Key("search.server_automatically"),
+        SettingsPage::Notifications => &[Section {
+            title: None,
+            lines: &[
+                Line::Key("notifications.new_mail"),
+                Line::Key("notifications.notify_for"),
+                Line::Vips,
+            ],
+        }],
+        SettingsPage::Privacy => &[
+            Section {
+                title: None,
+                lines: &[
+                    Line::Key("reading.remote_images"),
+                    Line::TrustedSenders,
+                    Line::Key("reading.read_receipts"),
+                ],
+            },
+            Section {
+                title: Some(copy::headers::REMOTE_CONTENT),
+                lines: &[
+                    Line::Key("privacy.block_remote_content"),
+                    Line::Key("privacy.protect"),
+                    Line::Key("privacy.relay_kind"),
+                    Line::Key("privacy.relay"),
+                    Line::Key("privacy.relay_key"),
+                    Line::Key("privacy.proxy"),
+                ],
+            },
         ],
-    },
-    Section {
-        title: copy::headers::COMPOSING,
-        lines: &[
-            Line::Key("compose.format"),
-            Line::Key("compose.reply_same_format"),
-            Line::Key("compose.undo_send"),
-            Line::Key("compose.spelling"),
-            Line::Key("compose.copy_myself"),
-            Line::Key("compose.signature_above_quote"),
-        ],
-    },
-    Section {
-        title: copy::headers::MAILBOXES,
-        lines: &[
-            Line::Key("mailboxes.delete"),
-            Line::Key("mailboxes.erase_trash"),
-            Line::Key("mailboxes.erase_spam"),
-        ],
-    },
-    Section {
-        title: copy::headers::JUNK_MAIL,
-        lines: &[
-            Line::Key("junk.filter"),
-            Line::Key("junk.treat"),
-            Line::Key("junk.spare_contacts"),
-            Line::Key("junk.spare_written_to"),
-            Line::Key("junk.spare_full_name"),
-            Line::Key("junk.trust_server"),
-            Line::Key("junk.order"),
-        ],
-    },
-];
+        SettingsPage::Accounts
+        | SettingsPage::Signatures
+        | SettingsPage::Spaces
+        | SettingsPage::Rules
+        | SettingsPage::Vacation
+        | SettingsPage::Keyboard => &[],
+    }
+}
 
-/// A page of General's pane.
+/// A page of a settings page's pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum GeneralAt {
+enum PageAt {
     Root,
     TrustedSenders,
     Vips,
 }
 
-/// The stack's element id: its back button is `general-pane-back-detail`.
-const STACK: &str = "general-pane";
+/// The stack's element id: its back button is `<id>-back-detail`, as `general-pane-back-detail`.
+fn stack(page: SettingsPage) -> String {
+    format!("{}-pane", page.name().to_lowercase())
+}
 
 /// The element id of the row that opens the trusted senders, where the keyboard goes back to.
-const TRUSTED_ROW: &str = "general-pane-open-trusted";
+fn trusted_row(page: SettingsPage) -> String {
+    format!("{}-open-trusted", stack(page))
+}
 
-/// The element id of the row that opens the VIPs.
-pub(super) const VIPS_ROW: &str = "general-pane-open-vips";
+/// The element id of the row that opens the VIPs, where the keyboard goes back to.
+pub(super) fn vips_row(page: SettingsPage) -> String {
+    format!("{}-open-vips", stack(page))
+}
 
+/// One of the pages that draw the schema: its groups at the root, the trusted senders (on Privacy)
+/// or the VIPs (on Notifications) pushed over them.
 #[component]
-pub(super) fn General(revision: Signal<u64>) -> Element {
-    let mut path = use_signal(|| PanePath::new(GeneralAt::Root));
-    let title = use_callback(|page: GeneralAt| {
-        match page {
-            GeneralAt::Root => copy::titles::GENERAL,
-            GeneralAt::TrustedSenders => copy::titles::TRUSTED_SENDERS,
-            GeneralAt::Vips => copy::titles::VIPS,
+pub(super) fn Page(page: SettingsPage, revision: Signal<u64>) -> Element {
+    let mut path = use_signal(|| PanePath::new(PageAt::Root));
+    let title = use_callback(move |at: PageAt| {
+        match at {
+            PageAt::Root => page.name(),
+            PageAt::TrustedSenders => copy::titles::TRUSTED_SENDERS,
+            PageAt::Vips => copy::titles::VIPS,
         }
         .to_owned()
     });
-    let page = use_callback(move |page: GeneralAt| match page {
-        GeneralAt::Root => rsx! {
+    let shown = use_callback(move |at: PageAt| match at {
+        PageAt::Root => rsx! {
             Groups {
-                sections: &SECTIONS,
+                page,
                 on_trusted: move |()| {
-                    let next = path.peek().pushed(GeneralAt::TrustedSenders);
+                    let next = path.peek().pushed(PageAt::TrustedSenders);
                     path.set(next);
                 },
                 on_vips: move |()| {
-                    let next = path.peek().pushed(GeneralAt::Vips);
+                    let next = path.peek().pushed(PageAt::Vips);
                     path.set(next);
                 },
             }
         },
-        GeneralAt::TrustedSenders => rsx! { TrustedSenders {} },
-        GeneralAt::Vips => rsx! { super::vips::VipsPage { revision } },
+        PageAt::TrustedSenders => rsx! { TrustedSenders {} },
+        PageAt::Vips => rsx! { super::vips::VipsPage { revision } },
     });
-    let opener = use_callback(|page: GeneralAt| match page {
-        GeneralAt::Root => None,
-        GeneralAt::TrustedSenders => Some(TRUSTED_ROW.to_owned()),
-        GeneralAt::Vips => Some(VIPS_ROW.to_owned()),
+    let opener = use_callback(move |at: PageAt| match at {
+        PageAt::Root => None,
+        PageAt::TrustedSenders => Some(trusted_row(page)),
+        PageAt::Vips => Some(vips_row(page)),
     });
     rsx! {
-        PaneStack::<GeneralAt> {
+        PaneStack::<PageAt> {
             path: path(),
             title,
-            page,
+            page: shown,
             opener: Some(opener),
             on_back: move |()| {
                 let back = path.peek().popped();
                 path.set(back);
             },
-            common: Common { id: Some(STACK.to_owned()), ..Common::default() },
+            common: Common { id: Some(stack(page)), ..Common::default() },
         }
     }
-}
-
-/// Privacy, a page of its own: what a message's remote content may learn about the reader.
-pub(super) const PRIVACY: [Section; 1] = [Section {
-    title: copy::titles::PRIVACY,
-    lines: &[
-        Line::Key("privacy.block_remote_content"),
-        Line::Key("privacy.protect"),
-        Line::Key("privacy.relay_kind"),
-        Line::Key("privacy.relay"),
-        Line::Key("privacy.relay_key"),
-        Line::Key("privacy.proxy"),
-    ],
-}];
-
-/// The Privacy page: General's rows, drawn from [`PRIVACY`].
-#[component]
-pub(super) fn Privacy() -> Element {
-    rsx! { Groups { sections: &PRIVACY, on_trusted: move |()| {}, on_vips: move |()| {} } }
 }
 
 /// The schema's key at `path`, its help left to detent.
@@ -213,11 +237,7 @@ fn key_at(path: &str) -> Option<KeySpec> {
 
 /// The root: each group's rows.
 #[component]
-fn Groups(
-    sections: &'static [Section],
-    on_trusted: EventHandler<()>,
-    on_vips: EventHandler<()>,
-) -> Element {
+fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandler<()>) -> Element {
     let settings = crate::ui::prefs::current();
     let values =
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
@@ -236,8 +256,8 @@ fn Groups(
     };
     rsx! {
         Form {
-            for section in sections.iter() {
-                FormSection { key: "{section.title}", title: Some(section.title.to_owned()),
+            for (at, section) in sections(page).iter().enumerate() {
+                FormSection { key: "{at}", title: section.title.map(str::to_owned),
                     for line in section.lines.iter().copied() {
                         match line {
                             Line::Key(path) if path == crate::settings::WHILE_QUIT && !keeps => rsx! {},
@@ -263,7 +283,7 @@ fn Groups(
                                         copy::titles::VIPS,
                                         RowLeading::None,
                                         move |_| on_vips.call(()),
-                                        Common { id: Some(VIPS_ROW.to_owned()), ..Common::default() },
+                                        Common { id: Some(vips_row(page)), ..Common::default() },
                                     )],
                                 }
                             },
@@ -276,7 +296,7 @@ fn Groups(
                                         copy::titles::TRUSTED_SENDERS,
                                         RowLeading::None,
                                         move |_| on_trusted.call(()),
-                                        Common { id: Some(TRUSTED_ROW.to_owned()), ..Common::default() },
+                                        Common { id: Some(trusted_row(page)), ..Common::default() },
                                     )],
                                 }
                             },

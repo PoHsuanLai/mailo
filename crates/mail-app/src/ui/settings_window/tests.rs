@@ -30,11 +30,11 @@ pub(super) fn opened_on(built: &Work, page: SettingsPage) -> (VirtualDom, Seen) 
     }
 }
 
-/// The Settings window over `built`, on General's trusted senders, pushed from their row.
+/// The Settings window over `built`, on Privacy's trusted senders, pushed from their row.
 fn trusted_senders(built: &Work) -> (VirtualDom, Seen) {
-    let (mut dom, seen) = opened_on(built, SettingsPage::General);
+    let (mut dom, seen) = opened_on(built, SettingsPage::Privacy);
     let seen =
-        click(&mut dom, seen.one("id", "general-pane-open-trusted")).merge(drain_seen(&mut dom));
+        click(&mut dom, seen.one("id", "privacy-pane-open-trusted")).merge(drain_seen(&mut dom));
     (dom, seen)
 }
 
@@ -105,60 +105,86 @@ async fn command_comma_and_the_foot_menu_ask_for_the_settings_window() {
     );
 }
 
+/// Each page that draws the schema, with the rows it draws in the order drawn.
+const KEYED: &[(SettingsPage, &[&str])] = &[
+    (
+        SettingsPage::General,
+        &[crate::ui::copy::headers::MAIL, "Search server"],
+    ),
+    (
+        SettingsPage::Composing,
+        &[
+            "Message format",
+            "Reply in the same format as the original",
+            "Undo send",
+            "Check spelling",
+        ],
+    ),
+    (
+        SettingsPage::Viewing,
+        &[
+            "Brand logos",
+            "Prefer plain text",
+            "Mark as read",
+            "Mark as read after",
+            "Message text size",
+            crate::ui::copy::headers::MESSAGE_LIST,
+        ],
+    ),
+    (
+        SettingsPage::Notifications,
+        &["Notifications", crate::ui::copy::titles::VIPS],
+    ),
+    (
+        SettingsPage::Privacy,
+        &[
+            "Load remote images",
+            crate::ui::copy::titles::TRUSTED_SENDERS,
+            crate::ui::copy::headers::REMOTE_CONTENT,
+            "Protect mail activity",
+        ],
+    ),
+];
+
 #[tokio::test]
-async fn general_draws_reading_then_mail_then_composing_with_their_rows() {
+async fn each_page_draws_its_rows_in_order() {
     let built = work();
-    let (dom, _seen) = opened_on(&built, SettingsPage::General);
-    let page = dioxus_ssr::render(&dom);
-    let mut from = 0;
-    for label in [
-        crate::ui::copy::headers::READING,
-        "Load remote images",
-        crate::ui::copy::titles::TRUSTED_SENDERS,
-        "Brand logos",
-        "Prefer plain text",
-        "Mark as read",
-        "Mark as read after",
-        "Message text size",
-        "Mail",
-        "Notifications",
-        "Search server",
-        crate::ui::copy::headers::COMPOSING,
-        "Message format",
-        "Reply in the same format as the original",
-        "Undo send",
-        "Check spelling",
-    ] {
-        let at = page[from..]
-            .find(&format!(">{label}<"))
-            .unwrap_or_else(|| panic!("no {label:?} after the rows before it: {page}"));
-        from += at;
+    for (page, labels) in KEYED {
+        let (dom, _seen) = opened_on(&built, *page);
+        let markup = dioxus_ssr::render(&dom);
+        let mut from = 0;
+        for label in *labels {
+            let at = markup[from..]
+                .find(&format!(">{label}<"))
+                .unwrap_or_else(|| panic!("{page:?} has no {label:?} in order: {markup}"));
+            from += at;
+        }
     }
-    assert!(!page.contains("Mail list"), "{page}");
-    assert!(page.contains("data-page=\"General\""), "{page}");
 }
 
-/// Every key of the schema is a row of General, but the two left on purpose: the provider marks
-/// are detent's to set, and the trusted senders are a list with a page of their own.
+/// Every key of the schema is a row of one page, but the two left on purpose: the provider marks
+/// are detent's to set, and the trusted senders are a list with a page of their own. No key is on
+/// two pages.
 #[test]
-fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
-    let named: Vec<&str> = super::general::SECTIONS
-        .iter()
-        .chain(super::general::PRIVACY.iter())
+fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
+    let named: Vec<&str> = SettingsPage::ALL
+        .into_iter()
+        .flat_map(|page| super::pages::sections(page).iter())
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
-            super::general::Line::Key(path) | super::general::Line::Folder(path) => Some(*path),
-            super::general::Line::TrustedSenders
-            | super::general::Line::DefaultMail
-            | super::general::Line::Vips => None,
+            super::pages::Line::Key(path) | super::pages::Line::Folder(path) => Some(*path),
+            super::pages::Line::TrustedSenders
+            | super::pages::Line::DefaultMail
+            | super::pages::Line::Vips => None,
         })
         .collect();
     let left = ["window.provider_marks", "reading.trusted_image_senders"];
     for key in crate::settings::schema().key {
         let path = key.path.0.as_str();
+        let times = named.iter().filter(|named| **named == path).count();
         assert!(
-            named.contains(&path) != left.contains(&path),
-            "{path} is neither on General nor left to detent"
+            times == usize::from(!left.contains(&path)),
+            "{path} is named on {times} pages"
         );
     }
     for path in named {
@@ -167,16 +193,16 @@ fn every_schema_key_is_on_general_or_left_to_detent_on_purpose() {
                 .key
                 .iter()
                 .any(|key| key.path.0 == path),
-            "General names {path}, which the schema has not"
+            "a page names {path}, which the schema has not"
         );
     }
 }
 
-/// The General page's controls each write `settings.toml`: two switches, then a choice.
+/// The pages' controls each write `settings.toml`: two switches, on the pages that hold them.
 #[tokio::test]
-async fn general_controls_write_settings_toml() {
+async fn page_controls_write_settings_toml() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Viewing);
     assert_eq!(
         stored(&built).reading.brand_logos,
         BrandLogos::Off,
@@ -192,6 +218,7 @@ async fn general_controls_write_settings_toml() {
         BrandLogos::On,
         "the brand logos switch"
     );
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Composing);
     click(
         &mut dom,
         seen.after("aria-label", "Check spelling", "aria-checked")[0],
@@ -305,27 +332,30 @@ async fn without_a_login_item_there_is_no_switch() {
     let built = work();
     let (dom, _) = opened_on(&built, SettingsPage::General);
     let page = dioxus_ssr::render(&dom);
-    assert!(page.contains("Check spelling"), "General is drawn: {page}");
+    assert!(page.contains("Search server"), "General is drawn: {page}");
     assert!(!page.contains("Check for mail when quit"), "{page}");
 }
 
 /// Each page, by the sidebar's row, and a line only that page draws.
 const PAGES: &[(SettingsPage, &str)] = &[
-    (SettingsPage::General, "Check spelling"),
+    (SettingsPage::General, "Search server"),
     (
         SettingsPage::Accounts,
         crate::ui::copy::controls::ADD_ACCOUNT,
     ),
     (SettingsPage::Signatures, "id=\"signatures-pane\""),
     (SettingsPage::Spaces, crate::ui::copy::controls::NEW_SPACE),
+    (SettingsPage::Composing, "Check spelling"),
+    (SettingsPage::Viewing, "Brand logos"),
+    (SettingsPage::Notifications, "aria-label=\"Notifications\""),
+    (SettingsPage::Privacy, "Load remote images"),
     (SettingsPage::Rules, crate::ui::copy::controls::NEW_RULE),
     (SettingsPage::Vacation, "id=\"vacation-pane\""),
     (SettingsPage::Keyboard, "Change the key for"),
-    (SettingsPage::Privacy, "Protect mail activity"),
 ];
 
 #[test]
-fn settings_has_7_pages_in_that_order() {
+fn settings_has_11_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
         [
@@ -333,10 +363,13 @@ fn settings_has_7_pages_in_that_order() {
             crate::ui::copy::titles::ACCOUNTS,
             crate::ui::copy::titles::SIGNATURES,
             crate::ui::copy::titles::SPACES,
+            crate::ui::copy::titles::COMPOSING,
+            crate::ui::copy::titles::VIEWING,
+            crate::ui::copy::titles::NOTIFICATIONS,
+            crate::ui::copy::titles::PRIVACY,
             crate::ui::copy::titles::RULES,
             "Vacation Reply",
             crate::ui::copy::titles::KEYBOARD,
-            crate::ui::copy::titles::PRIVACY
         ]
     );
 }
@@ -550,7 +583,7 @@ async fn trusting_senders_with_none_yet_says_there_are_none() {
     );
 }
 
-/// General's folder row: Choose… writes the folder the dialog answered as the one Save writes
+/// Viewing's folder row: Choose… writes the folder the dialog answered as the one Save writes
 /// into, and Use Downloads puts the default back. The dialog is the test's: no real one opens.
 #[tokio::test]
 async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
@@ -558,11 +591,11 @@ async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
     let built = work();
     let folder = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
     let (dialogs, asked) = Dialogs::answering(vec![folder.path().to_path_buf()]);
-    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Viewing);
     dom.provide_root_context(dialogs);
     assert_eq!(stored(&built).attachments.downloads_folder, "", "before");
 
-    let mut seen = click(&mut dom, seen.one("id", super::general::CHOOSE_FOLDER_ID));
+    let mut seen = click(&mut dom, seen.one("id", super::pages::CHOOSE_FOLDER_ID));
     let wanted = folder.path().display().to_string();
     crate::ui::fixtures::settle_until(
         &mut dom,
@@ -588,7 +621,7 @@ async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
         "the row does not show the folder: {page}"
     );
 
-    click(&mut dom, seen.one("id", super::general::USE_DOWNLOADS_ID));
+    click(&mut dom, seen.one("id", super::pages::USE_DOWNLOADS_ID));
     assert_eq!(
         stored(&built).attachments.downloads_folder,
         "",
@@ -596,15 +629,18 @@ async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
     );
 }
 
-/// General › VIPs: a person pinned in a Space is offered until added, a VIP is a row whose Remove
+/// Notifications › VIPs: a person pinned in a Space is offered until added, a VIP is a row whose Remove
 /// takes the mark off, and the store is what both write.
 #[tokio::test]
 async fn the_vips_page_offers_the_pinned_people_and_removes_a_vip() {
     use mail_core::Store as _;
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::General);
-    let seen =
-        click(&mut dom, seen.one("id", super::general::VIPS_ROW)).merge(drain_seen(&mut dom));
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Notifications);
+    let seen = click(
+        &mut dom,
+        seen.one("id", &super::pages::vips_row(SettingsPage::Notifications)),
+    )
+    .merge(drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains(crate::ui::copy::empty::NO_VIPS), "{page}");
     assert!(
@@ -639,4 +675,34 @@ async fn the_vips_page_offers_the_pinned_people_and_removes_a_vip() {
     // Only the store is asked after the Remove.
     let _ = drain_seen(&mut dom);
     assert!(held(&built).is_empty());
+}
+
+#[tokio::test]
+async fn turning_to_another_page_leaves_a_pushed_page_behind() {
+    let built = work();
+    let asked = super::SettingsAsked::default();
+    asked.ask(SettingsAt::Page(SettingsPage::Privacy));
+    dispatching();
+    let mut dom = VirtualDom::new(settings_root)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone())
+        .with_root_context(asked.clone());
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    click(&mut dom, seen.one("id", "privacy-pane-open-trusted"));
+    asked.ask(SettingsAt::Page(SettingsPage::Viewing));
+    for _ in 0..20 {
+        let quiet = std::time::Duration::from_millis(50);
+        if tokio::time::timeout(quiet, dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+    }
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("data-page=\"Viewing\"") && !page.contains("viewing-pane-back-detail"),
+        "Viewing opened on a page pushed over Privacy: {page}"
+    );
 }

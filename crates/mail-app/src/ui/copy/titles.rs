@@ -16,12 +16,15 @@ pub const SETTINGS: &str = "Settings";
 pub const GENERAL: &str = "General";
 pub const ACCOUNTS: &str = "Accounts";
 pub const SPACES: &str = "Spaces";
+pub const COMPOSING: &str = "Composing";
+pub const VIEWING: &str = "Viewing";
+pub const NOTIFICATIONS: &str = "Notifications";
+pub const PRIVACY: &str = "Privacy";
 pub const RULES: &str = "Rules";
 pub const KEYBOARD: &str = "Keyboard";
-pub const PRIVACY: &str = "Privacy";
-/// General's page of the senders whose images load.
+/// Privacy's page of the senders whose images load.
 pub const TRUSTED_SENDERS: &str = "Trusted Senders";
-/// The page of the VIPs under General, and the row that opens it.
+/// The page of the VIPs under Notifications, and the row that opens it.
 pub const VIPS: &str = "VIPs";
 /// The page of the keys and certificates no account here owns, under Accounts.
 pub const OTHER_KEYS: &str = "Other Keys";
