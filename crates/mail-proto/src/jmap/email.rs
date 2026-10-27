@@ -198,7 +198,7 @@ pub enum Filing {
         role: MailboxRole,
         labels: Vec<String>,
     },
-    /// In no mailbox this client follows — only Drafts or Junk — so not synced, and if held,
+    /// In no mailbox this client follows — only Drafts — so not synced, and if held,
     /// gone.
     Unfollowed,
 }
@@ -208,10 +208,10 @@ pub enum Filing {
 /// One role, because a message here has one: the first of Trash, Junk, Inbox, Archive and Sent
 /// that it is in, in that order. Trash first because a client that trashes keeps the other
 /// mailboxes on some servers, and a trashed email listed in the inbox would come back from the
-/// bin; Junk next for the same reason, as Spam. Then Inbox, for mail sent to oneself. Archive over Sent because archiving a sent message leaves it
-/// in Sent too ([`super::filing_patch`]), and the archive is what the user asked for. An email
-/// only in mailboxes without a role is filed as Archive — kept, and out of the inbox — which is
-/// what an IMAP folder files as.
+/// bin; Junk next for the same reason, as Spam. Then Inbox, for mail sent to oneself. Archive
+/// over Sent because archiving a sent message leaves it in Sent too ([`super::filing_patch`]),
+/// and the archive is what the user asked for. An email only in mailboxes without a role is
+/// filed as Archive — kept, and out of the inbox — which is what an IMAP folder files as.
 ///
 /// Drafts files nothing: an email only there is [`Filing::Unfollowed`].
 pub fn filing(ids: &[JmapMailboxId], mailboxes: &Mailboxes) -> Filing {

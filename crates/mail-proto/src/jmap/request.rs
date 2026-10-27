@@ -102,7 +102,7 @@ pub fn mailbox_changes(account: &JmapAccountId, since: &str, id: &str) -> Call {
 }
 
 /// `Email/query`, newest first, for the emails this client follows: every email in at least one
-/// mailbox that is not one of `unfollowed` (Drafts and Junk).
+/// mailbox that is not one of `unfollowed` (Drafts).
 ///
 /// `limit: 0` with `calculate_total` is the cheap question "how many are there", which is how a
 /// pass decides whether it is caught up without listing anything.

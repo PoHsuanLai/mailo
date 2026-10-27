@@ -107,21 +107,21 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
     })
 }
 
-/// `Email/query` for `filter`, newest first, at most `limit`, counting every match; kept, as a
-/// sync is, to emails in some mailbox other than `unfollowed`.
+/// `Email/query` for `filter`, newest first, at most `limit`, counting every match; kept to
+/// emails in some mailbox other than `unsearched`.
 pub fn query(
     account: &JmapAccountId,
     filter: Value,
-    unfollowed: &[JmapMailboxId],
+    unsearched: &[JmapMailboxId],
     limit: u64,
     id: &str,
 ) -> Call {
-    let filter = if unfollowed.is_empty() {
+    let filter = if unsearched.is_empty() {
         filter
     } else {
         operator(
             "AND",
-            vec![json!({ "inMailboxOtherThan": unfollowed }), filter],
+            vec![json!({ "inMailboxOtherThan": unsearched }), filter],
         )
     };
     Call {

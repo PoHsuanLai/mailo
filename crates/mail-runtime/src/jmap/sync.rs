@@ -46,7 +46,7 @@ impl Truth {
             email_id: email.id.clone(),
         };
         match jmap::filing(&email.mailbox_ids, mailboxes) {
-            // Only in Drafts or Junk now: no longer followed, so gone from here.
+            // Only in Drafts now: no longer followed, so gone from here.
             Filing::Unfollowed => {
                 self.gone.push(remote);
                 None
