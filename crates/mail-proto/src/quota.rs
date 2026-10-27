@@ -15,7 +15,7 @@ pub struct Storage {
 
 impl Storage {
     /// How much is left before the limit, none once it is reached.
-    pub fn left(&self) -> u64 {
+    fn left(&self) -> u64 {
         self.limit.saturating_sub(self.used)
     }
 

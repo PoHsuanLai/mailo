@@ -267,20 +267,31 @@ pub mod account {
     }
 
     /// An amount of storage, in the largest unit it fills: "512 kB", "1.2 GB", "15 GB".
+    ///
+    /// The unit is chosen after rounding to a tenth, so an amount that rounds up to 1024 of one
+    /// unit is said in the next, never as "1024 kB".
     pub fn amount(bytes: u64) -> String {
         const UNITS: [(&str, u64); 4] = [
-            ("TB", 1 << 40),
-            ("GB", 1 << 30),
-            ("MB", 1 << 20),
             ("kB", 1 << 10),
+            ("MB", 1 << 20),
+            ("GB", 1 << 30),
+            ("TB", 1 << 40),
         ];
-        let Some((unit, size)) = UNITS.into_iter().find(|(_, size)| bytes >= *size) else {
+        if bytes < UNITS[0].1 {
             return format!("{bytes} B");
-        };
-        let value = bytes as f64 / size as f64;
-        let shown = format!("{value:.1}");
-        let shown = shown.strip_suffix(".0").unwrap_or(&shown);
-        format!("{shown} {unit}")
+        }
+        // The tenths of a unit that `bytes` comes to, rounded to nearest.
+        let tenths = |size: u64| (u128::from(bytes) * 10 + u128::from(size) / 2) / u128::from(size);
+        let (unit, tenths) = UNITS
+            .iter()
+            .map(|&(unit, size)| (unit, tenths(size)))
+            .find(|&(_, tenths)| tenths < 1024 * 10)
+            // Past what the units name, the last says it.
+            .unwrap_or_else(|| (UNITS[3].0, tenths(UNITS[3].1)));
+        match tenths % 10 {
+            0 => format!("{} {unit}", tenths / 10),
+            tenth => format!("{}.{tenth} {unit}", tenths / 10),
+        }
     }
     /// The Storage row: "1.2 GB of 15 GB used".
     pub fn storage_used(used: &str, limit: &str) -> String {
