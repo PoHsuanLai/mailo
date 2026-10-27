@@ -116,6 +116,12 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             crate::ui::reading::peek_key(shell, keys, &event);
             return;
         }
+        if shell.read().raw.is_some() {
+            if key == "Escape" {
+                crate::ui::reading::close_raw(shell);
+            }
+            return;
+        }
         let typing = shell.read().composing.is_some();
         let heard = actions::heard(keys, &event, typing);
         let intent = intent(heard, Scope::Window);
@@ -133,6 +139,17 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                 crate::ui::print::print(job);
             }
             return;
+        }
+        match intent {
+            Some(Intent::Zoom(step)) => {
+                crate::ui::reading::zoom(step);
+                return;
+            }
+            Some(Intent::Raw(raw)) => {
+                crate::ui::reading::ask_raw(shell, thread, raw);
+                return;
+            }
+            _ => {}
         }
         // The mail keys and Esc; a chord of the main window's (search, Spaces) is not this one's.
         let Some(Intent::Mail(action)) = intent else {
@@ -173,6 +190,9 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                 onkeydown: on_key,
                 if shell.read().preview.is_some() {
                     crate::ui::reading::PeekView { shell }
+                }
+                if shell.read().raw.is_some() {
+                    crate::ui::reading::RawSheet { shell }
                 }
                 div { class: "card",
                     section { class: "reader",

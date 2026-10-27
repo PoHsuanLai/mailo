@@ -105,6 +105,20 @@ pub(super) fn word_label(key: &KeySpec, word: &str) -> String {
         .unwrap_or_default()
 }
 
+/// A value this sheet shows without a control to change it: a number in its unit (`125%`),
+/// anything else as it is written.
+pub(super) fn shown(kind: &KeyKind, value: &toml::Value) -> String {
+    match (kind, value) {
+        (
+            KeyKind::Bounded {
+                unit: Some(unit), ..
+            },
+            toml::Value::Integer(n),
+        ) => format!("{n}{unit}"),
+        _ => value.to_string(),
+    }
+}
+
 /// The value at `path` (`domain.key`) in `values`, else the key's default.
 pub(super) fn value_of(values: &toml::Value, key: &KeySpec) -> toml::Value {
     key.path
@@ -195,7 +209,7 @@ pub(super) fn KeyRow(
                 }
             }
         }
-        Control::Shown => rsx! { Label { text: value.to_string() } },
+        Control::Shown => rsx! { Label { text: shown(&spec.kind, &value) } },
     };
     rsx! {
         FieldRow { label: TextLine::from(label.clone()), help, {control} }

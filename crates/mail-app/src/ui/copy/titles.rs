@@ -65,3 +65,7 @@ pub const KEYS_FAILED: &str = "That Didn’t Work";
 pub const SETTINGS_UNREADABLE: &str = "Some Settings Can’t Be Read";
 /// Use Defaults could not set a damaged settings file aside; the reason is the message.
 pub const NOT_SET_ASIDE: &str = "The Files Weren’t Set Aside";
+/// The sheet that shows a message's header lines as they came.
+pub const ALL_HEADERS: &str = "All Headers";
+/// The sheet that shows the whole message as it came.
+pub const MESSAGE_SOURCE: &str = "Message Source";

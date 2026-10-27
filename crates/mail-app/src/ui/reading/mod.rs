@@ -11,9 +11,11 @@ mod fold;
 mod header;
 mod images;
 mod list_post;
+mod marking;
 mod peek;
 mod route;
 pub(in crate::ui) mod selection;
+mod source;
 mod thumb;
 mod tools;
 mod words;
@@ -35,11 +37,53 @@ use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
+pub(in crate::ui) use source::{Raw, RawAsked, RawSheet, ask as ask_raw, close as close_raw};
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
 use std::sync::Arc;
 pub(in crate::ui) use tools::compose_on;
+
+/// Whether what is shown is unread now: `message` when it was opened alone, else any of `thread`.
+fn is_unread(store: &SqliteStore, thread: ThreadId, only: Option<MessageId>) -> bool {
+    match only {
+        Some(message) => store
+            .message(message)
+            .is_ok_and(|alone| alone.thread == thread && alone.read == ReadState::Unread),
+        None => store
+            .thread(thread)
+            .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread),
+    }
+}
+
+/// Mark what is shown read as showing it does: on the server too, where the server keeps flags,
+/// with no toast and no undo, and the list loses its dot. A message opened alone is the only one
+/// read.
+fn mark_read(
+    store: &SqliteStore,
+    thread: ThreadId,
+    only: Option<MessageId>,
+    revision: Option<Signal<u64>>,
+) {
+    let marked = match only {
+        Some(message) => read_alone(store, thread, message),
+        None => read_whole(store, thread),
+    };
+    if marked && let Some(mut revision) = revision {
+        revision += 1;
+    }
+}
+
+/// Bigger, Smaller or Actual Size: the reader's text size a step along, written to the settings,
+/// so every window and the next launch draw messages at it.
+pub(in crate::ui) fn zoom(step: crate::settings::ZoomStep) {
+    let stepped = crate::ui::prefs::change(|settings| {
+        settings.reading.text_zoom = settings.reading.text_zoom.stepped(step);
+    });
+    if let Err(why) = stepped {
+        log::warn!("text size: {why}");
+    }
+}
 
 /// The first character of `name`, uppercased.
 ///
@@ -158,7 +202,9 @@ pub(super) fn Reader(
     // The words selected in a message a right click was on (`blocks::Sandbox`), and the Copy menu
     // they open where no link was.
     let mut words_asked = use_signal(|| None::<String>);
-    let mut copy_menu = use_signal(|| None::<WordsAsked>);
+    // A message's own menu (Show All Headers, View Source), opened by a right click on it that
+    // is not on a link: which message, and where.
+    let mut message_menu = use_signal(|| None::<MessageAsked>);
     // The earlier messages a press opened, and those that were unread when the conversation was
     // opened (`fold`): an earlier message is one line unless it is in either.
     let unfolded = use_signal(HashSet::<MessageId>::new);
@@ -194,19 +240,44 @@ pub(super) fn Reader(
         embedded.clone(),
         store.clone(),
     );
-    // Opening a conversation reads it: an unread one is marked read once it is drawn (on the
-    // server too, where the server keeps flags), with no toast and no undo, and the list loses
-    // its dot. The messages that were unread as it opened stay unfolded: the render gathered
-    // them into `unread` before this runs. A message opened alone is the only one read.
+    // Showing a conversation reads it: an unread one is marked read once it is drawn, after
+    // the wait `reading.mark_read` asks for, or never (`marking`). The messages that were unread
+    // as it opened stay unfolded: the render gathered them into `unread` before this runs.
+    let pending = use_hook(|| Rc::new(RefCell::new(marking::Pending::default())));
+    {
+        let pending = pending.clone();
+        use_drop(move || pending.borrow_mut().left());
+    }
     {
         let store = store.clone();
         use_effect(use_reactive!(|thread, only| {
-            let read = match only {
-                Some(message) => read_alone(&store, thread, message),
-                None => read_whole(&store, thread),
-            };
-            if read && let Some(mut revision) = revision {
-                revision += 1;
+            let reading = settings
+                .map(|settings| settings.peek().reading.clone())
+                // A reader with no window around it (a test's) marks read on open, as ever.
+                .unwrap_or_default();
+            let unread = is_unread(&store, thread, only);
+            match marking::on_show(reading.mark_read, reading.mark_read_delay, unread) {
+                marking::Mark::Now => {
+                    pending.borrow_mut().left();
+                    mark_read(&store, thread, only, revision);
+                }
+                marking::Mark::Leave => pending.borrow_mut().left(),
+                marking::Mark::After(wait) => {
+                    pending
+                        .borrow_mut()
+                        .shown(thread, ds::base::time::clock::now(), wait);
+                    let pending = pending.clone();
+                    let store = store.clone();
+                    spawn(async move {
+                        ds::base::time::clock::sleep(wait).await;
+                        let due = pending
+                            .borrow_mut()
+                            .due(thread, ds::base::time::clock::now());
+                        if due && is_unread(&store, thread, only) {
+                            mark_read(&store, thread, only, revision);
+                        }
+                    });
+                }
             }
         }));
     }
@@ -223,6 +294,8 @@ pub(super) fn Reader(
     let reading = settings
         .map(|settings| settings.read().reading.clone())
         .unwrap_or_default();
+    // A message with both bodies is rendered, and looked up, as the setting prefers.
+    frames.prefer(reading.prefer_plain_text.into());
     let pressed = shell.read().show_remote_images;
     let peek = shell.read().peek;
     // What this reader sent to be rendered off the thread, and the count that moves when some of
@@ -462,21 +535,24 @@ pub(super) fn Reader(
         div { class: "reader-body",
             for (at, (((message, body, ..), attached), fold)) in shown.into_iter().zip(attached).zip(folds).enumerate() {
                 article { key: "{message.id}", class: "frame",
-                    oncontextmenu: move |event: MouseEvent| {
-                        let asked = frame_menus.peek().as_ref().and_then(|menus| menus.take());
-                        let words = words_asked.take();
-                        if let Some(asked) = asked {
+                    oncontextmenu: {
+                        let id = message.id;
+                        move |event: MouseEvent| {
+                            let asked = frame_menus.peek().as_ref().and_then(|menus| menus.take());
+                            let words = words_asked.take();
                             event.prevent_default();
                             event.stop_propagation();
-                            link_menu.set(Some(asked));
-                        } else if let Some(text) = words {
-                            event.prevent_default();
-                            event.stop_propagation();
-                            let at = event.client_coordinates();
-                            copy_menu.set(Some(WordsAsked {
-                                text,
-                                at: Point { x: Px(at.x as f32), y: Px(at.y as f32) },
-                            }));
+                            match asked {
+                                Some(asked) => link_menu.set(Some(asked)),
+                                None => {
+                                    let at = event.client_coordinates();
+                                    message_menu.set(Some(MessageAsked {
+                                        message: id,
+                                        text: words,
+                                        at: Point { x: Px(at.x as f32), y: Px(at.y as f32) },
+                                    }));
+                                }
+                            }
                         }
                     },
                     if fold == fold::Fold::Folded {
@@ -566,8 +642,8 @@ pub(super) fn Reader(
             if let Some(asked) = link_menu() {
                 LinkMenu { asked, menus: frame_menus, open: link_menu, shell }
             }
-            if let Some(asked) = copy_menu() {
-                CopyMenu { asked, open: copy_menu }
+            if let Some(asked) = message_menu() {
+                MessageMenu { asked, open: message_menu, shell }
             }
             {children}
         }
@@ -709,38 +785,54 @@ fn LinkMenu(
     }
 }
 
-/// Words selected in a message that a right click was on, and where the pointer is, in the
-/// window's coordinates.
+/// A right click on a message, not on a link: which message, the words selected in it (if any),
+/// and where the pointer is, in the window's coordinates.
 #[derive(Debug, Clone, PartialEq)]
-struct WordsAsked {
-    text: String,
+struct MessageAsked {
+    message: MessageId,
+    text: Option<String>,
     at: Point,
 }
 
-/// Copy, at the pointer, for the words selected in a message that a right click was on: they go
-/// on the clipboard as ⌘C would put them.
+/// Copy (for the words selected, which go on the clipboard as ⌘C would put them), Show All
+/// Headers and View Source, at the pointer, for the message a right click was on.
 #[component]
-fn CopyMenu(asked: WordsAsked, open: Signal<Option<WordsAsked>>) -> Element {
+fn MessageMenu(
+    asked: MessageAsked,
+    open: Signal<Option<MessageAsked>>,
+    shell: Signal<Shell>,
+) -> Element {
     let mut open = open;
-    let at = Rect {
+    let keys = use_keys();
+    let placed = Rect {
         origin: asked.at,
         size: Size {
             width: Px(0.0),
             height: Px(0.0),
         },
     };
+    let message = asked.message;
     let text = asked.text.clone();
     rsx! {
         super::menu::Floating {
             anchor: None,
-            placed: Some(at),
+            placed: Some(placed),
             title: String::new(),
-            items: vec![super::menu::MenuItem::icon(COPY, Icon::Copy, super::copy::menus::COPY)],
+            items: keys.with_keymap(|keymap| message_items(keymap, text.is_some())),
             on_pick: move |key: String| {
                 open.set(None);
-                if key == COPY {
-                    super::host::Host::copy(&text);
-                }
+                let raw = match key.as_str() {
+                    COPY => {
+                        if let Some(text) = &asked.text {
+                            super::host::Host::copy(text);
+                        }
+                        return;
+                    }
+                    SHOW_HEADERS => Raw::Headers,
+                    VIEW_SOURCE => Raw::Source,
+                    _ => return,
+                };
+                source::ask_message(shell, message, raw);
             },
             on_close: move |_| open.set(None),
         }
@@ -748,6 +840,37 @@ fn CopyMenu(asked: WordsAsked, open: Signal<Option<WordsAsked>>) -> Element {
 }
 
 const COPY: &str = "copy";
+const SHOW_HEADERS: &str = "show-headers";
+const VIEW_SOURCE: &str = "view-source";
+
+/// A message's own menu's rows, each with its chord as `keymap` has it.
+fn message_items(keymap: &chordkit::Keymap, copy: bool) -> Vec<super::menu::MenuItem> {
+    use super::actions::{Own, hint_own};
+    use super::menu::{MenuItem, Right};
+    let rows: Vec<MenuItem> = [
+        (
+            SHOW_HEADERS,
+            super::copy::menus::SHOW_ALL_HEADERS,
+            Icon::ListTree,
+            Own::ShowHeaders,
+        ),
+        (
+            VIEW_SOURCE,
+            super::copy::menus::VIEW_SOURCE,
+            Icon::FileCode,
+            Own::ViewSource,
+        ),
+    ]
+    .into_iter()
+    .map(|(key, name, icon, own)| MenuItem {
+        right: hint_own(keymap, own).map_or(Right::None, Right::Shortcut),
+        ..MenuItem::icon(key, icon, name)
+    })
+    .collect();
+    let copy = copy.then(|| MenuItem::icon(COPY, Icon::Copy, super::copy::menus::COPY));
+    copy.into_iter().chain(rows).collect()
+}
+
 const OPEN_LINK: &str = "open-link";
 const PREVIEW_LINK: &str = "preview-link";
 const COPY_LINK: &str = "copy-link";

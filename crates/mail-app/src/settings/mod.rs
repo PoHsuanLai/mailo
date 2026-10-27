@@ -19,9 +19,10 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, MessageFormat, NewMail,
-    ProviderMarks, ReadReceipts, RemoveUnedited, ReplySameFormat, ServerSearch,
-    SignatureAboveQuote, Snippets, Spelling, UndoSend, WhileQuit,
+    BrandLogos, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, MarkRead, MarkReadDelay,
+    MessageFormat, NewMail, PreferPlainText, ProviderMarks, ReadReceipts, RemoveUnedited,
+    ReplySameFormat, ServerSearch, SignatureAboveQuote, Snippets, Spelling, TextZoom, UndoSend,
+    WhileQuit, ZoomStep,
 };
 
 use ds::prelude::Word;
@@ -181,6 +182,34 @@ pub struct ReadingSettings {
         section = "Reading"
     )]
     pub trusted_image_senders: Vec<String>,
+    #[settings(
+        label = "Prefer plain text",
+        help = "Show a message's plain-text version instead of its formatted one, when it has one.",
+        section = "Reading"
+    )]
+    pub prefer_plain_text: PreferPlainText,
+    #[settings(
+        label = "Mark as read",
+        help = "When a conversation you open stops being unread.",
+        section = "Reading"
+    )]
+    pub mark_read: MarkRead,
+    #[settings(
+        label = "Mark as read after",
+        help = "How long a conversation is shown before it is marked read, when that waits.",
+        section = "Reading"
+    )]
+    pub mark_read_delay: MarkReadDelay,
+    /// Set from the reader with Bigger, Smaller and Actual Size; the desktop's Settings app draws
+    /// it as a slider.
+    #[settings(
+        label = "Message text size",
+        help = "How large a message's text is drawn. Bigger and Smaller in the reader change it.",
+        section = "Reading",
+        range = "50..=300",
+        unit = "%"
+    )]
+    pub text_zoom: TextZoom,
 }
 
 impl ReadingSettings {
@@ -334,6 +363,8 @@ fn with_word_labels(mut key: KeySpec) -> KeySpec {
         "reading.remote_images" => key.labels = labels::<LoadRemoteImages>(),
         "compose.undo_send" => key.labels = labels::<UndoSend>(),
         "compose.format" => key.labels = labels::<MessageFormat>(),
+        "reading.mark_read" => key.labels = labels::<MarkRead>(),
+        "reading.mark_read_delay" => key.labels = labels::<MarkReadDelay>(),
         _ => {}
     }
     key

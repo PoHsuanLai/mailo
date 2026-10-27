@@ -22,8 +22,9 @@ mod seed;
 mod settings;
 mod window;
 
-// 0: opening and reading, and the gutter a message is read in.
+// 0: opening and reading, the gutter a message is read in, and the reader's own choices.
 mod inset;
+mod reader_view;
 mod reading;
 
 // 1–2: writing, attaching and sending; formatting.

@@ -522,6 +522,14 @@ pub(super) fn App() -> Element {
             }
             return;
         }
+        // A message's headers or source likewise: Esc closes the sheet, and no key reaches the
+        // rows behind it.
+        if shell.read().raw.is_some() {
+            if key == "Escape" {
+                super::reading::close_raw(shell);
+            }
+            return;
+        }
         // A Space's menu, or the part it opened, owns the keyboard while it shows: the name
         // field takes letters, the colour field's handles the arrows, and quire's layer stack
         // closes it on Escape. A part that holds no focus (the Delete question) never sees the
@@ -578,6 +586,17 @@ pub(super) fn App() -> Element {
             }
             Some(Intent::Settings) => {
                 super::settings_window::open();
+                return;
+            }
+            Some(Intent::Zoom(step)) => {
+                super::reading::zoom(step);
+                return;
+            }
+            Some(Intent::Raw(raw)) => {
+                let open = shell.read().open;
+                if let Some(open) = open {
+                    super::reading::ask_raw(shell, open, raw);
+                }
                 return;
             }
             _ => {}
@@ -821,6 +840,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().tidying.is_some() {
                 super::tidy::TidySheet { shell, revision }
+            }
+            if shell.read().raw.is_some() {
+                super::reading::RawSheet { shell }
             }
             if shell.read().no_account {
                 super::no_account::NoAccountAlert { shell }

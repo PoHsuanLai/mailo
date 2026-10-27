@@ -1,6 +1,7 @@
 //! The sandboxed frame displaying the message body.
 
 use chordkit::StandardAction;
+use dioxus::core::Task;
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 use ds::prelude::use_keys;
@@ -36,6 +37,10 @@ pub(super) fn Sandbox(
     #[props(default)]
     asked: Option<Signal<Option<String>>>,
 ) -> Element {
+    // The reader's text size (`reading.text_zoom`), read here so a change draws the frame again;
+    // a frame with no window around it (a test's) is at its own size.
+    let settings = use_hook(try_consume_context::<Signal<crate::settings::MailSettings>>);
+    let text = settings.map_or(1.0, |settings| settings.read().reading.text_zoom.factor());
     let height = use_signal(|| None::<f32>);
     let selections = use_hook(try_consume_context::<super::selection::Selections>);
     {
@@ -46,17 +51,47 @@ pub(super) fn Sandbox(
             }
         });
     }
-    // A sender's page wider than the frame is drawn smaller to fit it (`super::fit::shrink`); a
-    // plain-text message wraps to the frame and is never wider.
-    let zoom = use_signal(|| 1.0_f32);
+    // The page is drawn at the text size, and a sender's page that would then be wider than the
+    // frame smaller, to fit it (`super::fit::shrink`); a plain-text message wraps to the frame
+    // and is never wider.
+    let mut zoom = use_signal(|| text);
+    // The frame's node, and what was selected in it when the last left press let go.
+    let mut frame = use_signal(|| None::<Rc<MountedData>>);
+    let mut reading = use_signal(Vec::<Task>::new);
+    // Measure the frame again from the start, for the text size `text`: what was being measured
+    // for another size stops, so it cannot set the zoom back.
+    let mut measure = move |text: f32| {
+        for task in reading.write().drain(..) {
+            task.cancel();
+        }
+        let Some(frame) = frame.peek().clone() else {
+            return;
+        };
+        let mut started = Vec::new();
+        if fit {
+            started.push(super::fit::follow(frame.clone(), height));
+        }
+        if !plain {
+            started.push(super::fit::shrink(frame, zoom, text));
+        }
+        reading.set(started);
+    };
+    // The size the frame was last measured for: a new one starts the page at it and measures
+    // again.
+    let mut measured = use_signal(|| text);
+    use_effect(use_reactive!(|text| {
+        if (*measured.peek() - text).abs() >= 0.001 {
+            measured.set(text);
+            zoom.set(text);
+            measure(text);
+        }
+    }));
     let html = super::fit::zoomed(&html, zoom());
     let style = match (fit, height()) {
         (true, Some(px)) => format!("height: {px}px;"),
         _ => String::new(),
     };
     let keys = use_keys();
-    // The frame's node, and what was selected in it when the last left press let go.
-    let mut frame = use_signal(|| None::<Rc<MountedData>>);
     // Kept with the fingerprint of the document it was taken in: a frame given other html is a
     // new document, whose nodes and offsets are not these.
     let key = words::fingerprint(&html);
@@ -73,12 +108,7 @@ pub(super) fn Sandbox(
                 if let (Some(selections), Some(message)) = (&selections, message) {
                     selections.hold(message, &mounted);
                 }
-                if fit {
-                    super::fit::follow(mounted.clone(), height);
-                }
-                if !plain {
-                    super::fit::shrink(mounted, zoom);
-                }
+                measure(text);
             },
             onpointerup: move |event: PointerEvent| {
                 if event.trigger_button() == Some(MouseButton::Primary) {

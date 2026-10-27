@@ -1,9 +1,9 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    AttachmentSettings, BrandLogos, LoadRemoteImages, MailSettings, NewMail, ProviderMarks,
-    ReadReceipts, ReadingSettings, RemoveUnedited, ServerSearch, Spelling, change, load, schema,
-    store,
+    AttachmentSettings, BrandLogos, LoadRemoteImages, MailSettings, MarkRead, MarkReadDelay,
+    NewMail, PreferPlainText, ProviderMarks, ReadReceipts, ReadingSettings, RemoveUnedited,
+    ServerSearch, Spelling, TextZoom, ZoomStep, change, load, schema, store,
 };
 use ds_settings::ConfigRoot;
 use ds_settings::schema::{KeyKind, Page, Schema};
@@ -75,6 +75,29 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         (
             "reading.trusted_image_senders",
             KeyKind::List(Box::new(KeyKind::Text)),
+        ),
+        ("reading.prefer_plain_text", pair("on", "off")),
+        (
+            "reading.mark_read",
+            KeyKind::Segmented {
+                variants: ["on_open", "after_delay", "never"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            },
+        ),
+        (
+            "reading.mark_read_delay",
+            KeyKind::Segmented {
+                variants: ["two", "five", "ten"].map(str::to_owned).to_vec(),
+            },
+        ),
+        (
+            "reading.text_zoom",
+            KeyKind::Bounded {
+                min: 50,
+                max: 300,
+                unit: Some("%".to_owned()),
+            },
         ),
         ("search.server_automatically", pair("on", "off")),
         ("sync.while_quit", pair("on", "off")),
@@ -464,6 +487,91 @@ fn a_relative_or_blank_downloads_folder_is_the_system_s() {
             settings.downloads_in(),
             want.map(std::path::PathBuf::from),
             "{written:?}"
+        );
+    }
+}
+
+/// The reader's newer keys: a file from before them reads as today's behaviour (HTML, read on
+/// open, actual size), and each is written and read back.
+#[test]
+fn the_reader_s_keys_start_as_before_and_are_written_and_read_back() {
+    let (dir, root) = scratch();
+    write(
+        &mailo_dir(&dir),
+        "settings.toml",
+        "[reading]\nbrand_logos = \"on\"\n",
+    );
+    let before = load(&root).reading;
+    assert_eq!(before.prefer_plain_text, PreferPlainText::Off);
+    assert_eq!(before.mark_read, MarkRead::OnOpen);
+    assert_eq!(before.mark_read_delay, MarkReadDelay::Two);
+    assert_eq!(before.text_zoom, TextZoom(100));
+    let written = change(&root, |settings| {
+        settings.reading.prefer_plain_text = PreferPlainText::On;
+        settings.reading.mark_read = MarkRead::AfterDelay;
+        settings.reading.mark_read_delay = MarkReadDelay::Five;
+        settings.reading.text_zoom = TextZoom(125);
+    })
+    .unwrap();
+    assert_eq!(load(&root), written);
+    let text = std::fs::read_to_string(mailo_dir(&dir).join("settings.toml")).unwrap();
+    for line in [
+        "prefer_plain_text = \"on\"",
+        "mark_read = \"after_delay\"",
+        "mark_read_delay = \"five\"",
+        "text_zoom = 125",
+    ] {
+        assert!(text.contains(line), "{line}: {text}");
+    }
+    // The words a person reads for the stored ones.
+    let schema = schema();
+    let labels = |path: &str, word: &str| {
+        schema
+            .key
+            .iter()
+            .find(|key| key.path.0 == path)
+            .and_then(|key| key.labels.of(word))
+            .map(str::to_owned)
+    };
+    assert_eq!(
+        labels("reading.mark_read", "after_delay").as_deref(),
+        Some("After a Delay")
+    );
+    assert_eq!(
+        labels("reading.mark_read_delay", "five").as_deref(),
+        Some("5 Seconds")
+    );
+}
+
+/// A step of the text's size climbs the ladder and holds at its ends; Actual Size is 100; a
+/// size between rungs goes to the nearest one past it, and one past the range is held to it.
+#[test]
+fn a_zoom_step_climbs_the_ladder_and_holds_at_its_ends() {
+    // (from, step, to)
+    let cases = [
+        (100, ZoomStep::Bigger, 110),
+        (100, ZoomStep::Smaller, 90),
+        (110, ZoomStep::Smaller, 100),
+        (130, ZoomStep::Bigger, 150),
+        (130, ZoomStep::Smaller, 125),
+        (300, ZoomStep::Bigger, 300),
+        (50, ZoomStep::Smaller, 50),
+        (200, ZoomStep::ActualSize, 100),
+        (900, ZoomStep::Smaller, 200),
+        (10, ZoomStep::Bigger, 67),
+    ];
+    for (from, step, to) in cases {
+        assert_eq!(
+            TextZoom(from).stepped(step),
+            TextZoom(to),
+            "{from} {step:?}"
+        );
+    }
+    // (stored, the factor drawn)
+    for (stored, factor) in [(100, 1.0), (125, 1.25), (10, 0.5), (900, 3.0)] {
+        assert!(
+            (TextZoom(stored).factor() - factor).abs() < 1e-6,
+            "{stored}"
         );
     }
 }

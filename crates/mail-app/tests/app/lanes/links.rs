@@ -139,9 +139,15 @@ fn a_hovered_link_names_its_destination_and_a_click_opens_only_what_is_safe() {
     };
     window.harness.press(off, PointerButton::Secondary);
     window.harness.advance(ms(300));
-    assert_eq!(
-        window.harness.count(MENU),
-        0,
+    // The message's own menu instead: its headers and its source, and no link.
+    let offered = |name: &str| super::look::menu_item_of(&window.harness, name).is_some();
+    assert!(
+        offered(copy::menus::SHOW_ALL_HEADERS) && offered(copy::menus::VIEW_SOURCE),
+        "a right click off a link offered no message menu"
+    );
+    assert!(
+        !offered(copy::menus::COPY_LINK) && !offered(copy::menus::OPEN_LINK),
         "a right click off a link offered a link"
     );
+    assert_eq!(window.harness.count(MENU), 2);
 }

@@ -81,6 +81,14 @@ pub fn one_time_code(code: &str) -> String {
 
 /// The quiet line over a message whose remote images are held back; its actions follow it.
 pub const IMAGES_HIDDEN: &str = "Images hidden";
+/// The message source sheet, for a message whose body is not here yet.
+pub const SOURCE_NOT_HERE: &str = "This message isn’t downloaded yet.";
+
+/// The message source sheet, when the message is longer than it shows: "Showing the first
+/// 256.0 kB of 4.2 MB."
+pub fn source_cut(shown: &str, whole: &str) -> String {
+    format!("Showing the first {shown} of {whole}. Download the message for all of it.")
+}
 
 /// The line over a message that asks for a read receipt, under "Ask each time": who asked.
 pub fn receipt_asked(sender: &str) -> String {
