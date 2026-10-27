@@ -267,7 +267,7 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     providers.sort_unstable();
     providers.dedup();
     let via = current
-        .and_then(&account_of)
+        .and_then(account_of)
         .filter(|_| providers.len() > 1)
         .map(|row| provider(&row.plan));
     // Each address by itself, under the name it goes out with, or its service's when it has
