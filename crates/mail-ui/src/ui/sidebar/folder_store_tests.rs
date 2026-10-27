@@ -8,10 +8,10 @@ use super::folder_tree::{Show, arrange};
 use crate::ui::fixtures::{
     chord, click, dispatching, empty, later, rebuild_into, right_click, type_into,
 };
-use crate::ui::ops::take_back;
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::ElementId;
+use mail_core::act::take_back;
 use mail_core::folder::Refusal;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
