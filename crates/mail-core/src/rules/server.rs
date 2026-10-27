@@ -337,8 +337,10 @@ pub async fn run_vacation(
         }
         VacationCmd::Off { account } => {
             let account = super::pick(store, account.as_deref())?;
+            let had = store.vacation(account.id.clone())?.is_some();
             store.put_vacation(account.id.clone(), None, now)?;
-            let pushed = if away_server(&account.plan).is_ok() {
+            // Off says nothing to a server that was never told: a reply set elsewhere stays.
+            let pushed = if off_reaches_server(had, away_server(&account.plan).is_ok()) {
                 Some(put_away(store, secrets, &account, saved, now).await)
             } else {
                 None
@@ -349,6 +351,12 @@ pub async fn run_vacation(
             })
         }
     }
+}
+
+/// Whether switching the reply off is said to the server: only when a reply was kept here to
+/// switch off, and the server keeps one.
+fn off_reaches_server(kept_here: bool, server_keeps_one: bool) -> bool {
+    kept_here && server_keeps_one
 }
 
 /// Put the account's kept reply where its server keeps one, saying so either way: in its Sieve
@@ -623,4 +631,19 @@ async fn status(
         script,
         local_only: compiled.local_only,
     })
+}
+
+#[cfg(test)]
+mod off_tests {
+    use super::off_reaches_server;
+
+    #[test]
+    fn off_is_said_to_the_server_only_for_a_reply_kept_here() {
+        assert!(off_reaches_server(true, true));
+        assert!(
+            !off_reaches_server(false, true),
+            "a reply set elsewhere stays"
+        );
+        assert!(!off_reaches_server(true, false));
+    }
 }

@@ -279,18 +279,38 @@ fn reverse_flag(messages: &[MessageId], hue: Hue, inverse: &Patch) -> Option<Rem
 }
 
 /// An unflagging undone, where a flag had a colour: the server took the colour away with the
-/// flag, so the flag goes back in its colour rather than plain. `None` where no colour returns.
+/// flag, so the flag goes back in its colour rather than plain. One intent carries one colour,
+/// so a mixed set goes back by the colour most of them wore; red is plain `\Flagged` and wins a
+/// tie. `None` where red is the most: the plain star restores those, and the colour of the few
+/// that wore another is the one thing the undo cannot give back in the same breath.
 fn recolour(inverse: &Patch) -> Option<RemoteIntent> {
-    let mut by_hue: BTreeMap<Hue, Vec<MessageId>> = BTreeMap::new();
+    let mut wore: BTreeMap<MessageId, Hue> = BTreeMap::new();
+    let mut starred: Vec<MessageId> = Vec::new();
     for change in &inverse.changes {
-        if let Change::MessageFlag(id, hue) = change
-            && *hue != Hue::Red
-        {
-            by_hue.entry(*hue).or_default().push(*id);
+        match change {
+            Change::MessageFlag(id, hue) => {
+                wore.insert(*id, *hue);
+            }
+            Change::MessageStar(id, Star::Starred) => starred.push(*id),
+            _ => {}
         }
     }
-    let (hue, messages) = by_hue.into_iter().max_by_key(|(_, ids)| ids.len())?;
-    Some(RemoteIntent::SetFlag { messages, hue })
+    for id in wore.keys() {
+        if !starred.contains(id) {
+            starred.push(*id);
+        }
+    }
+    let mut by_hue: BTreeMap<Hue, Vec<MessageId>> = BTreeMap::new();
+    for id in starred {
+        by_hue
+            .entry(wore.get(&id).copied().unwrap_or(Hue::Red))
+            .or_default()
+            .push(id);
+    }
+    let (hue, messages) = by_hue
+        .into_iter()
+        .max_by_key(|(hue, ids)| (ids.len(), *hue == Hue::Red))?;
+    (hue != Hue::Red).then_some(RemoteIntent::SetFlag { messages, hue })
 }
 
 /// The folder work that takes `work` back on the server.

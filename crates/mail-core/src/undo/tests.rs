@@ -134,6 +134,33 @@ fn a_flag_colour_is_taken_back_to_what_it_was() {
     );
 }
 
+/// Unflagging five red and one orange and taking it back restores the five as they were; the
+/// colour of the one is the most the undo gives up, never the five.
+#[test]
+fn the_most_common_colour_wins_an_undone_unflagging() {
+    let reds: Vec<MessageId> = (0..5).map(|_| MessageId::generate()).collect();
+    let orange = MessageId::generate();
+    let everyone: Vec<MessageId> = reds.iter().copied().chain([orange]).collect();
+    let unflag = RemoteIntent::SetFlags {
+        messages: everyone.clone(),
+        read: None,
+        star: Some(Star::Unstarred),
+    };
+    let mut changes: Vec<Change> = everyone
+        .iter()
+        .map(|id| Change::MessageStar(*id, Star::Starred))
+        .collect();
+    changes.push(Change::MessageFlag(orange, Hue::Orange));
+    let back = reverse_intent(&unflag, &patch(changes)).unwrap();
+    let RemoteIntent::SetFlags { messages, star, .. } = back else {
+        panic!("red is plain: {back:?}");
+    };
+    assert_eq!(star, Some(Star::Starred));
+    for red in &reds {
+        assert!(messages.contains(red), "a red one was dropped");
+    }
+}
+
 #[test]
 fn the_stack_forgets_the_oldest_past_its_depth() {
     let mut stack = UndoStack::default();
