@@ -103,11 +103,18 @@ fn what_is_erased_and_what_waits() {
             false,
         ),
         (
-            "deleted now, reached Trash",
+            "deleted now, reached Trash, past the Undo",
+            now_mode,
+            binned(Trash, -1, Asked, Yes),
+            false,
+            true,
+        ),
+        (
+            "deleted now, reached Trash, Undo still on offer",
             now_mode,
             binned(Trash, 0, Asked, Yes),
             false,
-            true,
+            false,
         ),
         (
             "deleted now, still moving",
@@ -263,9 +270,45 @@ fn deleting_now_erases_once_the_move_has_landed() {
         uid: 3,
     };
     store.remap(account(), &at("INBOX"), &at("Trash")).unwrap();
-    assert_eq!(sweep(&store, &policy, day(0)), vec![id(3)]);
+    assert!(
+        sweep(&store, &policy, day(0)).is_empty(),
+        "erased inside the Undo the Delete offered"
+    );
+    assert_eq!(sweep(&store, &policy, day(1)), vec![id(3)]);
     assert!(
         store.message(id(1)).is_ok(),
         "what was there already went too"
     );
+}
+
+/// A message trashed, restored and trashed again between two sweeps starts its time again: the
+/// store forgets when it left, not only at the next sweep.
+#[test]
+fn a_message_that_leaves_trash_and_returns_between_sweeps_starts_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path());
+    let policy = Policy {
+        delete: Delete::ToTrash,
+        trash: Keep::Week,
+        spam: Keep::Always,
+    };
+    assert!(sweep(&store, &policy, day(0)).is_empty());
+    let move_to = |role| {
+        store
+            .apply(
+                account(),
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![mail_domain::Change::MessageMailbox(id(1), role)],
+                },
+            )
+            .unwrap();
+    };
+    move_to(MailboxRole::Inbox);
+    move_to(MailboxRole::Trash);
+    assert!(
+        sweep(&store, &policy, day(7)).is_empty(),
+        "it kept the time from before it left"
+    );
+    assert_eq!(sweep(&store, &policy, day(14)), vec![id(1)]);
 }

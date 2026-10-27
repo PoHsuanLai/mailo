@@ -12,3 +12,12 @@ CREATE TABLE binned (
     since   TEXT NOT NULL,  -- RFC 3339, UTC, fixed width
     soon    INTEGER NOT NULL DEFAULT 0 CHECK (soon IN (0, 1))
 ) WITHOUT ROWID;
+
+-- A message that moves out of where it is, to Trash or from it, starts its time again at once:
+-- not only at the next sweep, which a short stay between two sweeps would otherwise slip past, so
+-- that a message trashed, restored and trashed again kept its first time.
+CREATE TRIGGER binned_leaves AFTER UPDATE OF mailbox ON messages
+WHEN old.mailbox <> new.mailbox
+BEGIN
+    DELETE FROM binned WHERE message = old.id;
+END;

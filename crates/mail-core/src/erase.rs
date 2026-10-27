@@ -71,6 +71,10 @@ impl Policy {
     }
 }
 
+/// How long a message Delete sent to Trash to be erased at once is kept first, so Undo can still
+/// bring it back.
+pub const UNDO_GRACE: TimeDelta = TimeDelta::seconds(30);
+
 /// Whether `binned` is erased now under `policy`. Pure, so the whole table is a test.
 ///
 /// Only a message whose place the server has confirmed is erased, or one wholly here
@@ -88,7 +92,9 @@ pub fn due(policy: &Policy, binned: &Binned, local: bool, now: DateTime<Utc>) ->
     let keep = match binned.mailbox {
         MailboxRole::Trash => {
             if binned.soon == Soon::Asked && policy.delete == Delete::Now {
-                return true;
+                // Not before the Undo the Delete offered has run out: erased at once, it would
+                // leave Undo nothing to bring back.
+                return now.signed_duration_since(binned.since) >= UNDO_GRACE;
             }
             policy.trash
         }

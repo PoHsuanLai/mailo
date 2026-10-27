@@ -500,7 +500,15 @@ impl SqliteStore {
         ingest: Ingest,
     ) -> Result<Patch, StoreError> {
         let mut changes = Vec::new();
-        for chunk in chunks(ingest, INGEST_CHUNK) {
+        // A UIDVALIDITY reset drops every remote address of the mailbox in the first chunk's
+        // transaction. Split, a reader would see a mailbox whose messages have no address until
+        // the last chunk lands, so it is written as one.
+        let pieces = if ingest.validity == UidValidity::Reset {
+            vec![ingest]
+        } else {
+            chunks(ingest, INGEST_CHUNK)
+        };
+        for chunk in pieces {
             changes.extend(self.write_ingest_chunk(account.clone(), chunk)?);
             #[cfg(feature = "testing")]
             self.chunk_committed();

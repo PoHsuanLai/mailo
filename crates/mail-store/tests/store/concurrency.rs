@@ -627,6 +627,26 @@ mod an_ingest_in_chunks {
         assert_eq!(patch.changes.len(), 3 * total as usize);
     }
 
+    /// A UIDVALIDITY reset is one commit however large: no reader sees the mailbox with its
+    /// addresses dropped and its messages only partly there.
+    #[test]
+    fn a_reset_is_one_commit_whatever_its_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap();
+        seed_account(&store, acct_account(), "me@example.test");
+        let seen: Seen = Arc::default();
+        let kept = seen.clone();
+        on_ingest_chunk(&store, move |store| {
+            let listed = store.count(&Filter::All, at(0)).unwrap();
+            kept.lock().unwrap().push((listed, false));
+        });
+        let total = INGEST_CHUNK + 50;
+        let mut batch = ingest_of(&store, 0, total as i64);
+        batch.validity = mail_domain::UidValidity::Reset;
+        store.ingest(acct_account(), batch).unwrap();
+        assert_eq!(*seen.lock().unwrap(), vec![(total as u64, false)]);
+    }
+
     #[test]
     fn an_empty_ingest_still_writes_its_cursor() {
         let store = sqlite();

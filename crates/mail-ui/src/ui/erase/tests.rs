@@ -56,7 +56,9 @@ async fn delete_now_is_erased_by_the_window_and_trash_is_kept() {
             )
             .unwrap();
         if delete == DeleteMeans::Now {
-            store.erase_soon(&messages, chrono::Utc::now()).unwrap();
+            store
+                .erase_soon(&messages, chrono::Utc::now() - chrono::TimeDelta::days(1))
+                .unwrap();
         }
         dispatching();
         let mut dom = VirtualDom::new_with_props(Settings, SettingsProps { delete })
