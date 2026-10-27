@@ -443,3 +443,14 @@ fn a_new_clock_reads_again_what_reads_the_clock_at_its_time() {
         value(&now).as_deref() == Some(&ahead)
     });
 }
+
+#[test]
+fn a_conversation_that_is_not_there_is_none_not_a_failure() {
+    let store = Arc::new(in_memory());
+    let client = Client::inline(store, Arc::new(mail_core::mail::SystemClock));
+    let gone = client.live(mail_client::query::Conversation(
+        mail_domain::ThreadId::generate(),
+    ));
+
+    assert!(matches!(gone.snapshot(), Snapshot::Ready { value, .. } if value.is_none()));
+}
