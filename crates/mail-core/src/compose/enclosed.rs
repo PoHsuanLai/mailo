@@ -10,8 +10,8 @@
 //! to do instead: attaching a rebuilt one would send a stand-in with empty attachments, under
 //! the original's name.
 
-use crate::rich_text::plain_to_flowed;
 use crate::error::CoreError;
+use crate::rich_text::plain_to_flowed;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};

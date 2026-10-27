@@ -9,8 +9,8 @@
 
 use super::enclosed::sent_bytes_of;
 use super::{answering, carried, identity_addressed, identity_of, quoted, quoting, save, signed};
-use crate::rich_text::plain_to_flowed;
 use crate::error::{CoreError, Logged};
+use crate::rich_text::plain_to_flowed;
 use crate::signature::{self, Placement};
 use chrono::{DateTime, Local, Utc};
 use mail_domain::*;

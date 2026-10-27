@@ -24,15 +24,20 @@ use ds::prelude::*;
 use super::motion::{Follow, tell};
 use crate::ui::view::{FileSheet, Shell};
 
-/// Where the sheets suggest and start: the downloads directory, unless the window was handed
-/// another one. Tests hand one as a root context, so nothing looks at the real downloads
-/// directory.
+/// Where the sheets suggest and start, and Save writes: the downloads directory, unless the
+/// window was handed another one. Tests hand one as a root context, so nothing looks at the real
+/// downloads directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SaveDir(pub std::path::PathBuf);
 
-/// The directory [`SaveDir`] names.
+/// Where a file is saved without asking: the folder chosen in Settings
+/// (`attachments.downloads_folder`), else the one [`SaveDir`] names.
 pub(in crate::ui) fn save_dir() -> std::path::PathBuf {
-    try_consume_context::<SaveDir>().map_or_else(mail_core::attach::downloads_dir, |dir| dir.0)
+    crate::ui::prefs::current()
+        .attachments
+        .downloads_in()
+        .or_else(|| try_consume_context::<SaveDir>().map(|dir| dir.0))
+        .unwrap_or_else(mail_core::attach::downloads_dir)
 }
 
 /// Open the Import sheet with an empty path, and put the cursor in it.

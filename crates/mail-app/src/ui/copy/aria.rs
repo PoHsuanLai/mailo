@@ -140,3 +140,11 @@ pub fn delete_signature(name: &str) -> String {
 
 /// The composer's menu of how large pictures are sent.
 pub const PICTURE_SIZE: &str = "Picture Size";
+
+/// An attachment tile's menu, naming the file.
+pub fn attachment_menu(name: &str) -> String {
+    format!("Actions for {name}")
+}
+
+/// Settings' Choose… for the folder Save writes into.
+pub const CHOOSE_DOWNLOADS_FOLDER: &str = "Choose Folder for Attachments";

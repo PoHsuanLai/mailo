@@ -5,7 +5,8 @@
 //!
 //! The part is read and drawn on a blocking thread from a resource that runs again only when the
 //! part or the page changes. Save writes the same part as the strip's Save; Open writes it to a
-//! folder of its own and opens it in the app the system gives its kind.
+//! folder of its own and opens it in the app the system gives its kind, recording the copy so
+//! `attachments.remove_unedited` can remove it again (`downloads::unedited`).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -199,11 +200,11 @@ fn attachment_failure(failure: mail_core::CoreError, said: &str) -> String {
     }
 }
 
-/// Where Open writes a part before the system opens it, so nothing lands among the person's
-/// downloads unasked: a folder of the message's own, in one made for this run under the system's
-/// temporary folder with a name no one can guess and only its owner may enter. A shared, fixed
-/// name is one another user could make first, or leave a link in.
-fn open_dir(message: MessageId) -> std::io::Result<PathBuf> {
+/// Where Open writes parts before the system opens them, so nothing lands among the person's
+/// downloads unasked: a folder made for this run under the system's temporary folder with a name
+/// no one can guess and only its owner may enter, and in it a folder for each message. A shared,
+/// fixed name is one another user could make first, or leave a link in.
+fn open_root() -> std::io::Result<PathBuf> {
     static OPENED: std::sync::OnceLock<tempfile::TempDir> = std::sync::OnceLock::new();
     let root = match OPENED.get() {
         Some(root) => root,
@@ -212,10 +213,10 @@ fn open_dir(message: MessageId) -> std::io::Result<PathBuf> {
             OPENED.get_or_init(|| made)
         }
     };
-    Ok(root.path().join(message.to_string()))
+    Ok(root.path().to_owned())
 }
 
-/// What the folder [`open_dir`] makes for a run is named with.
+/// What the folder [`open_root`] makes for a run is named with.
 const OPEN_PREFIX: &str = "mailo-open-";
 
 /// How long a folder an earlier run's Open left must have gone unchanged before a window clears
@@ -223,7 +224,7 @@ const OPEN_PREFIX: &str = "mailo-open-";
 const LEFT_OPEN_FOR: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
 
 /// Clear away the folders earlier runs' Open left in the system's temporary folder: each run
-/// makes one ([`open_dir`]) and nothing removes it, since its files may still be open in their
+/// makes one ([`open_root`]) and nothing removes it, since its files may still be open in their
 /// apps when the window closes. Only this user's, only folders (never a link to one), and only
 /// those older than [`LEFT_OPEN_FOR`]. Best-effort: one that cannot be removed is left.
 pub(in crate::ui) fn sweep_left_open() {
@@ -312,10 +313,13 @@ pub(super) fn open_in_app(viewing: Viewing) {
     spawn(async move {
         let said = copy::errors::ATTACHMENT_NOT_OPENED;
         let opened = tokio::task::spawn_blocking(move || {
-            let dir = open_dir(viewing.message).map_err(|why| plainly(said, why))?;
+            let root = open_root().map_err(|why| plainly(said, why))?;
+            let dir = root.join(viewing.message.to_string());
             std::fs::create_dir_all(&dir).map_err(|why| plainly(said, why))?;
             let path = mail_core::attach::save(&store, viewing.message, viewing.index, &dir)
                 .map_err(|why| attachment_failure(why, said))?;
+            // Recorded, so `attachments.remove_unedited` can remove it while it is unchanged.
+            crate::ui::downloads::unedited::record(&root, &path, viewing.message);
             crate::ui::downloads::open_file(&path).map_err(|why| why.told(said))
         })
         .await

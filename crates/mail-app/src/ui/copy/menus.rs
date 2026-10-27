@@ -114,6 +114,12 @@ pub const EDIT_AS_NEW: &str = "Edit as New";
 pub const SEND_AGAIN: &str = "Send Again";
 pub const MOVE_TO: &str = "Move to…";
 pub const DOWNLOAD: &str = "Download";
+/// An attachment's right click: Save writes it where Save always does.
+pub const SAVE: &str = "Save";
+/// An attachment's right click: into a folder the person chooses.
+pub const SAVE_TO: &str = "Save to…";
+/// An attachment's right click, when its message has more than one.
+pub const SAVE_ALL: &str = "Save All…";
 pub const PRINT: &str = "Print…";
 pub const VIEW: &str = "View";
 /// The reader's ⋯, when the conversation's list offers a way out: it asks before it acts.

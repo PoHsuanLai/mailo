@@ -221,6 +221,23 @@ pub enum ServerSearch {
     Off,
 }
 
+/// `attachments.remove_unedited`: when the files mailo wrote to open an attachment in its app are
+/// removed again, as long as nothing has changed them since.
+///
+/// Only those files: each is written to mailo's own folder for opened attachments and recorded
+/// as it is written, and a recorded file whose size or modification time has moved since is the
+/// person's work and is left. Nothing saved to Downloads or to a folder the person chose is ever
+/// removed. `Never` is the default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum RemoveUnedited {
+    #[default]
+    Never,
+    WhenMailoQuits,
+    AfterMessageIsDeleted,
+}
+
 impl From<NewMail> for mail_core::notify::Setting {
     fn from(new_mail: NewMail) -> Self {
         match new_mail {

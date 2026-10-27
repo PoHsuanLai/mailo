@@ -20,8 +20,8 @@ mod words;
 
 pub use words::{
     BrandLogos, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, MessageFormat, NewMail,
-    ProviderMarks, ReadReceipts, ReplySameFormat, ServerSearch, SignatureAboveQuote, Snippets,
-    Spelling, UndoSend, WhileQuit,
+    ProviderMarks, ReadReceipts, RemoveUnedited, ReplySameFormat, ServerSearch,
+    SignatureAboveQuote, Snippets, Spelling, UndoSend, WhileQuit,
 };
 
 use ds::prelude::Word;
@@ -243,6 +243,36 @@ pub struct SyncSettings {
 /// login item.
 pub const WHILE_QUIT: &str = "sync.while_quit";
 
+/// `attachments.*`: where attachments are saved, and what becomes of the ones opened.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ds_settings::SettingsSchema)]
+#[serde(default)]
+#[settings(file = "mailo/settings.toml", domain = "attachments", page = page())]
+pub struct AttachmentSettings {
+    /// The folder Save writes into; empty is the system's Downloads folder
+    /// (`mail_core::attach::downloads_dir`). A relative path is not a folder anyone can find, so
+    /// it counts as empty too ([`AttachmentSettings::downloads_in`]).
+    #[settings(
+        label = "Save attachments to",
+        help = "The folder Save puts an attachment in. Empty is your Downloads folder.",
+        section = "Reading"
+    )]
+    pub downloads_folder: String,
+    #[settings(
+        label = "Remove unedited downloads",
+        help = "Remove the copies made to open attachments, unless you changed them.",
+        section = "Reading"
+    )]
+    pub remove_unedited: RemoveUnedited,
+}
+
+impl AttachmentSettings {
+    /// The folder Save writes into, when one was chosen: an absolute path, else `None`.
+    pub fn downloads_in(&self) -> Option<std::path::PathBuf> {
+        let folder = std::path::Path::new(self.downloads_folder.trim());
+        folder.is_absolute().then(|| folder.to_path_buf())
+    }
+}
+
 /// `mailo/settings.toml`, whole.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -253,6 +283,7 @@ pub struct MailSettings {
     pub reading: ReadingSettings,
     pub search: SearchSettings,
     pub sync: SyncSettings,
+    pub attachments: AttachmentSettings,
 }
 
 impl SettingsDoc for MailSettings {
@@ -269,6 +300,7 @@ pub fn schema() -> Schema {
         ReadingSettings::schema(),
         SearchSettings::schema(),
         SyncSettings::schema(),
+        AttachmentSettings::schema(),
     ]
     .into_iter()
     .flat_map(|schema| schema.key)

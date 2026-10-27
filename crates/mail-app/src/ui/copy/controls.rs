@@ -72,6 +72,12 @@ pub fn after_days(days: u16) -> String {
 /// Keeps what a form or a field holds.
 pub const SAVE: &str = "Save";
 pub const DOWNLOAD: &str = "Download";
+/// The reader's attachments: every one of them into a folder the person chooses.
+pub const SAVE_ALL: &str = "Save All…";
+/// Settings' row for the folder Save writes into: pick another.
+pub const CHOOSE_FOLDER: &str = "Choose…";
+/// Settings' row for the folder Save writes into: back to the system's Downloads folder.
+pub const USE_DOWNLOADS: &str = "Use Downloads";
 /// Takes one entry out of a list in Settings.
 pub const REMOVE: &str = "Remove";
 /// An account's page in Settings: the row that opens a new alias's fields.

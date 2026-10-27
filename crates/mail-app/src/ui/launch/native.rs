@@ -52,6 +52,11 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     } = opening;
     // What earlier runs' Open left in the temporary folder, cleared off the thread that draws.
     std::thread::spawn(crate::ui::reading::sweep_left_open);
+    // Where the settings are, for what the quit removes.
+    let quit_root = dirs
+        .as_ref()
+        .and_then(crate::ui::prefs::root_of)
+        .or_else(crate::settings::person_root);
     // The desktop launcher's copy of the recent conversations and the address book, kept while
     // the window runs, on threads of its own (`intents::index`).
     #[cfg(not(any(target_os = "macos", windows)))]
@@ -211,7 +216,15 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         Some(notices) => config.with_context(notices),
         None => config,
     };
-    ds_blitz::launch(ShellRoot, config)
+    let ran = ds_blitz::launch(ShellRoot, config);
+    // The last window closed: the copies Open wrote go now, unedited, when the setting says so,
+    // as it says by then.
+    if let Some(root) = quit_root {
+        crate::ui::downloads::unedited::remove_on_quit(
+            crate::settings::load(&root).attachments.remove_unedited,
+        );
+    }
+    ran
 }
 
 /// The root contexts the window reads, for `AppConfig` or `HarnessConfig::with_contexts`: the

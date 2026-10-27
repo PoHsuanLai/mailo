@@ -55,6 +55,14 @@ pub fn saved_to(path: &std::path::Path) -> String {
     format!("Saved to {}", path.display())
 }
 
+/// Save All, done: how many attachments were written, and the folder's name.
+pub fn saved_all(count: usize, folder: &str) -> String {
+    match count {
+        1 => format!("Saved 1 attachment to {folder}"),
+        n => format!("Saved {n} attachments to {folder}"),
+    }
+}
+
 // An account moved to Microsoft Graph, or not.
 pub fn graph_signed_in(name: &str) -> String {
     format!("{name} now uses Microsoft Graph.")

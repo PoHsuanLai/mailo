@@ -5,8 +5,8 @@
 //! and queue them", never "open a connection". A send that depended on the network being up at
 //! the moment the user pressed the key would lose the message on a train.
 
-use crate::rich_text::plain_to_flowed;
 use crate::error::{CoreError, Logged, TimeError};
+use crate::rich_text::plain_to_flowed;
 use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;

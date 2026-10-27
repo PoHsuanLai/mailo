@@ -1,8 +1,9 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    BrandLogos, LoadRemoteImages, MailSettings, NewMail, ProviderMarks, ReadReceipts,
-    ReadingSettings, ServerSearch, Spelling, change, load, schema, store,
+    AttachmentSettings, BrandLogos, LoadRemoteImages, MailSettings, NewMail, ProviderMarks,
+    ReadReceipts, ReadingSettings, RemoveUnedited, ServerSearch, Spelling, change, load, schema,
+    store,
 };
 use ds_settings::ConfigRoot;
 use ds_settings::schema::{KeyKind, Page, Schema};
@@ -77,6 +78,15 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         ),
         ("search.server_automatically", pair("on", "off")),
         ("sync.while_quit", pair("on", "off")),
+        ("attachments.downloads_folder", KeyKind::Text),
+        (
+            "attachments.remove_unedited",
+            KeyKind::Segmented {
+                variants: ["never", "when_mailo_quits", "after_message_is_deleted"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            },
+        ),
     ]
     .into_iter()
     .map(|(path, kind)| (path.to_owned(), kind))
@@ -391,6 +401,69 @@ fn a_reply_takes_its_original_s_format_only_while_reply_same_format_is_on() {
             settings.format_for(original),
             want,
             "{settings:?} answering {original:?}"
+        );
+    }
+}
+
+/// The downloads folder and when unedited opened copies go are written and read back; a file from
+/// before either had a key is the system's Downloads folder and Never.
+#[test]
+fn the_attachment_settings_are_written_and_read_back() {
+    let (dir, root) = scratch();
+    write(
+        &mailo_dir(&dir),
+        "settings.toml",
+        "[reading]\nbrand_logos = \"on\"\n",
+    );
+    let before = load(&root);
+    assert_eq!(before.attachments, AttachmentSettings::default());
+    assert_eq!(before.attachments.downloads_in(), None);
+    assert_eq!(before.attachments.remove_unedited, RemoveUnedited::Never);
+
+    let folder = dir.path().join("Saved attachments");
+    let cases = [
+        RemoveUnedited::WhenMailoQuits,
+        RemoveUnedited::AfterMessageIsDeleted,
+        RemoveUnedited::Never,
+    ];
+    for remove in cases {
+        let written = change(&root, |settings| {
+            settings.attachments.downloads_folder = folder.display().to_string();
+            settings.attachments.remove_unedited = remove;
+        })
+        .unwrap();
+        let back = load(&root);
+        assert_eq!(back, written, "{remove:?}");
+        assert_eq!(back.attachments.remove_unedited, remove);
+        assert_eq!(back.attachments.downloads_in(), Some(folder.clone()));
+        assert_eq!(back.reading.brand_logos, BrandLogos::On, "{remove:?}");
+    }
+    let text = std::fs::read_to_string(dir.path().join("mailo").join("settings.toml")).unwrap();
+    assert!(text.contains("[attachments]"), "{text}");
+}
+
+/// Only an absolute folder is one Save writes into: a relative one would land wherever the
+/// process was started.
+#[cfg(unix)]
+#[test]
+fn a_relative_or_blank_downloads_folder_is_the_system_s() {
+    // (as written, the folder Save uses)
+    let cases = [
+        ("", None),
+        ("   ", None),
+        ("Downloads/mail", None),
+        ("/srv/mail saves", Some("/srv/mail saves")),
+        (" /srv/mail ", Some("/srv/mail")),
+    ];
+    for (written, want) in cases {
+        let settings = AttachmentSettings {
+            downloads_folder: written.to_owned(),
+            ..AttachmentSettings::default()
+        };
+        assert_eq!(
+            settings.downloads_in(),
+            want.map(std::path::PathBuf::from),
+            "{written:?}"
         );
     }
 }

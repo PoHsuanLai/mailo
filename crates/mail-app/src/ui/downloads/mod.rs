@@ -13,6 +13,7 @@
 mod log;
 mod open;
 mod panel;
+pub(in crate::ui) mod unedited;
 
 pub(in crate::ui) use self::log::Origin;
 pub use self::open::NotOpened;
