@@ -61,12 +61,7 @@ fn identities(account: &AccountId) -> Result<Vec<Identity>, String> {
 
 /// Keep `typed` as the name of `account`'s own address, when it differs from what is kept. The
 /// revision moves only once it is kept; a client that refuses is said in `failed`.
-fn keep_name(
-    account: &AccountId,
-    typed: &str,
-    mut revision: Signal<u64>,
-    mut failed: Signal<Option<(&'static str, String)>>,
-) {
+fn keep_name(account: &AccountId, typed: &str, mut failed: Signal<Option<(&'static str, String)>>) {
     let Some(client) = crate::ui::live::try_client() else {
         return;
     };
@@ -86,7 +81,6 @@ fn keep_name(
     match client.identities().set_name(account.clone(), typed) {
         Ok(_) => {
             failed.set(None);
-            revision += 1;
         }
         Err(why) => failed.set(Some((
             copy::titles::NOT_SAVED,
@@ -97,7 +91,7 @@ fn keep_name(
 
 /// Save the alias being edited: added or changed, then the fields close; refused, they stay
 /// with the reason under them.
-fn save(account: &AccountId, mut editing: Signal<Option<Editing>>, mut revision: Signal<u64>) {
+fn save(account: &AccountId, mut editing: Signal<Option<Editing>>) {
     let Some(client) = crate::ui::live::try_client() else {
         return;
     };
@@ -114,7 +108,6 @@ fn save(account: &AccountId, mut editing: Signal<Option<Editing>>, mut revision:
     match kept {
         Ok(()) => {
             editing.set(None);
-            revision += 1;
         }
         Err(why) => {
             if let Some(open) = editing.write().as_mut() {
@@ -125,14 +118,13 @@ fn save(account: &AccountId, mut editing: Signal<Option<Editing>>, mut revision:
 }
 
 /// Take the alias off its account, and close its fields.
-fn remove(id: IdentityId, mut editing: Signal<Option<Editing>>, mut revision: Signal<u64>) {
+fn remove(id: IdentityId, mut editing: Signal<Option<Editing>>) {
     let Some(client) = crate::ui::live::try_client() else {
         return;
     };
     match client.identities().remove_alias(id) {
         Ok(()) => {
             editing.set(None);
-            revision += 1;
         }
         Err(why) => {
             if let Some(open) = editing.write().as_mut() {
@@ -150,7 +142,6 @@ fn field(
     placeholder: &'static str,
     value: String,
     editing: Signal<Option<Editing>>,
-    revision: Signal<u64>,
     write: fn(&mut Typed, String),
 ) -> Element {
     let mut editing = editing;
@@ -166,7 +157,7 @@ fn field(
                         open.refused = None;
                     }
                 },
-                onsubmit: move |_| save(&account, editing, revision),
+                onsubmit: move |_| save(&account, editing),
             }
         }
     }
@@ -174,9 +165,9 @@ fn field(
 
 /// The group: Full name, then the aliases and Add Alias…, then the open alias's fields.
 #[component]
-pub(super) fn SendsAs(account: AccountId, revision: Signal<u64>) -> Element {
+pub(super) fn SendsAs(account: AccountId) -> Element {
     // Read again when an identity is added, changed or removed.
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     let mut editing = use_signal(|| None::<Editing>);
     let mut failed = use_signal(|| None::<(&'static str, String)>);
     // An unreadable list is said, once, and drawn as an account with no name and no aliases; the
@@ -262,8 +253,8 @@ pub(super) fn SendsAs(account: AccountId, revision: Signal<u64>) -> Element {
                     value: name(),
                     placeholder: copy::fields::FULL_NAME_EXAMPLE,
                     oninput: move |typed: String| name.set(typed),
-                    onblur: move |()| keep_name(&for_name, &name.peek(), revision, failed),
-                    onsubmit: move |_| keep_name(&for_submit, &name.peek(), revision, failed),
+                    onblur: move |()| keep_name(&for_name, &name.peek(), failed),
+                    onsubmit: move |_| keep_name(&for_submit, &name.peek(), failed),
                 }
             }
             List::<String> { label: copy::aria::ALIASES, items, style: ListStyle::Grouped }
@@ -276,9 +267,9 @@ pub(super) fn SendsAs(account: AccountId, revision: Signal<u64>) -> Element {
         }
         if let Some(open) = open {
             FormSection { title: Some(copy::headers::ALIAS.to_owned()),
-                {field(account.clone(), copy::fields::NAME, copy::fields::FULL_NAME_EXAMPLE, open.typed.name.clone(), editing, revision, |typed, text| typed.name = text)}
-                {field(account.clone(), copy::fields::EMAIL, copy::fields::ALIAS_EXAMPLE, open.typed.email.clone(), editing, revision, |typed, text| typed.email = text)}
-                {field(account.clone(), copy::fields::REPLY_TO, copy::fields::REPLY_TO_EXAMPLE, open.typed.reply_to.clone(), editing, revision, |typed, text| typed.reply_to = text)}
+                {field(account.clone(), copy::fields::NAME, copy::fields::FULL_NAME_EXAMPLE, open.typed.name.clone(), editing, |typed, text| typed.name = text)}
+                {field(account.clone(), copy::fields::EMAIL, copy::fields::ALIAS_EXAMPLE, open.typed.email.clone(), editing, |typed, text| typed.email = text)}
+                {field(account.clone(), copy::fields::REPLY_TO, copy::fields::REPLY_TO_EXAMPLE, open.typed.reply_to.clone(), editing, |typed, text| typed.reply_to = text)}
                 if let Some(why) = open.refused.clone() {
                     FieldRow { label: copy::fields::STATUS,
                         Label { text: why }
@@ -291,7 +282,7 @@ pub(super) fn SendsAs(account: AccountId, revision: Signal<u64>) -> Element {
                     common: Common { aria_label: Some(copy::controls::SAVE.to_owned()), ..Common::default() },
                     onclick: on_primary({
                         let account = account.clone();
-                        move || save(&account, editing, revision)
+                        move || save(&account, editing)
                     }),
                 }
                 if let Some(id) = open.id {
@@ -299,7 +290,7 @@ pub(super) fn SendsAs(account: AccountId, revision: Signal<u64>) -> Element {
                         label: copy::controls::REMOVE_ALIAS,
                         role: ButtonRole::Destructive,
                         common: Common { aria_label: Some(copy::controls::REMOVE_ALIAS.to_owned()), ..Common::default() },
-                        onclick: on_primary(move || remove(id, editing, revision)),
+                        onclick: on_primary(move || remove(id, editing)),
                     }
                 }
                 Button {

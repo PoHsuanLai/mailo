@@ -330,18 +330,12 @@ async fn a_first_pass_that_fails_is_still_the_first_when_it_is_tried_again() {
     assert_eq!(script.runs.load(Ordering::SeqCst), 2);
 }
 
-/// Just the fetching, with the revision the window would bump in the context.
+/// Just the fetching.
 #[component]
 fn Probe() -> Element {
-    let revision = use_signal(|| 0u64);
-    use_context_provider(|| revision);
-    // As `App` does: a client that reads here acts on what was committed when the revision moves.
-    let client = crate::ui::live::use_client();
-    use_effect(move || {
-        let _ = revision();
-        client.settle();
-    });
-    super::use_fetching(revision);
+    // As `App` does: a client that reads here acts on what was committed from the first frame.
+    use_hook(crate::ui::live::moved_peek);
+    super::use_fetching();
     rsx! {}
 }
 
@@ -359,12 +353,6 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
     dom.rebuild_in_place();
     settle_quiet(&mut dom).await;
     assert!(matches!(link(&dom), Link::Current { .. }));
-    let changed = |dom: &VirtualDom| {
-        dom.in_scope(ScopeId::APP, || {
-            let mut revision = consume_context::<Signal<u64>>();
-            revision += 1;
-        })
-    };
 
     // A new account is fetched at once, from nothing: it is the first pass.
     let manual = presets::Manual {
@@ -385,7 +373,6 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
     store
         .put_caps(acct_later(), &preset.expected_caps, Utc::now())
         .unwrap();
-    changed(&dom);
     settle_quiet(&mut dom).await;
     let added = dom.in_scope(ScopeId::APP, || fetching(&dom).link(acct_later()));
     assert!(
@@ -406,7 +393,6 @@ async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
 
     // Gone: its link goes, and the pass it was running is cancelled and forgotten.
     mail_store::testing::delete_account_row(&store, acct_later());
-    changed(&dom);
     settle_quiet(&mut dom).await;
     assert_eq!(
         dom.in_scope(ScopeId::APP, || fetching(&dom).link(acct_later())),

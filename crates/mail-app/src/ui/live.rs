@@ -48,6 +48,50 @@ pub(in crate::ui) fn client() -> Client {
     }
 }
 
+/// How many times the store has moved, here or in another process, as the client tells it
+/// ([`Client::moved`]): for what still reads the store itself rather than a [`Live`], to read
+/// again. Read inside a memo or a component, it subscribes them, so they run again when the
+/// store moves; nobody bumps it by hand.
+pub(in crate::ui) fn moved() -> u64 {
+    moved_signal()()
+}
+
+/// [`moved`], without subscribing what reads it.
+pub(in crate::ui) fn moved_peek() -> u64 {
+    *moved_signal().peek()
+}
+
+/// The window's one signal following [`Client::moved`], made at the root the first time it is
+/// asked for and set from a task that lives as long as the window.
+#[derive(Clone, Copy)]
+struct Moved(Signal<u64>);
+
+fn moved_signal() -> Signal<u64> {
+    if let Some(Moved(moved)) = try_consume_context::<Moved>() {
+        return moved;
+    }
+    let client = client();
+    let mut heard = client.moved();
+    let mut moved = Signal::new_in_scope(*heard.borrow_and_update(), ScopeId::ROOT);
+    provide_root_context(Moved(moved));
+    // A client that reads on the thread that draws (a test's) acts on a commit when it is told
+    // to, here, which is what moves it.
+    if let Some(mut committed) = client.committed() {
+        dioxus::dioxus_core::spawn_forever(async move {
+            while committed.changed().await.is_ok() {
+                client.settle();
+            }
+        });
+    }
+    dioxus::dioxus_core::spawn_forever(async move {
+        while heard.changed().await.is_ok() {
+            let now = *heard.borrow_and_update();
+            moved.set(now);
+        }
+    });
+    moved
+}
+
 /// [`client`], for a window that may have been handed no store: `None` there.
 pub(in crate::ui) fn try_client() -> Option<Client> {
     let handed = try_consume_context::<Client>().is_some()

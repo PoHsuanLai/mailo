@@ -189,7 +189,6 @@ fn body_dom(page: Page) -> (VirtualDom, Signal<Page>) {
 #[component]
 fn PageHarness(draft: Draft) -> Element {
     let mut shell = use_signal(Shell::default);
-    let revision = use_signal(|| 0u64);
     let today = use_signal(crate::ui::today::Today::default);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     let dirs = try_consume_context::<WindowDirs>();
@@ -208,11 +207,11 @@ fn PageHarness(draft: Draft) -> Element {
             stylesheet: ds::assembly::ds::Inject::Host,
             div { class: "app",
                 if let Some((id, _)) = open {
-                    ComposerPage { key: "{id}", draft: id, shell, revision }
+                    ComposerPage { key: "{id}", draft: id, shell }
                 }
                 SendPill { shell }
                 // The Scheduled place's rows, the messages waiting for their time.
-                ScheduledRows { shell, revision }
+                ScheduledRows { shell }
             }
         }
     }
@@ -220,10 +219,10 @@ fn PageHarness(draft: Draft) -> Element {
 
 /// The rows the Scheduled place lists, as the list draws them.
 #[component]
-fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+fn ScheduledRows(shell: Signal<Shell>) -> Element {
     let desk = use_context::<Desk>();
     let _ = desk.outbox.read();
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     let client = crate::ui::live::client();
     let held = super::scheduled(&client, &crate::ui::space::Scope::All);
     rsx! {
@@ -239,7 +238,6 @@ fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
                 ),
                 listed,
                 shell,
-                revision,
                 chips: Vec::new(),
                 via: None,
                 selection: Selection::Unselected,

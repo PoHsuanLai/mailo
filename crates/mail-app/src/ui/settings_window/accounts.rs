@@ -45,7 +45,7 @@ fn row_id(account: &AccountId) -> String {
 
 /// The pane: the list at its root, an account's page over it.
 #[component]
-pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(super) fn Accounts(shell: Signal<Shell>) -> Element {
     let path = shell.read().accounts_pane.path.clone();
     let title = use_callback(|page: AccountsPage| match page {
         AccountsPage::List => copy::titles::ACCOUNTS.to_owned(),
@@ -55,13 +55,13 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
         AccountsPage::OtherKeys => copy::titles::OTHER_KEYS.to_owned(),
     });
     let page = use_callback(move |page: AccountsPage| match page {
-        AccountsPage::List => rsx! { AccountList { shell, revision } },
+        AccountsPage::List => rsx! { AccountList { shell } },
         AccountsPage::Account(account) => {
-            rsx! { AccountPage { key: "{account}", shell, revision, account } }
+            rsx! { AccountPage { key: "{account}", shell, account } }
         }
         AccountsPage::OtherKeys => rsx! {
             Form {
-                crate::ui::pgp::keys::KeysPage { whose: crate::ui::pgp::keys::Whose::Others, revision }
+                crate::ui::pgp::keys::KeysPage { whose: crate::ui::pgp::keys::Whose::Others }
             }
         },
     });
@@ -84,9 +84,9 @@ pub(super) fn Accounts(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
 
 /// The root: every account, Add Account…, and Other Keys.
 #[component]
-fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+fn AccountList(shell: Signal<Shell>) -> Element {
     // Read again when an account comes or goes.
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     // The add menu while it is open (the providers that sign in straight in the browser), hung
     // from the Add Account… row.
     let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);

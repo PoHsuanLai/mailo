@@ -85,7 +85,6 @@ fn asked(chosen: Remove) -> String {
 struct Held {
     kept: Signal<Kept>,
     failed: Signal<Option<String>>,
-    revision: Signal<u64>,
 }
 
 /// Write the setting in `dirs` as `edit` leaves it and keep what that made, or say why it could
@@ -94,7 +93,6 @@ fn save(dirs: Option<&WindowDirs>, held: Held, edit: impl Fn(Kept) -> Kept) {
     let Held {
         mut kept,
         mut failed,
-        mut revision,
     } = held;
     let saved = match dirs {
         Some(dirs) => offline::change(&dirs.config, &edit).map_err(String::from),
@@ -105,7 +103,6 @@ fn save(dirs: Option<&WindowDirs>, held: Held, edit: impl Fn(Kept) -> Kept) {
             let now = edit(kept.peek().clone());
             kept.set(now);
             failed.set(None);
-            revision += 1;
         }
         Err(why) => failed.set(Some(why)),
     }
@@ -113,7 +110,7 @@ fn save(dirs: Option<&WindowDirs>, held: Held, edit: impl Fn(Kept) -> Kept) {
 
 /// The account's rows. Mail kept only here has none: it has no server (the caller's to know).
 #[component]
-pub(super) fn Syncing(row: AccountRow, revision: Signal<u64>) -> Element {
+pub(super) fn Syncing(row: AccountRow) -> Element {
     let dirs = try_consume_context::<WindowDirs>();
     let id = row.id.clone();
     let kept = use_signal({
@@ -127,11 +124,7 @@ pub(super) fn Syncing(row: AccountRow, revision: Signal<u64>) -> Element {
     });
     let failed = use_signal(|| None::<String>);
     let mut asking = use_signal(|| None::<Remove>);
-    let held = Held {
-        kept,
-        failed,
-        revision,
-    };
+    let held = Held { kept, failed };
     let (every, window, remove) = {
         let kept = kept.read();
         (kept.every_of(&id), kept.window_of(&id), kept.remove_of(&id))

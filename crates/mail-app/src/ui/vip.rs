@@ -13,31 +13,24 @@ use ds::prelude::*;
 use ds::style::icon::render::Glyph;
 use mail_core::vip::Mark;
 
-/// Where a mark made in the reader lands: the window's shell, and its revision when it has one.
+/// Where a mark made in the reader lands: the window's shell.
 /// The reader provides it, so the sender's name below it can mark without being handed both.
 #[derive(Clone, Copy)]
 pub(in crate::ui) struct Marking {
     pub shell: Signal<Shell>,
-    pub revision: Option<Signal<u64>>,
 }
 
 /// Mark `address` a VIP (`name` the name the mail gave) or take the mark off, and say only a
-/// failure. The shell's copy is read again at once, and the revision moved so the VIPs place and
+/// failure. The shell's copy is read again at once, and the store moving makes the VIPs place and
 /// every other window follow.
 pub(in crate::ui) fn set(marking: Marking, address: &str, name: Option<&str>, mark: Mark) {
-    let Marking {
-        mut shell,
-        revision,
-    } = marking;
+    let Marking { mut shell } = marking;
     let client = crate::ui::live::client();
     if let Err(why) = client.query().set_vip(address, name, mark) {
         tell(crate::ui::remedy::told(why), Follow::Nothing);
         return;
     }
     shell.write().vips = client.query().vips();
-    if let Some(mut revision) = revision {
-        revision += 1;
-    }
 }
 
 /// The menu row that marks `address`, or takes the mark off: its words, by what `vips` holds.

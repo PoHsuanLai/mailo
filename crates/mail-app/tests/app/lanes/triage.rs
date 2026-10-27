@@ -239,11 +239,39 @@ fn rows_picked_together_are_acted_on_as_one_gesture_and_one_undo() {
     window.until_stored("the bar stars both", |_| true);
     assert_eq!(starred(&window), [subjects[0], subjects[2]]);
     window.press(&[PRIMARY], Key::Char('z'), 1);
+    // The undo goes through the client, which commits it a moment after the key.
+    window.until_stored("one Ctrl-Z, both", |store| {
+        listed(
+            store,
+            mail_domain::Filter::Account(account()),
+            chrono::Utc::now(),
+        )
+        .iter()
+        .all(|t| t.star != Star::Starred)
+    });
     assert!(starred(&window).is_empty(), "one Ctrl-Z, both");
     let muted = |window: &Window| stored_where(window, |t| t.mute == Mute::Muted);
     window.click(&labelled(&copy::aria::on_selected(copy::menus::MUTE, 2)));
+    window.until_stored("the bar mutes both", |store| {
+        listed(
+            store,
+            mail_domain::Filter::Account(account()),
+            chrono::Utc::now(),
+        )
+        .iter()
+        .any(|t| t.mute == Mute::Muted)
+    });
     assert_eq!(muted(&window), [subjects[0], subjects[2]]);
     window.press(&[PRIMARY], Key::Char('z'), 1);
+    window.until_stored("one Ctrl-Z, both", |store| {
+        listed(
+            store,
+            mail_domain::Filter::Account(account()),
+            chrono::Utc::now(),
+        )
+        .iter()
+        .all(|t| t.mute != Mute::Muted)
+    });
     assert!(muted(&window).is_empty(), "one Ctrl-Z, both");
 
     // The bar's last button clears the pick, leaving the open row.

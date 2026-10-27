@@ -104,7 +104,7 @@ pub(in crate::ui) fn current() -> MailSettings {
 }
 
 /// Read `settings.toml` again into the window's settings, when another window said it wrote it
-/// (`revisions::Configured`). Unchanged settings are left alone, so nothing that reads them runs
+/// (`configured::Configured`). Unchanged settings are left alone, so nothing that reads them runs
 /// again.
 pub(in crate::ui) fn reread() {
     let (Some(mut values), Some(PrefsRoot(Some(root)))) = (
@@ -131,7 +131,7 @@ pub(in crate::ui) fn change(edit: impl FnOnce(&mut MailSettings)) -> Result<(), 
             // The other windows read it again now, rather than when their watch next settles
             // (and where a watch cannot run at all): the configuration counter, not the store's,
             // so no window's mail queries run again for a setting.
-            crate::ui::revisions::told_configuration();
+            crate::ui::configured::told_configuration();
             next
         }
         None => {

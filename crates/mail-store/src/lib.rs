@@ -41,7 +41,7 @@ pub mod testing;
 
 pub use account::{AccountPrefs, NewAccount, StoredAccount, Syncing, with_picks};
 pub use blob::Blobs;
-pub use changes::{Committed, Generation, Topics};
+pub use changes::{Committed, Generation, Topics, Wake};
 pub use contact::{
     AddressBook, BookCard, CardId, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin,
     PersonCard, Tally, Vip, no_reply,

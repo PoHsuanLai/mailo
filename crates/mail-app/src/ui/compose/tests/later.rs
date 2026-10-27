@@ -272,6 +272,8 @@ async fn cancel_sending_from_scheduled_is_undone_to_its_time() {
         &mut window.dom,
         seen.one("aria-label", crate::ui::copy::controls::SEND),
     );
+    // The send is queued through the client, a moment after the click.
+    let sent = sent.merge(crate::ui::fixtures::settle_quiet_seen(&mut window.dom).await);
     let far = at + chrono::TimeDelta::days(1);
     let queued = outbox(&store, far);
     let early = outbox(&store, at - chrono::TimeDelta::seconds(1));

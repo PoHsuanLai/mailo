@@ -1,9 +1,9 @@
 //! The root of the Settings window: the sidebar and its pages, and the sheets they open.
 //!
 //! quire gives this VirtualDom the same root contexts as the first window. What the window keeps
-//! for itself is made here again: its `Shell` (which page is shown, which sheet is open), its
-//! `revision`, its toast host. What it changes it tells the other windows by moving the shared
-//! revision: a setting, a key binding, an account added or removed. It opens where the main
+//! for itself is made here again: its `Shell` (which page is shown, which sheet is open) and its
+//! toast host. An account added or removed the other windows hear from the client; a setting or a
+//! key binding it tells them (`ui::configured`). It opens where the main
 //! window asked for last ([`super::SettingsAsked`]), a page or an account's page, and turns to
 //! each place asked for while it is open.
 
@@ -85,8 +85,6 @@ fn SettingsShell() -> Element {
             }
         }
     });
-    let revision = use_signal(|| 0u64);
-    crate::ui::revisions::use_shared_revision(revision);
     // The Spaces, so the frame wears the Space on screen and the Spaces page edits them: a
     // handle of the window's own, which writes each edit (`frame::keep`) for the other windows to
     // read again. It never switches Space but by adding one.
@@ -143,8 +141,8 @@ fn SettingsShell() -> Element {
                 tabindex: "0",
                 onmounted: crate::ui::host::Host::app_mounted,
                 onkeydown: on_key,
-                SettingsView { shell, revision }
-                crate::ui::motion::Toast { shell, revision }
+                SettingsView { shell }
+                crate::ui::motion::Toast { shell }
             }
         }
     }

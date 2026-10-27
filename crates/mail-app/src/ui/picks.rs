@@ -46,7 +46,6 @@ pub(super) fn with_selection(shell: Signal<Shell>, thread: ThreadId) -> Vec<Thre
 pub(super) fn act_on_picked(
     client: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     action: Shortcut,
     listed: &[ThreadSummary],
 ) -> usize {
@@ -57,9 +56,8 @@ pub(super) fn act_on_picked(
         .filter(|summary| targets.contains(&summary.id))
         .cloned()
         .collect();
-    op_for_selection(action, &summaries).map_or(0, |kind| {
-        act_kind_all(client, shell, revision, &targets, kind)
-    })
+    op_for_selection(action, &summaries)
+        .map_or(0, |kind| act_kind_all(client, shell, &targets, kind))
 }
 
 /// Put `label` on each of `threads`, or take it off: off when every one already wears it, on
@@ -67,7 +65,6 @@ pub(super) fn act_on_picked(
 pub(super) fn label_all(
     client: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     threads: &[ThreadId],
     label: LabelId,
 ) -> usize {
@@ -91,7 +88,7 @@ pub(super) fn label_all(
         })
         .map(|(thread, _)| (thread, Op::Label(label, wanted)))
         .collect();
-    act_all(client, shell, revision, ops)
+    act_all(client, shell, ops)
 }
 
 /// Mute each of `threads`, or unmute them: unmute when every one is already muted, mute
@@ -99,7 +96,6 @@ pub(super) fn label_all(
 pub(in crate::ui) fn mute_all(
     client: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     threads: &[ThreadId],
 ) -> usize {
     let summaries: Vec<ThreadSummary> = threads
@@ -118,7 +114,7 @@ pub(in crate::ui) fn mute_all(
         .filter(|summary| summary.mute != wanted)
         .map(|summary| (summary.id, Op::SetMute(wanted)))
         .collect();
-    act_all(client, shell, revision, ops)
+    act_all(client, shell, ops)
 }
 
 /// [`mute_all`] over what `action`s mean among `listed`: the picked ones, or with none picked
@@ -126,12 +122,11 @@ pub(in crate::ui) fn mute_all(
 pub(super) fn mute_picked(
     client: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     listed: &[ThreadSummary],
 ) -> usize {
     let ids: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
     let targets = shell.peek().acted_on(&ids);
-    mute_all(client, shell, revision, &targets)
+    mute_all(client, shell, &targets)
 }
 
 /// The count and the actions over the list while anything listed is picked.
@@ -139,11 +134,7 @@ pub(super) fn mute_picked(
 /// Label and Move to… are the picked rows' own menus, which act on the whole selection; this
 /// bar holds the ones a button can carry.
 #[component]
-pub(super) fn PickBar(
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    threads: Memo<Vec<ThreadSummary>>,
-) -> Element {
+pub(super) fn PickBar(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) -> Element {
     let listed = threads();
     let ids: Vec<ThreadId> = listed.iter().map(|summary| summary.id).collect();
     let chosen = shell.read().picked.chosen(&ids);
@@ -195,7 +186,7 @@ pub(super) fn PickBar(
                     aria: Some(aria::on_selected(tool.label, count)),
                     onclick: on_primary(move || {
                         let client = crate::ui::live::client();
-                        act_on_picked(&client, shell, revision, action, &threads.peek());
+                        act_on_picked(&client, shell, action, &threads.peek());
                     }),
                 }
             }
@@ -207,7 +198,7 @@ pub(super) fn PickBar(
                         let client = crate::ui::live::client();
                         let ids: Vec<ThreadId> = threads.peek().iter().map(|summary| summary.id).collect();
                         let targets = shell.peek().acted_on(&ids);
-                        act_kind_all(&client, shell, revision, &targets, OpKind::Restore);
+                        act_kind_all(&client, shell, &targets, OpKind::Restore);
                     }),
                 }
             }
@@ -216,7 +207,7 @@ pub(super) fn PickBar(
                 aria: Some(aria::on_selected(mute.label, count)),
                 onclick: on_primary(move || {
                     let client = crate::ui::live::client();
-                    mute_picked(&client, shell, revision, &threads.peek());
+                    mute_picked(&client, shell, &threads.peek());
                 }),
             }
             if destroyable {

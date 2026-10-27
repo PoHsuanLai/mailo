@@ -8,9 +8,8 @@
 //!
 //! The sign-in itself is `mail_core::account::sign_in_with`. What is here is its one-at-a-time
 //! state ([`Phase`], shared by every window on the event loop's thread) and what the main window
-//! says when it ends ([`DirectSignInWatch`]): a toast, the shared revision moved so every window
-//! draws the account, and an account added joining the Space it was added from (`Join`), as
-//! the add-account window does.
+//! says when it ends ([`DirectSignInWatch`]): a toast, and an account added joining the Space it
+//! was added from (`Join`), as the add-account window does.
 //!
 //! Nothing is drawn while it waits. mailo cannot see the browser: a page that never comes back (a
 //! tab closed, an organisation's "Need admin approval") would leave a spinner up until [`WAIT`]
@@ -483,8 +482,8 @@ async fn left(heard: &mut watch::Receiver<Phase>, run: u64) {
     }
 }
 
-/// Say how sign-in ended, and draw what it added: the shared revision moves so every window reads
-/// the client again, and an account added joins the Space `join` names, if any.
+/// Say how sign-in ended, and draw what it added: an account added joins the Space `join` names,
+/// if any. Every window reads it as the client says the store moved.
 fn settle(
     mut spaces: Signal<Spaces>,
     issuer: Issuer,
@@ -492,15 +491,11 @@ fn settle(
     join: Join,
     outcome: &Result<String, SignInError>,
 ) {
-    if let Ok(address) = outcome {
-        if *mode == Mode::Add
-            && let Some(account) = super::window::account_at(address)
-        {
-            super::window::into_scope(&mut spaces, account, join);
-        }
-        if let Some(revisions) = try_consume_context::<crate::ui::revisions::Revisions>() {
-            revisions.bump();
-        }
+    if let Ok(address) = outcome
+        && *mode == Mode::Add
+        && let Some(account) = super::window::account_at(address)
+    {
+        super::window::into_scope(&mut spaces, account, join);
     }
     if let Some((text, follow)) = told(issuer, mode, join, outcome) {
         crate::ui::motion::tell(text, follow);

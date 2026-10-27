@@ -107,6 +107,8 @@ pub(crate) struct Shared {
     inline: bool,
     /// For an inline client, the commits not acted on yet ([`Client::settle`]).
     heard: Mutex<Option<Receiver<Committed>>>,
+    /// For an inline client, one more each time a commit is waiting to be acted on.
+    committed: Arc<tokio::sync::watch::Sender<u64>>,
     /// One more each time values were marked stale, by a commit here or another process's.
     moved: tokio::sync::watch::Sender<u64>,
     /// How the external watch is woken: by a write to the store's file, or to stop.
@@ -183,8 +185,12 @@ impl Client {
     /// whose first look at a value should find it read, and for a caller with no thread to spare.
     /// What the store commits is acted on at [`Client::settle`].
     pub fn inline(store: Arc<SqliteStore>, clock: Arc<dyn Clock>) -> Client {
-        let heard = store.subscribe();
-        let shared = Arc::new(Shared::new(store, clock, true));
+        let shared = Shared::new(store.clone(), clock, true);
+        let committed = shared.committed.clone();
+        let heard = store.subscribe_waking(Arc::new(move || {
+            committed.send_modify(|count| *count += 1);
+        }));
+        let shared = Arc::new(shared);
         *shared.heard.lock() = Some(heard);
         Client(Arc::new(Inner {
             shared,
@@ -324,6 +330,14 @@ impl Client {
         self.0.shared.settle();
     }
 
+    /// For an inline client, told each time the store commits, so its caller can
+    /// [`settle`](Self::settle) it on the thread it reads on. `None` for a client with threads of
+    /// its own, which hears its commits by itself.
+    pub fn committed(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
+        let shared = &self.0.shared;
+        shared.inline.then(|| shared.committed.subscribe())
+    }
+
     /// Fetch mail: every account's link, polled, pushed to and fetched on request by the one
     /// scheduler, reaching the servers through `seams`. Started once; a later call changes
     /// nothing and is handed `None`.
@@ -457,6 +471,7 @@ impl Shared {
             stopping: AtomicBool::new(false),
             inline,
             heard: Mutex::new(None),
+            committed: Arc::new(tokio::sync::watch::Sender::new(0)),
             moved: tokio::sync::watch::Sender::new(0),
             external: Mutex::new(None),
             acts: Mutex::new(None),

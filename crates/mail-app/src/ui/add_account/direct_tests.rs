@@ -285,7 +285,6 @@ async fn google_from_the_space_menu_signs_in_in_the_browser_with_no_window() {
     let windows = Windows::default();
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
-        .with_root_context(crate::ui::revisions::Revisions::new())
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
     let _ = rebuild_into(&mut dom);
@@ -353,7 +352,6 @@ async fn added_joining(join: Join) -> String {
     ])));
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store.clone())
-        .with_root_context(crate::ui::revisions::Revisions::new())
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(Windows::default())));
     let _ = rebuild_into(&mut dom);
@@ -433,7 +431,6 @@ async fn with_clients_at_hand_add_account_names_google_and_microsoft() {
     let windows = Windows::default();
     let mut dom = VirtualDom::new(crate::ui::app::App)
         .with_root_context(store)
-        .with_root_context(crate::ui::revisions::Revisions::new())
         .with_root_context(DirectSignIns(fake.clone()))
         .with_root_context(AddAccountWindows(Arc::new(windows.clone())));
     let _ = rebuild_into(&mut dom);
@@ -474,9 +471,7 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
     for (name, recorded) in CASES {
         let (store, _dir) = empty();
         let windows = Windows::default();
-        let mut dom = VirtualDom::new(crate::ui::app::App)
-            .with_root_context(store)
-            .with_root_context(crate::ui::revisions::Revisions::new());
+        let mut dom = VirtualDom::new(crate::ui::app::App).with_root_context(store);
         if *recorded {
             dom = dom.with_root_context(AddAccountWindows(Arc::new(windows.clone())));
         }

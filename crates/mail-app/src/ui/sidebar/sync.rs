@@ -54,9 +54,9 @@ pub(super) fn dot(line: &StatusLine) -> Option<&'static str> {
 
 /// The foot's sync mark, for the accounts `shell` shows.
 #[component]
-pub(super) fn SyncMark(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(super) fn SyncMark(shell: Signal<Shell>) -> Element {
     let rows = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         crate::ui::live::try_client()
             .map(|client| account_rows(&client))
             .unwrap_or_default()

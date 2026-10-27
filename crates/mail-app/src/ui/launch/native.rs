@@ -90,9 +90,6 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         crate::ui::add_account::DirectSignIns::real(client.clone(), crate::edge::clients());
     let keys = crate::ui::pgp::Seams::real();
     let removals = crate::ui::settings_window::AccountSeams::real();
-    // One revision for every window, so a conversation open in a window of its own follows what
-    // the main window does to it, and the other way round (`ui/revisions`).
-    let revisions = crate::ui::revisions::Revisions::new();
     // The keys the person chose, as the windows open: quire lays them over the system's keymap
     // for every window, so they are the keymap's own chords. A change made in Settings reaches
     // the running windows through `Keys::set_overrides` (`frame::use_followed_configuration`).
@@ -137,9 +134,8 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .with_context(removals)
         .with_context(icons)
         .with_context(found)
-        .with_context(revisions)
-        // And one for the configuration files a window writes (key bindings, Spaces).
-        .with_context(crate::ui::revisions::Configured::default())
+        // The count of the configuration files a window writes (key bindings, Spaces).
+        .with_context(crate::ui::configured::Configured::default())
         // And the page the Settings window shows next, which ⌘K and the composer turn it to.
         .with_context(crate::ui::settings_window::SettingsAsked::default())
         // And who needs to sign in again, which only the first window knows and Settings shows.

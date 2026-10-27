@@ -1,10 +1,9 @@
 //! The root of a conversation's own window: the reader, and what it needs to act.
 //!
 //! quire gives this VirtualDom the same root contexts as the first window: the client, the look,
-//! the Spaces, the directories, the frames' network, and [`crate::ui::revisions::Revisions`].
-//! Everything a window keeps for itself is made here again: its `Shell` (so its consent, its
-//! find and its undo are its own), its `revision`, its hover and motion state, its toast host and
-//! a composer desk for a reply.
+//! the Spaces, the directories and the frames' network. Everything a window keeps for itself is
+//! made here again: its `Shell` (so its consent, its find and its undo are its own), its hover
+//! and motion state, its toast host and a composer desk for a reply.
 
 use super::note::left;
 use crate::ui::actions::{self, Heard};
@@ -63,10 +62,9 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     let _ = crate::ui::prefs::use_prefs(
         try_consume_context::<crate::ui::appearance::WindowDirs>().as_ref(),
     );
-    // The window's keymap, with mailo's actions in it, and its revision: this window is its own
-    // root.
+    // The window's keymap, with mailo's actions in it: this window is its own root.
     let core = use_window_core();
-    let (keys, mut revision) = (core.keys, core.revision);
+    let keys = core.keys;
     let shell = use_signal(|| {
         let client = crate::ui::live::client();
         let mut shell = Shell {
@@ -103,7 +101,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             .unwrap_or(MailboxSet::empty())
     });
     // Drawn again whenever either window moves the client.
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     let client = crate::ui::live::client();
     let summary = client
         .stored()
@@ -139,7 +137,6 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             heard == Some(Heard::Standard(StandardAction::Undo)),
             typing,
             shell,
-            revision,
         ) {
             return;
         }
@@ -180,14 +177,13 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             Shortcut::Back => {
                 if shell.read().composing.is_some() {
                     compose::park_current(desk, shell);
-                    revision += 1;
                 }
             }
             Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
-                on_thread(&client, shell, revision, thread, action);
+                on_thread(&client, shell, thread, action);
             }
             Shortcut::ToggleMute => {
-                crate::ui::picks::mute_all(&client, shell, revision, &[thread]);
+                crate::ui::picks::mute_all(&client, shell, &[thread]);
             }
             _ => {
                 // The same gesture the first window's keys make, over the one conversation
@@ -197,7 +193,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                     .thread(thread)
                     .map(|loaded| vec![loaded.summary])
                     .unwrap_or_default();
-                crate::ui::picks::act_on_picked(&client, shell, revision, action, &listed);
+                crate::ui::picks::act_on_picked(&client, shell, action, &listed);
             }
         }
     };
@@ -220,12 +216,12 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                         if let Some(note) = note {
                             InlineBanner { severity: Severity::Info, text: note }
                         }
-                        {reading_column(Some(thread), shell, revision, ReaderIn::Window)}
+                        {reading_column(Some(thread), shell, ReaderIn::Window)}
                         crate::ui::hover::LinkPill {}
                     }
                     SendPill { shell }
                 }
-                crate::ui::motion::Toast { shell, revision }
+                crate::ui::motion::Toast { shell }
             }
         }
     }

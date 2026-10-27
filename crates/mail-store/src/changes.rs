@@ -73,13 +73,30 @@ pub struct Committed {
     pub generation: Generation,
 }
 
+/// One who hears the commits: where they go, and what wakes it once one has gone there.
+struct Subscriber {
+    to: Sender<Committed>,
+    wake: Option<Wake>,
+}
+
+/// What a subscriber is woken by, once a commit is waiting for it.
+pub type Wake = Arc<dyn Fn() + Send + Sync>;
+
+impl std::fmt::Debug for Subscriber {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Subscriber")
+            .field("wakes", &self.wake.is_some())
+            .finish()
+    }
+}
+
 /// The subscribers, and what the writer has done since it was last let go of.
 ///
 /// The writer is one connection behind one lock, so only the thread holding it changes these;
 /// they are atomics because the commit hook, which marks a commit, has to own its half.
 #[derive(Debug, Default)]
 pub(crate) struct Changes {
-    subscribers: Mutex<Vec<Sender<Committed>>>,
+    subscribers: Mutex<Vec<Subscriber>>,
     generation: AtomicU64,
     /// How deep the thread holding the writer holds it: a write method takes it and then calls
     /// helpers that take it again, and only the outermost letting go says anything.
@@ -139,15 +156,19 @@ impl Changes {
         let generation = Generation(self.generation.fetch_add(1, Ordering::Release) + 1);
         let committed = Committed { topics, generation };
         // A subscriber that has gone is dropped from the list; the others are told.
-        self.subscribers
-            .lock()
-            .retain(|subscriber| subscriber.send(committed).is_ok());
+        self.subscribers.lock().retain(|subscriber| {
+            let heard = subscriber.to.send(committed).is_ok();
+            if heard && let Some(wake) = &subscriber.wake {
+                wake();
+            }
+            heard
+        });
     }
 
-    /// Hear every commit from now on.
-    pub(crate) fn subscribe(&self) -> Receiver<Committed> {
-        let (tx, rx) = channel();
-        self.subscribers.lock().push(tx);
+    /// Hear every commit from now on, `wake` called each time one is waiting.
+    pub(crate) fn subscribe(&self, wake: Option<Wake>) -> Receiver<Committed> {
+        let (to, rx) = channel();
+        self.subscribers.lock().push(Subscriber { to, wake });
         rx
     }
 

@@ -139,7 +139,7 @@ pub(in crate::ui) fn over(index: Option<usize>, leaving: usize) {
 
 /// The pointer was released anywhere in the window: drop onto the target, or
 /// forget an armed press.
-pub(in crate::ui) fn release(shell: Signal<Shell>, revision: Signal<u64>) {
+pub(in crate::ui) fn release(shell: Signal<Shell>) {
     let Some(mut state) = motion() else {
         return;
     };
@@ -152,10 +152,10 @@ pub(in crate::ui) fn release(shell: Signal<Shell>, revision: Signal<u64>) {
     else {
         return;
     };
-    drop_on(shell, revision, thread, index);
+    drop_on(shell, thread, index);
 }
 
-fn drop_on(shell: Signal<Shell>, revision: Signal<u64>, thread: ThreadId, index: usize) {
+fn drop_on(shell: Signal<Shell>, thread: ThreadId, index: usize) {
     let Some(place) = shell.peek().places.get(index).cloned() else {
         return;
     };
@@ -168,7 +168,7 @@ fn drop_on(shell: Signal<Shell>, revision: Signal<u64>, thread: ThreadId, index:
         .into_iter()
         .map(|thread| (thread, op.clone()))
         .collect();
-    act_all(&client, shell, revision, ops);
+    act_all(&client, shell, ops);
 }
 
 /// Esc: drop nothing. Returns whether a drag was live or armed.

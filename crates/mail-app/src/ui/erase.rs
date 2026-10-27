@@ -17,7 +17,7 @@ const EVERY: Duration = Duration::from_secs(60);
 
 /// Keep Trash and Spam erased as the settings say. A window with no settings (a test's) erases
 /// nothing.
-pub(super) fn use_eraser(revision: Signal<u64>, shell: Signal<Shell>) {
+pub(super) fn use_eraser(shell: Signal<Shell>) {
     let settings = use_hook(try_consume_context::<Signal<MailSettings>>);
     let mut tick = use_signal(|| 0_u64);
     use_future(move || async move {
@@ -27,13 +27,12 @@ pub(super) fn use_eraser(revision: Signal<u64>, shell: Signal<Shell>) {
         }
     });
     let _sweep = use_resource(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let _ = tick();
         let policy = settings
             .map(|settings| settings.read().mailboxes.erasing())
             .unwrap_or_default();
         let client = crate::ui::live::client();
-        let mut revision = revision;
         let mut shell = shell;
         async move {
             if policy.idle() {
@@ -47,7 +46,6 @@ pub(super) fn use_eraser(revision: Signal<u64>, shell: Signal<Shell>) {
                 Ok(gone) if !gone.is_empty() => {
                     // An Undo of the Delete that put them there has nothing left to bring back.
                     shell.write().undo.forget_messages(&gone);
-                    revision += 1;
                 }
                 Ok(_) => {}
                 Err(why) => log::warn!("erasing Trash and Spam: {why}"),

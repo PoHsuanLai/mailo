@@ -65,14 +65,13 @@ pub(super) fn Places(
     shell: Signal<Shell>,
     pages: Signal<u32>,
     badges: Memo<Vec<Option<u64>>>,
-    revision: Signal<u64>,
     handle: Handle,
     side_hidden: Signal<bool>,
 ) -> Element {
     let spaces = handle.spaces();
     let space = spaces.read().current().clone();
     let counted = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let client = crate::ui::live::client();
         counts(&client, spaces.read().current())
     });
@@ -119,7 +118,7 @@ pub(super) fn Places(
     // drawn only then. Read again as a send is scheduled or taken back.
     let desk = try_use_context::<crate::ui::compose::Desk>();
     let scheduled = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         if let Some(desk) = desk {
             let _ = desk.outbox.read();
         }
@@ -211,7 +210,7 @@ pub(super) fn Places(
                 Favourites { shell, pages, space: space.clone(), counted: counts_now }
                 PlaceList { shell, pages, badges, folded, drawn: drawn(), scheduled: scheduled() }
                 if let Some(section) = folders() {
-                    FolderList { shell, pages, badges, revision, section, show }
+                    FolderList { shell, pages, badges, section, show }
                 }
             }
             // Sync on the left, the Space dots once there are several, and one chevron on the
@@ -227,7 +226,7 @@ pub(super) fn Places(
                     new_space: NewSpace::Hidden,
                     leading: rsx! {
                         div { class: "foot-lead",
-                            sync::SyncMark { shell, revision }
+                            sync::SyncMark { shell }
                         }
                     },
                     trailing: rsx! {

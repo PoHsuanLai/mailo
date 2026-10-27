@@ -22,7 +22,7 @@ use mail_core::RelayRefused;
 
 /// The account's field. Only a Graph account has one (the caller's to know).
 #[component]
-pub(super) fn PushRelay(row: AccountRow, revision: Signal<u64>) -> Element {
+pub(super) fn PushRelay(row: AccountRow) -> Element {
     let client = crate::ui::live::try_client();
     let id = row.id.clone();
     let kept = {
@@ -48,7 +48,6 @@ pub(super) fn PushRelay(row: AccountRow, revision: Signal<u64>) -> Element {
             Ok(stored) => {
                 failed.set(None);
                 typed.set(stored.unwrap_or_default());
-                revision += 1;
             }
             Err(error) => failed.set(Some(refused(&error))),
         }

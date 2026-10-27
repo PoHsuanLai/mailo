@@ -52,16 +52,16 @@ pub(in crate::ui) fn wait(next: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Du
     }
 }
 
-/// Sweep the reminders now and again whenever the next one comes due, and on every revision, so
-/// a reply that just arrived or a reminder just set is seen at once. A sweep that changed
-/// anything moves the revision, which redraws the list.
+/// Sweep the reminders now and again whenever the next one comes due, and whenever the store
+/// moves, so a reply that just arrived or a reminder just set is seen at once. A sweep that
+/// changed anything moves the store, which redraws the list.
 ///
 /// The first sweep is the launch's: a reminder that came due while mailo was closed comes back
 /// then. The sleep is quire's, so it runs on the window's clock (a harness's virtual one in a
 /// test).
-pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
+pub(in crate::ui) fn use_reminders() {
     let _sweeping = use_resource(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         async move {
             loop {
                 let now = super::clock::now();
@@ -72,9 +72,8 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
                 );
                 let notifier = notices.as_deref();
                 match client.follow_up().sweep_and_announce(notifier, now) {
-                    // Moving the revision starts this again, with the next due time.
+                    // The store moving starts this again, with the next due time.
                     Ok(swept) if swept.changed() => {
-                        revision += 1;
                         return;
                     }
                     Ok(_) => {}
@@ -90,15 +89,15 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
 /// itself: the program's client keeps the system's time on a thread of its own, but a window
 /// whose clock is its own (a test's, on quire's virtual time) sleeps on that clock, and a client
 /// that reads on the thread that draws has no thread to keep it. The sleep is quire's, as
-/// [`use_reminders`]'s is; what the client marks stale moves the revision, which starts this
+/// [`use_reminders`]'s is; what the client marks stale moves the store, which starts this
 /// again with the next one.
-pub(in crate::ui) fn use_snooze_wake(revision: Signal<u64>) {
+pub(in crate::ui) fn use_snooze_wake() {
     let client = super::live::use_client();
     let bridging =
         !client.keeps_time() || try_consume_context::<super::clock::WallClock>().is_some();
     let _waking = use_resource(move || {
         let client = client.clone();
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         async move {
             if !bridging {
                 return;

@@ -109,13 +109,12 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
 pub(in crate::ui) fn on_thread(
     client: &Client,
     shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     thread: ThreadId,
     action: Shortcut,
 ) {
     let what = match action {
         Shortcut::TogglePin => {
-            act_kind(client, shell, revision, thread, OpKind::Pin);
+            act_kind(client, shell, thread, OpKind::Pin);
             return;
         }
         Shortcut::Reply => Composes::Reply(ReplyScope::Sender),
@@ -124,9 +123,8 @@ pub(in crate::ui) fn on_thread(
         _ => return,
     };
     let writes = Writes::answering(&shell.peek(), thread, what);
-    if open_composer(client, shell, writes).is_ok() {
-        revision += 1;
-    }
+    // A refusal is the composer's to say (`open_composer` logs it).
+    let _ = open_composer(client, shell, writes);
 }
 
 #[cfg(test)]

@@ -56,7 +56,7 @@ fn heading(identity: &Identity) -> String {
 
 /// The pane: every identity's signatures at its root, a signature's page over them.
 #[component]
-pub(super) fn Signatures(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(super) fn Signatures(shell: Signal<Shell>) -> Element {
     let client = crate::ui::live::client();
     let mut path = use_signal(|| PanePath::new(SignaturesAt::List));
     let any = !client.compose().sending_accounts().is_empty();
@@ -79,9 +79,9 @@ pub(super) fn Signatures(shell: Signal<Shell>, revision: Signal<u64>) -> Element
             .map_or_else(|_| copy::titles::SIGNATURES.to_owned(), |kept| kept.name),
     });
     let page = use_callback(move |at: SignaturesAt| match at {
-        SignaturesAt::List => rsx! { SignatureList { revision, path } },
+        SignaturesAt::List => rsx! { SignatureList { path } },
         SignaturesAt::Signature(id) => rsx! {
-            SignaturePage { key: "{id}", shell, revision, path, id }
+            SignaturePage { key: "{id}", shell, path, id }
         },
     });
     let opener = use_callback(|at: SignaturesAt| match at {
@@ -117,9 +117,9 @@ fn defaults_of(signature: &Signature) -> String {
 
 /// The root: a group for each identity, its signatures and New Signature.
 #[component]
-fn SignatureList(revision: Signal<u64>, path: Signal<PanePath<SignaturesAt>>) -> Element {
+fn SignatureList(path: Signal<PanePath<SignaturesAt>>) -> Element {
     // Read again with each change: a signature made, renamed, made a default or deleted.
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     let client = crate::ui::live::client();
     // Unreadable is nothing to list; the next change read again.
     let every = client.signing().every().unwrap_or_default();
@@ -129,7 +129,7 @@ fn SignatureList(revision: Signal<u64>, path: Signal<PanePath<SignaturesAt>>) ->
                 FormSection { key: "{identity.id}", title: Some(heading(&identity)),
                     List::<String> {
                         label: heading(&identity),
-                        items: rows(&identity, &signatures, revision, path),
+                        items: rows(&identity, &signatures, path),
                         style: ListStyle::Grouped,
                     }
                 }
@@ -143,7 +143,6 @@ fn SignatureList(revision: Signal<u64>, path: Signal<PanePath<SignaturesAt>>) ->
 fn rows(
     identity: &Identity,
     signatures: &[Signature],
-    revision: Signal<u64>,
     path: Signal<PanePath<SignaturesAt>>,
 ) -> Vec<ListItem<String>> {
     let push = move |id: SignatureId| {
@@ -186,8 +185,6 @@ fn rows(
                 onclick: move |_| {
                     let client = crate::ui::live::client();
                     if let Ok(made) = client.signing().create(whose, "") {
-                        let mut revision = revision;
-                        revision += 1;
                         push(made.id);
                     }
                 },
@@ -219,12 +216,11 @@ fn editing(kept: &Signature, identity: &Identity) -> Page {
 #[component]
 fn SignaturePage(
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     path: Signal<PanePath<SignaturesAt>>,
     id: SignatureId,
 ) -> Element {
     // Read again with each change, so the switches say what was kept.
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     let client = crate::ui::live::client();
     let found = client.stored().signature(id).ok().and_then(|kept| {
         let identity = client.stored().identity(kept.identity).ok().flatten()?;
@@ -234,14 +230,13 @@ fn SignaturePage(
         // Deleted from elsewhere while the page was shown, or its identity with it.
         return rsx! {};
     };
-    rsx! { SignatureEditor { shell, revision, path, kept, identity } }
+    rsx! { SignatureEditor { shell, path, kept, identity } }
 }
 
 /// [`SignaturePage`] once its signature and identity are read.
 #[component]
 fn SignatureEditor(
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     path: Signal<PanePath<SignaturesAt>>,
     kept: Signature,
     identity: Identity,
@@ -290,10 +285,6 @@ fn SignatureEditor(
                                 .or_log("the signature's default was not kept");
                             let mut unkept = unkept;
                             unkept.set(made.is_none());
-                            if made.is_some() {
-                                let mut revision = revision;
-                                revision += 1;
-                            }
                         }),
                     },
                 }
@@ -356,8 +347,6 @@ fn SignatureEditor(
                         };
                         let said = copy::toasts::signature_deleted(&had.name);
                         tell(said, Follow::Restore(Restore::Signature(had)));
-                        let mut revision = revision;
-                        revision += 1;
                         let mut path = path;
                         path.set(PanePath::new(SignaturesAt::List));
                     }),

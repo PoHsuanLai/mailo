@@ -137,8 +137,7 @@ fn offer_from(raw_headers: &str) -> Option<Offer> {
 #[component]
 fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
-    let revision = use_signal(|| 0u64);
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell, revision: Some(revision) } } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell, tools: true } } }
 }
 
 /// Open the reader's ⋯ and return the names it lists.
@@ -191,9 +190,8 @@ async fn the_more_menu_offers_unsubscribe_only_when_the_thread_has_a_way_out() {
 #[component]
 fn Moving(first: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
-    let revision = use_signal(|| 0u64);
     let thread = use_context_provider(|| Signal::new(first));
-    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread: thread(), shell, revision: Some(revision) } } }
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread: thread(), shell, tools: true } } }
 }
 
 #[tokio::test]
@@ -331,12 +329,10 @@ fn archive_all_is_one_undo_for_the_whole_list() {
     fn Archiver() -> Element {
         let Handed(store, entries) = consume_context::<Handed>();
         let shell = use_signal(Shell::default);
-        let revision = use_signal(|| 0u64);
         use_hook(|| {
             super::archive_list(
                 &crate::ui::fixtures::client(&store),
                 shell,
-                revision,
                 "weekly@rust.test",
                 "Rust Weekly",
             );

@@ -8,7 +8,7 @@ use super::compose::{self, Desk};
 use super::space::{Handle, Spaces};
 use super::today::Today;
 use super::view::Shell;
-use super::{actions, appearance::WindowDirs, frame, hover, motion, revisions};
+use super::{actions, appearance::WindowDirs, frame, hover, motion};
 use dioxus::prelude::*;
 use ds::prelude::Keys;
 
@@ -17,20 +17,16 @@ use ds::prelude::Keys;
 pub(super) struct WindowCore {
     /// The window's keymap, with mailo's actions in it.
     pub keys: Keys,
-    /// Bumped after any write, and moved by every other window's, so queries run again.
-    pub revision: Signal<u64>,
 }
 
-/// The window's keymap, its revision (shared with the other windows), and the hover previews and
-/// motion every window provides once. Call it before `use_spaces`.
+/// The window's keymap, and the hover previews and motion every window provides once. Call it
+/// before `use_spaces`.
 pub(super) fn use_window_core() -> WindowCore {
     let keys = actions::use_registered();
-    let revision = use_signal(|| 0u64);
-    revisions::use_shared_revision(revision);
     hover::use_hover();
     motion::use_motion();
     super::reading::selection::use_selections();
-    WindowCore { keys, revision }
+    WindowCore { keys }
 }
 
 /// A reply's desk, the spelling dictionaries a test brings, and the follow on the configuration

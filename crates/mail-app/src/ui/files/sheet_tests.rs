@@ -40,14 +40,13 @@ fn Sheet(open: FileSheet) -> Element {
         files: Some(open.clone()),
         ..Shell::default()
     });
-    let revision = use_signal(|| 0u64);
     // Inside a quire root, as the window has it: the sheet's menu floats in its overlay.
     rsx! {
         Ds {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            FilesSheet { shell, revision }
+            FilesSheet { shell }
         }
     }
 }

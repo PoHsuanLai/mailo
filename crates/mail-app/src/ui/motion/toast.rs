@@ -15,7 +15,7 @@ use ds::stack::toast_hub::UndoToken;
 use mail_core::undo::UndoHandle;
 
 #[component]
-pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(in crate::ui) fn Toast(shell: Signal<Shell>) -> Element {
     let Some(state) = motion() else {
         return rsx! {};
     };
@@ -23,7 +23,7 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     use_hook(move || {
         let client = crate::ui::live::client();
         let on_undo = EventHandler::new(move |token: UndoToken| {
-            undo_by(&client, shell, revision, Some(state), UndoHandle(token.0));
+            undo_by(&client, shell, Some(state), UndoHandle(token.0));
         });
         let on_archive = EventHandler::new(move |()| {
             let mut said = state.toast;
@@ -31,7 +31,7 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             said.set(None);
             if let Some(Follow::ArchiveFrom { sender, list }) = offered.map(|said| said.follow) {
                 let client = crate::ui::live::client();
-                crate::ui::unsubscribe::archive_list(&client, shell, revision, &sender, &list);
+                crate::ui::unsubscribe::archive_list(&client, shell, &sender, &list);
             }
         });
         let on_sign_in = EventHandler::new(move |()| {
@@ -48,12 +48,8 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             said.set(None);
             if let Some(Follow::Restore(restore)) = offered.map(|said| said.follow) {
                 let client = crate::ui::live::client();
-                match restore.put_back(&client) {
-                    Ok(()) => {
-                        let mut revision = revision;
-                        revision += 1;
-                    }
-                    Err(why) => super::tell(why, Follow::Nothing),
+                if let Err(why) = restore.put_back(&client) {
+                    super::tell(why, Follow::Nothing);
                 }
             }
         });
@@ -63,7 +59,6 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             said.set(None);
             if let Some(Follow::Unblock { rule, undo }) = offered.map(|said| said.follow) {
                 let client = crate::ui::live::client();
-                let mut revision = revision;
                 if let Some(rule) = rule
                     && let Err(why) = client.rules_manage().delete(&rule)
                 {
@@ -71,9 +66,8 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     return;
                 }
                 if let Some(handle) = undo {
-                    undo_by(&client, shell, revision, Some(state), handle);
+                    undo_by(&client, shell, Some(state), handle);
                 }
-                revision += 1;
             }
         });
         let mut toasts = state.toasts;

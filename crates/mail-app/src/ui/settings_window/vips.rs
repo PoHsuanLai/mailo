@@ -44,27 +44,20 @@ pub(super) fn suggested<'a>(
 
 /// Mark or unmark `address`, saying a failure in `failed`, and move `revision` so every window
 /// reads the VIPs again.
-fn set(
-    address: &str,
-    name: Option<&str>,
-    mark: Mark,
-    mut failed: Signal<Option<String>>,
-    mut revision: Signal<u64>,
-) {
+fn set(address: &str, name: Option<&str>, mark: Mark, mut failed: Signal<Option<String>>) {
     let client = crate::ui::live::client();
     match client.query().set_vip(address, name, mark) {
         Ok(()) => {
             failed.set(None);
-            revision += 1;
         }
         Err(why) => failed.set(Some(crate::ui::remedy::told(why))),
     }
 }
 
 #[component]
-pub(super) fn VipsPage(revision: Signal<u64>) -> Element {
+pub(super) fn VipsPage() -> Element {
     // Read again whenever a VIP is marked or unmarked, here or in another window.
-    let _ = revision();
+    let _ = crate::ui::live::moved();
     let client = crate::ui::live::client();
     let listed: Vec<Vip> = match client.query().listed_vips() {
         Ok(listed) => listed,
@@ -94,7 +87,7 @@ pub(super) fn VipsPage(revision: Signal<u64>) -> Element {
         if address.is_empty() {
             return;
         }
-        set(&address, None, Mark::Vip, failed, revision);
+        set(&address, None, Mark::Vip, failed);
         if failed.peek().is_none() {
             typed.set(String::new());
         }
@@ -119,7 +112,7 @@ pub(super) fn VipsPage(revision: Signal<u64>) -> Element {
                             },
                             onclick: {
                                 let address = vip.address.clone();
-                                on_primary(move || set(&address, None, Mark::NotVip, failed, revision))
+                                on_primary(move || set(&address, None, Mark::NotVip, failed))
                             },
                         }
                     }
@@ -160,7 +153,7 @@ pub(super) fn VipsPage(revision: Signal<u64>) -> Element {
                                 },
                                 onclick: {
                                     let (name, email) = (name.clone(), email.clone());
-                                    on_primary(move || set(&email, Some(&name), Mark::Vip, failed, revision))
+                                    on_primary(move || set(&email, Some(&name), Mark::Vip, failed))
                                 },
                             }
                         }

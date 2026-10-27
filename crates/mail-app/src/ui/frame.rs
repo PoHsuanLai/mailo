@@ -59,11 +59,11 @@ pub(super) fn keep(spaces: &Spaces) {
         && space::save(Some(&dirs), spaces).is_ok()
     {
         // The other windows wear the Space too, and read the file again.
-        crate::ui::revisions::told_configuration();
+        crate::ui::configured::told_configuration();
     }
 }
 
-/// Follow the configuration files the other windows write (`revisions::Configured`): when one
+/// Follow the configuration files the other windows write (`configured::Configured`): when one
 /// writes `settings.toml`, `keyboard.json` or `spaces.json`, read them again into the window's
 /// settings, `shell` and `spaces`. The main window's Spaces go through `handle`, which leaves
 /// them alone while a part of a Space's menu is open, whose close writes them; another window's
@@ -85,7 +85,7 @@ pub(super) fn use_followed_configuration(
         }
     });
     let configured = use_signal(|| 0u64);
-    crate::ui::revisions::use_shared_configuration(configured);
+    crate::ui::configured::use_shared_configuration(configured);
     use_effect(move || {
         let _ = configured();
         crate::ui::prefs::reread();

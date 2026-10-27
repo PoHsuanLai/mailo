@@ -17,7 +17,6 @@ pub(in crate::ui) fn FurtherMenus(
     summary: ThreadSummary,
     opened: Opened,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     /// The opener's box, which the menu hangs from until `placed` is known.
     anchor: Option<MountedRef>,
     /// Where the menu that asked for it stood, which wins over `anchor`.
@@ -34,19 +33,18 @@ pub(in crate::ui) fn FurtherMenus(
     };
     match menu.further {
         Further::Snooze => rsx! {
-            SnoozeMenu { id, shell, revision, anchor, placed }
+            SnoozeMenu { id, shell, anchor, placed }
         },
         Further::Label => rsx! {
-            LabelMenu { id, summary, shell, revision, anchor, placed }
+            LabelMenu { id, summary, shell, anchor, placed }
         },
         Further::Redirect => rsx! {
-            RedirectMenu { id, shell, revision, anchor, placed }
+            RedirectMenu { id, shell, anchor, placed }
         },
         Further::Move => rsx! {
             MoveMenu {
                 thread: id,
                 shell,
-                revision,
                 anchor,
                 placed,
                 on_close: move |_| shell.write().further = None,
@@ -56,7 +54,6 @@ pub(in crate::ui) fn FurtherMenus(
             MoveMenu {
                 thread: id,
                 shell,
-                revision,
                 anchor,
                 placed,
                 gesture: Gesture::Copy,

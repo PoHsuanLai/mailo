@@ -188,7 +188,7 @@ pub(super) fn vips_row(page: SettingsPage) -> String {
 /// One of the pages that draw the schema: its groups at the root, the trusted senders (on Privacy)
 /// or the VIPs (on Notifications) pushed over them.
 #[component]
-pub(super) fn Page(page: SettingsPage, revision: Signal<u64>) -> Element {
+pub(super) fn Page(page: SettingsPage) -> Element {
     let mut path = use_signal(|| PanePath::new(PageAt::Root));
     let title = use_callback(move |at: PageAt| {
         match at {
@@ -213,7 +213,7 @@ pub(super) fn Page(page: SettingsPage, revision: Signal<u64>) -> Element {
             }
         },
         PageAt::TrustedSenders => rsx! { TrustedSenders {} },
-        PageAt::Vips => rsx! { super::vips::VipsPage { revision } },
+        PageAt::Vips => rsx! { super::vips::VipsPage {} },
     });
     let opener = use_callback(move |at: PageAt| match at {
         PageAt::Root => None,

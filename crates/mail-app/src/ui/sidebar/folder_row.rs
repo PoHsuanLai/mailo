@@ -33,7 +33,7 @@ pub(super) fn FolderRow(
     delimiter: Option<char>,
     wires: Wires,
 ) -> Element {
-    let (shell, pages, badges, revision) = (wires.shell, wires.pages, wires.badges, wires.revision);
+    let (shell, pages, badges) = (wires.shell, wires.pages, wires.badges);
     let (mut open, mut note) = (wires.open, wires.note);
     let spot = Spot {
         account: account.clone(),
@@ -84,7 +84,7 @@ pub(super) fn FolderRow(
     let target = mailbox.clone();
     let on_up = move |event: Event<PointerData>| {
         over.set(Under::No);
-        if takes && move_to::drop_on(shell, revision, &target) {
+        if takes && move_to::drop_on(shell, &target) {
             event.stop_propagation();
         }
     };
@@ -319,14 +319,7 @@ fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Op
                 non_empty: NonEmpty::Refuse,
             };
             let client = crate::ui::live::client();
-            match act(
-                &client,
-                wires.shell,
-                wires.revision,
-                account.clone(),
-                work,
-                delimiter,
-            ) {
+            match act(&client, wires.shell, account.clone(), work, delimiter) {
                 Ok(()) => open.set(Open::Closed),
                 Err(Refusal::Folder(FolderError::NotEmpty { messages, .. })) => {
                     open.set(Open::Confirm { spot, messages });
@@ -347,14 +340,7 @@ pub(super) fn run(
     delimiter: Option<char>,
 ) {
     let client = crate::ui::live::client();
-    match act(
-        &client,
-        wires.shell,
-        wires.revision,
-        account.clone(),
-        work,
-        delimiter,
-    ) {
+    match act(&client, wires.shell, account.clone(), work, delimiter) {
         Ok(()) => {
             let (mut open, mut note) = (wires.open, wires.note);
             open.set(Open::Closed);

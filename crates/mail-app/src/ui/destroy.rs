@@ -102,19 +102,19 @@ pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
 }
 
 /// The alert's own button: delete what it named, then close.
-fn confirm(shell: Signal<Shell>, revision: Signal<u64>) {
+fn confirm(shell: Signal<Shell>) {
     let Some(asked) = shell.peek().destroying.clone() else {
         return;
     };
     close(shell);
     let client = crate::ui::live::client();
-    destroy_all(&client, shell, revision, &asked.threads);
+    destroy_all(&client, shell, &asked.threads);
 }
 
 /// The confirmation, quire's critical alert over the window while it is open: its Cancel answers
 /// Escape and only its destructive button deletes.
 #[component]
-pub(in crate::ui) fn DestroyAlert(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(in crate::ui) fn DestroyAlert(shell: Signal<Shell>) -> Element {
     let Some(asked) = shell.read().destroying.clone() else {
         return rsx! {};
     };
@@ -128,7 +128,7 @@ pub(in crate::ui) fn DestroyAlert(shell: Signal<Shell>, revision: Signal<u64>) -
                 AlertButton::new(
                     said.confirm.clone(),
                     AlertRole::Destructive,
-                    EventHandler::new(move |()| confirm(shell, revision)),
+                    EventHandler::new(move |()| confirm(shell)),
                 )
                 .with_common(Common {
                     aria_label: Some(said.confirm),

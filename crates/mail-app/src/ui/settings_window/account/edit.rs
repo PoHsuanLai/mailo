@@ -27,7 +27,6 @@ use mail_domain::{Incoming, MailboxRole};
 /// account reads it again; a client that refuses is said in `failed`.
 fn keep(
     write: impl FnOnce(&mail_client::Stored<'_>) -> Result<(), mail_core::StoreError>,
-    mut revision: Signal<u64>,
     mut failed: Signal<Option<String>>,
 ) {
     let Some(client) = crate::ui::live::try_client() else {
@@ -36,7 +35,6 @@ fn keep(
     match write(&client.stored()) {
         Ok(()) => {
             failed.set(None);
-            revision += 1;
         }
         Err(why) => failed.set(Some(why.to_string())),
     }
@@ -44,7 +42,7 @@ fn keep(
 
 /// The account's description and its Sync switch.
 #[component]
-pub(super) fn About(row: AccountRow, revision: Signal<u64>) -> Element {
+pub(super) fn About(row: AccountRow) -> Element {
     let failed = use_signal(|| None::<String>);
     let mut typed = use_signal({
         let had = row.description.clone();
@@ -67,7 +65,6 @@ pub(super) fn About(row: AccountRow, revision: Signal<u64>) -> Element {
                         let account = described.clone();
                         keep(
                             move |stored| stored.set_account_description(account, Some(&value)),
-                            revision,
                             failed,
                         );
                     },
@@ -82,7 +79,7 @@ pub(super) fn About(row: AccountRow, revision: Signal<u64>) -> Element {
                     onchange: move |now: Check| {
                         let account = id.clone();
                         let to = if now == Check::On { Syncing::On } else { Syncing::Paused };
-                        keep(move |stored| stored.set_account_syncing(account, to), revision, failed);
+                        keep(move |stored| stored.set_account_syncing(account, to), failed);
                     },
                 }
             }
@@ -104,7 +101,7 @@ const ROLES: [(MailboxRole, &str); 5] = [
 
 /// Which folder plays each role, for an account whose server has folders and has listed them.
 #[component]
-pub(super) fn FolderRoles(row: AccountRow, revision: Signal<u64>) -> Element {
+pub(super) fn FolderRoles(row: AccountRow) -> Element {
     let failed = use_signal(|| None::<String>);
     let mut unread_seen = use_signal(|| false);
     let Some(client) = crate::ui::live::try_client() else {
@@ -166,7 +163,7 @@ pub(super) fn FolderRoles(row: AccountRow, revision: Signal<u64>) -> Element {
                                 common: Common { aria_label: Some(copy::aria::folder_for(label)), ..Common::default() },
                                 onpick: move |path: Option<String>| {
                                     let account = account.clone();
-                                    keep(move |stored| stored.set_folder_role(account, role, path.as_deref()), revision, failed);
+                                    keep(move |stored| stored.set_folder_role(account, role, path.as_deref()), failed);
                                 },
                             }
                         }

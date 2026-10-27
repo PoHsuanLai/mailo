@@ -22,7 +22,7 @@ fn turned(now: Threading) -> Threading {
 /// Turn Organise by Conversation the other way for the place shown, and keep it there. Nothing
 /// where the place does not offer it ([`Shell::organises`]). The open conversation stays open,
 /// shown whole: a message opened alone was opened from the rows that are going.
-pub(in crate::ui) fn turn(mut shell: Signal<Shell>, mut revision: Signal<u64>) {
+pub(in crate::ui) fn turn(mut shell: Signal<Shell>) {
     let (place, at, next) = {
         let current = shell.peek();
         if !current.organises() {
@@ -64,7 +64,6 @@ pub(in crate::ui) fn turn(mut shell: Signal<Shell>, mut revision: Signal<u64>) {
             }
         }
     }
-    revision += 1;
 }
 
 #[cfg(test)]

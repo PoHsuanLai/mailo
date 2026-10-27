@@ -122,7 +122,6 @@ fn rows_of(threads: Vec<ThreadSummary>, messages: &[MessageId]) -> Vec<Row> {
 pub(super) fn ThreadList(
     shell: Signal<Shell>,
     pages: Signal<u32>,
-    revision: Signal<u64>,
     threads: Memo<Vec<ThreadSummary>>,
     /// Which message each of `threads` is, while the place lists a message to a row.
     messages: Memo<Vec<MessageId>>,
@@ -140,7 +139,7 @@ pub(super) fn ThreadList(
     question: ReadSignal<u64>,
 ) -> Element {
     let rows = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let client = crate::ui::live::client();
         account_rows(&client)
     });
@@ -149,7 +148,7 @@ pub(super) fn ThreadList(
     // What the servers found for the line shown that the list does not already hold, newest
     // first, as the client has each conversation now.
     let found = use_memo(move || {
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let line = marking.read().line.clone();
         if line.is_empty() {
             return Vec::new();
@@ -289,7 +288,7 @@ pub(super) fn ThreadList(
         items.push(ListItem::row(
             slot,
             label,
-            rsx! { ListRow { listed, model, shell, revision, chips, via, selection } },
+            rsx! { ListRow { listed, model, shell, chips, via, selection } },
         ));
     };
     // A draft is selected while its composer is open.
@@ -493,11 +492,11 @@ pub(super) fn ThreadList(
                             }
                         }
                         match head {
-                            Head::Picking => rsx! { PickBar { shell, revision, threads } },
+                            Head::Picking => rsx! { PickBar { shell, threads } },
                             Head::Searching(Said { text, bad }) => rsx! {
                                 super::command::SearchHead { shell, pages, scope: text, bad }
                             },
-                            Head::Idle => rsx! { PlaceTools { shell, revision, place: place.clone(), pages, syncs: !quiet, side_hidden } },
+                            Head::Idle => rsx! { PlaceTools { shell, place: place.clone(), pages, syncs: !quiet, side_hidden } },
                         }
                     }
                 },
@@ -550,9 +549,9 @@ pub(super) fn ThreadList(
                 }
             }
             if !servers.is_empty() {
-                ServerSearch { input: line.clone(), accounts: servers, asked, revision }
+                ServerSearch { input: line.clone(), accounts: servers, asked }
             }
-            Toast { shell, revision }
+            Toast { shell }
             Ghost {}
         }
     }
@@ -627,7 +626,6 @@ fn reason(why: &str) -> String {
 #[component]
 fn PlaceTools(
     shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     place: String,
     pages: Signal<u32>,
     syncs: bool,
@@ -676,7 +674,6 @@ fn PlaceTools(
                 onclick: on_primary(move || {
                     let client = crate::ui::live::client();
                     if open_composer(&client, shell, Writes::New).is_ok() {
-                        revision += 1;
                     }
                 }),
             }
@@ -687,7 +684,7 @@ fn PlaceTools(
         // brings up the search panel. The ⋯ closes the row: Sort By, Group, Row Properties and
         // Sync Now.
         super::command::SearchBox { shell }
-        ListMore { shell, revision, syncs, side_hidden }
+        ListMore { shell, syncs, side_hidden }
     }
 }
 

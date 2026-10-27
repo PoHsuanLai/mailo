@@ -39,7 +39,6 @@ pub(in crate::ui) fn BarAlone(typed: String) -> Element {
     let side_hidden = use_signal(|| false);
     HELD.with(|slot| slot.set(Some(Held { shell, side_hidden })));
     let pages = use_signal(|| 1u32);
-    let revision = use_signal(|| 0u64);
     let in_a_field = use_signal(|| false);
     let spaces = use_signal(|| crate::ui::space::first_run(&[]));
     rsx! {
@@ -47,7 +46,7 @@ pub(in crate::ui) fn BarAlone(typed: String) -> Element {
             appearance: Appearance::default(),
             material: Material::Window,
             stylesheet: ds::assembly::ds::Inject::Host,
-            Spotlight { shell, pages, revision, in_a_field, side_hidden, spaces }
+            Spotlight { shell, pages, in_a_field, side_hidden, spaces }
         }
     }
 }
@@ -62,7 +61,6 @@ pub(in crate::ui) fn OpenMenus() -> Element {
         labels: known,
         ..Shell::default()
     });
-    let revision = use_signal(|| 0u64);
     let summary = client
         .source()
         .listed(&Filter::All, mail_core::search::first(1), Utc::now())
@@ -78,7 +76,7 @@ pub(in crate::ui) fn OpenMenus() -> Element {
             if let Some(summary) = summary {
                 {
                     let id = summary.id;
-                    rsx! { super::super::menus::LabelMenu { id, summary, shell, revision, anchor: None } }
+                    rsx! { super::super::menus::LabelMenu { id, summary, shell, anchor: None } }
                 }
             }
         }

@@ -152,22 +152,15 @@ pub(super) fn motion() -> Option<Motion> {
 pub(super) fn act_kind(
     client: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     thread: ThreadId,
     kind: OpKind,
 ) -> bool {
-    resolve(client, thread, kind).is_some_and(|op| act(client, shell, revision, thread, op))
+    resolve(client, thread, kind).is_some_and(|op| act(client, shell, thread, op))
 }
 
 /// Apply `op` to `thread` now, keep its undo, and start whatever motion it means.
-pub(super) fn act(
-    client: &Client,
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    thread: ThreadId,
-    op: Op,
-) -> bool {
-    act_all(client, shell, revision, vec![(thread, op)]) > 0
+pub(super) fn act(client: &Client, shell: Signal<Shell>, thread: ThreadId, op: Op) -> bool {
+    act_all(client, shell, vec![(thread, op)]) > 0
 }
 
 /// Apply each op to its conversation now, as one gesture: one undo entry that takes every one
@@ -176,13 +169,8 @@ pub(super) fn act(
 /// `Op::apply` is about one thread, so the ops are applied one by one; what makes them one
 /// gesture is that their undos are kept together (`UndoStack::push_all`). A row that no longer
 /// belongs to the list leaves with it: quire's `List` plays that exit.
-pub(super) fn act_all(
-    client: &Client,
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    ops: Vec<(ThreadId, Op)>,
-) -> usize {
-    act_saying(client, shell, revision, ops, None)
+pub(super) fn act_all(client: &Client, shell: Signal<Shell>, ops: Vec<(ThreadId, Op)>) -> usize {
+    act_saying(client, shell, ops, None)
 }
 
 /// [`act_all`], its toast saying `instead` rather than what the ops did, when there is more to
@@ -191,7 +179,6 @@ pub(super) fn act_all(
 pub(in crate::ui) fn act_saying(
     _store: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     ops: Vec<(ThreadId, Op)>,
     instead: Option<String>,
 ) -> usize {
@@ -236,7 +223,7 @@ pub(in crate::ui) fn act_saying(
             .copied()
             .collect();
         hiding.settle(Some(generation), &refused);
-        performed(motion, shell, revision, done, hours, instead)
+        performed(motion, shell, done, hours, instead)
     })
     .unwrap_or(count)
 }
@@ -246,7 +233,6 @@ pub(in crate::ui) fn act_saying(
 fn performed(
     motion: Option<Motion>,
     shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     done: Vec<(ThreadId, Op, Undo)>,
     hours: mail_core::when::Clock,
     instead: Option<String>,
@@ -259,7 +245,6 @@ fn performed(
     };
     let said = instead.unwrap_or(said);
     let undos = done.into_iter().map(|(.., undo)| undo).collect();
-    revision += 1;
     if record_through(motion, shell, undos, said).is_none() {
         return 0;
     }
@@ -344,7 +329,6 @@ pub(in crate::ui) fn record_through(
 pub(super) fn act_kind_all(
     client: &Client,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     threads: &[ThreadId],
     kind: OpKind,
 ) -> usize {
@@ -358,7 +342,7 @@ pub(super) fn act_kind_all(
                 .map(|op| (*thread, op))
         })
         .collect();
-    act_all(client, shell, revision, ops)
+    act_all(client, shell, ops)
 }
 
 /// Delete forever what each of `threads` holds in `bin`, as one gesture the user has already
@@ -369,7 +353,6 @@ pub(super) fn act_kind_all(
 pub(in crate::ui) fn destroy_all(
     _store: &Client,
     mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     threads: &[ThreadId],
 ) -> usize {
     if threads.is_empty() {
@@ -404,7 +387,6 @@ pub(in crate::ui) fn destroy_all(
                 shell.close();
             }
         }
-        revision += 1;
         if let Some(motion) = motion {
             motion.say(crate::ui::bin::said(gone.len()), Follow::Nothing);
         }
@@ -451,7 +433,6 @@ pub(in crate::ui) fn offer_restore(
 pub(in crate::ui) fn spam_and_offer_unblock(
     client: &Client,
     mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     thread: ThreadId,
     rule: Option<Rule>,
     text: String,
@@ -460,30 +441,28 @@ pub(in crate::ui) fn spam_and_offer_unblock(
     let moved = resolve(client, thread, OpKind::Spam)
         .and_then(|op| client.acting().perform(thread, op, hours))
         .and_then(|undo| shell.write().undo.push_all(vec![undo]));
-    revision += 1;
     tell(text, Follow::Unblock { rule, undo: moved });
 }
 
 /// Take back the newest op: ⌘Z.
-pub(super) fn undo_last(client: &Client, mut shell: Signal<Shell>, revision: Signal<u64>) -> bool {
+pub(super) fn undo_last(client: &Client, mut shell: Signal<Shell>) -> bool {
     let Some(entry) = shell.write().undo.pop() else {
         return false;
     };
-    restore(client, shell, revision, motion(), entry)
+    restore(client, shell, motion(), entry)
 }
 
 /// Take back the op the toast named, by the handle its undo carried: the toast's tab.
 pub(super) fn undo_by(
     client: &Client,
     mut shell: Signal<Shell>,
-    revision: Signal<u64>,
     motion: Option<Motion>,
     handle: UndoHandle,
 ) -> bool {
     let Some(entry) = shell.write().undo.take(handle) else {
         return false;
     };
-    restore(client, shell, revision, motion, entry)
+    restore(client, shell, motion, entry)
 }
 
 /// Put `entry` back, every part of it, and take down the toast that offered it. A part that
@@ -491,7 +470,6 @@ pub(super) fn undo_by(
 fn restore(
     client: &Client,
     mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     motion: Option<Motion>,
     entry: Vec<Undo>,
 ) -> bool {
@@ -506,33 +484,26 @@ fn restore(
             .is_some_and(|resend| crate::ui::compose::send_again(client, resend))
     });
     let asked = !sent.is_empty() || !parts.is_empty();
-    let mut took = move |refused: Vec<Undo>, back: bool| {
+    let mut took = move |refused: Vec<Undo>| {
         let _ = shell
             .write()
             .undo
             .push_all(refused.into_iter().rev().collect());
-        if back {
-            revision += 1;
-        }
     };
     if parts.is_empty() {
-        took(unsent, !sent.is_empty());
+        took(unsent);
     } else {
         let ticket = super::live::client().act(Command::TakeBack(parts.clone()));
-        let any_sent = !sent.is_empty();
         when_done(ticket, move |acted| {
-            let (back, refused) = match acted {
+            let refused = match acted {
                 Some(Acted {
-                    done: Done::TookBack { back, refused },
+                    done: Done::TookBack { refused, .. },
                     ..
-                }) => (back, refused),
+                }) => refused,
                 // Not done: all of it is still there to take back.
-                _ => (Vec::new(), parts),
+                _ => parts,
             };
-            took(
-                unsent.into_iter().chain(refused).collect(),
-                any_sent || !back.is_empty(),
-            );
+            took(unsent.into_iter().chain(refused).collect());
         });
     }
     if !asked {
@@ -553,13 +524,7 @@ fn restore(
 /// Esc. `undo` is whether the keymap resolved the press to the standard Undo action (⌘Z on a
 /// Mac or our desktop, Ctrl+Z elsewhere). Returns whether the key was handled. Never while
 /// typing: undo in a field is the field's own.
-pub(super) fn key(
-    name: &str,
-    undo: bool,
-    typing: bool,
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-) -> bool {
+pub(super) fn key(name: &str, undo: bool, typing: bool, shell: Signal<Shell>) -> bool {
     if name == "Escape" && motion().is_some_and(drag::cancel) {
         return true;
     }
@@ -568,7 +533,7 @@ pub(super) fn key(
     }
     if undo {
         let client = crate::ui::live::client();
-        undo_last(&client, shell, revision);
+        undo_last(&client, shell);
         return true;
     }
     false

@@ -372,7 +372,7 @@ async fn delete_draft_can_be_taken_back() {
     );
     let (page, shell, desk) = (window.page(), window.shell, window.desk);
     window.dom.in_scope(dioxus_core::ScopeId::APP, || {
-        super::super::delete_draft(page, shell, desk, Signal::new(0));
+        super::super::delete_draft(page, shell, desk);
     });
     window.render();
     assert!(store.draft(draft.id).is_err(), "the draft is still there");

@@ -37,7 +37,7 @@ fn set_typed(mut shell: Signal<Shell>, path: String) {
 
 /// The sheet. Mounted while `shell.files` is an import.
 #[component]
-pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+pub(super) fn ImportSheet(shell: Signal<Shell>) -> Element {
     let path = typed(&shell.read());
     let debounced = use_debounced(shell, typed);
     // The path the sheet opened with is looked at on the first frame; every later one once the
@@ -103,7 +103,6 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
         };
         let into = dest();
         let client = crate::ui::live::client();
-        let mut revision = revision;
         run(
             phase,
             count,
@@ -112,7 +111,8 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
                     report(so_far.read)
                 })
             },
-            move || revision += 1,
+            // What it imported draws the window again: nothing more to do after.
+            || {},
         );
     };
     rsx! {

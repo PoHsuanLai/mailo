@@ -177,7 +177,6 @@ pub(super) fn label_items(
 pub(super) fn SnoozeMenu(
     id: ThreadId,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     anchor: Option<MountedRef>,
     /// The snooze button's rect once measured, which wins over `anchor`.
     #[props(default)]
@@ -194,7 +193,7 @@ pub(super) fn SnoozeMenu(
             .into_iter()
             .map(|thread| (thread, Op::SetSnooze(Snooze::Until(at))))
             .collect();
-        act_all(&client, shell, revision, ops);
+        act_all(&client, shell, ops);
     };
     if choosing() {
         return rsx! {
@@ -320,7 +319,6 @@ pub(super) fn LabelMenu(
     id: ThreadId,
     summary: ThreadSummary,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     anchor: Option<MountedRef>,
     /// The Label button's rect once measured, which wins over `anchor`.
     #[props(default)]
@@ -368,7 +366,7 @@ pub(super) fn LabelMenu(
                         .into_iter()
                         .map(|thread| (thread, Op::Label(created, Membership::In)))
                         .collect();
-                    act_all(&client, shell, revision, ops);
+                    act_all(&client, shell, ops);
                     done();
                     return;
                 }
@@ -382,12 +380,12 @@ pub(super) fn LabelMenu(
                     return;
                 };
                 if targets.len() > 1 {
-                    label_all(&client, shell, revision, &targets, which);
+                    label_all(&client, shell, &targets, which);
                     return;
                 }
                 let on = summary.labels.contains(&which);
                 let wanted = if on { Membership::Out } else { Membership::In };
-                act(&client, shell, revision, id, Op::Label(which, wanted));
+                act(&client, shell, id, Op::Label(which, wanted));
             },
             onclose: move |()| done(),
         }

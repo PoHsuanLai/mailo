@@ -20,7 +20,6 @@ use mail_domain::ThreadId;
 pub(in crate::ui) fn reading_column(
     open: Option<ThreadId>,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     place: ReaderIn,
 ) -> Element {
     let composing = compose::composing(&shell.read());
@@ -32,12 +31,12 @@ pub(in crate::ui) fn reading_column(
     };
     match (composing, open) {
         (Some((draft, PageKind::Reply)), Some(thread)) => rsx! {
-            Reader { thread, shell, revision, place, only,
-                ComposerPage { key: "{draft}", draft, shell, revision }
+            Reader { thread, shell, tools: true, place, only,
+                ComposerPage { key: "{draft}", draft, shell }
             }
         },
-        (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell, revision } },
-        (None, Some(thread)) => rsx! { Reader { thread, shell, revision, place, only } },
+        (Some((draft, _)), _) => rsx! { ComposerPage { key: "{draft}", draft, shell } },
+        (None, Some(thread)) => rsx! { Reader { thread, shell, tools: true, place, only } },
         (None, None) => rsx! {
             EmptyState { form: EmptyForm::Empty, title: crate::ui::copy::empty::NO_MESSAGE_SELECTED }
         },

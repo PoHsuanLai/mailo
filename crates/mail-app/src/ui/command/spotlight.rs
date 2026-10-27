@@ -41,7 +41,6 @@ pub(in crate::ui) const FIELD: &str = ".ds-search-card input";
 pub(in crate::ui) fn Spotlight(
     shell: Signal<Shell>,
     pages: Signal<u32>,
-    revision: Signal<u64>,
     in_a_field: Signal<bool>,
     side_hidden: Signal<bool>,
     spaces: Signal<Spaces>,
@@ -80,7 +79,6 @@ pub(in crate::ui) fn Spotlight(
     let ctx = Ctx {
         shell,
         pages,
-        revision,
         side_hidden,
         drawn,
         desk,
@@ -231,7 +229,6 @@ fn on_key(ctx: Ctx, keys: Keys, rows: &[crate::ui::menu::MenuItem], event: Keybo
 pub(super) struct Ctx {
     pub shell: Signal<Shell>,
     pub pages: Signal<u32>,
-    pub revision: Signal<u64>,
     pub side_hidden: Signal<bool>,
     pub drawn: Signal<Drawn>,
     /// Where a draft put aside comes back from, picked in Recent. Taken when the panel is made,
@@ -247,7 +244,7 @@ fn run_row(ctx: Ctx, key: &str) {
         Bar::Closed => BarListing::Search,
     };
     match listing {
-        BarListing::Templates(_) => super::templates::run(ctx.shell, ctx.revision, key),
+        BarListing::Templates(_) => super::templates::run(ctx.shell, key),
         BarListing::Search => {
             let choice = super::sections::choice_of(&ctx.drawn.peek().results, key);
             super::act(ctx, choice);

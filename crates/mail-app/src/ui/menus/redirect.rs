@@ -57,7 +57,6 @@ fn redirect(client: &Client, id: ThreadId, to: &[Address]) -> (String, Follow) {
 pub(in crate::ui) fn RedirectMenu(
     id: ThreadId,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     anchor: Option<MountedRef>,
     #[props(default)] placed: Option<Rect>,
 ) -> Element {
@@ -93,7 +92,6 @@ pub(in crate::ui) fn RedirectMenu(
                                     let client = crate::ui::live::client();
                                     let (said, follow) = redirect(&client, id, &to);
                                     done();
-                                    revision += 1;
                                     tell(said, follow);
                                 }
                                 Err(why) => refused.set(Some(why)),

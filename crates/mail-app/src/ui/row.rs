@@ -68,7 +68,6 @@ pub(super) fn ListRow(
     listed: Listed,
     model: RowModel,
     shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     /// A conversation's labels, drawn while the list shows them.
     chips: Vec<String>,
     /// Whose conversation it is, drawn only while the list shows more than one account.
@@ -156,7 +155,7 @@ pub(super) fn ListRow(
                 Check::On,
                 EventHandler::new(move |_: Check| {
                     let client = crate::ui::live::client();
-                    act_kind(&client, shell, revision, id, OpKind::Unstar);
+                    act_kind(&client, shell, id, OpKind::Unstar);
                 }),
             )
         });
@@ -249,13 +248,13 @@ pub(super) fn ListRow(
                                 if act::further(pressed).is_some() {
                                     further_at.set(Some(at));
                                 }
-                                press(shell, revision, id, pressed, Opened::Row);
+                                press(shell, id, pressed, Opened::Row);
                             }
-                            (Pick::DeleteDraft, _, Some(draft)) => delete_stored_draft(shell, revision, draft),
+                            (Pick::DeleteDraft, _, Some(draft)) => delete_stored_draft(shell, draft),
                             (Pick::Vip, Some(_), _) => {
                                 if let Some((email, name)) = &sender {
                                     let mark = mail_core::vip::toggled(&shell.peek().vips, email);
-                                    let marking = crate::ui::vip::Marking { shell, revision: Some(revision) };
+                                    let marking = crate::ui::vip::Marking { shell };
                                     crate::ui::vip::set(marking, email, name.as_deref(), mark);
                                 }
                             }
@@ -263,7 +262,6 @@ pub(super) fn ListRow(
                             (Pick::CancelSending, _, Some(draft))
                                 if cancel_scheduled(shell, draft).is_ok() =>
                             {
-                                revision += 1;
                             }
                             // Not offered here: the reader's ⋯ holds them.
                             _ => {}
@@ -273,7 +271,7 @@ pub(super) fn ListRow(
                 }
             }
             if let Some(summary) = thread {
-                FurtherMenus { summary, opened: Opened::Row, shell, revision, anchor: row_box(), placed: further_at() }
+                FurtherMenus { summary, opened: Opened::Row, shell, anchor: row_box(), placed: further_at() }
             }
         }
     }

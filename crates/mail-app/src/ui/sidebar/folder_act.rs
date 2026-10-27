@@ -119,13 +119,11 @@ pub(in crate::ui) fn perform(
 pub(in crate::ui) fn act(
     client: &Client,
     shell: Signal<Shell>,
-    mut revision: Signal<u64>,
     account: AccountId,
     work: FolderWork,
     delimiter: Option<char>,
 ) -> Result<(), Refusal> {
     let done = perform(client, account, work, delimiter)?;
-    revision += 1;
     record(shell, done.undo.into_iter().collect(), done.said);
     Ok(())
 }

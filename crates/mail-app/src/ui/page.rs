@@ -251,13 +251,13 @@ fn kept(edit: impl FnOnce(&mut crate::settings::WindowSettings)) {
 /// every window reads after `revision` moves; any other place's under its key in
 /// `settings.toml`, beside the window's other choices. A choice that cannot be kept still sorts
 /// this window's list, and says why in the log.
-pub(super) fn sort_list(mut shell: Signal<Shell>, mut revision: Signal<u64>, sort: Sort) {
+pub(super) fn sort_list(mut shell: Signal<Shell>, sort: Sort) {
     let kept = shell.write().sort_by(sort);
     match kept {
         Some(SortKept::View(view)) => {
             let client = crate::ui::live::client();
             match client.stored().put_view(&view) {
-                Ok(()) => revision += 1,
+                Ok(()) => {}
                 Err(why) => log::warn!("the view's order was not kept: {why}"),
             }
         }
@@ -281,12 +281,7 @@ pub(super) fn sort_list(mut shell: Signal<Shell>, mut revision: Signal<u64>, sor
 /// opens with them. Sync Now is the sidebar's sync mark's press, so it is here only while the
 /// sidebar is hidden; `syncs` is false with only local folders in view.
 #[component]
-pub(super) fn ListMore(
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    syncs: bool,
-    side_hidden: Signal<bool>,
-) -> Element {
+pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bool>) -> Element {
     let open = shell.read().page_menu == PageMenu::More;
     let mut tool = use_signal(|| None::<MountedRef>);
     let line = use_status(shell);
@@ -336,12 +331,12 @@ pub(super) fn ListMore(
                     More::SortBy(property) => {
                         shell.write().page_menu = PageMenu::Closed;
                         let sort = Sort { property, dir: property.natural() };
-                        sort_list(shell, revision, sort);
+                        sort_list(shell, sort);
                     }
                     More::SortDir(dir) => {
                         shell.write().page_menu = PageMenu::Closed;
                         let property = shell.peek().sort().property;
-                        sort_list(shell, revision, Sort { property, dir });
+                        sort_list(shell, Sort { property, dir });
                     }
                     More::GroupByDate => {
                         let group = {
@@ -357,7 +352,7 @@ pub(super) fn ListMore(
                     }
                     More::Conversations => {
                         shell.write().page_menu = PageMenu::Closed;
-                        super::organise::turn(shell, revision);
+                        super::organise::turn(shell);
                     }
                     // The menu stays up for the next toggle (`AfterPick::KeepOpen`).
                     More::Part(key) => {

@@ -61,7 +61,6 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
     let Ctx {
         mut shell,
         mut pages,
-        mut revision,
         mut side_hidden,
         desk,
         ..
@@ -107,7 +106,7 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
         }
         Choice::Pick(Pick::Action(id)) => {
             restore(shell, pages);
-            run_action(shell, pages, &mut revision, &mut side_hidden, id);
+            run_action(shell, pages, &mut side_hidden, id);
         }
     }
 }
@@ -116,7 +115,6 @@ fn act(ctx: Ctx, choice: Option<Choice>) {
 fn run_action(
     mut shell: Signal<Shell>,
     pages: Signal<u32>,
-    revision: &mut Signal<u64>,
     side_hidden: &mut Signal<bool>,
     id: CommandId,
 ) {
@@ -139,9 +137,8 @@ fn run_action(
         }
         CommandId::Compose => {
             let client = crate::ui::live::client();
-            if open_composer(&client, shell, Writes::New).is_ok() {
-                *revision += 1;
-            }
+            // A refusal is the composer's to say (`open_composer` logs it).
+            let _ = open_composer(&client, shell, Writes::New);
             close(shell);
         }
         CommandId::Sync => {
@@ -163,7 +160,7 @@ fn run_action(
             let client = crate::ui::live::client();
             let writes = Writes::answering(&shell.peek(), open, Composes::ForwardAttached);
             match open_composer(&client, shell, writes) {
-                Ok(()) => *revision += 1,
+                Ok(()) => {}
                 Err(why) => super::motion::tell(
                     format!("Not forwarded as an attachment: {why}."),
                     super::motion::Follow::Nothing,
@@ -188,9 +185,9 @@ fn run_action(
                     opened: crate::ui::view::Opened::Reader,
                 }),
                 CommandId::ReplyList => {
-                    super::reading::compose_on(shell, *revision, open, Composes::ReplyList);
+                    super::reading::compose_on(shell, open, Composes::ReplyList);
                 }
-                _ => super::reading::compose_on(shell, *revision, open, Composes::Again),
+                _ => super::reading::compose_on(shell, open, Composes::Again),
             }
         }
         CommandId::ApplyRules => {
@@ -205,7 +202,6 @@ fn run_action(
             }
             let client = crate::ui::live::client();
             let said = super::rules::work::apply_to(&client, &targets, chrono::Utc::now());
-            *revision += 1;
             super::motion::tell(said, super::motion::Follow::Nothing);
         }
         CommandId::Print => {
@@ -221,7 +217,7 @@ fn run_action(
         }
         CommandId::Conversations => {
             close(shell);
-            super::organise::turn(shell, *revision);
+            super::organise::turn(shell);
         }
         CommandId::AddAccount => {
             close(shell);

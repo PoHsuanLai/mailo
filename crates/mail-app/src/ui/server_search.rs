@@ -141,12 +141,7 @@ pub(super) fn said(address: &str, answer: &Answer) -> Option<String> {
 /// Ask `account`'s server for `input`, off the drawing thread, and put its answer in `asked`.
 ///
 /// From a click, or from [`ServerSearch`]'s effect: never from a render.
-pub(super) fn start(
-    mut asked: Signal<Vec<Asked>>,
-    mut revision: Signal<u64>,
-    input: String,
-    account: AccountId,
-) {
+pub(super) fn start(mut asked: Signal<Vec<Asked>>, input: String, account: AccountId) {
     if matches!(
         answer_for(&asked.peek(), &input, account.clone()),
         Some(Answer::Running)
@@ -203,7 +198,6 @@ pub(super) fn start(
         {
             entry.answer = answer;
         }
-        revision += 1;
     });
 }
 
@@ -215,7 +209,6 @@ pub(super) fn ServerSearch(
     /// The accounts in view that have a server, with their addresses.
     accounts: Vec<(AccountId, String)>,
     asked: Signal<Vec<Asked>>,
-    revision: Signal<u64>,
 ) -> Element {
     // Automatically, where the user turned it on: once per line and account.
     let settings = crate::ui::prefs::use_settings();
@@ -230,7 +223,7 @@ pub(super) fn ServerSearch(
             }
             for (account, _) in &everyone {
                 if answer_for(&asked.peek(), &wanted, account.clone()).is_none() {
-                    start(asked, revision, wanted.clone(), account.clone());
+                    start(asked, wanted.clone(), account.clone());
                 }
             }
         },
@@ -259,7 +252,7 @@ pub(super) fn ServerSearch(
                                         format!("Search {address} on the server")
                                     },
                                     icon: Icon::Search,
-                                    onclick: on_primary(move || start(asked, revision, line.clone(), account.clone())),
+                                    onclick: on_primary(move || start(asked, line.clone(), account.clone())),
                                 }
                             }
                         }

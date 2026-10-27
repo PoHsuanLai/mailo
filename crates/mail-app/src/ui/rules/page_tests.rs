@@ -61,7 +61,6 @@ fn Page(account: Option<AccountId>, at: RulesAt, #[props(default)] vacation: boo
         },
         ..Shell::default()
     });
-    let revision = use_signal(|| 0u64);
     crate::ui::motion::use_motion();
     // Inside a quire root, as the window has it: the menus float in its overlay, and a toast is
     // said through the window's host.
@@ -73,9 +72,9 @@ fn Page(account: Option<AccountId>, at: RulesAt, #[props(default)] vacation: boo
             if vacation {
                 super::VacationPage { shell }
             } else {
-                RulesPage { shell, revision }
+                RulesPage { shell }
             }
-            crate::ui::motion::Toast { shell, revision }
+            crate::ui::motion::Toast { shell }
         }
     }
 }

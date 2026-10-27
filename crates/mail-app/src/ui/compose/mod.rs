@@ -113,11 +113,7 @@ fn kind_of(draft: DraftId) -> PageKind {
 
 /// The page for `draft`: held for its time, or being written.
 #[component]
-pub(in crate::ui) fn ComposerPage(
-    draft: DraftId,
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-) -> Element {
+pub(in crate::ui) fn ComposerPage(draft: DraftId, shell: Signal<Shell>) -> Element {
     // One held to leave at a time when it is opened is read, not written: the outbox has it as
     // it was sealed. Cancel Sending makes it a draft again, and the page then writes it here.
     // Asked once: a page scheduled while it is open folds away as it did.
@@ -138,17 +134,16 @@ pub(in crate::ui) fn ComposerPage(
                 draft: stored,
                 at,
                 shell,
-                revision,
                 on_cancelled: move |()| held.set(None),
             }
         };
     }
-    rsx! { Writing { draft, shell, revision } }
+    rsx! { Writing { draft, shell } }
 }
 
 /// The composer on `draft`, loaded from where it was parked, else from the client.
 #[component]
-fn Writing(draft: DraftId, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+fn Writing(draft: DraftId, shell: Signal<Shell>) -> Element {
     let desk = use_context::<Desk>();
     let loaded = use_hook(|| {
         let client = crate::ui::live::client();
@@ -159,7 +154,7 @@ fn Writing(draft: DraftId, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
         page
     });
     match loaded {
-        Some(initial) => rsx! { PageView { initial, shell, revision } },
+        Some(initial) => rsx! { PageView { initial, shell } },
         None => rsx! {
             div { class: "reader-empty",
                 EmptyState { title: "That draft is gone." }
@@ -187,7 +182,7 @@ pub(super) fn opening(page: &Page) -> Opening {
 }
 
 #[component]
-fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
+fn PageView(initial: Page, shell: Signal<Shell>) -> Element {
     let mut desk = use_context::<Desk>();
     let keys = use_keys();
     let mut page = use_signal(|| initial.clone());
@@ -291,10 +286,10 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     };
     drop(read);
 
-    let send = move |anyway: Anyway| send_page(page, desk, revision, folding, anyway, None);
+    let send = move |anyway: Anyway| send_page(page, desk, folding, anyway, None);
     // Made here, so a send or a lookup the bar starts belongs to the page and not to the bar,
     // which goes away as it starts.
-    let on_seal = use_callback(move |act: BarAct| seal_act(page, desk, revision, folding, act));
+    let on_seal = use_callback(move |act: BarAct| seal_act(page, desk, folding, act));
 
     rsx! {
         div {
@@ -336,7 +331,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                                 MoreButton {
                                     page,
                                     on_keep: move |()| desk::park(desk, page, shell),
-                                    on_delete: move |()| delete_draft(page, shell, desk, revision),
+                                    on_delete: move |()| delete_draft(page, shell, desk),
                                 }
                                 SendButton { page, on_send: move |()| send(Anyway::No) }
                             }
@@ -398,7 +393,7 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                     MoreButton {
                         page,
                         on_keep: move |()| desk::park(desk, page, shell),
-                        on_delete: move |()| delete_draft(page, shell, desk, revision),
+                        on_delete: move |()| delete_draft(page, shell, desk),
                     }
                     span { class: "grow" }
                     SendButton { page, on_send: move |()| send(Anyway::No) }
@@ -415,7 +410,6 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
 fn send_page(
     mut page: Signal<Page>,
     desk: Desk,
-    revision: Signal<u64>,
     folding: Folding,
     anyway: Anyway,
     passphrase: Option<Password>,
@@ -441,7 +435,7 @@ fn send_page(
                 match seal_and_queue(client, draft, going, remind, passphrase).await {
                     Ok(due) => {
                         let sent = life::folded(&mut page.write(), due, going.grace);
-                        queued(page, desk, revision, folding, sent);
+                        queued(page, desk, folding, sent);
                     }
                     Err(Sealed::Locked { key, tried }) => {
                         page.write().seal_bar = SealBar::Locked { key, tried };
@@ -454,19 +448,13 @@ fn send_page(
                 }
             });
         }
-        Ok(sent) => queued(page, desk, revision, folding, sent),
+        Ok(sent) => queued(page, desk, folding, sent),
         Err(why) => page.write().notice = Some(why),
     }
 }
 
 /// What the signing and encrypting bar's buttons do.
-fn seal_act(
-    mut page: Signal<Page>,
-    desk: Desk,
-    revision: Signal<u64>,
-    folding: Folding,
-    act: BarAct,
-) {
+fn seal_act(mut page: Signal<Page>, desk: Desk, folding: Folding, act: BarAct) {
     // The bar is only ever reached past the other guards, so its sends go as "anyway".
     match act {
         BarAct::WithoutEncryption | BarAct::Plain => {
@@ -478,10 +466,10 @@ fn seal_act(
             write.seal_bar = SealBar::Clear;
             write.touch();
             drop(write);
-            send_page(page, desk, revision, folding, Anyway::Yes, None);
+            send_page(page, desk, folding, Anyway::Yes, None);
         }
         BarAct::Unlock(passphrase) => {
-            send_page(page, desk, revision, folding, Anyway::Yes, Some(passphrase));
+            send_page(page, desk, folding, Anyway::Yes, Some(passphrase));
         }
         // Making a key or importing a certificate is the sending account's page's, in Settings.
         BarAct::OpenKeys => {
@@ -526,13 +514,7 @@ fn seal_act(
 }
 
 /// A press of Send's outcome: queued, the page folds away and the pill takes over.
-fn queued(
-    page: Signal<Page>,
-    mut desk: Desk,
-    mut revision: Signal<u64>,
-    folding: Folding,
-    sent: Sent,
-) {
+fn queued(page: Signal<Page>, mut desk: Desk, folding: Folding, sent: Sent) {
     match sent {
         Sent::Queued {
             draft,
@@ -553,7 +535,6 @@ fn queued(
             };
             desk.outbox.set(Some(outgoing));
             desk::unpark(desk, draft);
-            revision += 1;
             // The page folds away on quire's clock, and goes once the fold has settled.
             folding.start();
         }
@@ -586,7 +567,7 @@ fn close(mut page: Signal<Page>, mut shell: Signal<Shell>, _desk: Desk) {
 /// Delete the draft, as ⋯ › Delete Draft does, and offer it back. Saved first, so the undo
 /// brings back what was on the page; the undo is the window's (the toast's tab and ⌘Z), and puts
 /// the draft back in Drafts. A draft already on its way is refused, as before (334b758).
-fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk, revision: Signal<u64>) {
+fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk) {
     let client = crate::ui::live::client();
     let draft = page.peek().draft;
     let kept = life::save(&client, &mut page.write(), chrono::Utc::now());
@@ -600,7 +581,7 @@ fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk, revisi
     match deleted(&client, stored) {
         Ok(undo) => {
             page.write().phase = Phase::Closed;
-            forget(shell, revision, desk, draft, undo);
+            forget(shell, desk, draft, undo);
         }
         Err(why) => page.write().notice = Some(crate::ui::remedy::told(why)),
     }
@@ -629,13 +610,7 @@ fn deleted(client: &Client, stored: Draft) -> Result<mail_core::undo::Undo, mail
 /// The one teardown of a deleted draft, from the foot's ⋯, the row menu or anywhere else: it
 /// leaves Today and the parked pages, its composer closes if it is the one open, the lists are
 /// read again, and its undo is kept and offered.
-fn forget(
-    mut shell: Signal<Shell>,
-    mut revision: Signal<u64>,
-    desk: Desk,
-    draft: DraftId,
-    undo: mail_core::undo::Undo,
-) {
+fn forget(mut shell: Signal<Shell>, desk: Desk, draft: DraftId, undo: mail_core::undo::Undo) {
     desk.parked
         .clone()
         .write()
@@ -644,18 +619,13 @@ fn forget(
     if shell.peek().composing.as_ref().map(|open| open.draft) == Some(draft) {
         shell.write().close_composer();
     }
-    revision += 1;
     let said = undo.said.clone();
     crate::ui::motion::record(shell, vec![undo], said);
 }
 
 /// Delete the stored draft `draft`, as Drafts' row menu does, and offer it back. Its composer
 /// closes if it is the one open, and Today lists it no more.
-pub(in crate::ui) fn delete_stored_draft(
-    shell: Signal<Shell>,
-    revision: Signal<u64>,
-    draft: DraftId,
-) {
+pub(in crate::ui) fn delete_stored_draft(shell: Signal<Shell>, draft: DraftId) {
     let client = crate::ui::live::client();
     let desk = consume_context::<Desk>();
     let outcome = client
@@ -664,7 +634,7 @@ pub(in crate::ui) fn delete_stored_draft(
         .map_err(mail_core::CoreError::from)
         .and_then(|stored| deleted(&client, stored));
     match outcome {
-        Ok(undo) => forget(shell, revision, desk, draft, undo),
+        Ok(undo) => forget(shell, desk, draft, undo),
         Err(why) => crate::ui::motion::tell(
             crate::ui::remedy::told(why),
             crate::ui::motion::Follow::Nothing,

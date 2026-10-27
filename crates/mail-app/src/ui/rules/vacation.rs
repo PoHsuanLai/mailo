@@ -78,7 +78,7 @@ pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
         ),
     });
     let page = use_callback(move |at: VacationAt| match at {
-        VacationAt::List => rsx! { VacationList { shell, rows: rows.clone(), changed } },
+        VacationAt::List => rsx! { VacationList { shell, rows: rows.clone() } },
         VacationAt::Account(id) => match rows.iter().find(|row| row.id == id).cloned() {
             // Read again for another account.
             Some(row) => rsx! { AwayPage { key: "{row.id}", row, pushed } },
@@ -101,8 +101,9 @@ pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
 
 /// The root: each account, and whether its reply is on.
 #[component]
-fn VacationList(shell: Signal<Shell>, rows: Vec<AccountRow>, changed: Signal<u64>) -> Element {
-    let _ = changed();
+fn VacationList(shell: Signal<Shell>, rows: Vec<AccountRow>) -> Element {
+    // A reply kept, here or anywhere, moves the store.
+    let _ = crate::ui::live::moved();
     let client = crate::ui::live::client();
     let now = Utc::now();
     let clock = crate::ui::clock::hours();

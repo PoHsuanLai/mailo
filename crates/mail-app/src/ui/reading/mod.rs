@@ -64,12 +64,7 @@ fn is_unread(client: &Client, thread: ThreadId, only: Option<MessageId>) -> bool
 /// Mark what is shown read as showing it does: on the server too, where the server keeps flags,
 /// with no toast and no undo, and the list loses its dot. A message opened alone is the only one
 /// read.
-fn mark_read(
-    client: &Client,
-    thread: ThreadId,
-    only: Option<MessageId>,
-    revision: Option<Signal<u64>>,
-) {
+fn mark_read(client: &Client, thread: ThreadId, only: Option<MessageId>) {
     let (op, alone) = match only {
         Some(message) => (Some(Op::SetRead(ReadState::Read)), vec![(thread, message)]),
         None => (
@@ -86,11 +81,8 @@ fn mark_read(
         alone,
         then_erase: false,
     });
-    super::motion::when_done(ticket, move |acted| {
-        if let (Some(mut revision), Some(_)) = (revision, acted) {
-            revision += 1;
-        }
-    });
+    // Nothing waits on it: what it commits draws the list and the reader again.
+    super::motion::when_done(ticket, |_| ());
 }
 
 /// Bigger, Smaller or Actual Size: the reader's text size a step along, written to the settings,
@@ -165,31 +157,28 @@ fn gone() -> Element {
     }
 }
 
-/// `revision` is the window's, moved when leaving a list queues a message, and whenever any
-/// window moves the client (`ui/revisions`), which draws the reader again; a reader drawn on its
-/// own has none. `only` is the one message to show, when it was opened from a list of single
-/// messages (`Shell::focus`); one that is not the conversation's shows the conversation whole.
+/// With `tools`, the reader has its toolbar, as a window's does; a reader drawn on its own has
+/// none. `only` is the one message to show, when it was opened from a list of single messages
+/// (`Shell::focus`); one that is not the conversation's shows the conversation whole.
 #[component]
 pub(super) fn Reader(
     thread: ThreadId,
     shell: Signal<Shell>,
-    revision: Option<Signal<u64>>,
+    #[props(default)] tools: bool,
     #[props(default)] place: ReaderIn,
     #[props(default)] only: Option<MessageId>,
     children: Element,
 ) -> Element {
     let client = super::live::client();
-    // Where the sender's name marks a VIP: this window's shell and revision.
-    use_context_provider(|| crate::ui::vip::Marking { shell, revision });
+    // Where the sender's name marks a VIP: this window's shell.
+    use_context_provider(|| crate::ui::vip::Marking { shell });
     let read = super::live::use_live(use_reactive!(|thread| Conversation(thread)));
     let frames = use_frames();
     let looks = use_looks();
     // ⌘F's frames, which every message's frame below joins (`find`).
     let found = find::use_find(shell);
     // The client may have moved under this conversation, here or in another window.
-    if let Some(revision) = revision {
-        let _ = revision();
-    }
+    let _ = crate::ui::live::moved();
     // Moved when an OpenPGP or S/MIME message has been opened and has a body of its own to show,
     // so the messages are drawn again with it. The opening itself happens in `pgp::Seal`, off
     // this thread; here it is only looked up.
@@ -264,7 +253,7 @@ pub(super) fn Reader(
             match marking::on_show(reading.mark_read, reading.mark_read_delay, unread) {
                 marking::Mark::Now => {
                     pending.borrow_mut().left();
-                    mark_read(&client, thread, only, revision);
+                    mark_read(&client, thread, only);
                 }
                 marking::Mark::Leave => pending.borrow_mut().left(),
                 marking::Mark::After(wait) => {
@@ -279,7 +268,7 @@ pub(super) fn Reader(
                             .borrow_mut()
                             .due(thread, ds::base::time::clock::now());
                         if due && is_unread(&client, thread, only) {
-                            mark_read(&client, thread, only, revision);
+                            mark_read(&client, thread, only);
                         }
                     });
                 }
@@ -535,14 +524,13 @@ pub(super) fn Reader(
                 }
                 span { class: "spacer" }
                 div { class: "bar-tools",
-                    if let Some(revision) = revision {
-                        tools::ReaderTools { summary: loaded.summary.clone(), ops: toolbar.clone(), shell, revision }
+                    if tools {
+                        tools::ReaderTools { summary: loaded.summary.clone(), ops: toolbar.clone(), shell }
                         tools::ReaderMore {
                             summary: loaded.summary.clone(),
                             toolbar: toolbar.clone(),
                             peek: (place == ReaderIn::Pane).then_some(peek),
                             shell,
-                            revision,
                             leave,
                             list,
                         }

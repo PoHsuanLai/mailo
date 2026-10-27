@@ -295,14 +295,13 @@ fn Runs(id: CommandId) -> Element {
         ..Shell::default()
     });
     let pages = use_signal(|| 1u32);
-    let mut revision = use_signal(|| 0u64);
     let mut side_hidden = use_signal(|| false);
     // Named by its id, not a fixed word: the fixture sees only attributes the template fills in.
     let name = format!("run {id:?}");
     rsx! {
         button {
             "aria-label": name,
-            onclick: move |_| run_action(shell, pages, &mut revision, &mut side_hidden, id),
+            onclick: move |_| run_action(shell, pages, &mut side_hidden, id),
         }
     }
 }

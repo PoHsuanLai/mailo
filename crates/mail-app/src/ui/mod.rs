@@ -29,6 +29,7 @@ mod command;
 mod common;
 mod compose;
 pub(crate) use compose::discarding_draft;
+mod configured;
 mod contacts;
 mod data;
 mod debounce;
@@ -75,7 +76,6 @@ pub mod reading;
 mod reauth;
 mod receipt;
 mod remedy;
-mod revisions;
 mod row;
 mod rules;
 mod sensitive_copy;
@@ -116,6 +116,7 @@ pub mod native {
     pub use super::brand::BrandCache;
     pub use super::clock::WallClock;
     pub use super::compose::Dictionaries;
+    pub use super::configured::Configured;
     pub use super::downloads::{NotOpened as FileNotOpened, Opener as FileOpener};
     pub use super::files::SaveDir;
     pub use super::follow_up::Notices;
@@ -128,7 +129,6 @@ pub mod native {
     pub use super::print::Printer;
     pub use super::provider_chip::read as read_icons;
     pub use super::reading::OriginalFrame;
-    pub use super::revisions::{Configured, Revisions};
     pub use super::sensitive_copy::SensitiveCopy;
     pub use super::server_search::{Search, ServerSearcher};
     pub use super::settings_window::{

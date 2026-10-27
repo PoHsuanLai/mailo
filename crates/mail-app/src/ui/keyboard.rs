@@ -71,7 +71,7 @@ fn settle(mut shell: Signal<Shell>, changed: Result<Keymap, Refused>) {
             };
             match kept {
                 Ok(()) => {
-                    crate::ui::revisions::told_configuration();
+                    crate::ui::configured::told_configuration();
                     shell.write().keymap = map;
                     None
                 }

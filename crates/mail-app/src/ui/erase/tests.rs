@@ -24,9 +24,8 @@ fn Settings(delete: DeleteMeans) -> Element {
 
 #[component]
 fn Erasing() -> Element {
-    let revision = use_signal(|| 0_u64);
     let shell = use_signal(Shell::default);
-    use_eraser(revision, shell);
+    use_eraser(shell);
     rsx! {}
 }
 

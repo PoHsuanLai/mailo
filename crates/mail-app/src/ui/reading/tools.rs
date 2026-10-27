@@ -127,7 +127,6 @@ pub(super) fn ReaderTools(
     summary: ThreadSummary,
     ops: Vec<OpKind>,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
 ) -> Element {
     let id = summary.id;
     let now = chrono::Utc::now();
@@ -137,7 +136,7 @@ pub(super) fn ReaderTools(
                 key: "{kind:?}",
                 tool: ToolButton::of(kind, offered(says(kind, &summary, now))),
                 aria: None,
-                onclick: move |_| press(shell, revision, id, Pressed::Op(kind), Opened::Reader),
+                onclick: move |_| press(shell, id, Pressed::Op(kind), Opened::Reader),
             }
         }
     }
@@ -164,7 +163,6 @@ pub(super) fn ReaderMore(
     toolbar: Vec<OpKind>,
     peek: Option<Peek>,
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     #[props(default)] leave: Option<Offer>,
     #[props(default)] list: bool,
 ) -> Element {
@@ -217,7 +215,7 @@ pub(super) fn ReaderMore(
                     open.set(false);
                     match pick {
                         // Unsnooze acts at once; Snooze, Label and Move open their menus here.
-                        Pick::Press(pressed) => press(shell, revision, id, pressed, Opened::Reader),
+                        Pick::Press(pressed) => press(shell, id, pressed, Opened::Reader),
                         Pick::Print => further.set(Further::Print),
                         Pick::View => further.set(Further::View),
                         Pick::Unsubscribe => {
@@ -227,11 +225,11 @@ pub(super) fn ReaderMore(
                         Pick::Download => download(id),
                         Pick::BlockSender => {
                             if let Some((account, email)) = sender.clone() {
-                                block_sender(shell, revision, id, account, &email);
+                                block_sender(shell, id, account, &email);
                             }
                         }
-                        Pick::ReplyList => compose_on(shell, revision, id, Composes::ReplyList),
-                        Pick::Again => compose_on(shell, revision, id, Composes::Again),
+                        Pick::ReplyList => compose_on(shell, id, Composes::ReplyList),
+                        Pick::Again => compose_on(shell, id, Composes::Again),
                         Pick::Redirect => shell.write().toggle_further(FurtherMenu {
                             thread: id,
                             further: crate::ui::view::Further::Redirect,
@@ -246,7 +244,7 @@ pub(super) fn ReaderMore(
                 onclose: move |_| open.set(false),
             }
         }
-        FurtherMenus { summary: summary.clone(), opened: Opened::Reader, shell, revision, anchor: tool() }
+        FurtherMenus { summary: summary.clone(), opened: Opened::Reader, shell, anchor: tool() }
         match (further(), peek) {
             (Further::Print, _) => rsx! {
                 super::super::print::PrintMenu { thread: id, anchor: tool(), on_close: done }
@@ -256,7 +254,7 @@ pub(super) fn ReaderMore(
             },
             (Further::Unsubscribe, _) => match leave.clone().and_then(|offer| ask(&offer).map(|asked| (offer, asked))) {
                 Some((offer, asked)) if leaving() != Phase::Closed => rsx! {
-                    Confirm { offer, asked, phase: leaving, revision: Some(revision) }
+                    Confirm { offer, asked, phase: leaving }
                 },
                 _ => rsx! {},
             },
@@ -272,7 +270,6 @@ pub(super) fn ReaderMore(
 /// and the rule, unless the sender was blocked already, when that rule is not this gesture's.
 fn block_sender(
     shell: Signal<Shell>,
-    revision: Signal<u64>,
     thread: ThreadId,
     account: porter_core::AccountId,
     email: &str,
@@ -287,7 +284,6 @@ fn block_sender(
             crate::ui::motion::spam_and_offer_unblock(
                 &client,
                 shell,
-                revision,
                 thread,
                 rule,
                 copy::toasts::blocked(email),
@@ -302,17 +298,12 @@ fn block_sender(
 
 /// Open the composer on `what` for `thread`, from the ⋯ or ⌘K; a refusal (no list address, no
 /// body yet) is said in a toast.
-pub(in crate::ui) fn compose_on(
-    shell: Signal<Shell>,
-    mut revision: Signal<u64>,
-    thread: ThreadId,
-    what: Composes,
-) {
+pub(in crate::ui) fn compose_on(shell: Signal<Shell>, thread: ThreadId, what: Composes) {
     let client = crate::ui::live::client();
     // The peek ends before the composer opens: it writes the shell.
     let writes = Writes::answering(&shell.peek(), thread, what);
     match open_composer(&client, shell, writes) {
-        Ok(()) => revision += 1,
+        Ok(()) => {}
         Err(why) => tell(copy::toasts::not_opened(&why), Follow::Nothing),
     }
 }

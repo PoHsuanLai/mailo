@@ -180,11 +180,11 @@ fn is_deleted(client: &Client, message: MessageId) -> bool {
 
 /// Under [`RemoveUnedited::AfterMessageIsDeleted`], look again on every revision, since a delete
 /// is one, and remove the copies whose message went.
-pub(in crate::ui) fn use_remove_unedited(revision: Signal<u64>) {
+pub(in crate::ui) fn use_remove_unedited() {
     let settings = crate::ui::prefs::use_settings();
     let _removing = use_resource(move || {
         // Read only to run again on the next revision.
-        let _ = revision();
+        let _ = crate::ui::live::moved();
         let due =
             settings.read().attachments.remove_unedited == RemoveUnedited::AfterMessageIsDeleted;
         async move {
