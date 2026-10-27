@@ -1,6 +1,6 @@
 //! A rule's condition on its page: rows built from menus ([`super::when`]), every one having to
-//! match or any one of them, or the search language as text for a condition the rows cannot hold. Either way the rule
-//! keeps the text; the rows write it as they change.
+//! match or any one of them, or the search language as text for a condition the rows cannot
+//! hold. Either way the rule keeps the text; the rows write it as they change.
 
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};

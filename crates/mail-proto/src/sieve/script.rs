@@ -211,9 +211,6 @@ fn block(
     // Sieve files a message once per `fileinto`, so several would leave copies in several
     // folders. The last one wins, as it does when this client runs the rule.
     let mut destination: Option<String> = None;
-    if rule.actions.iter().any(RuleAction::speaks) {
-        return Err(Unmappable::Speaks);
-    }
     for action in &rule.actions {
         match action {
             RuleAction::Label(_) => return Err(Unmappable::Label),
