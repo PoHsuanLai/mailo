@@ -429,6 +429,8 @@ pub enum SettingsPage {
     /// An account's vacation reply, which its server sends.
     Vacation,
     Keyboard,
+    /// What a message's remote content may learn about the reader: the relay, the proxy, the block.
+    Privacy,
 }
 
 /// Where an account's page is.
@@ -1160,6 +1162,15 @@ impl Shell {
     /// The sanitizer policy for the thread currently open, by the press alone.
     pub fn policy(&self) -> SanitizePolicy {
         self.policy_with(false)
+    }
+
+    /// The sanitizer policy when nothing remote may load, however it is asked
+    /// (`privacy.block_remote_content`).
+    pub fn policy_blocked() -> SanitizePolicy {
+        SanitizePolicy {
+            remote_images: RemoteImages::Blocked,
+            ..SanitizePolicy::FRAME
+        }
     }
 
     /// The sanitizer policy for one message of the thread currently open: remote images allowed

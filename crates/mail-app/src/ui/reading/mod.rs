@@ -299,7 +299,12 @@ pub(super) fn Reader(
         .unwrap_or_default();
     // A message with both bodies is rendered, and looked up, as the setting prefers.
     frames.prefer(reading.prefer_plain_text.into());
-    let pressed = shell.read().show_remote_images;
+    // "Block all remote content": nothing remote loads, by press or by setting, and nothing
+    // offers to load it.
+    let block_all = settings.is_some_and(|settings| {
+        settings.read().privacy.block_remote_content == crate::settings::BlockRemote::On
+    });
+    let pressed = shell.read().show_remote_images && !block_all;
     let peek = shell.read().peek;
     // What this reader sent to be rendered off the thread, and the count that moves when some of
     // it lands (`cache::render_later`).
@@ -334,7 +339,7 @@ pub(super) fn Reader(
         .map(|message| {
             // A body decrypted without proof it is unchanged never loads remote content, and is
             // offered no button to: the seal's line says why (`Looks::opened_may_load_remote`).
-            let may = looks.opened_may_load_remote(&message);
+            let may = looks.opened_may_load_remote(&message) && !block_all;
             let showing = may
                 && (pressed
                     || images::auto_allow_message(
@@ -344,7 +349,11 @@ pub(super) fn Reader(
                         &message,
                         &mut wanted,
                     ));
-            let policy = shell.read().policy_with(showing);
+            let policy = if block_all {
+                Shell::policy_blocked()
+            } else {
+                shell.read().policy_with(showing)
+            };
             let mut frame = |policy| {
                 frames.render_inline(
                     &store,
@@ -468,7 +477,9 @@ pub(super) fn Reader(
         .iter()
         .zip(&folds)
         .rev()
-        .find(|((_, _, remote, showing), fold)| **fold == fold::Fold::Open && *remote && !showing)
+        .find(|((_, _, remote, showing), fold)| {
+            !block_all && **fold == fold::Fold::Open && *remote && !showing
+        })
         .map(|((message, ..), _)| message.clone());
     // "Always load from" the blocked sender: offered where it could ever load their images
     // (not under `Always`, which already would; not in Junk, which is always asked about), and

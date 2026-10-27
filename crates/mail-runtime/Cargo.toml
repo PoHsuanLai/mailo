@@ -46,6 +46,9 @@ url = "2"
 # tree) for the socket's `Stream` and `Sink`.
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+# A Camo relay's signature on an image URL (`remote_image/route.rs`); both already in the tree.
+hmac = "0.12"
+sha1 = "0.10"
 base64 = "0.22"
 serde = { workspace = true }
 serde_json = "1"
@@ -138,8 +141,6 @@ porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 # `test-util` for the tests that wait out a deadline on a paused clock (`tests/runtime/drive.rs`).
 tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"
-# The WKD hash the OpenPGP tests check a request path by, already in the tree through rPGP.
-sha1 = "0.10"
 # The throwaway mark verifying authority `tests/runtime/bimi.rs` builds its certificates with
 # (`mail-mime/tests/bimi_support`). All already in the tree through `mail-mime`.
 x509-cert = { version = "0.2", features = ["builder"] }

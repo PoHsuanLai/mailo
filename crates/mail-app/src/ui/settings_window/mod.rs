@@ -78,6 +78,7 @@ impl SettingsPage {
         SettingsPage::Rules,
         SettingsPage::Vacation,
         SettingsPage::Keyboard,
+        SettingsPage::Privacy,
     ];
 
     /// The page's name in the sidebar, which is also the row's accessible name.
@@ -90,6 +91,7 @@ impl SettingsPage {
             SettingsPage::Rules => copy::titles::RULES,
             SettingsPage::Vacation => copy::titles::VACATION_REPLY,
             SettingsPage::Keyboard => copy::titles::KEYBOARD,
+            SettingsPage::Privacy => copy::titles::PRIVACY,
         }
     }
 
@@ -102,6 +104,7 @@ impl SettingsPage {
             SettingsPage::Rules => Icon::FolderInput,
             SettingsPage::Vacation => Icon::Sun,
             SettingsPage::Keyboard => Icon::Keyboard,
+            SettingsPage::Privacy => Icon::Lock,
         }
     }
 }
@@ -357,6 +360,7 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
                     SettingsPage::Rules => rsx! { crate::ui::rules::RulesPage { shell, revision } },
                     SettingsPage::Vacation => rsx! { crate::ui::rules::VacationPage { shell } },
                     SettingsPage::Keyboard => rsx! { crate::ui::keyboard::KeyboardPage { shell } },
+                    SettingsPage::Privacy => rsx! { general::Privacy {} },
                 }
             }
         }

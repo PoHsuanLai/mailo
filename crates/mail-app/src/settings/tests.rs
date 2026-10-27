@@ -1,9 +1,10 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    AttachmentSettings, BrandLogos, LoadRemoteImages, MailSettings, MarkRead, MarkReadDelay,
-    NewMail, PreferPlainText, ProviderMarks, ReadReceipts, ReadingSettings, RemoveUnedited,
-    ServerSearch, Spelling, TextZoom, ZoomStep, change, load, schema, store,
+    AttachmentSettings, BlockRemote, BrandLogos, LoadRemoteImages, MailSettings, MarkRead,
+    MarkReadDelay, NewMail, PreferPlainText, Protect, ProviderMarks, ReadReceipts, ReadingSettings,
+    RelayKind, RemoveUnedited, RouteProblem, ServerSearch, Spelling, TextZoom, ZoomStep, change,
+    load, schema, store,
 };
 use ds_settings::ConfigRoot;
 use ds_settings::schema::{KeyKind, Page, Schema};
@@ -110,6 +111,17 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
                     .to_vec(),
             },
         ),
+        ("privacy.block_remote_content", pair("off", "on")),
+        (
+            "privacy.protect",
+            KeyKind::Segmented {
+                variants: ["off", "relay", "proxy"].map(str::to_owned).to_vec(),
+            },
+        ),
+        ("privacy.relay_kind", pair("camo", "token")),
+        ("privacy.relay", KeyKind::Text),
+        ("privacy.relay_key", KeyKind::Text),
+        ("privacy.proxy", KeyKind::Text),
     ]
     .into_iter()
     .map(|(path, kind)| (path.to_owned(), kind))
@@ -573,5 +585,91 @@ fn a_zoom_step_climbs_the_ladder_and_holds_at_its_ends() {
             (TextZoom(stored).factor() - factor).abs() < 1e-6,
             "{stored}"
         );
+    }
+}
+
+fn private(set: impl FnOnce(&mut super::PrivacySettings)) -> super::PrivacySettings {
+    let mut privacy = super::PrivacySettings::default();
+    set(&mut privacy);
+    privacy
+}
+
+#[test]
+fn privacy_starts_straight_and_unblocked() {
+    let privacy = MailSettings::default().privacy;
+    assert_eq!(privacy.protect, Protect::Off);
+    assert_eq!(privacy.block_remote_content, BlockRemote::Off);
+    assert_eq!(privacy.route(), Ok(mail_core::remote_image::Route::Direct));
+}
+
+#[test]
+fn a_relay_or_proxy_that_cannot_be_used_is_never_taken_as_off() {
+    use mail_core::remote_image::Route;
+    let cases: Vec<(super::PrivacySettings, Result<(), RouteProblem>)> = vec![
+        (
+            private(|p| p.protect = Protect::Relay),
+            Err(RouteProblem::Relay),
+        ),
+        (
+            private(|p| {
+                p.protect = Protect::Relay;
+                p.relay = "ftp://relay.example.test".to_owned();
+                p.relay_key = "k".to_owned();
+            }),
+            Err(RouteProblem::Relay),
+        ),
+        (
+            private(|p| {
+                p.protect = Protect::Relay;
+                p.relay = "http://relay.example.test".to_owned();
+                p.relay_key = "k".to_owned();
+            }),
+            Err(RouteProblem::Relay),
+        ),
+        (
+            private(|p| {
+                p.protect = Protect::Relay;
+                p.relay = "https://relay.example.test".to_owned();
+            }),
+            Err(RouteProblem::RelayKey),
+        ),
+        (
+            private(|p| p.protect = Protect::Proxy),
+            Err(RouteProblem::Proxy),
+        ),
+        (
+            private(|p| {
+                p.protect = Protect::Proxy;
+                p.proxy = "127.0.0.1:9050".to_owned();
+            }),
+            Err(RouteProblem::Proxy),
+        ),
+        (
+            private(|p| {
+                p.protect = Protect::Proxy;
+                p.proxy = "socks5h://127.0.0.1:9050".to_owned();
+            }),
+            Ok(()),
+        ),
+        (
+            private(|p| {
+                p.protect = Protect::Relay;
+                p.relay_kind = RelayKind::Token;
+                p.relay = "https://relay.example.test".to_owned();
+                p.relay_key = " t ".to_owned();
+            }),
+            Ok(()),
+        ),
+    ];
+    for (privacy, want) in cases {
+        let got = privacy.route();
+        assert_eq!(
+            got.as_ref().map(|_| ()).map_err(|e| *e),
+            want,
+            "{privacy:?}"
+        );
+        if let Ok(Route::Token { token, .. }) = got {
+            assert_eq!(token, "t");
+        }
     }
 }

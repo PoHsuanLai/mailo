@@ -22,6 +22,7 @@ pub(crate) use consent::Holder;
 pub(in crate::ui) use links::LinkAsked;
 pub use links::{Browse, FrameImages, FrameMenus, FramePill};
 pub(crate) use net::data_uri;
+pub(crate) use net::follow as follow_privacy;
 pub use net::{Fetch, FetchImage, Got};
 
 /// The Reader view's image fetcher, as the window's root context. Cloning shares it.

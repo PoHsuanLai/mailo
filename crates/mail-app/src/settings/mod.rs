@@ -19,10 +19,10 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BrandLogos, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, MarkRead, MarkReadDelay,
-    MessageFormat, NewMail, PreferPlainText, ProviderMarks, ReadReceipts, RemoveUnedited,
-    ReplySameFormat, ServerSearch, SignatureAboveQuote, Snippets, Spelling, TextZoom, UndoSend,
-    WhileQuit, ZoomStep,
+    BlockRemote, BrandLogos, CopyMyself, GroupByDate, LabelChips, LoadRemoteImages, MarkRead,
+    MarkReadDelay, MessageFormat, NewMail, PreferPlainText, Protect, ProviderMarks, ReadReceipts,
+    RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch, SignatureAboveQuote, Snippets,
+    Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
 };
 
 use ds::prelude::Word;
@@ -302,6 +302,106 @@ impl AttachmentSettings {
     }
 }
 
+/// `privacy.*`: what a message's remote content may learn about the reader.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ds_settings::SettingsSchema)]
+#[serde(default)]
+#[settings(file = "mailo/settings.toml", domain = "privacy", page = page())]
+pub struct PrivacySettings {
+    #[settings(
+        label = "Block all remote content",
+        help = "Never load a message's images from the web, and don't offer to.",
+        section = "Privacy"
+    )]
+    pub block_remote_content: BlockRemote,
+    #[settings(
+        label = "Protect mail activity",
+        help = "Hide your network address from the senders whose images load, through a relay or a proxy.",
+        section = "Privacy"
+    )]
+    pub protect: Protect,
+    #[settings(
+        label = "Relay format",
+        help = "Camo for go-camo or imgproxy; token for relay/image/worker.js.",
+        section = "Privacy"
+    )]
+    pub relay_kind: RelayKind,
+    #[settings(
+        label = "Relay",
+        help = "The relay's address, such as https://camo.example.com.",
+        section = "Privacy"
+    )]
+    pub relay: String,
+    #[settings(
+        label = "Relay key",
+        help = "The key the relay was set up with, or its token.",
+        section = "Privacy"
+    )]
+    pub relay_key: String,
+    #[settings(
+        label = "Proxy",
+        help = "An HTTP or SOCKS5 proxy, such as socks5h://127.0.0.1:9050 for Tor.",
+        section = "Privacy"
+    )]
+    pub proxy: String,
+}
+
+impl PrivacySettings {
+    /// The way remote images are fetched under these settings, or why it cannot be used: a
+    /// relay or a proxy chosen with no usable address. An address that cannot be used is never
+    /// quietly taken as `Off`: the fetch would go straight to the image's host, which is what
+    /// the person chose against.
+    pub fn route(&self) -> Result<mail_core::remote_image::Route, RouteProblem> {
+        use mail_core::remote_image::Route;
+        match self.protect {
+            Protect::Off => Ok(Route::Direct),
+            Protect::Relay => {
+                // Only over `https`: the relay is sent the key or token, and every image's address.
+                let base = url_with_host(&self.relay)
+                    .filter(|url| url.scheme() == "https")
+                    .ok_or(RouteProblem::Relay)?;
+                let key = self.relay_key.trim().to_owned();
+                if key.is_empty() {
+                    return Err(RouteProblem::RelayKey);
+                }
+                Ok(match self.relay_kind {
+                    RelayKind::Camo => Route::Camo { base, key },
+                    RelayKind::Token => Route::Token { base, token: key },
+                })
+            }
+            Protect::Proxy => {
+                let url = self.proxy.trim();
+                let known = ["http://", "https://", "socks5://", "socks5h://"];
+                if !known.iter().any(|scheme| url.starts_with(scheme))
+                    || url_with_host(url).is_none()
+                {
+                    return Err(RouteProblem::Proxy);
+                }
+                Ok(Route::Proxy {
+                    url: url.to_owned(),
+                })
+            }
+        }
+    }
+}
+
+/// Why the chosen way to fetch remote images cannot be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteProblem {
+    /// The relay's address is not an `https` URL.
+    Relay,
+    /// The relay has no key.
+    RelayKey,
+    /// The proxy's address is not an `http`, `https` or `socks5` URL.
+    Proxy,
+}
+
+/// `text` as a URL that names a host.
+fn url_with_host(text: &str) -> Option<url::Url> {
+    // What does not parse is no address.
+    let url = url::Url::parse(text.trim()).ok()?;
+    url.host_str().is_some().then_some(url)
+}
+
 /// `mailo/settings.toml`, whole.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -313,6 +413,7 @@ pub struct MailSettings {
     pub search: SearchSettings,
     pub sync: SyncSettings,
     pub attachments: AttachmentSettings,
+    pub privacy: PrivacySettings,
 }
 
 impl SettingsDoc for MailSettings {
@@ -330,6 +431,7 @@ pub fn schema() -> Schema {
         SearchSettings::schema(),
         SyncSettings::schema(),
         AttachmentSettings::schema(),
+        PrivacySettings::schema(),
     ]
     .into_iter()
     .flat_map(|schema| schema.key)

@@ -1,0 +1,5 @@
+name = "mailo-image-relay"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# The token is a secret, not a variable: `wrangler secret put TOKEN`.

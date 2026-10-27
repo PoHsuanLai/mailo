@@ -62,6 +62,8 @@ pub(in crate::ui) fn use_window_settings() {
         move || PrefsRoot(root)
     });
     use_context_provider(|| values);
+    // The window's images are fetched the way `privacy.*` says, and follow it as it changes.
+    use_effect(move || crate::ui::original::follow_privacy(&values.read().privacy));
     use_future(move || {
         let root = root.clone();
         let spawner: std::sync::Arc<dyn ds::base::spawner::Spawner> =

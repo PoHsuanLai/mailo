@@ -5248,6 +5248,7 @@ dependencies = [
  "dirs",
  "futures-util",
  "hickory-resolver",
+ "hmac 0.12.1",
  "keyring-core",
  "log",
  "mail-runtime",
