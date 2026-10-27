@@ -111,6 +111,17 @@ fn mailo_s_own_names_are_out_of_a_sender_s_reach() {
         ("[class=lead]{margin:0}", "[class=lead]{margin:0}"),
         (".mailorder{margin:0}", ".mailorder{margin:0}"),
         (
+            "[class^=mailorder]{margin:0}",
+            "[class^=mailorder]{margin:0}",
+        ),
+        // Escapes decode before the name is judged, and the check holds in every context.
+        ("[class^=m\\61ilo]{margin:0}", "[x-mailo]{margin:0}"),
+        (":is([class^=mailo]){margin:0}", ":is([x-mailo]){margin:0}"),
+        (
+            ":is(div,[class^=\"\\6d ailo-\"]){margin:0}",
+            ":is(div,[x-mailo]){margin:0}",
+        ),
+        (
             "@media print{.mailo-inset{padding:0}}",
             "@media print{.x-mailo-inset{padding:0}}",
         ),

@@ -16,7 +16,7 @@
 //!   the only way a sheet's text could read as markup. A `<` inside a string is written escaped.
 //!
 //! - mailo's own names: an identifier, an `#id` or a class that starts `mailo-` is written with
-//!   an `x-` before it, and an attribute selector that names `mailo` anywhere is written as one
+//!   an `x-` before it, and an attribute selector that names `mailo` anywhere (as its tokens decode) is written as one
 //!   no element has (`[x-mailo]`), so no rule of the sender's reaches an element of the reader's
 //!   own (the frame's inset, a folded quote) by its name; the sanitizer keeps the sender's
 //!   markup from carrying those names too (`sanitize.rs`).
@@ -162,13 +162,6 @@ fn walk(parser: &mut Parser<'_>, context: Context, out: &mut Out) {
                     continue;
                 }
                 Token::AtKeyword(name) => at_rule = Some(name.to_ascii_lowercase()),
-                Token::SquareBracketBlock if names_own(parser) => {
-                    // An attribute selector reaching for mailo's names matches nothing instead.
-                    out.token(token.serialization_type(), "[");
-                    out.token(TokenSerializationType::Nothing, "x-mailo");
-                    out.token(Token::CloseSquareBracket.serialization_type(), "]");
-                    continue;
-                }
                 Token::Semicolon => at_rule = None,
                 Token::CurlyBracketBlock => {
                     let inner = match at_rule.take() {
@@ -204,20 +197,49 @@ fn walk(parser: &mut Parser<'_>, context: Context, out: &mut Out) {
     }
 }
 
-/// Whether the bracket block just opened names `mailo` anywhere inside it. The block is read
-/// through and the parser put back where it was, so the block is still the caller's to read.
+/// Whether the bracket block just opened names one of mailo's own, by what its tokens say once
+/// decoded (`m\61ilo` is `mailo`): an identifier or string that holds `mailo` not followed by a
+/// letter or digit, so `mailo-inset` and the prefix `mailo` match and `mailorder` does not.
+/// The block is read through and the parser put back where it was, so it is still the caller's
+/// to read. Best-effort: a name split across two selectors or built by a substring match
+/// (`[class*=ilo-ins]`) is not seen, which is why the frame's inset also carries its rules inline.
 fn names_own(parser: &mut Parser<'_>) -> bool {
+    fn read(inner: &mut Parser<'_>) -> bool {
+        let mut named = false;
+        while let Ok(token) = inner.next_including_whitespace_and_comments().cloned() {
+            match &token {
+                Token::Ident(text) | Token::QuotedString(text) => named |= says_own(text),
+                Token::ParenthesisBlock
+                | Token::SquareBracketBlock
+                | Token::CurlyBracketBlock
+                | Token::Function(_) => {
+                    named |= inner
+                        .parse_nested_block(|nested| Ok::<bool, ParseError<()>>(read(nested)))
+                        .unwrap_or(false);
+                }
+                _ => {}
+            }
+        }
+        named
+    }
     let state = parser.state();
-    let start = parser.position();
-    // Only read through: what is inside is judged by its text below, and a block that does not
-    // parse is still read to its end.
-    let _ = parser.parse_nested_block(|inner| {
-        while inner.next_including_whitespace_and_comments().is_ok() {}
-        Ok::<(), ParseError<()>>(())
-    });
-    let named = contains_ci(parser.slice_from(start), OWN);
+    let named = parser
+        .parse_nested_block(|inner| Ok::<bool, ParseError<()>>(read(inner)))
+        .unwrap_or(false);
     parser.reset(&state);
     named
+}
+
+/// Whether the decoded `text` holds `mailo` as the start of a name: at its end or before a
+/// character that cannot continue a word.
+fn says_own(text: &str) -> bool {
+    let lower = text.to_ascii_lowercase();
+    lower.match_indices(OWN).any(|(at, _)| {
+        lower[at + OWN.len()..]
+            .chars()
+            .next()
+            .is_none_or(|next| !next.is_alphanumeric())
+    })
 }
 
 /// Write one token that is not structure the walk itself reads.
@@ -252,6 +274,13 @@ fn write(parser: &mut Parser<'_>, token: &Token<'_>, out: &mut Out) {
             block(parser, '(', ')', Context::Value, out);
         }
         Token::ParenthesisBlock => block(parser, '(', ')', Context::Value, out),
+        Token::SquareBracketBlock if names_own(parser) => {
+            // An attribute selector reaching for mailo's names matches nothing instead, in
+            // whatever context it turns up in (`:is([class^=mailo])` too).
+            out.token(token.serialization_type(), "[");
+            out.token(TokenSerializationType::Nothing, "x-mailo");
+            out.token(Token::CloseSquareBracket.serialization_type(), "]");
+        }
         Token::SquareBracketBlock => block(parser, '[', ']', Context::Value, out),
         Token::CurlyBracketBlock => block(parser, '{', '}', Context::Value, out),
         other => out.token(

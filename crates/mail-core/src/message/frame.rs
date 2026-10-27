@@ -174,7 +174,7 @@ const FRAME_LINK: &str = "#0066cc";
 /// attributes give it, so a blocked one still holds its place. The sender's
 /// `<style>` comes later in the document and its `<body>` colours and style sit on the body
 /// itself, so either wins, and a sender's ground still fills the frame to its edges. The gutter
-/// the words are read in is not the body's: it is the inset's ([`inset_rule`]), which no
+/// the words are read in is not the body's: it is the inset's ([`INSET_STYLE`]), which no
 /// `padding: 0` of the sender's reaches.
 fn html_sheet() -> String {
     format!(
@@ -189,39 +189,33 @@ fn html_sheet() -> String {
          pre {{ background: {FRAME_CODE_GROUND}; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }} \
          h2 {{ font-size: 1.3em; line-height: 1.25; margin: .9em 0 .35em; }} \
          h3 {{ font-size: 1.15em; margin: .8em 0 .3em; }} h4 {{ font-size: 1em; margin: .7em 0 .3em; }} \
-         a {{ color: {FRAME_LINK}; }} {} {}",
+         a {{ color: {FRAME_LINK}; }} {}",
         super::quote::sheet(FRAME_INK_SOFT),
-        inset_rule()
     )
 }
-
-/// The gutter between a frame's edge and its words: the reader's `--s-18`, the inset its header
-/// and every other part of a message are drawn at, so a message's first line starts under the
-/// sender's name.
-const FRAME_INSET: &str = "18px";
 
 /// The class of the element a frame's words are read in, inside its `<body>` ([`frame_document`]).
 /// The sanitizer keeps a sender's markup from carrying it and a sender's sheet from naming it
 /// (`mail_mime::sanitize`: no class, id or selector of the sender's starts `mailo-`).
 const INSET_CLASS: &str = "mailo-inset";
 
-/// The inset's rule, the same for an HTML message and a plain-text one, so every message's words
-/// line up. On an element of the frame's own, never the sender's `<body>`: Gmail and Mail keep a
-/// gutter whatever a sender's body says, and a sender's `margin: 0; padding: 0` on the body is
-/// for a browser window, where the window's edge is the page's. `!important` and the doubled
-/// class are against the sender's generic rules (`div {{ padding: 0 !important }}`, `body > *`),
-/// which cannot name it and so cannot outweigh it. The body around it keeps the sender's ground,
-/// which still fills the frame.
-fn inset_rule() -> String {
-    format!(
-        "html > body > div.{INSET_CLASS}.{INSET_CLASS} {{ display: block !important; \
-         margin: 0 !important; border: 0 !important; padding: {FRAME_INSET} !important; }}"
-    )
-}
+/// The inset's style (padding 18px, the reader's `--s-18`, the gutter its header and every other
+/// part of a message are drawn at, so a message's first line starts under the sender's name),
+/// the same for an HTML message and a plain-text one, so every message's
+/// words line up. On an element of the frame's own, never the sender's `<body>`: Gmail and Mail
+/// keep a gutter whatever a sender's body says, and a sender's `margin: 0; padding: 0` on the
+/// body is for a browser window, where the window's edge is the page's. It is written inline on
+/// the element with `!important` on every property that shapes the gutter, so no rule of the
+/// sender's, however it is selected (`div:not(#z)`, `body > *`), outweighs it, and
+/// `border-box` with `width: auto` keeps the padding inside the frame. The body around it keeps
+/// the sender's ground, which still fills the frame.
+const INSET_STYLE: &str = "display:block!important;box-sizing:border-box!important;\
+    width:auto!important;max-width:none!important;min-width:0!important;float:none!important;\
+    position:static!important;margin:0!important;border:0!important;padding:18px!important";
 
 /// A plain-text message's sheet: its lines as written, on no ground of their own, so the
 /// reader's shows through, in the reader's ink for the scheme the window is in (a frame's
-/// document takes the window's scheme). The inset is an HTML message's ([`inset_rule`]).
+/// document takes the window's scheme). The inset is on the element ([`INSET_STYLE`]).
 fn plain_sheet() -> String {
     format!(
         ":root {{ color-scheme: light dark; }} html, body {{ background: transparent; }} \
@@ -229,9 +223,8 @@ fn plain_sheet() -> String {
          line-height: {FRAME_TEXT_LINE}; color: {FRAME_INK}; white-space: pre-wrap; \
          overflow-wrap: anywhere; }} {} \
          @media (prefers-color-scheme: dark) {{ body {{ color: {FRAME_INK_DARK}; }} \
-         details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }} {}",
+         details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }}",
         super::quote::sheet(FRAME_INK_SOFT),
-        inset_rule()
     )
 }
 
@@ -244,7 +237,7 @@ fn frame_document(sheet: &str, body_style: Option<&str>, body: &str) -> String {
         .unwrap_or_default();
     format!(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{sheet}</style></head>\
-         <body{styled}><div class=\"{INSET_CLASS}\">{body}</div></body></html>"
+         <body{styled}><div class=\"{INSET_CLASS}\" style=\"{INSET_STYLE}\">{body}</div></body></html>"
     )
 }
 
@@ -276,10 +269,10 @@ mod tests {
         );
         let page = frame_document(&html_sheet(), safe.body_style(), safe.as_str());
         assert!(
-            page.contains(
+            page.contains(&format!(
                 "<body style=\"background-color:#f3f1ec;padding:0\">\
-                 <div class=\"mailo-inset\"><p>Hi</p></div></body>"
-            ),
+                 <div class=\"mailo-inset\" style=\"{INSET_STYLE}\"><p>Hi</p></div></body>"
+            )),
             "{page}"
         );
         assert!(!html_sheet().contains("height: auto"), "{}", html_sheet());
@@ -291,14 +284,9 @@ mod tests {
     /// the body and loses nothing of the gutter.
     #[test]
     fn the_words_sit_in_an_inset_the_sender_cannot_reach() {
+        assert!(INSET_STYLE.contains("padding:18px!important"));
         for sheet in [html_sheet(), plain_sheet()] {
-            assert!(
-                sheet.contains(
-                    "html > body > div.mailo-inset.mailo-inset { display: block !important; \
-                     margin: 0 !important; border: 0 !important; padding: 18px !important; }"
-                ),
-                "{sheet}"
-            );
+            assert!(!sheet.contains("padding: 18px"), "{sheet}");
             assert!(!sheet.contains("margin: 18px"), "{sheet}");
         }
         let raw = include_str!("../../tests/fixtures/flush-notice.eml");
@@ -308,13 +296,15 @@ mod tests {
         let page = body.frame_html().expect("present");
         assert!(
             page.contains("<body style=\"margin:0;padding:0;background-color:#ffffff;")
-                && page.contains("><div class=\"mailo-inset\">"),
+                && page.contains(&format!(
+                    "><div class=\"mailo-inset\" style=\"{INSET_STYLE}\">"
+                )),
             "{page}"
         );
         assert!(page.ends_with("</div></body></html>"), "{page}");
 
         let posing = "<style>.mailo-inset{padding:0!important} #mailo-inset, \
-                      [class*=inset-mailo]{margin:0}</style>\
+                      [class*=inset-mailo]{margin:0} div:not(#z){padding:0!important;width:100%!important}</style>\
                       <div class=\"mailo-inset lead\" id=\"mailo-inset\">Hi</div>";
         let parsed =
             mail_mime::parse(format!("Content-Type: text/html\r\n\r\n{posing}").as_bytes())

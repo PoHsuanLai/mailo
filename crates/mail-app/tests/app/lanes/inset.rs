@@ -39,7 +39,8 @@ fn letters(store: &mail_core::SqliteStore) {
             "From: news@example.test\r\nTo: me@example.test\r\nSubject: {GROUND_SUBJECT}\r\n\
              Date: {date}\r\nMessage-ID: <ground-inset@example.test>\r\n\
              Content-Type: text/html; charset=utf-8\r\n\r\n\
-             <html><body bgcolor=\"#1d4e89\" style=\"margin:0;padding:0\">\
+             <html><head><style>div:not(#z){{padding:0!important;width:100%!important}}</style>\
+             </head><body bgcolor=\"#1d4e89\" style=\"margin:0;padding:0\">\
              <table width=\"100%\" bgcolor=\"#1d4e89\"><tr><td align=\"center\">\
              <table width=\"300\" bgcolor=\"#ffffff\"><tr><td id=\"story\">The week's news</td>\
              </tr></table></td></tr></table></body></html>\r\n"
