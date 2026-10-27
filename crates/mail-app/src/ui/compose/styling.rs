@@ -160,7 +160,7 @@ const SIZES: [(Option<TextSize>, &str, &str); 4] = [
 
 /// Each colour with its name, no colour first.
 const COLOURS: [(Option<TextColor>, &str); 7] = [
-    (None, copy::menus::NO_COLOUR),
+    (None, copy::menus::NO_TEXT_COLOUR),
     (Some(TextColor::Gray), copy::menus::GREY),
     (Some(TextColor::Red), copy::menus::RED),
     (Some(TextColor::Orange), copy::menus::ORANGE),

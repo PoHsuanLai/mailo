@@ -395,6 +395,7 @@ mod quick_tests {
                             summary: row,
                             corpus: None,
                             folders: &[],
+                            sizes: &[],
                             now,
                         })
                     })

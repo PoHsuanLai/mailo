@@ -53,7 +53,7 @@ pub(in crate::ui) struct Terms {
 /// under its field (`items::chips` once a search is typed); each is taken out of the line once,
 /// and what is left keeps its order, its spaces closed up.
 pub(in crate::ui) fn terms(query: &str) -> Terms {
-    let chips = search::parse(query, &Utc, &|_| Vec::new()).operator_tokens;
+    let chips = search::parse(query, &Utc, &mail_core::query::unnamed).operator_tokens;
     let mut rest = query.to_owned();
     for chip in &chips {
         if let Some(at) = rest.find(chip.as_str()) {

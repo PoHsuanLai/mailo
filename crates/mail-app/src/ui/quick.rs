@@ -36,7 +36,7 @@ impl Toggle {
 
     /// What the toggle keeps: its term, read as a search reads it.
     pub fn filter(self) -> Filter {
-        mail_core::query::parse_with(self.term(), &chrono::Utc, &|_| Vec::new())
+        mail_core::query::parse_with(self.term(), &chrono::Utc, &mail_core::query::unnamed)
     }
 
     /// Its words on the row.

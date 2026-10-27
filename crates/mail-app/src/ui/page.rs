@@ -487,7 +487,13 @@ mod tests {
             ),
         ];
         for (group, sync, want) in cases {
-            let rows = read(&more_items(group, None, parts, sync.map(str::to_owned)));
+            let rows = read(&more_items(
+                group,
+                None,
+                None,
+                parts,
+                sync.map(str::to_owned),
+            ));
             assert_eq!(rows, want, "{group:?} {sync:?}");
         }
         // Where the place offers it, Organise by Conversation follows Group by Date, checked
@@ -499,7 +505,13 @@ mod tests {
                 crate::ui::copy::menus::ORGANISE_BY_CONVERSATION,
             ),
         ] {
-            let rows = read(&more_items(PageGroup::None, Some(threading), parts, None));
+            let rows = read(&more_items(
+                PageGroup::None,
+                None,
+                Some(threading),
+                parts,
+                None,
+            ));
             assert_eq!(
                 rows[..3],
                 [crate::ui::copy::menus::GROUP_BY_DATE, want, "-"],
@@ -511,7 +523,7 @@ mod tests {
             snippet: RowPart::Hidden,
             chips: RowPart::Hidden,
         };
-        let rows = more_items(PageGroup::None, None, hidden, None);
+        let rows = more_items(PageGroup::None, None, None, hidden, None);
         assert_eq!(
             read(&rows)[2..],
             [
@@ -555,7 +567,7 @@ mod tests {
             ),
         ];
         for (sort, want) in cases {
-            let rows = read(&more_items(PageGroup::None, Some(sort), parts, None));
+            let rows = read(&more_items(PageGroup::None, Some(sort), None, parts, None));
             assert_eq!(rows[0], want, "{sort:?}");
             assert_eq!(rows[1], crate::ui::copy::menus::GROUP_BY_DATE);
         }

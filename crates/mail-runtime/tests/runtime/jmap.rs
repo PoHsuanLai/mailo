@@ -1004,7 +1004,11 @@ async fn moving_to_a_folder_the_server_does_not_have_is_refused_for_good() {
     let lists = s.fake.calls("Mailbox/get").len();
 
     let (_tx, mut cancel) = watch::channel(false);
-    let report = s.engine.pass(&mut cancel, now()).await.unwrap();
+    let report = s
+        .engine
+        .pass(&mut cancel, now(), &mut |_, _, _| {})
+        .await
+        .unwrap();
     assert!(
         report
             .needs_attention

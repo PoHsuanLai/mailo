@@ -144,7 +144,6 @@ fn spec() -> impl Strategy<Value = Spec> {
         (
             prop::option::of(0..MOVES.len()),
             prop::option::of(0..MOVES.len()),
-            prop::option::of(0..MOVES.len()),
             0i64..4_000,
             prop::option::of((0..WORDS.len(), 0u64..60)),
         ),

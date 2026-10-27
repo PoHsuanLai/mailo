@@ -29,7 +29,12 @@ pub struct MessageRow {
 /// message's own to sort by, and fall back to its date, as `sort_column` does for size.
 fn message_column(property: Property) -> &'static str {
     match property {
-        Property::Date | Property::Size | Property::Attachments | Property::Pin => "m.date",
+        Property::Date
+        | Property::Size
+        | Property::Attachments
+        | Property::Pin
+        | Property::Unread
+        | Property::Starred => "m.date",
         Property::Subject => "m.subject",
         Property::From | Property::Sender => "m.from_email",
     }

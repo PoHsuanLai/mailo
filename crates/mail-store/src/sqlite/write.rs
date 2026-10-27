@@ -60,10 +60,17 @@ fn chunks(ingest: Ingest, size: usize) -> Vec<Ingest> {
         flags,
         labels,
         label_names,
+        flag_colors,
+        provider_threads,
         gone,
     } = ingest;
     let size = size.max(1);
-    let entries = messages.len() + flags.len() + label_names.len() + gone.len();
+    let entries = messages.len()
+        + flags.len()
+        + label_names.len()
+        + flag_colors.len()
+        + provider_threads.len()
+        + gone.len();
     let count = entries.div_ceil(size).max(1);
     let mut out: Vec<Ingest> = (0..count)
         .map(|_| Ingest {
@@ -74,6 +81,8 @@ fn chunks(ingest: Ingest, size: usize) -> Vec<Ingest> {
             flags: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
+            flag_colors: Vec::new(),
+            provider_threads: Vec::new(),
             gone: Vec::new(),
         })
         .collect();
@@ -92,6 +101,12 @@ fn chunks(ingest: Ingest, size: usize) -> Vec<Ingest> {
     }
     for named in label_names {
         out[next()].label_names.push(named);
+    }
+    for colour in flag_colors {
+        out[next()].flag_colors.push(colour);
+    }
+    for thread in provider_threads {
+        out[next()].provider_threads.push(thread);
     }
     for remote in gone {
         out[next()].gone.push(remote);

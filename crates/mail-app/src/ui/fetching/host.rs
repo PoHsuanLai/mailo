@@ -51,7 +51,13 @@ pub(super) struct WindowHost {
 /// (`mail_core::sync::watcher::told`). A message is an arrival only on the pass that first
 /// stores it, so a watch and a window running side by side seldom both announce one: only two
 /// passes storing the same message at the same moment can.
-fn announce(store: &SqliteStore, ends: &[PassEnd], notifier: &dyn Notifier, at: DateTime<Utc>) {
+fn announce(
+    store: &SqliteStore,
+    ends: &[PassEnd],
+    notifier: &dyn Notifier,
+    whom: mail_core::notify::Whom,
+    at: DateTime<Utc>,
+) {
     for end in ends {
         let PassEnd::Finished(report) = end else {
             continue;
@@ -60,7 +66,9 @@ fn announce(store: &SqliteStore, ends: &[PassEnd], notifier: &dyn Notifier, at: 
             store,
             report.account.clone(),
             &report.counts.arrived,
+            &report.counts.noted,
             notifier,
+            whom,
             at,
         ) {
             log::warn!(
@@ -134,6 +142,10 @@ impl Host for WindowHost {
         let mut offers = self.offers;
         // Asked as the pass starts, so a switch turned in Settings counts from the next pass.
         let notifier = crate::ui::follow_up::speaking(self.notices.as_ref(), self.settings);
+        let whom = self
+            .settings
+            .map(|settings| settings.peek().notifications.notify_for.into())
+            .unwrap_or_default();
         Box::pin(async move {
             let PassCall {
                 account,
@@ -154,7 +166,7 @@ impl Host for WindowHost {
                 };
                 let done = (passer.0)(store.clone(), started, this_account, hooks);
                 if let (Some(notifier), Ok(ends)) = (&notifier, &done) {
-                    announce(&store, ends, notifier.as_ref(), started);
+                    announce(&store, ends, notifier.as_ref(), whom, started);
                 }
                 done
             })

@@ -58,6 +58,7 @@ pub fn fits(
         summary,
         corpus: message.body.text(),
         folders,
+        sizes: &[mail_domain::filter::message_size(message)],
         now,
     })
 }

@@ -241,7 +241,7 @@ fn key(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<SearchKey, Unsaid> {
         // The categories are Gmail's own, and only its search extension can ask for them.
         Filter::Category(category) => match ctx.labels {
             ServerLabels::Supported => SearchKey::GmailRaw(format!("category:{}", category.name())),
-            ServerLabels::LocalOnly => {
+            ServerLabels::LocalOnly | ServerLabels::Keywords => {
                 return Err(Unsaid::one(format!(
                     "{} (only Gmail has categories)",
                     describe(filter)

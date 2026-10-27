@@ -127,7 +127,6 @@ pub fn written<Tz: TimeZone>(filter: &Filter, names: &Known<'_>, zone: &Tz) -> O
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vip::Vips;
     use chrono::Utc;
 
     fn labels() -> Vec<(String, LabelId)> {
@@ -179,9 +178,12 @@ mod tests {
             property: Property::Size,
             dir: SortDir::Desc,
         };
-        let draft = Draft::of(&view, &labels(), &Utc);
+        let draft = Draft::of(&view, &known(&labels()), &Utc);
         assert_eq!((draft.property, draft.dir), (Property::Size, SortDir::Desc));
-        assert_eq!(draft.build(&labels(), &Utc).unwrap().sort, view.sort);
+        assert_eq!(
+            draft.build(&known(&labels()), &Utc).unwrap().sort,
+            view.sort
+        );
     }
 
     #[test]
@@ -212,9 +214,9 @@ mod tests {
     fn an_edited_view_keeps_a_message_to_a_row() {
         let mut view = saved("Trips", "label:travel");
         view.threading = Threading::Single;
-        let mut draft = Draft::of(&view, &labels(), &Utc);
+        let mut draft = Draft::of(&view, &known(&labels()), &Utc);
         draft.name = "Travel".to_owned();
-        let again = draft.build(&labels(), &Utc).unwrap();
+        let again = draft.build(&known(&labels()), &Utc).unwrap();
         assert_eq!(again.threading, Threading::Single, "a rename keeps it");
     }
 

@@ -37,7 +37,7 @@ pub fn doc_of(draft: &Draft, inline: &[ParsedPart]) -> Doc {
 /// picker could find.
 fn separated(mut nodes: Vec<Node>) -> Vec<Node> {
     let separator = nodes.iter().rposition(|node| {
-        matches!(node, Node::Para { kind: ParaKind::Paragraph, runs }
+        matches!(node, Node::Para { kind: ParaKind::Paragraph, runs, .. }
             if runs_text(runs).trim() == "--")
     });
     if let Some(at) = separator {

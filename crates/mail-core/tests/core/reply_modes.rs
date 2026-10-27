@@ -126,6 +126,7 @@ fn message(store: &SqliteStore, stored: Stored<'_>) -> MessageId {
         rfc_message_id: Some(rfc),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -155,6 +156,8 @@ fn message(store: &SqliteStore, stored: Stored<'_>) -> MessageId {
                 flags: vec![],
                 labels: vec![],
                 label_names: Vec::new(),
+                flag_colors: vec![],
+                provider_threads: vec![],
                 gone: vec![],
             },
         )

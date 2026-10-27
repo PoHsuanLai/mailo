@@ -92,7 +92,7 @@ impl SyncOps<'_> {
         tell: &dyn Fn(Watched),
         asked: Option<Asked>,
     ) -> Result<Vec<PassEnd>, CoreError> {
-        self.watch_until(notifier, tell, asked, None, End::WhenStuck)
+        self.watch_until(notifier, whom, tell, asked, None, End::WhenStuck)
             .await
     }
 
@@ -108,6 +108,7 @@ impl SyncOps<'_> {
     pub async fn watch_until(
         &self,
         notifier: Option<&dyn Notifier>,
+        whom: Whom,
         tell: &dyn Fn(Watched),
         asked: Option<Asked>,
         accounts: Option<Asked>,

@@ -153,6 +153,7 @@ pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
             },
         ],
         SettingsPage::Accounts
+        | SettingsPage::Contacts
         | SettingsPage::Signatures
         | SettingsPage::Spaces
         | SettingsPage::Rules

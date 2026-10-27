@@ -167,6 +167,14 @@ pub struct WithVips<'a> {
     pub vips: &'a Vips,
 }
 
+impl std::fmt::Debug for WithVips<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WithVips")
+            .field("vips", &self.vips)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Names for WithVips<'_> {
     fn labels(&self, name: &str) -> Vec<LabelId> {
         self.names.labels(name)
@@ -526,7 +534,7 @@ mod category_tests {
     use super::*;
 
     fn parsed(input: &str) -> Filter {
-        parse_with(input, &Utc, &|_| Vec::new())
+        parse_with(input, &Utc, &super::unnamed)
     }
 
     #[test]

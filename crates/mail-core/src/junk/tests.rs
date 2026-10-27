@@ -22,6 +22,7 @@ fn message(n: u128, from: &str, subject: &str, text: &str) -> Message {
         rfc_message_id: None,
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {

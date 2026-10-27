@@ -1067,6 +1067,7 @@ fn a_queued_copy_lists_the_message_in_its_folder() {
                 summary: &s,
                 corpus: None,
                 folders,
+                sizes: &[],
                 now: now(),
             })
         };

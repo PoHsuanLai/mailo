@@ -164,6 +164,7 @@ fn message(n: u128, mailbox: MailboxRole) -> Message {
         rfc_message_id: Some(format!("m{n}@example.test")),
         read: ReadState::Read,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox,
         labels: vec![],
         body: Body::Absent,

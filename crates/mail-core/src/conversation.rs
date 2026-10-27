@@ -1245,7 +1245,16 @@ mod tests {
 
         let mut view = crate::saved_search::Draft::from_search("is:unread");
         view.threading = Threading::Single;
-        let view = view.build(&[], &Utc).unwrap();
+        let view = view
+            .build(
+                &crate::query::Known {
+                    labels: &[],
+                    accounts: &[],
+                    vips: None,
+                },
+                &Utc,
+            )
+            .unwrap();
         let place = saved_place(&view);
         assert!(organises(&place));
         assert_eq!(

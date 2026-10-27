@@ -180,7 +180,9 @@ pub(crate) fn unaddressed(intent: &RemoteIntent) -> Option<ProtoOp> {
         RemoteIntent::SetFlags { .. }
         | RemoteIntent::SetMailbox { .. }
         | RemoteIntent::SetLabels { .. }
+        | RemoteIntent::SetFlag { .. }
         | RemoteIntent::File { .. }
+        | RemoteIntent::Copy { .. }
         | RemoteIntent::AddKeyword { .. }
         | RemoteIntent::Destroy { .. } => return None,
     })

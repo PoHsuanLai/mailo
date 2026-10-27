@@ -696,7 +696,7 @@ mod tests {
         ];
         for (case, message, heard, want) in cases {
             assert_eq!(
-                verdict(message, Snooze::Inactive, &own, heard, at(9), at(13)),
+                verdict(message, Snooze::Inactive, &own, heard, at(9), at(13), false),
                 want,
                 "{case}"
             );
@@ -823,7 +823,15 @@ mod tests {
             m
         };
         let ask = |role: MailboxRole, followed: bool| {
-            verdict(&with(role), Snooze::Inactive, &own, at(9), at(13), followed)
+            verdict(
+                &with(role),
+                Snooze::Inactive,
+                &own,
+                &Heard::Everyone,
+                at(9),
+                at(13),
+                followed,
+            )
         };
         let cases = [
             (

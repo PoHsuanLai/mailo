@@ -159,10 +159,18 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
         root: crate::settings::person_root(),
     };
     let tell = |watched: mail_core::sync::report::Watched| told(&watched);
+    // Whose new mail is said, as the settings say as the watch starts.
+    let whom = crate::settings::person_root()
+        .map(|root| crate::settings::load(&root))
+        .unwrap_or_default()
+        .notifications
+        .notify_for
+        .into();
     loop {
         let mail = crate::edge::mail(store);
         let ran = crate::edge::block_on(mail.sync().watch_until(
             Some(&notifier),
+            whom,
             &tell,
             Some(held.asked()),
             Some(accounts.clone()),

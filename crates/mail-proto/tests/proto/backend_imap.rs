@@ -21,7 +21,7 @@ fn caps(labels: ServerLabels, archive: ArchiveMeans) -> AccountCaps {
         labels,
         threads: match labels {
             ServerLabels::Supported => ServerThreads::ProviderId,
-            ServerLabels::LocalOnly => ServerThreads::Jwz,
+            ServerLabels::LocalOnly | ServerLabels::Keywords => ServerThreads::Jwz,
         },
         archive,
         condstore: Condstore::Supported,

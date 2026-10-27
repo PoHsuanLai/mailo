@@ -450,7 +450,7 @@ mod a_reader_that_is_not_the_writer {
                 "unfetched_in",
                 Box::new({
                     let inbox = inbox.clone();
-                    move |s| s.unfetched_in(&inbox, 50).map(drop)
+                    move |s| s.unfetched_in(&inbox, None, 50).map(drop)
                 }),
             ),
             (

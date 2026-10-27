@@ -203,12 +203,14 @@ impl ImapBackend {
             commands.push(ImapCommand::UidStore {
                 set: set.clone(),
                 what: format!("+FLAGS ({})", add.join(" ")),
+                tolerate: false,
             });
         }
         if !remove.is_empty() {
             commands.push(ImapCommand::UidStore {
                 set,
                 what: format!("-FLAGS ({})", remove.join(" ")),
+                tolerate: false,
             });
         }
         self.job = Job::Applied;
@@ -709,12 +711,14 @@ impl Backend for ImapBackend {
                     ImapCommand::UidStore {
                         set: set.clone(),
                         what: format!("+FLAGS ({})", add.join(" ")),
+                        tolerate: false,
                     },
                 ];
                 if !clear.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set,
                         what: format!("-FLAGS ({})", clear.join(" ")),
+                        tolerate: false,
                     });
                 }
                 self.job = Job::Applied;
@@ -863,6 +867,7 @@ impl Backend for ImapBackend {
                             ImapCommand::UidStore {
                                 set,
                                 what: format!("+X-GM-LABELS ({})", quoted_labels(&[folder])),
+                                tolerate: false,
                             },
                         ])
                     }

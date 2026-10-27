@@ -50,7 +50,7 @@ pub fn plain_of(nodes: &[Node]) -> String {
     let lines: Vec<String> = nodes
         .iter()
         .filter_map(|node| match node {
-            Node::Para { kind, runs } => {
+            Node::Para { kind, runs, .. } => {
                 let text = runs_text(runs);
                 Some(match kind {
                     ParaKind::Bullet => format!("- {text}"),

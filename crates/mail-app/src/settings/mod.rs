@@ -682,16 +682,6 @@ fn with_word_labels(mut key: KeySpec) -> KeySpec {
     key
 }
 
-/// Every word of `W` with the label a person reads for it.
-fn labels_of<W: Word + Copy>() -> WordLabels {
-    WordLabels(
-        W::ALL
-            .iter()
-            .map(|word| (word.slug().to_owned(), word.label().to_owned()))
-            .collect(),
-    )
-}
-
 /// What the Dock's number counts, as the person's settings say; the Inbox where there are none
 /// to read.
 pub fn badge_places() -> mail_core::notify::Places {
