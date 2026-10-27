@@ -145,8 +145,8 @@ ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "ab51540ce60
 # spelling as quire, so one quire is built). `anyview-core` is the vocabulary (`Input`, `ReadAt`:
 # how the store's bytes go in); `anyview-peek` the peek worker and, with `pane`, the card that draws
 # what was peeked. Headless otherwise: no media player, no D-Bus.
-anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "d0a5c0ba2bedd4b9eac9a656324904574dd8ad54", optional = true }
-anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "d0a5c0ba2bedd4b9eac9a656324904574dd8ad54", default-features = false, features = ["pane"], optional = true }
+anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "3207c276efcb8fcbffbf2facad27543a2317c5ee", optional = true }
+anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "3207c276efcb8fcbffbf2facad27543a2317c5ee", default-features = false, features = ["pane"], optional = true }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
