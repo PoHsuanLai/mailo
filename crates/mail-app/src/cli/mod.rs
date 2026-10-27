@@ -1400,13 +1400,12 @@ usage: mailo <command>
   sync                       fetch mail and send anything queued
   sync --folder <account> <path>
                              fetch one folder now, followed or not
-  import <file|maildir> [--to-mailbox <account> <folder>]
+  import <path> [--to-mailbox <account> <folder>]
                              mail from an mbox (Google Takeout's too), a Maildir,
                              one .eml, Apple Mail's mailboxes (an export or its .emlx
                              files) or a Thunderbird profile, kept in \"local folders\"
-                             on this computer, or
-                             uploaded into a folder on an IMAP account. Running it
-                             again adds nothing already there
+                             on this computer, or uploaded into a folder on an IMAP
+                             account. Running it again adds nothing already there
   export <search|inbox|sent|all…> --mbox FILE | --maildir DIR | --eml DIR
                              write the messages a search finds; bodies not yet
                              downloaded are skipped and counted

@@ -34,8 +34,8 @@ the least exercised.
   `mailto:` links (RFC 6068).
 - Send later (`mailo send --at`, taken back with `mailo unsend`), snooze, and follow-up reminders.
 - One-click and mailto `List-Unsubscribe`.
-- Import from mbox, Maildir, `.eml`, Apple Mail (an export or its `.emlx` files) and a Thunderbird profile; export; printing (PDF through the system print dialog);
-  BIMI sender logos.
+- Import from mbox, Maildir, `.eml`, Apple Mail (an export or its `.emlx` files) and a
+  Thunderbird profile; export; printing (PDF through the system print dialog); BIMI sender logos.
 
 **Search and rules**
 

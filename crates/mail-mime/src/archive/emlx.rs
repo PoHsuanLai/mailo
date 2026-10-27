@@ -13,8 +13,8 @@ use super::{Placement, folder_placement};
 use chrono::{DateTime, Utc};
 use mail_domain::{MailboxRole, SystemFlag};
 
-/// The bits of the `flags` property this reads. Apple Mail sets others: encrypted, recent,
-/// forwarded, a priority and an attachment count among them.
+// The bits of the `flags` property this reads. Apple Mail sets others: encrypted, recent,
+// forwarded, a priority and an attachment count among them.
 const READ: u64 = 1 << 0;
 const DELETED: u64 = 1 << 1;
 const ANSWERED: u64 = 1 << 2;

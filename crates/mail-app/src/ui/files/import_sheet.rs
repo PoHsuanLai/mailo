@@ -69,7 +69,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>, revision: Signal<u64>) -> Elemen
     let (validity, look_words) = match &shown {
         Looked::Blank => (
             Validity::Valid,
-            "An mbox file, a Maildir or an .eml message".to_owned(),
+            "A mail file or folder: mbox, Maildir, .eml, Apple Mail or Thunderbird".to_owned(),
         ),
         Looked::Mail { said, .. } => (Validity::Valid, said.clone()),
         Looked::Refused(why) => (

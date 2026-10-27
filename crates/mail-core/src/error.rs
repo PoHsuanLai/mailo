@@ -181,7 +181,7 @@ pub enum CoreError {
          mailboxes or a Thunderbird profile",
         .0.display()
     )]
-    NotAMaildir(PathBuf),
+    NotMailFolder(PathBuf),
     #[error("{} is not an Apple Mail message: it does not begin with its length", .0.display())]
     NotEmlx(PathBuf),
     #[error("no account for {address:?}")]

@@ -56,7 +56,7 @@ pub enum Destination {
 ///
 /// A directory with `cur`, `new` or `tmp` in it is a Maildir; one with Thunderbird's indexes or
 /// a profile's `prefs.js` is Thunderbird's; one that is or holds `.mbox` packages or `.emlx`
-/// files is Apple Mail's. A file named `.emlx` is one Apple Mail message, a file that opens with
+/// files is Apple Mail's. A file with the extension `.emlx` is one Apple Mail message, a file that opens with
 /// a `From ` line is an mbox, and any other file is one message.
 pub fn detect(path: &Path) -> Result<Source, CoreError> {
     let meta = std::fs::metadata(path).map_err(CoreError::at(&path))?;
@@ -71,7 +71,7 @@ pub fn detect(path: &Path) -> Result<Source, CoreError> {
         } else if is_apple_mail(path, APPLE_DEPTH) {
             Ok(Source::AppleMail(path.to_owned()))
         } else {
-            Err(CoreError::NotAMaildir(path.to_owned()))
+            Err(CoreError::NotMailFolder(path.to_owned()))
         };
     }
     if has_extension(path, "emlx") {
@@ -132,14 +132,29 @@ fn entries(dir: &Path) -> Result<Vec<(String, PathBuf, bool)>, CoreError> {
     Ok(out)
 }
 
+/// `dir`'s entries, and if it cannot be listed, the error naming `folder` as well as the path.
+fn folder_entries(
+    dir: &Path,
+    folder: Option<&str>,
+) -> Result<Vec<(String, PathBuf, bool)>, CoreError> {
+    entries(dir).map_err(|e| match folder {
+        Some(folder) => CoreError::cannot(format!("list the folder {folder}"), e),
+        None => e,
+    })
+}
+
+/// Whether `listed` holds a `.msf` index, which marks a Thunderbird account directory.
+fn has_index(listed: &[(String, PathBuf, bool)]) -> bool {
+    listed
+        .iter()
+        .any(|(name, _, is_dir)| !is_dir && name.ends_with(".msf"))
+}
+
 /// Whether `dir` is a Thunderbird profile, or a directory of its account folders, or one.
 fn is_thunderbird(dir: &Path) -> bool {
     let index = |dir: &Path| {
         // A directory that cannot be listed holds no index this could read.
-        let found = entries(dir).unwrap_or_default();
-        found
-            .iter()
-            .any(|(name, _, is_dir)| !is_dir && name.ends_with(".msf"))
+        has_index(&entries(dir).unwrap_or_default())
     };
     let profile = dir.join("prefs.js").is_file()
         && (dir.join("Mail").is_dir() || dir.join("ImapMail").is_dir());
@@ -305,7 +320,7 @@ fn emlx_item(path: &Path, folder: Option<&str>) -> Result<Item, CoreError> {
 }
 
 /// A file of mail found under a directory, and the folder it holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 enum Held {
     Mbox(PathBuf, Option<String>),
     Emlx(PathBuf, Option<String>),
@@ -349,7 +364,7 @@ fn apple_files(
     depth: usize,
     found: &mut Vec<Held>,
 ) -> Result<(), CoreError> {
-    for (name, path, is_dir) in entries(dir)? {
+    for (name, path, is_dir) in folder_entries(dir, folder.as_deref())? {
         if is_dir {
             match emlx::folder_of_package(&name) {
                 Some(package) => {
@@ -381,11 +396,7 @@ fn thunderbird_accounts(root: &Path) -> Result<Vec<PathBuf>, CoreError> {
         .filter(|home| home.is_dir())
         .collect();
     let listed = entries(root)?;
-    if homes.is_empty()
-        && listed
-            .iter()
-            .any(|(name, _, is_dir)| !is_dir && name.ends_with(".msf"))
-    {
+    if homes.is_empty() && has_index(&listed) {
         return Ok(vec![root.to_owned()]);
     }
     let homes = if homes.is_empty() {
@@ -412,7 +423,7 @@ fn thunderbird_files(
     parent: Option<&str>,
     found: &mut Vec<Held>,
 ) -> Result<(), CoreError> {
-    let listed = entries(dir)?;
+    let listed = folder_entries(dir, parent)?;
     for (name, path, is_dir) in &listed {
         if *is_dir || !thunderbird::may_be_folder(name) {
             continue;
@@ -904,13 +915,32 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_subfolder_that_cannot_be_listed_stops_the_import_naming_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let account = dir.path().join("Mail/Local Folders");
+        put(&account.join("Inbox"), mbox_of(&[("kept", None)]));
+        put(&account.join("Inbox.msf"), b"");
+        let locked = account.join("Projects.sbd");
+        put(&locked.join("Mailo"), mbox_of(&[("nested", None)]));
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let refused = items(&Source::Thunderbird(account.clone()));
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // Running as a user who can list it anyway proves nothing.
+        if let Err(e) = refused {
+            assert!(e.to_string().contains("the folder Projects"), "{e}");
+        }
+    }
+
     #[test]
     fn a_directory_of_something_else_is_still_refused() {
         let dir = tempfile::tempdir().unwrap();
         put(&dir.path().join("Photos/one.jpg"), b"\xff\xd8");
         let refused = detect(&dir.path().join("Photos"));
         assert!(
-            matches!(refused, Err(CoreError::NotAMaildir(_))),
+            matches!(refused, Err(CoreError::NotMailFolder(_))),
             "{refused:?}"
         );
     }
