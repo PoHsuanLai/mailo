@@ -50,8 +50,8 @@ impl Draft {
             query: search.to_owned(),
             kept: None,
             group: None,
-            property: Property::Date,
-            dir: SortDir::Desc,
+            property: Sort::NEWEST_FIRST.property,
+            dir: Sort::NEWEST_FIRST.dir,
         }
     }
 
