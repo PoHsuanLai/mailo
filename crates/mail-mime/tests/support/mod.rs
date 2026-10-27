@@ -2,16 +2,12 @@
 //! message starts from, the walkers the block tests read a document with, and the throwaway
 //! certificate authorities.
 //!
-//! The authorities stay in `bimi_support/` and `smime_support/`, where `mail-runtime`'s and
-//! `mail-app`'s tests include them by path.
+//! The authorities live in `mail_mime::testing`, which `mail-runtime`'s and `mail-app`'s tests
+//! use too.
 
-#[cfg(feature = "smime")]
-#[path = "../bimi_support/mod.rs"]
-pub mod bimi;
 pub mod block;
 #[cfg(feature = "smime")]
-#[path = "../smime_support/mod.rs"]
-pub mod smime;
+pub use mail_mime::testing::{bimi, smime};
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::new_account_id;

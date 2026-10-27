@@ -5,8 +5,6 @@
 //! as a prefix: `cargo test -p mail-runtime --test runtime -- <file>::`.
 
 // The helpers the tests share, declared once.
-#[path = "../../../mail-mime/tests/bimi_support/mod.rs"]
-mod bimi_support;
 mod fixture;
 #[path = "../jmap_fake/mod.rs"]
 mod jmap_fake;

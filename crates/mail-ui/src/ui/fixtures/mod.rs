@@ -14,9 +14,9 @@ mod settle;
 mod store;
 
 /// The throwaway certificate authority S/MIME tests make their certificates with: the one
-/// `mail-mime`'s tests and `tests/app/smime.rs` use, so all three build fixtures the same way.
-#[path = "../../../../mail-mime/tests/smime_support/mod.rs"]
-pub(in crate::ui) mod smime_support;
+/// `mail-mime`'s tests and `tests/app/smime.rs` use, so all three build fixtures the same way
+/// (`mail_mime::testing::smime`).
+pub(in crate::ui) use mail_mime::testing::smime as smime_support;
 
 pub(in crate::ui) use dom::{
     FakeKey, INSIDE_THE_SHELL, Seen, click, deliver, dispatching, drain, drain_seen, key, later,

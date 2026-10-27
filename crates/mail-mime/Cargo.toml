@@ -93,7 +93,13 @@ smime = [
     "dep:sha2", "dep:hmac", "dep:flate2", "dep:signature", "dep:zeroize", "dep:sha1", "dep:rand",
 ]
 
+# The throwaway certificate authorities (`mail_mime::testing`): off in the program. They are
+# S/MIME certificates, so they bring that half in.
+testing = ["smime"]
+
 [dev-dependencies]
+# Its own tests use the authorities it exports.
+mail-mime = { package = "mailo-mime", path = ".", features = ["testing"] }
 uuid.workspace = true
 # The values a test starts from (`mail_domain::testing`): the program never has them.
 mail-domain = { workspace = true, features = ["testing"] }

@@ -168,15 +168,8 @@ dioxus-ssr = "0.7"
 uuid = { workspace = true }
 # The linter (`lint::assert_clean`, the markup lint): quire's own crate, at the same tag.
 ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "ffdcc30c8fe0d08a96654ba9add416d0b9445b9c" }  # ffdcc30c (blitz-select-scroll, PR 64; forks blitz 841386a7, blitz-kit 4ad80cdc)
-# The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with
-# (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
-x509-cert = { version = "0.2", features = ["builder"] }
-der = "0.7"
-spki = "0.7"
-const-oid = "0.9"
-cms = "0.2"
-rsa = "0.9"
-p256 = { version = "0.13", features = ["ecdsa"] }
+# The throwaway certificate authority the S/MIME tests build their fixtures with.
+mail-mime = { workspace = true, features = ["testing"] }
 # What a test reads back of a key the keyring holds (`ui/pgp/tests.rs`).
 mail-runtime = { workspace = true }
 

@@ -2,16 +2,13 @@
 //! with certificates issued under them, all made here from seeded generators. No real
 //! certificate or key is involved, and nothing is read from disk.
 //!
-//! Shared by `mail-mime`'s tests and `mail-app`'s (which include this file by path), so both
+//! Behind the `testing` feature, which `mail-mime`'s own tests and `mail-app`'s turn on, so both
 //! build their fixtures the same way.
 
-// Each includer (`mail-mime`'s tests, `mail-app`'s integration and unit tests) uses a subset.
-#![allow(dead_code)]
-
+use crate::smime::{Cert, Identity, PrivateKey};
 use chrono::{DateTime, TimeZone, Utc};
 use der::asn1::{Ia5String, OctetString, SetOfVec};
 use der::{Any, Decode, Encode};
-use mail_mime::smime::{Cert, Identity, PrivateKey};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use spki::SubjectPublicKeyInfoOwned;
@@ -58,6 +55,7 @@ fn cert_of(built: x509_cert::Certificate) -> Cert {
 }
 
 /// A certification authority: its certificate and its signing key.
+#[derive(Debug)]
 pub struct Authority {
     pub cert: Cert,
     pub key: p256::ecdsa::SigningKey,
@@ -65,6 +63,7 @@ pub struct Authority {
 }
 
 /// The root and the intermediate under it that issues people's certificates.
+#[derive(Debug)]
 pub struct Pki {
     pub root: Authority,
     pub intermediate: Authority,
@@ -148,6 +147,7 @@ pub fn rsa_key(seed: u64) -> rsa::RsaPrivateKey {
 }
 
 /// What a person's certificate says.
+#[derive(Debug)]
 pub struct Person<'a> {
     pub name: &'a str,
     /// The addresses in its subject alternative name.

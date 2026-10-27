@@ -187,15 +187,8 @@ rand = "0.8"
 # Reads the printed PDF back in the print test (`tests/app/lanes/print.rs`). The same version quire
 # names, so the tree holds one pdfrum.
 pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"] }
-# The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with
-# (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
-x509-cert = { version = "0.2", features = ["builder"] }
-der = "0.7"
-spki = "0.7"
-const-oid = "0.9"
-cms = "0.2"
-rsa = "0.9"
-p256 = { version = "0.13", features = ["ecdsa"] }
+# The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with.
+mail-mime = { workspace = true, features = ["testing"] }
 uuid = { workspace = true }
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the

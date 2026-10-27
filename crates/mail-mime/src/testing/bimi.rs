@@ -4,12 +4,12 @@
 //!
 //! The logotype extension is written by hand from RFC 3709 §4.1's module (implicit tags), the
 //! shape a mark certificate carries its logo in. Shared by `mail-mime`'s tests and
-//! `mail-runtime`'s (which include this file by path).
+//! `mail-runtime`'s, through the `testing` feature.
 
+use crate::smime::Cert;
 use chrono::{DateTime, TimeZone, Utc};
 use der::asn1::Ia5String;
 use der::{Encode, Length, Writer};
-use mail_mime::smime::Cert;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use sha2::Digest;
@@ -26,8 +26,6 @@ use x509_cert::time::{Time, Validity};
 
 pub const MARK_PURPOSE: const_oid::ObjectIdentifier =
     const_oid::ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.31");
-// `mail-mime`'s tests use it; `mail-runtime`'s, which include this file too, do not.
-#[allow(dead_code)]
 pub const SERVER_AUTH: const_oid::ObjectIdentifier =
     const_oid::ObjectIdentifier::new_unwrap("1.3.6.1.5.5.7.3.1");
 
@@ -66,6 +64,7 @@ fn cert_of(built: x509_cert::Certificate) -> Cert {
 }
 
 /// A mark verifying authority: a root, and the intermediate that issues marks.
+#[derive(Debug)]
 pub struct Authority {
     pub root: Cert,
     pub intermediate: Cert,
@@ -115,6 +114,7 @@ pub fn authority(label: &str, seed: u64) -> Authority {
 }
 
 /// What a mark certificate says.
+#[derive(Debug)]
 pub struct Mark<'a> {
     /// Its subject alternative names.
     pub domains: &'a [&'a str],

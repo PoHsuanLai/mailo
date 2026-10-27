@@ -27,6 +27,8 @@ pub mod script;
 #[cfg(feature = "smime")]
 pub mod smime;
 pub mod stamp;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod unsubscribe;
 
 pub use auth::{AuthResults, Check, Receiver, Verdict, authentication_results};
