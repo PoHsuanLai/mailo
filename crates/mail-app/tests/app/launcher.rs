@@ -3,7 +3,7 @@
 //! `launcher/unity.rs`.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::launcher::Unread;
+use mail_ui::launcher::Unread;
 use mail_app::session::unread;
 use mail_core::scope::Scope;
 use mail_core::snooze;

@@ -5,7 +5,7 @@
 //! a part still on the server, and a note instead of a decode for a picture that claims too many
 //! pixels.
 //!
-//! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`, and every
+//! The window is `mail_ui::ui::native::root` over a store seeded in a `TempDir`, and every
 //! request its documents make beyond inline `data:` goes to a recorder that refuses it.
 
 use base64::Engine as _;
@@ -225,19 +225,19 @@ pub(super) fn ms(n: u64) -> Duration {
 fn open() -> Window {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let contexts = mail_app::ui::native::contexts(
+    let contexts = mail_ui::ui::native::contexts(
         mail_client::Client::open(store.clone(), mail_client::ClientConfig::default()),
-        mail_app::ui::view::Appearance::default(),
+        mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     );
     let asked = Arc::new(Recorder::default());
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Custom(asked.clone()))
         .with_clock(Clock::Virtual)
         .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".list .ds-thread") > 0);
     Window {
@@ -333,7 +333,7 @@ fn a_stored_picture_and_pdf_show_thumbnails_that_open_peek() {
         "Peek's picture is no larger than the thumbnail: {:?}",
         drawn.size
     );
-    head_button(harness, mail_app::ui::copy::controls::SAVE);
+    head_button(harness, mail_ui::ui::copy::controls::SAVE);
     assert_eq!(harness.count(PAGE), 0, "a picture was given pages");
 
     harness.key(Key::Escape);
@@ -406,12 +406,12 @@ fn a_stored_picture_and_pdf_show_thumbnails_that_open_peek() {
         h.text_of(PAGE).as_deref() == Some("Page 1 of 2")
             && h.attr(PICTURE, "src").as_deref() == Some(first.as_str())
     });
-    let next = head_button(harness, mail_app::ui::copy::aria::NEXT_PAGE);
+    let next = head_button(harness, mail_ui::ui::copy::aria::NEXT_PAGE);
     click(harness, &next);
     settle_until(harness, |h| {
         h.text_of(PAGE).as_deref() == Some("Page 2 of 2")
     });
-    head_button(harness, mail_app::ui::copy::controls::SAVE);
+    head_button(harness, mail_ui::ui::copy::controls::SAVE);
 
     harness.key(Key::Escape);
     settle_until(harness, |h| h.count(PEEK) == 0);

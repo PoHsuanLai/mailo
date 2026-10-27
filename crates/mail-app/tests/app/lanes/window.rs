@@ -1,4 +1,4 @@
-//! The window every lane drives: the real `mail_app::ui::native::root` over a store seeded in a
+//! The window every lane drives: the real `mail_ui::ui::native::root` over a store seeded in a
 //! `TempDir`, on the harness's virtual clock, with every seam that would reach the desktop
 //! replaced by a recorder.
 //!
@@ -14,9 +14,9 @@
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_app::ui::appearance::WindowDirs;
-use mail_app::ui::native::Configured;
-use mail_app::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
+use mail_ui::ui::appearance::WindowDirs;
+use mail_ui::ui::native::Configured;
+use mail_ui::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
 use mail_core::SqliteStore;
 use mail_core::notify::{Notification, Notifier};
 use std::path::PathBuf;
@@ -79,10 +79,10 @@ impl Browse for Opened {
 /// the file.
 pub type Launched = Arc<Mutex<Vec<(&'static str, PathBuf)>>>;
 
-fn file_opener(launched: &Launched) -> mail_app::ui::native::FileOpener {
+fn file_opener(launched: &Launched) -> mail_ui::ui::native::FileOpener {
     let opened = Arc::clone(launched);
     let revealed = Arc::clone(launched);
-    mail_app::ui::native::FileOpener::new(
+    mail_ui::ui::native::FileOpener::new(
         move |path| {
             held(&opened).push(("open", path.to_owned()));
             Ok(())
@@ -124,15 +124,15 @@ struct Shared {
 
 impl Shared {
     fn contexts(&self) -> RootContexts {
-        mail_app::ui::native::contexts(
+        mail_ui::ui::native::contexts(
             mail_client::Client::open(
                 Arc::clone(&self.store),
                 mail_client::ClientConfig::default(),
             ),
-            mail_app::ui::view::Appearance::default(),
+            mail_ui::ui::view::Appearance::default(),
             None,
             Some(self.dirs.clone()),
-            mail_app::ui::Start::Inbox,
+            mail_ui::ui::Start::Inbox,
         )
         .with(self.configured.clone())
         .with(self.dialogs.clone())
@@ -197,7 +197,7 @@ impl Window {
                     + chrono::TimeDelta::seconds(jumped.load(Ordering::Relaxed))
             }
         });
-        let printer = mail_app::ui::native::Printer::with_dialog({
+        let printer = mail_ui::ui::native::Printer::with_dialog({
             let printed = Arc::clone(&printed);
             move |pdf, title| {
                 held(&printed).push((pdf.to_vec(), title.to_owned()));
@@ -221,7 +221,7 @@ impl Window {
             .with(printer)
             .with(clock.clone())
             .with(file_opener(&launched))
-            .with(mail_app::ui::native::Notices(notices.clone()));
+            .with(mail_ui::ui::native::Notices(notices.clone()));
         let contexts = with(dir.path(), contexts);
         let config = HarnessConfig::new(VIEW)
             .with_focus_fallback(FocusFallback::Ancestor)
@@ -230,7 +230,7 @@ impl Window {
             .with_net(original.net())
             .with_frame_links(original.links())
             .with_contexts(original.contexts());
-        let mut harness = Harness::new(mail_app::ui::native::root, config);
+        let mut harness = Harness::new(mail_ui::ui::native::root, config);
         harness.advance(ms(300));
         let mut window = Window {
             harness,

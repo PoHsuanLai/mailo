@@ -1,7 +1,7 @@
 //! What a mailbox place lists, shared by the window's sidebar and the command line's `list`.
 //!
 //! The sidebar itself (its places, their badges, the selected row) is the window's
-//! (`mail_app::ui::view`); the filters here are the part both front-ends must agree on.
+//! (`mail_ui::ui::view`); the filters here are the part both front-ends must agree on.
 
 use chrono::{DateTime, Utc};
 use mail_domain::{Filter, MailboxRole, Op, Pin, ThreadSummary};

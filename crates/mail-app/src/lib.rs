@@ -1,6 +1,6 @@
 //! `mailo`, the application: a window and a command line over one store.
 //!
-//! The two front-ends sit side by side. [`ui`] is the window, drawn with quire in `mail-ui` over
+//! The two front-ends sit side by side. `mail_ui::ui` is the window, drawn with quire over
 //! the one client; [`cli`] is the terminal. Neither names the other: what they share is
 //! `mail_core`, which has no window and no terminal in it (`scripts/check-boundary.sh` holds both
 //! lines). [`intents`] is a third face, with neither: what the desktop's intent router asks of
@@ -13,5 +13,3 @@ pub mod edge;
 pub mod intents;
 pub mod session;
 pub mod window;
-
-pub use mail_ui::{damage, handoff, launcher, mail_handler, said, settings, ui};

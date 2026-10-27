@@ -6,10 +6,10 @@
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
-use mail_app::ui::copy;
-use mail_app::ui::keymap;
-use mail_app::ui::space;
-use mail_app::ui::view::Shortcut;
+use mail_ui::ui::copy;
+use mail_ui::ui::keymap;
+use mail_ui::ui::space;
+use mail_ui::ui::view::Shortcut;
 
 use super::drive::{Drive, Key};
 use super::hands::{centre, click, until};

@@ -4,15 +4,15 @@
 //! the link's right-click Preview Link, honest or warning that the link's text names another site,
 //! with Open Link (or Primary+Return) going there through the window's opener.
 //!
-//! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`, with an
+//! The window is `mail_ui::ui::native::root` over a store seeded in a `TempDir`, with an
 //! `Original` whose fetcher and browser are recorders: nothing here touches the network.
 
 use ds::base::press::PointerButton;
 use ds::prelude::*;
 use ds_blitz::FocusFallback;
 use ds_harness::{Clock, Harness, HarnessConfig};
-use mail_app::ui::copy;
-use mail_app::ui::native::{Browse, Fetch, Original};
+use mail_ui::ui::copy;
+use mail_ui::ui::native::{Browse, Fetch, Original};
 use mail_core::{Arrival, SqliteStore, absorb};
 use mail_domain::*;
 use std::sync::{Arc, Mutex};
@@ -124,12 +124,12 @@ impl Browse for Opened {
 fn open(browse: Opened) -> (Harness, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let original = Original::new(Arc::new(NoFetch), Arc::new(browse));
-    let contexts = mail_app::ui::native::contexts(
+    let contexts = mail_ui::ui::native::contexts(
         mail_client::Client::open(seeded(dir.path()), mail_client::ClientConfig::default()),
-        mail_app::ui::view::Appearance::default(),
+        mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     );
     let config = HarnessConfig::new(VIEW)
         .with_clock(Clock::Virtual)
@@ -138,7 +138,7 @@ fn open(browse: Opened) -> (Harness, tempfile::TempDir) {
         .with_net(original.net())
         .with_frame_links(original.links())
         .with_contexts(original.contexts());
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(ms(300));
     until(&mut harness, "the list", |h| {
         h.count(".list .ds-thread") > 0

@@ -35,7 +35,7 @@ pub fn prepare(command: Option<Command>) -> Result<Prepared, String> {
     }
     // The schema needs nothing but somewhere to write it: no store, no config directory.
     if let Some(Command::WriteSchema { dir }) = &command {
-        print!("{}", crate::settings::write_schema(dir)?);
+        print!("{}", mail_ui::settings::write_schema(dir)?);
         return Ok(Prepared::Finished);
     }
 
@@ -218,7 +218,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     if reads_settings(&command)
         && let Some(config) = mail_core::config::config_dir()
     {
-        let found = crate::damage::of_config(&config);
+        let found = mail_ui::damage::of_config(&config);
         if !found.is_empty() {
             let mut said: Vec<String> = found.iter().map(ToString::to_string).collect();
             said.push("fix or move the file aside, then run the command again".to_owned());
@@ -350,7 +350,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     }
 
     if let Command::Notify { set } = &command {
-        let said = super::settings::notify(crate::settings::person_root().as_ref(), *set)?;
+        let said = super::settings::notify(mail_ui::settings::person_root().as_ref(), *set)?;
         print!("{said}");
         return Ok(());
     }
@@ -398,8 +398,8 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         let notifications = match notify {
             super::WatchNotify::Never => mail_core::notify::Setting::Off,
             super::WatchNotify::AsSet => mail_core::notify::Setting::from(
-                crate::settings::person_root()
-                    .map(|root| crate::settings::load(&root))
+                mail_ui::settings::person_root()
+                    .map(|root| mail_ui::settings::load(&root))
                     .unwrap_or_default()
                     .notifications
                     .new_mail,

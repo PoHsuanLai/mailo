@@ -6,7 +6,7 @@
 //! this reads the words and says the result.
 
 use super::SqliteStore;
-use crate::said::contacts::imported;
+use mail_ui::said::contacts::imported;
 use mail_core::Mail;
 use mail_core::contacts::{self, BookSync, How, Synced};
 use mail_core::error::CoreError;

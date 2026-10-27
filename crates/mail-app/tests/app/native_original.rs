@@ -4,7 +4,7 @@
 //! opens that image in Peek. The window's own document asks for nothing remote, and no script
 //! engine is built in.
 //!
-//! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`, with an
+//! The window is `mail_ui::ui::native::root` over a store seeded in a `TempDir`, with an
 //! `Original` whose fetcher and browser are recorders: nothing here touches the network, the
 //! real mail store or the real config. The component-level guarantees, with bodies fed around
 //! the sanitizer, are `tests/app/native_frame.rs`.
@@ -12,7 +12,7 @@
 use ds::prelude::*;
 use ds_blitz::{AppNet, NetDecision, NetPolicy, NetReply, NetRequest, RequestOrigin, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_app::ui::native::{Browse, Fetch, Original};
+use mail_ui::ui::native::{Browse, Fetch, Original};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
 use mail_domain::*;
@@ -200,12 +200,12 @@ struct Window {
 }
 
 fn contexts(dir: &std::path::Path) -> RootContexts {
-    mail_app::ui::native::contexts(
+    mail_ui::ui::native::contexts(
         mail_client::Client::open(seeded(dir), mail_client::ClientConfig::default()),
-        mail_app::ui::view::Appearance::default(),
+        mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     )
 }
 
@@ -221,7 +221,7 @@ fn open() -> Window {
         .with_net(original.net())
         .with_frame_links(original.links())
         .with_contexts(original.contexts());
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(ms(300));
     Window {
         harness,
@@ -487,7 +487,7 @@ fn the_windows_own_document_asks_for_nothing_remote() {
         .with_clock(Clock::Virtual)
         .with_contexts(contexts(dir.path()))
         .with_net(NetPolicy::Custom(requests.clone()));
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(ms(300));
     open_row(&mut harness, 1);
     let at = harness

@@ -5,10 +5,10 @@
 //! comes back from the head of the list.
 
 use ds::base::press::PointerButton;
-use mail_app::ui::appearance::WindowDirs;
-use mail_app::ui::copy;
-use mail_app::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
-use mail_app::ui::space::{self, Mail};
+use mail_ui::ui::appearance::WindowDirs;
+use mail_ui::ui::copy;
+use mail_ui::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
+use mail_ui::ui::space::{self, Mail};
 use mail_core::{SqliteStore, Store};
 use mail_domain::{Folder, Holds, Subscription, presets};
 use std::sync::{Arc, Mutex};

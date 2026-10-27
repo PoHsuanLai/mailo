@@ -2,12 +2,12 @@
 //! whole password add, a whole browser add and a whole add of servers typed by hand through
 //! quire's parts and porter's service; Escape cancelling, a failure and Try Again; the size each
 //! step asks of the window; and the markup lint. The window is the real one
-//! (`mail_app::ui::native::add_account_root`); the lookup, the browser sign-in, the browser and the
+//! (`mail_ui::ui::native::add_account_root`); the lookup, the browser sign-in, the browser and the
 //! add are fakes, the store is a `TempDir`'s, and nothing reaches the network or a keyring.
 
 use ds_blitz::Extent;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_app::ui::native::{
+use mail_ui::ui::native::{
     AddAccountOpened, AddAccountSeams, AddAccountWiring, AddRequest, add_account_root,
 };
 use mail_core::SqliteStore;
@@ -35,7 +35,7 @@ struct Log {
 /// How each seam answers.
 #[derive(Clone)]
 struct Script {
-    add: Result<String, mail_app::ui::native::AddError>,
+    add: Result<String, mail_ui::ui::native::AddError>,
     /// A browser sign-in finishes when this is notified.
     release: Arc<Notify>,
     /// A lookup waits while a test holds this, to look at the step that is working.
@@ -147,7 +147,7 @@ fn open(script: Script, prefill: Option<&str>) -> Window {
     let log = Arc::new(Log::default());
     let opened = Arc::new(Mutex::new(Vec::new()));
     let seen = opened.clone();
-    let browse: Arc<mail_app::ui::native::AddAccountBrowse> = Arc::new(move |url| {
+    let browse: Arc<mail_ui::ui::native::AddAccountBrowse> = Arc::new(move |url| {
         seen.lock().unwrap().push(url.to_owned());
         Ok(())
     });
@@ -274,8 +274,8 @@ fn no_servers() -> Script {
 }
 
 /// The sheet after a password sign-in whose add fails with `fault`, the server's words `said`.
-fn add_fails(fault: mail_app::ui::native::AddFault, said: &str) -> Window {
-    use mail_app::ui::native::AddError;
+fn add_fails(fault: mail_ui::ui::native::AddFault, said: &str) -> Window {
+    use mail_ui::ui::native::AddError;
     let script = Script {
         add: Err(AddError {
             fault,
@@ -425,7 +425,7 @@ fn escape_cancels_and_a_failed_add_says_why_and_tries_again() {
     assert!(w.log.lookups.lock().unwrap().is_empty());
     assert!(w.log.adds.lock().unwrap().is_empty());
 
-    use mail_app::ui::native::AddFault;
+    use mail_ui::ui::native::AddFault;
     let said = "mail.example.test did not accept the sign-in as ada@example.test: \
                 -ERR [AUTH] Authentication failed.";
     let mut w = add_fails(AddFault::Unsaved, said);

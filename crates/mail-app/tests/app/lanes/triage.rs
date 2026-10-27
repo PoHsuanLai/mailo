@@ -5,8 +5,8 @@
 //! offers the account's folders; in Trash, Delete Forever and Empty Trash ask first and offer no
 //! Undo after.
 
-use mail_app::ui::bin::{Bin, Destroying, Reach, words};
-use mail_app::ui::copy;
+use mail_ui::ui::bin::{Bin, Destroying, Reach, words};
+use mail_ui::ui::copy;
 use mail_core::Store;
 use mail_domain::{
     Change, ChangeId, MailboxRole, Mute, Patch, ProtoOp, Snooze, Star, ThreadSummary,

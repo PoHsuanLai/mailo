@@ -182,7 +182,7 @@ fn a_name_in_chinese_survives_import_then_export() {
     );
 }
 
-/// Timing, not correctness, so not run by default: `cargo test -p mail-app suggestion_is_cheap
+/// Timing, not correctness, so not run by default: `cargo test -p mail-ui suggestion_is_cheap
 /// -- --ignored --nocapture`. What the composer's decision to ask on every keystroke rests on.
 #[test]
 #[ignore = "prints how long a suggestion takes at ten thousand contacts"]

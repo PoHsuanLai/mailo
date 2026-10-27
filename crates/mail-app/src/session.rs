@@ -16,7 +16,7 @@
 //! [`EVERY`]. The count is read and said again every [`REPEAT`] even when nothing was written,
 //! so a dock that started after mailo, or restarted, learns it within that time.
 
-use crate::launcher::{Badge, Unread};
+use mail_ui::launcher::{Badge, Unread};
 use chrono::{DateTime, Utc};
 use mail_core::Store;
 use mail_core::scope::Scope;
@@ -61,7 +61,7 @@ pub fn keep_the_launchers_badge<S>(
 where
     S: Store + Send + Sync + ?Sized + 'static,
 {
-    let launcher = crate::launcher::platform()?;
+    let launcher = mail_ui::launcher::platform()?;
     Some(keep_the_badge(store, file, launcher.0, EVERY).map(|_| ()))
 }
 
@@ -117,7 +117,7 @@ pub fn unread<S: Store + ?Sized>(
     now: DateTime<Utc>,
 ) -> Result<Unread, mail_core::StoreError> {
     store
-        .count(&crate::launcher::filter(scope), now)
+        .count(&mail_ui::launcher::filter(scope), now)
         .map(Unread)
 }
 

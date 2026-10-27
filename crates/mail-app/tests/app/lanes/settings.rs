@@ -15,13 +15,13 @@ const VIEW: Viewport = Viewport {
 
 /// The Settings window over `contexts`, on `page` (a sidebar entry's name).
 pub fn open_at(contexts: RootContexts, page: &str) -> Harness {
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
+    let printer = mail_ui::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
     let config = HarnessConfig::new(VIEW)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_net(ds_blitz::NetPolicy::Local)
         .with_clock(Clock::Virtual)
         .with_contexts(contexts.with(printer));
-    let mut harness = Harness::new(mail_app::ui::native::settings_root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::settings_root, config);
     let entry = format!(".ds-sidebar [*|aria-label=\"{page}\"]");
     until(&mut harness, "Settings draws its sidebar", |h| {
         h.count(&entry) == 1

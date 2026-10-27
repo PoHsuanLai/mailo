@@ -1,6 +1,6 @@
 //! mailo follows the one desktop appearance, live: the launched window's root over a scratch
 //! `quire/appearance.toml`, changed while the window runs, as detent or the control centre changes
-//! it. The window is the real one (`mail_app::ui::native::live_root`, with its watch on the
+//! it. The window is the real one (`mail_ui::ui::native::live_root`, with its watch on the
 //! settings directory); the store it watches is a `TempDir` standing in for `$XDG_CONFIG_HOME`
 //! and the desktop's preferences are fixed, so nothing here reads or watches the real
 //! `~/.config`, and nothing reaches the session bus.
@@ -10,7 +10,7 @@ use ds::prelude::*;
 use ds_blitz::NetPolicy;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::{AppName, AppearanceFile, ConfigRoot, Store, SystemPrefsSource};
-use mail_app::ui::native::DesktopSettings;
+use mail_ui::ui::native::DesktopSettings;
 use mail_core::SqliteStore;
 use std::sync::Arc;
 
@@ -58,12 +58,12 @@ fn a_change_to_the_desktops_appearance_restyles_the_running_window() {
     let store = desktop(&config);
     saved(&store, Theme::Light, Accent::Blue, Motion::Standard);
 
-    let contexts = mail_app::ui::native::contexts(
+    let contexts = mail_ui::ui::native::contexts(
         mail_client::Client::open(Arc::new(mail), mail_client::ClientConfig::default()),
-        mail_app::ui::view::Appearance::default(),
+        mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     )
     .with(DesktopSettings {
         root: ConfigRoot::Scratch(config.clone()),
@@ -73,7 +73,7 @@ fn a_change_to_the_desktops_appearance_restyles_the_running_window() {
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Virtual)
         .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::live_root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::live_root, config);
 
     settle_until(&mut harness, |h| stamps(h).0 == "light");
     assert_eq!(

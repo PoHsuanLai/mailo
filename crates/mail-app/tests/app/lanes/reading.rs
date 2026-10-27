@@ -7,8 +7,8 @@
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
-use mail_app::launcher::{Badge, Launcher, Unread};
-use mail_app::ui::copy;
+use mail_ui::launcher::{Badge, Launcher, Unread};
+use mail_ui::ui::copy;
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};
@@ -110,8 +110,8 @@ fn letters(store: &mail_core::SqliteStore) {
 fn open(counts: &Arc<Counts>) -> Window {
     let counts = Arc::clone(counts);
     Window::open_with(chrono::Utc::now(), letters, move |dir, contexts| {
-        let settings = mail_app::settings::root_for(&dir.join("config"));
-        mail_app::settings::change(&settings, |settings| {
+        let settings = mail_ui::settings::root_for(&dir.join("config"));
+        mail_ui::settings::change(&settings, |settings| {
             settings.reading.brand_logos = mail_core::bimi::Setting::On.into();
         })
         .expect("the setting is written");
@@ -120,7 +120,7 @@ fn open(counts: &Arc<Counts>) -> Window {
         mail_runtime::bimi::remember(&cache, "brand.example", Some(&png), chrono::Utc::now())
             .expect("the logo is cached");
         contexts
-            .with(mail_app::ui::native::BrandCache(cache))
+            .with(mail_ui::ui::native::BrandCache(cache))
             .with(Launcher(counts as Arc<dyn Badge>))
     })
 }

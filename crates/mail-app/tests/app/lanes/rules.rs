@@ -3,7 +3,7 @@
 //! and the main window's inbox follows.
 
 use ds_harness::Harness;
-use mail_app::ui::copy;
+use mail_ui::ui::copy;
 use mail_core::SqliteStore;
 use std::sync::Arc;
 

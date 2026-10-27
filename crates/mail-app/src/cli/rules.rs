@@ -1,7 +1,7 @@
 //! `mailo rules`, `mailo sieve` and `mailo vacation`: the words typed after them, as the commands
 //! [`mail_core::rules`] runs.
 
-use crate::said::rules::said;
+use mail_ui::said::rules::said;
 use chrono::{DateTime, Utc};
 use mail_core::Mail;
 use mail_core::SqliteStore;

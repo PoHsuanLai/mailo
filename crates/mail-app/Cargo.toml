@@ -77,14 +77,14 @@ path = "src/main.rs"
 
 [features]
 # Desktop extras (design/36 rule 3): what only our desktop has. Here: a saved file opens in
-# anyview, the desktop's viewer, over the session bus (`mail-ui`'s `ui/downloads/open.rs`), with the system's
-# app when anyview does not answer. On by default; a build for another desktop, and the portable
+# anyview, the desktop's viewer, over the session bus (`ui/downloads/open.rs` in `mail-ui`), with
+# the system's app when anyview does not answer. On by default; a build for another desktop, and the portable
 # gate (`cargo check --workspace --no-default-features`), opens files in the system's app alone.
 default = ["quire-desktop", "anyview"]
 quire-desktop = ["mail-ui/quire-desktop"]
 # anyview's peek and card (github.com/PoHsuanLai/anyview) for the attachments mailo does not draw
 # itself: a picture in the reader's strip and a card in Peek, both over the stored bytes
-# (`ui/reading/anyview.rs`). On by default; off, the strip shows a picture's or a PDF's thumbnail
+# (`ui/reading/anyview.rs` in `mail-ui`). On by default; off, the strip shows a picture's or a PDF's thumbnail
 # and Peek those, the calendars, contacts and messages mailo reads itself, and "no preview" for the
 # rest. Only `mail-app` names it: `mail-core` and below never reach anyview
 # (`scripts/check-boundary.sh`).
@@ -96,7 +96,6 @@ anyview = ["mail-ui/anyview"]
 tempfile = "3"
 porter-core.workspace = true
 porter-provider.workspace = true
-porter-service.workspace = true
 # `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.
 porter-secrets.workspace = true
 # The desktop's notifications and PDF previews are mail-core features the window and the watch use;
@@ -118,9 +117,8 @@ serde.workspace = true
 # The one logger the libraries write through (`main.rs`): warnings to stderr, as they were printed.
 log.workspace = true
 serde_json = "1"
-# `sync` for the channel the Original frame's image fetches reach their worker through
-# (`ui/original/net.rs`); already in the tree through reqwest and ds-blitz. `rt-multi-thread` for
-# the application's one runtime (`edge.rs`), which the libraries below are handed.
+# `rt-multi-thread` for the application's one runtime (`edge.rs`), which the libraries below are
+# handed.
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net", "io-util", "sync"] }
 # For `join_all` only: one pass over several accounts is several independent conversations with
 # several servers, and running them one after another spends the sum of their waiting.
@@ -133,10 +131,6 @@ toml = "1"
 # Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that
 # may be a message or a thread, and only the store can say which.
 uuid = { workspace = true }
-# The store's file, watched so the window hears another process's commit as it lands
-# (`ui/fetching/external.rs`). Already in the lock through quire's settings, at this version and
-# with its default features. CC0-1.0.
-notify = "8.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The account secrets in the Secret Service through oo7: Linux's store, which the other platforms
@@ -177,21 +171,14 @@ mail-client = { workspace = true, features = ["testing"] }
 # The doubles at the runtime's seams (`mail_core::testing`): the program never has them.
 mail-core = { workspace = true, features = ["testing"] }
 porter-secrets = { workspace = true, features = ["testing"] }
-# Read back by the window's own tests (reader blocks, print, PGP/S-MIME composer); not used by the
-# window itself, which gets them from `mail-core` and quire.
-# Provider icons, and the reader's attachment previews (`preview.rs`): PNG, JPEG, GIF and WebP,
-# decoded under size limits. Already in the lock through blitz-dom and quire, with these codecs;
-# no other format is decoded, and SVG is never drawn.
+# The pictures the preview tests make to attach (`tests/app/native_preview.rs`). Already in the
+# lock through blitz-dom and quire, with these codecs.
 image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "gif", "webp"] }
-# The OS random number generator for OpenPGP key generation and sealing (`pgp/`) and S/MIME
-# sealing (`smime/`). rPGP's own `rand` generation; already in the tree. For every target: it had
-# been listed under Linux alone, where `pgp/` would not have built anywhere else.
+# A seeded generator for the OpenPGP tests (`tests/app/pgp.rs`): rPGP's own `rand` generation;
+# already in the tree.
 rand = "0.8"
-# `re:/pattern/`. Already in the tree; depended on directly so the size caps are ours.
-regex = "1"
-# A PDF attachment's later pages in the viewer (`preview.rs`): quire rasterises only a first page.
-# The same version quire names, so the tree holds one pdfrum.
-# The print tests read printouts back with it too (`ui/print/pdf_tests.rs`).
+# Reads the printed PDF back in the print test (`tests/app/lanes/print.rs`). The same version quire
+# names, so the tree holds one pdfrum.
 pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"] }
 # The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with
 # (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
@@ -202,11 +189,7 @@ const-oid = "0.9"
 cms = "0.2"
 rsa = "0.9"
 p256 = { version = "0.13", features = ["ecdsa"] }
-# A paused clock, so a test drives the search box's debounce instead of sleeping through it.
-tokio = { version = "1", features = ["test-util"] }
-dioxus-ssr = "0.7"
 uuid = { workspace = true }
-proptest = "1"
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.

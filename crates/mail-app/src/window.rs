@@ -11,11 +11,11 @@ use std::sync::Arc;
 /// Returns when the window closes, or at once when it could not open.
 pub fn open(
     store: Arc<SqliteStore>,
-    look: crate::ui::view::Appearance,
-    spaces: crate::ui::space::Spaces,
-    dirs: Option<crate::ui::appearance::WindowDirs>,
-    start: crate::ui::Start,
-) -> Result<(), crate::ui::LaunchError> {
+    look: mail_ui::ui::view::Appearance,
+    spaces: mail_ui::ui::space::Spaces,
+    dirs: Option<mail_ui::ui::appearance::WindowDirs>,
+    start: mail_ui::ui::Start,
+) -> Result<(), mail_ui::ui::LaunchError> {
     // The desktop launcher's copy of the recent conversations and the address book, kept while
     // the window runs, on threads of its own (`intents::index`).
     #[cfg(not(any(target_os = "macos", windows)))]
@@ -23,9 +23,9 @@ pub fn open(
     // The one client every window reads mail through, reaching the servers as the program does.
     let client = mail_client::Client::open(store, mail_client::ClientConfig::default());
     client.reach(mail_client::Reach::new(|store| crate::edge::mail(&store)));
-    let program = crate::ui::Program {
+    let program = mail_ui::ui::Program {
         client,
         profile: crate::edge::profile().id().clone(),
     };
-    crate::ui::run(program, look, spaces, dirs, start)
+    mail_ui::ui::run(program, look, spaces, dirs, start)
 }

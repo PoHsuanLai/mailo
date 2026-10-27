@@ -30,7 +30,7 @@ pub use provider::{Opener, Provider, Shown};
 pub use serve::{ServeError, serve, serve_on};
 
 /// The bus name and the app name in the manifest: the window's desktop entry's.
-pub const APP: &str = crate::ui::native::APP_ID;
+pub const APP: &str = mail_ui::ui::native::APP_ID;
 
 /// Where every provider serves `org.quire.IntentProvider1`.
 pub const PATH: &str = "/org/quire/IntentProvider1";

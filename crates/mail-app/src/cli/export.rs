@@ -1,7 +1,7 @@
 //! `mailo export`: what it says as it goes and when it is done.
 
 use super::SqliteStore;
-use crate::said::export::said;
+use mail_ui::said::export::said;
 use mail_core::error::CoreError;
 use mail_core::export::{self, Target};
 

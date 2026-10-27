@@ -5,12 +5,10 @@
 //! variable and keep no process-wide state; their I/O is `async`, and every piece they need
 //! (the environment, the clock) is handed to a [`Mail`]. This module is
 //! the one place the binary chooses those pieces, once, in `main`, and the one place a
-//! synchronous caller (the command line, a window thread) waits on `async` work.
+//! synchronous caller (the command line) waits on `async` work.
 //!
 //! - [`block_on`] waits for a future on the application's runtime. It is for threads that are
 //!   not async: calling it from a task of that same runtime panics, as `block_on` always does.
-//! - [`on_thread`] runs a future that is not `Send` on a thread of its own, and is awaited from
-//!   the window.
 //! - [`install_environment`] records what `main` decided; until it does, the environment is
 //!   empty, which is what a test wants.
 //! - [`install_profile`] records whose mail the process is over; until it does, that is the
@@ -21,10 +19,9 @@
 //!   client id" instead of opening a real issuer's page.
 //! - [`mail`] builds the handle over a store from those.
 
-use mail_core::profile::{Profile, Roots};
+use mail_core::profile::Profile;
 use mail_core::when::Clock;
 use mail_core::{Environment, KeyringSigningStore, Mail, OAuthClients, SigningStore};
-use mail_runtime::AccountSecrets;
 use mail_store::SqliteStore;
 use std::future::Future;
 use std::sync::{Arc, OnceLock};
@@ -32,7 +29,7 @@ use tokio::runtime::Runtime;
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 static ENVIRONMENT: OnceLock<Environment> = OnceLock::new();
-static PROFILE: OnceLock<(Profile, Roots)> = OnceLock::new();
+static PROFILE: OnceLock<Profile> = OnceLock::new();
 static CLIENTS: OnceLock<OAuthClients> = OnceLock::new();
 
 /// The application's one runtime, started the first time anything asks. It lives as long as the
@@ -51,29 +48,6 @@ pub fn runtime() -> &'static Runtime {
 /// Wait for `work` on the application's runtime, from a thread that is not async.
 pub fn block_on<T>(work: impl Future<Output = T>) -> T {
     runtime().block_on(work)
-}
-
-/// Run the future `work` makes on a thread of its own, waiting on the application's runtime
-/// there, and wait for its output.
-///
-/// For work that borrows something not `Send` (a sign-in's browser callback) across a wait, so
-/// cannot be a task. `None` when the thread could not start or ended without an answer.
-pub async fn on_thread<T, F>(name: &str, work: impl FnOnce() -> F + Send + 'static) -> Option<T>
-where
-    F: Future<Output = T>,
-    T: Send + 'static,
-{
-    let (done, answer) = tokio::sync::oneshot::channel();
-    std::thread::Builder::new()
-        .name(name.to_owned())
-        .spawn(move || {
-            // The future that asked may have been dropped; then nobody is left to tell.
-            let _ = done.send(block_on(work()));
-        })
-        // A thread that could not start is an answer that never comes.
-        .ok()?;
-    // A sender dropped without a send is a thread that panicked.
-    answer.await.ok()
 }
 
 /// Records what the process was started with. Only the first call counts.
@@ -96,23 +70,14 @@ pub fn clients() -> OAuthClients {
     CLIENTS.get().cloned().unwrap_or_default()
 }
 
-/// Records whose mail the process is over, and the directories its paths are under. Only the first
-/// call counts.
-pub fn install_profile(profile: Profile, roots: Roots) {
-    let _ = PROFILE.set((profile, roots));
+/// Records whose mail the process is over. Only the first call counts.
+pub fn install_profile(profile: Profile) {
+    let _ = PROFILE.set(profile);
 }
 
 /// The Profile `main` recorded: the default one until it does.
 pub fn profile() -> Profile {
-    PROFILE
-        .get()
-        .map(|(profile, _)| profile.clone())
-        .unwrap_or_default()
-}
-
-/// The directories the recorded Profile's paths are under: `None` until `main` records them.
-pub fn roots() -> Option<Roots> {
-    PROFILE.get().map(|(_, roots)| roots.clone())
+    PROFILE.get().cloned().unwrap_or_default()
 }
 
 /// The signing keys of the recorded Profile, in the keyring service its id names.
@@ -180,10 +145,10 @@ pub fn clock() -> Clock {
         .value
         .region
         .hours;
-    crate::ui::clock_from(hours.resolve(crate::ui::time_locale()))
+    mail_ui::ui::clock_from(hours.resolve(mail_ui::ui::time_locale()))
 }
 
-pub use crate::ui::TRACE;
+use mail_ui::ui::TRACE;
 
 /// Libraries whose warnings are about the input they were handed, not about a fault: an HTML
 /// parser warns of malformed markup, which is what most mail is, and nothing anyone can act on.
@@ -199,11 +164,6 @@ pub fn logged(level: log::Level, target: &str) -> bool {
     level <= log::Level::Warn && !INPUT_PARSERS.contains(&root)
 }
 
-/// mailo's store of account secrets, for the calls that take only that.
-pub fn secrets() -> Arc<dyn AccountSecrets> {
-    mail_runtime::platform_secrets(runtime().handle())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,8 +176,8 @@ mod tests {
     fn the_window_traces_reach_stderr_and_other_info_does_not() {
         assert!(logged(log::Level::Info, TRACE));
         assert!(!logged(log::Level::Debug, TRACE));
-        assert!(!logged(log::Level::Info, "mail_app::ui::handoff"));
-        assert!(logged(log::Level::Warn, "mail_app::ui::handoff"));
+        assert!(!logged(log::Level::Info, "mail_ui::ui::handoff"));
+        assert!(logged(log::Level::Warn, "mail_ui::ui::handoff"));
         assert!(!logged(log::Level::Warn, "html5ever::tree_builder"));
     }
 
@@ -298,19 +258,6 @@ mod tests {
     }
 
     #[test]
-    fn work_on_a_thread_of_its_own_is_awaited_from_another_runtime() {
-        let local = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        let got = local.block_on(on_thread("mailo-test", || {
-            // Not `Send`: the thread makes it and waits on it.
-            let held = std::rc::Rc::new(21);
-            async move { *held * 2 }
-        }));
-        assert_eq!(got, Some(42));
-    }
-
-    #[test]
     fn the_desktop_setting_and_the_locale_say_which_clock_the_person_keeps() {
         use ds_settings::{HourCycle, time_locale};
         const AUTO: HourCycle = HourCycle::Auto;
@@ -351,7 +298,7 @@ mod tests {
         for (hours, all, time, lang, want) in CASES {
             let locale = time_locale(*all, *time, *lang);
             assert_eq!(
-                crate::ui::clock_from(hours.resolve(locale)),
+                mail_ui::ui::clock_from(hours.resolve(locale)),
                 *want,
                 "{hours:?} {all:?} {time:?} {lang:?}"
             );
