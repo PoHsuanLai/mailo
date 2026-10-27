@@ -86,4 +86,8 @@ async fn a_name_the_store_refuses_is_said_on_the_page() {
     let _ = drain_seen(&mut dom);
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains(copy::errors::NOT_KEPT_HERE), "{page}");
+    // And it outlasts the redraw the store moving causes, which finds the signature gone.
+    settle_quiet(&mut dom).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains(copy::errors::NOT_KEPT_HERE), "{page}");
 }

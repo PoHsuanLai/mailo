@@ -54,9 +54,48 @@ fn heading(identity: &Identity) -> String {
     }
 }
 
+/// The signatures whose last change was refused, for the pages to say under their words. Kept
+/// with the pane and keyed to the signature, not to the page that drew it: the store moving draws
+/// a page again, and a refusal must outlast that, even when what moved it was the signature
+/// going.
+#[derive(Clone, Copy)]
+struct Refusals(Signal<Vec<SignatureId>>);
+
+impl Refusals {
+    fn has(self, id: SignatureId) -> bool {
+        self.0.read().contains(&id)
+    }
+
+    fn set(mut self, id: SignatureId, refused: bool) {
+        let mut all = self.0.write();
+        all.retain(|held| *held != id);
+        if refused {
+            all.push(id);
+        }
+    }
+}
+
+/// One signature's [`Refusals`] entry.
+#[derive(Clone, Copy)]
+struct Unkept {
+    refusals: Refusals,
+    id: SignatureId,
+}
+
+impl Unkept {
+    fn get(self) -> bool {
+        self.refusals.has(self.id)
+    }
+
+    fn set(self, refused: bool) {
+        self.refusals.set(self.id, refused);
+    }
+}
+
 /// The pane: every identity's signatures at its root, a signature's page over them.
 #[component]
 pub(super) fn Signatures(shell: Signal<Shell>) -> Element {
+    use_context_provider(|| Refusals(Signal::new(Vec::new())));
     let client = crate::ui::live::client();
     let mut path = use_signal(|| PanePath::new(SignaturesAt::List));
     let any = !client.compose().sending_accounts().is_empty();
@@ -227,8 +266,20 @@ fn SignaturePage(
         Some((kept, identity))
     });
     let Some((kept, identity)) = found else {
-        // Deleted from elsewhere while the page was shown, or its identity with it.
-        return rsx! {};
+        // Deleted from elsewhere while the page was shown, or its identity with it. A change
+        // refused on the way is still said: it was the person's, and it was lost.
+        return if use_context::<Refusals>().has(id) {
+            rsx! {
+                Form {
+                    FormSection {
+                        footer: Some(copy::errors::NOT_KEPT_HERE.to_owned()),
+                        FieldRow { label: copy::empty::SIGNATURE_GONE }
+                    }
+                }
+            }
+        } else {
+            rsx! {}
+        };
     };
     rsx! { SignatureEditor { shell, path, kept, identity } }
 }
@@ -250,7 +301,10 @@ fn SignatureEditor(
     let mut typed = use_signal(|| kept.name.clone());
     // Whether the last name or words the page tried to keep were refused: said under the words
     // until a later change is kept.
-    let mut unkept = use_signal(|| false);
+    let unkept = Unkept {
+        refusals: use_context::<Refusals>(),
+        id,
+    };
     // The words, kept with every edit: `edits` moves with each, and only then.
     let mut kept_at = use_signal(|| 0u64);
     use_effect(move || {
@@ -283,7 +337,6 @@ fn SignatureEditor(
                             let next = if on { IsDefault::Alternate } else { IsDefault::Default };
                             let made = client.signing().make_default(id, purpose, next)
                                 .or_log("the signature's default was not kept");
-                            let mut unkept = unkept;
                             unkept.set(made.is_none());
                         }),
                     },
@@ -320,7 +373,7 @@ fn SignatureEditor(
             }
             FormSection {
                 title: Some(copy::fields::SIGNATURE.to_owned()),
-                footer: unkept().then(|| copy::errors::NOT_KEPT_HERE.to_owned()),
+                footer: unkept.get().then(|| copy::errors::NOT_KEPT_HERE.to_owned()),
                 div { class: "sig-edit",
                     Body { page, shell, on_attach: move |()| {} }
                 }

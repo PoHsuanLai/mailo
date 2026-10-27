@@ -30,3 +30,6 @@ pub const NO_MESSAGE_SELECTED: &str = "No message selected";
 
 /// A contact card with no name in it.
 pub const NO_NAME: &str = "(no name)";
+
+/// A signature's page once the signature is gone, after a change to it was refused.
+pub const SIGNATURE_GONE: &str = "This signature was deleted, so the change wasn’t kept.";
