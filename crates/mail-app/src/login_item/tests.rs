@@ -68,7 +68,7 @@ fn it_is_off_until_the_person_turns_it_on() {
 #[test]
 fn linux_and_the_bsds_have_no_login_item_for_the_switch_to_keep() {
     // The unit `dist/install.sh` enables for every user checks mail whatever a switch says.
-    assert!(!std::hint::black_box(KEEPS));
+    const { assert!(!KEEPS) };
     assert!(platform().is_none());
 }
 
