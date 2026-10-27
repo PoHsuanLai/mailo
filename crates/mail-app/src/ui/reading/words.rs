@@ -31,6 +31,15 @@ pub(super) struct Held {
     pub(super) text: String,
 }
 
+/// A number that is the same for the same html: what tells a [`Held`] its document is still the
+/// one it was taken in.
+pub(super) fn fingerprint(html: &str) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    html.hash(&mut hasher);
+    hasher.finish()
+}
+
 /// What `frame`'s document has selected, when it is more than space.
 pub(super) async fn selected(frame: &MountedData) -> Option<Held> {
     let handle = free(frame).await?;
@@ -43,15 +52,27 @@ pub(super) async fn selected(frame: &MountedData) -> Option<Held> {
 /// Select `held` again in `frame`'s document, if its words are still there.
 pub(super) async fn reselect(frame: &MountedData, held: &Held) {
     change(frame, |doc| {
-        let there = |id: NodeId| {
-            doc.get_node(id)
-                .is_some_and(|node| node.flags.is_inline_root())
-        };
-        if there(held.from.0) && there(held.to.0) {
+        if there(doc, held.from) && there(doc, held.to) {
             doc.set_text_selection(held.from.0, held.from.1, held.to.0, held.to.1);
         }
     })
     .await;
+}
+
+/// Whether `at` (an inline root and a byte offset) is still a place in `doc`'s text: the node is
+/// an inline root, and the offset is within its text and on a character boundary, which Blitz
+/// panics on when it is not.
+fn there(doc: &BaseDocument, (id, offset): (NodeId, usize)) -> bool {
+    let Some(node) = doc.get_node(id) else {
+        return false;
+    };
+    node.flags.is_inline_root()
+        && node
+            .element_data()
+            .and_then(|data| data.inline_layout_data.as_ref())
+            .is_some_and(|layout| {
+                offset <= layout.text.len() && layout.text.is_char_boundary(offset)
+            })
 }
 
 /// Select every word of `frame`'s document, from the start of its first run of text to the end
@@ -146,4 +167,16 @@ fn inline_roots(doc: &BaseDocument) -> Vec<(NodeId, usize)> {
         stack.extend(children.iter().rev().copied());
     }
     found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fingerprint;
+
+    /// A held selection belongs to the html it was taken in, so other html is another document.
+    #[test]
+    fn a_frame_given_other_html_is_another_document() {
+        assert_eq!(fingerprint("<p>Hi</p>"), fingerprint("<p>Hi</p>"));
+        assert_ne!(fingerprint("<p>Hi</p>"), fingerprint("<p>你好</p>"));
+    }
 }

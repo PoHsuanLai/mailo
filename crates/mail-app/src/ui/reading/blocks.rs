@@ -57,7 +57,10 @@ pub(super) fn Sandbox(
     let keys = use_keys();
     // The frame's node, and what was selected in it when the last left press let go.
     let mut frame = use_signal(|| None::<Rc<MountedData>>);
-    let mut held = use_signal(|| None::<words::Held>);
+    // Kept with the fingerprint of the document it was taken in: a frame given other html is a
+    // new document, whose nodes and offsets are not these.
+    let key = words::fingerprint(&html);
+    let mut held = use_signal(|| None::<(u64, words::Held)>);
     rsx! {
         iframe {
             class: "html",
@@ -83,7 +86,7 @@ pub(super) fn Sandbox(
                         return;
                     };
                     spawn(async move {
-                        held.set(words::selected(&mounted).await);
+                        held.set(words::selected(&mounted).await.map(|words| (key, words)));
                     });
                 }
             },
@@ -95,14 +98,16 @@ pub(super) fn Sandbox(
                         return;
                     };
                     spawn(async move {
-                        held.set(words::select_all(&mounted).await);
+                        held.set(words::select_all(&mounted).await.map(|words| (key, words)));
                     });
                 }
             },
             oncontextmenu: move |_| {
-                let (Some(mut asked), Some(mounted), Some(words)) =
-                    (asked, frame.peek().clone(), held.peek().clone())
-                else {
+                let (Some(mut asked), Some(mounted), Some(words)) = (
+                    asked,
+                    frame.peek().clone(),
+                    held.peek().clone().filter(|(of, _)| *of == key).map(|(_, words)| words),
+                ) else {
                     return;
                 };
                 asked.set(Some(words.text.clone()));
