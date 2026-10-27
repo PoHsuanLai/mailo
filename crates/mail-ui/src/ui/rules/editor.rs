@@ -209,7 +209,7 @@ pub(in crate::ui) fn label_items(names: &[String], typed: &str) -> Vec<MenuItem>
 /// The forward menu's row: the address typed, once it looks like one.
 pub(in crate::ui) fn forward_items(typed: &str) -> Vec<MenuItem> {
     let typed = typed.trim();
-    if typed.contains('@') && !typed.contains(char::is_whitespace) {
+    if RuleAction::forward(typed).is_ok() {
         vec![item(
             &pick_key(&RuleAction::Forward(typed.to_owned())),
             Icon::Forward,

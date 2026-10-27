@@ -117,11 +117,10 @@ fn parse_add(args: &[String]) -> Result<RulesCmd, String> {
             "--star" => actions.push(RuleAction::Star),
             "--unread" => actions.push(RuleAction::MarkUnread),
             "--notify" => actions.push(RuleAction::Notify),
-            "--forward" => actions.push(RuleAction::Forward(value(
-                &mut words,
-                "--forward",
-                "an address",
-            )?)),
+            "--forward" => {
+                let typed = value(&mut words, "--forward", "an address")?;
+                actions.push(RuleAction::forward(&typed)?);
+            }
             "--reply" => actions.push(RuleAction::Reply(value(
                 &mut words,
                 "--reply",

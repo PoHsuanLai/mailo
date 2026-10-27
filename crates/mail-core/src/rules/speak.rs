@@ -76,6 +76,10 @@ fn forward(
     if message.from.email.eq_ignore_ascii_case(to.trim()) {
         return Ok(());
     }
+    // A rule written before the address was checked: not a thing to hand a server.
+    if RuleAction::forward(to).is_err() {
+        return Ok(());
+    }
     if guard::guard(store, one, &message, own, occasion, now).is_err() {
         return Ok(());
     }

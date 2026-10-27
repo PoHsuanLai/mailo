@@ -107,6 +107,30 @@ pub enum RuleAction {
 }
 
 impl RuleAction {
+    /// A Forward to `address`, if it is one address: `name@domain`, with no spaces, commas or
+    /// angle brackets, which a rule would otherwise hand a mail server as it stands.
+    pub fn forward(address: &str) -> Result<RuleAction, String> {
+        let address = address.trim();
+        let plain = |part: &str| {
+            !part.is_empty()
+                && !part
+                    .chars()
+                    .any(|c| c.is_whitespace() || c.is_control() || "<>(),;:\\\"[]".contains(c))
+        };
+        match address.split_once('@') {
+            Some((name, domain))
+                if plain(name)
+                    && plain(domain)
+                    && !domain.contains('@')
+                    && !domain.starts_with('.')
+                    && !domain.ends_with('.') =>
+            {
+                Ok(RuleAction::Forward(address.to_owned()))
+            }
+            _ => Err(format!("{address:?} is not an address")),
+        }
+    }
+
     /// Whether this action sends mail or raises a notification: things only a running client
     /// can do, and that a second run would do twice. They are never written into a server's
     /// script, and running a rule over mail already here leaves them out.
@@ -199,5 +223,29 @@ impl Vacation {
     /// Whether the reply should be going out at `now`.
     pub fn active_at(&self, now: DateTime<Utc>) -> bool {
         self.during.from.is_none_or(|from| now >= from) && self.during.to.is_none_or(|to| now < to)
+    }
+}
+
+#[cfg(test)]
+mod forward_tests {
+    use super::RuleAction;
+
+    #[test]
+    fn a_forward_goes_to_one_plain_address_only() {
+        let cases = [
+            ("ada@example.test", true),
+            ("  ada@example.test ", true),
+            ("ada@example.test, bob@example.test", false),
+            ("Ada <ada@example.test>", false),
+            ("ada@@example.test", false),
+            ("ada@", false),
+            ("@example.test", false),
+            ("ada example@example.test", false),
+            ("ada@example.", false),
+            ("not an address", false),
+        ];
+        for (typed, ok) in cases {
+            assert_eq!(RuleAction::forward(typed).is_ok(), ok, "{typed}");
+        }
     }
 }

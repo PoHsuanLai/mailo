@@ -233,7 +233,8 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
     });
     // An account whose server takes no vacation reply has its switch, greyed: there is nothing
     // to turn on.
-    if reach_away(&row.plan).is_err() {
+    let server = reach_away(&row.plan);
+    if server.is_err() {
         return rsx! {
             Form {
                 FormSection {
@@ -249,6 +250,7 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
             }
         };
     }
+    let (asks_subject, asks_addresses) = server.as_ref().map_or((true, true), fields_for);
     let now = Utc::now();
     let hours = crate::ui::clock::hours();
     let form = away();
@@ -297,13 +299,15 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
         }
         if on {
             FormSection {
-                FieldRow { label: copy::fields::SUBJECT,
-                    TextField {
-                        label: copy::fields::SUBJECT.to_owned(),
-                        value: form.subject.clone(),
-                        placeholder: copy::fields::AWAY_SUBJECT_EXAMPLE.to_owned(),
-                        common: classed("rules-field"),
-                        oninput: move |value: String| away.write().subject = value,
+                if asks_subject {
+                    FieldRow { label: copy::fields::SUBJECT,
+                        TextField {
+                            label: copy::fields::SUBJECT.to_owned(),
+                            value: form.subject.clone(),
+                            placeholder: copy::fields::AWAY_SUBJECT_EXAMPLE.to_owned(),
+                            common: classed("rules-field"),
+                            oninput: move |value: String| away.write().subject = value,
+                        }
                     }
                 }
                 FieldRow { label: copy::fields::REPLY,
@@ -317,13 +321,15 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                         oninput: move |value: String| away.write().body = value,
                     }
                 }
-                FieldRow { label: copy::fields::ANSWERS_MAIL_TO,
-                    TextField {
-                        label: copy::fields::ANSWERS_MAIL_TO.to_owned(),
-                        value: form.addresses.clone(),
-                        placeholder: "you@example.com".to_owned(),
-                        common: classed("rules-field"),
-                        oninput: move |value: String| away.write().addresses = value,
+                if asks_addresses {
+                    FieldRow { label: copy::fields::ANSWERS_MAIL_TO,
+                        TextField {
+                            label: copy::fields::ANSWERS_MAIL_TO.to_owned(),
+                            value: form.addresses.clone(),
+                            placeholder: "you@example.com".to_owned(),
+                            common: classed("rules-field"),
+                            oninput: move |value: String| away.write().addresses = value,
+                        }
                     }
                 }
             }
@@ -373,5 +379,30 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
         if let Some(why) = refused() {
             Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| refused.set(None) }
         }
+    }
+}
+
+/// Which fields a server uses of the reply: its Subject and the addresses it answers for. A
+/// Sieve script uses both, JMAP's `VacationResponse` a subject but no addresses, and Exchange's
+/// automatic replies neither.
+fn fields_for(server: &mail_client::rules::server::AwayServer) -> (bool, bool) {
+    use mail_client::rules::server::AwayServer;
+    match server {
+        AwayServer::Sieve => (true, true),
+        AwayServer::Jmap => (true, false),
+        AwayServer::Graph => (false, false),
+    }
+}
+
+#[cfg(test)]
+mod fields_tests {
+    use super::fields_for;
+    use mail_client::rules::server::AwayServer;
+
+    #[test]
+    fn a_server_is_asked_only_for_what_it_keeps() {
+        assert_eq!(fields_for(&AwayServer::Sieve), (true, true));
+        assert_eq!(fields_for(&AwayServer::Jmap), (true, false));
+        assert_eq!(fields_for(&AwayServer::Graph), (false, false));
     }
 }
