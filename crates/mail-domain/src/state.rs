@@ -46,9 +46,9 @@ impl MailboxRole {
     /// The role a folder of this name plays, where the name is one clients agree on.
     ///
     /// The one place a folder's name is read for its role, for the places that have no server
-    /// to say (an archive on disk, an import). Only the last segment is read, so
-    /// `[Gmail]/Sent Mail` and `Sent` agree. Case and the difference between a space, a hyphen
-    /// and nothing are ignored: `Junk E-mail`, `junk-email`.
+    /// to say (an archive on disk, an import, an IMAP server that lists no SPECIAL-USE). Only the
+    /// last segment is read, so `[Gmail]/Sent Mail` and `Sent` agree. Case and the difference
+    /// between a space, a hyphen and nothing are ignored: `Junk E-mail`, `junk-email`.
     pub fn from_folder_name(name: &str) -> Option<MailboxRole> {
         let last = name.rsplit(['/', '.']).next().unwrap_or(name);
         let folded: String = last
