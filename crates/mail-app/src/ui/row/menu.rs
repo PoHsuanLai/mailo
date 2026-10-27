@@ -95,9 +95,8 @@ pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
 /// The open conversation's ⋯ in the reader: the row's menu without what the reader's toolbar
 /// already holds (`toolbar`, its Reply, Archive and Delete), with the quieter actions that are
 /// the reader's alone (Mute beside Pin, Mark as Spam and Block Sender where the conversation can
-/// be), View first
-/// where the reader is a pane (`view`), Unsubscribe… with what takes the conversation away while
-/// its list offers a way out (`leave`), and Print and Download last.
+/// be), View first where the reader is a pane (`view`), Unsubscribe… with what takes the
+/// conversation away while its list offers a way out (`leave`), and Print and Download last.
 pub(in crate::ui) fn reader_groups(
     summary: &ThreadSummary,
     toolbar: &[OpKind],
