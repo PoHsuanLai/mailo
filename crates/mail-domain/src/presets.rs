@@ -515,7 +515,7 @@ pub const GRAPH_POLL_EVERY: Duration = Duration::from_secs(15);
 /// pass asks one delta per folder, so at a quarter second a folder the polling alone stays
 /// under 2,400 requests in ten minutes, a quarter of that, and the rest is left for bodies,
 /// changes and searches. Sixty folders still poll every fifteen seconds; two hundred and forty
-/// poll every minute, as every Graph account used to.
+/// poll every minute.
 pub const GRAPH_POLL_PER_FOLDER: Duration = Duration::from_millis(250);
 
 /// How often an account that reads through Graph and lists `folders` folders looks for new mail:

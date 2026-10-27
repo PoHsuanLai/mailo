@@ -32,8 +32,8 @@ pub const POLLS_MISSED: u32 = 3;
 ///
 /// Three misses of a fifteen-second Graph poll is forty-five seconds, less than one slow pass
 /// over a large folder or a laptop's wake can take, and the line would say "Not updated since"
-/// about an account that is being fetched. Three minutes is what three missed polls were when
-/// Graph was polled every minute, and is still well inside what a person notices.
+/// about an account that is being fetched. Three minutes is three missed polls of a
+/// minute's interval, and is well inside what a person notices.
 pub const POLLED_AT_LEAST: Duration = Duration::from_secs(3 * 60);
 
 /// What an account the server pushes to is allowed past [`IDLE_REARM`] before it is stale: the

@@ -35,9 +35,10 @@
 //!
 //! There is no push. Graph's change notifications are delivered to a public HTTPS webhook,
 //! which a desktop client does not have, so an account that reads through Graph polls — every
-//! fifteen seconds, or slower for a mailbox of many folders ([`mail_domain::presets::graph_poll_every`]).
-//! That is cheap because a pass that resumes asks each folder's stored delta link and nothing
-//! else, and a delta with nothing to report returns nothing.
+//! fifteen seconds, or slower for a mailbox of many folders
+//! ([`mail_domain::presets::graph_poll_every`]). That is cheap because a pass that resumes asks
+//! each folder's stored delta link and nothing else, and a delta with nothing to report returns
+//! nothing.
 
 mod search;
 
@@ -163,8 +164,8 @@ impl Reader {
         self.caps.clone()
     }
 
-    /// Whether the capabilities poll slower than a mailbox of `folders` folders may: written
-    /// before the interval was shortened, so worth asking again before the day is out.
+    /// Whether the capabilities poll slower than a mailbox of `folders` folders may, so are worth
+    /// settling before the day is out.
     pub fn polls_behind(&self, folders: usize) -> bool {
         match self.caps.watch {
             WatchMode::Poll { every } => every > graph_poll_every(folders),

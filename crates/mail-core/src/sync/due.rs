@@ -2,8 +2,9 @@
 //!
 //! The window wakes at the shortest interval any account asks for, [`super::poll_interval`]. A
 //! wake syncs only the accounts whose own interval has passed: one Graph account polls every
-//! fifteen seconds, and the IMAP accounts beside it want a pass every five minutes. A pass the user asks for is
-//! not a wake and still syncs them all, through [`SyncOps::run`](crate::SyncOps).
+//! fifteen seconds, and the IMAP accounts beside it want a pass every five minutes. A pass the
+//! user asks for is not a wake and still syncs them all, through
+//! [`SyncOps::run`](crate::SyncOps).
 
 use crate::error::{CoreError, Logged};
 use std::collections::HashMap;

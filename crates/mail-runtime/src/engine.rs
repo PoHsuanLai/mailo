@@ -1569,9 +1569,9 @@ impl<B: Backend> AccountEngine<B> {
     /// providers keeps its row. Daily is often enough to notice, and rare enough to cost
     /// nothing; re-reading on every pass would be a wasted round trip every few minutes.
     ///
-    /// A Graph account whose stored interval is slower than its folders now allow is stale at
-    /// once ([`Reader::polls_behind`](crate::graph::read::Reader::polls_behind)): it was written
-    /// when Graph was polled every minute, and would otherwise keep that for up to a day. The
+    /// A Graph account whose stored interval is slower than its folders allow is stale at once
+    /// ([`Reader::polls_behind`](crate::graph::read::Reader::polls_behind)): the interval is
+    /// the client's to set, and an older, slower one would otherwise keep for up to a day. The
     /// folders are counted as the store holds them, as [`AccountEngine::refresh_caps`] counts
     /// them, so a refresh settles it and the next pass does not ask again.
     pub fn caps_are_stale(&self, now: DateTime<Utc>) -> bool {

@@ -29,8 +29,8 @@ pub const SYNCS_TO_FIND: u32 = 3;
 /// These are not syncs that should have found it, and a folder that fails a pass or two is not a
 /// reason to give up on it. But a folder this client does not sync at all — one the user does not
 /// follow, or `Spam` — is never synced, and without this the wait would again be for good. A pass
-/// is a minute to five while the app runs, so this is somewhere between twenty minutes and an hour
-/// and a half of running, and no time at all while it does not.
+/// is fifteen seconds to five minutes while the app runs, so this is somewhere between five minutes
+/// and an hour and a half of running, and no time at all while it does not.
 pub const PASSES_TO_FIND: u32 = 20;
 
 /// Where a message an operation names is, as the moment it is sent sees it.
