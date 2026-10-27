@@ -45,8 +45,21 @@ impl EventKit {
 }
 
 /// The URL that names `uid` on an event.
+///
+/// A `UID` is any text, but `NSURL` refuses a string that is not a URL and the event would then
+/// carry none, to be added again as a second event the next time. So every byte a URL path
+/// cannot hold as itself is written `%XX` (RFC 3986 §3.3), the same way each time it is asked.
 pub(crate) fn urn(uid: &str) -> String {
-    format!("urn:uid:{uid}")
+    let mut out = String::from("urn:uid:");
+    for byte in uid.bytes() {
+        let plain = byte.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@".contains(&byte);
+        if plain {
+            out.push(char::from(byte));
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
 }
 
 /// Seconds since the epoch of local midnight on `date`, or of its last second.
@@ -290,6 +303,20 @@ mod tests {
     #[test]
     fn an_event_is_named_by_its_uid_as_a_urn() {
         assert_eq!(urn("a@b.test"), "urn:uid:a@b.test");
+    }
+
+    #[test]
+    fn a_uid_a_url_cannot_hold_is_escaped() {
+        let cases = [
+            ("space", "a b@x", "urn:uid:a%20b@x"),
+            ("braces", "{1D2}", "urn:uid:%7B1D2%7D"),
+            ("percent", "50%", "urn:uid:50%25"),
+            ("slash and hash", "a/b#c", "urn:uid:a%2Fb%23c"),
+            ("non-ascii", "會議", "urn:uid:%E6%9C%83%E8%AD%B0"),
+        ];
+        for (name, uid, want) in cases {
+            assert_eq!(urn(uid), want, "{name}");
+        }
     }
 
     #[test]
