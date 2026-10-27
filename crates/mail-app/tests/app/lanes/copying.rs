@@ -123,7 +123,14 @@ fn a_right_click_on_selected_words_in_a_message_offers_copy() {
 
     let on = on_line(&window.harness, "p + p", 60.0).expect("drawn");
     window.harness.press(on, PointerButton::Secondary);
-    window.until("the selection's menu", |h| h.count(MENU) == 1);
+    // The message's menu: Copy for the selected words, then the headers and the source.
+    let copy_row = format!("{MENU}[aria-label=\"{}\"]", copy::menus::COPY);
+    window.until("the selection's menu", |h| h.count(&copy_row) == 1);
+    assert_eq!(
+        window.harness.count(MENU),
+        3,
+        "Copy, Show All Headers, View Source"
+    );
     window.menu_item(copy::menus::COPY);
     window.until("the menu closes", |h| h.count(MENU) == 0);
     assert_eq!(window.harness.clipboard_text(), Some(words.clone()));
@@ -133,7 +140,7 @@ fn a_right_click_on_selected_words_in_a_message_offers_copy() {
         "the right click let the selection go"
     );
 
-    // With nothing selected, a right click on the words offers nothing, as before.
+    // With nothing selected, a right click on the words offers no Copy, as before.
     let off = on_line(&window.harness, "p", 20.0).expect("drawn");
     window.harness.click(off);
     window.harness.advance(ms(300));
@@ -144,7 +151,16 @@ fn a_right_click_on_selected_words_in_a_message_offers_copy() {
     );
     window.harness.press(off, PointerButton::Secondary);
     window.harness.advance(ms(300));
-    assert_eq!(window.harness.count(MENU), 0, "a menu with nothing to copy");
+    assert_eq!(
+        window.harness.count(&copy_row),
+        0,
+        "a Copy with nothing to copy"
+    );
+    assert_eq!(
+        window.harness.count(MENU),
+        2,
+        "the headers and the source remain"
+    );
 }
 
 #[test]
