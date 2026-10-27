@@ -2,8 +2,8 @@
 //! at a time, and gone once the draft is sent.
 //!
 //! The IMAP server holds a Drafts folder for real: `APPEND` puts a message in it under a new UID,
-//! `UID SEARCH HEADER Message-ID` reads the messages it holds, `UID STORE` sets their flags and
-//! `UID EXPUNGE` removes the `\Deleted` ones it names. So a copy left behind, or one removed that
+//! `UID SEARCH DRAFT HEADER Message-ID` reads the messages it holds, `UID STORE` sets their flags
+//! and `UID EXPUNGE` removes the `\Deleted` ones it names. So a copy left behind, or one removed that
 //! should not have been, shows in what the folder holds afterwards, whatever the client said.
 
 use crate::fixture::{IDENTITY, acct_account, now};
@@ -107,7 +107,7 @@ async fn serve_imap(folder: Shared, uidplus: bool) -> u16 {
                                 folder.held.len(),
                                 folder.next_uid.max(1)
                             )
-                        } else if upper.starts_with("UID SEARCH HEADER MESSAGE-ID") {
+                        } else if upper.starts_with("UID SEARCH DRAFT HEADER MESSAGE-ID") {
                             let wanted = rest
                                 .split_once('"')
                                 .and_then(|(_, after)| after.rsplit_once('"'))
@@ -120,7 +120,9 @@ async fn serve_imap(folder: Shared, uidplus: bool) -> u16 {
                                 .held
                                 .iter()
                                 .filter(|held| {
-                                    held.body.contains(&format!("Message-ID: {wanted}\r\n"))
+                                    // DRAFT matches the \Draft flag (RFC 9051 §6.4.4.1).
+                                    held.flags.contains(&"\\Draft".to_owned())
+                                        && held.body.contains(&format!("Message-ID: {wanted}\r\n"))
                                 })
                                 .map(|held| held.uid.to_string())
                                 .collect();
