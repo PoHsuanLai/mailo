@@ -140,7 +140,7 @@ places is being read again, and an account's labels go with it, in the same valu
 ## In Dioxus
 
 ```rust
-pub fn use_live<Q: Query>(key: impl Fn() -> Q + 'static) -> ReadSignal<Snapshot<Q::Output>>
+pub fn use_live<Q: Query>(key: impl FnMut() -> Q + 'static) -> Memo<Snapshot<Q::Output>>
 ```
 
 - The key is a memo, so it follows the signals it reads, and an equal key does not resubscribe.
