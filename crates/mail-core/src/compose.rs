@@ -1843,7 +1843,15 @@ mod server_copy_tests {
             )
             .unwrap();
             assert!(!keep_on_server(&store, draft.id, at(2)).unwrap());
-            assert!(queued(&store).is_empty(), "{:?}", queued(&store));
+            // Only a removal may be queued, for a copy an earlier session may have kept in the
+            // clear; never an upload.
+            let ops = queued(&store);
+            assert!(
+                ops.iter().all(
+                    |op| matches!(op, ProtoOp::DropDraft { draft: gone, .. } if *gone == draft.id)
+                ),
+                "{ops:?}"
+            );
         }
     }
 
