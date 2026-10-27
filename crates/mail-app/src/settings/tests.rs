@@ -140,6 +140,13 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
                     .to_vec(),
             },
         ),
+        ("junk.filter", pair("on", "off")),
+        ("junk.treat", pair("move", "mark")),
+        ("junk.spare_contacts", pair("on", "off")),
+        ("junk.spare_written_to", pair("on", "off")),
+        ("junk.spare_full_name", pair("on", "off")),
+        ("junk.trust_server", pair("on", "off")),
+        ("junk.order", pair("after", "before")),
     ]
     .into_iter()
     .map(|(path, kind)| (path.to_owned(), kind))

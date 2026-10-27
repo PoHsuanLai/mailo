@@ -25,7 +25,8 @@ impl Passer {
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
         Self(Arc::new(|store, _now, account, hooks| {
-            let mail = crate::edge::mail(&store);
+            // The settings as they are now: a change in Settings reaches the next pass.
+            let mail = crate::edge::syncing_mail(&store);
             crate::edge::block_on(mail.sync().run_due(&[account], hooks)).map_err(String::from)
         }))
     }

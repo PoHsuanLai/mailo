@@ -110,6 +110,7 @@ impl crate::mail::SyncOps<'_> {
             &super::Scope {
                 due: &|account| due.contains(&account),
                 kept: &crate::offline::load_default(),
+                junk: mail.junk(),
             },
             hooks,
         )

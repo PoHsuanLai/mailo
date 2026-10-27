@@ -260,7 +260,7 @@ fn op_for<S: Store + ?Sized>(
 ///
 /// The exact name first, then the same name in another case — a rule written `bills` should
 /// find the `Bills` label rather than make a second one beside it.
-fn label_named<S: Store + ?Sized>(
+pub fn label_named<S: Store + ?Sized>(
     store: &S,
     account: AccountId,
     name: &str,
@@ -292,8 +292,9 @@ fn label_named<S: Store + ?Sized>(
 }
 
 /// Apply `op` to one message and queue what the server must hear. Returns how many operations
-/// were queued: none when the op changed nothing, or the server has nothing to be told.
-fn perform<S: Store + ?Sized>(
+/// were queued: none when the op changed nothing, or the server has nothing to be told. Public
+/// for a caller that decides about a message the way a rule does, such as the junk filter.
+pub fn perform<S: Store + ?Sized>(
     store: &S,
     caps: &AccountCaps,
     op: &Op,

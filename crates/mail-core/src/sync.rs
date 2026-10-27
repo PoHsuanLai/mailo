@@ -56,6 +56,9 @@ pub struct Configured {
     pub window: crate::offline::Window,
     /// When a POP3 pass removes the server's copies, from the same setting.
     pub remove: crate::offline::Remove,
+    /// How the junk filter judges what a pass brings ([`crate::junk`]): the window's setting,
+    /// as `keep` is.
+    pub junk: crate::junk::Policy,
 }
 
 /// What the server was last observed to support, for one account.
@@ -108,6 +111,7 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, CoreErr
             every: crate::offline::Every::default(),
             window: crate::offline::Window::default(),
             remove: crate::offline::Remove::default(),
+            junk: crate::junk::Policy::default(),
         });
     }
     Ok(out)
@@ -218,6 +222,7 @@ impl crate::mail::SyncOps<'_> {
             &Scope {
                 due: &|_| true,
                 kept: &crate::offline::load_default(),
+                junk: mail.junk(),
             },
             hooks,
         )
@@ -306,6 +311,7 @@ pub async fn run_with(
         &Scope {
             due: &|_| true,
             kept: &crate::offline::Kept::default(),
+            junk: crate::junk::Policy::default(),
         },
         hooks,
     )
@@ -318,6 +324,8 @@ struct Scope<'a> {
     due: &'a dyn Fn(AccountId) -> bool,
     /// How each account is synced ([`crate::offline`]).
     kept: &'a crate::offline::Kept,
+    /// How the junk filter judges new mail ([`crate::junk`]).
+    junk: crate::junk::Policy,
 }
 
 /// A run over the accounts in `scope`, told whether to stop after one pass.
@@ -345,7 +353,10 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, CoreE
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
         .filter(|account| !paused(store, account.id.clone()))
         .filter(|a| (scope.due)(a.id.clone()))
-        .map(|a| kept_as(a, scope.kept))
+        .map(|a| Configured {
+            junk: scope.junk,
+            ..kept_as(a, scope.kept)
+        })
         .collect())
 }
 
@@ -630,15 +641,7 @@ async fn one(
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            let passed = pass(
-                &mut engine,
-                &mailboxes,
-                account.keep,
-                &mut cancel,
-                now,
-                emit,
-            )
-            .await;
+            let passed = pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await;
             match passed {
                 Ok(mut done) => {
                     let removing = Removing {
@@ -658,15 +661,7 @@ async fn one(
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            pass(
-                &mut engine,
-                &mailboxes,
-                account.keep,
-                &mut cancel,
-                now,
-                emit,
-            )
-            .await
+            pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await
         }
         Incoming::Graph => {
             let mut engine = graph_engine(store, account, secrets)
@@ -675,15 +670,7 @@ async fn one(
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            pass(
-                &mut engine,
-                &mailboxes,
-                account.keep,
-                &mut cancel,
-                now,
-                emit,
-            )
-            .await
+            pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await
         }
         // HTTPS rather than a socket, so an engine of its own; the same pass, the same wait.
         Incoming::Jmap { .. } => {
@@ -694,7 +681,7 @@ async fn one(
                 secrets,
             )
             .map_err(|e| Failure::of("", &e))?;
-            jmap::drive(&mut engine, &mut cancel, now, emit).await
+            jmap::drive(&mut engine, account, &mut cancel, now, emit).await
         }
     };
     report.map(|mut done| {
@@ -1106,7 +1093,7 @@ pub async fn drive<B: mail_proto::Backend>(
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
 ) -> PassEnd {
-    let result = pass(engine, mailboxes, account.keep, cancel, now, None).await;
+    let result = pass(engine, mailboxes, account, cancel, now, None).await;
     ended(account, result, None)
 }
 
@@ -1132,12 +1119,12 @@ fn poll_floor(watch: &WatchMode) -> std::time::Duration {
 async fn pass<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailboxes: &[MailboxRef],
-    keep: crate::offline::Keep,
+    account: &Configured,
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
     emit: Emit<'_>,
 ) -> Result<Done, Failure> {
-    let passed = pass_on(engine, mailboxes, keep, cancel, now, emit).await;
+    let passed = pass_on(engine, mailboxes, account, cancel, now, emit).await;
     engine.let_go().await;
     passed
 }
@@ -1146,7 +1133,7 @@ async fn pass<B: mail_proto::Backend>(
 async fn pass_on<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailboxes: &[MailboxRef],
-    keep: crate::offline::Keep,
+    account: &Configured,
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
     emit: Emit<'_>,
@@ -1186,15 +1173,23 @@ async fn pass_on<B: mail_proto::Backend>(
     // sync, each pass brings the inbox up to date before it moves on.
     let mut done = Done::default();
     for mailbox in mailboxes {
-        one_mailbox(engine, mailbox, keep, cancel, now, &mut done, emit).await?;
+        one_mailbox(engine, mailbox, account.keep, cancel, now, &mut done, emit).await?;
     }
 
     // Rules, over what arrived in any folder this pass, before the drain so that what they
     // queue leaves in the same pass. After the bodies, so a rule about words in the body finds
-    // them for every message the pass had room to fetch.
+    // them for every message the pass had room to fetch. The junk filter before them or after,
+    // as the person chose: whichever goes second sees only what the first left in the inbox.
+    let junk = account.junk;
+    if junk.order == crate::junk::Order::BeforeRules {
+        sift(engine, account.id.clone(), &junk, &mut done, now);
+    }
     match engine.run_rules(&done.counts.arrived, now) {
         Ok(ran) => done.counts.ruled.extend(ran.acted),
         Err(e) => done.trouble(None, e.retry(), format!("rules: {e}")),
+    }
+    if junk.order == crate::junk::Order::AfterRules {
+        sift(engine, account.id.clone(), &junk, &mut done, now);
     }
 
     say(emit, Progress::Sending);
@@ -1227,6 +1222,32 @@ async fn pass_on<B: mail_proto::Backend>(
         }
     }
     Ok(done)
+}
+
+/// Run the junk filter over what the pass brought. A filter that cannot read its counts says
+/// so and the pass goes on: unjudged mail in the inbox is what there was before the filter.
+fn sift<B: mail_proto::Backend>(
+    engine: &AccountEngine<B>,
+    account: AccountId,
+    policy: &crate::junk::Policy,
+    done: &mut Done,
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    if let Err(e) = crate::junk::sift(
+        engine.store(),
+        account,
+        engine.caps(),
+        &done.counts.arrived,
+        policy,
+        now,
+    ) {
+        junk_failed(done, e);
+    }
+}
+
+/// Say that the junk filter failed, without failing the pass.
+fn junk_failed(done: &mut Done, why: CoreError) {
+    done.trouble(None, mail_domain::Retry::Now, format!("junk filter: {why}"));
 }
 
 /// Most headers one mailbox takes in one pass. The rest wait for the next pass, behind the

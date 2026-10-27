@@ -40,6 +40,7 @@ pub mod identity;
 pub mod import;
 pub mod invite;
 pub mod ipc;
+pub mod junk;
 pub mod mail;
 pub mod mailbox_filter;
 pub mod message;

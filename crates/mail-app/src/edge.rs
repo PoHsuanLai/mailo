@@ -131,6 +131,12 @@ pub fn mail(store: &Arc<SqliteStore>) -> Mail {
         .with_signing(signing())
 }
 
+/// [`mail`] for a sync this process starts: with the junk filter behaving as the person's settings
+/// say now.
+pub fn syncing_mail(store: &Arc<SqliteStore>) -> Mail {
+    mail(store).with_junk(crate::settings::junk_policy())
+}
+
 /// The profile named by a leading `--profile <x>` or `--profile=<x>`, and the arguments without
 /// it, so everything that reads the command line afterwards reads what it always read.
 ///
