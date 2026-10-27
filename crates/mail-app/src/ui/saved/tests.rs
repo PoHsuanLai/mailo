@@ -10,10 +10,17 @@ fn labels() -> Vec<(String, LabelId)> {
     )]
 }
 
+fn known(labels: &[(String, LabelId)]) -> mail_core::query::Known<'_> {
+    mail_core::query::Known {
+        labels,
+        accounts: &[],
+    }
+}
+
 fn saved(name: &str, query: &str) -> View {
     let mut draft = ViewDraft::from_search(query);
     draft.name = name.to_owned();
-    draft.build(&labels(), &Utc).unwrap()
+    draft.build(&known(&labels()), &Utc).unwrap()
 }
 
 #[test]

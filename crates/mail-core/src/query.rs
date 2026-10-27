@@ -162,8 +162,8 @@ pub fn known_accounts(store: &mail_store::SqliteStore) -> Vec<(String, AccountId
 /// one that explains itself, which is the right way round while the user is still typing.
 ///
 /// `label` resolves a name to the labels that bear it, and, when it is a [`Known`], the accounts
-/// `account:` names; [`named`] builds a labels-only one from [`known_labels`]. There is deliberately no convenience wrapper that passes an empty
-/// resolver. One existed, the window used it, and `label:travel` there quietly became a
+/// `account:` names; [`named`] builds a labels-only one from [`known_labels`]. There is
+/// deliberately no convenience wrapper that passes an empty resolver. One existed, the window used it, and `label:travel` there quietly became a
 /// full-text search for the literal string while the same query worked in the terminal. A
 /// caller that has no index has to write `&query::unnamed` and see itself do it.
 ///
@@ -210,8 +210,13 @@ pub fn parse_with<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn Names) -> Fi
 
 /// Whether `token` is the word that joins two terms into one either-or term: `OR` in capitals,
 /// as Gmail writes it, or `|`. Lower-case `or` is a word like any other.
-pub fn is_either(token: &Token) -> bool {
-    !token.quoted && !token.negated && (token.text == "OR" || token.text == "|")
+fn is_either(token: &Token) -> bool {
+    !token.quoted && !token.negated && joins(&token.text)
+}
+
+/// Whether `word`, as typed, is the one that joins two terms into an either-or term.
+pub(crate) fn joins(word: &str) -> bool {
+    word == "OR" || word == "|"
 }
 
 /// `tokens` grouped as `OR` joins them: each group one term, or several that are one either-or

@@ -44,7 +44,16 @@ impl Filter {
             Filter::All => "everything".to_owned(),
             Filter::Nothing => "nothing".to_owned(),
             Filter::And(fs) => each(fs).join(" "),
-            Filter::Or(fs) => format!("({})", each(fs).join(" or ")),
+            // A group inside an either-or is parenthesised: the line has no way to say it, so it
+            // does not read back, but it reads as what it is.
+            Filter::Or(fs) => fs
+                .iter()
+                .map(|f| match f {
+                    Filter::And(_) | Filter::Or(_) => format!("({})", f.spelled(words)),
+                    _ => f.spelled(words),
+                })
+                .collect::<Vec<_>>()
+                .join(" OR "),
             Filter::Not(f) => format!("-{}", f.spelled(words)),
             Filter::Account(_) => words.account.to_owned(),
             Filter::InMailbox(role) => format!("in:{role}"),

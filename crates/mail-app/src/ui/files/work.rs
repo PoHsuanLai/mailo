@@ -277,7 +277,7 @@ pub(in crate::ui) fn prefill(shell: &Shell) -> String {
         // A saved view in the words it lists by, when there are words for it.
         Listed::Saved(view) => {
             if let Some(words) =
-                crate::ui::saved::written(&view.filter, &shell.labels, &chrono::Local)
+                crate::ui::saved::written(&view.filter, &shell.known(), &chrono::Local)
             {
                 return words;
             }

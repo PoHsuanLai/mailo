@@ -85,7 +85,7 @@ pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn crate::query::Nam
 /// reads it as one either-or term. A joiner with nothing on one side stays a token of its own,
 /// which parses to nothing.
 fn either_joined(tokens: Vec<String>) -> Vec<String> {
-    let joiner = |token: &str| token == "OR" || token == "|";
+    let joiner = crate::query::joins;
     let mut out: Vec<String> = Vec::new();
     let mut joining = false;
     for token in tokens {
