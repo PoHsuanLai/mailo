@@ -112,6 +112,17 @@ pub(super) struct Listed {
 }
 
 impl Request {
+    /// What the place lists, when it is a query a conversation's summary can be held to; `None`
+    /// for a search and for the lists a query does not make.
+    pub(super) fn filter(&self) -> Option<Filter> {
+        match self {
+            Request::Place(Listing::Threads(query) | Listing::Inbox { query, .. }) => {
+                Some(query.filter.clone())
+            }
+            _ => None,
+        }
+    }
+
     /// What the client is asked for this request.
     pub(super) fn asked(&self) -> Conversations {
         match self {

@@ -454,3 +454,55 @@ fn a_conversation_that_is_not_there_is_none_not_a_failure() {
 
     assert!(matches!(gone.snapshot(), Snapshot::Ready { value, .. } if value.is_none()));
 }
+
+/// `ticket`, waited for.
+fn done(ticket: mail_client::Ticket) -> Option<mail_client::Acted> {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(ticket)
+}
+
+#[test]
+fn a_command_is_done_off_the_callers_thread_and_says_its_generation() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+    seed_account(&store, account(1), "one@example.test");
+    let before = store.generation();
+
+    let acted = done(client.act(mail_client::Command::Perform {
+        ops: vec![(mail_domain::ThreadId::generate(), mail_domain::Op::Archive)],
+        clock: mail_core::when::Clock::H24,
+        alone: Vec::new(),
+        then_erase: false,
+    }))
+    .expect("done");
+
+    // A conversation that is not there is not acted on, and that is all.
+    assert_eq!(acted.done, mail_client::Done::Performed(Vec::new()));
+    assert!(acted.generation >= before);
+}
+
+#[test]
+fn what_was_given_before_a_stop_is_still_done() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+    let ticket = client.act(mail_client::Command::Destroy(vec![
+        mail_domain::ThreadId::generate(),
+    ]));
+    client.clone().shutdown(Duration::from_secs(2));
+
+    assert_eq!(
+        done(ticket).map(|acted| acted.done),
+        Some(mail_client::Done::Destroyed(Vec::new()))
+    );
+}
+
+#[test]
+fn an_inline_client_has_it_done_by_the_time_it_hands_the_ticket_back() {
+    let store = Arc::new(in_memory());
+    let client = Client::inline(store, Arc::new(mail_core::mail::SystemClock));
+    let mut ticket = client.act(mail_client::Command::TakeBack(Vec::new()));
+
+    assert!(ticket.now().is_some());
+}

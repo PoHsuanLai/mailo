@@ -8,7 +8,9 @@
 //!   `List` plays the exit for a key that stops being listed and closes the gap;
 //! - the undo toast is up because an op was applied, and it names it (quire's `ToastHost`).
 //!
-//! **The store write happens first and at once.** Only the row's unmount waits.
+//! **The row leaves on the press.** The write goes to the client (`mail_client::Command`), which
+//! applies it off the thread that draws; the list stops drawing what it takes out at once
+//! (`list_query::hide`), and the undo and the toast that names it come when it is done.
 
 pub(super) mod drag;
 mod toast;
@@ -16,10 +18,11 @@ mod toast;
 pub(super) use drag::Ghost;
 pub(super) use toast::Toast;
 
-use super::ops::{resolve, take_back};
+use super::ops::resolve;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
+use mail_client::{Acted, Command, Done, Ticket};
 use mail_core::undo::{Undo, UndoHandle};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -181,36 +184,89 @@ pub(super) fn act(
 pub(super) fn act_all(
     store: &SqliteStore,
     shell: Signal<Shell>,
-    mut revision: Signal<u64>,
+    revision: Signal<u64>,
     ops: Vec<(ThreadId, Op)>,
 ) -> usize {
-    let hours = crate::ui::clock::hours();
-    let mut undos = Vec::new();
-    let mut done = Vec::new();
-    for (thread, op) in ops {
-        let target = target_of(shell, thread);
-        if let Some(undo) = mail_core::act::perform_on(store, thread, target, op.clone(), hours) {
-            undos.push(undo);
-            done.push(op);
-        }
-    }
-    // Delete under "deletes now": what it moved to Trash is erased from there once the server
-    // holds it (`ui::erase`). The move keeps its Undo until then.
-    if done.contains(&Op::Trash) && deletes_now() {
-        mail_core::erase::mark_deleted(store, &undos, chrono::Utc::now());
-    }
-    let count = undos.len();
-    let said = match done.as_slice() {
-        [] => return 0,
-        [op, ..] if count > 1 => mail_core::undo::said_of(op, count, &chrono::Local, hours),
-        _ => undos[0].said.clone(),
-    };
-    if record(shell, undos, said).is_none() {
+    act_saying(store, shell, revision, ops, None)
+}
+
+/// [`act_all`], its toast saying `instead` rather than what the ops did, when there is more to
+/// say than the op: the toast goes up once the ops are done, so words put up before then would
+/// be replaced by the op's own.
+pub(in crate::ui) fn act_saying(
+    _store: &SqliteStore,
+    shell: Signal<Shell>,
+    revision: Signal<u64>,
+    ops: Vec<(ThreadId, Op)>,
+    instead: Option<String>,
+) -> usize {
+    if ops.is_empty() {
         return 0;
     }
-    revision += 1;
-    if let Some(mut motion) = motion() {
+    let count = ops.len();
+    let asked: Vec<ThreadId> = ops.iter().map(|(thread, _)| *thread).collect();
+    let hours = crate::ui::clock::hours();
+    let hiding = super::list_query::hide(&ops);
+    let alone: Vec<(ThreadId, mail_domain::MessageId)> = asked
+        .iter()
+        .filter_map(|thread| match target_of(shell, *thread) {
+            Target::Messages(messages) => messages.first().map(|message| (*thread, *message)),
+            Target::Threads(_) => None,
+        })
+        .collect();
+    let then_erase = deletes_now();
+    let ticket = super::live::client().act(Command::Perform {
+        ops,
+        clock: hours,
+        alone,
+        then_erase,
+    });
+    let motion = motion();
+    if let Some(mut motion) = motion {
         motion.dest.set(None);
+    }
+    when_done(ticket, move |acted| {
+        let Some(Acted {
+            done: Done::Performed(done),
+            generation,
+        }) = acted
+        else {
+            hiding.settle(None, &[]);
+            return 0;
+        };
+        // What was refused stays where it was, so it is drawn again.
+        let refused: Vec<ThreadId> = asked
+            .iter()
+            .filter(|thread| !done.iter().any(|(applied, ..)| applied == *thread))
+            .copied()
+            .collect();
+        hiding.settle(Some(generation), &refused);
+        performed(motion, shell, revision, done, hours, instead)
+    })
+    .unwrap_or(count)
+}
+
+/// Keep what `done` takes back as one entry and say it: what an op applied comes to in the
+/// window. Returns how many were applied.
+fn performed(
+    motion: Option<Motion>,
+    shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    done: Vec<(ThreadId, Op, Undo)>,
+    hours: mail_core::when::Clock,
+    instead: Option<String>,
+) -> usize {
+    let count = done.len();
+    let said = match done.as_slice() {
+        [] => return 0,
+        [(_, op, _), _, ..] => mail_core::undo::said_of(op, count, &chrono::Local, hours),
+        [(_, _, undo)] => undo.said.clone(),
+    };
+    let said = instead.unwrap_or(said);
+    let undos = done.into_iter().map(|(.., undo)| undo).collect();
+    revision += 1;
+    if record_through(motion, shell, undos, said).is_none() {
+        return 0;
     }
     count
 }
@@ -242,16 +298,46 @@ fn deletes_now() -> bool {
     })
 }
 
+/// Hand what `ticket` says to `then` once it is done: here and now when it already is (a client
+/// that applies on this thread), otherwise from a task of the window's that outlives the
+/// component that asked, so a row that has left still has its undo kept. Returns what `then`
+/// did, when it ran here.
+pub(in crate::ui) fn when_done<T: 'static>(
+    mut ticket: Ticket,
+    then: impl FnOnce(Option<Acted>) -> T + 'static,
+) -> Option<T> {
+    if let Some(acted) = ticket.now() {
+        return Some(then(Some(acted)));
+    }
+    dioxus::dioxus_core::spawn_forever(async move {
+        then(ticket.await);
+    });
+    None
+}
+
 /// The one way an undoable action is kept and shown: `undos` go on the window's stack as one
 /// entry, taken back together by ⌘Z or by the toast's Undo, and `said` goes up in that toast.
 /// Nothing to undo is still said, in plain words, and keeps no entry.
 pub(in crate::ui) fn record(
+    shell: Signal<Shell>,
+    undos: Vec<Undo>,
+    said: String,
+) -> Option<UndoHandle> {
+    record_through(motion(), shell, undos, said)
+}
+
+/// [`record`], through motion state looked up earlier: for what is kept once a write the
+/// window gave the client is done, from a task that no longer finds the window's.
+pub(in crate::ui) fn record_through(
+    motion: Option<Motion>,
     mut shell: Signal<Shell>,
     undos: Vec<Undo>,
     said: String,
 ) -> Option<UndoHandle> {
     let handle = shell.write().undo.push_all(undos);
-    tell(said, handle.map_or(Follow::Nothing, Follow::Undo));
+    if let Some(motion) = motion {
+        motion.say(said, handle.map_or(Follow::Nothing, Follow::Undo));
+    }
     handle
 }
 
@@ -286,32 +372,50 @@ pub(super) fn act_kind_all(
 /// deleted. The rows leave with the list: quire's `List` plays the exit, and the toast has no
 /// Undo.
 pub(in crate::ui) fn destroy_all(
-    store: &SqliteStore,
+    _store: &SqliteStore,
     mut shell: Signal<Shell>,
     mut revision: Signal<u64>,
     threads: &[ThreadId],
 ) -> usize {
-    let mut gone = Vec::new();
-    for thread in threads {
-        if let Some(messages) = super::ops::destroy(store, *thread) {
-            gone.extend(messages);
-        }
-    }
-    if gone.is_empty() {
+    if threads.is_empty() {
         return 0;
     }
-    {
-        let mut shell = shell.write();
-        shell.undo.forget_messages(&gone);
-        if shell.open.is_some_and(|open| store.thread(open).is_err()) {
-            shell.close();
+    let ops: Vec<(ThreadId, Op)> = threads
+        .iter()
+        .map(|thread| (*thread, Op::Destroy))
+        .collect();
+    let hiding = super::list_query::hide(&ops);
+    let ticket = super::live::client().act(Command::Destroy(threads.to_vec()));
+    let asked = threads.len();
+    let threads = threads.to_vec();
+    let motion = motion();
+    when_done(ticket, move |acted| {
+        let Some(Acted {
+            done: Done::Destroyed(gone),
+            generation,
+        }) = acted
+        else {
+            hiding.settle(None, &[]);
+            return 0;
+        };
+        hiding.settle(Some(generation), &[]);
+        if gone.is_empty() {
+            return 0;
         }
-    }
-    revision += 1;
-    if let Some(motion) = motion() {
-        motion.say(crate::ui::bin::said(gone.len()), Follow::Nothing);
-    }
-    gone.len()
+        {
+            let mut shell = shell.write();
+            shell.undo.forget_messages(&gone);
+            if shell.open.is_some_and(|open| threads.contains(&open)) {
+                shell.close();
+            }
+        }
+        revision += 1;
+        if let Some(motion) = motion {
+            motion.say(crate::ui::bin::said(gone.len()), Follow::Nothing);
+        }
+        gone.len()
+    })
+    .unwrap_or(asked)
 }
 
 /// Put up the toast for something that is not an op on one row.
@@ -400,21 +504,49 @@ fn restore(
     motion: Option<Motion>,
     entry: Vec<Undo>,
 ) -> bool {
-    // Newest first, as the parts were done oldest first.
-    let (back, refused): (Vec<Undo>, Vec<Undo>) =
-        entry.into_iter().rev().partition(|part| match part.resend {
-            // A send taken back goes again for its time: the window seals and queues it.
-            Some(resend) => crate::ui::compose::send_again(store, resend),
-            None => take_back(store, part),
+    // Newest first, as the parts were done oldest first. A send taken back goes again for its
+    // time: the window seals and queues it. The rest is the client's to take back.
+    let (sends, parts): (Vec<Undo>, Vec<Undo>) = entry
+        .into_iter()
+        .rev()
+        .partition(|part| part.resend.is_some());
+    let (sent, unsent): (Vec<Undo>, Vec<Undo>) = sends.into_iter().partition(|part| {
+        part.resend
+            .is_some_and(|resend| crate::ui::compose::send_again(store, resend))
+    });
+    let asked = !sent.is_empty() || !parts.is_empty();
+    let mut took = move |refused: Vec<Undo>, back: bool| {
+        let _ = shell
+            .write()
+            .undo
+            .push_all(refused.into_iter().rev().collect());
+        if back {
+            revision += 1;
+        }
+    };
+    if parts.is_empty() {
+        took(unsent, !sent.is_empty());
+    } else {
+        let ticket = super::live::client().act(Command::TakeBack(parts.clone()));
+        let any_sent = !sent.is_empty();
+        when_done(ticket, move |acted| {
+            let (back, refused) = match acted {
+                Some(Acted {
+                    done: Done::TookBack { back, refused },
+                    ..
+                }) => (back, refused),
+                // Not done: all of it is still there to take back.
+                _ => (Vec::new(), parts),
+            };
+            took(
+                unsent.into_iter().chain(refused).collect(),
+                any_sent || !back.is_empty(),
+            );
         });
-    let _ = shell
-        .write()
-        .undo
-        .push_all(refused.into_iter().rev().collect());
-    if back.is_empty() {
+    }
+    if !asked {
         return false;
     }
-    revision += 1;
     // A row listed again while it leaves stays where it was (quire's `List`), and one whose
     // exit has settled enters again: the list is told nothing.
     if let Some(mut motion) = motion {

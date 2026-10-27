@@ -50,7 +50,7 @@ pub struct Client(Arc<Inner>);   // Clone, Send + Sync; one per process, shared 
 impl Client {
     pub fn open(store: Arc<SqliteStore>, config: ClientConfig) -> Client;
     pub fn live<Q: Query>(&self, query: Q) -> Live<Q::Output>;   // a registry lookup, never SQL
-    pub fn act(&self, command: Command) -> Ticket<Done>;         // never blocks
+    pub fn act(&self, command: Command) -> Ticket;               // never blocks
     pub fn prime<Q: Query>(&self, queries: impl IntoIterator<Item = Q>) -> Vec<Live<Q::Output>>;
     pub fn shutdown(self, within: Duration);
 }
@@ -127,17 +127,18 @@ places is being read again, and an account's labels go with it, in the same valu
 
 ## Commands
 
-- `act` returns a `Ticket` that resolves to `Done { said, undo: Option<Undo>, generation }`.
-  Commands are `Ops`, `Folder`, `TakeBack`, `Restore`, label, view and VIP edits, and later sends.
-  The act thread calls `mail_core::act::perform`, `folder::change` and `act::take_back`, the
-  same rules the CLI uses.
-- Undo and toasts stay in the window: `use_act()` sends the command, awaits the ticket in a task,
-  then records the undo and says what happened.
-- Errors are `ClientError { Refused, Store, Network }`, put into words by `ui/copy`.
-- Optimism is explicit: the window keeps `Pending { hides, until: Generation }`, so rows leave on
-  the press. It lets go once the list's `as_of` reaches the ticket's generation, or when the
-  command fails (with a toast). It cannot stick, and a list cannot show the world before the
-  write once it has shown it after.
+- `act` returns a `Ticket` that resolves to `Acted { done, generation }`: `done` is
+  `Done::Performed`, `TookBack` or `Destroyed`, saying what the command did, and `generation` is
+  the commit a list read at or after it has. Commands are `Perform`, `TakeBack` and `Destroy`;
+  the act thread calls `mail_core::act::perform`, `take_back` and `destroy`, the same rules the
+  CLI uses. An op the store refuses is missing from `Performed`, and a ticket the client stopped
+  before answering resolves to `None`.
+- Undo and toasts stay in the window: it sends the command, awaits the ticket in a task of its
+  own (`motion::when_done`), then records the undo and says what happened.
+- Optimism is explicit: the list hides on the press what an op takes out of it
+  (`list_query::hide`), so rows leave at once. It lets go once the list is read at the ticket's
+  generation, or when the command is refused. It cannot stick, and a list cannot show the world
+  before the write once it has shown it after.
 
 ## In Dioxus
 
@@ -182,7 +183,13 @@ Each leaves the app working.
    `None` once it is gone. The list's top and the open conversation's neighbours are kept read
    (`use_warming`), so opening one is a lookup; a value for another conversation is never drawn
    under this one. Marking read on open stays a write in the window until c.
-   **c.** Writes through `act`, with the overlay.
+   **c.** Writes through `Client::act`: `Command::{Perform, TakeBack, Destroy}` on the
+   `mailo-act` thread, in order, each answering a `Ticket` with what was done and the generation
+   it committed at. The window hides on the press what an op takes out of the place's list
+   (`act::leaves`, from the row's summary; never for a search, whose rows only a reading can
+   tell), and shows it again when the list is read at that generation or the op is refused. The
+   undo stack and the toast stay the window's, filled in when the ticket is answered. Settings,
+   labels, views, VIPs and sends become commands with stage 4.
 3. Fetching moves into the client: the scheduler, the background watch and the outbox. The
    shared `Revisions` retires for store data.
 4. Everything else: compose, settings, contacts, rules, keys, add account, the palette,

@@ -21,7 +21,12 @@ use std::sync::Arc;
 /// jumps ahead) gives the client its time, so what the client reads by the clock — a snooze
 /// ending, a reminder coming due — is read at the window's time.
 pub(in crate::ui) fn use_client() -> Client {
-    use_hook(|| match try_consume_context::<Client>() {
+    use_hook(client)
+}
+
+/// [`use_client`], from a handler or a task.
+pub(in crate::ui) fn client() -> Client {
+    match try_consume_context::<Client>() {
         Some(client) => {
             // Once for the app, not on every component that asks.
             if try_consume_context::<ClockGiven>().is_none() {
@@ -40,7 +45,7 @@ pub(in crate::ui) fn use_client() -> Client {
             };
             provide_root_context(Client::inline(store, clock))
         }
-    })
+    }
 }
 
 /// Tell `client` the clock has passed something it may count — a snooze ending, a reminder

@@ -68,13 +68,27 @@ fn mark_read(
     only: Option<MessageId>,
     revision: Option<Signal<u64>>,
 ) {
-    let marked = match only {
-        Some(message) => read_alone(store, thread, message),
-        None => read_whole(store, thread),
+    let (op, alone) = match only {
+        Some(message) => (Some(Op::SetRead(ReadState::Read)), vec![(thread, message)]),
+        None => (
+            super::ops::resolve(store, thread, OpKind::MarkRead),
+            Vec::new(),
+        ),
     };
-    if marked && let Some(mut revision) = revision {
-        revision += 1;
-    }
+    let Some(op) = op else {
+        return;
+    };
+    let ticket = super::live::client().act(mail_client::Command::Perform {
+        ops: vec![(thread, op)],
+        clock: super::clock::hours(),
+        alone,
+        then_erase: false,
+    });
+    super::motion::when_done(ticket, move |acted| {
+        if let (Some(mut revision), Some(_)) = (revision, acted) {
+            revision += 1;
+        }
+    });
 }
 
 /// Bigger, Smaller or Actual Size: the reader's text size a step along, written to the settings,
@@ -127,34 +141,6 @@ fn leave_key(thread: ThreadId, bodies: &super::unsubscribe::Bodies) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bodies.hash(&mut hasher);
     format!("{thread}-{:x}", hasher.finish())
-}
-
-/// Mark `thread` read as it opens, where any of it is unread. Whether it was.
-fn read_whole(store: &SqliteStore, thread: ThreadId) -> bool {
-    let unread = store
-        .thread(thread)
-        .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread);
-    unread
-        && super::ops::resolve(store, thread, OpKind::MarkRead).is_some_and(|op| {
-            super::ops::perform(store, thread, op, super::clock::hours()).is_some()
-        })
-}
-
-/// Mark `message` read as it opens alone, where it is unread, and nothing else of `thread`.
-/// Whether it was.
-fn read_alone(store: &SqliteStore, thread: ThreadId, message: MessageId) -> bool {
-    let unread = store
-        .message(message)
-        .is_ok_and(|alone| alone.thread == thread && alone.read == ReadState::Unread);
-    unread
-        && mail_core::act::perform_on(
-            store,
-            thread,
-            Target::Messages(vec![message]),
-            Op::SetRead(ReadState::Read),
-            super::clock::hours(),
-        )
-        .is_some()
 }
 
 /// Where a reader is drawn: beside the list, or alone in a conversation's own window.
