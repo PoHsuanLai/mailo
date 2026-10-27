@@ -21,11 +21,11 @@ use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_core::Logged;
 use mail_core::SqliteStore;
 use mail_core::editor::{Doc, Node, ParaKind, Session};
 use mail_core::signature;
 use mail_domain::{Draft, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
-use mail_runtime::Logged;
 use std::sync::Arc;
 
 /// The stack's element id: its back button is `signatures-pane-back-detail`.

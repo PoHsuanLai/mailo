@@ -85,6 +85,7 @@ fn trusting(
 ) -> reqwest::ClientBuilder {
     ders.iter()
         .filter(|der| usable(der))
+        // `usable` already kept only certificates that parse; one that still does not is left out.
         .filter_map(|der| reqwest::Certificate::from_der(der.as_ref()).ok())
         .fold(builder, reqwest::ClientBuilder::add_root_certificate)
 }

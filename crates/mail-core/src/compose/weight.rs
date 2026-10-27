@@ -99,6 +99,7 @@ pub fn can_ask_delivery_report(store: &SqliteStore, account: &AccountId) -> bool
         .account(account.clone())
         .or_log("the sending account could not be read")
         .flatten()
+        // A plan that does not read leaves the choice offered, as every other way of sending has it.
         .and_then(|stored| stored.plan.ok());
     !matches!(plan.map(|plan| plan.outgoing), Some(Outgoing::Graph))
 }

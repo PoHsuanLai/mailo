@@ -9,7 +9,8 @@ use crate::SqliteStore;
 use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
-    AccountPlan, Identity, IdentityId, IsDefault, LabelId, LabelOrigin, MessageId, SyncCursor,
+    AccountPlan, DraftId, Identity, IdentityId, IsDefault, LabelId, LabelOrigin, MessageId,
+    SyncCursor,
 };
 use parking_lot::ReentrantMutexGuard;
 use porter_core::AccountId;
@@ -113,6 +114,22 @@ pub fn seed_default_identity(
 }
 
 /// The default identity `id` of `account`, for a test that names it.
+/// A plain draft's text set as an older build kept it, before every draft's text was flowed
+/// text, and queued to be rewritten as migration 0038 queues it.
+pub fn keep_unflowed_plain_draft(store: &SqliteStore, draft: DraftId, text: &str) {
+    let db = store.connection();
+    db.execute(
+        "UPDATE drafts SET body_text = ?2, body_html = NULL WHERE id = ?1",
+        [draft.to_string(), text.to_owned()],
+    )
+    .expect("keep the draft's text");
+    db.execute(
+        "INSERT INTO drafts_to_reflow (draft) VALUES (?1)",
+        [draft.to_string()],
+    )
+    .expect("queue the draft");
+}
+
 pub fn seed_identity_for(
     store: &SqliteStore,
     id: IdentityId,

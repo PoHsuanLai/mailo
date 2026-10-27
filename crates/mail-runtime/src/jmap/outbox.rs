@@ -494,6 +494,7 @@ impl JmapEngine {
     }
 
     /// Send one frozen message: upload it, import it into Drafts, submit it.
+    #[allow(clippy::too_many_arguments)]
     async fn submit(
         &mut self,
         client: &Client,

@@ -195,6 +195,7 @@ impl Relay {
         // An IPv6 host is written in brackets in an address, and not in a connection.
         self.0
             .host_str()
+            // Never empty: `parse` refused an address without a host.
             .unwrap_or_default()
             .trim_start_matches('[')
             .trim_end_matches(']')

@@ -47,6 +47,7 @@ QUIET_CALLS = {
     "starts_with", "ends_with", "contains", "strip_prefix", "strip_suffix", "split",
     "split_once", "rsplit_once", "find", "rfind", "trim_start_matches", "trim_end_matches",
     "matches", "eq_ignore_ascii_case", "classed", "tagged", "get_attribute", "set_attribute", "var", "var_os",
+    "or_log", "or_log_default",
 }
 
 # Markup and model properties whose value is never read out.

@@ -1904,17 +1904,7 @@ mod reflow_tests {
         mail_store::testing::seed_identity(store, &identity);
         let draft = Draft::blank(&identity, at(1));
         save(store, &draft).unwrap();
-        let db = store.raw_connection();
-        db.execute(
-            "UPDATE drafts SET body_text = ?2, body_html = NULL WHERE id = ?1",
-            [draft.id.to_string(), text.to_owned()],
-        )
-        .unwrap();
-        db.execute(
-            "INSERT INTO drafts_to_reflow (draft) VALUES (?1)",
-            [draft.id.to_string()],
-        )
-        .unwrap();
+        mail_store::testing::keep_unflowed_plain_draft(store, draft.id, text);
         draft.id
     }
 

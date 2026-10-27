@@ -2,8 +2,7 @@
 
 use mail_domain::{
     CertFingerprint, DraftId, Fingerprint, IdentityId, MessageId, Retry, Retryable, RuleId,
-    SignatureId,
-    TemplateId, ThreadId, ViewId,
+    SignatureId, TemplateId, ThreadId, ViewId,
 };
 use porter_core::AccountId;
 use std::time::Duration;
