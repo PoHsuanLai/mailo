@@ -1,7 +1,8 @@
 //! Read receipts from the command line: `show` says a message asks, `receipt` answers it.
 //!
 //! Every answer here is one the user typed. The window answers by itself only under the
-//! `reading.read_receipts = "always"` setting (`ui::receipt`), never by default.
+//! `reading.read_receipts = "always"` setting (`ui::receipt`), never by default; under `"ask"` it
+//! puts the question and answers as the person does.
 
 use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};

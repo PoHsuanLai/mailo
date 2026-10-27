@@ -28,7 +28,8 @@ the least exercised.
 **Reading and writing**
 
 - HTML mail is sanitised; remote images are blocked until you allow them (per message or per
-  trusted sender). Read receipts are never sent automatically.
+  trusted sender). Read receipts are never sent unless you answer one or set Settings › Reading
+  to ask or always.
 - Threaded conversations, labels and folders, stars, archive, undo for most actions.
 - Compose with signatures, templates, reply and forward, attachments, spell check, and
   `mailto:` links (RFC 6068).
