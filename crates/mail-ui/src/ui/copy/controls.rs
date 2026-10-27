@@ -124,7 +124,7 @@ pub fn always_load_from(email: &str) -> String {
     format!("Always Load from {email}")
 }
 
-// The line over a message that asks for a read receipt, under "Ask each time".
+// A message that asks for a read receipt, under "Ask each time": its mark's popover and menu.
 /// Queue the receipt the sender asked for.
 pub const SEND_RECEIPT: &str = "Send Receipt";
 /// Decline it: no receipt goes, and the question is not put again.

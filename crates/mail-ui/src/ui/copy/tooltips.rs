@@ -34,3 +34,6 @@ pub const ENCRYPTED: &str = "Encrypted";
 pub const SIGNED: &str = "Signed";
 /// Signed or encrypted, and nothing about it could be confirmed.
 pub const NOT_VERIFIED: &str = "Not Verified";
+
+/// The mark in the header of a message that asks for a read receipt, under "Ask each time".
+pub const ASKS_FOR_A_RECEIPT: &str = "Asks for a read receipt";

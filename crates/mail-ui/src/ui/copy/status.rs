@@ -119,18 +119,13 @@ pub fn source_cut(shown: &str, whole: &str) -> String {
     format!("Showing the first {shown} of {whole}. Download the message for all of it.")
 }
 
-/// The line over a message that asks for a read receipt, under "Ask each time": who asked.
-pub fn receipt_asked(sender: &str) -> String {
-    format!("{sender} asked for a read receipt")
-}
-
-/// Beside [`receipt_asked`] when the receipt would go to an address other than the one the
+/// Under a message's receipt mark when the receipt would go to an address other than the one the
 /// message came back from: where it would go.
 pub fn receipt_goes_elsewhere(to: &str) -> String {
     format!("It would go to {to}, not where the message came from")
 }
 
-/// Beside [`receipt_asked`] when the message names no address it came back from, so where the
+/// Under a message's receipt mark when the message names no address it came back from, so where the
 /// receipt would go can be said but not checked.
 pub fn receipt_goes_unchecked(to: &str) -> String {
     format!("It would go to {to}, which can’t be checked against where the message came from")

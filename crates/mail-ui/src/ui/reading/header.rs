@@ -102,6 +102,7 @@ pub(super) fn MessageHead(
                 Avatar { initial: face.initial, size: AvatarSize::Size22, tone: face.tone }
                 div { class: "msg-line",
                     Label { text: name, style: LabelStyle::Headline, common: crate::ui::common::classed("truncate") }
+                    super::super::receipt::ReceiptMark { message: message.id }
                     {date}
                 }
             }
@@ -234,6 +235,7 @@ fn full_head(
                 if let Some((mark, lines)) = mark {
                     TrustMark { mark, lines }
                 }
+                super::super::receipt::ReceiptMark { message: message.id }
                 {date}
             }
             if let Some(to) = to {

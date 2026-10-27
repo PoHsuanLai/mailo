@@ -12,8 +12,8 @@
 //! so the window and the command cannot disagree about it. Under [`ReadReceipts::Never`], the
 //! default, nothing is looked up and nothing is answered: the request stays as it came, and a
 //! later `mailo receipt` can still answer it. Under [`ReadReceipts::Ask`] each request outside
-//! Junk is a line over the conversation, Send Receipt or Don't Send, and nothing goes until one
-//! is pressed. Under [`ReadReceipts::Always`] a receipt is queued the first time a message that
+//! Junk is a small mark in its message's header (and two rows in the message's menu), Send
+//! Receipt or Don't Send, and nothing goes until one is chosen. Under [`ReadReceipts::Always`] a receipt is queued the first time a message that
 //! asks is opened, and only where [`automatic`] says it is safe.
 
 use crate::settings::{MailSettings, ReadReceipts};
@@ -26,10 +26,10 @@ use mail_domain::*;
 use mail_mime::{ReceiptAsk, ReturnPath};
 use std::sync::Mutex;
 
-use super::copy::{controls, status};
+use super::copy::{controls, status, tooltips};
 use super::press::on_primary;
-use ds::components::content::label::{LabelRole, LabelStyle};
-use ds::components::controls::button_model::Bezel;
+use ds::components::controls::button_model::{Bezel, ImagePosition};
+use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 
@@ -75,16 +75,6 @@ pub(in crate::ui) fn asks(
     policy == ReadReceipts::Ask
         && mailbox != MailboxRole::Spam
         && matches!(state, ReceiptState::Pending(_))
-}
-
-/// The id of a question's Send Receipt button, for `message`.
-pub(in crate::ui) fn send_id(message: MessageId) -> String {
-    format!("receipt-send-{message}")
-}
-
-/// The id of a question's Don't Send button, for `message`.
-pub(in crate::ui) fn decline_id(message: MessageId) -> String {
-    format!("receipt-decline-{message}")
 }
 
 /// Where a receipt would go, as far as the message's return path says.
@@ -208,8 +198,14 @@ pub(in crate::ui) fn lookup(looks: &Looks, client: &Client, key: &Bodies) -> Vec
     client.looking(looks).receipts(key)
 }
 
+/// The requests the open thread's messages put to the person under [`ReadReceipts::Ask`], kept
+/// for the headers to draw a mark from: the reader provides it, [`Receipts`] fills it, and a
+/// message's mark and menu read it ([`ReceiptMark`]). Empty when nothing asks.
+#[derive(Clone, Copy)]
+pub(in crate::ui) struct Asks(pub Signal<Vec<Question>>);
+
 /// The open thread's requests, answered by the setting, or put to the person under
-/// [`ReadReceipts::Ask`]. Draws nothing but those questions.
+/// [`ReadReceipts::Ask`] through the reader's [`Asks`]. Draws nothing.
 ///
 /// Keyed by the reader on the thread and its bodies, so a body arriving looks again and one
 /// thread's answer is never given for another. The setting is read as the thread opens: changing
@@ -220,9 +216,7 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
     let looks = crate::ui::reading::use_looks();
     let settings = use_hook(try_consume_context::<Signal<MailSettings>>);
     let client = crate::ui::live::client();
-    // The questions answered in this reader, gone from the screen as soon as each answer is kept
-    // rather than when the client's answer is read again.
-    let answered = use_signal(Vec::<MessageId>::new);
+    let asks = try_consume_context::<Asks>();
     let asked = {
         let looks = looks.clone();
         let client = client.clone();
@@ -247,82 +241,137 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
                     }
                 })
                 .await;
-                // A lookup that panicked asks nothing; the reader goes on without the line.
+                // A lookup that panicked asks nothing; the reader goes on without the mark.
                 asked.unwrap_or_default()
             }
         })
     };
-    let shown: Vec<Question> = asked
-        .read()
+    use_effect(move || {
+        if let (Some(Asks(mut asks)), Some(found)) = (asks, asked.read().as_ref()) {
+            asks.set(found.clone());
+        }
+    });
+    // A thread left takes its questions with it.
+    use_drop(move || {
+        if let Some(Asks(mut asks)) = asks {
+            asks.set(Vec::new());
+        }
+    });
+    rsx! {}
+}
+
+/// The key of Send Receipt in a message's menu and its mark's popover.
+pub(in crate::ui) const SEND_KEY: &str = "receipt-send";
+/// The key of Don't Send in a message's menu and its mark's popover.
+pub(in crate::ui) const DECLINE_KEY: &str = "receipt-decline";
+
+/// The two answers, as menu rows.
+pub(in crate::ui) fn items() -> Vec<crate::ui::menu::MenuItem> {
+    use crate::ui::menu::MenuItem;
+    vec![
+        MenuItem::icon(SEND_KEY, Icon::Send, controls::SEND_RECEIPT),
+        MenuItem::icon(DECLINE_KEY, Icon::X, controls::DONT_SEND_RECEIPT),
+    ]
+}
+
+/// What the answer a menu key stands for is, if it is one of the two.
+pub(in crate::ui) fn answer_of(key: &str) -> Option<ReceiptAnswer> {
+    match key {
+        SEND_KEY => Some(ReceiptAnswer::Sent),
+        DECLINE_KEY => Some(ReceiptAnswer::Declined),
+        _ => None,
+    }
+}
+
+/// The request `message` puts to the person, if it puts one.
+pub(in crate::ui) fn question_of(message: MessageId) -> Option<Question> {
+    let Asks(asks) = try_consume_context::<Asks>()?;
+    asks.read()
         .iter()
-        .flatten()
-        .filter(|question| !answered.read().contains(&question.message))
+        .find(|ask| ask.message == message)
         .cloned()
-        .collect();
+}
+
+/// Where a receipt would go when that is not plainly back to the sender: the line a popover
+/// and a menu say under their rows.
+pub(in crate::ui) fn destination_note(question: &Question) -> Option<String> {
+    match &question.destination {
+        Destination::Agreed => None,
+        Destination::Elsewhere(to) => Some(status::receipt_goes_elsewhere(to)),
+        Destination::Unchecked(to) => Some(status::receipt_goes_unchecked(to)),
+    }
+}
+
+/// Give `answer` to the request of `message`: queue the receipt, or decline it, off the thread
+/// that draws, and take the mark away once it is kept, not before: taking it away first would
+/// end this component, and the task with it, before the answer was given. A second press
+/// meanwhile is refused by `answer`, which finds the request answered.
+pub(in crate::ui) fn give(message: MessageId, answer: ReceiptAnswer) {
+    let looks =
+        try_consume_context::<std::sync::Arc<Looks>>().unwrap_or_else(crate::ui::reading::looks);
+    let client = crate::ui::live::client();
+    let asks = try_consume_context::<Asks>();
+    spawn(async move {
+        let given = tokio::task::spawn_blocking(move || {
+            answer_one(&looks, &client, message, answer, Utc::now());
+        })
+        .await;
+        if let Err(why) = given {
+            log::warn!("read receipt: {why}");
+        }
+        if let Some(Asks(mut asks)) = asks {
+            asks.write().retain(|ask| ask.message != message);
+        }
+    });
+}
+
+/// The small receipt mark in the header of a message that asks for a read receipt under
+/// [`ReadReceipts::Ask`], and nothing for any other. Clicking it opens a popover with Send
+/// Receipt and Don't Send. Ignoring it sends nothing.
+#[component]
+pub(in crate::ui) fn ReceiptMark(message: MessageId) -> Element {
+    let mut open = use_signal(|| false);
+    let mut at = use_signal(|| None::<MountedRef>);
+    let Some(question) = question_of(message) else {
+        return rsx! {};
+    };
     rsx! {
-        for question in shown {
-            Asking { key: "{question.message}", question, answered }
+        Button {
+            bezel: Bezel::Inline,
+            image: ImagePosition::Only,
+            icon: Icon::MailOpen,
+            label: tooltips::ASKS_FOR_A_RECEIPT,
+            title: Some(tooltips::ASKS_FOR_A_RECEIPT.to_owned()),
+            common: Common {
+                id: Some(mark_id(message)),
+                aria_label: Some(tooltips::ASKS_FOR_A_RECEIPT.to_owned()),
+                mounted: Some(EventHandler::new(move |event: MountedEvent| at.set(Some(MountedRef(event.data()))))),
+                ..Common::default()
+            },
+            onclick: on_primary(move || open.set(!open())),
+        }
+        if open() {
+            super::menu::Floating {
+                placement: MenuPlacement::Popup,
+                anchor: at(),
+                title: tooltips::ASKS_FOR_A_RECEIPT.to_owned(),
+                items: items(),
+                note: destination_note(&question),
+                on_pick: move |key: String| {
+                    open.set(false);
+                    if let Some(answer) = answer_of(&key) {
+                        give(message, answer);
+                    }
+                },
+                on_close: move |()| open.set(false),
+            }
         }
     }
 }
 
-/// One question's line: who asked, where the receipt would go when that is not plainly back to
-/// the sender, and the two answers.
-#[component]
-fn Asking(question: Question, answered: Signal<Vec<MessageId>>) -> Element {
-    let looks = crate::ui::reading::use_looks();
-    let client = crate::ui::live::client();
-    let message = question.message;
-    let give = move |given: ReceiptAnswer| {
-        let looks = looks.clone();
-        let client = client.clone();
-        let mut answered = answered;
-        move || {
-            let looks = looks.clone();
-            let client = client.clone();
-            // The line goes once the answer is kept, not before: taking it away first would end
-            // this component, and the task with it, before the answer was given. A second press
-            // meanwhile is refused by `answer`, which finds the request answered.
-            spawn(async move {
-                let given = tokio::task::spawn_blocking(move || {
-                    answer_one(&looks, &client, message, given, Utc::now());
-                })
-                .await;
-                if let Err(why) = given {
-                    log::warn!("read receipt: {why}");
-                }
-                answered.write().push(message);
-            });
-        }
-    };
-    let send = give(ReceiptAnswer::Sent);
-    let decline = give(ReceiptAnswer::Declined);
-    rsx! {
-        p { class: "receipt-ask", role: "status",
-            Label { text: status::receipt_asked(&question.sender), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
-            match &question.destination {
-                Destination::Agreed => rsx! {},
-                Destination::Elsewhere(to) => rsx! {
-                    Label { text: status::receipt_goes_elsewhere(to), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
-                },
-                Destination::Unchecked(to) => rsx! {
-                    Label { text: status::receipt_goes_unchecked(to), role: LabelRole::Tertiary, style: LabelStyle::Footnote }
-                },
-            }
-            Button {
-                bezel: Bezel::Inline,
-                label: controls::SEND_RECEIPT,
-                common: Common { id: Some(send_id(message)), aria_label: Some(controls::SEND_RECEIPT.to_owned()), ..Common::default() },
-                onclick: on_primary(send),
-            }
-            Button {
-                bezel: Bezel::Inline,
-                label: controls::DONT_SEND_RECEIPT,
-                common: Common { id: Some(decline_id(message)), aria_label: Some(controls::DONT_SEND_RECEIPT.to_owned()), ..Common::default() },
-                onclick: on_primary(decline),
-            }
-        }
-    }
+/// The id of `message`'s receipt mark.
+pub(in crate::ui) fn mark_id(message: MessageId) -> String {
+    format!("receipt-mark-{message}")
 }
 
 #[cfg(test)]

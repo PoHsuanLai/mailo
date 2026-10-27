@@ -1,7 +1,8 @@
 //! Read receipts in the window: answered by the setting, once, and only where it is safe.
 
 use super::{
-    Destination, Standing, answer_asked, asks, automatic, decline_id, destination, send_id,
+    DECLINE_KEY, Destination, SEND_KEY, Standing, answer_asked, answer_of, asks, automatic,
+    destination, items, mark_id,
 };
 use crate::settings::{MailSettings, ReadReceipts};
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
@@ -454,45 +455,102 @@ fn ask_each_time_asks_only_about_an_unanswered_request_outside_junk() {
     }
 }
 
-/// Under Ask, opening queues nothing; Send Receipt queues exactly one, and the question is gone.
+/// Choose `name` in the popover of `message`'s receipt mark.
+async fn choose(
+    dom: &mut VirtualDom,
+    seen: &mut crate::ui::fixtures::Seen,
+    message: MessageId,
+    name: &str,
+) {
+    let opened = click(dom, seen.one("id", &mark_id(message)));
+    *seen = std::mem::take(seen).merge(opened);
+    settle_for(dom, seen, Duration::from_millis(100)).await;
+    crate::ui::fixtures::pick_named(dom, seen, name).await;
+    settle_for(dom, seen, Duration::from_millis(400)).await;
+}
+
+/// A message that asks is a small mark in its header with a tip, and no line over the
+/// conversation; ignored, it sends nothing.
 #[tokio::test]
-async fn ask_each_time_sends_when_the_person_says_so() {
+async fn a_message_that_asks_has_a_mark_in_its_header_and_ignored_sends_nothing() {
     let (store, _dir) = seeded();
     let (thread, message) = put(&store, ASKS, Held::Body);
     let queued = outbox(&store);
     let before = submissions(&store);
-    let (mut dom, mut seen) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
+    let (dom, seen) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains(&mark_id(message)), "no mark: {page}");
+    assert!(
+        page.contains(crate::ui::copy::tooltips::ASKS_FOR_A_RECEIPT),
+        "{page}"
+    );
+    assert!(!page.contains("receipt-ask"), "the question line is gone");
+    assert!(
+        !page.contains(crate::ui::copy::controls::SEND_RECEIPT),
+        "the answers wait in the popover"
+    );
+    let _ = seen;
     assert_eq!(outbox(&store), queued, "opening queued something");
+    assert_eq!(submissions(&store), before, "a receipt went");
     assert_eq!(store.receipt_answer(message).unwrap(), None);
+    // Under Never there is no mark at all.
+    let (never, _) = running_under(store, thread, ReadReceipts::Never).await;
+    assert!(!dioxus_ssr::render(&never).contains(&mark_id(message)));
+}
 
-    let later = click(&mut dom, seen.one("id", &send_id(message)));
-    seen = seen.merge(later);
-    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+/// Under Ask, Send Receipt in the mark's popover queues exactly one, and the mark is gone.
+#[tokio::test]
+async fn ask_each_time_sends_when_the_person_says_so() {
+    let (store, _dir) = seeded();
+    let (thread, message) = put(&store, ASKS, Held::Body);
+    let before = submissions(&store);
+    let (mut dom, mut seen) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
+    choose(
+        &mut dom,
+        &mut seen,
+        message,
+        crate::ui::copy::controls::SEND_RECEIPT,
+    )
+    .await;
     assert_eq!(submissions(&store), before + 1, "one receipt, queued");
     assert_eq!(
         store.receipt_answer(message).unwrap(),
         Some(ReceiptAnswer::Sent)
     );
-    assert!(!dioxus_ssr::render(&dom).contains(&send_id(message)));
+    assert!(!dioxus_ssr::render(&dom).contains(&mark_id(message)));
 }
 
-/// Under Ask, Don't Send declines: no receipt is queued, and opening again asks no more.
+/// Under Ask, Don't Send declines: no receipt is queued, and opening again shows no mark.
 #[tokio::test]
 async fn ask_each_time_declines_and_does_not_ask_again() {
     let (store, _dir) = seeded();
     let (thread, message) = put(&store, ASKS, Held::Body);
     let before = submissions(&store);
     let (mut dom, mut seen) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
-    let later = click(&mut dom, seen.one("id", &decline_id(message)));
-    seen = seen.merge(later);
-    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    choose(
+        &mut dom,
+        &mut seen,
+        message,
+        crate::ui::copy::controls::DONT_SEND_RECEIPT,
+    )
+    .await;
     assert_eq!(submissions(&store), before, "a receipt went");
     assert_eq!(
         store.receipt_answer(message).unwrap(),
         Some(ReceiptAnswer::Declined)
     );
     let (again, _) = running_under(store.clone(), thread, ReadReceipts::Ask).await;
-    assert!(!dioxus_ssr::render(&again).contains(&decline_id(message)));
+    assert!(!dioxus_ssr::render(&again).contains(&mark_id(message)));
+}
+
+/// The popover and the message's menu offer the same two answers, and nothing else is one.
+#[test]
+fn the_two_answers_are_the_same_in_the_mark_and_the_menu() {
+    let keys: Vec<String> = items().into_iter().map(|item| item.key).collect();
+    assert_eq!(keys, [SEND_KEY, DECLINE_KEY]);
+    assert_eq!(answer_of(SEND_KEY), Some(ReceiptAnswer::Sent));
+    assert_eq!(answer_of(DECLINE_KEY), Some(ReceiptAnswer::Declined));
+    assert_eq!(answer_of("copy"), None);
 }
 
 /// What a question says of where the receipt would go depends on the return path alone.

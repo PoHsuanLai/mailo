@@ -172,6 +172,8 @@ pub(super) fn Reader(
     let client = super::live::client();
     // Where the sender's name marks a VIP: this window's shell.
     use_context_provider(|| crate::ui::vip::Marking { shell });
+    // The read receipts the thread's messages ask about, which their headers draw a mark for.
+    use_context_provider(|| super::receipt::Asks(Signal::new(Vec::new())));
     let read = super::live::use_live(use_reactive!(|thread| Conversation(thread)));
     let frames = use_frames();
     let looks = use_looks();
@@ -831,14 +833,20 @@ fn MessageMenu(
     };
     let message = asked.message;
     let text = asked.text.clone();
+    // A message that asks for a read receipt offers the two answers here as well as in its mark.
+    let question = super::receipt::question_of(message);
     rsx! {
         super::menu::Floating {
             anchor: None,
             placed: Some(placed),
             title: String::new(),
-            items: keys.with_keymap(|keymap| message_items(keymap, text.is_some())),
+            items: keys.with_keymap(|keymap| message_items(keymap, text.is_some(), question.is_some())),
             on_pick: move |key: String| {
                 open.set(None);
+                if let Some(answer) = super::receipt::answer_of(&key) {
+                    super::receipt::give(message, answer);
+                    return;
+                }
                 let raw = match key.as_str() {
                     COPY => {
                         if let Some(text) = &asked.text {
@@ -862,7 +870,11 @@ const SHOW_HEADERS: &str = "show-headers";
 const VIEW_SOURCE: &str = "view-source";
 
 /// A message's own menu's rows, each with its chord as `keymap` has it.
-fn message_items(keymap: &chordkit::Keymap, copy: bool) -> Vec<super::menu::MenuItem> {
+fn message_items(
+    keymap: &chordkit::Keymap,
+    copy: bool,
+    receipt: bool,
+) -> Vec<super::menu::MenuItem> {
     use super::actions::{Own, hint_own};
     use super::menu::{MenuItem, Right};
     let rows: Vec<MenuItem> = [
@@ -886,7 +898,8 @@ fn message_items(keymap: &chordkit::Keymap, copy: bool) -> Vec<super::menu::Menu
     })
     .collect();
     let copy = copy.then(|| MenuItem::icon(COPY, Icon::Copy, super::copy::menus::COPY));
-    copy.into_iter().chain(rows).collect()
+    let receipt = receipt.then(super::receipt::items).unwrap_or_default();
+    copy.into_iter().chain(rows).chain(receipt).collect()
 }
 
 const OPEN_LINK: &str = "open-link";
