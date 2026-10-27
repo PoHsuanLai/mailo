@@ -1,6 +1,6 @@
 //! A Microsoft Graph mailbox's automatic replies, set: one `PATCH` of `/me/mailboxSettings`
 //! with the body [`mail_proto::automatic_replies`] builds. Graph answers `200` with the settings
-//! as they now are.
+//! as they stand.
 //!
 //! It needs `MailboxSettings.ReadWrite`, which a sign-in asks for since mailo sets the reply
 //! (`mail_domain::presets::GRAPH_SCOPES`). One made before lacks it, and Graph's `403` is said
@@ -9,19 +9,18 @@
 use crate::RuntimeError;
 use crate::error::Failure;
 use mail_domain::Retry;
+use mail_proto::automatic_replies::MAILBOX_SETTINGS;
 use serde_json::Value;
 use std::time::Duration;
 
-/// Make the mailbox's automatic replies what `body` says, through `url` (normally
-/// [`mail_proto::automatic_replies::MAILBOX_SETTINGS`]).
+/// Make the mailbox's automatic replies what `body` says.
 pub async fn set_automatic_replies(
     http: &reqwest::Client,
-    url: &str,
     access_token: &str,
     body: &Value,
 ) -> Result<(), RuntimeError> {
     let response = http
-        .patch(url)
+        .patch(MAILBOX_SETTINGS)
         .bearer_auth(access_token)
         .json(body)
         .send()

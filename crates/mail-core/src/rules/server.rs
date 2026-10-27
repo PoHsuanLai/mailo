@@ -360,16 +360,20 @@ pub async fn put_away(
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> PushDone {
+    let set = |on, done: Result<(), CoreError>| match done {
+        Ok(()) => PushDone::Set {
+            address: account.address.clone(),
+            on,
+        },
+        Err(why) => PushDone::NotPushed(why),
+    };
     match away_server(&account.plan) {
-        Ok(on @ (AwayServer::Jmap | AwayServer::Graph)) => {
-            match set_away(store, secrets, account, on, saved, now).await {
-                Ok(()) => PushDone::Set {
-                    address: account.address.clone(),
-                    on,
-                },
-                Err(why) => PushDone::NotPushed(why),
-            }
-        }
+        Ok(AwayServer::Jmap) => set(AwayServer::Jmap, set_jmap(store, secrets, account).await),
+        Ok(AwayServer::Graph) => set(
+            AwayServer::Graph,
+            set_graph(store, secrets.as_ref(), account, saved, now).await,
+        ),
+        // An account with no server to keep one has nothing to push to, and the push says why.
         Ok(AwayServer::Sieve) | Err(_) => {
             push_now(
                 store,
@@ -384,66 +388,63 @@ pub async fn put_away(
     }
 }
 
-/// Make the reply a JMAP or Graph server keeps the one kept here, or switch it off when none is.
-async fn set_away(
+/// Why a vacation reply was not set on a server that keeps it.
+fn not_set(e: RuntimeError) -> CoreError {
+    CoreError::context("the vacation reply was not set", e)
+}
+
+/// Make the account's `VacationResponse` the reply kept here, or switch it off when none is.
+async fn set_jmap(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     account: &crate::sync::Configured,
-    on: AwayServer,
+) -> Result<(), CoreError> {
+    let vacation = store.vacation(account.id.clone())?;
+    let mut engine = mail_runtime::JmapEngine::new(
+        account.id.clone(),
+        account.plan.clone(),
+        store.clone(),
+        secrets,
+    )?;
+    engine
+        .set_vacation(vacation.as_ref())
+        .await
+        .map_err(not_set)
+}
+
+/// Make the mailbox's automatic replies the reply kept here, or switch them off when none is.
+async fn set_graph(
+    store: &SqliteStore,
+    secrets: &dyn AccountSecrets,
+    account: &crate::sync::Configured,
     saved: &ClientRegistry,
     now: DateTime<Utc>,
 ) -> Result<(), CoreError> {
     let vacation = store.vacation(account.id.clone())?;
-    let failed = |e: RuntimeError| CoreError::context("the vacation reply was not set", e);
-    match on {
-        AwayServer::Jmap => {
-            let mut engine = mail_runtime::JmapEngine::new(
-                account.id.clone(),
-                account.plan.clone(),
-                store.clone(),
-                secrets,
-            )?;
-            engine.set_vacation(vacation.as_ref()).await.map_err(failed)
-        }
-        AwayServer::Graph => {
-            let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
-                return Err(failed(RuntimeError::Secrets(mail_runtime::Failure::said(
-                    "an account that reads through Microsoft Graph signs in with Microsoft",
-                ))));
-            };
-            let client = mail_runtime::clients::client(saved, *issuer).ok_or_else(|| {
-                failed(RuntimeError::Secrets(mail_runtime::Failure::said(
-                    "no OAuth client id is configured, so Microsoft Graph cannot be signed in to",
-                )))
-            })?;
-            let reach = mail_runtime::tokens::GraphReach::of(&account.plan);
-            let token = mail_runtime::tokens::graph_token(
-                account.id.clone(),
-                client,
-                reach,
-                secrets.as_ref(),
-                now,
-            )
-            .await
-            .map_err(failed)?;
-            let Credential::OAuth { access, .. } = token else {
-                return Err(failed(RuntimeError::Secrets(mail_runtime::Failure::said(
-                    "the Microsoft Graph credential kept for this account is not a token",
-                ))));
-            };
-            let http = mail_runtime::http::http_client().map_err(failed)?;
-            let body = mail_proto::automatic_replies::automatic_replies(vacation.as_ref(), now);
-            mail_runtime::graph::replies::set_automatic_replies(
-                &http,
-                mail_proto::automatic_replies::MAILBOX_SETTINGS,
-                access.expose(),
-                &body,
-            )
-            .await
-            .map_err(failed)
-        }
-        AwayServer::Sieve => Ok(()),
-    }
+    let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
+        return Err(not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
+            "an account that reads through Microsoft Graph signs in with Microsoft",
+        ))));
+    };
+    let client = mail_runtime::clients::client(saved, *issuer).ok_or_else(|| {
+        not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
+            "no OAuth client id is configured, so Microsoft Graph cannot be signed in to",
+        )))
+    })?;
+    let reach = mail_runtime::tokens::GraphReach::of(&account.plan);
+    let token = mail_runtime::tokens::graph_token(account.id.clone(), client, reach, secrets, now)
+        .await
+        .map_err(not_set)?;
+    let Credential::OAuth { access, .. } = token else {
+        return Err(not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
+            "the Microsoft Graph credential kept for this account is not a token",
+        ))));
+    };
+    let http = mail_runtime::http::http_client().map_err(not_set)?;
+    let body = mail_proto::automatic_replies::automatic_replies(vacation.as_ref(), now);
+    mail_runtime::graph::replies::set_automatic_replies(&http, access.expose(), &body)
+        .await
+        .map_err(not_set)
 }
 
 /// Push after a change, saying so either way: kept here is not the same as running there.

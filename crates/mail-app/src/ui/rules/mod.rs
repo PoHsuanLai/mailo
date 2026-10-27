@@ -176,6 +176,7 @@ fn push_away(row: AccountRow, mut said: Said) {
     match reach_away(&row.plan) {
         Ok(AwayServer::Sieve) => return push(row, said),
         Ok(AwayServer::Jmap | AwayServer::Graph) => {}
+        // Nowhere to put one: the page offers no switch for such an account.
         Err(_) => return,
     }
     let store = consume_context::<Arc<SqliteStore>>();

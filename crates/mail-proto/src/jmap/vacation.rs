@@ -5,6 +5,7 @@
 //! and how often: RFC 8621 leaves that to the server, so `:days`, `:addresses` and `:from`,
 //! which a Sieve script names, have no place here.
 
+use super::field::malformed;
 use super::request::Call;
 use super::set::SetResult;
 use crate::ProtoError;
@@ -54,7 +55,7 @@ pub fn vacation_set_done(args: &Value) -> Result<(), ProtoError> {
     if result.updated.iter().any(|id| id == SINGLETON) {
         return Ok(());
     }
-    Err(super::field::malformed(
+    Err(malformed(
         "a VacationResponse/set answer neither changed the reply nor said why",
     ))
 }

@@ -437,7 +437,7 @@ async fn a_jmap_account_s_reply_is_set_on_its_server_and_no_script_is_pushed() {
         let set = set.clone();
         move |store: &Arc<SqliteStore>, account: &mail_core::sync::Configured| {
             set.fetch_add(1, Ordering::SeqCst);
-            // Set after it is kept here: what the server is given is the reply as it now is.
+            // The switch kept the reply off here first, and that is what the server is given.
             assert_eq!(store.vacation(account.id.clone()).unwrap(), None);
             Ok(())
         }

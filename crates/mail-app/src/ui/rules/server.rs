@@ -70,13 +70,11 @@ impl AwaySetter {
     /// The server, signed in to as `mailo vacation on` signs in.
     #[cfg(not(test))]
     pub(in crate::ui) fn server() -> Self {
+        use mail_core::rules::server::PushDone;
         Self(Arc::new(|store, account| {
             match crate::edge::block_on(crate::edge::mail(store).rules().put_away(account)) {
-                mail_core::rules::server::PushDone::NotPushed(why) => {
-                    Err(crate::ui::remedy::told(why))
-                }
-                mail_core::rules::server::PushDone::Set { .. }
-                | mail_core::rules::server::PushDone::Pushed { .. } => Ok(()),
+                PushDone::NotPushed(why) => Err(crate::ui::remedy::told(why)),
+                PushDone::Set { .. } | PushDone::Pushed { .. } => Ok(()),
             }
         }))
     }
