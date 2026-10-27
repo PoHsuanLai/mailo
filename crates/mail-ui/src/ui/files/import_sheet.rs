@@ -138,7 +138,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>) -> Element {
                             }
                             Button {
                                 label: "File…".to_owned(),
-                                title: "Choose an mbox, .eml or .emlx file".to_owned(),
+                                title: copy::tooltips::CHOOSE_MAIL_FILE.to_owned(),
                                 onclick: on_primary(move || {
                                     choose(Ask::File, Some(super::save_dir()), move |paths| {
                                         set_typed(shell, paths[0].display().to_string());
@@ -147,7 +147,7 @@ pub(super) fn ImportSheet(shell: Signal<Shell>) -> Element {
                             }
                             Button {
                                 label: "Folder…".to_owned(),
-                                title: "Choose a Maildir, Apple Mail mailboxes or a Thunderbird profile".to_owned(),
+                                title: copy::tooltips::CHOOSE_MAIL_FOLDER.to_owned(),
                                 onclick: on_primary(move || {
                                     choose(Ask::Folder, Some(super::save_dir()), move |paths| {
                                         set_typed(shell, paths[0].display().to_string());

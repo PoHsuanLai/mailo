@@ -8,6 +8,11 @@
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress, Status};
 use std::io;
 
+/// The most one read of the connection may inflate to. A server's few kilobytes of zeros can
+/// expand a thousandfold; a read that would fill this is not mail, and ends the connection with
+/// an error rather than the process's memory.
+const MOST_INFLATED: usize = 32 << 20;
+
 /// The two streams of one compressed connection.
 pub(crate) struct Deflate {
     out: Compress,
@@ -65,6 +70,11 @@ impl Deflate {
             if taken >= raw.len() && out.len() < out.capacity() {
                 return Ok(out);
             }
+            if out.len() >= MOST_INFLATED {
+                return Err(io::Error::other(
+                    "the compressed data expands further than a read may",
+                ));
+            }
             out.reserve(out.capacity().max(256));
         }
     }
@@ -103,6 +113,25 @@ mod tests {
             }
             assert_eq!(heard, line);
         }
+    }
+
+    /// A few kilobytes that inflate to a gigabyte are refused, and ordinary mail is not.
+    #[test]
+    fn a_bomb_is_an_error_and_a_large_message_is_not() {
+        let mut client = Deflate::new();
+        let mut server = Deflate::new();
+        let large = vec![b'a'; 8 << 20];
+        let wire = client.compress(&large).unwrap();
+        assert!(wire.len() < large.len() / 100, "it compresses");
+        assert_eq!(server.inflate(&wire).unwrap().len(), large.len());
+
+        let mut client = Deflate::new();
+        let mut server = Deflate::new();
+        let bomb = client.compress(&vec![0u8; 64 << 20]).unwrap();
+        assert!(
+            server.inflate(&bomb).is_err(),
+            "inflated to 64 MiB in one read"
+        );
     }
 
     #[test]

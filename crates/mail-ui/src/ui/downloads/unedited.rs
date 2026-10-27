@@ -78,11 +78,24 @@ impl Ledger {
             .into_iter()
             .partition(|w| due(w));
         self.entries = kept;
-        picked
-            .into_iter()
-            .filter(|written| unedited(written) && std::fs::remove_file(&written.path).is_ok())
-            .map(|written| written.path)
-            .collect()
+        let mut removed = Vec::new();
+        for written in picked {
+            if !unedited(&written) {
+                continue;
+            }
+            match std::fs::remove_file(&written.path) {
+                Ok(()) => removed.push(written.path),
+                // Still there and still ours to remove: asked again at the next chance.
+                Err(why) => {
+                    log::warn!(
+                        "an opened attachment was not removed: {}: {why}",
+                        written.path.display()
+                    );
+                    self.entries.push(written);
+                }
+            }
+        }
+        removed
     }
 
     /// Whether nothing is recorded.

@@ -243,4 +243,12 @@ mod tests {
         let text = "a ".repeat(MOST_FOUND + 50);
         assert_eq!(find_in(&[&text], "a").len(), MOST_FOUND);
     }
+
+    /// ⌘F finds a phrase: a pattern's notation is the text it is, and two words are one phrase.
+    #[test]
+    fn a_pattern_in_the_box_is_searched_as_the_text_it_is() {
+        assert_eq!(find_in(&["a re:/a/ b"], "re:/a/").len(), 1);
+        assert!(find_in(&["a cat"], "re:/a/").is_empty());
+        assert_eq!(find_in(&["one two", "two one"], "one two").len(), 1);
+    }
 }

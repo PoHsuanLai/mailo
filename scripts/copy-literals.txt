@@ -61,7 +61,7 @@ crates/mail-ui/src/ui/fetching/face.rs 4
 crates/mail-ui/src/ui/fetching/mod.rs 1
 crates/mail-ui/src/ui/fetching/status.rs 20
 crates/mail-ui/src/ui/files/export_sheet.rs 21
-crates/mail-ui/src/ui/files/import_sheet.rs 22
+crates/mail-ui/src/ui/files/import_sheet.rs 20
 crates/mail-ui/src/ui/files/mod.rs 1
 crates/mail-ui/src/ui/files/work.rs 18
 crates/mail-ui/src/ui/invite/card.rs 25

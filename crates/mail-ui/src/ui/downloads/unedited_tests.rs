@@ -1,4 +1,5 @@
-use super::{Ledger, NotRecorded, is_deleted};
+use super::{Ledger, NotRecorded, is_deleted, record, remove_for_deleted, remove_on_quit};
+use crate::settings::RemoveUnedited;
 use mail_core::Store as _;
 use mail_domain::MessageId;
 use std::path::{Path, PathBuf};
@@ -166,4 +167,54 @@ fn a_message_is_deleted_once_the_store_no_longer_has_it() {
         is_deleted(&crate::ui::fixtures::client(&store), MessageId::generate()),
         "a message not stored"
     );
+}
+
+/// The removals themselves, through the run's own ledger: nothing under Never or after-delete at
+/// quit, a copy of a deleted message under after-delete, and every unedited copy at quit under
+/// When Mailo Quits. This is the only test that records into the run's ledger.
+#[test]
+fn the_setting_decides_when_the_recorded_copies_go() {
+    let (store, _dir) = crate::ui::fixtures::seeded();
+    let client = crate::ui::fixtures::client(&store);
+    let thread = crate::ui::fixtures::thread_like(&store, "hi");
+    let message = store.thread(thread).expect("the thread").messages[0];
+    let (_scratch, root, _theirs) = folders();
+    let first = write(&root, "first.txt", b"one");
+    let second = write(&root, "second.txt", b"two");
+    record(&root, &first, message);
+    record(&root, &second, MessageId::generate());
+
+    // At quit, only When Mailo Quits removes.
+    remove_on_quit(RemoveUnedited::Never);
+    remove_on_quit(RemoveUnedited::AfterMessageIsDeleted);
+    assert!(
+        first.exists() && second.exists(),
+        "removed at quit under the wrong setting"
+    );
+
+    // After a delete: the message in the inbox keeps its copy; the one the store lacks loses it.
+    let removed = remove_for_deleted(&client);
+    assert_eq!(removed, vec![second.clone()]);
+    assert!(first.exists());
+
+    // Trashed, its copy goes too.
+    store
+        .apply(
+            crate::ui::fixtures::acct_account(),
+            &mail_domain::Patch {
+                id: mail_domain::ChangeId::generate(),
+                changes: vec![mail_domain::Change::MessageMailbox(
+                    message,
+                    mail_domain::MailboxRole::Trash,
+                )],
+            },
+        )
+        .unwrap();
+    assert_eq!(remove_for_deleted(&client), vec![first.clone()]);
+
+    // And at quit under When Mailo Quits.
+    let third = write(&root, "third.txt", b"three");
+    record(&root, &third, message);
+    remove_on_quit(RemoveUnedited::WhenMailoQuits);
+    assert!(!third.exists());
 }

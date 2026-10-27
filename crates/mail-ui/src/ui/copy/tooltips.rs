@@ -37,3 +37,10 @@ pub const NOT_VERIFIED: &str = "Not Verified";
 
 /// The mark in the header of a message that asks for a read receipt, under "Ask each time".
 pub const ASKS_FOR_A_RECEIPT: &str = "Asks for a read receipt";
+
+/// The Import sheet's File… button: what it can pick.
+pub const CHOOSE_MAIL_FILE: &str = "Choose an mbox, .eml or .emlx file";
+
+/// The Import sheet's Folder… button: what it can pick.
+pub const CHOOSE_MAIL_FOLDER: &str =
+    "Choose a Maildir, Apple Mail mailboxes or a Thunderbird profile";

@@ -32,7 +32,11 @@ fn remotes_mut(op: &mut ProtoOp) -> Option<&mut Vec<RemoteRef>> {
 
 /// `op` as one per IMAP mailbox its messages are in, in the order each mailbox first appears;
 /// anything else, or one mailbox's worth, as it is.
+///
+/// A Copy is also one op per message whatever the backend: a copy made is not made again, so one
+/// that fails half way must be retried for the messages it did not reach, not for all of them.
 pub(crate) fn per_mailbox(mut op: ProtoOp) -> Vec<ProtoOp> {
+    let copying = matches!(op, ProtoOp::Copy { .. });
     let Some(remotes) = remotes_mut(&mut op) else {
         return vec![op];
     };
@@ -40,7 +44,8 @@ pub(crate) fn per_mailbox(mut op: ProtoOp) -> Vec<ProtoOp> {
     for remote in std::mem::take(remotes) {
         // Only IMAP selects a mailbox; every other address is complete on its own.
         let key = match &remote {
-            RemoteRef::Imap { mailbox, .. } => Some(mailbox.clone()),
+            RemoteRef::Imap { mailbox, .. } if !copying => Some(mailbox.clone()),
+            other if copying => Some(format!("{other:?}")),
             _ => None,
         };
         match groups.iter_mut().find(|(k, _)| *k == key) {
@@ -98,6 +103,20 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn a_copy_of_two_messages_is_two_copies_whatever_the_backend() {
+        let graph = |id: &str| RemoteRef::Graph {
+            mailbox: "INBOX".to_owned(),
+            id: id.to_owned(),
+        };
+        let op = ProtoOp::Copy {
+            remotes: vec![graph("a"), graph("b")],
+            folder: "Done".to_owned(),
+        };
+        let split = per_mailbox(op);
+        assert_eq!(split.len(), 2, "{split:?}");
     }
 
     #[test]
