@@ -512,6 +512,22 @@ fn patches_name_only_what_changed() {
         Value::Object(labels_patch(&["Work/2026".to_owned()], &["Work".to_owned()], &m).unwrap()),
         json!({ "mailboxIds/mbP": true, "mailboxIds/mbW": null })
     );
+    // Move to a folder: into it, out of Inbox, Archive, Trash and Junk; Sent and labels untouched.
+    assert_eq!(
+        Value::Object(file_patch("Work/2026", &m).unwrap()),
+        json!({
+            "mailboxIds/mbP": true,
+            "mailboxIds/mbI": null,
+            "mailboxIds/mbA": null,
+            "mailboxIds/mbT": null,
+            "mailboxIds/mbJ": null
+        })
+    );
+    // Into a folder that has a role, it is not taken out of that one.
+    assert_eq!(
+        Value::Object(file_patch("Archive", &m).unwrap()),
+        Value::Object(filing_patch(MailboxRole::Archive, &m).unwrap())
+    );
     assert_eq!(
         Value::Object(keyword_patch(mail_domain::Keyword::MdnSent)),
         json!({ "keywords/$MDNSent": true })
@@ -533,6 +549,14 @@ fn archiving_with_no_archive_mailbox_only_leaves_the_inbox() {
     assert!(filing_patch(MailboxRole::Trash, &m).is_err());
     // So is adding a label no mailbox answers to.
     assert!(labels_patch(&["Nowhere".to_owned()], &[], &m).is_err());
+    // And moving into a folder no mailbox answers to, for good.
+    assert!(matches!(
+        file_patch("Nowhere", &m),
+        Err(ProtoError::Refused {
+            kind: Refusal::Permanent,
+            ..
+        })
+    ));
 }
 
 #[test]

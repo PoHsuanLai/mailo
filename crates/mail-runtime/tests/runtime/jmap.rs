@@ -722,3 +722,192 @@ async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_non
     // Another client's draft in the same folder is not this one's to remove.
     assert!(s.fake.state.lock().unwrap().email(&seeded[3]).is_some());
 }
+
+/// "Move to…" as the window does it: `Op::File` under the capabilities the last sync saw, queued
+/// while the store still knows where the message is, then applied here.
+fn move_to(store: &SqliteStore, message: &Message, folder: &str) {
+    let thread = store.thread(message.thread).unwrap();
+    let messages: Vec<Message> = thread
+        .messages
+        .iter()
+        .map(|id| store.message(*id).unwrap())
+        .collect();
+    let caps = store.account_caps(acct_account()).unwrap().expect("synced");
+    // The folder's label, made the first time it is filed into, as the window's Move to… does.
+    let label = match store
+        .labels(acct_account())
+        .unwrap()
+        .into_iter()
+        .find(|l| l.origin == LabelOrigin::Provider && l.name == folder)
+    {
+        Some(label) => label.id,
+        None => {
+            let label = Label {
+                id: LabelId::generate(),
+                account: acct_account(),
+                name: folder.to_owned(),
+                color: None,
+                origin: LabelOrigin::Provider,
+            };
+            store
+                .apply(
+                    acct_account(),
+                    &Patch {
+                        id: ChangeId::generate(),
+                        changes: vec![Change::LabelUpsert(label.clone())],
+                    },
+                )
+                .unwrap();
+            label.id
+        }
+    };
+    let applied = Op::File(label).apply(
+        &Target::Messages(vec![message.id]),
+        &thread,
+        &messages,
+        &caps,
+        now(),
+    );
+    store
+        .enqueue(
+            acct_account(),
+            applied.remote.expect("filing is said to the server"),
+            &applied.inverse,
+            now(),
+        )
+        .unwrap()
+        .expect("queued");
+    store.apply(acct_account(), &applied.forward).unwrap();
+}
+
+/// A mailbox with no role, added to the fake's list.
+fn add_mailbox(fake: &Fake, id: &str, name: &str) {
+    fake.state
+        .lock()
+        .unwrap()
+        .mailboxes
+        .push((id.to_owned(), name.to_owned(), None, None));
+}
+
+#[tokio::test]
+async fn moving_to_a_folder_takes_the_email_out_of_the_inbox_and_into_it() {
+    let mut s = setup().await;
+    add_mailbox(&s.fake, "mbP", "Projects");
+    let ids = seed(&s.fake);
+    pass(&mut s).await;
+    let hello = held(&s.store, 1).unwrap();
+    move_to(&s.store, &hello, "Projects");
+
+    let report = pass(&mut s).await;
+    assert_eq!(report.outbox_settled, 1);
+    // Out of every mailbox an email is moved between, into the folder; labels are not touched.
+    let mut want = serde_json::Map::new();
+    want.insert(
+        ids[0].clone(),
+        serde_json::json!({
+            "mailboxIds/mbI": null,
+            "mailboxIds/mbA": null,
+            "mailboxIds/mbT": null,
+            "mailboxIds/mbJ": null,
+            "mailboxIds/mbP": true,
+        }),
+    );
+    assert_eq!(
+        s.fake.calls("Email/set").last().unwrap()["update"],
+        serde_json::Value::Object(want)
+    );
+    assert_eq!(
+        s.fake
+            .state
+            .lock()
+            .unwrap()
+            .email(&ids[0])
+            .unwrap()
+            .mailboxes,
+        vec!["mbP".to_owned()]
+    );
+    // And the next sync keeps it where it was put: filed, under Projects alone.
+    pass(&mut s).await;
+    let hello = held(&s.store, 1).unwrap();
+    assert_eq!(hello.mailbox, MailboxRole::Archive);
+    assert_eq!(label_names(&s.store, &hello), vec!["Projects".to_owned()]);
+}
+
+#[tokio::test]
+async fn moving_keeps_the_labels_an_email_already_had() {
+    let mut s = setup().await;
+    let both = s.fake.state.lock().unwrap().deliver(
+        &raw(5, "Both", "inbox and work"),
+        &["mbI", "mbW"],
+        &[],
+        "2026-09-01T09:05:00Z",
+    );
+    pass(&mut s).await;
+    // Made since the list this engine holds, which is looked at again rather than refused.
+    add_mailbox(&s.fake, "mbP", "Projects");
+    let message = held(&s.store, 5).unwrap();
+    move_to(&s.store, &message, "Projects");
+
+    pass(&mut s).await;
+    let mut mailboxes = s
+        .fake
+        .state
+        .lock()
+        .unwrap()
+        .email(&both)
+        .unwrap()
+        .mailboxes
+        .clone();
+    mailboxes.sort();
+    assert_eq!(mailboxes, vec!["mbP".to_owned(), "mbW".to_owned()]);
+    pass(&mut s).await;
+    let mut labels = label_names(&s.store, &held(&s.store, 5).unwrap());
+    labels.sort();
+    assert_eq!(labels, vec!["Projects".to_owned(), "Work".to_owned()]);
+}
+
+#[tokio::test]
+async fn moving_to_a_folder_the_server_does_not_have_is_refused_for_good() {
+    let mut s = setup().await;
+    let ids = seed(&s.fake);
+    pass(&mut s).await;
+    let hello = held(&s.store, 1).unwrap();
+    // A folder this client has a label for and the server has no mailbox for: listed again
+    // before refusing, in case it was made a moment ago, and still not there.
+    move_to(&s.store, &hello, "Elsewhere");
+    let lists = s.fake.calls("Mailbox/get").len();
+
+    let (_tx, mut cancel) = watch::channel(false);
+    let report = s.engine.pass(&mut cancel, now()).await.unwrap();
+    assert!(
+        report
+            .needs_attention
+            .iter()
+            .any(|why| why.contains("no mailbox called \"Elsewhere\"")),
+        "{report:?}"
+    );
+    assert_eq!(report.still_queued, 0, "permanent: not kept to retry");
+    assert!(s.fake.calls("Mailbox/get").len() > lists, "looked again");
+    assert!(
+        s.fake
+            .calls("Email/set")
+            .iter()
+            .all(|set| set["update"].as_object().is_none_or(|u| u.is_empty())),
+        "nothing was changed"
+    );
+    assert_eq!(
+        s.fake
+            .state
+            .lock()
+            .unwrap()
+            .email(&ids[0])
+            .unwrap()
+            .mailboxes,
+        vec!["mbI".to_owned()]
+    );
+    // Refused, the move is undone here: back in the inbox.
+    assert_eq!(
+        held(&s.store, 1).map(|m| m.mailbox),
+        Some(MailboxRole::Inbox)
+    );
+}

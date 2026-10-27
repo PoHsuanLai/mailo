@@ -9,7 +9,7 @@ use super::Mailboxes;
 use super::field::{malformed, object};
 use super::mailbox::DELIMITER;
 use crate::{ProtoError, Refusal};
-use mail_domain::{FolderWork, Keyword, MailboxRole, ReadState, Star, Subscription};
+use mail_domain::{FolderWork, JmapMailboxId, Keyword, MailboxRole, ReadState, Star, Subscription};
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
@@ -60,6 +60,45 @@ pub fn filing_patch(
             "the server lists no mailbox for {role:?}"
         )));
     }
+    let mut patch = moved_into(target, mailboxes);
+    // What the move says to the server's filter (RFC 8621 §4.1.1): `$junk` going into Junk, and
+    // `$notjunk` coming back to the inbox, since a message the person wants there is not junk
+    // whichever mailbox it comes from. Archiving or trashing one says nothing either way.
+    match role {
+        MailboxRole::Spam => {
+            patch.insert("keywords/$junk".to_owned(), json!(true));
+            patch.insert("keywords/$notjunk".to_owned(), Value::Null);
+        }
+        MailboxRole::Inbox => {
+            patch.insert("keywords/$junk".to_owned(), Value::Null);
+            patch.insert("keywords/$notjunk".to_owned(), json!(true));
+        }
+        _ => {}
+    }
+    Ok(patch)
+}
+
+/// The patch that files an email into the folder spelled `path` here, as "Move to…" does: into
+/// that mailbox, and out of Inbox, Archive, Trash and Junk, as [`filing_patch`] moves it.
+///
+/// Labels and Sent stay, for the reasons they stay on archiving, and because that is the move
+/// as it is made locally: the message is filed out of the inbox and gains the folder's label,
+/// keeping every label it had.
+///
+/// A folder no mailbox answers to is refused, permanently: filing into a mailbox that does not
+/// exist is not something to retry, and the local move is undone instead.
+pub fn file_patch(path: &str, mailboxes: &Mailboxes) -> Result<Map<String, Value>, ProtoError> {
+    let target = mailboxes
+        .id_for_path(path)
+        .ok_or_else(|| ProtoError::Refused {
+            kind: Refusal::Permanent,
+            text: format!("the server has no mailbox called {path:?}"),
+        })?;
+    Ok(moved_into(Some(target), mailboxes))
+}
+
+/// Into `target`, when there is one, and out of every other mailbox an email is moved between.
+fn moved_into(target: Option<&JmapMailboxId>, mailboxes: &Mailboxes) -> Map<String, Value> {
     let mut patch = Map::new();
     for moving in [
         MailboxRole::Inbox,
@@ -77,21 +116,7 @@ pub fn filing_patch(
     if let Some(id) = target {
         patch.insert(format!("mailboxIds/{id}"), json!(true));
     }
-    // What the move says to the server's filter (RFC 8621 §4.1.1): `$junk` going into Junk, and
-    // `$notjunk` coming back to the inbox, since a message the person wants there is not junk
-    // whichever mailbox it comes from. Archiving or trashing one says nothing either way.
-    match role {
-        MailboxRole::Spam => {
-            patch.insert("keywords/$junk".to_owned(), json!(true));
-            patch.insert("keywords/$notjunk".to_owned(), Value::Null);
-        }
-        MailboxRole::Inbox => {
-            patch.insert("keywords/$junk".to_owned(), Value::Null);
-            patch.insert("keywords/$notjunk".to_owned(), json!(true));
-        }
-        _ => {}
-    }
-    Ok(patch)
+    patch
 }
 
 /// The patch that adds and removes labels, by the path each mailbox is spelled with here.
