@@ -2,7 +2,7 @@
 //!
 //! Runs for every account, including those whose server supplies thread ids
 //! ([`crate::ServerThreads::ProviderId`]), so POP3 and IMAP share one set of
-//! [`ThreadId`] rules and a provider id is only a hint.
+//! [`ThreadId`] rules; a provider id joins messages like a shared `References` entry does.
 //!
 //! # Shape of the implementation
 //!

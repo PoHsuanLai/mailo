@@ -12,8 +12,8 @@ use crate::imap::{Access, ImapCommand, ImapSession, Resume};
 use crate::machine::{Backend, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome};
 use mail_domain::{
     AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderWork, Ingest, MailboxRef,
-    MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels, SyncCursor,
-    SystemFlag, UidValidity,
+    MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels, ServerThreads,
+    SyncCursor, SystemFlag, UidValidity,
 };
 use porter_core::AccountId;
 
@@ -400,17 +400,17 @@ impl Backend for ImapBackend {
                 // `X-GM-THRID`, Gmail's own conversation id, which threading joins on.
                 // `ENVELOPE`, `BODYSTRUCTURE`, `INTERNALDATE` and the other `X-GM-*` attributes
                 // stay out: nothing reads them.
-                let items = if matches!(self.caps.labels, ServerLabels::Supported) {
-                    "(UID FLAGS RFC822.SIZE X-GM-LABELS X-GM-THRID)"
-                } else {
-                    "(UID FLAGS RFC822.SIZE)"
-                };
+                let mut items = String::from("(UID FLAGS RFC822.SIZE");
+                if matches!(self.caps.labels, ServerLabels::Supported) {
+                    items.push_str(" X-GM-LABELS");
+                }
+                if matches!(self.caps.threads, ServerThreads::ProviderId) {
+                    items.push_str(" X-GM-THRID");
+                }
+                items.push(')');
                 self.queue(vec![
                     Self::select(&mailbox, Access::ReadOnly),
-                    ImapCommand::UidFetch {
-                        set,
-                        items: items.to_owned(),
-                    },
+                    ImapCommand::UidFetch { set, items },
                 ])
             }
             ProtoOp::FetchHeaders { remotes } => {
@@ -759,10 +759,17 @@ impl Backend for ImapBackend {
                 } else {
                     MoveExt::Absent
                 };
-                caps.labels = if seen("X-GM-EXT-1") {
+                // Gmail's extensions bring its labels and its own conversation ids.
+                let gmail = seen("X-GM-EXT-1");
+                caps.labels = if gmail {
                     ServerLabels::Supported
                 } else {
                     ServerLabels::LocalOnly
+                };
+                caps.threads = if gmail {
+                    ServerThreads::ProviderId
+                } else {
+                    ServerThreads::Jwz
                 };
                 // Never inferred from a capability: see ExpungeMeans.
                 caps.expunge = ExpungeMeans::Forbidden;

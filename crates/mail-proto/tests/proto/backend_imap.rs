@@ -19,7 +19,10 @@ use porter_core::UnixSeconds;
 fn caps(labels: ServerLabels, archive: ArchiveMeans) -> AccountCaps {
     AccountCaps {
         labels,
-        threads: ServerThreads::ProviderId,
+        threads: match labels {
+            ServerLabels::Supported => ServerThreads::ProviderId,
+            ServerLabels::LocalOnly => ServerThreads::Jwz,
+        },
         archive,
         condstore: Condstore::Supported,
         move_ext: MoveExt::Supported,
