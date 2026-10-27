@@ -9,37 +9,31 @@
 //! the reader mark their name, and "Notify for: VIPs only" announces their mail alone
 //! ([`crate::notify::Whom`]).
 
+use crate::addresses::Addresses;
 use crate::error::{CoreError, Logged};
 use mail_domain::{Filter, TextMatch};
 use mail_store::Store;
 
 pub use mail_store::Vip;
 
-/// The VIPs' addresses, lower-cased, sorted and once each: what a filter, a mark and a
-/// notification ask of the list.
+/// The VIPs' addresses ([`Addresses`]): what a filter, a mark and a notification ask of the
+/// list.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Vips(Vec<String>);
+pub struct Vips(Addresses);
 
 impl Vips {
     pub fn new<S: AsRef<str>>(addresses: impl IntoIterator<Item = S>) -> Self {
-        let mut all: Vec<String> = addresses
-            .into_iter()
-            .map(|a| a.as_ref().trim().to_lowercase())
-            .filter(|a| !a.is_empty())
-            .collect();
-        all.sort();
-        all.dedup();
-        Vips(all)
+        Vips(Addresses::new(addresses))
     }
 
     /// Whether `email` is a VIP's, whatever its case.
     pub fn includes(&self, email: &str) -> bool {
-        self.0.binary_search(&email.trim().to_lowercase()).is_ok()
+        self.0.includes(email)
     }
 
     /// The addresses, sorted.
     pub fn addresses(&self) -> &[String] {
-        &self.0
+        self.0.as_slice()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -49,7 +43,7 @@ impl Vips {
     /// What `is:vip` finds: the conversations whose sender is one of them, matched on the whole
     /// address as `from:` matches a word of it. Nothing at all while there are none.
     pub fn filter(&self) -> Filter {
-        match self.0.as_slice() {
+        match self.addresses() {
             [] => Filter::Nothing,
             [one] => from(one),
             many => Filter::Or(many.iter().map(|address| from(address)).collect()),

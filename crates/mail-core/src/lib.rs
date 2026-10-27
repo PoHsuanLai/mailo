@@ -18,6 +18,7 @@
 
 pub mod account;
 pub mod act;
+pub mod addresses;
 pub mod attach;
 pub mod auth;
 pub mod bimi;
