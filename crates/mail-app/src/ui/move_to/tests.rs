@@ -364,7 +364,7 @@ fn queued_folders(store: &SqliteStore) -> Vec<String> {
 /// Filed into `path`, as a pick in the menu does it, with the undo it hands the toast.
 fn file(store: &Arc<SqliteStore>, thread: ThreadId, path: &str) -> mail_core::undo::Undo {
     let label = folder_label(&crate::ui::fixtures::client(store), acct_imap(), path).unwrap();
-    crate::ui::ops::perform(store, thread, Op::File(label), mail_core::when::Clock::H24)
+    mail_core::act::perform(store, thread, Op::File(label), mail_core::when::Clock::H24)
         .expect("the move was not made")
 }
 
@@ -376,7 +376,7 @@ fn a_move_taken_back_with_nothing_after_it_never_reaches_the_server() {
     file(&store, threads[1], "收據");
     assert_eq!(queued_folders(&store), [TO, "收據"]);
 
-    assert!(crate::ui::ops::take_back(&store, &moved));
+    assert!(mail_core::act::take_back(&store, &moved));
     assert_eq!(queued_folders(&store), ["收據"], "the move is still queued");
     assert_eq!(filed_in(&store, TO), 0);
 }
@@ -388,7 +388,7 @@ fn a_move_with_a_later_one_on_the_same_conversation_stays_queued_when_taken_back
     file(&store, threads[0], "收據");
     assert_eq!(queued_folders(&store), [TO, "收據"]);
 
-    assert!(crate::ui::ops::take_back(&store, &first));
+    assert!(mail_core::act::take_back(&store, &first));
     // Withdrawing the first would write the state from before it under the second, which was
     // made on top of it. Both go, in the order they were made, and the second is where it ends.
     assert_eq!(
