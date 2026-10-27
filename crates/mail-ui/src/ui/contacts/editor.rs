@@ -156,7 +156,9 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
         copy::menus::EDIT_CONTACT,
     )];
     items.push(card_row(&address));
-    if let Some(vips) = &vips {
+    let markable =
+        marking.is_some_and(|marking| crate::ui::vip::markable(&marking.shell.read(), &address));
+    if let (Some(vips), true) = (&vips, markable) {
         items.push(crate::ui::menu::MenuItem::icon(
             VIP,
             Icon::Star,

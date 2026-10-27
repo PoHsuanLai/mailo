@@ -20,6 +20,15 @@ pub(in crate::ui) struct Marking {
     pub shell: Signal<Shell>,
 }
 
+/// Whether `address` may be marked a VIP: anyone's but the person's own, whose mail is not mail
+/// to be heard of.
+pub(in crate::ui) fn markable(shell: &Shell, address: &str) -> bool {
+    !shell
+        .accounts
+        .iter()
+        .any(|(own, _)| own.trim().eq_ignore_ascii_case(address.trim()))
+}
+
 /// Mark `address` a VIP (`name` the name the mail gave) or take the mark off, and say only a
 /// failure. The shell's copy is read again at once, and the store moving makes the VIPs place and
 /// every other window follow.

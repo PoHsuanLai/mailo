@@ -32,7 +32,7 @@ pub(in crate::ui) fn clear(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
 /// The toolbar's Filter button: shows the row of toggles, or hides it and turns them off. Pressed
 /// in while a toggle narrows the list. Not drawn where the list holds no conversations.
 #[component]
-pub(super) fn FilterButton(shell: Signal<Shell>, mut pages: Signal<u32>) -> Element {
+pub(in crate::ui) fn FilterButton(shell: Signal<Shell>, mut pages: Signal<u32>) -> Element {
     if !shell.read().filterable() {
         return rsx! {};
     }

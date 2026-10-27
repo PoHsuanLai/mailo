@@ -128,3 +128,17 @@ async fn a_row_s_menu_marks_its_sender_and_takes_the_mark_off() {
         assert_eq!(held, want, "{pick}");
     }
 }
+
+/// The person's own addresses are never marked: it is mail to be heard of from others.
+#[test]
+fn an_own_address_cannot_be_marked_a_vip() {
+    let shell = crate::ui::view::Shell {
+        accounts: vec![(
+            "Me@Example.test".to_owned(),
+            mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(1)),
+        )],
+        ..Default::default()
+    };
+    assert!(!crate::ui::vip::markable(&shell, "me@example.test"));
+    assert!(crate::ui::vip::markable(&shell, "bob@example.test"));
+}

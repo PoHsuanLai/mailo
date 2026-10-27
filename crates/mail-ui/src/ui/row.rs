@@ -101,7 +101,10 @@ pub(super) fn ListRow(
         .as_ref()
         .is_some_and(|(email, _)| shell.read().vips.includes(email));
     let mut menu_rows = listed.menu(chrono::Utc::now());
-    if let Some((email, _)) = &sender {
+    if let Some((email, _)) = sender
+        .as_ref()
+        .filter(|(email, _)| crate::ui::vip::markable(&shell.read(), email))
+    {
         menu_rows.push(DsMenuItem::Separator);
         menu_rows.push(
             DsMenuItem::new(

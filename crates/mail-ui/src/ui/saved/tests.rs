@@ -66,6 +66,25 @@ fn showing_a_view_lists_by_its_filter_and_order_and_groups_by_its_key() {
     assert_eq!(shell.grouping(), Grouping::Page(PageGroup::None));
 }
 
+/// Bands of dates are bands of the date order: sorted by anything else, the list is not banded,
+/// and the menu does not claim it is.
+#[test]
+fn a_list_sorted_by_something_else_is_not_grouped_by_date() {
+    let mut shell = Shell {
+        group: PageGroup::Date,
+        ..Shell::default()
+    };
+    assert_eq!(shell.grouping(), Grouping::Page(PageGroup::Date));
+    shell.sort_by(Sort {
+        property: Property::Sender,
+        dir: SortDir::Asc,
+    });
+    assert_eq!(shell.page_group(), PageGroup::None);
+    assert_eq!(shell.grouping(), Grouping::Page(PageGroup::None));
+    shell.sort_by(crate::ui::view::NEWEST_FIRST);
+    assert_eq!(shell.grouping(), Grouping::Page(PageGroup::Date));
+}
+
 #[test]
 fn keeping_a_view_shows_it_and_keeping_it_again_changes_it_in_place() {
     let mut shell = Shell {

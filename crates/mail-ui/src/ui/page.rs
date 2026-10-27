@@ -290,7 +290,7 @@ pub(super) fn ListMore(shell: Signal<Shell>, syncs: bool, side_hidden: Signal<bo
         let organise = shell.read().organises().then(|| shell.read().threading());
         let shown = shell.read();
         let sort = shown.sortable().then(|| shown.sort());
-        more_items(shown.group, sort, organise, shown.parts, sync)
+        more_items(shown.page_group(), sort, organise, shown.parts, sync)
     } else {
         Vec::new()
     };

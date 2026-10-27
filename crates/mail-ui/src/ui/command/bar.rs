@@ -126,6 +126,8 @@ pub(in crate::ui) fn SearchHead(
             }
             span { class: if bad { "search-scope bad" } else { "search-scope" }, "{scope}" }
         }
+        // A search is filtered as a place is, and the row it shows is the same.
+        crate::ui::list::quick::FilterButton { shell, pages }
         Button {
             bezel: Bezel::Toolbar,
             size: ControlSize::Large,
@@ -158,8 +160,28 @@ pub(in crate::ui) fn clear(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Affordance, Terms, affordance, terms};
-    use crate::ui::view::{Bar, BarOpen};
+    use super::{Affordance, SearchHead, Terms, affordance, terms};
+    use crate::ui::view::{Bar, BarOpen, Shell};
+    use dioxus::prelude::*;
+
+    #[component]
+    fn Searching() -> Element {
+        let shell = use_signal(|| Shell {
+            search: "lunch".to_owned(),
+            ..Shell::default()
+        });
+        let pages = use_signal(|| 1_u32);
+        rsx! { SearchHead { shell, pages, scope: "Inbox".to_owned(), bad: false } }
+    }
+
+    /// A search shown is the list's header, and the Filter button stays in it.
+    #[test]
+    fn the_search_header_keeps_the_filter_button() {
+        let mut dom = VirtualDom::new(Searching);
+        dom.rebuild_in_place();
+        let page = dioxus_ssr::render(&dom);
+        assert!(page.contains(crate::ui::copy::aria::FILTER), "{page}");
+    }
 
     #[test]
     fn the_toolbar_shows_the_search_only_while_the_panel_is_down() {

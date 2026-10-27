@@ -1007,11 +1007,24 @@ impl Shell {
         self.places.get(self.selected).and_then(saved_of)
     }
 
+    /// The page menu's grouping as it applies: bands of dates are bands of the date order, so a
+    /// list sorted by anything else is not banded, whatever the menu says.
+    pub fn page_group(&self) -> PageGroup {
+        if self.group == PageGroup::Date
+            && self.sortable()
+            && self.sort().property != Property::Date
+        {
+            PageGroup::None
+        } else {
+            self.group
+        }
+    }
+
     /// How the list is grouped now. The Group menu wins when it has been set to something; left
     /// at None, a saved view's own grouping applies.
     pub fn grouping(&self) -> Grouping {
         match (
-            self.group,
+            self.page_group(),
             self.saved_view().and_then(|v| v.group_by.clone()),
         ) {
             (PageGroup::None, Some(key)) => Grouping::Saved(key),
