@@ -8,9 +8,9 @@
 //! confirming button removes; Escape and Cancel leave the page as it was. A removal runs off the
 //! thread that draws (the keyring blocks), on the window's own task, so turning to another page
 //! does not cut it short. When it is done the offline setting forgets the account, the store
-//! has moved and the pane goes back to the list: the links, the lists, the Spaces and the pressed tile
-//! follow it, as they do for an account removed with `mailo account remove`. What the page says
-//! is [`words`]'s.
+//! has moved and the pane goes back to the list: the links, the lists, the Spaces and the pressed
+//! tile follow it, as they do for an account removed with `mailo account remove`. What the page
+//! says is [`words`]'s.
 
 mod words;
 

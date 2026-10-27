@@ -616,8 +616,9 @@ pub(super) fn App() -> Element {
         }
     };
 
-    // Follow-up reminders: swept at launch, when the next comes due, and whenever the store moves, so
-    // a conversation nobody answered comes back to the top of the inbox (`mail_client::follow_up`).
+    // Follow-up reminders: swept at launch, when the next comes due, and whenever the store moves,
+    // so a conversation nobody answered comes back to the top of the inbox
+    // (`mail_client::follow_up`).
     super::follow_up::use_reminders();
     super::follow_up::use_snooze_wake();
 

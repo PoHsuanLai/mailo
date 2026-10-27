@@ -145,11 +145,12 @@ impl Bridge {
     }
 }
 
-/// The app's second shared counter, as a root context of every window: moved when a window
-/// writes `settings.toml`, `keyboard.json` or `spaces.json`, which the others then read again.
-/// It is not the store's moves, so a window's mail queries do not run again for a setting or a
-/// key binding, and a sync does not make every window read its configuration files. Every window also watches `settings.toml` (`prefs::use_window_settings`), for edits
-/// made outside the app.
+/// The app's shared count of configuration moves, as a root context of every window: moved when a
+/// window writes `settings.toml`, `keyboard.json` or `spaces.json`, which the others then read
+/// again. It is not the store's moves, so a window's mail queries do not run again for a setting
+/// or a key binding, and a sync does not make every window read its configuration files. Every
+/// window also watches `settings.toml` (`prefs::use_window_settings`), for edits made outside
+/// the app.
 #[derive(Clone, Debug, Default)]
 pub struct Configured(pub Counter);
 
@@ -168,15 +169,14 @@ pub(in crate::ui) fn use_shared_configuration(configured: Signal<u64>) {
 }
 
 /// This window wrote `settings.toml`, `keyboard.json` or `spaces.json`: the other windows read
-/// theirs again. A
-/// window drawn without [`use_shared_configuration`] tells no one.
+/// theirs again. A window drawn without [`use_shared_configuration`] tells no one.
 pub(in crate::ui) fn told_configuration() {
     if let Some(ConfiguredHere(mut here)) = try_consume_context::<ConfiguredHere>() {
         here += 1;
     }
 }
 
-/// Join the counter `shared` finds, publishing `count`.s moves and following everyone else's.
+/// Join the counter `shared` finds, publishing `count`'s moves and following everyone else's.
 fn use_shared(shared: impl FnOnce() -> Option<Counter>, mut count: Signal<u64>) {
     let joined = use_hook(|| {
         shared().map(|shared| {

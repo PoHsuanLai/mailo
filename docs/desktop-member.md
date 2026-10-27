@@ -185,8 +185,8 @@ The last row is the watch's blind spot: it reads its accounts when it starts, so
 since is the window's to fetch the first time. A watch that stops hands fetching back within one
 interval, because the deferred poll is asked again and then runs.
 
-The mail the watch stores is not the window's doing. The window looks every two seconds at whether
+The mail the watch stores is not the window's doing. The client looks every two seconds at whether
 another connection has committed to the store (`SqliteStore::data_version`, SQLite's
-`PRAGMA data_version`, which its own writes do not move) and moves its revision when one has, so a
-list redraws when the watchwrote.
+`PRAGMA data_version`, which its own writes do not move) and says the store moved when one has, so
+a list redraws when the watch wrote.
 

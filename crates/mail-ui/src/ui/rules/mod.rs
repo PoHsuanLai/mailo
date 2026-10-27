@@ -80,8 +80,6 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>) -> Element {
     // A rule or vacation reply kept here that its server did not take, said apart from a write
     // that did not happen at all.
     let unpushed: Said = use_signal(|| None);
-    // Bumped by every write, so the list reads the rules again.
-    let changed = use_signal(|| 0u64);
     // A rule applied to the mail already here, as it runs: started as its page saves it and goes
     // back, so it is held here, and the list draws its bar.
     let phase = use_signal(|| Phase::Ready);
@@ -105,14 +103,14 @@ pub(in crate::ui) fn RulesPage(shell: Signal<Shell>) -> Element {
     });
     let page = use_callback(move |at: RulesAt| {
         let Some(row) = account.clone() else {
-            return rsx! { RulesList { shell, row: None, rows: rows.clone(), said, changed, pushed, phase, running } };
+            return rsx! { RulesList { shell, row: None, rows: rows.clone(), said, pushed, phase, running } };
         };
         match at {
             RulesAt::List => rsx! {
-                RulesList { shell, row: Some(row), rows: rows.clone(), said, changed, pushed, phase, running }
+                RulesList { shell, row: Some(row), rows: rows.clone(), said, pushed, phase, running }
             },
             RulesAt::Rule(id) => {
-                rsx! { RulePage { key: "{id:?}", shell, row, id, said, changed, pushed, applied } }
+                rsx! { RulePage { key: "{id:?}", shell, row, id, said, pushed, applied } }
             }
         }
     });

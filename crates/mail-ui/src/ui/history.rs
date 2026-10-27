@@ -1,7 +1,8 @@
 //! Who has written, how often, when last, and whether you have written back.
 //!
-//! One grouped read of the client, [`SqliteStore::sender_history`]: nothing written. It is asked once per move of the store and shared, never per hover, and
-//! the search bar ranks people from the same answer.
+//! One grouped read of the client ([`mail_client::Stored::sender_history`]): nothing written.
+//! It is asked once per move of the store and shared, never per hover, and the search bar ranks
+//! people from the same answer.
 
 use chrono::{DateTime, Utc};
 use mail_client::Client;

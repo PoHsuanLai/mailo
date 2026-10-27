@@ -174,7 +174,8 @@ fn composing_beside(view: Viewport) -> Composing {
     }
 }
 
-/// The Settings window beside `open`'s main window: the same store, directories and configuration count.
+/// The Settings window beside `open`'s main window: the same store, directories and
+/// configuration count.
 fn settings_beside(open: &Composing) -> Harness {
     let config = HarnessConfig::new(SETTINGS_VIEW)
         .with_net(NetPolicy::Local)
