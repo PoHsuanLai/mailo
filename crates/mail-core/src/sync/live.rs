@@ -20,9 +20,9 @@
 //! | Graph    | a push relay is set ([`super::graph_push`]) |
 //! | Local    | never: nothing to fetch                     |
 //!
-//! A Graph account with no relay is polled, as it always was; with one, it is waited on through
-//! the relay's WebSocket (`mail_runtime::graph::push`) at the floor of its poll interval, so the
-//! relay only brings new mail sooner, and a relay that cannot be reached leaves it polling.
+//! A Graph account with no relay is polled; with one, it is waited on through the relay's
+//! WebSocket (`mail_runtime::graph::push`) at the floor of its poll interval, so the relay only
+//! brings new mail sooner, and a relay that cannot be reached leaves it polling.
 
 use super::report::Failure;
 use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
@@ -135,34 +135,50 @@ pub async fn listen_with(
     grace: Duration,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
+    let listening = Listening {
+        cancel,
+        hold,
+        grace,
+    };
     listen_at(
         store,
         secrets,
         registry,
         SUBSCRIPTIONS,
         account,
-        cancel,
-        hold,
-        grace,
+        listening,
         heard,
     )
     .await
 }
 
+/// When a wait on one account ends and how it is held: what the listening functions take beside
+/// the account.
+#[derive(Debug)]
+pub struct Listening {
+    pub cancel: watch::Receiver<bool>,
+    /// Described at [`Hold`].
+    pub hold: Option<Hold>,
+    /// How long a connection must hold before it is heard as established ([`GRACE`]).
+    pub grace: Duration,
+}
+
 /// [`listen_with`], with Graph's subscriptions at `subscriptions` rather than Microsoft's: a
 /// test's own listener.
-#[allow(clippy::too_many_arguments)]
 pub async fn listen_at(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     subscriptions: &str,
     account: AccountId,
-    cancel: watch::Receiver<bool>,
-    hold: Option<Hold>,
-    grace: Duration,
+    listening: Listening,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
+    let Listening {
+        cancel,
+        hold,
+        grace,
+    } = listening;
     let account = configured(&store)
         .map_err(|why| unsupported(&why.to_string()))?
         .into_iter()

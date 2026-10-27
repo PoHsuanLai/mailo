@@ -503,7 +503,8 @@ pub fn send_through_graph(mut preset: Preset) -> Preset {
 /// How often an account that reads through Graph looks for new mail.
 ///
 /// Graph pushes change notifications only to a public HTTPS webhook, which a desktop client does
-/// not have, so this polls. A minute is cheap here and would not be over IMAP: a delta query
+/// not have, so this polls, with a push relay (`mail_core::sync::graph_push`) only bringing new
+/// mail sooner. A minute is cheap here and would not be over IMAP: a delta query
 /// that has nothing to report is one small request per folder, answered with no messages.
 pub const GRAPH_POLL_EVERY: Duration = Duration::from_secs(60);
 
