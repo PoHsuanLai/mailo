@@ -148,7 +148,7 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                 return;
             }
             Some(Intent::Find) => {
-                crate::ui::reading::find::open(shell);
+                let _ = crate::ui::reading::find::open(shell);
                 return;
             }
             Some(Intent::FindStep(step)) => {

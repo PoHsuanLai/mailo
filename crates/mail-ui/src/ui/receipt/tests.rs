@@ -1,8 +1,8 @@
 //! Read receipts in the window: answered by the setting, once, and only where it is safe.
 
 use super::{
-    DECLINE_KEY, Destination, SEND_KEY, Standing, answer_asked, answer_of, asks, automatic,
-    destination, items, mark_id,
+    DECLINE_KEY, Destination, SEND_KEY, Standing, answer_asked, answer_of, answer_one, asks,
+    automatic, destination, items, mark_id,
 };
 use crate::settings::{MailSettings, ReadReceipts};
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
@@ -575,4 +575,20 @@ fn a_question_says_only_what_the_return_path_lets_it() {
         };
         assert_eq!(destination(&asked), want);
     }
+}
+
+/// An answer that cannot be kept says so, so the mark can stay for another try.
+#[test]
+fn an_answer_that_cannot_be_kept_is_said_not_to_have_been() {
+    let (store, _dir) = seeded();
+    let looks = Looks::new();
+    let client = crate::ui::fixtures::client(&store);
+    let gone = MessageId::generate();
+    assert!(!answer_one(
+        &looks,
+        &client,
+        gone,
+        ReceiptAnswer::Sent,
+        chrono::Utc::now()
+    ));
 }

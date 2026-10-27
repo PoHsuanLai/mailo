@@ -536,8 +536,9 @@ pub(super) fn use_find(shell: Signal<Shell>) -> Frames {
 }
 
 /// ⌘F: the bar, over the open conversation; with the bar open, its field again, what is typed
-/// selected. Nothing while nothing is open, or while a message is being written.
-pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
+/// selected. Nothing while nothing is open, or while a message is being written: `false`, and the
+/// key is left for the search it was before.
+pub(in crate::ui) fn open(mut shell: Signal<Shell>) -> bool {
     let (reading, finding) = {
         let now = shell.peek();
         (
@@ -546,12 +547,52 @@ pub(in crate::ui) fn open(mut shell: Signal<Shell>) {
         )
     };
     if !reading {
-        return;
+        return false;
     }
     if finding {
         Host::focus_all(FIELD);
     } else {
         shell.write().find = Some(Finding::default());
+    }
+    true
+}
+
+#[cfg(test)]
+mod open_tests {
+    use super::open;
+    use crate::ui::view::Shell;
+    use dioxus::prelude::*;
+    use mail_domain::ThreadId;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU8, Ordering};
+
+    #[derive(Clone)]
+    struct Probe(Option<ThreadId>, Arc<AtomicU8>);
+
+    #[component]
+    fn Opener() -> Element {
+        let Probe(thread, took) = consume_context::<Probe>();
+        let shell = use_signal(|| Shell {
+            open: thread,
+            ..Shell::default()
+        });
+        use_hook(|| took.store(1 + u8::from(open(shell)), Ordering::SeqCst));
+        rsx! {}
+    }
+
+    fn took(thread: Option<ThreadId>) -> bool {
+        let took = Arc::new(AtomicU8::new(0));
+        let mut dom = VirtualDom::new(Opener).with_root_context(Probe(thread, took.clone()));
+        dom.rebuild_in_place();
+        took.load(Ordering::SeqCst) == 2
+    }
+
+    /// ⌘F finds in the open conversation, and with none open is not taken: it falls through to
+    /// the search it was.
+    #[test]
+    fn find_is_taken_only_by_an_open_conversation() {
+        assert!(took(Some(ThreadId::generate())));
+        assert!(!took(None));
     }
 }
 
@@ -650,7 +691,7 @@ pub(super) fn FindBar(shell: Signal<Shell>) -> Element {
                 onclick: crate::ui::press::on_primary(move || step(shell, Step::Next)),
             }
             Button {
-                label: copy::aria::DONE_FINDING.to_owned(),
+                label: copy::controls::DONE.to_owned(),
                 title_shortcut: Some(crate::ui::actions::escape()),
                 onclick: crate::ui::press::on_primary(move || close(shell)),
             }

@@ -207,3 +207,6 @@ pub const NOT_A_PICTURE: &str = "That file isn’t a picture Contacts can use.";
 pub fn in_address_book(name: &str) -> String {
     format!("“{name}” belongs to a synced address book. Delete it there.")
 }
+
+/// A read receipt that could not be sent or declined: the mark stays, to try again.
+pub const RECEIPT_NOT_KEPT: &str = "The answer to the read receipt couldn’t be kept. Try again.";

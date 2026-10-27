@@ -609,7 +609,10 @@ pub(super) fn App() -> Element {
                 return;
             }
             Some(Intent::Find) => {
-                super::reading::find::open(shell);
+                // With no conversation open there is nothing to find in: it is the search.
+                if !super::reading::find::open(shell) {
+                    super::command::summon(shell);
+                }
                 return;
             }
             Some(Intent::FindStep(step)) => {

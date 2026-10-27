@@ -83,16 +83,24 @@ pub(super) fn shown(raw: &[u8], what: Raw, most: usize) -> Shown {
     }
 }
 
-/// Ask for `raw` of `thread`'s newest message, as the ⋯ and the keys do: the one the
-/// conversation opens on.
+/// The message the ⋯ and the keys mean among `messages`: the one a list of single messages
+/// opened (`focus`), else the one the conversation opens on, the newest.
+fn meant(messages: &[MessageId], focus: Option<MessageId>) -> Option<MessageId> {
+    focus
+        .filter(|focus| messages.contains(focus))
+        .or_else(|| messages.last().copied())
+}
+
+/// Ask for `raw` of `thread`'s message the keys mean ([`meant`]).
 pub(in crate::ui) fn ask(shell: Signal<Shell>, thread: ThreadId, raw: Raw) {
     let client = crate::ui::live::client();
+    let focus = shell.peek().focus;
     let newest = client
         .stored()
         .thread(thread)
         // A conversation gone since the key was pressed has nothing to show.
         .ok()
-        .and_then(|loaded| loaded.messages.last().copied());
+        .and_then(|loaded| meant(&loaded.messages, focus));
     if let Some(message) = newest {
         ask_message(shell, message, raw);
     }
@@ -214,5 +222,24 @@ mod tests {
         // An 8-bit header shows, its byte replaced.
         let eight = shown(b"Subject: caf\xe9\r\n\r\n", Raw::Headers, 1024);
         assert_eq!(eight.text, "Subject: caf\u{fffd}\r\n");
+    }
+}
+
+#[cfg(test)]
+mod meant_tests {
+    use super::meant;
+    use mail_domain::MessageId;
+
+    #[test]
+    fn the_message_a_key_means_is_the_one_opened_alone_else_the_newest() {
+        let [a, b, c] = [(); 3].map(|()| MessageId::generate());
+        assert_eq!(meant(&[a, b, c], None), Some(c));
+        assert_eq!(meant(&[a, b, c], Some(a)), Some(a));
+        assert_eq!(
+            meant(&[a, b], Some(c)),
+            Some(b),
+            "one of another conversation"
+        );
+        assert_eq!(meant(&[], Some(a)), None);
     }
 }

@@ -57,7 +57,7 @@ pub(in crate::ui) enum Intent {
 /// A field keeps ⌘A, Shift+Enter, ⌥⌘U and Move to Trash for itself; a thread window has no sidebar, search,
 /// settings, list to step through or other conversation to start, so those are nothing there.
 /// Finding in the conversation is every window's, and a field's too: the find bar's own field
-/// hands ⌘F and ⌘G on.
+/// hands ⌘F and ⌘G on. The reader's text size is not a field's: ⌘+ and ⌘− belong to the field.
 pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent> {
     let chosen = match heard? {
         Heard::Mail(action) => Intent::Mail(action),
@@ -85,6 +85,9 @@ pub(in crate::ui) fn intent(heard: Option<Heard>, scope: Scope) -> Option<Intent
         _ => return None,
     };
     let allowed = match (scope, chosen) {
+        // A field with the keyboard keeps ⌘+ and ⌘−: the composer's body sizes its text with them,
+        // and the reader's size is not the window's to change from there.
+        (Scope::Typing, Intent::Zoom(_)) => false,
         (_, Intent::Print | Intent::Zoom(_) | Intent::Find | Intent::FindStep(_)) => true,
         (Scope::Window, Intent::Raw(_)) => true,
         (Scope::Typing, Intent::Raw(_)) => false,
@@ -228,11 +231,8 @@ mod tests {
                 Window,
                 Some(Zoom(ZoomStep::Smaller)),
             ),
-            (
-                standard(StandardAction::ActualSize),
-                Typing,
-                Some(Zoom(ZoomStep::ActualSize)),
-            ),
+            (standard(StandardAction::ActualSize), Typing, None),
+            (standard(StandardAction::Bigger), Typing, None),
             (
                 own(Own::ShowHeaders),
                 List,

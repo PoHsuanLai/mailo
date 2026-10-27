@@ -126,7 +126,13 @@ pub(in crate::ui) fn questions(
             let ReceiptState::Pending(ask) = &standing.state else {
                 return None;
             };
-            let message = client.stored().message(standing.message).ok()?;
+            let message = client
+                .stored()
+                .message(standing.message)
+                .map_err(|why| {
+                    log::warn!("a message that asks for a receipt could not be read: {why}")
+                })
+                .ok()?;
             if !asks(policy, &standing.state, message.mailbox) {
                 return None;
             }
@@ -178,18 +184,25 @@ pub(in crate::ui) fn answer_asked(
 }
 
 /// The person's answer to one [`Question`]: queue the receipt, or decline it, through
-/// [`mail_core::receipt::answer`], which refuses a request already answered. Blocking.
+/// [`mail_core::receipt::answer`], which refuses a request already answered. Whether it was kept.
+/// Blocking.
 pub(in crate::ui) fn answer_one(
     looks: &Looks,
     client: &Client,
     message: MessageId,
     given: ReceiptAnswer,
     now: DateTime<Utc>,
-) {
+) -> bool {
     let _held = ANSWERING.lock().unwrap_or_else(|held| held.into_inner());
     match client.receipt().answer(message, given, now) {
-        Ok(_) => client.looking(looks).receipt_again(message),
-        Err(why) => log::warn!("read receipt: {why}"),
+        Ok(_) => {
+            client.looking(looks).receipt_again(message);
+            true
+        }
+        Err(why) => {
+            log::warn!("read receipt: {why}");
+            false
+        }
     }
 }
 
@@ -312,12 +325,18 @@ pub(in crate::ui) fn give(message: MessageId, answer: ReceiptAnswer) {
     let client = crate::ui::live::client();
     let asks = try_consume_context::<Asks>();
     spawn(async move {
-        let given = tokio::task::spawn_blocking(move || {
-            answer_one(&looks, &client, message, answer, Utc::now());
+        let kept = tokio::task::spawn_blocking(move || {
+            answer_one(&looks, &client, message, answer, Utc::now())
         })
-        .await;
-        if let Err(why) = given {
-            log::warn!("read receipt: {why}");
+        .await
+        .unwrap_or(false);
+        if !kept {
+            // The mark stays, so the person can answer again, and the failure is said.
+            crate::ui::motion::tell(
+                crate::ui::copy::errors::RECEIPT_NOT_KEPT.to_owned(),
+                crate::ui::motion::Follow::Nothing,
+            );
+            return;
         }
         if let Some(Asks(mut asks)) = asks {
             asks.write().retain(|ask| ask.message != message);
