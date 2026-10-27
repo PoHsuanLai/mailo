@@ -15,3 +15,6 @@ mail-proto unwrap_or_default 8
 mail-store let_underscore 0
 mail-store ok 2
 mail-store unwrap_or_default 5
+mail-client let_underscore 0
+mail-client ok 6
+mail-client unwrap_or_default 4

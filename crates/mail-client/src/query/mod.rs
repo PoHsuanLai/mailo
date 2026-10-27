@@ -70,7 +70,10 @@ impl Query for Accounts {
             .into_iter()
             .map(|account| {
                 // A plan that does not parse is no plan here, and the account keeps its folders.
-                let plan = account.plan.ok();
+                let plan = account
+                    .plan
+                    .inspect_err(|why| log::warn!("an account's plan could not be read: {why}"))
+                    .ok();
                 let incoming = plan.as_ref().map(|plan| &plan.incoming);
                 let local = matches!(incoming, Some(Incoming::Local));
                 let mailboxes = match incoming {

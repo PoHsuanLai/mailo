@@ -157,7 +157,8 @@ impl Net<'_> {
                 // The future that asked may have been dropped; then nobody is left to tell.
                 let _ = done.send(runtime.block_on(work()));
             })
-            // A thread that could not start is an answer that never comes.
+            .inspect_err(|why| log::warn!("the thread {name} could not be started: {why}"))
+            // A thread that could not start is an answer that never comes, and said above.
             .ok()?;
         // A sender dropped without a send is a thread that panicked.
         answer.await.ok()

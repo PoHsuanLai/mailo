@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A fallible result in a library crate is never discarded in silence.
 #
-# In mail-runtime, mail-core, mail-proto and mail-store each failure is propagated with `?`,
+# In mail-runtime, mail-core, mail-proto, mail-store and mail-client each failure is propagated with `?`,
 # recorded where the person sees it (a pass's trouble, a counted field), or logged with
 # `Logged::or_log` / `or_log_default` (mail-runtime/src/error.rs). The few that are rightly
 # ignored (a channel send at shutdown, best-effort cleanup, a reply to a client that has gone,
@@ -19,7 +19,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
-CRATES=(mail-runtime mail-core mail-proto mail-store)
+CRATES=(mail-runtime mail-core mail-proto mail-store mail-client)
 LIST=scripts/discards.txt
 
 # The extended regex each pattern name stands for.

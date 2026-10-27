@@ -541,9 +541,23 @@ async fn outbox(shared: Arc<Shared>) {
         let mut wait = OUTBOX_AT_MOST;
         for account in accounts {
             let after = *asked.entry(account.clone()).or_insert(began);
-            // An outbox that cannot be read now is read again on the next look.
-            let Ok(Some(due)) = shared.store().outbox_next(account.clone(), after) else {
-                continue;
+            // Read off the thread the scheduler and its timers run on: a reader may be busy. An
+            // outbox that cannot be read now is said, and read again on the next look.
+            let store = shared.store_arc();
+            let asked_of = account.clone();
+            let read =
+                tokio::task::spawn_blocking(move || store.outbox_next(asked_of, after)).await;
+            let due = match read {
+                Ok(Ok(Some(due))) => due,
+                Ok(Ok(None)) => continue,
+                Ok(Err(why)) => {
+                    log::warn!("a send's time could not be read: {why}");
+                    continue;
+                }
+                Err(why) => {
+                    log::warn!("a send's time could not be read: {why}");
+                    continue;
+                }
             };
             if due > now {
                 wait = wait.min((due - now).to_std().unwrap_or_default());
