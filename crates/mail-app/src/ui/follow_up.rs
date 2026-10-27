@@ -92,7 +92,9 @@ pub(in crate::ui) fn use_reminders(mut revision: Signal<u64>) {
 /// its time rather than at the next change. A revision starts this again, with a snooze just set
 /// or woken counted; the sleep is quire's, on the window's clock, as [`use_reminders`]'s is.
 pub(in crate::ui) fn use_snooze_wake(mut revision: Signal<u64>) {
+    let client = super::live::use_client();
     let _waking = use_resource(move || {
+        let client = client.clone();
         let _ = revision();
         async move {
             let store = consume_context::<Arc<SqliteStore>>();
@@ -102,6 +104,9 @@ pub(in crate::ui) fn use_snooze_wake(mut revision: Signal<u64>) {
             loop {
                 let now = super::clock::now();
                 if at <= now {
+                    // What the client keeps read by the clock is read again, and what the
+                    // window still reads itself is too.
+                    super::live::clock_moved(&client);
                     revision += 1;
                     return;
                 }

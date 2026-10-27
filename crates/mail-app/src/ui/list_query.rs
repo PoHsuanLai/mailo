@@ -1,18 +1,19 @@
-//! What the list pane shows, fetched off the thread that draws, a pause after the last keystroke.
+//! What the list pane shows, read by the client off the thread that draws, a pause after the last
+//! keystroke.
 //!
-//! Split from [`super::app`]. The place's list follows the shell at once:
-//! choosing a place, a Space or another page is one query. A search follows the box through
-//! [`super::debounce`]: it runs once the box has been still for its quiet period, and a result
-//! for text a newer keystroke has replaced is dropped rather than drawn.
+//! Split from [`super::app`]. The place's list follows the shell at once: choosing a place, a
+//! Space or another page is one question. A search follows the box through [`super::debounce`]:
+//! it is asked once the box has been still for its quiet period, and an answer for a question no
+//! longer asked is never drawn.
 
 use super::data::PAGE;
 use super::debounce::use_debounced;
-use super::list_search::{Listed, Request, listed};
+use super::list_search::{Listed, Request};
+use super::live::use_live;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Snapshot;
 use mail_domain::{MessageId, ThreadId, ThreadSummary};
-use std::sync::Arc;
 
 /// The list's answer, split into what each part of the pane reads.
 #[derive(Clone, Copy)]
@@ -36,64 +37,56 @@ pub(super) struct ListView {
     pub asked: ReadSignal<u64>,
 }
 
-/// Run the list for `shell`, `pages` pages deep, again whenever `revision` moves.
+/// The list for `shell`, `pages` pages deep, as the client keeps it read: again whenever a commit
+/// touches what it lists, off the thread that draws.
 ///
-/// Computed here the first time, off the thread afterwards. A bare `use_resource` is empty until it
-/// resolves, and a task spawned from a component body is never polled, so the window would open on
-/// an empty mailbox and stay that way. This keeps the synchronous answer for the frame that has no
-/// other one, and afterwards the pane shows what it last drew until a newer answer lands, never a
-/// blank and never a query on this thread.
-pub(super) fn use_list(
-    shell: Signal<Shell>,
-    pages: Signal<u32>,
-    revision: Signal<u64>,
-) -> ListView {
+/// The pane shows what it last drew until the answer for a new question lands, never a blank.
+pub(super) fn use_list(shell: Signal<Shell>, pages: Signal<u32>) -> ListView {
     let debounced = use_debounced(shell, |shell| shell.search.clone());
     let settled = debounced.settled;
     // A memo, so a shell change the list does not depend on — a letter typed into ⌘F, a
-    // peek mode — does not run the search again. The generation is part of it, so typing back
-    // to the text last searched for is still a query of its own and cannot be dropped as stale.
+    // peek mode — does not ask again.
     let request = use_memo(move || {
         let settled = settled.read();
         let shell = shell.read();
         let request = Request::of(&shell, &settled.text, PAGE * pages());
         // The same question at no depth, to tell another question from a deeper page.
         let question = Request::of(&shell, &settled.text, 0);
-        (settled.generation, request, question)
+        (request, question, pages())
     });
+    let found = use_live(move || request().0.asked());
     let mut drawn = use_signal(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
-        listed(&store, request.peek().1.clone(), crate::ui::clock::now())
+        found
+            .peek()
+            .value()
+            .map(|found| Listed::from(found.as_ref()))
+            .unwrap_or_default()
     });
     let mut reached = use_signal(|| *pages.peek());
-    let mut answered = use_signal(|| request.peek().2.clone());
+    let mut answered = use_signal(|| request.peek().1.clone());
     let mut asked = use_signal(|| 0u64);
-    let _fetch = use_resource(move || {
-        let _ = revision();
-        let (generation, request, question) = request();
-        let depth = *pages.peek();
-        let store = consume_context::<Arc<SqliteStore>>();
-        let now = crate::ui::clock::now();
-        async move {
-            let done: Listed = tokio::task::spawn_blocking(move || listed(&store, request, now))
-                .await
-                .unwrap_or_default();
-            // A keystroke since this was asked for means the box no longer says this. Drawing it
-            // would flash an answer to a question nobody is asking.
-            if debounced.is_latest(generation) {
-                if *answered.peek() != question {
-                    // Another question. A new list only when it would lose rows: the same rows
-                    // under a reworded filter are the same list, and redrawing it whole would
-                    // cost a frame for nothing.
-                    if drops_rows(&drawn.peek(), &done) {
-                        asked += 1;
-                    }
-                    answered.set(question);
-                }
-                drawn.set(done);
-                reached.set(depth);
+    // An answer for the question asked now — not the last one's, shown while this one is read —
+    // is drawn. The question is followed as well as the answer: a new question can have the
+    // same answer, and it is still the one the rows answer from then on.
+    use_effect(move || {
+        let (_, question, depth) = request();
+        let Snapshot::Ready { value, .. } = &*found.read() else {
+            return;
+        };
+        let done = Listed::from(value.as_ref());
+        if *answered.peek() != question {
+            // Another question. A new list only when it would lose rows: the same rows under a
+            // reworded filter are the same list, and redrawing it whole would cost a frame for
+            // nothing.
+            if drops_rows(&drawn.peek(), &done) {
+                asked += 1;
             }
+            answered.set(question);
         }
+        if *drawn.peek() != done {
+            drawn.set(done);
+        }
+        reached.set(depth);
     });
     ListView {
         threads: use_memo(move || drawn.read().threads.clone()),

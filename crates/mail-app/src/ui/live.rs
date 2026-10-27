@@ -5,23 +5,87 @@
 //! and a component re-renders when its value changes, not when some counter says something
 //! somewhere might have.
 
+use crate::ui::clock::WallClock;
 use dioxus::dioxus_core::{Task, provide_root_context};
 use dioxus::prelude::*;
 use mail_client::{Client, Live, Query, Snapshot};
 use mail_core::SqliteStore;
+use mail_core::mail::Clock;
 use std::sync::Arc;
 
 /// The app's client: the one the program gave every window, or for a window built with only a
 /// store (a unit test's), one that reads on the thread that draws, made once and shared from the
 /// root.
+///
+/// A window with a [`WallClock`] of its own (a test's, which follows quire's virtual clock and
+/// jumps ahead) gives the client its time, so what the client reads by the clock — a snooze
+/// ending, a reminder coming due — is read at the window's time.
 pub(in crate::ui) fn use_client() -> Client {
-    use_hook(|| {
-        try_consume_context::<Client>().unwrap_or_else(|| {
+    use_hook(|| match try_consume_context::<Client>() {
+        Some(client) => {
+            // Once for the app, not on every component that asks.
+            if try_consume_context::<ClockGiven>().is_none() {
+                provide_root_context(ClockGiven);
+                if let Some(wall) = try_consume_context::<WallClock>() {
+                    client.set_clock(Arc::new(Ahead::of(&wall)));
+                }
+            }
+            client
+        }
+        None => {
             let store = consume_context::<Arc<SqliteStore>>();
-            let client = Client::inline(store, Arc::new(mail_core::mail::SystemClock));
-            provide_root_context(client.clone())
-        })
+            let clock: Arc<dyn Clock> = match try_consume_context::<WallClock>() {
+                Some(wall) => Arc::new(Wall(wall)),
+                None => Arc::new(mail_core::mail::SystemClock),
+            };
+            provide_root_context(Client::inline(store, clock))
+        }
     })
+}
+
+/// Tell `client` the clock has passed something it may count — a snooze ending, a reminder
+/// coming due — so what it reads by the clock is read again, at the window's time.
+pub(in crate::ui) fn clock_moved(client: &Client) {
+    // Given only to a client with threads of its own; one that reads here reads the window's
+    // clock itself.
+    match try_consume_context::<WallClock>() {
+        Some(wall) if try_consume_context::<ClockGiven>().is_some() => {
+            client.set_clock(Arc::new(Ahead::of(&wall)));
+        }
+        _ => client.invalidate(mail_client::Topics::CLOCK),
+    }
+}
+
+/// That the window's clock was given to the program's client.
+#[derive(Clone, Copy)]
+struct ClockGiven;
+
+/// The window's clock, read where the window reads it: for a client that reads on the thread
+/// that draws.
+struct Wall(WallClock);
+
+impl Clock for Wall {
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        self.0.now()
+    }
+}
+
+/// The window's clock for a client that reads on threads of its own: how far the window's time
+/// is from the system's, taken on the thread that draws. A test's window clock follows quire's
+/// virtual clock, which only that thread has, so the client's threads keep the system's time
+/// moved on by how far the window's was ahead when it was last told.
+struct Ahead(chrono::TimeDelta);
+
+impl Ahead {
+    fn of(wall: &WallClock) -> Ahead {
+        Ahead(wall.now() - chrono::Utc::now())
+    }
+}
+
+impl Clock for Ahead {
+    fn now(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::Utc::now() + self.0
+    }
 }
 
 /// The value `key` asks for, as a signal. `key` is a memo: it follows the signals it reads, and

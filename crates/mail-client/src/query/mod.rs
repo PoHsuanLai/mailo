@@ -163,6 +163,9 @@ impl Query for Counts {
     }
 }
 
+mod conversations;
+pub use conversations::{Conversations, Found, How, Search};
+
 /// The people marked as VIPs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct VipList;

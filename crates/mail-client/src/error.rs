@@ -15,3 +15,9 @@ impl From<StoreError> for ClientError {
         ClientError::Store(error.to_string())
     }
 }
+
+impl From<mail_core::CoreError> for ClientError {
+    fn from(error: mail_core::CoreError) -> Self {
+        ClientError::Store(error.to_string())
+    }
+}

@@ -1,57 +1,26 @@
+#[cfg(test)]
 use crate::ui::view::Listing;
-use mail_core::{SqliteStore, Store, Syncing};
+use mail_core::{SqliteStore, Syncing};
 use mail_domain::*;
 use porter_core::AccountId;
 
 /// How many rows the list pane asks for at a time.
 pub(super) const PAGE: u32 = 100;
 
-/// The conversations a listing asks for.
-///
-/// Shared by the blocking task and the first frame's fallback: two copies would be two chances to
-/// disagree about what the list contains.
+/// The conversations a listing asks for, as the client reads them: for a test that checks what
+/// a place lists.
+#[cfg(test)]
 pub(super) fn list_for(
     store: &SqliteStore,
     listing: Listing,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Vec<ThreadSummary> {
-    let rows = |query: &Query| {
-        store
-            .threads(query, now)
-            .map(|page| page.items)
-            .unwrap_or_default()
-    };
-    match listing {
-        Listing::Threads(query) => rows(&query),
-        Listing::Messages(query) => singles_for(store, &query, now)
-            .into_iter()
-            .map(|single| single.summary)
-            .collect(),
-        Listing::Inbox { query, scope } => mail_core::follow_up::on_top(
-            mail_core::follow_up::returned(store, scope.as_ref(), now),
-            rows(&query),
-        ),
-        Listing::Waiting { scope } => mail_core::follow_up::waiting(store, scope.as_ref(), now),
-        Listing::History { scope } => mail_core::history::listed(store, scope.as_ref(), now),
-        Listing::Drafts | Listing::Scheduled => Vec::new(),
-    }
-}
-
-/// The messages a place kept a message to a row lists ([`mail_core::single::listed`]), each
-/// with the conversation it is a row of. A store that cannot answer is an empty list, said in
-/// the log, as a conversation list's failure is an empty one.
-pub(super) fn singles_for(
-    store: &SqliteStore,
-    query: &Query,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Vec<mail_core::single::Single> {
-    match mail_core::single::listed(store, query, now) {
-        Ok(page) => page.items,
-        Err(why) => {
-            log::warn!("the list of single messages could not be read: {why}");
-            Vec::new()
-        }
-    }
+    use mail_client::Query as _;
+    super::list_search::Request::Place(listing)
+        .asked()
+        .run(store, now)
+        .expect("listed")
+        .threads
 }
 
 /// The account's name as the window writes it: the description the person gave it, else its

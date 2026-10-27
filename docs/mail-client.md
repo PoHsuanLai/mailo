@@ -95,7 +95,9 @@ impl<T> Live<T> {
   to the last one wakes no one.
 - **Time.** Snoozes, follow-ups and scheduled sends change as time passes: the `CLOCK` topic is
   invalidated (`Client::invalidate`) by a timer at the next due instant. The timer comes with the
-  fetching, in stage 3; until then the window's own wake does it.
+  fetching, in stage 3; until then the window's own wake does it. A caller whose time is not the
+  system's (a test's window, on quire's virtual clock) gives the client its own with
+  `Client::set_clock`, which reads again what reads the clock.
 
 ## Invalidation
 
@@ -172,7 +174,12 @@ Each leaves the app working.
    **b.** The window's sidebar built from them; `App`'s seeding hook, badge filters and fallback
    go. `external.rs` becomes a follower of the client's generation that still moves `revision`,
    so memos not yet converted hear in-process and background commits too.
-2. List and reader: `Live<ListPage>`, `Live<ThreadView>`, writes through `act` with the overlay.
+2. List and reader, in three steps.
+   **a.** The list: `Conversations` (a place's query, the returned and waiting lists, history, a
+   search) answers `Found`, the rows with what a search found on top; the window keeps the
+   question it drew and says whether a new one is another list or a deeper page.
+   **b.** The reader: `Live<ThreadView>`.
+   **c.** Writes through `act`, with the overlay.
 3. Fetching moves into the client: the scheduler, the background watch and the outbox. The
    shared `Revisions` retires for store data.
 4. Everything else: compose, settings, contacts, rules, keys, add account, the palette,
