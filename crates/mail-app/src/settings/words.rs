@@ -68,6 +68,44 @@ pub enum NotifyFor {
     Vips,
 }
 
+/// `notifications.places`: which mailboxes' new mail is announced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum NotifyPlaces {
+    #[default]
+    #[word(label = "Inbox only")]
+    Inbox,
+    #[word(label = "Every followed mailbox")]
+    Followed,
+}
+
+/// `notifications.sound`: the sound a banner plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum NotifySound {
+    #[default]
+    Default,
+    Ping,
+    Glass,
+    Pop,
+    Submarine,
+    Silent,
+}
+
+/// `notifications.badge`: what the Dock's number counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
+#[serde(rename_all = "snake_case")]
+#[word(case = snake)]
+pub enum BadgeCounts {
+    #[default]
+    #[word(label = "The Inbox")]
+    Inbox,
+    #[word(label = "Every followed mailbox")]
+    Followed,
+}
+
 /// `compose.spelling`: whether the composer marks misspelt words.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
@@ -365,6 +403,15 @@ impl From<PreferPlainText> for mail_core::message::Prefer {
     }
 }
 
+impl From<NotifyPlaces> for mail_core::notify::Places {
+    fn from(places: NotifyPlaces) -> Self {
+        match places {
+            NotifyPlaces::Inbox => mail_core::notify::Places::Inbox,
+            NotifyPlaces::Followed => mail_core::notify::Places::Followed,
+        }
+    }
+}
+
 /// `junk.filter` and the junk filter's other switches: on or off.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
@@ -404,6 +451,28 @@ impl From<JunkSwitch> for mail_core::junk::Heed {
         match switch {
             JunkSwitch::On => mail_core::junk::Heed::Yes,
             JunkSwitch::Off => mail_core::junk::Heed::No,
+        }
+    }
+}
+
+impl From<BadgeCounts> for mail_core::notify::Places {
+    fn from(counts: BadgeCounts) -> Self {
+        match counts {
+            BadgeCounts::Inbox => mail_core::notify::Places::Inbox,
+            BadgeCounts::Followed => mail_core::notify::Places::Followed,
+        }
+    }
+}
+
+impl From<NotifySound> for mail_core::notify::Sound {
+    fn from(sound: NotifySound) -> Self {
+        match sound {
+            NotifySound::Default => mail_core::notify::Sound::Default,
+            NotifySound::Ping => mail_core::notify::Sound::Ping,
+            NotifySound::Glass => mail_core::notify::Sound::Glass,
+            NotifySound::Pop => mail_core::notify::Sound::Pop,
+            NotifySound::Submarine => mail_core::notify::Sound::Submarine,
+            NotifySound::Silent => mail_core::notify::Sound::Silent,
         }
     }
 }

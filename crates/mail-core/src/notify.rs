@@ -28,6 +28,7 @@ use mail_domain::ThreadId;
 use mail_domain::{MailboxRole, Message, MessageId, ReadState, Snooze};
 use mail_store::{SqliteStore, Store as _};
 use porter_core::AccountId;
+use std::collections::HashSet;
 use std::path::Path;
 
 /// Whether `mailo watch` raises notifications. On unless someone turned it off.
@@ -95,6 +96,49 @@ pub fn load(dir: &Path) -> Setting {
     crate::config::read_json::<Stored>(dir, FILE_NAME).notifications
 }
 
+/// Which mailboxes' new mail is announced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Places {
+    /// The Inbox, and nothing else.
+    #[default]
+    Inbox,
+    /// The Inbox and every other mailbox the account's server lists as followed, bar the ones
+    /// nobody is waiting on (Junk, Trash, Sent, Drafts, Archive and the views a server calls All
+    /// Mail, Starred and Important).
+    Followed,
+}
+
+/// The sound a banner plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Sound {
+    /// The system's own sound for a message.
+    #[default]
+    Default,
+    Ping,
+    Glass,
+    Pop,
+    Submarine,
+    /// A banner that makes no sound.
+    Silent,
+}
+
+/// What the person has asked to hear about, beside what is never worth a word ([`verdict`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Interest {
+    pub places: Places,
+    /// Addresses of the accounts that are never announced, in lowercase.
+    pub muted: Vec<String>,
+    pub sound: Sound,
+}
+
+impl Interest {
+    /// Whether the account signed in as `address` is one to hear about.
+    pub fn hears(&self, address: &str) -> bool {
+        let address = address.trim().to_ascii_lowercase();
+        !self.muted.contains(&address)
+    }
+}
+
 /// Why an arrival is not announced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Quiet {
@@ -146,8 +190,10 @@ impl Own {
 /// Whether `message`, just stored, is worth interrupting someone for.
 ///
 /// `snooze` is its conversation's, `floor` is when its account was first watched
-/// ([`floor::armed`]), and `heard` whose mail is announced at all. Checked in the order a reader
-/// would explain it: where it is, whether it has been read, who sent it, then when.
+/// ([`floor::armed`]), and `heard` whose mail is announced at all. `followed` is whether it is held
+/// in a mailbox the person follows beside the Inbox, which only [`Places::Followed`] asks. Checked
+/// in the order a reader would explain it: where it is, whether it has been read, who sent it,
+/// then when.
 pub fn verdict(
     message: &Message,
     snooze: Snooze,
@@ -155,8 +201,15 @@ pub fn verdict(
     heard: &Heard,
     floor: DateTime<Utc>,
     now: DateTime<Utc>,
+    followed: bool,
 ) -> Verdict {
-    let quiet = if message.mailbox != MailboxRole::Inbox {
+    let waited_on = message.mailbox == MailboxRole::Inbox
+        || (followed
+            && !matches!(
+                message.mailbox,
+                MailboxRole::Spam | MailboxRole::Trash | MailboxRole::Sent | MailboxRole::Drafts
+            ));
+    let quiet = if !waited_on {
         Some(Quiet::Elsewhere(message.mailbox))
     } else if message.read == ReadState::Read {
         Some(Quiet::Read)
@@ -202,6 +255,65 @@ pub struct Notification {
     /// Plain text. A transport that speaks markup escapes it.
     pub body: String,
     pub opens: Opens,
+    /// A `mailto:` link that starts the reply, for a banner's Reply button: only a banner about
+    /// one message has one.
+    pub reply: Option<String>,
+}
+
+/// What a button on a banner, or a click on the banner, does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Act {
+    /// Show what the notification was about.
+    Open,
+    /// Archive the conversation, without opening a window.
+    Archive,
+    /// Open the composer on this `mailto:` link.
+    Reply(String),
+}
+
+/// The action key of a banner's click, which every server invokes for the banner itself.
+pub const DEFAULT_ACTION: &str = "default";
+/// The action keys of its two buttons.
+pub const ARCHIVE_ACTION: &str = "archive";
+pub const REPLY_ACTION: &str = "reply";
+
+/// What follows from the action a server or the system reports for a notification that opens
+/// `opens` and offers `reply`: nothing for an action that was not offered.
+pub fn act_for(action: &str, opens: &Opens, reply: Option<&str>) -> Option<Act> {
+    match (action, opens, reply) {
+        (DEFAULT_ACTION, _, _) => Some(Act::Open),
+        (ARCHIVE_ACTION, Opens::Thread(_), _) => Some(Act::Archive),
+        (REPLY_ACTION, _, Some(link)) => Some(Act::Reply(link.to_owned())),
+        _ => None,
+    }
+}
+
+/// `text` as the value of a `mailto:` header: everything but the unreserved characters escaped.
+fn mailto_value(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for byte in text.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(char::from(byte));
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
+/// The link that starts a reply to `message`: its sender, and its subject under one `Re:`.
+fn reply_link(message: &Message) -> String {
+    let subject = message.subject.trim();
+    let subject = match subject.get(..3) {
+        Some(head) if head.eq_ignore_ascii_case("re:") => subject.to_owned(),
+        _ => format!("Re: {subject}"),
+    };
+    format!(
+        "mailto:{}?subject={}",
+        mailto_value(&message.from.email),
+        mailto_value(&subject)
+    )
 }
 
 /// At most this many arrivals are announced one by one; more become one summary.
@@ -223,6 +335,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
                 summary: sender(message),
                 body: mail_domain::subject_or_none(&message.subject).into_owned(),
                 opens: Opens::Thread(message.thread),
+                reply: Some(reply_link(message)),
             })
             .collect();
     }
@@ -252,6 +365,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
         account,
         summary: format!("{} new messages", announced.len()),
         body,
+        reply: None,
     }]
 }
 
@@ -267,6 +381,12 @@ fn sender(message: &Message) -> String {
 /// fetching mail, and there is nobody to tell except the terminal the watch already prints to.
 pub trait Notifier: Send + Sync {
     fn show(&self, notification: &Notification);
+
+    /// What the person has asked to hear about. Everything in the Inbox unless the notifier knows
+    /// better.
+    fn interest(&self) -> Interest {
+        Interest::default()
+    }
 }
 
 /// Whether a watch announces what it fetches.
@@ -316,8 +436,16 @@ pub fn announce(
     if arrived.is_empty() {
         return Ok(0);
     }
+    let interest = notifier.interest();
+    if !account_heard(store, &account, &interest)? {
+        return Ok(0);
+    }
     let own = own_addresses(store)?;
     let heard = Heard::of(whom, store);
+    let followed = match interest.places {
+        Places::Inbox => HashSet::new(),
+        Places::Followed => followed_messages(store, &account)?,
+    };
     let mut held = Vec::with_capacity(arrived.len());
     for id in arrived {
         // Gone again already — expunged by the sweep of the same pass. Nothing to announce.
@@ -333,7 +461,8 @@ pub fn announce(
     let announced: Vec<&Message> = held
         .iter()
         .filter(|(message, snooze)| {
-            let said = verdict(message, *snooze, &own, &heard, floor, now);
+            let followed = followed.contains(&message.id);
+            let said = verdict(message, *snooze, &own, &heard, floor, now, followed);
             let said = if noted.contains(&message.id) {
                 self::heard(said)
             } else {
@@ -348,6 +477,38 @@ pub fn announce(
         notifier.show(notification);
     }
     Ok(notifications.len())
+}
+
+/// Whether `interest` wants to hear about `account`'s mail.
+fn account_heard(
+    store: &SqliteStore,
+    account: &AccountId,
+    interest: &Interest,
+) -> Result<bool, CoreError> {
+    if interest.muted.is_empty() {
+        return Ok(true);
+    }
+    Ok(store
+        .list_accounts()?
+        .iter()
+        .find(|stored| stored.id == *account)
+        .is_none_or(|stored| interest.hears(&stored.address)))
+}
+
+/// The messages held in a mailbox of `account` that its server lists as followed and that is
+/// not the Inbox or a place nobody is waiting on: a folder the person made, or the server's
+/// own without a special use.
+fn followed_messages(
+    store: &SqliteStore,
+    account: &AccountId,
+) -> Result<HashSet<MessageId>, CoreError> {
+    let mut held = HashSet::new();
+    for mailbox in store.followed_folders()? {
+        if mailbox.account == *account {
+            held.extend(store.folder_contents(&mailbox)?.mapped);
+        }
+    }
+    Ok(held)
 }
 
 /// Every address the user sends from: each account's own, and each identity's.
@@ -488,7 +649,7 @@ mod tests {
         ];
         for (name, message, snooze, expect) in cases {
             assert_eq!(
-                verdict(&message, snooze, &own, &Heard::Everyone, floor, now),
+                verdict(&message, snooze, &own, &Heard::Everyone, floor, now, false),
                 expect,
                 "{name}"
             );
@@ -559,12 +720,16 @@ mod tests {
                     summary: "Ada Lovelace".to_owned(),
                     body: "lunch on friday".to_owned(),
                     opens: Opens::Thread(a.thread),
+                    reply: Some(
+                        "mailto:ada%40example.test?subject=Re%3A%20lunch%20on%20friday".to_owned()
+                    ),
                 },
                 Notification {
                     account: account(),
                     summary: "bob@example.test".to_owned(),
                     body: "(no subject)".to_owned(),
                     opens: Opens::Thread(b.thread),
+                    reply: Some("mailto:bob%40example.test?subject=Re%3A%20".to_owned()),
                 },
             ]
         );
@@ -601,6 +766,7 @@ mod tests {
                 // Ada sent three; the rest one each, in the order they came.
                 body: "From Ada, Newsletter, Bob and 2 others".to_owned(),
                 opens: Opens::Inbox(account()),
+                reply: None,
             }]
         );
         assert_eq!(
@@ -646,5 +812,133 @@ mod tests {
         for (said, want) in cases {
             assert_eq!(heard(said), want, "{said:?}");
         }
+    }
+
+    #[test]
+    fn mail_in_a_followed_mailbox_is_announced_only_when_followed_mailboxes_are_asked_for() {
+        let own = Own::default();
+        let with = |role: MailboxRole| {
+            let mut m = message(1, ("Ada", "ada@example.test"), "lunch");
+            m.mailbox = role;
+            m
+        };
+        let ask = |role: MailboxRole, followed: bool| {
+            verdict(&with(role), Snooze::Inactive, &own, at(9), at(13), followed)
+        };
+        let cases = [
+            (
+                "a followed folder, asked",
+                MailboxRole::Archive,
+                true,
+                Verdict::Announce,
+            ),
+            (
+                "a followed folder, not asked",
+                MailboxRole::Archive,
+                false,
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Archive)),
+            ),
+            (
+                "the inbox either way",
+                MailboxRole::Inbox,
+                false,
+                Verdict::Announce,
+            ),
+            (
+                "junk is never waited on",
+                MailboxRole::Spam,
+                true,
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Spam)),
+            ),
+            (
+                "nor trash",
+                MailboxRole::Trash,
+                true,
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Trash)),
+            ),
+            (
+                "nor sent",
+                MailboxRole::Sent,
+                true,
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Sent)),
+            ),
+        ];
+        for (name, role, followed, expect) in cases {
+            assert_eq!(ask(role, followed), expect, "{name}");
+        }
+    }
+
+    #[test]
+    fn an_account_is_heard_unless_its_address_is_muted_whatever_the_case() {
+        let interest = Interest {
+            muted: vec!["work@example.test".to_owned()],
+            ..Interest::default()
+        };
+        assert!(!interest.hears("Work@Example.test"));
+        assert!(interest.hears("home@example.test"));
+        assert!(Interest::default().hears("work@example.test"));
+    }
+
+    #[test]
+    fn a_banner_offers_archive_for_a_conversation_and_reply_when_it_has_a_link() {
+        let thread = || Opens::Thread(ThreadId::from_uuid(uuid::Uuid::from_u128(1)));
+        let link = Some("mailto:ada%40example.test");
+        let cases = [
+            (
+                "the banner",
+                DEFAULT_ACTION,
+                thread(),
+                link,
+                Some(Act::Open),
+            ),
+            (
+                "the banner of a summary",
+                DEFAULT_ACTION,
+                Opens::Inbox(account()),
+                None,
+                Some(Act::Open),
+            ),
+            (
+                "archive",
+                ARCHIVE_ACTION,
+                thread(),
+                link,
+                Some(Act::Archive),
+            ),
+            (
+                "archive of a summary",
+                ARCHIVE_ACTION,
+                Opens::Inbox(account()),
+                None,
+                None,
+            ),
+            (
+                "reply",
+                REPLY_ACTION,
+                thread(),
+                link,
+                Some(Act::Reply("mailto:ada%40example.test".to_owned())),
+            ),
+            ("reply with no link", REPLY_ACTION, thread(), None, None),
+            ("an action never offered", "delete", thread(), link, None),
+        ];
+        for (name, action, opens, reply, expect) in cases {
+            assert_eq!(act_for(action, &opens, reply), expect, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_reply_link_names_the_sender_and_one_re_and_reads_back_as_a_link() {
+        let mut m = message(1, ("Ada", "ada+news@example.test"), "Re: lunch & more");
+        let link = reply_link(&m);
+        assert_eq!(
+            link,
+            "mailto:ada%2Bnews%40example.test?subject=Re%3A%20lunch%20%26%20more"
+        );
+        let parsed: mail_mime::MailtoUri = link.parse().unwrap();
+        assert_eq!(parsed.subject, "Re: lunch & more");
+        assert_eq!(parsed.to[0].email, "ada+news@example.test");
+        m.subject = "lunch".to_owned();
+        assert!(reply_link(&m).ends_with("subject=Re%3A%20lunch"));
     }
 }

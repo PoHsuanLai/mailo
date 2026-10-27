@@ -63,9 +63,12 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     crate::intents::index::start(store.clone());
     // Whether they are on is asked as each is said (`follow_up::speaking`), so Settings' switch
     // takes effect without a restart.
-    let notices = dirs.as_ref().map(|_| {
+    let notices = dirs.as_ref().map(|dirs| {
+        let interest = crate::ui::prefs::root_of(dirs)
+            .map(|root| crate::settings::load(&root).notifications.interest())
+            .unwrap_or_default();
         crate::ui::follow_up::Notices(std::sync::Arc::new(
-            mail_core::notify::desktop::Desktop::connect_in_window(),
+            mail_core::notify::desktop::Desktop::connect_in_window().with_interest(interest),
         ))
     });
     // And the login item's switch, read as the window opens.

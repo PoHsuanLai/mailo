@@ -34,6 +34,7 @@ mod dock;
 use chrono::{DateTime, Utc};
 use mail_core::Store;
 use mail_core::mailbox_filter::{for_role, unread_in};
+use mail_core::notify::Places;
 use mail_core::scope::Scope;
 use mail_domain::{Filter, MailboxRole};
 use std::sync::Arc;
@@ -45,20 +46,43 @@ pub struct Unread(pub u64);
 /// The conversations the launcher counts, in the accounts of `scope`.
 ///
 /// The inbox's own badge filter (`place::unread_in` of the inbox place, which the sidebar's badge
-/// uses too), so the launcher and the
-/// sidebar's Inbox badge cannot disagree about what "unread in the inbox" means: snoozed
-/// conversations are away, and read ones are read.
-pub fn filter(scope: &Scope) -> Filter {
-    scope.over(unread_in(for_role(MailboxRole::Inbox)))
+/// uses too), so the launcher and the sidebar's Inbox badge cannot disagree about what "unread in
+/// the inbox" means: snoozed conversations are away, and read ones are read. For
+/// [`Places::Followed`] the unread conversations held in a mailbox the accounts' servers list as
+/// followed count too.
+pub fn filter<S: Store + ?Sized>(
+    store: &S,
+    scope: &Scope,
+    places: Places,
+) -> Result<Filter, mail_core::StoreError> {
+    let inbox = unread_in(for_role(MailboxRole::Inbox));
+    let followed: Vec<Filter> = match places {
+        Places::Inbox => Vec::new(),
+        Places::Followed => store
+            .followed_folders()?
+            .into_iter()
+            .filter(|mailbox| scope.shows(mailbox.account.clone()))
+            .map(|mailbox| unread_in(Filter::InFolder(mailbox)))
+            .collect(),
+    };
+    Ok(if followed.is_empty() {
+        scope.over(inbox)
+    } else {
+        let mut any = vec![inbox];
+        any.extend(followed);
+        scope.over(Filter::Or(any))
+    })
 }
 
-/// Count them. One indexed query (`Store::count`), made off the thread that draws.
+/// Count them, as `places` says. One indexed query (`Store::count`), made off the thread that
+/// draws.
 pub fn unread<S: Store + ?Sized>(
     store: &S,
     scope: &Scope,
     now: DateTime<Utc>,
+    places: Places,
 ) -> Result<Unread, mail_core::StoreError> {
-    store.count(&filter(scope), now).map(Unread)
+    store.count(&filter(store, scope, places)?, now).map(Unread)
 }
 
 /// The text of a badge that draws its own label (the macOS Dock's): the number, or nothing for

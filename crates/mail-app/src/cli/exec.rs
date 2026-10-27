@@ -463,7 +463,12 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         let desktop;
         let notifier: Option<&dyn mail_core::notify::Notifier> = match notifications {
             mail_core::notify::Setting::On => {
-                desktop = mail_core::notify::desktop::Desktop::connect();
+                let interest = crate::settings::person_root()
+                    .map(|root| crate::settings::load(&root))
+                    .unwrap_or_default()
+                    .notifications
+                    .interest();
+                desktop = mail_core::notify::desktop::Desktop::connect().with_interest(interest);
                 Some(&desktop)
             }
             mail_core::notify::Setting::Off => None,

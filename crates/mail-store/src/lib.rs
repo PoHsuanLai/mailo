@@ -618,6 +618,14 @@ pub trait Store {
     /// Empty until the first listing, and always for POP3, which has no folders to list.
     fn folders(&self, account: AccountId) -> Result<Vec<Folder>, StoreError>;
 
+    /// The mailboxes of every account that its server lists as followed, beside the Inbox: the
+    /// subscribed ones holding mail, not protected and without a special use (so a folder the
+    /// person made, not Junk, Trash, Sent, Archive or the like). Empty for a store that knows
+    /// no accounts.
+    fn followed_folders(&self) -> Result<Vec<MailboxRef>, StoreError> {
+        Ok(Vec::new())
+    }
+
     /// Replace the account's folders with what the server just listed.
     ///
     /// Folder work still queued is re-applied over the listing, in queue order, for the reason

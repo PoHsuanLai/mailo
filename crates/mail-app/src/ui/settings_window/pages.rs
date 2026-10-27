@@ -34,6 +34,8 @@ pub(super) enum Line {
     Vips,
     /// Which application opens email links, with Make Default (`crate::ui::default_mail`).
     DefaultMail,
+    /// A switch per account: whether its new mail is announced (`notifications.muted_accounts`).
+    MutedAccounts,
     /// The schema's text key at this path, holding a folder: drawn as the folder, with Choose…
     /// to pick another in the system's dialog, and Use Downloads to go back to the default.
     Folder(&'static str),
@@ -112,14 +114,23 @@ pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
                 ],
             },
         ],
-        SettingsPage::Notifications => &[Section {
-            title: None,
-            lines: &[
-                Line::Key("notifications.new_mail"),
-                Line::Key("notifications.notify_for"),
-                Line::Vips,
-            ],
-        }],
+        SettingsPage::Notifications => &[
+            Section {
+                title: None,
+                lines: &[
+                    Line::Key("notifications.new_mail"),
+                    Line::Key("notifications.notify_for"),
+                    Line::Vips,
+                    Line::Key("notifications.places"),
+                    Line::Key("notifications.sound"),
+                    Line::Key("notifications.badge"),
+                ],
+            },
+            Section {
+                title: Some(copy::headers::NOTIFY_FOR_ACCOUNTS),
+                lines: &[Line::MutedAccounts],
+            },
+        ],
         SettingsPage::Privacy => &[
             Section {
                 title: None,
@@ -268,6 +279,7 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandle
                                 None => rsx! {},
                             },
                             Line::DefaultMail => rsx! { crate::ui::default_mail::DefaultMailRow {} },
+                            Line::MutedAccounts => rsx! { MutedAccounts { failed } },
                             Line::Folder(path) => match key_at(path) {
                                 Some(spec) => rsx! {
                                     FolderRow { key: "{path}", value: value_of(&values, &spec), spec, onedit }
@@ -416,6 +428,44 @@ pub const CHOOSE_FOLDER_ID: &str = "general-choose-downloads";
 
 /// The Use Downloads of the folder Save writes into.
 pub const USE_DOWNLOADS_ID: &str = "general-use-downloads";
+
+/// A switch for each account: on when its new mail is announced. Switching one off adds its
+/// address to `notifications.muted_accounts`, in lowercase, and back on takes it out.
+#[component]
+fn MutedAccounts(mut failed: Signal<Option<String>>) -> Element {
+    let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+    let rows = crate::ui::data::account_rows(&store);
+    let muted = crate::ui::prefs::current().notifications.muted_accounts;
+    rsx! {
+        if rows.is_empty() {
+            FieldRow { label: copy::empty::NO_ACCOUNTS_TO_NOTIFY }
+        }
+        for row in rows {
+            {
+                let address = row.address.to_lowercase();
+                let on = !muted.contains(&address);
+                rsx! {
+                    Toggle {
+                        key: "{address}",
+                        label: row.address.clone(),
+                        value: if on { Check::On } else { Check::Off },
+                        onchange: move |next| {
+                            let address = address.clone();
+                            let changed = crate::ui::prefs::change(move |settings| {
+                                let list = &mut settings.notifications.muted_accounts;
+                                list.retain(|kept| *kept != address);
+                                if next == Check::Off {
+                                    list.push(address);
+                                }
+                            });
+                            failed.set(changed.err());
+                        },
+                    }
+                }
+            }
+        }
+    }
+}
 
 /// The senders whose images load, a row each with its Remove.
 #[component]

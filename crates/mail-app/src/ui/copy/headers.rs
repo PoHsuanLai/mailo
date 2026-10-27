@@ -30,6 +30,7 @@ pub const TOP_RESULTS: &str = "Top results";
 pub const FROM_SERVER: &str = "Server";
 
 // Settings › General's group, and Privacy's.
+pub const NOTIFY_FOR_ACCOUNTS: &str = "Notify for accounts";
 pub const MAIL: &str = "Mail";
 /// Settings › Privacy: what a message's remote content may learn about the reader.
 pub const REMOTE_CONTENT: &str = "Remote Content";

@@ -19,11 +19,11 @@ mod legacy;
 mod words;
 
 pub use words::{
-    BlockRemote, BrandLogos, CopyMyself, DeleteMeans, EraseAfter, GroupByDate, JunkOrder,
-    JunkSwitch, JunkTreat, LabelChips, LoadRemoteImages, MarkRead, MarkReadDelay, MessageFormat,
-    NewMail, NotifyFor, PreferPlainText, Protect, ProviderMarks, ReadReceipts, RelayKind,
-    RemoveUnedited, ReplySameFormat, ServerSearch, SignatureAboveQuote, Snippets, Spelling,
-    TextZoom, UndoSend, WhileQuit, ZoomStep,
+    BadgeCounts, BlockRemote, BrandLogos, CopyMyself, DeleteMeans, EraseAfter, GroupByDate,
+    JunkOrder, JunkSwitch, JunkTreat, LabelChips, LoadRemoteImages, MarkRead, MarkReadDelay,
+    MessageFormat, NewMail, NotifyFor, NotifyPlaces, NotifySound, PreferPlainText, Protect,
+    ProviderMarks, ReadReceipts, RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch,
+    SignatureAboveQuote, Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
 };
 
 use ds::prelude::Word;
@@ -144,6 +144,44 @@ pub struct NotificationSettings {
         section = "Mail"
     )]
     pub notify_for: NotifyFor,
+    #[settings(
+        label = "Notify in",
+        help = "Which mailboxes announce new mail: the Inbox, or every mailbox the server lists as followed.",
+        section = "Mail"
+    )]
+    pub places: NotifyPlaces,
+    #[settings(
+        label = "Sound",
+        help = "The sound a notification plays.",
+        section = "Mail"
+    )]
+    pub sound: NotifySound,
+    #[settings(
+        label = "Dock badge counts",
+        help = "What the number on the Dock counts: unread conversations in the Inbox, or in every followed mailbox.",
+        section = "Mail"
+    )]
+    pub badge: BadgeCounts,
+    /// The accounts that are never announced: addresses, in lowercase, switched off in
+    /// Notifications. A key of its own, a list of text, so the desktop's Settings app shows it
+    /// like any other.
+    #[settings(
+        label = "Muted accounts",
+        help = "Accounts whose new mail is not announced.",
+        section = "Mail"
+    )]
+    pub muted_accounts: Vec<String>,
+}
+
+impl NotificationSettings {
+    /// What `mailo watch` and the window hear about and play, as the core takes it.
+    pub fn interest(&self) -> mail_core::notify::Interest {
+        mail_core::notify::Interest {
+            places: self.places.into(),
+            muted: self.muted_accounts.clone(),
+            sound: self.sound.into(),
+        }
+    }
 }
 
 /// `compose.*`: writing mail.
@@ -634,9 +672,31 @@ fn with_word_labels(mut key: KeySpec) -> KeySpec {
         "reading.mark_read" => key.labels = labels::<MarkRead>(),
         "reading.mark_read_delay" => key.labels = labels::<MarkReadDelay>(),
         "notifications.notify_for" => key.labels = labels::<NotifyFor>(),
+        "notifications.places" => key.labels = labels::<NotifyPlaces>(),
+        "notifications.badge" => key.labels = labels::<BadgeCounts>(),
+        "notifications.sound" => key.labels = labels::<NotifySound>(),
         _ => {}
     }
     key
+}
+
+/// Every word of `W` with the label a person reads for it.
+fn labels_of<W: Word + Copy>() -> WordLabels {
+    WordLabels(
+        W::ALL
+            .iter()
+            .map(|word| (word.slug().to_owned(), word.label().to_owned()))
+            .collect(),
+    )
+}
+
+/// What the Dock's number counts, as the person's settings say; the Inbox where there are none
+/// to read.
+pub fn badge_places() -> mail_core::notify::Places {
+    person_root()
+        .map(|root| load(&root).notifications.badge.into())
+        // No config directory to read counts the Inbox.
+        .unwrap_or_default()
 }
 
 /// The config root a mailo config directory stands for: `~/.config/mailo` is `~/.config`, the

@@ -231,6 +231,7 @@ fn a_click_starts_the_window_on_the_conversation_or_the_accounts_inbox() {
     let one = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
     let opens = mail_core::notify::desktop::Launch {
         opens: mail_core::notify::Opens::Thread(one),
+        act: mail_core::notify::Act::Open,
     }
     .args();
     assert_eq!(opens, ["open".to_owned(), one.to_string()]);
@@ -240,6 +241,7 @@ fn a_click_starts_the_window_on_the_conversation_or_the_accounts_inbox() {
     let account = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc));
     let inbox = mail_core::notify::desktop::Launch {
         opens: mail_core::notify::Opens::Inbox(account.clone()),
+        act: mail_core::notify::Act::Open,
     }
     .args();
     assert_eq!(

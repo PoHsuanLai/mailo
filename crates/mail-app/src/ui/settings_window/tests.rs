@@ -133,7 +133,15 @@ const KEYED: &[(SettingsPage, &[&str])] = &[
     ),
     (
         SettingsPage::Notifications,
-        &["Notifications", crate::ui::copy::titles::VIPS],
+        &[
+            "Notifications",
+            "Notify for",
+            crate::ui::copy::titles::VIPS,
+            "Notify in",
+            "Sound",
+            "Dock badge counts",
+            crate::ui::copy::headers::NOTIFY_FOR_ACCOUNTS,
+        ],
     ),
     (
         SettingsPage::Privacy,
@@ -163,7 +171,8 @@ async fn each_page_draws_its_rows_in_order() {
 }
 
 /// Every key of the schema is a row of one page, but the two left on purpose: the provider marks
-/// are detent's to set, and the trusted senders are a list with a page of their own. No key is on
+/// are detent's to set, and the trusted senders and the muted accounts are lists drawn by rows of
+/// their own. No key is on
 /// two pages.
 #[test]
 fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
@@ -175,10 +184,15 @@ fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
             super::pages::Line::Key(path) | super::pages::Line::Folder(path) => Some(*path),
             super::pages::Line::TrustedSenders
             | super::pages::Line::DefaultMail
-            | super::pages::Line::Vips => None,
+            | super::pages::Line::Vips
+            | super::pages::Line::MutedAccounts => None,
         })
         .collect();
-    let left = ["window.provider_marks", "reading.trusted_image_senders"];
+    let left = [
+        "window.provider_marks",
+        "reading.trusted_image_senders",
+        "notifications.muted_accounts",
+    ];
     for key in crate::settings::schema().key {
         let path = key.path.0.as_str();
         let times = named.iter().filter(|named| **named == path).count();
