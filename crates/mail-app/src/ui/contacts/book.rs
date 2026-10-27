@@ -7,12 +7,12 @@
 //! `mail_core::contacts`' — the functions `mailo contacts import|export` run — so the window and the
 //! command line cannot disagree about what a vCard holds.
 
+use mail_client::Client;
 use std::path::{Path, PathBuf};
 
-use mail_core::Store;
 use mail_core::contacts::{Contact, Origin};
 
-use mail_core::contacts::groups::{self, GroupError, Labelled, person_of};
+use mail_core::contacts::groups::{GroupError, Labelled, person_of};
 use mail_core::contacts::people::{self, Added, Details, PersonError};
 use mail_core::contacts::{CardId, Group, GroupId, PersonCard};
 use mail_core::rich_text::Person;
@@ -23,11 +23,12 @@ pub(in crate::ui) const SUGGESTED: usize = 8;
 /// What an exported book is called in the downloads directory.
 pub(in crate::ui) const EXPORT_NAME: &str = "contacts.vcf";
 
-/// The best [`SUGGESTED`] people for `typed`, best first: the store's autocomplete, which never
+/// The best [`SUGGESTED`] people for `typed`, best first: the client's autocomplete, which never
 /// offers the user's own addresses or a no-reply sender they have not written to. Empty `typed`
-/// is the top of the book. A store that cannot answer suggests nobody.
-pub(in crate::ui) fn suggest(store: &dyn Store, typed: &str) -> Vec<Person> {
-    store
+/// is the top of the book. A client that cannot answer suggests nobody.
+pub(in crate::ui) fn suggest(client: &Client, typed: &str) -> Vec<Person> {
+    client
+        .stored()
         .contacts_matching(typed.trim(), SUGGESTED)
         .unwrap_or_default()
         .iter()
@@ -37,17 +38,20 @@ pub(in crate::ui) fn suggest(store: &dyn Store, typed: &str) -> Vec<Person> {
 
 /// Name `address` by hand, adding it to the book if it was not there. The entry becomes the
 /// user's: mail never renames it again. An empty name keeps whatever name it has.
-pub(in crate::ui) fn name(store: &dyn Store, address: &str, name: &str) -> Result<Contact, String> {
+pub(in crate::ui) fn name(client: &Client, address: &str, name: &str) -> Result<Contact, String> {
     let name = name.trim();
-    store
+    client
+        .stored()
         .put_contact(address, (!name.is_empty()).then_some(name), &Origin::Manual)
         .map_err(|e| e.to_string())
 }
 
 /// Read a vCard file's bytes into the book, as `mailo contacts import` does. The answer is a
 /// sentence for the toast.
-pub(in crate::ui) fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, String> {
-    mail_core::contacts::import(store, bytes)
+pub(in crate::ui) fn import(client: &Client, bytes: &[u8]) -> Result<String, String> {
+    client
+        .book()
+        .import(bytes)
         .map(|done| {
             crate::said::contacts::imported(&done)
                 .trim()
@@ -58,8 +62,8 @@ pub(in crate::ui) fn import(store: &dyn Store, bytes: &[u8]) -> Result<String, S
 
 /// Write the book as vCard 4.0 into `dir`, beside anything already there, as
 /// `mailo contacts export` writes it. Returns the file written.
-pub(in crate::ui) fn export(store: &dyn Store, dir: &Path) -> Result<PathBuf, String> {
-    let text = mail_core::contacts::export(store)?;
+pub(in crate::ui) fn export(client: &Client, dir: &Path) -> Result<PathBuf, String> {
+    let text = client.book().export()?;
     mail_core::attach::write_new(dir, EXPORT_NAME, text.as_bytes()).map_err(String::from)
 }
 
@@ -85,54 +89,58 @@ fn group_error(error: GroupError) -> String {
 }
 
 /// Every card with a word of its name or an address beginning each word of `filter`, by name.
-/// A store that cannot answer lists nobody.
-pub(in crate::ui) fn cards(store: &dyn Store, filter: &str) -> Vec<PersonCard> {
-    people::listed(store, filter).unwrap_or_else(|why| {
+/// A client that cannot answer lists nobody.
+pub(in crate::ui) fn cards(client: &Client, filter: &str) -> Vec<PersonCard> {
+    client.people().listed(filter).unwrap_or_else(|why| {
         log::warn!("the cards could not be read: {why}");
         Vec::new()
     })
 }
 
 /// One card, `None` when it is gone.
-pub(in crate::ui) fn card(store: &dyn Store, id: &CardId) -> Option<PersonCard> {
-    store.card(id).unwrap_or_else(|why| {
+pub(in crate::ui) fn card(client: &Client, id: &CardId) -> Option<PersonCard> {
+    client.stored().card(id).unwrap_or_else(|why| {
         log::warn!("a card could not be read: {why}");
         None
     })
 }
 
 /// What `id`'s card says, for its page; an empty card's details when it is gone.
-pub(in crate::ui) fn details(store: &dyn Store, id: &CardId) -> Details {
-    card(store, id)
+pub(in crate::ui) fn details(client: &Client, id: &CardId) -> Details {
+    card(client, id)
         .map(|card| people::details(&card))
         .unwrap_or_default()
 }
 
 /// Keep `details` as `id`'s card, or as a new card when there is no `id`.
 pub(in crate::ui) fn keep_card(
-    store: &dyn Store,
+    client: &Client,
     id: Option<&CardId>,
     details: &Details,
 ) -> Result<PersonCard, String> {
     match id {
-        Some(id) => people::save(store, id, details),
-        None => people::create(store, details),
+        Some(id) => client.people().save(id, details),
+        None => client.people().create(details),
     }
     .map_err(person_error)
 }
 
 /// Delete a card made here.
-pub(in crate::ui) fn forget_card(store: &dyn Store, id: &CardId) -> Result<(), String> {
-    people::forget(store, id).map_err(person_error)
+pub(in crate::ui) fn forget_card(client: &Client, id: &CardId) -> Result<(), String> {
+    client.people().forget(id).map_err(person_error)
 }
 
 /// Add to Contacts: the sender's card, new or already there, and what to say about it.
 pub(in crate::ui) fn add_sender(
-    store: &dyn Store,
+    client: &Client,
     address: &str,
     in_mail: &str,
 ) -> Result<(CardId, Option<String>), String> {
-    match people::add_sender(store, address, in_mail).map_err(person_error)? {
+    match client
+        .people()
+        .add_sender(address, in_mail)
+        .map_err(person_error)?
+    {
         Added::New(card) => Ok((
             card.id,
             Some(crate::ui::copy::toasts::added_to_contacts(&card.name)),
@@ -142,8 +150,9 @@ pub(in crate::ui) fn add_sender(
 }
 
 /// The card listing `address`, when one does.
-pub(in crate::ui) fn card_of(store: &dyn Store, address: &str) -> Option<CardId> {
-    store
+pub(in crate::ui) fn card_of(client: &Client, address: &str) -> Option<CardId> {
+    client
+        .stored()
         .card_of(address)
         .unwrap_or_else(|why| {
             log::warn!("a sender's card could not be read: {why}");
@@ -153,71 +162,69 @@ pub(in crate::ui) fn card_of(store: &dyn Store, address: &str) -> Option<CardId>
 }
 
 /// The photo a card holds for `address`, as a `data:` URL.
-pub(in crate::ui) fn photo(store: &dyn Store, address: &str) -> Option<String> {
-    people::photo_of(store, address)
+pub(in crate::ui) fn photo(client: &Client, address: &str) -> Option<String> {
+    client.people().photo_of(address)
 }
 
-/// Every group, by name. A store that cannot answer lists none.
-pub(in crate::ui) fn every_group(store: &dyn Store) -> Vec<Group> {
-    groups::listed(store, "").unwrap_or_else(|why| {
+/// Every group, by name. A client that cannot answer lists none.
+pub(in crate::ui) fn every_group(client: &Client) -> Vec<Group> {
+    client.contacts_groups().listed("").unwrap_or_else(|why| {
         log::warn!("the groups could not be read: {why}");
         Vec::new()
     })
 }
 
 /// One group, `None` when it is gone.
-pub(in crate::ui) fn group(store: &dyn Store, id: &GroupId) -> Option<Group> {
-    store.group(id).unwrap_or_else(|why| {
+pub(in crate::ui) fn group(client: &Client, id: &GroupId) -> Option<Group> {
+    client.stored().group(id).unwrap_or_else(|why| {
         log::warn!("a group could not be read: {why}");
         None
     })
 }
 
 /// A new group of nobody, called `name`.
-pub(in crate::ui) fn new_group(store: &dyn Store, name: &str) -> Result<Group, String> {
-    groups::create(store, name).map_err(group_error)
+pub(in crate::ui) fn new_group(client: &Client, name: &str) -> Result<Group, String> {
+    client.contacts_groups().create(name).map_err(group_error)
 }
 
 /// Call the group `id` `name`.
-pub(in crate::ui) fn rename_group(
-    store: &dyn Store,
-    id: &GroupId,
-    name: &str,
-) -> Result<(), String> {
-    groups::rename(store, id, name)
+pub(in crate::ui) fn rename_group(client: &Client, id: &GroupId, name: &str) -> Result<(), String> {
+    client
+        .contacts_groups()
+        .rename(id, name)
         .map(drop)
         .map_err(group_error)
 }
 
 /// Add `typed`, one address or several, to the group `id`.
-pub(in crate::ui) fn add_members(
-    store: &dyn Store,
-    id: &GroupId,
-    typed: &str,
-) -> Result<(), String> {
-    groups::add(store, id, typed).map(drop).map_err(group_error)
+pub(in crate::ui) fn add_members(client: &Client, id: &GroupId, typed: &str) -> Result<(), String> {
+    client
+        .contacts_groups()
+        .add(id, typed)
+        .map(drop)
+        .map_err(group_error)
 }
 
 /// Take the member written `uri` out of the group `id`.
-pub(in crate::ui) fn remove_member(
-    store: &dyn Store,
-    id: &GroupId,
-    uri: &str,
-) -> Result<(), String> {
-    groups::remove(store, id, uri)
+pub(in crate::ui) fn remove_member(client: &Client, id: &GroupId, uri: &str) -> Result<(), String> {
+    client
+        .contacts_groups()
+        .remove(id, uri)
         .map(drop)
         .map_err(group_error)
 }
 
 /// Delete a group made here.
-pub(in crate::ui) fn forget_group(store: &dyn Store, id: &GroupId) -> Result<(), String> {
-    groups::forget(store, id).map_err(group_error)
+pub(in crate::ui) fn forget_group(client: &Client, id: &GroupId) -> Result<(), String> {
+    client.contacts_groups().forget(id).map_err(group_error)
 }
 
 /// Each member of `group` as written, with what to call it: the person it names, the addresses,
 /// or the member itself when it names nobody known.
-pub(in crate::ui) fn members(store: &dyn Store, group: &Group) -> Vec<(String, String)> {
-    groups::members(store, group)
+pub(in crate::ui) fn members(client: &Client, group: &Group) -> Vec<(String, String)> {
+    client
+        .contacts_groups()
+        .members(group)
         .into_iter()
         .map(|(uri, labelled)| {
             let said = match labelled {

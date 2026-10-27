@@ -12,7 +12,9 @@ use crate::ui::host::{Ask, Recorder};
 use crate::ui::view::{BarListing, BarOpen};
 use dioxus::html::input_data::keyboard_types::Modifiers;
 use dioxus_core::{ElementId, NoOpMutations, VirtualDom};
+use mail_core::SqliteStore;
 use mail_core::Store;
+use std::sync::Arc;
 
 /// The bar alone over the reference fixture, its field, and the fixture kept alive.
 struct Alone<K = crate::ui::fixtures::Work> {

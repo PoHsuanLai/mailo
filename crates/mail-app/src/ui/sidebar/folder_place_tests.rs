@@ -347,7 +347,7 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     let places = places_with(
         &[],
         &super::folder_places(&crate::ui::live::read_now(
-            &store,
+            &crate::ui::fixtures::client(&store),
             mail_client::query::Accounts,
         )),
         &[],
@@ -365,7 +365,7 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     let draft = threads[0];
 
     // Starring changes nothing about where the server holds it.
-    super::super::ops::perform(
+    mail_core::act::perform(
         &store,
         draft,
         Op::SetStar(Star::Starred),
@@ -373,7 +373,12 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     )
     .unwrap();
     assert!(
-        belongs(&store, &shell, draft, Utc::now()),
+        belongs(
+            &crate::ui::fixtures::client(&store),
+            &shell,
+            draft,
+            Utc::now()
+        ),
         "a starred row left"
     );
 
@@ -381,15 +386,25 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     // filed as held, and a trashed message is filed as none of its folders. The server still
     // holds it in the folder until the move is made and seen, and its address stays.
     let trashed =
-        super::super::ops::perform(&store, draft, Op::Trash, mail_core::when::Clock::H24).unwrap();
+        mail_core::act::perform(&store, draft, Op::Trash, mail_core::when::Clock::H24).unwrap();
     assert!(
-        !belongs(&store, &shell, draft, Utc::now()),
+        !belongs(
+            &crate::ui::fixtures::client(&store),
+            &shell,
+            draft,
+            Utc::now()
+        ),
         "a trashed row stayed"
     );
     // Undone, as a refused move is, it is back.
-    assert!(super::super::ops::take_back(&store, &trashed));
+    assert!(mail_core::act::take_back(&store, &trashed));
     assert!(
-        belongs(&store, &shell, draft, Utc::now()),
+        belongs(
+            &crate::ui::fixtures::client(&store),
+            &shell,
+            draft,
+            Utc::now()
+        ),
         "an undone trash did not come back"
     );
 
@@ -398,10 +413,20 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     gone.gone.push(remote(PROJECTS, 1));
     store.ingest(acct_imap(), gone).unwrap();
     assert!(
-        !belongs(&store, &shell, draft, Utc::now()),
+        !belongs(
+            &crate::ui::fixtures::client(&store),
+            &shell,
+            draft,
+            Utc::now()
+        ),
         "a row that left stayed"
     );
 
     // Another folder's thread was never this place's.
-    assert!(!belongs(&store, &shell, threads[2], Utc::now()));
+    assert!(!belongs(
+        &crate::ui::fixtures::client(&store),
+        &shell,
+        threads[2],
+        Utc::now()
+    ));
 }

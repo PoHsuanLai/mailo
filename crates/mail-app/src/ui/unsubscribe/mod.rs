@@ -17,11 +17,11 @@ pub(in crate::ui) use head::{Confirm, Lookout, Phase};
 use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_client::Client;
 use mail_client::{Acted, Command, Done};
 use mail_core::message::Looks;
 use mail_core::undo::Undo;
 use mail_core::unsubscribe::{Found, Outcome};
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::Unsubscribe;
 
@@ -103,11 +103,11 @@ pub(in crate::ui) fn cached(
 /// blocking thread, for the thread the reader has open, and nowhere else.
 pub(in crate::ui) fn lookup(
     looks: &Looks,
-    store: &SqliteStore,
+    client: &Client,
     thread: ThreadId,
     key: &Bodies,
 ) -> Option<Offer> {
-    looks.offer(store, thread, key)
+    client.looking(looks).offer(thread, key)
 }
 
 /// Take the preferred way out, through [`mail_core::unsubscribe::perform`]. Blocking: the window
@@ -116,7 +116,7 @@ pub(in crate::ui) fn lookup(
 /// `http` is asked for a client only when one could be used. A web page returns before it is
 /// called, so leaving by a page cannot make a request: no client is ever built for it.
 pub(in crate::ui) fn leave(
-    store: &SqliteStore,
+    client: &Client,
     found: &Found,
     now: DateTime<Utc>,
     http: impl FnOnce() -> Result<reqwest::Client, String>,
@@ -127,13 +127,14 @@ pub(in crate::ui) fn leave(
         Some(Unsubscribe::OneClick { .. } | Unsubscribe::Mailto(_)) => {}
     }
     let http = http()?;
-    // This is a blocking thread, where waiting on a future needs the application's runtime.
-    crate::edge::block_on(mail_core::unsubscribe::perform(store, found, &http, now))
+    client
+        .net()
+        .unsubscribe(found, &http, now)
         .map_err(String::from)
 }
 
 /// The client a one-click `POST` is made with.
-pub(in crate::ui) fn client() -> Result<reqwest::Client, String> {
+pub(in crate::ui) fn http() -> Result<reqwest::Client, String> {
     mail_core::unsubscribe::client().map_err(|e| e.to_string())
 }
 
@@ -142,7 +143,7 @@ pub(in crate::ui) fn client() -> Result<reqwest::Client, String> {
 /// By sender rather than by `List-Id`: no filter can ask for a list, because the id is not a
 /// column — it is read from the raw message, which is exactly the per-row blob read this avoids.
 /// A list sends from one address, so `from:` it is the same set of conversations in practice.
-fn inbox_from(store: &SqliteStore, sender: &str) -> Vec<ThreadId> {
+fn inbox_from(client: &Client, sender: &str) -> Vec<ThreadId> {
     let query = Query {
         filter: Filter::And(vec![
             Filter::From(TextMatch::Exact(sender.to_owned())),
@@ -157,22 +158,36 @@ fn inbox_from(store: &SqliteStore, sender: &str) -> Vec<ThreadId> {
             limit: 500,
         },
     };
-    let Ok(page) = store.threads(&query, Utc::now()) else {
+    let Ok(page) = client.stored().threads(&query, Utc::now()) else {
         return Vec::new();
     };
     page.items.iter().map(|thread| thread.id).collect()
 }
 
+/// Archive every conversation in the inbox from `sender`, here, as ordinary ops with their
+/// undos.
+#[cfg(test)]
+pub(in crate::ui) fn archive_from(
+    client: &Client,
+    sender: &str,
+    clock: mail_core::when::Clock,
+) -> Vec<Undo> {
+    inbox_from(client, sender)
+        .into_iter()
+        .filter_map(|thread| client.acting().perform(thread, Op::Archive, clock))
+        .collect()
+}
+
 /// The toast's "Archive all from this list": every conversation in the inbox from `sender`
 /// archived as one gesture, kept as one undo for ⌘Z and the toast, and said.
 pub(in crate::ui) fn archive_list(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     mut revision: Signal<u64>,
     sender: &str,
     list: &str,
 ) {
-    let ops = inbox_from(store, sender)
+    let ops = inbox_from(client, sender)
         .into_iter()
         .map(|thread| (thread, Op::Archive))
         .collect();

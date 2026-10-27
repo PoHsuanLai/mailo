@@ -1,7 +1,7 @@
 //! General › VIPs: the people whose mail matters most, a row each with its Remove, a field that
 //! adds one by address, and the people pinned in a Space who are not VIPs yet, each with its Add.
 //!
-//! The list is the store's (`mail_core::vip`), not a key of `settings.toml`: `is:vip`, the VIPs
+//! The list is the client's (`mail_core::vip`), not a key of `settings.toml`: `is:vip`, the VIPs
 //! place and "Notify for: VIPs only" all read it there. Pinned people are a Space's shortcuts and
 //! stay so; they are offered here, never made VIPs by being pinned.
 
@@ -13,8 +13,6 @@ use ds::components::fields::field_row::FieldRow;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::vip::{Mark, Vip, Vips};
-use mail_core::{SqliteStore, Store};
-use std::sync::Arc;
 
 /// A person a row names: their name with their address, or the address alone.
 fn shown(name: Option<&str>, address: &str) -> String {
@@ -53,8 +51,8 @@ fn set(
     mut failed: Signal<Option<String>>,
     mut revision: Signal<u64>,
 ) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    match mail_core::vip::set(store.as_ref() as &dyn Store, address, name, mark) {
+    let client = crate::ui::live::client();
+    match client.query().set_vip(address, name, mark) {
         Ok(()) => {
             failed.set(None);
             revision += 1;
@@ -67,8 +65,8 @@ fn set(
 pub(super) fn VipsPage(revision: Signal<u64>) -> Element {
     // Read again whenever a VIP is marked or unmarked, here or in another window.
     let _ = revision();
-    let store = use_context::<Arc<SqliteStore>>();
-    let listed: Vec<Vip> = match mail_core::vip::listed(store.as_ref()) {
+    let client = crate::ui::live::client();
+    let listed: Vec<Vip> = match client.query().listed_vips() {
         Ok(listed) => listed,
         Err(why) => {
             log::warn!("the VIPs could not be listed: {why}");

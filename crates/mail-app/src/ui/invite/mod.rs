@@ -23,7 +23,7 @@ use card::{CHIPS, Card, Stand};
 pub(in crate::ui) use draw::Invitation;
 
 use chrono::{DateTime, Utc};
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::message::{Invited, Looks};
 use mail_core::when::Clock;
 use mail_domain::*;
@@ -54,23 +54,24 @@ pub(in crate::ui) fn cached(
         .map(|invited| invited.map(|invited| card_from(message, &invited, clock)))
 }
 
-/// [`cached`], else read from the store and remembered. `None` when the message carries no
+/// [`cached`], else read from the client and remembered. `None` when the message carries no
 /// invitation, or only its headers are here. This reads a blob: it runs on a blocking thread,
 /// for a message the reader has open, and nowhere else.
 pub(in crate::ui) fn lookup(
     looks: &Looks,
-    store: &SqliteStore,
+    client: &Client,
     message: MessageId,
     body: Option<BlobId>,
     clock: Clock,
 ) -> Option<Card> {
-    looks
-        .invite(store, message, body)
+    client
+        .looking(looks)
+        .invite(message, body)
         .map(|invited| card_from(message, &invited, clock))
 }
 
 /// Answer `message`'s invitation through [`mail_core::invite::answer`], and read its card back so
-/// the reader shows what the store now holds. Blocking: the window calls it on a blocking
+/// the reader shows what the client now holds. Blocking: the window calls it on a blocking
 /// thread, and only from Send.
 ///
 /// Returns what the toast says — the first line of the command's answer, which names who the
@@ -78,17 +79,18 @@ pub(in crate::ui) fn lookup(
 /// and the card as it now stands.
 pub(in crate::ui) fn answer(
     looks: &Looks,
-    store: &SqliteStore,
+    client: &Client,
     message: MessageId,
     attendance: Attendance,
     note: Option<&str>,
     now: DateTime<Utc>,
     clock: Clock,
 ) -> Result<(String, Option<Card>), String> {
-    let answered = mail_core::invite::answer(store, message, attendance, note, now)?;
+    let answered = client.invite().answer(message, attendance, note, now)?;
     let said = crate::said::invite::said(&answered);
-    let card = looks
-        .invite_again(store, message)
+    let card = client
+        .looking(looks)
+        .invite_again(message)
         .map(|invited| card_from(message, &invited, clock));
     Ok((toast_text(&said), card))
 }
@@ -96,12 +98,12 @@ pub(in crate::ui) fn answer(
 /// Write `message`'s calendar object into `dir` as an `.ics` file named for the event, never
 /// over a file already there. Returns what the toast says: where it went.
 pub(in crate::ui) fn save_ics(
-    store: &SqliteStore,
+    client: &Client,
     message: MessageId,
     title: &str,
     dir: &Path,
 ) -> Result<std::path::PathBuf, String> {
-    let bytes = mail_core::invite::export(store, message)?;
+    let bytes = client.invite().export(message)?;
     let stem = match title.trim() {
         "" | "(no title)" => "invitation",
         named => named,

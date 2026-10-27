@@ -12,7 +12,7 @@ use porter_core::AccountId;
 const ADDRESS: &str = "poh@acme.example";
 
 fn account(built: &Work) -> AccountId {
-    account_rows(&built.store)
+    account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
         .find(|row| row.address == ADDRESS)
         .map(|row| row.id)
@@ -28,7 +28,7 @@ fn as_pop3(built: &Work, id: AccountId) {
             tls: Tls::Implicit,
             leave: LeaveOnServer::Keep,
         },
-        ..account_rows(&built.store)
+        ..account_rows(&crate::ui::fixtures::client(&built.store))
             .into_iter()
             .find(|row| row.id == id)
             .map(|row| row.plan)

@@ -23,13 +23,12 @@ pub(super) use tool::PrintMenu;
 use super::motion::{motion, tell_through};
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Client;
 #[cfg(test)]
 use mail_core::html_document::Printed;
 use mail_domain::ThreadId;
 use mail_mime::Pages;
 use std::path::Path;
-use std::sync::Arc;
 
 pub use native_print::Printer;
 pub(in crate::ui) use native_print::Sources;
@@ -57,7 +56,7 @@ pub(in crate::ui) fn job_for(open: Option<ThreadId>) -> Option<Job> {
 /// [`paper::printed`], the same document with its faces named for paper.
 #[cfg(test)]
 pub(in crate::ui) fn build<Tz>(
-    store: &SqliteStore,
+    client: &Client,
     job: Job,
     zone: &Tz,
     now: DateTime<Utc>,
@@ -67,7 +66,9 @@ where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    mail_core::html_document::document(store, *job.thread.as_uuid(), zone, now, job.pages, clock)
+    client
+        .print()
+        .document(*job.thread.as_uuid(), zone, now, job.pages, clock)
         .map_err(crate::ui::remedy::told)
 }
 
@@ -78,7 +79,7 @@ pub(in crate::ui) const SAVED_AS: &str = "pdf";
 /// or the sentence that says why it did not. Blocking. A PDF, with the remote images `sources`
 /// consents to.
 pub(in crate::ui) fn save_into<Tz>(
-    store: &SqliteStore,
+    client: &Client,
     job: Job,
     sources: &Sources,
     dir: &Path,
@@ -90,7 +91,7 @@ where
     Tz: TimeZone,
     Tz::Offset: std::fmt::Display,
 {
-    saved_bytes(store, job, sources, zone, now, clock)
+    saved_bytes(client, job, sources, zone, now, clock)
         .and_then(|(subject, bytes)| {
             mail_core::html_document::write_file_into(dir, &subject, SAVED_AS, &bytes)
                 .map_err(String::from)
@@ -127,7 +128,7 @@ pub(in crate::ui) fn print(job: Job) {
 /// thread, and say where.
 pub(in crate::ui) fn save(job: Job) {
     let said = motion();
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let dir = crate::ui::files::save_dir();
     let sources = Sources::window();
     let saving = crate::ui::downloads::Saving::quick();
@@ -135,7 +136,7 @@ pub(in crate::ui) fn save(job: Job) {
     dioxus::core::spawn_forever(async move {
         let done = tokio::task::spawn_blocking(move || {
             save_into(
-                &store,
+                &client,
                 job,
                 &sources,
                 &dir,
@@ -175,7 +176,6 @@ mod native_print {
     use chrono::{DateTime, TimeZone, Utc};
     use dioxus::prelude::*;
     use ds_blitz::{PrintError, PrintOutcome};
-    use mail_core::SqliteStore;
     use mail_core::html_document::{Pictures, Printed};
     use mail_domain::MessageId;
     use std::collections::BTreeMap;
@@ -241,7 +241,7 @@ mod native_print {
     /// fetched for, only the images their printout draws (`mail_mime::remote_images`), and if
     /// the grant is taken back while they come, none of them is drawn.
     pub(in crate::ui) fn made<Tz>(
-        store: &SqliteStore,
+        client: &mail_client::Client,
         job: Job,
         paper: &Paper,
         sources: &Sources,
@@ -254,10 +254,10 @@ mod native_print {
         Tz::Offset: std::fmt::Display,
     {
         let (Some(consent), Some(net)) = (&sources.consent, &sources.net) else {
-            return paper::printed(store, job, paper, None, zone, now, clock);
+            return paper::printed(client, job, paper, None, zone, now, clock);
         };
         let Some((ticket, messages)) = consent.thread(job.thread) else {
-            return paper::printed(store, job, paper, None, zone, now, clock);
+            return paper::printed(client, job, paper, None, zone, now, clock);
         };
         let consented = |id: MessageId| messages.contains(&id);
         let fetch = |urls: &[String]| {
@@ -272,7 +272,7 @@ mod native_print {
             consented: &consented,
             fetch: &fetch,
         };
-        paper::printed(store, job, paper, Some(&pictures), zone, now, clock)
+        paper::printed(client, job, paper, Some(&pictures), zone, now, clock)
     }
 
     /// Fetch `urls` through `net`, all at once, and wait at most `wait` for them: those that
@@ -391,7 +391,7 @@ mod native_print {
             tell_through(said, BUSY.to_owned());
             return;
         };
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let paper = Paper::from_env();
         let sources = Sources::window();
         let hours = crate::ui::clock::hours();
@@ -399,7 +399,7 @@ mod native_print {
             let done = tokio::task::spawn_blocking(move || {
                 let _claim = claim;
                 print_through(
-                    &store,
+                    &client,
                     job,
                     &paper,
                     &printer,
@@ -423,7 +423,7 @@ mod native_print {
     /// and the dialog take.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::ui) fn print_through<Tz>(
-        store: &SqliteStore,
+        client: &mail_client::Client,
         job: Job,
         paper: &Paper,
         printer: &Printer,
@@ -436,7 +436,7 @@ mod native_print {
         Tz: TimeZone,
         Tz::Offset: std::fmt::Display,
     {
-        let made = made(store, job, paper, sources, zone, now, clock).and_then(|printed| {
+        let made = made(client, job, paper, sources, zone, now, clock).and_then(|printed| {
             let pdf = paper::pdf(&printed, paper)?;
             Ok((
                 mail_domain::subject_or_none(&printed.subject).into_owned(),
@@ -469,7 +469,7 @@ mod native_print {
 
     /// What Save for printing writes: the PDF Print would make, on the locale's paper.
     pub(super) fn saved_bytes<Tz>(
-        store: &SqliteStore,
+        client: &mail_client::Client,
         job: Job,
         sources: &Sources,
         zone: &Tz,
@@ -481,7 +481,7 @@ mod native_print {
         Tz::Offset: std::fmt::Display,
     {
         let paper = Paper::from_env();
-        let printed = made(store, job, &paper, sources, zone, now, clock)?;
+        let printed = made(client, job, &paper, sources, zone, now, clock)?;
         let pdf = paper::pdf(&printed, &paper)?;
         Ok((printed.subject, pdf))
     }

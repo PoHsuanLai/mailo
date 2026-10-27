@@ -29,8 +29,6 @@ use ds::base::geometry::placement::{Align, Side};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
-use mail_core::SqliteStore;
-use std::sync::Arc;
 
 /// What the panel's field is called, to a screen reader and to a test.
 pub(in crate::ui) const LABEL: &str = "Search mail and commands";
@@ -48,7 +46,7 @@ pub(in crate::ui) fn Spotlight(
     side_hidden: Signal<bool>,
     spaces: Signal<Spaces>,
 ) -> Element {
-    let store = use_hook(consume_context::<Arc<SqliteStore>>);
+    let client = crate::ui::live::use_client();
     let keys = use_keys();
     let drawn = use_signal(Drawn::default);
     let desk = try_use_context::<crate::ui::compose::Desk>();
@@ -71,7 +69,7 @@ pub(in crate::ui) fn Spotlight(
             let world = World {
                 shell: &shell.read(),
                 spaces: &spaces.read(),
-                store: &store,
+                client: &client,
                 keymap,
                 today: today.as_ref().unwrap_or(&none),
                 hours: crate::ui::clock::hours(),

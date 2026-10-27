@@ -5,9 +5,9 @@
 //! A signature's page is its name, its words, written in the composer's own body (`compose::Body`
 //! over a page of its own that is never a draft), whether it is the default for new messages and
 //! for replies, and Delete Signature. Everything is kept as it is changed: a name as it is typed,
-//! the words with every edit, a switch when it is pressed; a change the store would not take is
+//! the words with every edit, a switch when it is pressed; a change the client would not take is
 //! said under the words, and the next one tries again. Delete Signature says so in a toast whose
-//! Undo puts the signature back. The composer reads the store when it opens a message, so the
+//! Undo puts the signature back. The composer reads the client when it opens a message, so the
 //! next one is signed with what was kept here.
 
 use crate::ui::compose::{Body, Page};
@@ -22,11 +22,9 @@ use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::Logged;
-use mail_core::SqliteStore;
 use mail_core::rich_text::{Doc, Node, ParaKind, Session};
 use mail_core::signature;
 use mail_domain::{Draft, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
-use std::sync::Arc;
 
 /// The stack's element id: its back button is `signatures-pane-back-detail`.
 const STACK: &str = "signatures-pane";
@@ -59,9 +57,9 @@ fn heading(identity: &Identity) -> String {
 /// The pane: every identity's signatures at its root, a signature's page over them.
 #[component]
 pub(super) fn Signatures(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let mut path = use_signal(|| PanePath::new(SignaturesAt::List));
-    let any = !mail_core::compose::sending_accounts(&store).is_empty();
+    let any = !client.compose().sending_accounts().is_empty();
     if !any {
         return rsx! {
             PageHeader { title: copy::titles::SIGNATURES }
@@ -72,10 +70,11 @@ pub(super) fn Signatures(shell: Signal<Shell>, revision: Signal<u64>) -> Element
             }
         };
     }
-    let titled = store.clone();
+    let titled = client.clone();
     let title = use_callback(move |at: SignaturesAt| match at {
         SignaturesAt::List => copy::titles::SIGNATURES.to_owned(),
         SignaturesAt::Signature(id) => titled
+            .stored()
             .signature(id)
             .map_or_else(|_| copy::titles::SIGNATURES.to_owned(), |kept| kept.name),
     });
@@ -121,9 +120,9 @@ fn defaults_of(signature: &Signature) -> String {
 fn SignatureList(revision: Signal<u64>, path: Signal<PanePath<SignaturesAt>>) -> Element {
     // Read again with each change: a signature made, renamed, made a default or deleted.
     let _ = revision();
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     // Unreadable is nothing to list; the next change read again.
-    let every = signature::every(&store).unwrap_or_default();
+    let every = client.signing().every().unwrap_or_default();
     rsx! {
         Form {
             for (identity, signatures) in every {
@@ -185,8 +184,8 @@ fn rows(
                 title: copy::controls::NEW_SIGNATURE,
                 size: RowSize::Settings,
                 onclick: move |_| {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    if let Ok(made) = signature::create(&store, whose, "") {
+                    let client = crate::ui::live::client();
+                    if let Ok(made) = client.signing().create(whose, "") {
                         let mut revision = revision;
                         revision += 1;
                         push(made.id);
@@ -226,9 +225,9 @@ fn SignaturePage(
 ) -> Element {
     // Read again with each change, so the switches say what was kept.
     let _ = revision();
-    let store = consume_context::<Arc<SqliteStore>>();
-    let found = store.signature(id).ok().and_then(|kept| {
-        let identity = store.identity(kept.identity).ok().flatten()?;
+    let client = crate::ui::live::client();
+    let found = client.stored().signature(id).ok().and_then(|kept| {
+        let identity = client.stored().identity(kept.identity).ok().flatten()?;
         Some((kept, identity))
     });
     let Some((kept, identity)) = found else {
@@ -265,9 +264,11 @@ fn SignatureEditor(
             return;
         }
         kept_at.set(edits);
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         // Kept, or not: the words stay on the page either way, and the next edit tries again.
-        let kept = signature::write(&store, id, &page.peek().session.doc)
+        let kept = client
+            .signing()
+            .write(id, &page.peek().session.doc)
             .or_log("the signature's words were not kept");
         unkept.set(kept.is_none());
     });
@@ -283,9 +284,9 @@ fn SignatureEditor(
                     accessory: Accessory::Toggle {
                         value: if on { Check::On } else { Check::Off },
                         on_toggle: EventHandler::new(move |_| {
-                            let store = consume_context::<Arc<SqliteStore>>();
+                            let client = crate::ui::live::client();
                             let next = if on { IsDefault::Alternate } else { IsDefault::Default };
-                            let made = signature::make_default(&store, id, purpose, next)
+                            let made = client.signing().make_default(id, purpose, next)
                                 .or_log("the signature's default was not kept");
                             let mut unkept = unkept;
                             unkept.set(made.is_none());
@@ -317,9 +318,9 @@ fn SignatureEditor(
                         placeholder: mail_domain::UNNAMED_SIGNATURE,
                         oninput: move |now: String| {
                             typed.set(now.clone());
-                            let store = consume_context::<Arc<SqliteStore>>();
+                            let client = crate::ui::live::client();
                             // As above: the name stays as typed, and the next key tries again.
-                            let kept = signature::rename(&store, id, &now)
+                            let kept = client.signing().rename(id, &now)
                                 .or_log("the signature's name was not kept");
                             unkept.set(kept.is_none());
                         },
@@ -346,8 +347,8 @@ fn SignatureEditor(
                     role: ButtonRole::Destructive,
                     common: Common { aria_label: Some(copy::aria::delete_signature(&name)), ..Common::default() },
                     onclick: crate::ui::press::on_primary(move || {
-                        let store = consume_context::<Arc<SqliteStore>>();
-                        let Some(had) = signature::delete(&store, id)
+                        let client = crate::ui::live::client();
+                        let Some(had) = client.signing().delete(id)
                             .or_log("the signature was not deleted")
                         else {
                             unkept.set(true);

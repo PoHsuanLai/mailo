@@ -8,7 +8,6 @@
 
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -16,7 +15,7 @@ use ds::file_drop::drag::FileDrop;
 use ds::file_drop::hook::{FileDropHandle, use_file_drop};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::{CoreError, SqliteStore};
+use mail_core::CoreError;
 
 use super::life;
 use super::page::{Guard, Page};
@@ -230,28 +229,32 @@ fn take(mut page: Signal<Page>, paths: Vec<(PathBuf, Lands)>) {
 
 /// Store `bytes`, named `name`, on the draft as a file in the strip at the body's end.
 fn as_file(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), String> {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let draft = page.peek().draft;
     let now = chrono::Utc::now();
-    let stored = life::save(&store, &mut page.write(), now).and_then(|_| {
-        mail_core::compose::attach_bytes(&store, draft, name, bytes, now)
+    let stored = life::save(&client, &mut page.write(), now).and_then(|_| {
+        client
+            .compose()
+            .attach_bytes(draft, name, bytes, now)
             .map_err(crate::ui::remedy::told)
     })?;
     let mut write = page.write();
-    write.attached = mail_core::compose::attached_to(&store, &stored);
+    write.attached = client.compose().attached_to(&stored);
     write.guard = Guard::Clear;
     Ok(())
 }
 
 /// Store the picture `bytes`, named `name`, on the draft, and show it in the body at the caret,
-/// as one undo step. The page is saved first, so the store's draft is the page's when the
+/// as one undo step. The page is saved first, so the client's draft is the page's when the
 /// picture is added to it. A picture the body cannot take is [`BodyRefused::AsFile`].
 fn into_body(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), BodyRefused> {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let draft = page.peek().draft;
     let now = chrono::Utc::now();
-    life::save(&store, &mut page.write(), now).map_err(BodyRefused::Said)?;
-    let (stored, cid) = mail_core::compose::attach_inline(&store, draft, name, bytes, now)
+    life::save(&client, &mut page.write(), now).map_err(BodyRefused::Said)?;
+    let (stored, cid) = client
+        .compose()
+        .attach_inline(draft, name, bytes, now)
         .map_err(BodyRefused::of)?;
     let mime = stored
         .attachments

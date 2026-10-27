@@ -5,8 +5,6 @@
 //! ([`book::name`]), and the entry is then the user's, so mail never renames it. Escape or a click
 //! outside leaves the book as it was.
 
-use std::sync::Arc;
-
 use dioxus::prelude::*;
 use ds::base::geometry::placement::{Align, Side};
 use ds::components::content::label::{LabelRole, LabelStyle};
@@ -14,7 +12,7 @@ use ds::components::overlays::popover::Arrow;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::{SqliteStore, Store};
+use mail_client::Client;
 
 use super::book;
 use crate::ui::copy;
@@ -23,8 +21,9 @@ use crate::ui::motion::{Follow, tell};
 use crate::ui::press::on_primary;
 
 /// The name the field starts with: the book's, else the one the mail gave.
-pub(in crate::ui) fn starting_name(store: &dyn Store, address: &str, in_mail: &str) -> String {
-    store
+pub(in crate::ui) fn starting_name(client: &Client, address: &str, in_mail: &str) -> String {
+    client
+        .stored()
         .contact(address)
         .ok()
         .flatten()
@@ -34,8 +33,8 @@ pub(in crate::ui) fn starting_name(store: &dyn Store, address: &str, in_mail: &s
 
 /// Keep `typed` as `address`'s name, saying only a failure.
 fn keep(address: &str, typed: &str, on_close: EventHandler<()>) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    if let Err(why) = book::name(store.as_ref(), address, typed) {
+    let client = crate::ui::live::client();
+    if let Err(why) = book::name(&client, address, typed) {
         tell(why, Follow::Nothing);
     }
     on_close.call(());
@@ -52,8 +51,8 @@ pub(super) fn ContactEditor(
     let mut typed = use_signal({
         let address = address.clone();
         move || {
-            let store = consume_context::<Arc<SqliteStore>>();
-            starting_name(store.as_ref(), &address, &in_mail)
+            let client = crate::ui::live::client();
+            starting_name(&client, &address, &in_mail)
         }
     });
     let on_enter = address.clone();
@@ -115,8 +114,8 @@ const SHOW: &str = "show-card";
 /// The name menu's second row: Show Contact Card when a card lists the sender, else Add to
 /// Contacts.
 fn card_row(address: &str) -> crate::ui::menu::MenuItem {
-    let store = consume_context::<Arc<SqliteStore>>();
-    match book::card_of(store.as_ref(), address) {
+    // A window with no client (a lone component in a test) knows no cards.
+    match crate::ui::live::try_client().and_then(|client| book::card_of(&client, address)) {
         Some(_) => {
             crate::ui::menu::MenuItem::icon(SHOW, Icon::Group, copy::menus::SHOW_CONTACT_CARD)
         }
@@ -127,8 +126,8 @@ fn card_row(address: &str) -> crate::ui::menu::MenuItem {
 /// Add to Contacts, or Show Contact Card: the sender's card, made if there was none, opened in
 /// Settings › Contacts. A new card is said in a toast.
 fn show_card(address: &str, in_mail: &str) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    match book::add_sender(store.as_ref(), address, in_mail) {
+    let client = crate::ui::live::client();
+    match book::add_sender(&client, address, in_mail) {
         Ok((card, said)) => {
             if let Some(said) = said {
                 tell(said, Follow::Nothing);

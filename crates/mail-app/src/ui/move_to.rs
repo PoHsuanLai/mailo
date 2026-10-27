@@ -24,11 +24,10 @@ use dioxus::prelude::*;
 use ds::components::content::avatar::AvatarSize;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use mail_core::{SqliteStore, Store};
+use mail_client::Client;
 use mail_domain::Label;
 use mail_domain::*;
 use porter_core::AccountId;
-use std::sync::Arc;
 
 /// What a pick in the menu does with the conversation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,8 +58,9 @@ pub(in crate::ui) struct Destination {
 /// The account's own folders that hold mail, by path: never the inbox or a special-use folder,
 /// which are places with ops of their own, never a label that is only a label, and never a
 /// mailbox with no name of the person's ([`Folder::named`]).
-pub(in crate::ui) fn destinations(store: &SqliteStore, account: AccountId) -> Vec<Destination> {
-    let mut folders: Vec<Folder> = store
+pub(in crate::ui) fn destinations(client: &Client, account: AccountId) -> Vec<Destination> {
+    let mut folders: Vec<Folder> = client
+        .stored()
         .folders(account)
         .unwrap_or_default()
         .into_iter()
@@ -76,11 +76,14 @@ pub(in crate::ui) fn destinations(store: &SqliteStore, account: AccountId) -> Ve
 /// The label `Op::File` files under for the folder at `path`: the server's own label of that
 /// name where there is one, made (as the server's) where there is not.
 pub(in crate::ui) fn folder_label(
-    store: &SqliteStore,
+    client: &Client,
     account: AccountId,
     path: &str,
 ) -> Result<LabelId, String> {
-    let labels = store.labels(account.clone()).map_err(|e| e.to_string())?;
+    let labels = client
+        .stored()
+        .labels(account.clone())
+        .map_err(|e| e.to_string())?;
     if let Some(label) = labels
         .iter()
         .find(|l| l.origin == LabelOrigin::Provider && l.name == path)
@@ -94,7 +97,8 @@ pub(in crate::ui) fn folder_label(
         color: None,
         origin: LabelOrigin::Provider,
     };
-    store
+    client
+        .stored()
         .apply(
             account,
             &Patch {
@@ -107,28 +111,28 @@ pub(in crate::ui) fn folder_label(
 }
 
 /// The account `thread` belongs to.
-pub(in crate::ui) fn account_of(store: &SqliteStore, thread: ThreadId) -> Option<AccountId> {
-    let loaded = store.thread(thread).ok()?;
+pub(in crate::ui) fn account_of(client: &Client, thread: ThreadId) -> Option<AccountId> {
+    let loaded = client.stored().thread(thread).ok()?;
     let first = loaded.messages.first()?;
-    store.message(*first).ok().map(|m| m.account)
+    client.stored().message(*first).ok().map(|m| m.account)
 }
 
 /// File each of `threads` on the folder's account into it, with the undo and the toast, as one
 /// gesture: one undo puts them all back. Nothing happens to one on another account: a folder is
 /// one server's. Returns how many were filed.
 pub(in crate::ui) fn file_all_into(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     threads: &[ThreadId],
     folder: &MailboxRef,
 ) -> usize {
-    put_all_into(store, shell, revision, threads, folder, Gesture::Move)
+    put_all_into(client, shell, revision, threads, folder, Gesture::Move)
 }
 
 /// [`file_all_into`], moving or copying as `gesture` says.
 pub(in crate::ui) fn put_all_into(
-    store: &SqliteStore,
+    client: &Client,
     shell: Signal<Shell>,
     revision: Signal<u64>,
     threads: &[ThreadId],
@@ -138,18 +142,18 @@ pub(in crate::ui) fn put_all_into(
     let ours: Vec<ThreadId> = threads
         .iter()
         .copied()
-        .filter(|thread| account_of(store, *thread) == Some(folder.account.clone()))
+        .filter(|thread| account_of(client, *thread) == Some(folder.account.clone()))
         .collect();
     if ours.is_empty() {
         return 0;
     }
-    match folder_label(store, folder.account.clone(), &folder.path) {
+    match folder_label(client, folder.account.clone(), &folder.path) {
         Ok(label) => {
             let ops = ours
                 .into_iter()
                 .map(|thread| (thread, gesture.op(label)))
                 .collect();
-            act_all(store, shell, revision, ops)
+            act_all(client, shell, revision, ops)
         }
         Err(why) => {
             log::warn!("{gesture:?} to {}: {why}", folder.path);
@@ -177,9 +181,9 @@ pub(in crate::ui) fn drop_on(
         return false;
     };
     state.drag.set(Drag::Idle);
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     file_all_into(
-        &store,
+        &client,
         shell,
         revision,
         &with_selection(shell, thread),
@@ -213,11 +217,11 @@ pub(in crate::ui) fn MoveMenu(
     gesture: Gesture,
     on_close: EventHandler<()>,
 ) -> Element {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let account = account_of(&store, thread);
+    let client = crate::ui::live::client();
+    let account = account_of(&client, thread);
     let found = account
         .clone()
-        .map_or_else(Vec::new, |a| destinations(&store, a));
+        .map_or_else(Vec::new, |a| destinations(&client, a));
     let mut query = use_signal(String::new);
     let rows = match (gesture, &account) {
         // Said above the folders: they are this account's, and no other's.
@@ -253,12 +257,12 @@ pub(in crate::ui) fn MoveMenu(
             oninput: move |text: String| query.set(text),
             onpick: move |path: String| {
                 let Some(account) = account.clone() else { return };
-                let store = consume_context::<Arc<SqliteStore>>();
+                let client = crate::ui::live::client();
                 let folder = MailboxRef { account, path };
                 on_close.call(());
                 // The whole selection when this row is picked, as one gesture.
                 put_all_into(
-                    &store,
+                    &client,
                     shell,
                     revision,
                     &with_selection(shell, thread),

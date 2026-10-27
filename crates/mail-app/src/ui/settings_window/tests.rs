@@ -424,7 +424,7 @@ async fn vacation_reply_lists_the_accounts_and_a_row_pushes_its_reply() {
     let built = work();
     let (mut dom, seen) = opened_on(&built, SettingsPage::Vacation);
     let list = dioxus_ssr::render(&dom);
-    let rows: Vec<_> = crate::ui::data::account_rows(&built.store)
+    let rows: Vec<_> = crate::ui::data::account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
         .filter(|row| !row.is_local())
         .collect();

@@ -126,15 +126,6 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
                     .to_vec(),
             },
         ),
-        ("mailboxes.delete", pair("trash", "now")),
-        (
-            "mailboxes.erase_trash",
-            KeyKind::Segmented {
-                variants: ["never", "day", "week", "month"]
-                    .map(str::to_owned)
-                    .to_vec(),
-            },
-        ),
         ("privacy.block_remote_content", pair("off", "on")),
         (
             "privacy.protect",
@@ -146,6 +137,15 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         ("privacy.relay", KeyKind::Text),
         ("privacy.relay_key", KeyKind::Text),
         ("privacy.proxy", KeyKind::Text),
+        ("mailboxes.delete", pair("trash", "now")),
+        (
+            "mailboxes.erase_trash",
+            KeyKind::Segmented {
+                variants: ["never", "day", "week", "month"]
+                    .map(str::to_owned)
+                    .to_vec(),
+            },
+        ),
         (
             "mailboxes.erase_spam",
             KeyKind::Segmented {

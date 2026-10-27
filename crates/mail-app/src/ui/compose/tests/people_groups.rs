@@ -13,7 +13,12 @@ fn a_group_is_offered_first_and_choosing_it_puts_each_member_on_once() {
     let (store, _dir) = the_book();
     let mut page = Page::of(&draft_of(""), Vec::new(), Vec::new());
     // Daniel is on the message already: the group adds only who is not.
-    typed(&mut page, List::To, "dan".to_owned(), store.as_ref());
+    typed(
+        &mut page,
+        List::To,
+        "dan".to_owned(),
+        &crate::ui::fixtures::client(&store),
+    );
     pick_person(&mut page, List::To, WRITTEN);
     let uid = "urn:uuid:5c1f6e1a-0000-4000-8000-00000000d0d0";
     store
@@ -31,7 +36,12 @@ fn a_group_is_offered_first_and_choosing_it_puts_each_member_on_once() {
         })
         .unwrap();
 
-    typed(&mut page, List::To, "design".to_owned(), store.as_ref());
+    typed(
+        &mut page,
+        List::To,
+        "design".to_owned(),
+        &crate::ui::fixtures::client(&store),
+    );
     let items = people_items(&page, List::To);
     assert_eq!(items[0].name, "Design review");
     assert_eq!(

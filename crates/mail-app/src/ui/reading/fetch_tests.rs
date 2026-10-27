@@ -5,7 +5,9 @@ use crate::ui::fixtures::{
 };
 use crate::ui::view::Shell;
 use dioxus_core::VirtualDom;
+use mail_core::{SqliteStore, Store as _};
 use mail_domain::*;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn failed(retry: Retry, why: &str) -> BodyState {

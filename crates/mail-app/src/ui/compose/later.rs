@@ -15,11 +15,10 @@ use ds::root::pass_through::ExtraClass;
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
+use mail_client::Client;
 use mail_core::undo::{Resend, Undo};
 use mail_core::when::Clock;
-use mail_core::{SqliteStore, Store};
 use mail_domain::{ChangeId, Draft, DraftId, Patch, SendState};
-use std::sync::Arc;
 
 use super::super::menu::{MenuKey, menu_key};
 use super::super::menus::{when_in_sentence, when_words};
@@ -176,11 +175,13 @@ pub(in crate::ui) fn PickTime(page: Signal<Page>, anchor: Option<MountedRef>) ->
 
 /// Every draft held for later on the accounts `scope` shows, soonest first: what the Scheduled
 /// place lists, and whether the sidebar draws it.
-pub(in crate::ui) fn scheduled(store: &SqliteStore, scope: &Scope) -> Vec<Draft> {
-    let mut out: Vec<(DateTime<Utc>, Draft)> = mail_core::compose::sending_accounts(store)
+pub(in crate::ui) fn scheduled(client: &Client, scope: &Scope) -> Vec<Draft> {
+    let mut out: Vec<(DateTime<Utc>, Draft)> = client
+        .compose()
+        .sending_accounts()
         .into_iter()
         .filter(|(_, account)| scope.shows(account.clone()))
-        .flat_map(|(_, account)| store.drafts(account).unwrap_or_default())
+        .flat_map(|(_, account)| client.stored().drafts(account).unwrap_or_default())
         .filter_map(|draft| match draft.state {
             SendState::Scheduled { at } => Some((at, draft)),
             _ => None,
@@ -194,12 +195,15 @@ pub(in crate::ui) fn scheduled(store: &SqliteStore, scope: &Scope) -> Vec<Draft>
 /// and the toast offers it back. Refused (it has started to leave), the reason is said in the
 /// toast and nothing changes.
 pub(in crate::ui) fn cancel_scheduled(shell: Signal<Shell>, draft: DraftId) -> Result<(), String> {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let held = store.draft(draft).map_err(crate::ui::remedy::told)?;
+    let client = crate::ui::live::client();
+    let held = client
+        .stored()
+        .draft(draft)
+        .map_err(crate::ui::remedy::told)?;
     let SendState::Scheduled { at } = held.state else {
         return Ok(());
     };
-    if let Err(why) = super::life::unsend(&store, draft, Utc::now()) {
+    if let Err(why) = super::life::unsend(&client, draft, Utc::now()) {
         let said = refusal(&why);
         tell(said.clone(), Follow::Nothing);
         return Err(said);
@@ -240,10 +244,10 @@ pub(in crate::ui) fn cancel_scheduled(shell: Signal<Shell>, draft: DraftId) -> R
 
 /// Undo of Cancel Sending: the draft is queued again for its time, sealed again as it asks.
 /// `false`, and nothing changes, when it cannot be: its time has passed, or its key is locked.
-pub(in crate::ui) fn send_again(store: &SqliteStore, resend: Resend) -> bool {
+pub(in crate::ui) fn send_again(client: &Client, resend: Resend) -> bool {
     let secrets = crate::ui::pgp::seams().secrets;
     super::life::queue_reminding(
-        store,
+        client,
         secrets.as_ref(),
         &mail_core::pgp::no_passphrase,
         resend.draft,

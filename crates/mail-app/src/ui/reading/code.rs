@@ -14,9 +14,7 @@ use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Bezel;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::SqliteStore;
 use mail_domain::{BlobId, MessageId};
-use std::sync::Arc;
 
 /// The line for one message, once its code is known; nothing for a message with none.
 ///
@@ -30,16 +28,17 @@ pub(super) fn CodeLine(message: MessageId, body: Option<BlobId>) -> Element {
         move || looks.code_cached(message, body)
     });
     let _look = use_resource(move || {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let looks = looks.clone();
         async move {
             if known.peek().is_some() {
                 return;
             }
-            let found = tokio::task::spawn_blocking(move || looks.code(&store, message, body))
-                .await
-                // A lookup that panicked found nothing to offer.
-                .unwrap_or_default();
+            let found =
+                tokio::task::spawn_blocking(move || client.looking(&looks).code(message, body))
+                    .await
+                    // A lookup that panicked found nothing to offer.
+                    .unwrap_or_default();
             known.set(Some(found));
         }
     });

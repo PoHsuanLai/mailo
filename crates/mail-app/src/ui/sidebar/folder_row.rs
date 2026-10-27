@@ -19,11 +19,9 @@ use ds::components::lists::row::confirm::RowConfirm;
 use ds::components::lists::row::row::{Outline, RowMounted};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use mail_core::SqliteStore;
 use mail_core::folder::Refusal;
 use mail_domain::{Filter, FolderError, FolderWork, Holds, MailboxRef, NonEmpty, Subscription};
 use porter_core::AccountId;
-use std::sync::Arc;
 
 /// One folder and, beneath it, what it holds: quire's `Row`, a branch while it has children or
 /// something open under it, drawn as the places above it are, with a folder's glyph and the same
@@ -320,9 +318,9 @@ fn pick(wires: Wires, key: &str, account: AccountId, path: String, delimiter: Op
                 path: path.clone(),
                 non_empty: NonEmpty::Refuse,
             };
-            let store = consume_context::<Arc<SqliteStore>>();
+            let client = crate::ui::live::client();
             match act(
-                &store,
+                &client,
                 wires.shell,
                 wires.revision,
                 account.clone(),
@@ -348,9 +346,9 @@ pub(super) fn run(
     work: FolderWork,
     delimiter: Option<char>,
 ) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     match act(
-        &store,
+        &client,
         wires.shell,
         wires.revision,
         account.clone(),

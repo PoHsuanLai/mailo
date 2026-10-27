@@ -61,11 +61,11 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>, spaces: Handle) {
                     Request::Mailto { link, token } => {
                         // The draft is saved first, as at a `mailto:` start, then the composer
                         // opens on it.
-                        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
-                        let saved = super::start_mailto(&store, &link, chrono::Utc::now());
+                        let client = crate::ui::live::client();
+                        let saved = super::start_mailto(&client, &link, chrono::Utc::now());
                         match saved {
                             Ok(super::Start::Compose(id)) => {
-                                if let Err(why) = shell.write().compose_id(&*store, id) {
+                                if let Err(why) = shell.write().compose_id(&client, id) {
                                     log::warn!("compose: {why}");
                                 }
                             }
@@ -94,12 +94,12 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>, spaces: Handle) {
 /// it is then shown in the Space on screen.
 #[cfg(not(windows))]
 fn arrive(spaces: Handle, mut shell: Signal<Shell>, start: &super::Start) {
-    let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
+    let client = crate::ui::live::client();
     let (chosen, current) = {
         let list = spaces.spaces();
         let list = list.peek();
         (
-            super::start::space_for(&list, &store, start),
+            super::start::space_for(&list, &client, start),
             list.current().id,
         )
     };

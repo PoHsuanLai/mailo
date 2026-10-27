@@ -56,21 +56,18 @@ pub(in crate::ui) fn BarAlone(typed: String) -> Element {
 /// classes.
 #[component]
 pub(in crate::ui) fn OpenMenus() -> Element {
-    let store = use_hook(consume_context::<Arc<SqliteStore>>);
-    let known = mail_core::query::known_labels(&store);
+    let client = crate::ui::live::use_client();
+    let known = client.query().known_labels();
     let shell = use_signal(|| Shell {
         labels: known,
         ..Shell::default()
     });
     let revision = use_signal(|| 0u64);
-    let summary = mail_core::search::Source::listed(
-        store.as_ref(),
-        &Filter::All,
-        mail_core::search::first(1),
-        Utc::now(),
-    )
-    .into_iter()
-    .next();
+    let summary = client
+        .source()
+        .listed(&Filter::All, mail_core::search::first(1), Utc::now())
+        .into_iter()
+        .next();
     rsx! {
         BarAlone { typed: "dana".to_owned() }
         Ds {

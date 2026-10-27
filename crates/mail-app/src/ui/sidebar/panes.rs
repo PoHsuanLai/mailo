@@ -22,9 +22,9 @@ use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
+use mail_client::Client;
 use mail_core::mailbox_filter::{for_role, pending_snooze};
 use mail_core::query::{self};
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 
 /// The most pinned conversations Favourites shows: the most recently pinned. Every pinned
@@ -48,10 +48,10 @@ pub(super) struct Counts {
     pub pinned: Vec<Favourite>,
 }
 
-pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
-    let labels = query::known_labels(store);
-    let accounts = query::known_accounts(store);
-    let vips = mail_core::vip::read(store);
+pub(super) fn counts(client: &Client, space: &Space) -> Counts {
+    let labels = client.query().known_labels();
+    let accounts = client.query().known_accounts();
+    let vips = client.query().vips();
     let known = query::Known {
         labels: &labels,
         accounts: &accounts,
@@ -64,7 +64,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
         if let Some(scope) = scope.clone() {
             parts.push(scope);
         }
-        store.count(&Filter::And(parts), now).unwrap_or(0)
+        client.stored().count(&Filter::And(parts), now).unwrap_or(0)
     };
     let pins = space
         .payload
@@ -72,7 +72,8 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
         .iter()
         .map(|pin| unread(pin_filter(pin, &known)))
         .collect();
-    let pinned = store
+    let pinned = client
+        .stored()
         .threads(
             &Query {
                 filter: mail_core::conversation::scoped(scope.clone(), Filter::Pinned),
@@ -313,8 +314,8 @@ fn PlaceRow(
         Some(Source::Mail(Filter::HasLabel(id))) => {
             // Read again once a colour is kept, so the row wears it.
             let _kept = kept();
-            let store = consume_context::<std::sync::Arc<SqliteStore>>();
-            super::label_editor::label_of(&store, *id)
+            let client = crate::ui::live::client();
+            super::label_editor::label_of(&client, *id)
         }
         _ => None,
     };

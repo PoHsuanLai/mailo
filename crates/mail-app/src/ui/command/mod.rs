@@ -31,11 +31,9 @@ use crate::ui::copy;
 use crate::ui::view::{Bar, BarListing, PageMenu, Shell, Source};
 use dioxus::prelude::*;
 use items::{Cards, Pick};
-use mail_core::SqliteStore;
 use mail_core::mailbox_filter::for_role;
 use sections::Choice;
 use spotlight::Ctx;
-use std::sync::Arc;
 
 /// The panel closed, and the keyboard back with the list.
 fn close(mut shell: Signal<Shell>) {
@@ -135,13 +133,13 @@ fn run_action(
             close(shell);
             if let Some(index) = index {
                 crate::ui::sidebar::go_to(shell, pages, index);
-                let store = consume_context::<Arc<SqliteStore>>();
-                super::destroy::ask_everything(&store, shell);
+                let client = crate::ui::live::client();
+                super::destroy::ask_everything(&client, shell);
             }
         }
         CommandId::Compose => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            if open_composer(&store, shell, Writes::New).is_ok() {
+            let client = crate::ui::live::client();
+            if open_composer(&client, shell, Writes::New).is_ok() {
                 *revision += 1;
             }
             close(shell);
@@ -162,9 +160,9 @@ fn run_action(
                 );
                 return;
             };
-            let store = consume_context::<Arc<SqliteStore>>();
+            let client = crate::ui::live::client();
             let writes = Writes::answering(&shell.peek(), open, Composes::ForwardAttached);
-            match open_composer(&store, shell, writes) {
+            match open_composer(&client, shell, writes) {
                 Ok(()) => *revision += 1,
                 Err(why) => super::motion::tell(
                     format!("Not forwarded as an attachment: {why}."),
@@ -205,8 +203,8 @@ fn run_action(
                 );
                 return;
             }
-            let store = consume_context::<Arc<SqliteStore>>();
-            let said = super::rules::work::apply_to(&store, &targets, chrono::Utc::now());
+            let client = crate::ui::live::client();
+            let said = super::rules::work::apply_to(&client, &targets, chrono::Utc::now());
             *revision += 1;
             super::motion::tell(said, super::motion::Follow::Nothing);
         }

@@ -12,9 +12,7 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::stack::toast_hub::UndoToken;
-use mail_core::SqliteStore;
 use mail_core::undo::UndoHandle;
-use std::sync::Arc;
 
 #[component]
 pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
@@ -23,17 +21,17 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
     };
     let hub = use_toasts();
     use_hook(move || {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let on_undo = EventHandler::new(move |token: UndoToken| {
-            undo_by(&store, shell, revision, Some(state), UndoHandle(token.0));
+            undo_by(&client, shell, revision, Some(state), UndoHandle(token.0));
         });
         let on_archive = EventHandler::new(move |()| {
             let mut said = state.toast;
             let offered = said.peek().clone();
             said.set(None);
             if let Some(Follow::ArchiveFrom { sender, list }) = offered.map(|said| said.follow) {
-                let store = consume_context::<Arc<SqliteStore>>();
-                crate::ui::unsubscribe::archive_list(&store, shell, revision, &sender, &list);
+                let client = crate::ui::live::client();
+                crate::ui::unsubscribe::archive_list(&client, shell, revision, &sender, &list);
             }
         });
         let on_sign_in = EventHandler::new(move |()| {
@@ -49,8 +47,8 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             let offered = said.peek().clone();
             said.set(None);
             if let Some(Follow::Restore(restore)) = offered.map(|said| said.follow) {
-                let store = consume_context::<Arc<SqliteStore>>();
-                match restore.put_back(&store) {
+                let client = crate::ui::live::client();
+                match restore.put_back(&client) {
                     Ok(()) => {
                         let mut revision = revision;
                         revision += 1;
@@ -64,16 +62,16 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             let offered = said.peek().clone();
             said.set(None);
             if let Some(Follow::Unblock { rule, undo }) = offered.map(|said| said.follow) {
-                let store = consume_context::<Arc<SqliteStore>>();
+                let client = crate::ui::live::client();
                 let mut revision = revision;
                 if let Some(rule) = rule
-                    && let Err(why) = mail_core::rules::manage::delete(&store, &rule)
+                    && let Err(why) = client.rules_manage().delete(&rule)
                 {
                     super::tell(super::not_put_back(why), Follow::Nothing);
                     return;
                 }
                 if let Some(handle) = undo {
-                    undo_by(&store, shell, revision, Some(state), handle);
+                    undo_by(&client, shell, revision, Some(state), handle);
                 }
                 revision += 1;
             }

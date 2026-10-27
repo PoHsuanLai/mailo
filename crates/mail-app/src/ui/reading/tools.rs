@@ -34,11 +34,10 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_client::Client;
 use mail_core::conversation::says;
-use mail_core::{SqliteStore, Store as _};
 use mail_domain::*;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 /// The view menu's modes, in the order it lists them.
 const MODES: [Peek; 3] = [Peek::Side, Peek::CENTER, Peek::FULL];
@@ -174,11 +173,9 @@ pub(super) fn ReaderMore(
     let tool = use_signal(|| None::<MountedRef>);
     let id = summary.id;
     // Whose mail Block Sender would block: the newest sender who is not the user. Nobody, and
-    // the item is left out, when every message is the user's own or the store cannot say.
-    let blocking = consume_context::<Arc<SqliteStore>>();
-    let blocking = mail_core::rules::block::who_to_block(&blocking, id)
-        .ok()
-        .flatten();
+    // the item is left out, when every message is the user's own or the client cannot say.
+    let blocking = crate::ui::live::client();
+    let blocking = blocking.blocking().who_to_block(id).ok().flatten();
     let sender = blocking
         .clone()
         .map(|email| (summary.account.clone(), email));
@@ -280,15 +277,15 @@ fn block_sender(
     account: porter_core::AccountId,
     email: &str,
 ) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    match mail_core::rules::block::block(&store, account, email) {
+    let client = crate::ui::live::client();
+    match client.blocking().block(account, email) {
         Ok(blocked) => {
             let rule = match blocked {
                 mail_core::rules::block::Blocked::Made(rule) => Some(rule),
                 mail_core::rules::block::Blocked::Already(_) => None,
             };
             crate::ui::motion::spam_and_offer_unblock(
-                &store,
+                &client,
                 shell,
                 revision,
                 thread,
@@ -311,10 +308,10 @@ pub(in crate::ui) fn compose_on(
     thread: ThreadId,
     what: Composes,
 ) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     // The peek ends before the composer opens: it writes the shell.
     let writes = Writes::answering(&shell.peek(), thread, what);
-    match open_composer(&store, shell, writes) {
+    match open_composer(&client, shell, writes) {
         Ok(()) => revision += 1,
         Err(why) => tell(copy::toasts::not_opened(&why), Follow::Nothing),
     }
@@ -362,9 +359,9 @@ struct Downloaded {
 
 /// Write each of `thread`'s messages into `dir`, in the order it holds them. Blocking: off the
 /// thread that draws.
-fn save_thread(store: &SqliteStore, thread: ThreadId, dir: &Path) -> Downloaded {
+fn save_thread(client: &Client, thread: ThreadId, dir: &Path) -> Downloaded {
     let mut done = Downloaded::default();
-    let messages = match store.thread(thread) {
+    let messages = match client.stored().thread(thread) {
         Ok(loaded) => loaded.messages,
         Err(error) => {
             done.failed = Some(error.to_string());
@@ -372,10 +369,10 @@ fn save_thread(store: &SqliteStore, thread: ThreadId, dir: &Path) -> Downloaded 
         }
     };
     for message in messages {
-        match mail_core::export::save_eml(store, message, dir) {
+        match client.export().save_eml(message, dir) {
             Ok(Some(path)) => done
                 .saved
-                .push((path, crate::ui::downloads::origin(store, message))),
+                .push((path, crate::ui::downloads::origin(client, message))),
             Ok(None) => done.absent += 1,
             Err(error) => {
                 done.failed = Some(String::from(error));
@@ -418,11 +415,11 @@ fn download(thread: ThreadId) {
     // The bytes are here already, so nothing shows as being saved: each file joins the list
     // when it is written.
     let saving = Saving::quick();
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
     let dir = crate::ui::files::save_dir();
     spawn(async move {
-        let done = tokio::task::spawn_blocking(move || save_thread(&store, thread, &dir))
+        let done = tokio::task::spawn_blocking(move || save_thread(&client, thread, &dir))
             .await
             .unwrap_or_else(|error| Downloaded {
                 failed: Some(format!("it stopped early: {error}")),

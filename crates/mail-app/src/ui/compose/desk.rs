@@ -2,11 +2,9 @@
 //! still be taken back. One context, provided by the app, so the keyboard, the sidebar and the
 //! outbox pill all reach the same drafts.
 
-use std::sync::Arc;
-
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_domain::DraftId;
 
 use super::super::motion::{Follow, tell};
@@ -111,10 +109,10 @@ pub(in crate::ui) fn keep(desk: Desk, page: Signal<Page>) {
 
 /// Save `snapshot` and list it in Today, kept exactly as it was left.
 pub(in crate::ui) fn keep_page(mut desk: Desk, snapshot: Page) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let space = desk.spaces.peek().current().id;
     let parked = life::park(
-        &store,
+        &client,
         snapshot,
         &mut desk.parked.write(),
         &mut desk.today.write(),
@@ -137,12 +135,12 @@ pub(in crate::ui) fn unpark(mut desk: Desk, draft: DraftId) {
 /// any other: waiting in the outbox, with Undo bringing it back as a page.
 pub(in crate::ui) fn show_queued(
     mut desk: Desk,
-    store: &SqliteStore,
+    client: &Client,
     draft: DraftId,
     now: DateTime<Utc>,
 ) {
     let compose = crate::ui::prefs::current().compose;
-    let Some(page) = life::load(store, draft, &mut Vec::new(), &compose) else {
+    let Some(page) = life::load(client, draft, &mut Vec::new(), &compose) else {
         return;
     };
     desk.outbox.set(Some(Outgoing {
@@ -181,14 +179,14 @@ pub(in crate::ui) fn refusal(why: &str) -> String {
 }
 
 /// Withdraw a send that has not left, and open its page again: the page as it was sent when the
-/// pill still holds it, else the draft as the store has it.
+/// pill still holds it, else the draft as the client has it.
 pub(in crate::ui) fn take_back(
     mut desk: Desk,
     mut shell: Signal<Shell>,
     draft: DraftId,
 ) -> Result<(), String> {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let draft = life::unsend(&store, draft, Utc::now())?;
+    let client = crate::ui::live::client();
+    let draft = life::unsend(&client, draft, Utc::now())?;
     let held = desk
         .outbox
         .peek()
@@ -200,7 +198,7 @@ pub(in crate::ui) fn take_back(
             out.page
         }
         None => life::load(
-            &store,
+            &client,
             draft.id,
             &mut desk.parked.write(),
             &crate::ui::prefs::current().compose,
@@ -224,8 +222,8 @@ pub(in crate::ui) fn take_back(
 
 /// Open a parked draft again.
 pub(in crate::ui) fn reopen(desk: Desk, mut shell: Signal<Shell>, draft: DraftId) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    if shell.write().compose_id(&*store, draft).is_err() {
+    let client = crate::ui::live::client();
+    if shell.write().compose_id(&client, draft).is_err() {
         unpark(desk, draft);
     }
 }

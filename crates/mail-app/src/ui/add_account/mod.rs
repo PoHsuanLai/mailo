@@ -7,7 +7,7 @@
 //! (`porter_core::sheet`) says what to draw and asks a provider's sign-in what to do next, and
 //! porter's account service runs them in this process (`host`). What is mailo's is the sign-in
 //! itself, which looks an address up, signs in in a browser where the address wants one and adds
-//! the account to mailo's store (`provider`), and the one mapping between the sheet's values and
+//! the account to mailo's client (`provider`), and the one mapping between the sheet's values and
 //! quire's parts (`map`). `window` is the window, [`Ask`] and [`AddAccountWindows`] the way it is
 //! opened.
 //!
@@ -40,7 +40,6 @@ use std::sync::Arc;
 
 use dioxus::prelude::*;
 use ds_blitz::{WindowHandle, WindowSpec};
-use mail_core::SqliteStore;
 
 use crate::ui::space::SpaceId;
 
@@ -129,9 +128,9 @@ fn quire(ask: Ask) {
     }
     // Reached only in the launched program: a test's window hands `AddAccountWindows`. The OAuth
     // clients are the ones `main` gave the edge, as every other sign-in's are.
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let props = window::AddAccountWindowProps {
-        wiring: window::Wiring::real(store, crate::edge::clients()),
+        wiring: window::Wiring::real(client, crate::edge::clients()),
         prefill: ask.address,
         join: ask.join,
     };

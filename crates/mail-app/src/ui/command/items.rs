@@ -16,7 +16,7 @@ use crate::ui::bin::Bin;
 use crate::ui::copy::menus;
 use chordkit::{Keymap, StandardAction};
 use chrono::{DateTime, Utc};
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::search::{self, ActionHit, Command, PersonHit, Results, Top};
 use mail_domain::ThreadId;
 
@@ -512,13 +512,13 @@ pub(in crate::ui) fn complete_syntax(query: &str) -> Option<String> {
 /// Run the menu's search. Its People are the contact book's, as [`super::people::from_book`]
 /// puts them.
 pub(in crate::ui) fn search_now(
-    store: &SqliteStore,
+    client: &Client,
     query: &str,
     now: DateTime<Utc>,
 ) -> (Results, HashMap<String, String>) {
-    let history = super::super::history::history(store);
+    let history = super::super::history::history(client);
     let (affinity, mut names) = (history.affinity(), history.names());
-    let mut results = search::run(query, store, &affinity, &commands(), now);
-    super::people::from_book(&mut results, &mut names, store, query, &history);
+    let mut results = search::run(query, client.source(), &affinity, &commands(), now);
+    super::people::from_book(&mut results, &mut names, client, query, &history);
     (results, names)
 }

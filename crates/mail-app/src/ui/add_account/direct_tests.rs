@@ -488,7 +488,7 @@ async fn a_root_without_the_programs_sign_in_offers_no_redirect_and_reaches_noth
         let looked = dom.in_scope(ScopeId::APP, || {
             let seams = crate::ui::pgp::seams();
             let store = consume_context::<Arc<mail_core::SqliteStore>>();
-            (seams.lookup)(store.as_ref(), "ada@example.test")
+            (seams.lookup)(&crate::ui::fixtures::client(&store), "ada@example.test")
         });
         assert!(looked.is_err(), "{name}: a lookup was made");
         if !*recorded {

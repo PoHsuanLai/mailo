@@ -1,6 +1,9 @@
 #[cfg(test)]
 use crate::ui::view::Listing;
-use mail_core::{SqliteStore, Syncing};
+use mail_client::Client;
+#[cfg(test)]
+use mail_core::SqliteStore;
+use mail_core::Syncing;
 use mail_domain::*;
 use porter_core::AccountId;
 
@@ -11,7 +14,7 @@ pub(super) const PAGE: u32 = 100;
 /// a place lists.
 #[cfg(test)]
 pub(super) fn list_for(
-    store: &SqliteStore,
+    store: &mail_core::SqliteStore,
     listing: Listing,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Vec<ThreadSummary> {
@@ -49,8 +52,9 @@ pub(super) struct AccountRow {
 
 /// Every account, oldest first. A plan that does not parse becomes a plain IMAP account so the
 /// account still has a host to name; `'{}'` is what the oldest fixtures wrote.
-pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
-    store
+pub(super) fn account_rows(client: &Client) -> Vec<AccountRow> {
+    client
+        .stored()
         .list_accounts()
         .unwrap_or_default()
         .into_iter()
@@ -60,7 +64,10 @@ pub(super) fn account_rows(store: &SqliteStore) -> Vec<AccountRow> {
                 .unwrap_or_else(|_| fallback_plan(&account.address));
             // An account whose preferences cannot be read is shown as it was before there were
             // any: by its address, syncing.
-            let prefs = store.account_prefs(account.id.clone()).unwrap_or_default();
+            let prefs = client
+                .stored()
+                .account_prefs(account.id.clone())
+                .unwrap_or_default();
             AccountRow {
                 id: account.id,
                 address: account.address,
@@ -125,10 +132,11 @@ fn fallback_plan(address: &str) -> AccountPlan {
     }
 }
 
-/// Every configured account, or why the store could not say. Where an empty answer would be
+/// Every configured account, or why the client could not say. Where an empty answer would be
 /// acted on (taking accounts out of the Spaces), a failed read must not look like no accounts.
-pub(super) fn known_accounts(store: &SqliteStore) -> Result<Vec<AccountId>, mail_core::StoreError> {
-    Ok(store
+pub(super) fn known_accounts(client: &Client) -> Result<Vec<AccountId>, mail_core::StoreError> {
+    Ok(client
+        .stored()
         .list_accounts()?
         .into_iter()
         .map(|account| account.id)
@@ -136,8 +144,8 @@ pub(super) fn known_accounts(store: &SqliteStore) -> Result<Vec<AccountId>, mail
 }
 
 /// Every configured account, for the places that are not scoped to one.
-pub(super) fn accounts(store: &SqliteStore) -> Vec<AccountId> {
-    account_rows(store).into_iter().map(|row| row.id).collect()
+pub(super) fn accounts(client: &Client) -> Vec<AccountId> {
+    account_rows(client).into_iter().map(|row| row.id).collect()
 }
 
 #[cfg(test)]

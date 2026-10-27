@@ -24,7 +24,7 @@ pub(in crate::ui) use self::panel::DownloadsButton;
 use self::log::{Entry, Log};
 use crate::ui::appearance::WindowDirs;
 use dioxus::prelude::*;
-use mail_core::{SqliteStore, Store as _};
+use mail_client::Client;
 use mail_domain::MessageId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -130,8 +130,8 @@ impl Saving {
 }
 
 /// The message a saved file came out of, as the list names it; `None` when it is not stored.
-pub(in crate::ui) fn origin(store: &SqliteStore, message: MessageId) -> Option<Origin> {
-    store.message(message).ok().map(|m| Origin {
+pub(in crate::ui) fn origin(client: &Client, message: MessageId) -> Option<Origin> {
+    client.stored().message(message).ok().map(|m| Origin {
         thread: m.thread,
         subject: m.subject,
     })

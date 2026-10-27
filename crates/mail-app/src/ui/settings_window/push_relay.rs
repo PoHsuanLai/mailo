@@ -17,36 +17,34 @@ use ds::components::fields::field_row::FieldRow;
 use ds::components::fields::text_field_model::Invalid;
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
+use mail_core::CoreError;
 use mail_core::RelayRefused;
-use mail_core::sync::graph_push;
-use mail_core::{CoreError, SqliteStore};
-use std::sync::Arc;
 
 /// The account's field. Only a Graph account has one (the caller's to know).
 #[component]
 pub(super) fn PushRelay(row: AccountRow, revision: Signal<u64>) -> Element {
-    let store = try_consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::try_client();
     let id = row.id.clone();
     let kept = {
-        let (store, id) = (store.clone(), id.clone());
+        let (client, id) = (client.clone(), id.clone());
         move || {
-            store
+            client
                 .as_ref()
-                .and_then(|store| graph_push::relay(store, id.clone()))
+                .and_then(|client| client.graph_pushing().relay(id.clone()))
                 .unwrap_or_default()
         }
     };
     let mut typed = use_signal(kept.clone());
     let mut failed = use_signal(|| None::<&'static str>);
     let mut keep = move || {
-        let Some(store) = store.as_ref() else {
+        let Some(client) = client.as_ref() else {
             return;
         };
         let now = typed.peek().trim().to_owned();
         if now == kept() {
             return;
         }
-        match graph_push::set_relay(store, id.clone(), &now) {
+        match client.graph_pushing().set_relay(id.clone(), &now) {
             Ok(stored) => {
                 failed.set(None);
                 typed.set(stored.unwrap_or_default());

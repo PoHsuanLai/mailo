@@ -10,10 +10,11 @@
 
 use crate::settings::RemoveUnedited;
 use dioxus::prelude::*;
-use mail_core::{SqliteStore, Store as _, StoreError};
+use mail_client::Client;
+use mail_core::StoreError;
 use mail_domain::{MailboxRole, MessageId};
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 use std::time::SystemTime;
 
 /// One copy Open wrote: where, out of which message, and how it was as it was written.
@@ -155,11 +156,11 @@ pub(in crate::ui) fn remove_on_quit(setting: RemoveUnedited) {
 }
 
 /// Remove the unedited copies whose message is deleted: in Trash, or no longer stored.
-pub(in crate::ui) fn remove_for_deleted(store: &SqliteStore) -> Vec<PathBuf> {
+pub(in crate::ui) fn remove_for_deleted(client: &Client) -> Vec<PathBuf> {
     let messages = opened().messages();
     let deleted: Vec<MessageId> = messages
         .into_iter()
-        .filter(|message| is_deleted(store, *message))
+        .filter(|message| is_deleted(client, *message))
         .collect();
     if deleted.is_empty() {
         return Vec::new();
@@ -167,10 +168,10 @@ pub(in crate::ui) fn remove_for_deleted(store: &SqliteStore) -> Vec<PathBuf> {
     opened().remove_unedited(|written| deleted.contains(&written.message))
 }
 
-/// Whether `message` is deleted: in Trash, or gone from the store. A store that could not be read
+/// Whether `message` is deleted: in Trash, or gone from the client. A client that could not be read
 /// says nothing either way, and the copy stays.
-fn is_deleted(store: &SqliteStore, message: MessageId) -> bool {
-    match store.message(message) {
+fn is_deleted(client: &Client, message: MessageId) -> bool {
+    match client.stored().message(message) {
         Ok(stored) => stored.mailbox == MailboxRole::Trash,
         Err(StoreError::NoMessage(_)) => true,
         Err(_) => false,
@@ -190,9 +191,9 @@ pub(in crate::ui) fn use_remove_unedited(revision: Signal<u64>) {
             if !due || opened().is_empty() {
                 return;
             }
-            let store = consume_context::<Arc<SqliteStore>>();
-            // The store is read and the files removed off the thread that draws; nothing is said.
-            let _ = tokio::task::spawn_blocking(move || remove_for_deleted(&store)).await;
+            let client = crate::ui::live::client();
+            // The client is read and the files removed off the thread that draws; nothing is said.
+            let _ = tokio::task::spawn_blocking(move || remove_for_deleted(&client)).await;
         }
     });
 }

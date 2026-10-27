@@ -1,7 +1,7 @@
 //! VIPs in the window: the mark beside a VIP's name, in a row and in the reader, and marking or
 //! unmarking a sender from the reader's name menu, a row's menu or Settings.
 //!
-//! Who is a VIP is the store's (`mail_core::vip`); the window holds a copy in [`Shell::vips`],
+//! Who is a VIP is the client's (`mail_core::vip`); the window holds a copy in [`Shell::vips`],
 //! read again on every revision as the labels are, so a mark made anywhere moves the rows, the
 //! reader and the VIPs place together.
 
@@ -12,8 +12,6 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::icon::render::Glyph;
 use mail_core::vip::Mark;
-use mail_core::{SqliteStore, Store};
-use std::sync::Arc;
 
 /// Where a mark made in the reader lands: the window's shell, and its revision when it has one.
 /// The reader provides it, so the sender's name below it can mark without being handed both.
@@ -31,12 +29,12 @@ pub(in crate::ui) fn set(marking: Marking, address: &str, name: Option<&str>, ma
         mut shell,
         revision,
     } = marking;
-    let store = consume_context::<Arc<SqliteStore>>();
-    if let Err(why) = mail_core::vip::set(store.as_ref() as &dyn Store, address, name, mark) {
+    let client = crate::ui::live::client();
+    if let Err(why) = client.query().set_vip(address, name, mark) {
         tell(crate::ui::remedy::told(why), Follow::Nothing);
         return;
     }
-    shell.write().vips = mail_core::vip::read(store.as_ref());
+    shell.write().vips = client.query().vips();
     if let Some(mut revision) = revision {
         revision += 1;
     }

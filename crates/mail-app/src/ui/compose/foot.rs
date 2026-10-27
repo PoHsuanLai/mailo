@@ -27,9 +27,7 @@ use super::remind::{PickRemind, pick_remind, remind_choices};
 use super::templates::{self, SAVE_KEY};
 use crate::ui::actions::{self, Own};
 use crate::ui::press::on_primary;
-use mail_core::SqliteStore;
 use mail_domain::{DeliveryReport, Priority, ReceiptRequest};
-use std::sync::Arc;
 
 /// Send ▾'s keys: a Send Later choice is `later:` and the Sends key, a reminder `remind:` and its
 /// key, and the receipt [`receipt::KEY`].
@@ -341,10 +339,10 @@ pub(super) fn MoreButton(
 ) -> Element {
     let mut at = use_signal(|| None::<MountedRef>);
     let open = page.read().float == Float::More;
-    // Asked of the store again only when the page's From account changes.
+    // Asked of the client again only when the page's From account changes.
     let delivery_offered = use_memo(move || {
-        let store = consume_context::<Arc<SqliteStore>>();
-        mail_core::compose::can_ask_delivery_report(&store, &page.read().from)
+        let client = crate::ui::live::client();
+        client.compose().can_ask_delivery_report(&page.read().from)
     });
     let items = if open {
         more_items(&page.read(), delivery_offered())

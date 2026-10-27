@@ -56,9 +56,68 @@ pub type FetchFolder = Arc<
         + Sync,
 >;
 
-/// Which accounts there are to fetch, and how often each wants a pass: the signature of
-/// `mail_core::sync::due::intervals`, or of that read with the person's own settings.
-pub type Every = Arc<dyn Fn(&SqliteStore) -> Vec<(AccountId, Duration)> + Send + Sync>;
+/// Whether the notices speak, and whose new mail they say: the settings as they stand, handed to a
+/// pass that runs on a thread of the client's, which cannot read what the caller's settings are.
+#[derive(Debug, Clone, Copy)]
+pub struct Speaking {
+    pub on: bool,
+    pub whom: mail_core::notify::Whom,
+}
+
+impl Default for Speaking {
+    /// Notices on, for everyone's mail, as the setting's default is.
+    fn default() -> Self {
+        Speaking {
+            on: true,
+            whom: mail_core::notify::Whom::Everyone,
+        }
+    }
+}
+
+/// Where what a pass stored is announced, and the settings that say whether it is.
+#[derive(Clone)]
+pub struct Announce {
+    pub notifier: Arc<dyn mail_core::notify::Notifier>,
+    pub speaking: Arc<std::sync::Mutex<Speaking>>,
+}
+
+impl std::fmt::Debug for Announce {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Announce(..)")
+    }
+}
+
+/// Say what each finished pass in `ends` stored, as `mailo watch` does
+/// (`mail_core::sync::watcher::told`). A message is an arrival only on the pass that first stores
+/// it, so a watch and a window running side by side seldom both announce one.
+fn announce(store: &SqliteStore, ends: &[PassEnd], on: &Announce, at: DateTime<Utc>) {
+    let speaks = *on
+        .speaking
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if !speaks.on {
+        return;
+    }
+    for end in ends {
+        let PassEnd::Finished(report) = end else {
+            continue;
+        };
+        if let Err(why) = mail_core::notify::announce(
+            store,
+            report.account.clone(),
+            &report.counts.arrived,
+            &report.counts.noted,
+            on.notifier.as_ref(),
+            speaks.whom,
+            at,
+        ) {
+            log::warn!(
+                "new mail for {} could not be announced: {why}",
+                report.address
+            );
+        }
+    }
+}
 
 /// What fetching reaches outside the client.
 #[derive(Clone)]
@@ -66,8 +125,10 @@ pub struct Seams {
     pub pass: Pass,
     pub listen: Listen,
     pub pushers: Pushers,
-    /// The accounts and how often each is passed over.
-    pub every: Every,
+    /// Where the person's settings of how often to check are kept, when they are.
+    pub config: Option<std::path::PathBuf>,
+    /// Where a pass that stored mail says so.
+    pub announce: Option<Announce>,
     /// Whether the background daemon holds the one connection per account.
     pub daemon: Arc<dyn Fn() -> Daemon + Send + Sync>,
     /// Who schedules: this process, or a `mailo watch` beside it. Asked every time.
@@ -133,11 +194,19 @@ pub(crate) struct Fetcher {
     outbox: tokio::sync::Notify,
 }
 
+/// Which accounts there are to fetch, and how often each wants a pass.
+fn intervals(seams: &Seams, store: &SqliteStore) -> Vec<(AccountId, Duration)> {
+    match &seams.config {
+        Some(dir) => mail_core::sync::due::intervals_with(store, &mail_core::offline::load(dir)),
+        None => mail_core::sync::due::intervals(store),
+    }
+}
+
 impl Fetcher {
     pub(crate) fn new(seams: Seams, store: &SqliteStore, now: DateTime<Utc>) -> Fetcher {
         let (tx, inbox) = unbounded_channel();
         let (folders_tx, folders) = unbounded_channel();
-        let every = (seams.every)(store);
+        let every = intervals(&seams, store);
         let fetched = Fetched {
             links: schedule::initial(store, &every, now),
             ..Fetched::default()
@@ -179,7 +248,7 @@ impl Fetcher {
 
     /// The accounts may have changed: tell the scheduler when they have.
     pub(crate) fn accounts(&self, store: &SqliteStore) {
-        let now = (self.seams.every)(store);
+        let now = intervals(&self.seams, store);
         let pushed_now = (self.seams.pushers)(store);
         let mut every = self.every.lock();
         let mut pushed = self.pushed.lock();
@@ -310,6 +379,7 @@ impl Host for ClientHost {
     fn pass(&self, call: PassCall) -> Local<'_, Passed> {
         let store = self.shared.store_arc();
         let pass = self.fetcher().seams.pass.clone();
+        let announcing = self.fetcher().seams.announce.clone();
         Box::pin(async move {
             let PassCall {
                 account,
@@ -329,7 +399,11 @@ impl Host for ClientHost {
                     progress: Some(&said),
                     cancel: BTreeMap::from([(this_account.clone(), cancel)]),
                 };
-                pass(store, started, this_account, hooks)
+                let done = pass(store.clone(), started, this_account, hooks);
+                if let (Some(on), Ok(ends)) = (&announcing, &done) {
+                    announce(&store, ends, on, started);
+                }
+                done
             })
             .await
             .unwrap_or_else(|e| Err(format!("the sync pass stopped: {e}")));

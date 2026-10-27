@@ -15,9 +15,8 @@ use dioxus::prelude::*;
 use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
-use mail_core::{SqliteStore, Store};
+use mail_client::Client;
 use mail_domain::{MessageId, ThreadId, human_size};
-use std::sync::Arc;
 
 /// Which of a message's raw text a sheet shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,8 +86,9 @@ pub(super) fn shown(raw: &[u8], what: Raw, most: usize) -> Shown {
 /// Ask for `raw` of `thread`'s newest message, as the ⋯ and the keys do: the one the
 /// conversation opens on.
 pub(in crate::ui) fn ask(shell: Signal<Shell>, thread: ThreadId, raw: Raw) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let newest = store
+    let client = crate::ui::live::client();
+    let newest = client
+        .stored()
         .thread(thread)
         // A conversation gone since the key was pressed has nothing to show.
         .ok()
@@ -135,9 +135,9 @@ pub(in crate::ui) fn RawSheet(shell: Signal<Shell>) -> Element {
 /// there is nothing).
 type Read = (Option<String>, Option<String>);
 
-/// Read `asked` from the store.
-fn read(store: &SqliteStore, asked: RawAsked) -> Read {
-    match mail_core::export::raw_message(store, asked.message) {
+/// Read `asked` from the client.
+fn read(client: &Client, asked: RawAsked) -> Read {
+    match client.export().raw_message(asked.message) {
         Ok(Some(bytes)) => {
             let shown = shown(&bytes, asked.raw, SHOWN);
             let note = shown.cut.map(|whole| {
@@ -155,7 +155,7 @@ fn read(store: &SqliteStore, asked: RawAsked) -> Read {
 
 #[component]
 fn RawBody(asked: RawAsked, title: &'static str, shell: Signal<Shell>) -> Element {
-    let (text, note) = use_hook(|| read(&consume_context::<Arc<SqliteStore>>(), asked));
+    let (text, note) = use_hook(|| read(&crate::ui::live::client(), asked));
     rsx! {
         div { class: "raw-sheet",
             Label { text: title, style: LabelStyle::Title }

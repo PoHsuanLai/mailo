@@ -565,9 +565,9 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              DROP TABLE binned;
              DROP INDEX messages_thread_order;
              CREATE INDEX messages_thread ON messages(thread);
-             DROP INDEX thread_summary_subject;
-             DROP INDEX thread_summary_from;
-             DROP INDEX thread_summary_pin;
+             DROP INDEX IF EXISTS thread_summary_subject;
+             DROP INDEX IF EXISTS thread_summary_from;
+             DROP INDEX IF EXISTS thread_summary_pin;
              DROP TABLE junk_learned;
              DROP TABLE junk_totals;
              DROP TABLE junk_words;

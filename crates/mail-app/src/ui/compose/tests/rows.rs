@@ -14,6 +14,7 @@ use super::super::remind::{self, Remind};
 use super::*;
 use crate::ui::fixtures::{acct_account, seeded};
 use ds::components::menus::item::item::MenuItem as Line;
+use mail_core::SqliteStore;
 
 /// Every row a choice or a list can draw, by its `data-row`.
 const OPTIONAL: [&str; 8] = [
@@ -47,7 +48,7 @@ fn titles(items: &[Line<String>]) -> Vec<String> {
 async fn a_new_message_draws_subject_to_the_body_and_the_foot_and_nothing_else() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
-    let (mut window, _seen) = Window::open(store, draft, None);
+    let (mut window, _seen) = Window::open(crate::ui::fixtures::client(&store), draft, None);
     let markup = window.render();
     assert!(markup.contains("c-title"), "no subject:\n{markup}");
     assert!(markup.contains(&row("to")), "no To row:\n{markup}");
@@ -127,7 +128,11 @@ async fn setting_a_choice_draws_its_row_and_setting_it_back_removes_it() {
     ];
     for choice in choices {
         let (store, _dir) = seeded();
-        let (mut window, _seen) = Window::open(store.clone(), fresh_draft(&store), None);
+        let (mut window, _seen) = Window::open(
+            crate::ui::fixtures::client(&store.clone()),
+            fresh_draft(&store),
+            None,
+        );
         let mut page = window.page();
         assert!(
             !window.render().contains(&row(choice.row)),
@@ -159,7 +164,11 @@ async fn setting_a_choice_draws_its_row_and_setting_it_back_removes_it() {
 async fn cc_and_bcc_are_drawn_once_added_or_while_someone_is_on_them() {
     for (list, name) in [(List::Cc, "cc"), (List::Bcc, "bcc")] {
         let (store, _dir) = seeded();
-        let (mut window, _seen) = Window::open(store.clone(), fresh_draft(&store), None);
+        let (mut window, _seen) = Window::open(
+            crate::ui::fixtures::client(&store.clone()),
+            fresh_draft(&store),
+            None,
+        );
         let mut page = window.page();
         window.dom.in_runtime(|| page.write().reveal(list));
         let markup = window.render();
@@ -181,7 +190,8 @@ async fn cc_and_bcc_are_drawn_once_added_or_while_someone_is_on_them() {
             _ => draft.bcc = vec![someone],
         }
         mail_core::compose::save(&store, &draft).unwrap_or_else(|why| panic!("{why}"));
-        let (mut window, _seen) = Window::open(store.clone(), draft, None);
+        let (mut window, _seen) =
+            Window::open(crate::ui::fixtures::client(&store.clone()), draft, None);
         assert!(
             window.render().contains(&row(name)),
             "{name} while someone is on it"
@@ -193,7 +203,11 @@ async fn cc_and_bcc_are_drawn_once_added_or_while_someone_is_on_them() {
 async fn bcc_is_written_to_the_draft() {
     let (store, _dir) = seeded();
     let draft = fresh_draft(&store);
-    let (window, _seen) = Window::open(store.clone(), draft.clone(), None);
+    let (window, _seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let mut page = window.page();
     window.dom.in_runtime(|| {
         let mut write = page.write();
@@ -202,7 +216,7 @@ async fn bcc_is_written_to_the_draft() {
             &mut write,
             List::Bcc
         ));
-        super::super::life::save(&store, &mut write, Utc::now())
+        super::super::life::save(&crate::ui::fixtures::client(&store), &mut write, Utc::now())
             .unwrap_or_else(|why| panic!("{why}"));
     });
     let stored = store.draft(draft.id).unwrap_or_else(|why| panic!("{why}"));
@@ -351,7 +365,11 @@ async fn delete_draft_can_be_taken_back() {
     let mut draft = fresh_draft(&store);
     draft.subject = "Lunch on Friday".to_owned();
     mail_core::compose::save(&store, &draft).unwrap_or_else(|why| panic!("{why}"));
-    let (mut window, _seen) = Window::open(store.clone(), draft.clone(), None);
+    let (mut window, _seen) = Window::open(
+        crate::ui::fixtures::client(&store.clone()),
+        draft.clone(),
+        None,
+    );
     let (page, shell, desk) = (window.page(), window.shell, window.desk);
     window.dom.in_scope(dioxus_core::ScopeId::APP, || {
         super::super::delete_draft(page, shell, desk, Signal::new(0));
@@ -392,7 +410,7 @@ fn what_is_not_an_address_marks_its_field() {
         &mut page,
         List::To,
         "ada@example.test".to_owned(),
-        store.as_ref(),
+        &crate::ui::fixtures::client(&store),
     );
     assert!(page.misread(List::To).is_none(), "typing left the mark");
     page.typed_to = "ada@".to_owned();

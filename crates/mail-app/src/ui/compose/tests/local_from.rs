@@ -10,7 +10,7 @@ async fn the_from_menu_does_not_offer_local_folders() {
     let (markup, _root) = window_with(|page, store| {
         mail_core::account::local(store, chrono::Utc::now())
             .unwrap_or_else(|why| panic!("local folders: {why}"));
-        offered = crate::ui::data::account_rows(store)
+        offered = crate::ui::data::account_rows(&crate::ui::fixtures::client(store))
             .into_iter()
             .map(|row| (row.is_local(), row.address))
             .map(|(local, address)| (address, local))
@@ -35,7 +35,7 @@ async fn the_from_menu_offers_each_alias_beside_the_accounts_own_addresses() {
     const ALIAS: &str = "press@work.example";
     let mut own = Vec::new();
     let (markup, _root) = window_with(|page, store| {
-        own = crate::ui::data::account_rows(store)
+        own = crate::ui::data::account_rows(&crate::ui::fixtures::client(store))
             .into_iter()
             .filter(|row| !row.is_local())
             .map(|row| (row.id, row.address))

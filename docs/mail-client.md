@@ -7,13 +7,18 @@ has to remember to read again after a write.
 
 ## Where it stands
 
-- The UI reads the store while it renders: 148 `consume_context::<Arc<SqliteStore>>` in 69 files,
-  among them the sidebar's memos `counted` (the Favourites' counts) and `scheduled`.
-- One hand-bumped counter, `revision`, says something changed in what the window still reads
-  itself. A write that forgets to bump it leaves that stale; the counter moves with every commit
-  the client hears, so a commit no one bumps for, the background watch's or another process's,
-  no longer does.
-- About 15 `edge::block_on` calls in `ui` wait on the network on the UI thread.
+- The UI reads the store while it renders: 196 `consume_context::<Arc<SqliteStore>>` in 92 files,
+  the sidebar's memos (`counted`, `tiled`, `scheduled`, `folders`), `PlaceRow`'s `label_of`, and
+  `App`'s seeding hook, effect and first-frame badge fallback.
+- Badges are joined to places by position (`badges().get(index)`), from two signals that move at
+  different times.
+- One hand-bumped counter, `revision`, says something changed. A write that forgets to bump it,
+  or a commit no one bumps for, leaves the window stale.
+- `SqliteStore::data_version` does not count this store's own commits. On macOS the in-process
+  background watch (`background::start`) writes through the window's own store, so mail it
+  fetches does not move `revision`.
+- About 15 `edge::block_on` calls in `ui` waited on the network on the UI thread (gone with
+  stage 4).
 
 ## Crates
 
@@ -210,7 +215,20 @@ Each leaves the app working.
    (`fetch::outbox`), whether or not the compose pill is on screen. Folder refusals
    carry the server's words only. The clock's timer is the client's (`mailo-clock`). `revision`
    stays until stage 4 converts the memos that read it.
-4. Everything else: compose, settings, contacts, rules, keys, add account, the palette,
-   downloads. Every `edge::block_on` in `ui` becomes a command.
+4. Everything else reaches the store through the client, on the caller's thread.
+   **a.** What the window called in `mail-core` with the store, it calls on a handle named for
+   the module, taking what the function takes but the store (`calls`): `client.compose()`,
+   `template()`, `book()`, `keys()`, `certs()`, `rules_manage()`, `transfer()`, `print()`, ….
+   The store's own reads, and the few writes made by hand, are `stored()`; bodies and attachments
+   are `blobs()`; the reader's caches are filled through `looking(&looks)` and
+   `framing(&frames)`; a query read once, now, is `read(query)`. What reaches a server is
+   `net()`, waiting on the runtime the program says to reach servers with (`Reach`,
+   `Client::reach`; a client never told reaches them with no keyring): a folder fetched now, a
+   body, a part, a drain, rules pushed, a key looked up, a server search, an unsubscribe,
+   discovery, adding, signing in and removing an account, and the passes and watches the fetch
+   seams lend (`net().pass()`, `net().listen()`). No `edge::block_on` or `edge::mail` is left in
+   `ui`. The root still hands the store to `launch` (the program's) and to a test's window, whose
+   `use_client()` makes an inline client over it; stage 5 takes it away.
+   **b.** `revision` goes: what moved is the client's to say (`Client::moved`).
 5. The fence: `ui`, `settings` and the platform seams move to `mail-ui`, whose `Cargo.toml` has
    no store.

@@ -158,9 +158,12 @@ fn a_message_is_deleted_once_the_store_no_longer_has_it() {
     let (store, _dir) = crate::ui::fixtures::seeded();
     let thread = crate::ui::fixtures::thread_like(&store, "hi");
     let here = store.thread(thread).expect("the thread").messages[0];
-    assert!(!is_deleted(&store, here), "a message in the inbox");
     assert!(
-        is_deleted(&store, MessageId::generate()),
+        !is_deleted(&crate::ui::fixtures::client(&store), here),
+        "a message in the inbox"
+    );
+    assert!(
+        is_deleted(&crate::ui::fixtures::client(&store), MessageId::generate()),
         "a message not stored"
     );
 }

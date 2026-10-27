@@ -26,11 +26,10 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::when::Clock;
 use mail_domain::*;
 use porter_core::AccountId;
-use std::sync::Arc;
 
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
 const SNOOZE: &[(&str, &str)] = &[
@@ -190,12 +189,12 @@ pub(super) fn SnoozeMenu(
     // The whole selection when this row is picked, as one gesture, through the op `mailo snooze`
     // applies; only the undo, the curl and the toast are the window's.
     let snooze = move |at: DateTime<Utc>| {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let ops = with_selection(shell, id)
             .into_iter()
             .map(|thread| (thread, Op::SetSnooze(Snooze::Until(at))))
             .collect();
-        act_all(&store, shell, revision, ops);
+        act_all(&client, shell, revision, ops);
     };
     if choosing() {
         return rsx! {
@@ -351,25 +350,25 @@ pub(super) fn LabelMenu(
             empty,
             oninput: move |value: String| typed.set(value),
             onpick: move |key: String| {
-                let store = consume_context::<Arc<SqliteStore>>();
+                let client = crate::ui::live::client();
                 // A label is one account's, so a picked row on another account is left alone.
                 let picked = with_selection(shell, id);
                 let targets: Vec<ThreadId> = picked
                     .into_iter()
                     .filter(|thread| {
                         *thread == id
-                            || super::move_to::account_of(&store, *thread) == Some(account.clone())
+                            || super::move_to::account_of(&client, *thread) == Some(account.clone())
                     })
                     .collect();
                 if let Some(name) = key.strip_prefix("create:") {
-                    let Some(created) = create_label(&store, account.clone(), name) else {
+                    let Some(created) = create_label(&client, account.clone(), name) else {
                         return;
                     };
                     let ops = targets
                         .into_iter()
                         .map(|thread| (thread, Op::Label(created, Membership::In)))
                         .collect();
-                    act_all(&store, shell, revision, ops);
+                    act_all(&client, shell, revision, ops);
                     done();
                     return;
                 }
@@ -383,22 +382,22 @@ pub(super) fn LabelMenu(
                     return;
                 };
                 if targets.len() > 1 {
-                    label_all(&store, shell, revision, &targets, which);
+                    label_all(&client, shell, revision, &targets, which);
                     return;
                 }
                 let on = summary.labels.contains(&which);
                 let wanted = if on { Membership::Out } else { Membership::In };
-                act(&store, shell, revision, id, Op::Label(which, wanted));
+                act(&client, shell, revision, id, Op::Label(which, wanted));
             },
             onclose: move |()| done(),
         }
     }
 }
 
-/// A label the user just named. The store creates provider labels during ingest; this one is
+/// A label the user just named. The client creates provider labels during ingest; this one is
 /// the user's, so its origin is `user`.
-fn create_label(store: &SqliteStore, account: AccountId, name: &str) -> Option<LabelId> {
-    store.create_label(account, name).ok()
+fn create_label(client: &Client, account: AccountId, name: &str) -> Option<LabelId> {
+    client.stored().create_label(account, name).ok()
 }
 
 #[cfg(test)]

@@ -4,15 +4,14 @@
 use super::super::compose::{Desk, show_queued};
 use super::super::hover::copy;
 use super::super::motion::{Follow, tell};
-use super::{Ask, Bodies, Offer, ask, cached, client, leave, lookup, said};
+use super::{Ask, Bodies, Offer, ask, cached, http, leave, lookup, said};
 use dioxus::prelude::*;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::unsubscribe::Outcome;
 use mail_domain::ThreadId;
-use std::sync::Arc;
 
 /// Where the alert is.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,13 +44,13 @@ pub(in crate::ui) fn Lookout(
         let bodies = bodies.clone();
         let looks = looks.clone();
         let tag = tag.clone();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let mut found = found;
         async move {
             let offer = match cached(&looks, thread, &bodies) {
                 Some(offer) => offer,
                 None => {
-                    tokio::task::spawn_blocking(move || lookup(&looks, &store, thread, &bodies))
+                    tokio::task::spawn_blocking(move || lookup(&looks, &client, thread, &bodies))
                         .await
                         .ok()
                         .flatten()
@@ -127,21 +126,20 @@ fn take(offer: Offer, mut phase: Signal<Phase>, revision: Option<Signal<u64>>) {
         return;
     }
     phase.set(Phase::Working);
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let desk = try_consume_context::<Desk>();
     // Spawned from a click, which is where a task is polled: a future started from a
     // component body is the one thing that may never run.
     spawn(async move {
         let found = offer.found.clone();
-        let blocking = store.clone();
-        let done = tokio::task::spawn_blocking(move || {
-            leave(&blocking, &found, chrono::Utc::now(), client)
-        })
-        .await;
+        let blocking = client.clone();
+        let done =
+            tokio::task::spawn_blocking(move || leave(&blocking, &found, chrono::Utc::now(), http))
+                .await;
         match done {
             Ok(Ok(outcome)) => {
                 phase.set(Phase::Closed);
-                landed(&store, &offer, &outcome, desk, revision);
+                landed(&client, &offer, &outcome, desk, revision);
             }
             Ok(Err(why)) => phase.set(Phase::Failed(why)),
             Err(error) => phase.set(Phase::Failed(format!(
@@ -153,7 +151,7 @@ fn take(offer: Offer, mut phase: Signal<Phase>, revision: Option<Signal<u64>>) {
 
 /// The toast, and for a queued message the outbox pill, like any send.
 fn landed(
-    store: &SqliteStore,
+    client: &Client,
     offer: &Offer,
     outcome: &Outcome,
     desk: Option<Desk>,
@@ -170,7 +168,7 @@ fn landed(
         ),
         Outcome::Queued { draft } => {
             if let Some(desk) = desk {
-                show_queued(desk, store, *draft, chrono::Utc::now());
+                show_queued(desk, client, *draft, chrono::Utc::now());
             }
             if let Some(mut revision) = revision {
                 revision += 1;

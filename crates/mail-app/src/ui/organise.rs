@@ -1,7 +1,7 @@
 //! Organise by Conversation: the place shown lists conversations, or each message on a row of
 //! its own, and keeps the choice.
 //!
-//! Kept per place, beside what else the place is: a saved view in its own row in the store
+//! Kept per place, beside what else the place is: a saved view in its own row in the client
 //! ([`mail_domain::View::threading`]), as its grouping is; a mailbox, label or folder among
 //! `window.single_messages` in `settings.toml` ([`crate::ui::prefs::change`]), as the list's
 //! other choices are. The list's ⋯ and the search bar's panel both turn it here.
@@ -9,9 +9,7 @@
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use mail_core::conversation::{kept_single, saved_of, saved_place};
-use mail_core::{SqliteStore, Store};
 use mail_domain::Threading;
-use std::sync::Arc;
 
 /// The other way of listing from `now`.
 fn turned(now: Threading) -> Threading {
@@ -41,8 +39,8 @@ pub(in crate::ui) fn turn(mut shell: Signal<Shell>, mut revision: Signal<u64>) {
                 threading: next,
                 ..view.clone()
             };
-            let store = consume_context::<Arc<SqliteStore>>();
-            if let Err(why) = store.put_view(&view) {
+            let client = crate::ui::live::client();
+            if let Err(why) = client.stored().put_view(&view) {
                 log::warn!("Organise by Conversation was not kept in the view: {why}");
                 return;
             }

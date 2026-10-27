@@ -19,12 +19,12 @@
 use crate::settings::{MailSettings, ReadReceipts};
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
+use mail_client::Client;
 use mail_core::message::Looks;
 use mail_core::receipt::ReceiptState;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::{ReceiptAsk, ReturnPath};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use super::copy::{controls, status};
 use super::press::on_primary;
@@ -124,9 +124,9 @@ fn destination(ask: &ReceiptAsk) -> Destination {
 }
 
 /// The requests among `standings` that `policy` puts to the person, each looked up again in the
-/// store for where its message is now. Blocking: the reader calls it on a blocking thread.
+/// client for where its message is now. Blocking: the reader calls it on a blocking thread.
 pub(in crate::ui) fn questions(
-    store: &SqliteStore,
+    client: &Client,
     standings: &[Standing],
     policy: ReadReceipts,
 ) -> Vec<Question> {
@@ -136,7 +136,7 @@ pub(in crate::ui) fn questions(
             let ReceiptState::Pending(ask) = &standing.state else {
                 return None;
             };
-            let message = store.message(standing.message).ok()?;
+            let message = client.stored().message(standing.message).ok()?;
             if !asks(policy, &standing.state, message.mailbox) {
                 return None;
             }
@@ -150,24 +150,24 @@ pub(in crate::ui) fn questions(
 }
 
 /// Held while a receipt is being given, so two windows opening the same message cannot both
-/// find it unanswered and both queue one. The store's own answer, read again under it, keeps a
+/// find it unanswered and both queue one. The client's own answer, read again under it, keeps a
 /// message from being answered twice across launches.
 static ANSWERING: Mutex<()> = Mutex::new(());
 
 /// Answer, under `policy`, every message among `standings` that asks: look each one up again in
-/// the store for where it is now, and queue a receipt through [`mail_core::receipt::answer`] where
+/// the client for where it is now, and queue a receipt through [`mail_core::receipt::answer`] where
 /// [`automatic`] says to. Returns the messages a receipt was queued for. Blocking: the reader
 /// calls it on a blocking thread.
 pub(in crate::ui) fn answer_asked(
     looks: &Looks,
-    store: &SqliteStore,
+    client: &Client,
     standings: &[Standing],
     policy: ReadReceipts,
     now: DateTime<Utc>,
 ) -> Vec<MessageId> {
     let mut sent = Vec::new();
     for standing in standings {
-        let Ok(message) = store.message(standing.message) else {
+        let Ok(message) = client.stored().message(standing.message) else {
             continue;
         };
         let Some(given) = automatic(policy, &standing.state, message.mailbox) else {
@@ -175,10 +175,10 @@ pub(in crate::ui) fn answer_asked(
         };
         let _held = ANSWERING.lock().unwrap_or_else(|held| held.into_inner());
         // `answer` reads the request's state again and refuses one already answered, here or
-        // by an earlier launch, so the lock and the store between them send it once.
-        match mail_core::receipt::answer(store, standing.message, given, now) {
+        // by an earlier launch, so the lock and the client between them send it once.
+        match client.receipt().answer(standing.message, given, now) {
             Ok(_) => {
-                looks.receipt_again(store, standing.message);
+                client.looking(looks).receipt_again(standing.message);
                 sent.push(standing.message);
             }
             Err(why) => log::warn!("read receipt: {why}"),
@@ -191,21 +191,21 @@ pub(in crate::ui) fn answer_asked(
 /// [`mail_core::receipt::answer`], which refuses a request already answered. Blocking.
 pub(in crate::ui) fn answer_one(
     looks: &Looks,
-    store: &SqliteStore,
+    client: &Client,
     message: MessageId,
     given: ReceiptAnswer,
     now: DateTime<Utc>,
 ) {
     let _held = ANSWERING.lock().unwrap_or_else(|held| held.into_inner());
-    match mail_core::receipt::answer(store, message, given, now) {
-        Ok(_) => looks.receipt_again(store, message),
+    match client.receipt().answer(message, given, now) {
+        Ok(_) => client.looking(looks).receipt_again(message),
         Err(why) => log::warn!("read receipt: {why}"),
     }
 }
 
 /// The standings already found for every message in `key`, else read for each message and remembered. Runs on a blocking thread.
-pub(in crate::ui) fn lookup(looks: &Looks, store: &SqliteStore, key: &Bodies) -> Vec<Standing> {
-    looks.receipts(store, key)
+pub(in crate::ui) fn lookup(looks: &Looks, client: &Client, key: &Bodies) -> Vec<Standing> {
+    client.looking(looks).receipts(key)
 }
 
 /// The open thread's requests, answered by the setting, or put to the person under
@@ -219,17 +219,17 @@ pub(in crate::ui) fn lookup(looks: &Looks, store: &SqliteStore, key: &Bodies) ->
 pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
     let looks = crate::ui::reading::use_looks();
     let settings = use_hook(try_consume_context::<Signal<MailSettings>>);
-    let store = use_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     // The questions answered in this reader, gone from the screen as soon as each answer is kept
-    // rather than when the store's answer is read again.
+    // rather than when the client's answer is read again.
     let answered = use_signal(Vec::<MessageId>::new);
     let asked = {
         let looks = looks.clone();
-        let store = store.clone();
+        let client = client.clone();
         use_resource(move || {
             let bodies = bodies.clone();
             let looks = looks.clone();
-            let store = store.clone();
+            let client = client.clone();
             let policy = settings
                 .map(|settings| settings.peek().reading.read_receipts)
                 .unwrap_or_default();
@@ -237,12 +237,12 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
                 let asked = tokio::task::spawn_blocking(move || match policy {
                     ReadReceipts::Never => Vec::new(),
                     ReadReceipts::Ask => {
-                        let standings = lookup(&looks, &store, &bodies);
-                        questions(&store, &standings, policy)
+                        let standings = lookup(&looks, &client, &bodies);
+                        questions(&client, &standings, policy)
                     }
                     ReadReceipts::Always => {
-                        let standings = lookup(&looks, &store, &bodies);
-                        answer_asked(&looks, &store, &standings, policy, Utc::now());
+                        let standings = lookup(&looks, &client, &bodies);
+                        answer_asked(&looks, &client, &standings, policy, Utc::now());
                         Vec::new()
                     }
                 })
@@ -271,21 +271,21 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
 #[component]
 fn Asking(question: Question, answered: Signal<Vec<MessageId>>) -> Element {
     let looks = crate::ui::reading::use_looks();
-    let store = use_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let message = question.message;
     let give = move |given: ReceiptAnswer| {
         let looks = looks.clone();
-        let store = store.clone();
+        let client = client.clone();
         let mut answered = answered;
         move || {
             let looks = looks.clone();
-            let store = store.clone();
+            let client = client.clone();
             // The line goes once the answer is kept, not before: taking it away first would end
             // this component, and the task with it, before the answer was given. A second press
             // meanwhile is refused by `answer`, which finds the request answered.
             spawn(async move {
                 let given = tokio::task::spawn_blocking(move || {
-                    answer_one(&looks, &store, message, given, Utc::now());
+                    answer_one(&looks, &client, message, given, Utc::now());
                 })
                 .await;
                 if let Err(why) = given {

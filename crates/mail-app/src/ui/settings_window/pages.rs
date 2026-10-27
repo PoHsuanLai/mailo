@@ -434,8 +434,8 @@ pub const USE_DOWNLOADS_ID: &str = "general-use-downloads";
 /// address to `notifications.muted_accounts`, in lowercase, and back on takes it out.
 #[component]
 fn MutedAccounts(mut failed: Signal<Option<String>>) -> Element {
-    let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
-    let rows = crate::ui::data::account_rows(&store);
+    let client = crate::ui::live::client();
+    let rows = crate::ui::data::account_rows(&client);
     let muted = crate::ui::prefs::current().notifications.muted_accounts;
     rsx! {
         if rows.is_empty() {

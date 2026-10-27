@@ -1,12 +1,12 @@
 //! The parts of an account's page the person changes: what the account is called, whether it
 //! syncs, and which folder plays each role.
 //!
-//! The description and the switch are kept the moment they change, in the store's
+//! The description and the switch are kept the moment they change, in the client's
 //! `account_prefs`, and the revision moves, so the sidebar's tile and every list that names the
 //! account follow at once. A paused account is left out of every sync (`mail_core::sync::paused`)
 //! and its tile's mark says so.
 //!
-//! A folder picked for a role is laid over what the server says (the store's `with_picks`), so
+//! A folder picked for a role is laid over what the server says (the client's `with_picks`), so
 //! the next refresh of the server's folders keeps it; "Automatic" gives the role back.
 
 use crate::ui::common::{Problem, classed};
@@ -20,21 +20,20 @@ use ds::components::menus::item::item::MenuItem;
 use ds::components::menus::pop_up_button::PopUpButton;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::{SqliteStore, Store, Syncing};
+use mail_core::Syncing;
 use mail_domain::{Incoming, MailboxRole};
-use std::sync::Arc;
 
 /// Write one preference with `write`, then move the revision so everything that names the
-/// account reads it again; a store that refuses is said in `failed`.
+/// account reads it again; a client that refuses is said in `failed`.
 fn keep(
-    write: impl FnOnce(&SqliteStore) -> Result<(), mail_core::StoreError>,
+    write: impl FnOnce(&mail_client::Stored<'_>) -> Result<(), mail_core::StoreError>,
     mut revision: Signal<u64>,
     mut failed: Signal<Option<String>>,
 ) {
-    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
+    let Some(client) = crate::ui::live::try_client() else {
         return;
     };
-    match write(&store) {
+    match write(&client.stored()) {
         Ok(()) => {
             failed.set(None);
             revision += 1;
@@ -67,7 +66,7 @@ pub(super) fn About(row: AccountRow, revision: Signal<u64>) -> Element {
                     onchange: move |value: String| {
                         let account = described.clone();
                         keep(
-                            move |store| store.set_account_description(account, Some(&value)),
+                            move |stored| stored.set_account_description(account, Some(&value)),
                             revision,
                             failed,
                         );
@@ -83,7 +82,7 @@ pub(super) fn About(row: AccountRow, revision: Signal<u64>) -> Element {
                     onchange: move |now: Check| {
                         let account = id.clone();
                         let to = if now == Check::On { Syncing::On } else { Syncing::Paused };
-                        keep(move |store| store.set_account_syncing(account, to), revision, failed);
+                        keep(move |stored| stored.set_account_syncing(account, to), revision, failed);
                     },
                 }
             }
@@ -108,7 +107,7 @@ const ROLES: [(MailboxRole, &str); 5] = [
 pub(super) fn FolderRoles(row: AccountRow, revision: Signal<u64>) -> Element {
     let failed = use_signal(|| None::<String>);
     let mut unread_seen = use_signal(|| false);
-    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
+    let Some(client) = crate::ui::live::try_client() else {
         return rsx! {};
     };
     if !matches!(
@@ -119,9 +118,12 @@ pub(super) fn FolderRoles(row: AccountRow, revision: Signal<u64>) -> Element {
     }
     // What cannot be read is said, once, and the group is not drawn: a menu drawn from nothing
     // would offer Automatic over a pick the person made.
-    let read = store
-        .folders(row.id.clone())
-        .and_then(|folders| Ok((folders, store.account_prefs(row.id.clone())?.folders)));
+    let read = client.stored().folders(row.id.clone()).and_then(|folders| {
+        Ok((
+            folders,
+            client.stored().account_prefs(row.id.clone())?.folders,
+        ))
+    });
     let (folders, picks) = match read {
         Ok(read) => read,
         Err(why) if !unread_seen() => {
@@ -135,7 +137,10 @@ pub(super) fn FolderRoles(row: AccountRow, revision: Signal<u64>) -> Element {
     if folders.is_empty() {
         return rsx! {};
     }
-    let observed = mail_core::sync::caps_of(&store, row.id.clone()).map(|caps| caps.folders);
+    let observed = client
+        .sync()
+        .caps_of(row.id.clone())
+        .map(|caps| caps.folders);
     let paths: Vec<String> = folders
         .into_iter()
         .filter(|folder| !folder.path.eq_ignore_ascii_case("INBOX"))
@@ -161,7 +166,7 @@ pub(super) fn FolderRoles(row: AccountRow, revision: Signal<u64>) -> Element {
                                 common: Common { aria_label: Some(copy::aria::folder_for(label)), ..Common::default() },
                                 onpick: move |path: Option<String>| {
                                     let account = account.clone();
-                                    keep(move |store| store.set_folder_role(account, role, path.as_deref()), revision, failed);
+                                    keep(move |stored| stored.set_folder_role(account, role, path.as_deref()), revision, failed);
                                 },
                             }
                         }

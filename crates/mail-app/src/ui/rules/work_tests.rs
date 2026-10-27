@@ -36,7 +36,9 @@ fn a_condition_the_rules_cannot_read_is_refused_and_not_kept() {
     for typed in CASES {
         let refused = work::read_condition(
             typed,
-            &work::labels(&store, acct_account()),
+            &crate::ui::fixtures::client(&store)
+                .rules_manage()
+                .labels(acct_account()),
             &mail_core::vip::Vips::default(),
             &Utc,
         );
@@ -45,7 +47,7 @@ fn a_condition_the_rules_cannot_read_is_refused_and_not_kept() {
             Ok(filter) => panic!("{typed:?} was read as {filter:?}"),
         }
         let saved = work::save(
-            &store,
+            &crate::ui::fixtures::client(&store),
             acct_account(),
             &draft("Bad", typed, vec![RuleAction::Archive]),
             &Utc,
@@ -75,7 +77,7 @@ fn running_a_rule_acts_on_what_matches_and_counts_to_the_end() {
     assert!(others.iter().all(|id| starred(*id) == Star::Unstarred));
 
     let rule = work::save(
-        &store,
+        &crate::ui::fixtures::client(&store),
         acct_account(),
         &draft(
             "Receipts",
@@ -85,12 +87,15 @@ fn running_a_rule_acts_on_what_matches_and_counts_to_the_end() {
         &Utc,
     )
     .unwrap();
-    let total = work::conversations(&store, acct_account(), Utc::now());
+    let total = mail_core::rules::manage::conversations(&store, acct_account(), Utc::now());
     assert_eq!(total, others.len() + 1);
     let seen = Mutex::new(Vec::new());
-    let said = work::run(&store, &rule, Utc::now(), &|done| {
-        seen.lock().unwrap().push(done)
-    })
+    let said = work::run(
+        &crate::ui::fixtures::client(&store),
+        &rule,
+        Utc::now(),
+        &|done| seen.lock().unwrap().push(done),
+    )
     .unwrap();
 
     assert_eq!(starred(receipt), Star::Starred, "the match was not starred");

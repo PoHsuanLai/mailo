@@ -18,16 +18,14 @@ use dioxus::prelude::*;
 use ds::components::app::spaces::SpaceMenu;
 use ds::components::menus::item::item::{AfterPick, MenuItem};
 use ds::prelude::{Availability, Check, Icon, MenuImage};
-use mail_core::SqliteStore;
 use mail_core::profile::ProfileId;
 use porter_core::AccountId;
-use std::sync::Arc;
 
 /// Every account there is, in order, and how the window names it.
 pub(in crate::ui) fn accounts() -> Vec<(AccountId, String)> {
-    try_consume_context::<Arc<SqliteStore>>()
-        .map(|store| {
-            account_rows(&store)
+    crate::ui::live::try_client()
+        .map(|client| {
+            account_rows(&client)
                 .into_iter()
                 .map(|row| (row.id.clone(), row.shown()))
                 .collect()

@@ -17,23 +17,18 @@ use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
-use mail_core::{SqliteStore, Store};
+use mail_client::Client;
 use mail_domain::*;
-use std::sync::Arc;
 
 /// How many conversations one page of the Empty count reads.
 const PAGE: u32 = 500;
 
 /// Ask about `threads`: those of them with mail in the bin shown or, with no bin shown (a
 /// search), in the bin the first of them is in. Nothing opens when none of them has mail there.
-pub(in crate::ui) fn ask_chosen(
-    store: &SqliteStore,
-    mut shell: Signal<Shell>,
-    threads: &[ThreadId],
-) {
+pub(in crate::ui) fn ask_chosen(client: &Client, mut shell: Signal<Shell>, threads: &[ThreadId]) {
     let shown = bin_shown(&shell.peek());
     let Some(bin) = shown.or_else(|| {
-        let first = store.thread(*threads.first()?).ok()?;
+        let first = client.stored().thread(*threads.first()?).ok()?;
         [Bin::Trash, Bin::Spam]
             .into_iter()
             .find(|bin| offered(Some(*bin), &first.summary))
@@ -44,33 +39,34 @@ pub(in crate::ui) fn ask_chosen(
         .iter()
         .copied()
         .filter(|thread| {
-            store
+            client
+                .stored()
                 .thread(*thread)
                 .is_ok_and(|loaded| offered(Some(bin), &loaded.summary))
         })
         .collect();
-    let asking = counted(store, bin, Reach::Chosen, chosen);
+    let asking = counted(client, bin, Reach::Chosen, chosen);
     if asking.messages > 0 {
         shell.write().destroying = Some(asking);
     }
 }
 
 /// Ask about everything the bin shown holds, in the accounts in view: Empty Trash.
-pub(in crate::ui) fn ask_everything(store: &SqliteStore, mut shell: Signal<Shell>) {
+pub(in crate::ui) fn ask_everything(client: &Client, mut shell: Signal<Shell>) {
     let Some(bin) = bin_shown(&shell.peek()) else {
         return;
     };
     // The whole bin, whatever the quick filter shows of it.
     let mut query = shell.peek().whole_query(PAGE);
     let mut threads = Vec::new();
-    while let Ok(page) = store.threads(&query, chrono::Utc::now()) {
+    while let Ok(page) = client.stored().threads(&query, chrono::Utc::now()) {
         threads.extend(page.items.iter().map(|summary| summary.id));
         match page.next {
             Some(next) if !page.items.is_empty() => query.page.after = Some(next),
             _ => break,
         }
     }
-    let asking = counted(store, bin, Reach::Everything, threads);
+    let asking = counted(client, bin, Reach::Everything, threads);
     // An empty bin has nothing to ask about.
     if asking.messages > 0 {
         shell.write().destroying = Some(asking);
@@ -78,15 +74,15 @@ pub(in crate::ui) fn ask_everything(store: &SqliteStore, mut shell: Signal<Shell
 }
 
 /// `threads` with the messages each holds in `bin` counted.
-fn counted(store: &SqliteStore, bin: Bin, reach: Reach, threads: Vec<ThreadId>) -> Destroying {
+fn counted(client: &Client, bin: Bin, reach: Reach, threads: Vec<ThreadId>) -> Destroying {
     let messages = threads
         .iter()
-        .filter_map(|thread| store.thread(*thread).ok())
+        .filter_map(|thread| client.stored().thread(*thread).ok())
         .map(|loaded| {
             let messages: Vec<Message> = loaded
                 .messages
                 .iter()
-                .filter_map(|id| store.message(*id).ok())
+                .filter_map(|id| client.stored().message(*id).ok())
                 .collect();
             doomed(&messages, bin)
         })
@@ -111,8 +107,8 @@ fn confirm(shell: Signal<Shell>, revision: Signal<u64>) {
         return;
     };
     close(shell);
-    let store = consume_context::<Arc<SqliteStore>>();
-    destroy_all(&store, shell, revision, &asked.threads);
+    let client = crate::ui::live::client();
+    destroy_all(&client, shell, revision, &asked.threads);
 }
 
 /// The confirmation, quire's critical alert over the window while it is open: its Cancel answers
@@ -169,8 +165,8 @@ pub(in crate::ui) fn EmptyButton(shell: Signal<Shell>) -> Element {
                 ..Common::default()
             },
             onclick: on_primary(move || {
-                let store = consume_context::<Arc<SqliteStore>>();
-                ask_everything(&store, shell);
+                let client = crate::ui::live::client();
+                ask_everything(&client, shell);
             }),
         }
     }

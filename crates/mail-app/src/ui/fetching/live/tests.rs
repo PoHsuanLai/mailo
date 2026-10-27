@@ -11,6 +11,7 @@ use dioxus_core::VirtualDom;
 use mail_core::SqliteStore;
 use mail_core::Store as _;
 use mail_core::fetch::{Link, Live, Pause, Trigger};
+use mail_core::schedule::{Heard, Lost, Stop};
 use mail_core::sync::report::{AccountReport, Counts, PassEnd};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;

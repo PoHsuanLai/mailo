@@ -26,14 +26,12 @@ use ds::host::measure::MountedRef;
 use ds::prelude::Point;
 use ds::root::common::Common;
 use mail_client::query::{Account, Counted, Counts};
-use mail_core::SqliteStore;
 use mail_core::profile::ProfileId;
 use mail_core::provider::{Provider, provider};
 use mail_domain::{Filter, ReadState};
 use porter_core::AccountId;
-use std::sync::Arc;
 
-/// One account's tile, as the store has it.
+/// One account's tile, as the client has it.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct TileRow {
     pub id: AccountId,
@@ -55,7 +53,7 @@ pub(super) fn tile_filter(account: AccountId) -> Filter {
 }
 
 /// The tiles for `space`: each account it shows, in the order they were put in it, that the
-/// store still has, with the unread `counted` has for it (none until counted).
+/// client still has, with the unread `counted` has for it (none until counted).
 pub(super) fn tile_rows(
     accounts: &[Account],
     counted: Option<&Counted>,
@@ -199,8 +197,8 @@ pub(super) fn AccountTiles(
                 label: copy::aria::ADD_ACCOUNT.to_owned(),
                 hint: Some(copy::tooltips::ADD_ACCOUNT.to_owned()),
                 onadd: EventHandler::new(move |()| {
-                    let store = consume_context::<Arc<SqliteStore>>();
-                    let all: Vec<(AccountId, String)> = account_rows(&store)
+                    let client = crate::ui::live::client();
+                    let all: Vec<(AccountId, String)> = account_rows(&client)
                         .into_iter()
                         .map(|row| (row.id.clone(), row.shown()))
                         .collect();

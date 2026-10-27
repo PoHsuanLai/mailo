@@ -11,21 +11,23 @@ use chordkit::Platform;
 use chrono::Utc;
 use dioxus_core::VirtualDom;
 use ds::prelude::*;
+use mail_core::SqliteStore;
 use mail_core::search::{Results, Top};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// `platform`'s conventions as a window's keymap, for the hints beside the commands.
 fn conventional(platform: Platform) -> chordkit::Keymap {
     chordkit::Keymap::conventional(platform)
 }
 
-fn at_dana(store: &SqliteStore) -> (Results, HashMap<String, String>) {
-    search_now(store, "dana", Utc::now())
+fn at_dana(store: &Arc<SqliteStore>) -> (Results, HashMap<String, String>) {
+    search_now(&crate::ui::fixtures::client(store), "dana", Utc::now())
 }
 
 /// The addresses the ⌘K menu's person rows name for `query`, top hit first, as drawn.
-pub(in crate::ui) fn people_for(store: &SqliteStore, query: &str) -> Vec<String> {
-    let (results, names) = search_now(store, query, Utc::now());
+pub(in crate::ui) fn people_for(store: &Arc<SqliteStore>, query: &str) -> Vec<String> {
+    let (results, names) = search_now(&crate::ui::fixtures::client(store), query, Utc::now());
     rows_of(&results, &names, query, &conventional(Platform::MacOs))
         .into_iter()
         .filter_map(|item| item.key.strip_prefix("person:").map(str::to_owned))
@@ -37,10 +39,11 @@ fn a_person_the_ranker_put_on_top_is_the_books_best_match() {
     // Nobody but the book says who "da" is: the menu's people are its answer, in its order.
     let (store, _dir) = crate::ui::contacts::tests::the_book();
     let drawn = people_for(&store, "da");
-    let book: Vec<String> = crate::ui::contacts::book::suggest(store.as_ref(), "da")
-        .into_iter()
-        .map(|person| person.address)
-        .collect();
+    let book: Vec<String> =
+        crate::ui::contacts::book::suggest(&crate::ui::fixtures::client(&store), "da")
+            .into_iter()
+            .map(|person| person.address)
+            .collect();
     assert!(!drawn.is_empty(), "no people for da");
     assert_eq!(drawn, book[..drawn.len()], "the menu and the book disagree");
     // Operators alone name nobody.
@@ -72,7 +75,7 @@ fn the_panel_draws_no_mail_of_its_own() {
 fn the_sidebar_row_names_what_a_pick_does() {
     use super::items::{SIDEBAR_KEY, restate_sidebar};
     let built = work();
-    let (results, names) = search_now(&built.store, "", Utc::now());
+    let (results, names) = search_now(&crate::ui::fixtures::client(&built.store), "", Utc::now());
     let items = rows_of(&results, &names, "", &conventional(Platform::MacOs));
     let wording = |sidebar: Shown, query: &str| -> Vec<(String, String)> {
         items
@@ -118,7 +121,11 @@ fn the_sidebar_row_names_what_a_pick_does() {
 fn the_renamed_sidebar_row_is_marked_for_its_own_wording() {
     use super::items::{SIDEBAR_KEY, restate_sidebar};
     let built = work();
-    let (results, names) = search_now(&built.store, "sidebar", Utc::now());
+    let (results, names) = search_now(
+        &crate::ui::fixtures::client(&built.store),
+        "sidebar",
+        Utc::now(),
+    );
     let items = rows_of(&results, &names, "sidebar", &conventional(Platform::MacOs));
     let row = items
         .into_iter()
@@ -320,7 +327,7 @@ async fn settings_opens_the_settings_window() {
 #[test]
 fn a_command_s_hint_is_drawn_for_the_platform() {
     let built = work();
-    let (results, names) = search_now(&built.store, "", Utc::now());
+    let (results, names) = search_now(&crate::ui::fixtures::client(&built.store), "", Utc::now());
     let hint = |platform: Platform, key: &str| -> Option<String> {
         rows_of(&results, &names, "", &conventional(platform))
             .into_iter()

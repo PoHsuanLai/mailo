@@ -17,7 +17,6 @@ use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds::components::app::spaces::{Switched, use_spaces};
 use ds_settings::use_environment;
-use mail_core::SqliteStore;
 use std::sync::Arc;
 
 /// The window as quire opens it: the desktop's settings and mailo's own watched as the first
@@ -55,7 +54,7 @@ fn SettingsShell() -> Element {
     let shell = use_signal({
         let dirs = dirs.clone();
         move || {
-            let store = consume_context::<Arc<SqliteStore>>();
+            let client = crate::ui::live::client();
             Shell {
                 settings: Some(first.page()),
                 accounts_pane: first.pane(),
@@ -67,8 +66,8 @@ fn SettingsShell() -> Element {
                     .as_ref()
                     .map(|dirs| crate::ui::keymap::load(&dirs.config))
                     .unwrap_or_default(),
-                labels: mail_core::query::known_labels(&store),
-                accounts: mail_core::compose::sending_accounts(&store),
+                labels: client.query().known_labels(),
+                accounts: client.compose().sending_accounts(),
                 ..Shell::default()
             }
         }

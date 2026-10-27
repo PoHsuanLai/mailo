@@ -199,7 +199,7 @@ impl Peek {
 
 /// How the loaded page is grouped.
 ///
-/// Client-side, and only the rows already on this page. The store's own grouping is a
+/// Client-side, and only the rows already on this page. The client's own grouping is a
 /// different feature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PageGroup {
@@ -282,7 +282,7 @@ pub const NEWEST_FIRST: Sort = Sort {
 /// What keeps a sort chosen from the list's ⋯ ([`Shell::sort_by`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SortKept {
-    /// A saved view, with its new order, to be kept again in the store.
+    /// A saved view, with its new order, to be kept again in the client.
     View(View),
     /// One of mailo's places, a label or a folder, by its key, for `window.sorts`.
     Place(String, Sort),
@@ -421,7 +421,7 @@ pub enum AccountsPage {
 
 /// Settings' Accounts pane: the pages shown (quire's `PanePath`, the list at its root), and how
 /// far a removal on an account's page has got. It keeps nothing of the account itself, which the
-/// page reads from the store.
+/// page reads from the client.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AccountsPane {
     pub path: PanePath<AccountsPage>,
@@ -443,13 +443,13 @@ pub enum SettingsPage {
     #[default]
     General,
     /// Every account, each with its own page: its mail, its encryption keys and its removal.
-    /// Nothing about a key is kept in the shell: the page reads the store, and a passphrase, a
+    /// Nothing about a key is kept in the shell: the page reads the client, and a passphrase, a
     /// password or a secret key never passes through it.
     Accounts,
     /// The address book: every person's card and every group, each with its own page.
     Contacts,
     /// Every address's signatures, each with its own page: its name, its words and its
-    /// defaults. Read from the store, as the composer reads them.
+    /// defaults. Read from the client, as the composer reads them.
     Signatures,
     /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
     Spaces,
@@ -643,14 +643,14 @@ pub struct Shell {
     /// something the shell needs to know about the world that is a list of values rather than a
     /// connection, so `query` and `apply_to` stay pure functions of what is on screen.
     pub accounts: Vec<(String, AccountId)>,
-    /// Every label name the store knows, and which label bears it.
+    /// Every label name the client knows, and which label bears it.
     ///
     /// Data rather than a connection, so `query` stays a pure function of the shell: `label:` is
     /// the one search term that needs the world, and the world arrives as a list. A name can
     /// appear more than once — `UNIQUE (account, name)` is per account, so "travel" on two
     /// accounts is two labels and someone typing the word means both.
     pub labels: Vec<(String, LabelId)>,
-    /// The VIPs, read from the store as `labels` is: whom `is:vip` and the VIPs place mean, and
+    /// The VIPs, read from the client as `labels` is: whom `is:vip` and the VIPs place mean, and
     /// whose name a row and the reader mark.
     pub vips: mail_core::vip::Vips,
     /// How the window looks.
@@ -664,7 +664,7 @@ pub struct Shell {
     /// The account tile that is pressed: the list shows that account's mail alone. `None` is
     /// every account in [`Self::scope`].
     pub account: Option<AccountId>,
-    /// How this page's rows are grouped. Not a store query.
+    /// How this page's rows are grouped. Not a client query.
     pub group: PageGroup,
     /// The order chosen for each place's list, by [`place_key`]: `window.sorts` in
     /// `settings.toml`, held here so [`Self::query`] stays a function of the shell. A saved view
@@ -771,7 +771,7 @@ impl Finding {
 /// No `Default`: a composer with no draft behind it is not a state this can be in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Composing {
-    /// The draft this edits. It already exists in the store before the composer opens.
+    /// The draft this edits. It already exists in the client before the composer opens.
     pub draft: DraftId,
     /// The account this leaves from.
     ///
@@ -786,7 +786,7 @@ pub struct Composing {
     /// What the draft carries, as `(name, size)` ready to show.
     ///
     /// Filled by the composer rather than by [`Composing::of`], because the sizes live in the
-    /// blob table and this module is deliberately free of the store — every decision in it is
+    /// blob table and this module is deliberately free of the client — every decision in it is
     /// tested without one. A list that is merely stale shows the wrong size for a moment; a
     /// `view` that could read the database would be a `view` nothing could test cheaply.
     pub attachments: Vec<(String, String)>,
@@ -976,7 +976,7 @@ impl Shell {
     }
 
     /// Sort the place's list by `sort`, and say what keeps the choice: the saved view, changed,
-    /// for the store; or the place's key, for `settings.toml`. `None` when the list cannot be
+    /// for the client; or the place's key, for `settings.toml`. `None` when the list cannot be
     /// sorted ([`Self::sortable`]).
     pub fn sort_by(&mut self, sort: Sort) -> Option<SortKept> {
         if !self.sortable() {
@@ -1265,8 +1265,8 @@ impl Shell {
     }
 
     /// Open the composer on the stored draft `id`, read now. A draft that is gone is the error.
-    pub fn compose_id(&mut self, store: &impl mail_core::Store, id: DraftId) -> Result<(), String> {
-        let draft = mail_core::Store::draft(store, id).map_err(|why| why.to_string())?;
+    pub fn compose_id(&mut self, client: &mail_client::Client, id: DraftId) -> Result<(), String> {
+        let draft = client.stored().draft(id).map_err(|why| why.to_string())?;
         self.compose(&draft);
         Ok(())
     }

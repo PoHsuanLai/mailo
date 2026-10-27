@@ -28,7 +28,7 @@ mod clock;
 mod command;
 mod common;
 mod compose;
-pub(crate) use compose::discard_draft;
+pub(crate) use compose::discarding_draft;
 mod contacts;
 mod data;
 mod debounce;

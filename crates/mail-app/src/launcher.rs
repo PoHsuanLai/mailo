@@ -55,23 +55,32 @@ pub fn filter<S: Store + ?Sized>(
     scope: &Scope,
     places: Places,
 ) -> Result<Filter, mail_core::StoreError> {
+    let followed = match places {
+        Places::Inbox => Vec::new(),
+        Places::Followed => store.followed_folders()?,
+    };
+    Ok(filter_over(&followed, scope, places))
+}
+
+/// [`filter`], given the mailboxes the accounts' servers list as followed (none, for
+/// [`Places::Inbox`]).
+pub fn filter_over(followed: &[mail_domain::MailboxRef], scope: &Scope, places: Places) -> Filter {
     let inbox = unread_in(for_role(MailboxRole::Inbox));
     let followed: Vec<Filter> = match places {
         Places::Inbox => Vec::new(),
-        Places::Followed => store
-            .followed_folders()?
-            .into_iter()
+        Places::Followed => followed
+            .iter()
             .filter(|mailbox| scope.shows(mailbox.account.clone()))
-            .map(|mailbox| unread_in(Filter::InFolder(mailbox)))
+            .map(|mailbox| unread_in(Filter::InFolder(mailbox.clone())))
             .collect(),
     };
-    Ok(if followed.is_empty() {
+    if followed.is_empty() {
         scope.over(inbox)
     } else {
         let mut any = vec![inbox];
         any.extend(followed);
         scope.over(Filter::Or(any))
-    })
+    }
 }
 
 /// Count them, as `places` says. One indexed query (`Store::count`), made off the thread that

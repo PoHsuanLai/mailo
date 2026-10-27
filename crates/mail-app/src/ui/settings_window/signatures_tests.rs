@@ -66,7 +66,7 @@ async fn a_deleted_signature_is_said_with_an_undo_that_puts_it_back() {
 
     // What the Undo puts back.
     crate::ui::motion::Restore::Signature(made.clone())
-        .put_back(&built.store)
+        .put_back(&crate::ui::fixtures::client(&built.store))
         .unwrap();
     assert_eq!(built.store.signature(made.id).unwrap(), made);
 }

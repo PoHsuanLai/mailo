@@ -7,11 +7,10 @@
 //! is drawn while the identity has a signature to pick, so an account with none is asked nothing.
 
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::rich_text::{Caret, Doc, apply};
 use mail_core::signature::{self, Placement};
 use mail_domain::{Draft, Signature, SignatureId};
-use std::sync::Arc;
 
 use super::super::menu::{MenuItem, Right};
 use super::float::commit;
@@ -24,9 +23,12 @@ const NONE_KEY: &str = "signature:none";
 
 /// The page's identity's signatures, or none when they cannot be read: the row is then not drawn,
 /// and the message is signed as it was opened.
-fn signatures(store: &SqliteStore, page: &Page) -> Vec<Signature> {
+fn signatures(client: &Client, page: &Page) -> Vec<Signature> {
     // Unreadable is none to pick: the row goes, and the signature on the page stays as it is.
-    signature::of_identity(store, page.identity).unwrap_or_default()
+    client
+        .signing()
+        .of_identity(page.identity)
+        .unwrap_or_default()
 }
 
 /// Where a signature the page has none of goes: the person's setting.
@@ -39,8 +41,8 @@ fn placement() -> Placement {
 
 /// `page`, just opened on `draft`, knowing which of its identity's signatures it has, with that
 /// signature's own formatting in place of its words.
-pub(in crate::ui) fn adopt(store: &SqliteStore, page: &mut Page) {
-    let known = signatures(store, page);
+pub(in crate::ui) fn adopt(client: &Client, page: &mut Page) {
+    let known = signatures(client, page);
     let Some((id, at)) = signature::recognise(&page.session.doc, &known) else {
         return;
     };
@@ -79,14 +81,16 @@ fn put(page: &mut Page, known: &[Signature], next: Option<&Signature>) {
 
 /// From moved the draft to `moved`'s identity: the signature becomes that identity's default, in
 /// place of the one the page had from the identity it left.
-pub(in crate::ui) fn follow_from(store: &SqliteStore, page: &mut Page, moved: &Draft) {
+pub(in crate::ui) fn follow_from(client: &Client, page: &mut Page, moved: &Draft) {
     if page.identity == moved.identity {
         return;
     }
-    let known = signatures(store, page);
+    let known = signatures(client, page);
     // A default that cannot be read is none: the signature comes off rather than staying the
     // identity's the draft left.
-    let next = signature::default_for(store, moved.identity, signature::purpose_of(moved))
+    let next = client
+        .signing()
+        .default_for(moved.identity, signature::purpose_of(moved))
         .ok()
         .flatten();
     page.identity = moved.identity;
@@ -111,8 +115,8 @@ fn items(known: &[Signature], on: Option<SignatureId>) -> Vec<MenuItem> {
 /// Drawn only while the identity has one to pick.
 #[component]
 pub(in crate::ui) fn SignatureRow(page: Signal<Page>) -> Element {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let known = signatures(&store, &page.read());
+    let client = crate::ui::live::client();
+    let known = signatures(&client, &page.read());
     if known.is_empty() {
         return rsx! {};
     }

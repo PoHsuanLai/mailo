@@ -33,10 +33,10 @@ use ds::components::content::avatar::{
 };
 use ds::components::content::label::LabelStyle;
 use ds::prelude::*;
+use mail_client::Client;
 use mail_client::Snapshot;
 use mail_client::query::Conversation;
 use mail_core::message::{FrameBody, INLINE_BYTES, Sent};
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
@@ -48,12 +48,14 @@ use std::sync::Arc;
 pub(in crate::ui) use tools::compose_on;
 
 /// Whether what is shown is unread now: `message` when it was opened alone, else any of `thread`.
-fn is_unread(store: &SqliteStore, thread: ThreadId, only: Option<MessageId>) -> bool {
+fn is_unread(client: &Client, thread: ThreadId, only: Option<MessageId>) -> bool {
     match only {
-        Some(message) => store
+        Some(message) => client
+            .stored()
             .message(message)
             .is_ok_and(|alone| alone.thread == thread && alone.read == ReadState::Unread),
-        None => store
+        None => client
+            .stored()
             .thread(thread)
             .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread),
     }
@@ -63,7 +65,7 @@ fn is_unread(store: &SqliteStore, thread: ThreadId, only: Option<MessageId>) -> 
 /// with no toast and no undo, and the list loses its dot. A message opened alone is the only one
 /// read.
 fn mark_read(
-    store: &SqliteStore,
+    client: &Client,
     thread: ThreadId,
     only: Option<MessageId>,
     revision: Option<Signal<u64>>,
@@ -71,7 +73,7 @@ fn mark_read(
     let (op, alone) = match only {
         Some(message) => (Some(Op::SetRead(ReadState::Read)), vec![(thread, message)]),
         None => (
-            super::ops::resolve(store, thread, OpKind::MarkRead),
+            super::ops::resolve(client, thread, OpKind::MarkRead),
             Vec::new(),
         ),
     };
@@ -164,7 +166,7 @@ fn gone() -> Element {
 }
 
 /// `revision` is the window's, moved when leaving a list queues a message, and whenever any
-/// window moves the store (`ui/revisions`), which draws the reader again; a reader drawn on its
+/// window moves the client (`ui/revisions`), which draws the reader again; a reader drawn on its
 /// own has none. `only` is the one message to show, when it was opened from a list of single
 /// messages (`Shell::focus`); one that is not the conversation's shows the conversation whole.
 #[component]
@@ -176,7 +178,7 @@ pub(super) fn Reader(
     #[props(default)] only: Option<MessageId>,
     children: Element,
 ) -> Element {
-    let store = use_context::<Arc<SqliteStore>>();
+    let client = super::live::client();
     // Where the sender's name marks a VIP: this window's shell and revision.
     use_context_provider(|| crate::ui::vip::Marking { shell, revision });
     let read = super::live::use_live(use_reactive!(|thread| Conversation(thread)));
@@ -184,7 +186,7 @@ pub(super) fn Reader(
     let looks = use_looks();
     // ⌘F's frames, which every message's frame below joins (`find`).
     let found = find::use_find(shell);
-    // The store may have moved under this conversation, here or in another window.
+    // The client may have moved under this conversation, here or in another window.
     if let Some(revision) = revision {
         let _ = revision();
     }
@@ -241,7 +243,7 @@ pub(super) fn Reader(
         shell,
         consent.as_ref().map(|(_, holder)| *holder),
         embedded.clone(),
-        store.clone(),
+        client.clone(),
     );
     // Showing a conversation reads it: an unread one is marked read once it is drawn, after
     // the wait `reading.mark_read` asks for, or never (`marking`). The messages that were unread
@@ -252,17 +254,17 @@ pub(super) fn Reader(
         use_drop(move || pending.borrow_mut().left());
     }
     {
-        let store = store.clone();
+        let client = client.clone();
         use_effect(use_reactive!(|thread, only| {
             let reading = settings
                 .map(|settings| settings.peek().reading.clone())
                 // A reader with no window around it (a test's) marks read on open, as ever.
                 .unwrap_or_default();
-            let unread = is_unread(&store, thread, only);
+            let unread = is_unread(&client, thread, only);
             match marking::on_show(reading.mark_read, reading.mark_read_delay, unread) {
                 marking::Mark::Now => {
                     pending.borrow_mut().left();
-                    mark_read(&store, thread, only, revision);
+                    mark_read(&client, thread, only, revision);
                 }
                 marking::Mark::Leave => pending.borrow_mut().left(),
                 marking::Mark::After(wait) => {
@@ -270,14 +272,14 @@ pub(super) fn Reader(
                         .borrow_mut()
                         .shown(thread, ds::base::time::clock::now(), wait);
                     let pending = pending.clone();
-                    let store = store.clone();
+                    let client = client.clone();
                     spawn(async move {
                         ds::base::time::clock::sleep(wait).await;
                         let due = pending
                             .borrow_mut()
                             .due(thread, ds::base::time::clock::now());
-                        if due && is_unread(&store, thread, only) {
-                            mark_read(&store, thread, only, revision);
+                        if due && is_unread(&client, thread, only) {
+                            mark_read(&client, thread, only, revision);
                         }
                     });
                 }
@@ -358,8 +360,7 @@ pub(super) fn Reader(
                 shell.read().policy_with(showing)
             };
             let mut frame = |policy| {
-                frames.render_inline(
-                    &store,
+                client.framing(&frames).render_inline(
                     &message,
                     policy,
                     &mut room,
@@ -393,7 +394,7 @@ pub(super) fn Reader(
     if !later.is_empty() {
         cache::render_later(
             frames.clone(),
-            store.clone(),
+            client.clone(),
             later,
             sent.clone(),
             rendered_later,
@@ -504,7 +505,7 @@ pub(super) fn Reader(
         let messages = shown.iter().map(|(message, ..)| message.clone()).collect();
         images::look_later(
             looks.clone(),
-            store.clone(),
+            client.clone(),
             messages,
             wanted,
             looked.clone(),
@@ -521,7 +522,7 @@ pub(super) fn Reader(
         .collect();
 
     // The person's own addresses, for the header to leave out a To line of only them.
-    let yours: Vec<String> = super::data::account_rows(&store)
+    let yours: Vec<String> = super::data::account_rows(&client)
         .into_iter()
         .map(|row| row.address.trim().to_lowercase())
         .collect();
@@ -690,7 +691,7 @@ fn use_frame_images(
     shell: Signal<Shell>,
     holder: Option<super::original::Holder>,
     embedded: Rc<RefCell<Embedded>>,
-    store: Arc<SqliteStore>,
+    client: Client,
 ) {
     let images = use_hook(|| {
         try_consume_context::<super::original::FrameImages>().map(|images| images.listen())
@@ -698,7 +699,7 @@ fn use_frame_images(
     use_future(move || {
         let images = images.clone();
         let embedded = embedded.clone();
-        let store = store.clone();
+        let client = client.clone();
         async move {
             let (Some(mut images), Some(holder)) = (images, holder) else {
                 return;
@@ -716,7 +717,7 @@ fn use_frame_images(
                     .find(|(id, _)| *id == message)
                     .and_then(|(_, images)| mail_mime::drawn_from(&clicked.src, images));
                 if let Some(cid) = cid {
-                    peek::open_inline(shell, &store, message, &cid);
+                    peek::open_inline(shell, &client, message, &cid);
                 }
             }
         }

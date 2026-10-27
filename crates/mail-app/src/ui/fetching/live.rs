@@ -5,23 +5,14 @@
 //! it is lent is [`Listener`], the one place the window reaches a server to wait on it and the
 //! lock that says whether anyone else already does. A test provides its own.
 
-use mail_core::SqliteStore;
+use mail_client::Client;
+use mail_client::fetch::{Listen, Pushers};
 use mail_core::fetch::RETRY_NOW;
-use mail_core::schedule::{Daemon, Heard, Hold, Lost, Stop};
-use porter_core::AccountId;
+use mail_core::schedule::Daemon;
+#[cfg(test)]
+use mail_core::schedule::Lost;
 use std::sync::Arc;
 use std::time::Duration;
-
-/// Runs one connection of a watch: the signature of [`mail_core::SyncOps::listen`], with the
-/// grace chosen.
-type Listen = Arc<
-    dyn Fn(Arc<SqliteStore>, AccountId, Stop, Hold, &dyn Fn(Heard)) -> Result<(), Lost>
-        + Send
-        + Sync,
->;
-
-/// Which accounts the server can push to: the signature of [`mail_core::sync::live::pushing`].
-type Pushers = Arc<dyn Fn(&SqliteStore) -> Vec<AccountId> + Send + Sync>;
 
 /// What the watch is, and what it asks of its surroundings. The real ones unless a test
 /// provided its own, as [`super::Passer`] is.
@@ -41,18 +32,9 @@ pub(in crate::ui) struct Listener {
 impl Listener {
     /// The servers, through [`mail_core::SyncOps::listen`]; the daemon, through its lock.
     #[cfg(not(test))]
-    pub(in crate::ui) fn server() -> Self {
+    pub(in crate::ui) fn server(client: &Client) -> Self {
         Self {
-            listen: Arc::new(|store, account, stop, hold, heard| {
-                let mail = crate::edge::mail(&store);
-                crate::edge::block_on(mail.sync().listen(
-                    account,
-                    stop,
-                    Some(hold),
-                    mail_core::sync::live::GRACE,
-                    heard,
-                ))
-            }),
+            listen: client.net().listen(),
             pushers: Arc::new(mail_core::sync::live::pushing),
             daemon: Arc::new(|| {
                 // Racy by nature, as the lock's own documentation says: a daemon that starts a
@@ -78,7 +60,7 @@ impl Listener {
     /// Not in a test build: a watch opens sockets, and a test that forgot to provide its own
     /// must not reach one. No account is pushed to, so none is watched.
     #[cfg(test)]
-    pub(in crate::ui) fn server() -> Self {
+    pub(in crate::ui) fn server(_: &Client) -> Self {
         Self {
             listen: Arc::new(|_, _, _, _, _| {
                 Err(Lost {

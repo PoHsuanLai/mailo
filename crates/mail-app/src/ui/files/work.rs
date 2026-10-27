@@ -1,16 +1,15 @@
-//! What the Import and Export sheets do, as functions of a store and a path.
+//! What the Import and Export sheets do, as functions of a client and a path.
 //!
 //! The sheets only draw what these answer, and the tests drive these rather than a window. The
 //! work itself is `mail_core::import` and `mail_core::export`, the same functions `mailo import` and
 //! `mailo export` run; this adds the words a person reads while choosing, and the one step the
 //! command line takes after an upload — sending it — is [`import_then_send`].
 
+use mail_client::Client;
 use std::io::ErrorKind;
 use std::path::Path;
-use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
-use mail_core::SqliteStore;
 use mail_core::mailbox_filter::{for_role, pending_snooze};
 use mail_core::transfer::{self, IoCause, Refusal, Seen};
 use mail_domain::{Filter, MailboxRole, Star};
@@ -18,7 +17,7 @@ use porter_core::AccountId;
 
 use crate::ui::copy;
 use crate::ui::view::{Shell, Source as Listed};
-use mail_core::export::{self, Exported, Target};
+use mail_core::export::{Exported, Target};
 use mail_core::import::{Destination, Imported, Source};
 
 pub(in crate::ui) use mail_core::transfer::{Format, expand_here, suggested};
@@ -172,11 +171,13 @@ impl Dest {
 }
 
 /// Every place imported mail can go: local folders first, then each IMAP account's folders as
-/// the store lists them, accounts oldest first. POP3 has no folders to upload into.
-pub(in crate::ui) fn destinations(store: &SqliteStore) -> Vec<Dest> {
+/// the client lists them, accounts oldest first. POP3 has no folders to upload into.
+pub(in crate::ui) fn destinations(client: &Client) -> Vec<Dest> {
     std::iter::once(Dest::Local)
         .chain(
-            transfer::upload_folders(store)
+            client
+                .transfer()
+                .upload_folders()
                 .into_iter()
                 .map(|upload| Dest::Folder {
                     account: upload.account,
@@ -202,13 +203,15 @@ pub(in crate::ui) struct Done {
 /// The window's function, and the one its tests drive. Nothing leaves here; see
 /// [`import_then_send`].
 pub(in crate::ui) fn import_now(
-    store: &SqliteStore,
+    client: &Client,
     source: &Source,
     into: &Dest,
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Imported),
 ) -> Result<Done, String> {
-    let (total, queued) = transfer::import_into(store, source, &into.destination(), now, progress)
+    let (total, queued) = client
+        .transfer()
+        .import_into(source, &into.destination(), now, progress)
         .map_err(|why| why.to_string())?;
     let said = crate::said::import::said(&total, &into.destination())
         .trim()
@@ -224,18 +227,17 @@ pub(in crate::ui) fn import_now(
 /// --to-mailbox` does. Whatever does not go stays queued for the next sync, and the sentence
 /// says so.
 pub(in crate::ui) fn import_then_send(
-    store: &Arc<SqliteStore>,
+    client: &Client,
     source: &Source,
     into: &Dest,
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Imported),
 ) -> Result<String, String> {
-    let done = import_now(store, source, into, now, progress)?;
+    let done = import_now(client, source, into, now, progress)?;
     let Some(account) = done.queued else {
         return Ok(done.said);
     };
-    let mail = crate::edge::mail(store);
-    let sent = match crate::edge::block_on(mail.sync().drain(account)) {
+    let sent = match client.net().drain(account) {
         Ok(report) => {
             let mut out = format!("{}. {} uploaded", done.said, report.appended);
             if report.still_queued > 0 {
@@ -333,11 +335,11 @@ fn place_words(source: &Listed) -> Option<&'static str> {
 }
 
 /// How many messages `query` means, as the sheet says it, or why it means none.
-pub(in crate::ui) fn counted(store: &SqliteStore, query: &str, now: DateTime<Utc>) -> Counted {
+pub(in crate::ui) fn counted(client: &Client, query: &str, now: DateTime<Utc>) -> Counted {
     if query.trim().is_empty() {
         return Counted::Blank;
     }
-    match transfer::selection_size(store, query, now) {
+    match client.transfer().selection_size(query, now) {
         Ok(count) => Counted::Some(count),
         Err(why) => Counted::Refused(sentence(&why)),
     }
@@ -353,24 +355,23 @@ pub(in crate::ui) enum Counted {
 
 /// Export what `query` means to `target`: the window's function, and the one its tests drive.
 pub(in crate::ui) fn export_now(
-    store: &SqliteStore,
+    client: &Client,
     query: &str,
     target: &Target,
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Exported),
 ) -> Result<(Exported, String), String> {
-    let chosen = export::select(store, query, now).map_err(|why| sentence(&why))?;
+    let chosen = client
+        .export()
+        .select(query, now)
+        .map_err(|why| sentence(&why))?;
     if chosen.is_empty() {
         return Err("Nothing to export.".to_owned());
     }
-    let done = export::export(
-        store,
-        &crate::edge::environment(),
-        &chosen,
-        target,
-        now,
-        progress,
-    )?;
+    let done =
+        client
+            .export()
+            .export(&crate::edge::environment(), &chosen, target, now, progress)?;
     let said = crate::said::export::said(&done, target)
         .lines()
         .collect::<Vec<_>>()

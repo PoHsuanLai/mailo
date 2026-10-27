@@ -26,9 +26,7 @@ use ds::prelude::*;
 use ds::style::kit::Styles;
 use ds_settings::Environment;
 use mail_core::profile::ProfileId;
-use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use std::sync::Arc;
 
 /// The Spaces the window opens on, `first` as stored: a window started from a click (`mailo
 /// open`, its conversation already in the shell) opens on the Space [`super::start::space_for`]
@@ -38,8 +36,8 @@ fn arrived_at(mut first: Spaces) -> Spaces {
     let Some(start) = try_consume_context::<super::Start>() else {
         return first;
     };
-    let store = consume_context::<Arc<SqliteStore>>();
-    if let Some(id) = super::start::space_for(&first, &store, &start)
+    let client = crate::ui::live::client();
+    if let Some(id) = super::start::space_for(&first, &client, &start)
         && id != first.current().id
     {
         first.select(id);
@@ -53,7 +51,7 @@ pub(super) fn App() -> Element {
     // The places, labels and badges are values the client keeps read (`use_live`), never a read
     // on the thread that draws.
     // The launched look, when `main` provided one. A test that builds `App` with only the
-    // store keeps the first-run appearance.
+    // client keeps the first-run appearance.
     // Opened on a conversation when the window was started to show one (`mailo open`), or on
     // the composer when it was started from a `mailto:` link.
     let mut shell = use_signal(|| {
@@ -76,8 +74,8 @@ pub(super) fn App() -> Element {
             // Started from a `mailto:` link: its draft was saved before the window opened, and
             // one read here, once, puts it in the composer.
             Some(super::Start::Compose(id)) => {
-                let store = consume_context::<Arc<SqliteStore>>();
-                if let Err(why) = shell.compose_id(&*store, id) {
+                let client = crate::ui::live::client();
+                if let Err(why) = shell.compose_id(&client, id) {
                     log::warn!("compose: {why}");
                 }
             }
@@ -201,7 +199,7 @@ pub(super) fn App() -> Element {
     // program reads them before the window opens): a chip's name is a lookup, and a lookup
     // against an empty list draws an empty chip.
     use_hook(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let mut write = shell.write();
         if every.peek().value().is_some() {
             write.labels = known.peek().clone();
@@ -213,10 +211,10 @@ pub(super) fn App() -> Element {
                 &vip_list.peek(),
             );
         }
-        write.accounts = mail_core::compose::sending_accounts(&store);
+        write.accounts = client.compose().sending_accounts();
     });
 
-    // A client that reads on the thread that draws (a test's window, given only a store) acts on
+    // A client that reads on the thread that draws (a test's window, given only a client) acts on
     // what was committed when the revision moves; the program's own client does that by itself.
     let client = super::live::use_client();
     use_effect(move || {
@@ -310,8 +308,8 @@ pub(super) fn App() -> Element {
     // window without a restart.
     use_effect(move || {
         let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
-        let sending = mail_core::compose::sending_accounts(&store);
+        let client = crate::ui::live::client();
+        let sending = client.compose().sending_accounts();
         if shell.peek().accounts != sending {
             shell.write().accounts = sending;
         }
@@ -384,8 +382,8 @@ pub(super) fn App() -> Element {
         if handle.editing().is_some() {
             return;
         }
-        let store = consume_context::<Arc<SqliteStore>>();
-        let Ok(known) = super::data::known_accounts(&store) else {
+        let client = crate::ui::live::client();
+        let Ok(known) = super::data::known_accounts(&client) else {
             return;
         };
         let mut next = spaces.peek().clone();
@@ -416,7 +414,7 @@ pub(super) fn App() -> Element {
         };
         let space = spaces.peek().current().id;
         let now = chrono::Utc::now();
-        mail_core::history::record(&consume_context::<Arc<SqliteStore>>(), id, now);
+        crate::ui::live::client().history().record(id, now);
         today_list
             .write()
             .opened(space, id, crate::ui::today::at(now));
@@ -441,21 +439,21 @@ pub(super) fn App() -> Element {
 
     let drafts = use_memo(move || {
         let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         match shell.read().listing(PAGE) {
-            Listing::Drafts => accounts(&store)
+            Listing::Drafts => accounts(&client)
                 .into_iter()
-                .filter_map(|account| store.drafts(account).ok())
+                .filter_map(|account| client.stored().drafts(account).ok())
                 .flatten()
                 .collect::<Vec<_>>(),
-            Listing::Scheduled => super::compose::scheduled(&store, &shell.read().scope),
+            Listing::Scheduled => super::compose::scheduled(&client, &shell.read().scope),
             _ => Vec::new(),
         }
     });
 
-    // One more row than asked for means there is another page. Asking the store for the count
+    // One more row than asked for means there is another page. Asking the client for the count
     // would be a second query answering a question this one already answers.
-    // Deliberately a growing limit rather than `Page::next`, which the store also returns. A
+    // Deliberately a growing limit rather than `Page::next`, which the client also returns. A
     // cursor is the usual answer for an accumulating list — but accumulating means holding
     // pages in a signal and rebuilding them after every archive, star and ingest, and a mixture
     // of pages fetched at different moments is exactly the inconsistency keyset pagination
@@ -469,9 +467,9 @@ pub(super) fn App() -> Element {
     // account, so the first run needs to name the command that can.
     let nothing = use_memo(move || {
         let _ = revision();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let shell = shell.read();
-        nothing_to_show(accounts(&store).len(), &shell.search, &shell.quick)
+        nothing_to_show(accounts(&client).len(), &shell.search, &shell.quick)
     });
 
     // The keyboard.
@@ -691,7 +689,7 @@ pub(super) fn App() -> Element {
         let Some(Intent::Mail(action)) = intent else {
             return;
         };
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let open = shell.read().open;
         match action {
             Shortcut::Next | Shortcut::Previous => {
@@ -747,11 +745,11 @@ pub(super) fn App() -> Element {
             }
             Shortcut::TogglePin | Shortcut::Reply | Shortcut::ReplyAll | Shortcut::Forward => {
                 if let Some(id) = open {
-                    on_thread(&store, shell, revision, id, action);
+                    on_thread(&client, shell, revision, id, action);
                 }
             }
             Shortcut::ToggleMute => {
-                super::picks::mute_picked(&store, shell, revision, &threads());
+                super::picks::mute_picked(&client, shell, revision, &threads());
             }
             Shortcut::Compose => {
                 // The only shortcut that does not consult the conversation under the cursor, and
@@ -759,7 +757,7 @@ pub(super) fn App() -> Element {
                 // Cloned out and the guard dropped before anything writes back. The same
                 // hazard the composer's handlers document, caught here by the borrow checker
                 // rather than at runtime.
-                if open_composer(&store, shell, Writes::New).is_ok() {
+                if open_composer(&client, shell, Writes::New).is_ok() {
                     revision += 1;
                 }
             }
@@ -767,7 +765,7 @@ pub(super) fn App() -> Element {
                 // The picked conversations, or with none picked the open one. Resolved against
                 // their own summaries, so the keyboard reaches exactly what their rows offer and
                 // nothing else, and all of it is one gesture with one undo.
-                super::picks::act_on_picked(&store, shell, revision, action, &threads());
+                super::picks::act_on_picked(&client, shell, revision, action, &threads());
             }
         }
     };
@@ -1005,8 +1003,8 @@ mod tests {
         // A database with no account looked exactly like an empty mailbox: six folders, a Sync
         // button and "Nothing here." A new person needs a way out, and it is a button in the
         // window, not a command to type in a terminal.
-        let (store, _dir) = empty();
-        let markup = markup(store);
+        let (client, _dir) = empty();
+        let markup = markup(client);
 
         assert!(markup.contains("No account"), "{markup}");
         assert!(
@@ -1034,8 +1032,8 @@ mod tests {
         // The pencil, ⌘N and `c` did nothing at all with no account to send from: the reason
         // went to the terminal. The window says it, and offers the way out.
         dispatching();
-        let (store, _dir) = empty();
-        let mut dom = VirtualDom::new(App).with_root_context(store);
+        let (client, _dir) = empty();
+        let mut dom = VirtualDom::new(App).with_root_context(client);
         dom.rebuild_in_place();
         assert!(
             !dioxus_ssr::render(&dom).contains("No account to send from"),
@@ -1058,8 +1056,8 @@ mod tests {
     async fn a_configured_account_with_an_empty_folder_is_not_told_to_add_an_account() {
         // The other direction. `seeded()` has one account and mail in the inbox, so nothing on
         // the page should be setup advice: not the "No account" the first run shows.
-        let (store, _dir) = seeded();
-        let shown = without_styles(&markup(store));
+        let (client, _dir) = seeded();
+        let shown = without_styles(&markup(client));
         assert!(!shown.contains("No account"), "{shown}");
     }
 
@@ -1144,11 +1142,11 @@ mod tests {
         // database.
         // `j` opens the first conversation and `e` archives it.
         dispatching();
-        let (store, _dir) = realistic();
-        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        let (client, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(client.clone());
         dom.rebuild_in_place();
 
-        let before = store
+        let before = client
             .threads(&inbox_query(), chrono::Utc::now())
             .unwrap()
             .items
@@ -1158,7 +1156,7 @@ mod tests {
         press(&mut dom, "j", INSIDE_THE_SHELL);
         press(&mut dom, "e", INSIDE_THE_SHELL);
 
-        let after = store
+        let after = client
             .threads(&inbox_query(), chrono::Utc::now())
             .unwrap()
             .items
@@ -1175,15 +1173,15 @@ mod tests {
         // Forwarding was modelled in `mail-domain` and reachable from no surface at all. This is
         // the shell's half: `j` to open a conversation, `f` to carry it somewhere else.
         dispatching();
-        let (store, _dir) = realistic();
-        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        let (client, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(client.clone());
         dom.rebuild_in_place();
-        let before = store.drafts(acct_account()).unwrap().len();
+        let before = client.drafts(acct_account()).unwrap().len();
 
         press(&mut dom, "j", INSIDE_THE_SHELL);
         press(&mut dom, "f", INSIDE_THE_SHELL);
 
-        let drafts = store.drafts(acct_account()).unwrap();
+        let drafts = client.drafts(acct_account()).unwrap();
         assert_eq!(drafts.len(), before + 1, "`f` opened nothing");
         let made = drafts
             .iter()
@@ -1208,15 +1206,15 @@ mod tests {
         // conversation under the cursor; this one has no conversation, which is why it is also
         // the only shortcut that does anything at all in an empty mailbox.
         dispatching();
-        let (store, _dir) = realistic();
-        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        let (client, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(client.clone());
         dom.rebuild_in_place();
-        let before = store.drafts(acct_account()).unwrap().len();
+        let before = client.drafts(acct_account()).unwrap().len();
 
         // No `j` first, deliberately: nothing is open and nothing needs to be.
         press(&mut dom, "c", INSIDE_THE_SHELL);
 
-        let drafts = store.drafts(acct_account()).unwrap();
+        let drafts = client.drafts(acct_account()).unwrap();
         assert_eq!(drafts.len(), before + 1, "`c` opened nothing");
         let made = drafts
             .iter()
@@ -1240,8 +1238,8 @@ mod tests {
         // Attaching from the window: what this asserts is the existence of the control, a button
         // that opens the native dialog (`ui::pick`); `compose::tests::life` presses it.
         dispatching();
-        let (store, _dir) = realistic();
-        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        let (client, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(client.clone());
         dom.rebuild_in_place();
         press(&mut dom, "c", INSIDE_THE_SHELL);
 
@@ -1255,8 +1253,8 @@ mod tests {
     #[tokio::test]
     async fn the_sidebar_offers_a_way_to_write() {
         // The button, for anyone who does not know the key.
-        let (store, _dir) = realistic();
-        assert!(markup(store).contains(&format!(
+        let (client, _dir) = realistic();
+        assert!(markup(client).contains(&format!(
             "aria-label=\"{}\"",
             crate::ui::copy::aria::NEW_MESSAGE
         )));
@@ -1268,22 +1266,22 @@ mod tests {
         // only against the pure function: open a conversation, start a reply, and then "e" is a
         // letter someone is writing rather than Archive.
         dispatching();
-        let (store, _dir) = realistic();
-        let mut dom = VirtualDom::new(App).with_root_context(store.clone());
+        let (client, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(client.clone());
         dom.rebuild_in_place();
 
-        let drafts_before = store.drafts(acct_account()).unwrap().len();
+        let drafts_before = client.drafts(acct_account()).unwrap().len();
         press(&mut dom, "j", INSIDE_THE_SHELL);
         press(&mut dom, "r", INSIDE_THE_SHELL);
         // Counted across the keystroke, not merely "more than none": `realistic()` seeds a
         // draft of its own, so `drafts > 0` would have been true whatever `r` did.
         assert_eq!(
-            store.drafts(acct_account()).unwrap().len(),
+            client.drafts(acct_account()).unwrap().len(),
             drafts_before + 1,
             "`r` did not open a reply, so the rest of this proves nothing"
         );
 
-        let before = store
+        let before = client
             .threads(&inbox_query(), chrono::Utc::now())
             .unwrap()
             .items
@@ -1291,7 +1289,7 @@ mod tests {
         press(&mut dom, "e", INSIDE_THE_SHELL);
 
         assert_eq!(
-            store
+            client
                 .threads(&inbox_query(), chrono::Utc::now())
                 .unwrap()
                 .items
@@ -1307,8 +1305,8 @@ mod tests {
         // can never hold focus is never called. This asserts the one half of that which markup
         // can carry; the other half is the host's, which gives `.app` the keyboard when it
         // mounts and after a press that left it nowhere (`ui/host/native.rs`).
-        let (store, _dir) = seeded();
-        let markup = markup(store);
+        let (client, _dir) = seeded();
+        let markup = markup(client);
         let root = shell_markup(&markup);
         let tag = &root[..root.find('>').unwrap_or(root.len())];
         assert!(
@@ -1321,8 +1319,8 @@ mod tests {
     async fn the_shell_draws_the_mail_it_holds() {
         // `rebuild_in_place` only proved the components run. This is the first assertion in the
         // project about what they actually put on the page.
-        let (store, _dir) = realistic();
-        let markup = markup(store);
+        let (client, _dir) = realistic();
+        let markup = markup(client);
 
         for expected in [
             "Inbox",
@@ -1351,8 +1349,8 @@ mod tests {
         // A second render is where hook-order mistakes surface: hooks are matched between
         // renders by call order, so a component whose hook count changes corrupts every index
         // after it, and the first render alone would never show it.
-        let (store, _dir) = seeded();
-        let mut dom = VirtualDom::new(App).with_root_context(store);
+        let (client, _dir) = seeded();
+        let mut dom = VirtualDom::new(App).with_root_context(client);
         dom.rebuild_in_place();
         for _ in 0..3 {
             dom.mark_dirty(dioxus_core::ScopeId::APP);
@@ -1427,8 +1425,8 @@ mod tests {
         use crate::ui::fixtures::{click, key};
 
         dispatching();
-        let (store, _dir) = realistic();
-        let mut dom = VirtualDom::new(App).with_root_context(store);
+        let (client, _dir) = realistic();
+        let mut dom = VirtualDom::new(App).with_root_context(client);
         dom.rebuild_in_place();
         let mut seen = crate::ui::fixtures::Seen::default();
 

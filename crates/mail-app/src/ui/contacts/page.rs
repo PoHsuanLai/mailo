@@ -14,8 +14,6 @@
 //! member added from the field under the members, one taken out by its row's Remove. Every
 //! write moves the pane's `edits`, which the pages read, so what they list follows.
 
-use std::sync::Arc;
-
 use dioxus::prelude::*;
 use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
@@ -28,7 +26,7 @@ use ds::components::lists::row::size::RowSize;
 use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_core::contacts::people::Details;
 use mail_core::contacts::{CardId, GroupHome, GroupId, PersonCard};
 use mail_pim::Postal;
@@ -74,8 +72,8 @@ pub(in crate::ui) fn back(mut shell: Signal<Shell>) {
     shell.write().contacts_pane = popped;
 }
 
-fn store() -> Arc<SqliteStore> {
-    consume_context::<Arc<SqliteStore>>()
+fn client() -> Client {
+    crate::ui::live::client()
 }
 
 /// The first character of `name`, uppercased, for an avatar.
@@ -92,7 +90,7 @@ fn face(card: &PersonCard, size: AvatarSize) -> RowLeading {
     match card
         .addresses
         .first()
-        .and_then(|a| book::photo(store().as_ref(), a))
+        .and_then(|a| book::photo(&client(), a))
     {
         Some(src) => RowLeading::Element(rsx! {
             img { class: "contact-photo", "data-size": "row", src: "{src}", alt: "" }
@@ -113,11 +111,11 @@ pub(in crate::ui) fn Contacts(shell: Signal<Shell>) -> Element {
     let path = shell.read().contacts_pane.clone();
     let title = use_callback(move |page: ContactsPage| match page {
         ContactsPage::List => copy::titles::CONTACTS.to_owned(),
-        ContactsPage::Person(id) => book::card(store().as_ref(), &id)
+        ContactsPage::Person(id) => book::card(&client(), &id)
             .map(|card| card.name)
             .unwrap_or_default(),
         ContactsPage::NewPerson => copy::controls::NEW_CONTACT.to_owned(),
-        ContactsPage::Group(id) => book::group(store().as_ref(), &id)
+        ContactsPage::Group(id) => book::group(&client(), &id)
             .map(|group| group.name)
             .unwrap_or_default(),
     });
@@ -146,8 +144,8 @@ fn ContactList(shell: Signal<Shell>, edits: Signal<u64>) -> Element {
     let mut filter = use_signal(String::new);
     // Read, so a write elsewhere on the pane lists again.
     let _ = edits();
-    let store = store();
-    let cards = book::cards(store.as_ref(), &filter());
+    let client = client();
+    let cards = book::cards(&client, &filter());
     let people: Vec<ListItem<String>> = cards
         .iter()
         .map(|card| {
@@ -193,7 +191,7 @@ fn ContactList(shell: Signal<Shell>, edits: Signal<u64>) -> Element {
             }
         },
     )];
-    let groups: Vec<ListItem<String>> = book::every_group(store.as_ref())
+    let groups: Vec<ListItem<String>> = book::every_group(&client)
         .into_iter()
         .map(|group| {
             let page = ContactsPage::Group(group.id.clone());
@@ -270,7 +268,7 @@ fn ContactList(shell: Signal<Shell>, edits: Signal<u64>) -> Element {
 
 /// New Group: a group of nobody, named as the row is, and its page pushed to name it and fill it.
 fn make_group(shell: Signal<Shell>, mut edits: Signal<u64>) {
-    match book::new_group(store().as_ref(), copy::controls::NEW_GROUP) {
+    match book::new_group(&client(), copy::controls::NEW_GROUP) {
         Ok(group) => {
             edits += 1;
             push(shell, ContactsPage::Group(group.id));
@@ -303,12 +301,12 @@ fn CardPage(shell: Signal<Shell>, edits: Signal<u64>, id: Option<CardId>) -> Ele
     let mut draft = use_signal({
         let id = id.clone();
         move || match &id {
-            Some(id) => book::details(store().as_ref(), id),
+            Some(id) => book::details(&client(), id),
             None => Details::default(),
         }
     });
     let mut deleting = use_signal(|| Deleting::Showing);
-    let held = id.as_ref().and_then(|id| book::card(store().as_ref(), id));
+    let held = id.as_ref().and_then(|id| book::card(&client(), id));
     let local = held
         .as_ref()
         .is_some_and(|card| card.home == GroupHome::Local);
@@ -536,7 +534,7 @@ fn choose_photo(mut draft: Signal<Details>) {
 /// Keep the draft as `id`'s card, or as a new one, and say only a failure. A new card's page
 /// goes back to the list, which shows it.
 fn keep(shell: Signal<Shell>, mut edits: Signal<u64>, id: Option<&CardId>, draft: &Details) {
-    match book::keep_card(store().as_ref(), id, draft) {
+    match book::keep_card(&client(), id, draft) {
         Ok(_) => {
             edits += 1;
             if id.is_none() {
@@ -549,7 +547,7 @@ fn keep(shell: Signal<Shell>, mut edits: Signal<u64>, id: Option<&CardId>, draft
 
 /// Delete a card and go back to the list.
 fn forget(shell: Signal<Shell>, mut edits: Signal<u64>, id: &CardId) {
-    match book::forget_card(store().as_ref(), id) {
+    match book::forget_card(&client(), id) {
         Ok(()) => {
             edits += 1;
             back(shell);
@@ -569,25 +567,25 @@ fn GroupPage(shell: Signal<Shell>, edits: Signal<u64>, id: GroupId) -> Element {
     let mut named = use_signal({
         let id = id.clone();
         move || {
-            book::group(store().as_ref(), &id)
+            book::group(&client(), &id)
                 .map(|group| group.name)
                 .unwrap_or_default()
         }
     });
-    let store = store();
-    let Some(group) = book::group(store.as_ref(), &id) else {
+    let client = client();
+    let Some(group) = book::group(&client, &id) else {
         // Deleted from elsewhere while the page was shown.
         return rsx! {};
     };
     let local = group.home == GroupHome::Local;
     let name = group.name.clone();
-    let members: Vec<ListItem<String>> = book::members(store.as_ref(), &group)
+    let members: Vec<ListItem<String>> = book::members(&client, &group)
         .into_iter()
         .map(|(uri, said)| {
             let remove = EventHandler::new({
                 let (id, uri) = (id.clone(), uri.clone());
                 move |()| {
-                    write(edits, |store| book::remove_member(store, &id, &uri));
+                    write(edits, |client| book::remove_member(client, &id, &uri));
                 }
             });
             ListItem::row(
@@ -614,7 +612,7 @@ fn GroupPage(shell: Signal<Shell>, edits: Signal<u64>, id: GroupId) -> Element {
         move || {
             let typed = named.peek().clone();
             if typed.trim() != name.trim() {
-                write(edits, |store| book::rename_group(store, &id, &typed));
+                write(edits, |client| book::rename_group(client, &id, &typed));
             }
         }
     };
@@ -626,7 +624,7 @@ fn GroupPage(shell: Signal<Shell>, edits: Signal<u64>, id: GroupId) -> Element {
             if typed.trim().is_empty() {
                 return;
             }
-            if write(edits, |store| book::add_members(store, &id, &typed)) {
+            if write(edits, |client| book::add_members(client, &id, &typed)) {
                 adding.set(String::new());
             }
         }
@@ -688,7 +686,7 @@ fn GroupPage(shell: Signal<Shell>, edits: Signal<u64>, id: GroupId) -> Element {
                         let id = id.clone();
                         move |()| {
                             deleting.set(Deleting::Showing);
-                            if write(edits, |store| book::forget_group(store, &id)) {
+                            if write(edits, |client| book::forget_group(client, &id)) {
                                 back(shell);
                             }
                         }
@@ -706,11 +704,8 @@ fn GroupPage(shell: Signal<Shell>, edits: Signal<u64>, id: GroupId) -> Element {
 
 /// Make one write of the pane's, move `edits` when it is made, and say why when it is not.
 /// Whether it was made.
-fn write(
-    mut edits: Signal<u64>,
-    made: impl FnOnce(&dyn mail_core::Store) -> Result<(), String>,
-) -> bool {
-    match made(store().as_ref()) {
+fn write(mut edits: Signal<u64>, made: impl FnOnce(&Client) -> Result<(), String>) -> bool {
+    match made(&client()) {
         Ok(()) => {
             edits += 1;
             true

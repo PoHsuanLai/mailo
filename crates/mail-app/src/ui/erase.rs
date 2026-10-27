@@ -10,8 +10,6 @@
 use crate::settings::MailSettings;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
-use std::sync::Arc;
 use std::time::Duration;
 
 /// How often the time in Trash and Spam is looked at when nothing else moves.
@@ -34,7 +32,7 @@ pub(super) fn use_eraser(revision: Signal<u64>, shell: Signal<Shell>) {
         let policy = settings
             .map(|settings| settings.read().mailboxes.erasing())
             .unwrap_or_default();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let mut revision = revision;
         let mut shell = shell;
         async move {
@@ -42,7 +40,7 @@ pub(super) fn use_eraser(revision: Signal<u64>, shell: Signal<Shell>) {
                 return;
             }
             let erased = tokio::task::spawn_blocking(move || {
-                mail_core::erase::sweep(&store, &policy, chrono::Utc::now())
+                client.erasing().sweep(&policy, chrono::Utc::now())
             })
             .await;
             match erased {

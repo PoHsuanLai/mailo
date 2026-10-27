@@ -169,8 +169,8 @@ fn in_folder(store: &SqliteStore, path: &str) -> u64 {
 }
 
 /// How many conversations carry the label a move into `path` files under.
-fn filed_in(store: &SqliteStore, path: &str) -> u64 {
-    let label = folder_label(store, acct_imap(), path).unwrap();
+fn filed_in(store: &Arc<SqliteStore>, path: &str) -> u64 {
+    let label = folder_label(&crate::ui::fixtures::client(store), acct_imap(), path).unwrap();
     store.count(&Filter::HasLabel(label), Utc::now()).unwrap()
 }
 
@@ -188,19 +188,28 @@ fn queued_moves(store: &SqliteStore) -> usize {
 #[test]
 fn the_menu_offers_the_accounts_own_folders_and_nothing_else() {
     let (store, _dir, _) = store();
-    let offered: Vec<String> = destinations(&store, acct_imap())
+    let offered: Vec<String> = destinations(&crate::ui::fixtures::client(&store), acct_imap())
         .into_iter()
         .map(|d| d.path)
         .collect();
     assert_eq!(offered, [TO, FROM, "收據"]);
-    let keys: Vec<String> = items(&destinations(&store, acct_imap()))
-        .into_iter()
-        .map(|item| item.key)
-        .collect();
+    let keys: Vec<String> = items(&destinations(
+        &crate::ui::fixtures::client(&store),
+        acct_imap(),
+    ))
+    .into_iter()
+    .map(|item| item.key)
+    .collect();
     assert_eq!(keys, offered);
     // A POP3-like account, with no listing at all, has nothing to offer.
     let (bare, _dir) = crate::ui::fixtures::seeded();
-    assert!(destinations(&bare, crate::ui::fixtures::acct_account()).is_empty());
+    assert!(
+        destinations(
+            &crate::ui::fixtures::client(&bare),
+            crate::ui::fixtures::acct_account()
+        )
+        .is_empty()
+    );
 }
 
 fn window(store: Arc<SqliteStore>) -> (VirtualDom, Seen) {
@@ -356,9 +365,9 @@ fn queued_folders(store: &SqliteStore) -> Vec<String> {
 }
 
 /// Filed into `path`, as a pick in the menu does it, with the undo it hands the toast.
-fn file(store: &SqliteStore, thread: ThreadId, path: &str) -> mail_core::undo::Undo {
-    let label = folder_label(store, acct_imap(), path).unwrap();
-    crate::ui::ops::perform(store, thread, Op::File(label), mail_core::when::Clock::H24)
+fn file(store: &Arc<SqliteStore>, thread: ThreadId, path: &str) -> mail_core::undo::Undo {
+    let label = folder_label(&crate::ui::fixtures::client(store), acct_imap(), path).unwrap();
+    mail_core::act::perform(store, thread, Op::File(label), mail_core::when::Clock::H24)
         .expect("the move was not made")
 }
 
@@ -370,7 +379,7 @@ fn a_move_taken_back_with_nothing_after_it_never_reaches_the_server() {
     file(&store, threads[1], "收據");
     assert_eq!(queued_folders(&store), [TO, "收據"]);
 
-    assert!(crate::ui::ops::take_back(&store, &moved));
+    assert!(mail_core::act::take_back(&store, &moved));
     assert_eq!(queued_folders(&store), ["收據"], "the move is still queued");
     assert_eq!(filed_in(&store, TO), 0);
 }
@@ -382,7 +391,7 @@ fn a_move_with_a_later_one_on_the_same_conversation_stays_queued_when_taken_back
     file(&store, threads[0], "收據");
     assert_eq!(queued_folders(&store), [TO, "收據"]);
 
-    assert!(crate::ui::ops::take_back(&store, &first));
+    assert!(mail_core::act::take_back(&store, &first));
     // Withdrawing the first would write the state from before it under the second, which was
     // made on top of it. Both go, in the order they were made, and the second is where it ends.
     assert_eq!(

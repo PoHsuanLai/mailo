@@ -15,7 +15,7 @@ use porter_core::AccountId;
 const ADDRESS: &str = "poh@acme.example";
 
 fn account(built: &Work) -> AccountId {
-    account_rows(&built.store)
+    account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
         .find(|row| row.address == ADDRESS)
         .map(|row| row.id)
@@ -24,7 +24,7 @@ fn account(built: &Work) -> AccountId {
 
 /// The fixture's account, reading through Graph.
 fn through_graph(built: &Work) -> AccountId {
-    let row = account_rows(&built.store)
+    let row = account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
         .find(|row| row.address == ADDRESS)
         .unwrap_or_else(|| panic!("the fixture has no {ADDRESS}"));

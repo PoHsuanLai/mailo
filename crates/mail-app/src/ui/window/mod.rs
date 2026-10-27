@@ -2,7 +2,7 @@
 //! row's context menu, and Shift+Enter.
 //!
 //! The window is quire's (`ds_blitz::open_window_with`): a VirtualDom of its own with the same
-//! root contexts `launch` gave the first window, so it reads the same store and the same
+//! root contexts `launch` gave the first window, so it reads the same client and the same
 //! [`super::revisions::Revisions`], which is how either window sees what the other did. It shows
 //! the reader and nothing else (`root.rs`). Its consent to remote images starts empty: it is its
 //! own reader, holding its own grant (`ui/original/consent.rs`).
@@ -19,7 +19,6 @@ pub use root::{MessageOpen, message_root};
 use dioxus::prelude::*;
 use ds::prelude::Icon;
 use ds_blitz::{WindowHandle, WindowLife, WindowSpec};
-use mail_core::{SqliteStore, Store};
 use mail_domain::ThreadId;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -65,11 +64,11 @@ pub(in crate::ui) fn use_opened() {
 /// The size a conversation's window opens at, in logical pixels.
 const SIZE: (u32, u32) = (760, 720);
 
-/// Open `thread` in a window of its own, titled with its subject. A conversation the store no
+/// Open `thread` in a window of its own, titled with its subject. A conversation the client no
 /// longer has opens nothing.
 pub(in crate::ui) fn open_in_window(thread: ThreadId) {
-    let store = consume_context::<Arc<SqliteStore>>();
-    let Ok(loaded) = store.thread(thread) else {
+    let client = crate::ui::live::client();
+    let Ok(loaded) = client.stored().thread(thread) else {
         return;
     };
     let ask = Ask {

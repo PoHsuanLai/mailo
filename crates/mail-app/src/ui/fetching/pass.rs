@@ -3,18 +3,9 @@
 //! The client's scheduler runs it off the thread that draws (`mail_client::fetch`); this is the
 //! call it makes to the servers.
 
-use chrono::{DateTime, Utc};
-use mail_core::SqliteStore;
-use mail_core::sync::report::{Hooks, PassEnd};
-use porter_core::AccountId;
+use mail_client::Client;
+pub(in crate::ui) use mail_client::fetch::Pass;
 use std::sync::Arc;
-
-/// Run a pass over one account: the signature of [`mail_core::SyncOps::run_due`].
-pub(in crate::ui) type Pass = Arc<
-    dyn Fn(Arc<SqliteStore>, DateTime<Utc>, AccountId, Hooks<'_>) -> Result<Vec<PassEnd>, String>
-        + Send
-        + Sync,
->;
 
 /// What runs a pass. The real one unless a test provided its own.
 #[derive(Clone)]
@@ -23,12 +14,8 @@ pub(in crate::ui) struct Passer(pub Pass);
 impl Passer {
     /// The servers, through [`mail_core::SyncOps::run_due`].
     #[cfg(not(test))]
-    pub(in crate::ui) fn server() -> Self {
-        Self(Arc::new(|store, _now, account, hooks| {
-            // The settings as they are now: a change in Settings reaches the next pass.
-            let mail = crate::edge::syncing_mail(&store);
-            crate::edge::block_on(mail.sync().run_due(&[account], hooks)).map_err(String::from)
-        }))
+    pub(in crate::ui) fn server(client: &Client) -> Self {
+        Self(client.net().pass())
     }
 
     /// A pass that ends at once having fetched nothing: a window that must reach no server.
@@ -39,7 +26,7 @@ impl Passer {
     /// Not in a test build: a pass reads the keyring and opens sockets, and a test that forgot
     /// to provide its own must fail in words rather than reach either.
     #[cfg(test)]
-    pub(in crate::ui) fn server() -> Self {
+    pub(in crate::ui) fn server(_: &Client) -> Self {
         Self(Arc::new(|_, _, _, _| {
             Err(
                 "a test ran a pass without providing a Passer; the real one reaches the servers"

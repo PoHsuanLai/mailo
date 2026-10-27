@@ -22,9 +22,8 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_domain::*;
-use std::sync::Arc;
 
 /// What pressing Return with `typed` in the field comes to: the addresses, or why there are none.
 pub(super) fn recipients(typed: &str) -> Result<Vec<Address>, String> {
@@ -36,10 +35,12 @@ pub(super) fn recipients(typed: &str) -> Result<Vec<Address>, String> {
 }
 
 /// Redirect `id`'s newest message to `to`, and say how it went: with an Undo while it waits.
-fn redirect(store: &SqliteStore, id: ThreadId, to: &[Address]) -> (String, Follow) {
+fn redirect(client: &Client, id: ThreadId, to: &[Address]) -> (String, Follow) {
     let grace = crate::ui::prefs::current().compose.undo_send.grace();
-    let went = newest(store, id).and_then(|message| {
-        mail_core::compose::redirect(store, message, to, grace, chrono::Utc::now())
+    let went = newest(client, id).and_then(|message| {
+        client
+            .compose()
+            .redirect(message, to, grace, chrono::Utc::now())
             .map_err(String::from)
     });
     match went {
@@ -89,8 +90,8 @@ pub(in crate::ui) fn RedirectMenu(
                             event.prevent_default();
                             match recipients(&typed()) {
                                 Ok(to) => {
-                                    let store = consume_context::<Arc<SqliteStore>>();
-                                    let (said, follow) = redirect(&store, id, &to);
+                                    let client = crate::ui::live::client();
+                                    let (said, follow) = redirect(&client, id, &to);
                                     done();
                                     revision += 1;
                                     tell(said, follow);

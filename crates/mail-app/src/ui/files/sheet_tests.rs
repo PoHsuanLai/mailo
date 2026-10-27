@@ -97,12 +97,12 @@ fn a_maildir(under: &Path) -> PathBuf {
 }
 
 /// Keep `root`'s mail in local folders, as the sheet's Import does.
-fn import_locally(store: &SqliteStore, root: &Path) -> AccountId {
+fn import_locally(store: &Arc<SqliteStore>, root: &Path) -> AccountId {
     let Looked::Mail { source, .. } = look(root) else {
         panic!("{} is not mail", root.display());
     };
     import_now(
-        store,
+        &crate::ui::fixtures::client(store),
         &source,
         &Dest::Local,
         chrono::Utc::now(),
@@ -222,7 +222,8 @@ async fn local_folders_leak_no_address_and_have_nothing_to_sync() {
     let (store, dir) = crate::ui::fixtures::seeded();
     let local = import_locally(&store, &a_maildir(dir.path()));
     // One Space showing every account, the IMAP one among them.
-    let known = crate::ui::data::known_accounts(&store).expect("the accounts");
+    let known = crate::ui::data::known_accounts(&crate::ui::fixtures::client(&store))
+        .expect("the accounts");
     let everything = crate::ui::space::built(
         vec![(
             "Mail".to_owned(),
@@ -292,7 +293,11 @@ fn local_folders_send_nothing_and_tell_no_server() {
         .items[0]
         .clone();
     assert_eq!(thread.star, Star::Unstarred);
-    assert!(crate::ui::ops::apply_op(&store, thread.id, OpKind::Star));
+    assert!(crate::ui::ops::apply_op(
+        &crate::ui::fixtures::client(&store),
+        thread.id,
+        OpKind::Star
+    ));
     let starred = store.thread(thread.id).unwrap().summary.star;
     assert_eq!(starred, Star::Starred, "starring local mail works");
     let far = chrono::Utc::now() + chrono::TimeDelta::days(3650);

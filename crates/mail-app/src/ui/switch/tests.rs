@@ -128,7 +128,7 @@ async fn drawn_when(dom: &mut VirtualDom, done: impl Fn(&str) -> bool) -> String
 async fn ctrl_2_repaints_the_frame_and_scopes_the_list() {
     dispatching();
     let built = work();
-    let ids = crate::ui::data::accounts(&built.store);
+    let ids = crate::ui::data::accounts(&crate::ui::fixtures::client(&built.store));
     let home = SpaceLook {
         theme: Theme::Light,
         ..dotted(PRESETS[4].dots)

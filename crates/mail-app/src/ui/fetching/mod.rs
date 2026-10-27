@@ -26,8 +26,7 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::Operation;
 use mail_client::Client;
-use mail_client::fetch::{Fetched, Seams};
-use mail_core::SqliteStore;
+use mail_client::fetch::{Announce, Fetched, Seams, Speaking};
 use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
 use mail_core::schedule::Timing;
 use mail_core::sync::fresh::Pace;
@@ -160,8 +159,8 @@ impl Fetching {
     /// Read from the store each time, as cheap as two lookups by key: a watch's passes move
     /// nothing in this window's links.
     pub(in crate::ui) fn pace(&self, account: &AccountId) -> Pace {
-        match try_consume_context::<Arc<SqliteStore>>() {
-            Some(store) => Pace::of(&store, account.clone()),
+        match crate::ui::live::try_client() {
+            Some(client) => client.stored().pace(account.clone()),
             None => Pace::of_watch(&mail_domain::WatchMode::Poll {
                 every: mail_core::sync::due::IDLE,
             }),
@@ -265,8 +264,7 @@ fn announce_added(before: &BTreeMap<AccountId, Link>, now: &BTreeMap<AccountId, 
     if now.keys().all(|id| before.contains_key(id)) {
         return;
     }
-    let store = consume_context::<Arc<SqliteStore>>();
-    for row in crate::ui::data::account_rows(&store) {
+    for row in crate::ui::data::account_rows(&crate::ui::live::client()) {
         if now.contains_key(&row.id) && !before.contains_key(&row.id) {
             crate::ui::motion::tell(
                 crate::ui::copy::toasts::account_added(&row.address),
@@ -276,90 +274,27 @@ fn announce_added(before: &BTreeMap<AccountId, Link>, now: &BTreeMap<AccountId, 
     }
 }
 
-/// Whether the window's notices speak, and whose new mail they say: the settings as they stand,
-/// handed to a pass that runs on a thread of the client's, which cannot read a signal.
-#[derive(Debug, Clone, Copy)]
-struct Speaking {
-    on: bool,
-    whom: mail_core::notify::Whom,
-}
-
-impl Default for Speaking {
-    /// A window with no settings (a test's lone component) has them on, as the setting's default
-    /// is.
-    fn default() -> Self {
-        Speaking {
-            on: true,
-            whom: mail_core::notify::Whom::Everyone,
-        }
-    }
-}
-
-/// Announce what each finished pass in `ends` stored, as `mailo watch` does
-/// (`mail_core::sync::watcher::told`). A message is an arrival only on the pass that first
-/// stores it, so a watch and a window running side by side seldom both announce one: only two
-/// passes storing the same message at the same moment can.
-fn announce(
-    store: &SqliteStore,
-    ends: &[mail_core::sync::report::PassEnd],
-    notifier: &dyn mail_core::notify::Notifier,
-    whom: mail_core::notify::Whom,
-    at: DateTime<Utc>,
-) {
-    for end in ends {
-        let mail_core::sync::report::PassEnd::Finished(report) = end else {
-            continue;
-        };
-        if let Err(why) = mail_core::notify::announce(
-            store,
-            report.account.clone(),
-            &report.counts.arrived,
-            &report.counts.noted,
-            notifier,
-            whom,
-            at,
-        ) {
-            log::warn!(
-                "new mail for {} could not be announced: {why}",
-                report.address
-            );
-        }
-    }
-}
-
 /// What the client's fetching reaches, as this window lends it: the servers, unless a test
 /// provided its own pass, watch, folder fetch or word on who schedules. A pass that stored mail
 /// says so through the window's notices, as `speaking` has them.
-fn seams(speaking: Arc<std::sync::Mutex<Speaking>>) -> Seams {
-    let pass = try_consume_context::<Passer>().unwrap_or_else(Passer::server);
-    let listener = try_consume_context::<live::Listener>().unwrap_or_else(live::Listener::server);
+fn seams(client: &Client, speaking: Arc<std::sync::Mutex<Speaking>>) -> Seams {
+    let pass = try_consume_context::<Passer>().unwrap_or_else(|| Passer::server(client));
+    let listener =
+        try_consume_context::<live::Listener>().unwrap_or_else(|| live::Listener::server(client));
     let delegate = try_consume_context::<Delegate>().unwrap_or_else(Delegate::server);
     let folder = try_consume_context::<crate::ui::folder_open::Fetcher>()
-        .unwrap_or_else(crate::ui::folder_open::Fetcher::server);
-    let notices = try_consume_context::<crate::ui::follow_up::Notices>();
-    let offline = try_consume_context::<crate::ui::appearance::WindowDirs>()
-        .map(|dirs| mail_core::offline::load(&dirs.config));
-    let ran = pass.0;
-    let passing: mail_client::fetch::Pass = Arc::new(move |store, started, account, hooks| {
-        let done = ran(store.clone(), started, account, hooks);
-        let speaks = *speaking
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let (Some(notices), true, Ok(ends)) = (&notices, speaks.on, &done) {
-            announce(&store, ends, notices.0.as_ref(), speaks.whom, started);
-        }
-        done
-    });
+        .unwrap_or_else(|| crate::ui::folder_open::Fetcher::server(client));
     Seams {
-        pass: passing,
+        pass: pass.0,
         listen: listener.listen,
         pushers: listener.pushers,
         daemon: listener.daemon,
         schedule: delegate.0,
         folder: folder.0,
-        every: Arc::new(move |store| match &offline {
-            Some(offline) => mail_core::sync::due::intervals_with(store, offline),
-            None => mail_core::sync::due::intervals(store),
+        config: try_consume_context::<crate::ui::appearance::WindowDirs>().map(|dirs| dirs.config),
+        announce: try_consume_context::<crate::ui::follow_up::Notices>().map(|notices| Announce {
+            notifier: notices.0,
+            speaking,
         }),
         timing: Timing {
             first: listener.first,
@@ -397,7 +332,11 @@ pub(in crate::ui) fn use_fetching(revision: Signal<u64>) -> Fetching {
     let run = use_hook({
         let client = client.clone();
         let speaking = speaking.clone();
-        move || std::rc::Rc::new(std::cell::RefCell::new(client.fetch(seams(speaking))))
+        move || {
+            std::rc::Rc::new(std::cell::RefCell::new(
+                client.fetch(seams(&client, speaking)),
+            ))
+        }
     });
     let first = client
         .fetched()

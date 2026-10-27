@@ -9,8 +9,8 @@
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::root::common::Common;
+use mail_client::Client;
 use mail_core::fetch::{Body as BodyState, BodyEffect, BodyEvent};
-use mail_core::{SqliteStore, Store as _};
 use mail_domain::{Incoming, MessageId, Retry};
 use porter_core::AccountId;
 use std::path::{Path, PathBuf};
@@ -20,30 +20,28 @@ use crate::ui::fetching::Need;
 use crate::ui::press::on_primary;
 use crate::ui::reauth::{Reauth, SIGN_IN};
 
-type BodyFetch = dyn Fn(Arc<SqliteStore>, MessageId) -> Result<(), (Retry, String)> + Send + Sync;
+type BodyFetch = dyn Fn(Client, MessageId) -> Result<(), (Retry, String)> + Send + Sync;
 type PartFetch =
-    dyn Fn(&Arc<SqliteStore>, MessageId, &mail_domain::Section) -> Result<(), String> + Send + Sync;
+    dyn Fn(&Client, MessageId, &mail_domain::Section) -> Result<(), String> + Send + Sync;
 
 /// The two network calls the reader makes. Provided as context by a test; the window uses
 /// [`Fetchers::default`].
 #[derive(Clone)]
 pub(in crate::ui) struct Fetchers {
-    /// Download one message's body into the store.
+    /// Download one message's body into the client.
     pub body: Arc<BodyFetch>,
-    /// Download one attachment (by IMAP section or Graph id) into the store.
+    /// Download one attachment (by IMAP section or Graph id) into the client.
     pub part: Arc<PartFetch>,
 }
 
 impl Default for Fetchers {
     fn default() -> Self {
         Fetchers {
-            body: Arc::new(|store, message| {
-                let mail = crate::edge::mail(&store);
-                crate::edge::block_on(mail.sync().fetch_body(message))
-            }),
-            part: Arc::new(|store, message, section| {
-                let mail = crate::edge::mail(store);
-                crate::edge::block_on(mail.sync().fetch_part(message, section))
+            body: Arc::new(|client, message| client.net().fetch_body(message)),
+            part: Arc::new(|client, message, section| {
+                client
+                    .net()
+                    .fetch_part(message, section)
                     .map_err(String::from)
             }),
         }
@@ -179,8 +177,9 @@ pub(super) fn folder_of(path: &Path) -> Option<&str> {
 // --- Store lookups -----------------------------------------------------------------------------
 
 /// The address an account signs in with.
-pub(super) fn account_address(store: &SqliteStore, account: AccountId) -> String {
-    store
+pub(super) fn account_address(client: &Client, account: AccountId) -> String {
+    client
+        .stored()
         .account(account)
         .ok()
         .flatten()
@@ -189,8 +188,9 @@ pub(super) fn account_address(store: &SqliteStore, account: AccountId) -> String
 
 /// Whether opening a headers-only message of this account should fetch it at once: IMAP and
 /// Graph can; POP3, JMAP and local accounts get their bodies with a sync.
-pub(super) fn fetches_on_open(store: &SqliteStore, account: AccountId) -> bool {
-    store
+pub(super) fn fetches_on_open(client: &Client, account: AccountId) -> bool {
+    client
+        .stored()
         .account(account)
         .ok()
         .flatten()
@@ -205,19 +205,25 @@ pub(super) fn opens_with_fetch(incoming: &Incoming) -> bool {
 
 /// Fetch a part still on the server, then write it into `dir`.
 pub(super) fn fetch_then_save(
-    store: &Arc<SqliteStore>,
+    client: &Client,
     fetchers: &Fetchers,
     message: MessageId,
     index: usize,
     dir: &Path,
 ) -> Result<PathBuf, String> {
-    let stored = store.message(message).map_err(|e| e.to_string())?;
+    let stored = client
+        .stored()
+        .message(message)
+        .map_err(|e| e.to_string())?;
     if let Some(attachment) = stored.attachments.get(index)
         && let mail_domain::PartContent::Remote { section } = &attachment.content
     {
-        (fetchers.part)(store, message, section)?;
+        (fetchers.part)(client, message, section)?;
     }
-    mail_core::attach::save(store, message, index, dir).map_err(String::from)
+    client
+        .attach()
+        .save(message, index, dir)
+        .map_err(String::from)
 }
 
 // --- The body area ----------------------------------------------------------------------------
@@ -227,13 +233,13 @@ pub(super) fn fetch_then_save(
 /// `landed` is the reader's, moved when the body arrives so the reader reads it again.
 #[component]
 pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signal<u64>) -> Element {
-    let store = use_context::<Arc<SqliteStore>>();
-    let address = use_hook(|| account_address(&store, account.clone()));
+    let client = crate::ui::live::use_client();
+    let address = use_hook(|| account_address(&client, account.clone()));
     // Mail fetches a body when its message is opened; so does this, where the account can. The
     // pane starts as Fetching with no operation yet, and the effect below starts it: an
     // operation's token is made where the work starts, not while drawing.
     let mut state = use_signal(|| {
-        if fetches_on_open(&store, account) {
+        if fetches_on_open(&client, account) {
             BodyState::Fetching
         } else {
             BodyState::Missing
@@ -242,14 +248,14 @@ pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signa
     let mut op = use_signal(Operation::default);
     let mut begin = move || {
         op.set(Operation::Running(PendingToken::start()));
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let fetch = fetchers().body;
         spawn(async move {
-            // `spawn_blocking`: the fetch waits on the application's runtime (`edge::block_on`).
+            // `spawn_blocking`: the fetch waits on the application's runtime (`Client::net`).
             // Claimed for as long as it runs, so a body pass that starts meanwhile leaves it to us.
             let done = tokio::task::spawn_blocking(move || {
                 let _claim = mail_core::wanted::claim(message);
-                fetch(store, message)
+                fetch(client, message)
             })
             .await;
             let event = match done {

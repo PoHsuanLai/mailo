@@ -219,9 +219,9 @@ fn now() -> chrono::DateTime<chrono::Utc> {
 
 /// `job` as the document Print makes, on A4 with Traditional Chinese first, fetching through
 /// `sources`.
-fn paper_document(store: &SqliteStore, job: Job, sources: &Sources) -> Printed {
+fn paper_document(store: &Arc<SqliteStore>, job: Job, sources: &Sources) -> Printed {
     made(
-        store,
+        &crate::ui::fixtures::client(store),
         job,
         &Paper::plain(),
         sources,
@@ -233,12 +233,12 @@ fn paper_document(store: &SqliteStore, job: Job, sources: &Sources) -> Printed {
 }
 
 /// `job` as the PDF Print makes, on A4 with Traditional Chinese first, with no consent.
-fn printout(store: &SqliteStore, job: Job) -> Vec<u8> {
+fn printout(store: &Arc<SqliteStore>, job: Job) -> Vec<u8> {
     printout_with(store, job, &Sources::default())
 }
 
 /// [`printout`], with the remote images `sources` consents to.
-fn printout_with(store: &SqliteStore, job: Job, sources: &Sources) -> Vec<u8> {
+fn printout_with(store: &Arc<SqliteStore>, job: Job, sources: &Sources) -> Vec<u8> {
     paper::pdf(&paper_document(store, job, sources), &Paper::plain()).unwrap()
 }
 
@@ -582,7 +582,7 @@ fn the_markers_are_the_builders_and_a_subject_cannot_add_one() {
     assert!(!html.contains(PICTURES_NOTE), "no picture was left out");
     // The webview's document is the same one, without the faces: the markers are the builder's.
     let plain = build(
-        &store,
+        &crate::ui::fixtures::client(&store),
         Job {
             thread,
             pages: Pages::PerMessage,
@@ -1113,7 +1113,7 @@ fn print_hands_the_pdf_to_the_dialog_and_says_what_became_of_it() {
     for (answer, words) in cases {
         let (printer, seen) = recorder(answer);
         let got = print_through(
-            &store,
+            &crate::ui::fixtures::client(&store),
             job,
             &Paper::plain(),
             &printer,
@@ -1133,7 +1133,7 @@ fn a_thread_that_is_gone_is_said_and_no_dialog_opens() {
     let (store, _dir) = seeded();
     let (printer, seen) = recorder(|| Ok(PrintOutcome::Printed));
     let got = print_through(
-        &store,
+        &crate::ui::fixtures::client(&store),
         Job {
             thread: ThreadId::generate(),
             pages: Pages::Flow,

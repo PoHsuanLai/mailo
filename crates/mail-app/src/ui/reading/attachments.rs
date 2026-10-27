@@ -26,6 +26,7 @@ use ds::host::measure::{Anchor, RectProbe, use_rect};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::render::Glyph;
+use mail_client::Client;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,7 +34,6 @@ use std::sync::Arc;
 use dioxus::prelude::*;
 use mail_core::fetch::{Download, DownloadEffect, DownloadEvent};
 use mail_core::message::Looks;
-use mail_core::{SqliteStore, Store as _};
 use mail_domain::{BlobId, MessageId, Retry};
 
 use super::super::text::{AttachmentRow, Kept};
@@ -80,13 +80,14 @@ pub(super) fn Attachments(
 ) -> Element {
     let downloads: Downloads = use_signal(HashMap::new);
     let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
-    let store = use_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::use_client();
     let looks = super::use_looks();
     let reauth = try_consume_context::<Reauth>();
     let account = use_hook(|| {
-        store
+        client
+            .stored()
             .message(message)
-            .map(|m| fetch::account_address(&store, m.account))
+            .map(|m| fetch::account_address(&client, m.account))
             .unwrap_or_default()
     });
     let mut menu = use_signal(|| None::<Held>);
@@ -375,7 +376,7 @@ fn save_all(saver: &Saver, parts: Vec<Part>, dir: PathBuf) {
     if begun.is_empty() {
         return;
     }
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let looks = saver.looks.clone();
     let fetchers = fetch::fetchers();
     let (message, body, toasts) = (saver.message, saver.body, saver.toasts);
@@ -384,9 +385,9 @@ fn save_all(saver: &Saver, parts: Vec<Part>, dir: PathBuf) {
         let done = tokio::task::spawn_blocking(move || {
             let saved: Vec<Result<PathBuf, String>> = wanted
                 .iter()
-                .map(|part| write(&store, &looks, &fetchers, message, body, part, &dir))
+                .map(|part| write(&client, &looks, &fetchers, message, body, part, &dir))
                 .collect();
-            (saved, crate::ui::downloads::origin(&store, message))
+            (saved, crate::ui::downloads::origin(&client, message))
         })
         .await;
         let (saved, origin) = match done {
@@ -503,15 +504,15 @@ fn start(
         name: name.to_owned(),
     };
     let saving = saving_for(&part);
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let looks = looks.clone();
     let fetchers = fetch::fetchers();
     spawn(async move {
         // `spawn_blocking`, not this task: a fetch waits on the application's runtime
-        // (`edge::block_on`), and `Runtime::block_on` inside an async context panics.
+        // (`Client::net`), and `Runtime::block_on` inside an async context panics.
         let done = tokio::task::spawn_blocking(move || {
-            let saved = write(&store, &looks, &fetchers, message, body, &part, &dir);
-            (saved, crate::ui::downloads::origin(&store, message))
+            let saved = write(&client, &looks, &fetchers, message, body, &part, &dir);
+            (saved, crate::ui::downloads::origin(&client, message))
         })
         .await;
         let (saved, origin) = match done {
@@ -542,7 +543,7 @@ fn saving_for(part: &Part) -> crate::ui::downloads::Saving {
 
 /// Write `part` into `dir`, fetching it first when it is still on the server. Blocking.
 fn write(
-    store: &Arc<SqliteStore>,
+    client: &Client,
     looks: &Looks,
     fetchers: &fetch::Fetchers,
     message: MessageId,
@@ -551,11 +552,12 @@ fn write(
     dir: &Path,
 ) -> Result<PathBuf, String> {
     match part.kept {
-        Kept::Here => {
-            mail_core::attach::save(store, message, part.index, dir).map_err(String::from)
-        }
+        Kept::Here => client
+            .attach()
+            .save(message, part.index, dir)
+            .map_err(String::from),
         Kept::Opened => super::super::pgp::save_attachment(looks, message, body, part.index, dir),
-        Kept::OnServer => fetch::fetch_then_save(store, fetchers, message, part.index, dir),
+        Kept::OnServer => fetch::fetch_then_save(client, fetchers, message, part.index, dir),
     }
 }
 

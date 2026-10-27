@@ -49,10 +49,9 @@ use ds::components::overlays::inline_banner::InlineBanner;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use std::sync::Arc;
 
 use dioxus::prelude::*;
-use mail_core::{SqliteStore, Store};
+use mail_client::Client;
 use mail_domain::{Change, ChangeId, Draft, DraftId, Patch, SendState};
 
 use attach::Attach;
@@ -68,7 +67,7 @@ pub(in crate::ui) use body::Body;
 pub(in crate::ui) use desk::{Desk, park_current, reopen, show_queued, use_desk};
 pub(in crate::ui) use later::{cancel_scheduled, scheduled, send_again};
 /// Discarding a draft, for every caller in this process: the window's and the intents'.
-pub(crate) use life::discard as discard_draft;
+pub(crate) use life::discarding as discarding_draft;
 pub(in crate::ui) use page::Page;
 pub(in crate::ui) use page::PageKind;
 pub(in crate::ui) use pill::SendPill;
@@ -105,8 +104,8 @@ pub(in crate::ui) fn composing(shell: &Shell) -> Option<(DraftId, PageKind)> {
 
 /// Whether `draft` answers a message (a reply, under its thread) or stands alone.
 fn kind_of(draft: DraftId) -> PageKind {
-    let store = consume_context::<Arc<SqliteStore>>();
-    match store.draft(draft) {
+    let client = crate::ui::live::client();
+    match client.stored().draft(draft) {
         Ok(stored) if stored.in_reply_to.is_some() => PageKind::Reply,
         _ => PageKind::New,
     }
@@ -123,8 +122,9 @@ pub(in crate::ui) fn ComposerPage(
     // it was sealed. Cancel Sending makes it a draft again, and the page then writes it here.
     // Asked once: a page scheduled while it is open folds away as it did.
     let mut held = use_signal(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
-        store
+        let client = crate::ui::live::client();
+        client
+            .stored()
             .draft(draft)
             .ok()
             .and_then(|stored| match stored.state {
@@ -146,15 +146,15 @@ pub(in crate::ui) fn ComposerPage(
     rsx! { Writing { draft, shell, revision } }
 }
 
-/// The composer on `draft`, loaded from where it was parked, else from the store.
+/// The composer on `draft`, loaded from where it was parked, else from the client.
 #[component]
 fn Writing(draft: DraftId, shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let desk = use_context::<Desk>();
     let loaded = use_hook(|| {
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let mut parked = desk.parked;
         let compose = crate::ui::prefs::current().compose;
-        let page = life::load(&store, draft, &mut parked.write(), &compose);
+        let page = life::load(&client, draft, &mut parked.write(), &compose);
         desk::unpark(desk, draft);
         page
     });
@@ -226,16 +226,16 @@ fn PageView(initial: Page, shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 // Taken here and written on a blocking thread, so a slow disk never holds a
                 // frame. The next save is not asked for until this one is done, and a save on
                 // close or Send meanwhile is a later page, which this one does not overwrite.
-                let store = consume_context::<Arc<SqliteStore>>();
+                let client = crate::ui::live::client();
                 let (taken, stamp) = (page.peek().clone(), life::stamp());
                 let now = chrono::Utc::now();
                 let saved = tokio::task::spawn_blocking(move || {
-                    let saved = life::save_stamped(&store, &taken, stamp, now)?;
+                    let saved = life::save_stamped(&client, &taken, stamp, now)?;
                     // And a copy for the server's Drafts, at most every `KEEP_EVERY`. The save
                     // stands whatever becomes of it.
                     if saved.is_some()
                         && let Err(why) =
-                            life::keep_on_server(&store, taken.draft, now, life::Keeping::WhenDue)
+                            life::keep_on_server(&client, taken.draft, now, life::Keeping::WhenDue)
                     {
                         log::warn!("the draft's copy on the server was not queued: {why}");
                     }
@@ -420,10 +420,10 @@ fn send_page(
     anyway: Anyway,
     passphrase: Option<Password>,
 ) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let secrets = super::pgp::seams().secrets;
     let sent = life::send(
-        &store,
+        &client,
         secrets.as_ref(),
         &mut page.write(),
         anyway,
@@ -438,7 +438,7 @@ fn send_page(
             let draft = page.peek().draft;
             // Spawned from a press, which is where a task is polled.
             spawn(async move {
-                match seal_and_queue(store, draft, going, remind, passphrase).await {
+                match seal_and_queue(client, draft, going, remind, passphrase).await {
                     Ok(due) => {
                         let sent = life::folded(&mut page.write(), due, going.grace);
                         queued(page, desk, revision, folding, sent);
@@ -485,22 +485,22 @@ fn seal_act(
         }
         // Making a key or importing a certificate is the sending account's page's, in Settings.
         BarAct::OpenKeys => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            match store.draft(page.peek().draft) {
+            let client = crate::ui::live::client();
+            match client.stored().draft(page.peek().draft) {
                 Ok(stored) => super::settings_window::open_account(stored.account),
                 Err(_) => super::settings_window::open_at(crate::ui::view::SettingsPage::Accounts),
             }
         }
         BarAct::LookUp(addresses) => {
             page.write().seal_bar = SealBar::Looking(addresses.clone());
-            let store = consume_context::<Arc<SqliteStore>>();
+            let client = crate::ui::live::client();
             let lookup = super::pgp::seams().lookup;
             let draft = page.peek().draft;
             spawn(async move {
                 let done = tokio::task::spawn_blocking(move || {
-                    let stored = store.draft(draft).map_err(|e| e.to_string())?;
+                    let stored = client.stored().draft(draft).map_err(|e| e.to_string())?;
                     seal::look_up(
-                        &store,
+                        &client,
                         lookup.as_ref(),
                         &stored,
                         &addresses,
@@ -587,9 +587,9 @@ fn close(mut page: Signal<Page>, mut shell: Signal<Shell>, _desk: Desk) {
 /// brings back what was on the page; the undo is the window's (the toast's tab and ⌘Z), and puts
 /// the draft back in Drafts. A draft already on its way is refused, as before (334b758).
 fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk, revision: Signal<u64>) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let draft = page.peek().draft;
-    let kept = life::save(&store, &mut page.write(), chrono::Utc::now());
+    let kept = life::save(&client, &mut page.write(), chrono::Utc::now());
     let stored = match kept {
         Ok(stored) => stored,
         Err(why) => {
@@ -597,7 +597,7 @@ fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk, revisi
             return;
         }
     };
-    match deleted(&store, stored) {
+    match deleted(&client, stored) {
         Ok(undo) => {
             page.write().phase = Phase::Closed;
             forget(shell, revision, desk, draft, undo);
@@ -607,11 +607,8 @@ fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk, revisi
 }
 
 /// Discard `stored` and the undo that puts it back in Drafts.
-fn deleted(
-    store: &SqliteStore,
-    stored: Draft,
-) -> Result<mail_core::undo::Undo, mail_core::CoreError> {
-    life::discard(store, stored.id)?;
+fn deleted(client: &Client, stored: Draft) -> Result<mail_core::undo::Undo, mail_core::CoreError> {
+    life::discard(client, stored.id)?;
     Ok(mail_core::undo::Undo {
         said: crate::ui::copy::toasts::DRAFT_DELETED.to_owned(),
         thread: None,
@@ -659,12 +656,13 @@ pub(in crate::ui) fn delete_stored_draft(
     revision: Signal<u64>,
     draft: DraftId,
 ) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let desk = consume_context::<Desk>();
-    let outcome = store
+    let outcome = client
+        .stored()
         .draft(draft)
         .map_err(mail_core::CoreError::from)
-        .and_then(|stored| deleted(&store, stored));
+        .and_then(|stored| deleted(&client, stored));
     match outcome {
         Ok(undo) => forget(shell, revision, desk, draft, undo),
         Err(why) => crate::ui::motion::tell(

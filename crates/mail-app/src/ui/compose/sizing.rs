@@ -7,8 +7,6 @@
 //! one is only reading a number. The choice is the page's: the draft keeps every picture as it
 //! was attached, and the smaller copies are made as Send freezes the message.
 
-use std::sync::Arc;
-
 use dioxus::prelude::*;
 use ds::components::content::label::{LabelRole, LabelStyle};
 use ds::components::controls::button_model::Bezel;
@@ -17,7 +15,6 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_core::compose::{Fit, PictureSize, SendLimit, Weight, fit};
-use mail_core::{SqliteStore, Store};
 use mail_domain::human_size;
 
 use super::super::menu::{Floating, MenuItem, Right};
@@ -42,17 +39,17 @@ pub(super) fn use_weight(mut page: Signal<Page>) {
     });
     let weighed = use_resource(move || {
         let (draft, from, attached) = carried();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         async move {
             if attached.is_empty() {
                 return None;
             }
             tokio::task::spawn_blocking(move || {
                 // A draft that is gone has nothing to weigh, and the page goes with it.
-                let stored = store.draft(draft).ok()?;
+                let stored = client.stored().draft(draft).ok()?;
                 Some(Measured {
-                    weight: mail_core::compose::weigh(&store, &stored),
-                    limit: mail_core::compose::send_limit(&store, &from),
+                    weight: client.compose().weigh(&stored),
+                    limit: client.compose().send_limit(&from),
                 })
             })
             .await

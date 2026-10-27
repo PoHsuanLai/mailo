@@ -1,6 +1,6 @@
 //! "Search … on the server", at the end of a search's list.
 //!
-//! A search lists what the store holds. Where the list ends, each account in view that has a
+//! A search lists what the client holds. Where the list ends, each account in view that has a
 //! server to search offers to search it (`mail_core::server_search`); pressed, the account's server
 //! is asked off the drawing thread, what it finds is kept as headers, and the conversations it
 //! named follow the list under "From the server", each with the chip that says so. What the
@@ -16,18 +16,15 @@ use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
+use mail_client::Client;
 use mail_core::Searched;
-use mail_core::{SqliteStore, Store};
 use mail_domain::ThreadId;
 use porter_core::AccountId;
 use std::sync::Arc;
 
 /// Search one account's server for a typed line: the signature of [`mail_core::server_search::search`].
-pub type Search = Arc<
-    dyn Fn(Arc<SqliteStore>, AccountId, &str, DateTime<Utc>) -> Result<Searched, String>
-        + Send
-        + Sync,
->;
+pub type Search =
+    Arc<dyn Fn(Client, AccountId, &str, DateTime<Utc>) -> Result<Searched, String> + Send + Sync>;
 
 /// What searches an account's server. The server itself unless a test provided its own.
 #[derive(Clone)]
@@ -43,9 +40,10 @@ impl ServerSearcher {
     /// The server, through [`mail_core::server_search::search`].
     #[cfg(not(test))]
     fn server() -> Self {
-        Self(Arc::new(|store, account, input, _now| {
-            let mail = crate::edge::mail(&store);
-            crate::edge::block_on(mail_core::server_search::search(&mail, account, input))
+        Self(Arc::new(|client, account, input, _now| {
+            client
+                .net()
+                .search_server(account, input)
                 .map_err(crate::ui::remedy::told)
         }))
     }
@@ -165,20 +163,20 @@ pub(super) fn start(
         });
     }
     let search = try_consume_context::<ServerSearcher>().unwrap_or_else(ServerSearcher::server);
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let searched_for = account.clone();
     spawn(async move {
         let line = input.clone();
-        // `spawn_blocking`: the search waits on the application's runtime (`edge::block_on`), which
+        // `spawn_blocking`: the search waits on the application's runtime (`Client::net`), which
         // an async task must not.
         let done = tokio::task::spawn_blocking(move || {
-            let searched = (search.0)(store.clone(), searched_for, &line, Utc::now());
+            let searched = (search.0)(client.clone(), searched_for, &line, Utc::now());
             searched.map(|searched| match searched {
                 Searched::Unsaid(unsaid) => Answer::Unsaid(unsaid.to_string()),
                 Searched::Found(hits) => {
                     let mut threads: Vec<ThreadId> = Vec::new();
                     for message in &hits.messages {
-                        if let Ok(m) = store.message(*message)
+                        if let Ok(m) = client.stored().message(*message)
                             && !threads.contains(&m.thread)
                         {
                             threads.push(m.thread);

@@ -149,8 +149,8 @@ fn a_name_in_chinese_survives_import_then_export() {
     let out = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
     let before = store.contacts().unwrap_or_default().len();
 
-    let said =
-        book::import(store.as_ref(), CARD.as_bytes()).unwrap_or_else(|why| panic!("import: {why}"));
+    let said = book::import(&crate::ui::fixtures::client(&store), CARD.as_bytes())
+        .unwrap_or_else(|why| panic!("import: {why}"));
     assert!(said.contains("imported 1 addresses from 1 cards"), "{said}");
     assert_eq!(store.contacts().unwrap_or_default().len(), before + 1);
     assert_eq!(
@@ -158,15 +158,15 @@ fn a_name_in_chinese_survives_import_then_export() {
         Some((Some("王小明".to_owned()), Origin::Manual))
     );
 
-    let first =
-        book::export(store.as_ref(), out.path()).unwrap_or_else(|why| panic!("export: {why}"));
+    let first = book::export(&crate::ui::fixtures::client(&store), out.path())
+        .unwrap_or_else(|why| panic!("export: {why}"));
     assert_eq!(first, out.path().join(book::EXPORT_NAME));
     let text = std::fs::read_to_string(&first).unwrap_or_else(|why| panic!("read back: {why}"));
     assert!(text.contains("FN:王小明"), "{text}");
     assert!(text.contains("xiaoming.wang@example.test"), "{text}");
 
     // A second export never writes over the first.
-    let second = book::export(store.as_ref(), out.path())
+    let second = book::export(&crate::ui::fixtures::client(&store), out.path())
         .unwrap_or_else(|why| panic!("export again: {why}"));
     assert_ne!(second, first);
     assert_eq!(
@@ -177,7 +177,8 @@ fn a_name_in_chinese_survives_import_then_export() {
 
     // And the file read back into an empty book gives the same name.
     let (fresh, _fresh_dir) = the_book();
-    book::import(fresh.as_ref(), text.as_bytes()).unwrap_or_else(|why| panic!("re-import: {why}"));
+    book::import(&crate::ui::fixtures::client(&fresh), text.as_bytes())
+        .unwrap_or_else(|why| panic!("re-import: {why}"));
     assert_eq!(
         named(&fresh, "xiaoming.wang@example.test"),
         Some((Some("王小明".to_owned()), Origin::Manual))
@@ -206,7 +207,7 @@ fn a_suggestion_is_cheap_enough_for_every_keystroke() {
             let started = std::time::Instant::now();
             let rounds = 50u32;
             for _ in 0..rounds {
-                let _ = book::suggest(store.as_ref(), typed);
+                let _ = book::suggest(&crate::ui::fixtures::client(&store), typed);
             }
             println!(
                 "{size:>6} {typed:>14}: {:?} per suggestion",

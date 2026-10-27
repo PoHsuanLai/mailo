@@ -9,9 +9,7 @@ use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::{SqliteStore, Store};
 use mail_domain::SecretHeld;
-use std::sync::Arc;
 
 use super::super::common::{Told, add_mark};
 use super::super::data::account_rows;
@@ -64,13 +62,13 @@ pub(in crate::ui) fn KeysPage(
     let mut busy = use_signal(|| Busy::Idle);
     let mut confirm = use_signal(|| Confirm::Nothing);
     let _ = changed();
-    let store = consume_context::<Arc<SqliteStore>>();
-    let accounts: Vec<String> = account_rows(&store)
+    let client = crate::ui::live::client();
+    let accounts: Vec<String> = account_rows(&client)
         .into_iter()
         .filter(|row| !row.is_local())
         .map(|row| row.address.to_lowercase())
         .collect();
-    let (keys, failed) = match store.pgp_keys() {
+    let (keys, failed) = match client.stored().pgp_keys() {
         Ok(keys) => (ordered(keys), None),
         Err(why) => (
             Vec::new(),
@@ -80,7 +78,7 @@ pub(in crate::ui) fn KeysPage(
             )),
         ),
     };
-    let (certs, certs_failed) = match store.smime_certs() {
+    let (certs, certs_failed) = match client.stored().smime_certs() {
         Ok(certs) => (super::certs::ordered(certs), None),
         Err(why) => (
             Vec::new(),
@@ -99,7 +97,7 @@ pub(in crate::ui) fn KeysPage(
         .filter(|cert| whose.lists(&cert.emails, cert.secret, &accounts))
         .collect();
     let make = match &whose {
-        Whose::Account(address) => keyless(&store)
+        Whose::Account(address) => keyless(&client)
             .into_iter()
             .filter(|keyless| keyless.eq_ignore_ascii_case(address))
             .collect(),
@@ -112,11 +110,11 @@ pub(in crate::ui) fn KeysPage(
         }
         busy.set(Busy::Working);
         said.set(None);
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let seams = seams();
         let motion = crate::ui::motion::motion();
         spawn(async move {
-            let done = tokio::task::spawn_blocking(move || work(&store, &seams, job))
+            let done = tokio::task::spawn_blocking(move || work(&client, &seams, job))
                 .await
                 .unwrap_or_else(|error| Err(format!("Stopped early: {error}")));
             match done {

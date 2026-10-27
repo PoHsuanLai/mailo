@@ -9,13 +9,14 @@ use chrono::{TimeDelta, Utc};
 use dioxus::prelude::*;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use std::sync::Arc;
 
 /// The fixture's one read conversation that nobody starred: Sam's notes are read but starred.
 const ACCEPTED: &str = "Accepted: Design review, Thursday 14:00";
 
-fn subjects(store: &SqliteStore, scope: Option<Filter>, age: Age) -> Vec<String> {
+fn subjects(store: &Arc<SqliteStore>, scope: Option<Filter>, age: Age) -> Vec<String> {
     let later = Utc::now() + TimeDelta::days(30);
-    candidates(store, scope, age, later)
+    candidates(&crate::ui::fixtures::client(store), scope, age, later)
         .into_iter()
         .map(|summary| summary.subject)
         .collect()
@@ -68,10 +69,15 @@ async fn the_sheet_archives_what_it_lists_and_undo_restores_it() {
         .with_root_context(WallClock::new(move || later));
     let seen = rebuild_into(&mut dom);
     let accepted = thread_like(&built.store, "Accepted");
-    let listed: Vec<ThreadId> = candidates(&built.store, None, Age::default(), later)
-        .into_iter()
-        .map(|summary| summary.id)
-        .collect();
+    let listed: Vec<ThreadId> = candidates(
+        &crate::ui::fixtures::client(&built.store),
+        None,
+        Age::default(),
+        later,
+    )
+    .into_iter()
+    .map(|summary| summary.id)
+    .collect();
     assert_eq!(listed, [accepted]);
 
     let opened = click(

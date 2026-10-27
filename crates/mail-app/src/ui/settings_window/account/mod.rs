@@ -43,7 +43,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::AccountSecrets;
-use mail_core::{SqliteStore, Storage, Store};
+use mail_core::Storage;
 use porter_core::AccountId;
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ const ASK: &str = "Remove Account\u{2026}";
 /// Ask an account's server how much of its storage is used: [`mail_core::SyncOps::quota`], or
 /// why it could not say. Blocks, so it is run off the thread that draws.
 pub(in crate::ui) type ReadStorage =
-    Arc<dyn Fn(Arc<SqliteStore>, AccountId) -> Result<Option<Storage>, String> + Send + Sync>;
+    Arc<dyn Fn(mail_client::Client, AccountId) -> Result<Option<Storage>, String> + Send + Sync>;
 
 /// The keyring a removal forgets the sign-in from, and what asks a server how full the account
 /// is, handed in as a context so tests reach their own and never the user's.
@@ -69,9 +69,8 @@ impl Seams {
     pub(in crate::ui) fn real() -> Seams {
         Seams {
             secrets: crate::edge::secrets(),
-            storage: Arc::new(|store, account| {
-                let mail = crate::edge::mail(&store);
-                crate::edge::block_on(mail.sync().quota(account)).map_err(crate::ui::remedy::told)
+            storage: Arc::new(|client, account| {
+                client.net().quota(account).map_err(crate::ui::remedy::told)
             }),
         }
     }
@@ -91,10 +90,10 @@ fn seams() -> Seams {
     try_consume_context::<Seams>().unwrap_or_else(Seams::none)
 }
 
-/// The account's row, read from the store. `None` once it is gone.
+/// The account's row, read from the client. `None` once it is gone.
 pub(super) fn row_of(account: &AccountId) -> Option<AccountRow> {
-    let store = try_consume_context::<Arc<SqliteStore>>()?;
-    account_rows(&store)
+    let client = crate::ui::live::try_client()?;
+    account_rows(&client)
         .into_iter()
         .find(|row| row.id == *account)
 }
@@ -136,19 +135,28 @@ fn confirm(mut shell: Signal<Shell>, mut revision: Signal<u64>, account: Account
     if shell.peek().accounts_pane.step != AccountStep::Asking {
         return;
     }
-    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
+    let Some(client) = crate::ui::live::try_client() else {
         return;
     };
     to(shell, AccountStep::Removing);
     let seams = seams();
     let dirs = try_consume_context::<WindowDirs>();
     let removing = account.clone();
-    // The secrets are forgotten through porter's async trait, which does its work on a runtime
-    // of its own (`mail_runtime::account_secrets`), so this task awaits it as it is; the
-    // database half is quick and the store's own. The task is the window's, not the page's: a
-    // page left mid-removal would otherwise drop it between the keyring and the database.
+    // The client forgets the secrets and then the account's mail, waiting on its runtime, so a
+    // blocking thread waits for it. The task is the window's, not the page's: a page left
+    // mid-removal would otherwise drop it between the keyring and the database.
     dioxus::core::spawn_forever(async move {
-        match mail_core::account::remove(&store, seams.secrets.as_ref(), removing).await {
+        let removed = tokio::task::spawn_blocking(move || {
+            client
+                .net()
+                .remove_account(seams.secrets.as_ref(), removing)
+        })
+        .await;
+        // A thread that panicked removed nothing it can say.
+        let Ok(removed) = removed else {
+            return;
+        };
+        match removed {
             Ok(_) => {
                 forgotten(dirs.as_ref(), account.clone());
                 revision += 1;
@@ -192,12 +200,12 @@ fn use_storage(account: AccountId) -> Option<Storage> {
     let read = use_resource(use_reactive!(|account| {
         let asked = row_of(&account)
             .is_some_and(|row| mail_core::sync::has_quota(&row.plan.incoming))
-            .then(try_consume_context::<Arc<SqliteStore>>)
+            .then(crate::ui::live::try_client)
             .flatten();
         let ask = seams().storage;
         async move {
-            let store = asked?;
-            tokio::task::spawn_blocking(move || ask(store, account))
+            let client = asked?;
+            tokio::task::spawn_blocking(move || ask(client, account))
                 .await
                 .ok()?
                 // Said nowhere: the row is left out, and the page is no place for a server's
@@ -246,8 +254,8 @@ pub(super) fn AccountPage(
         AccountStep::Showing | AccountStep::Asking | AccountStep::Removing => None,
     };
     let asking = (step == AccountStep::Asking).then(|| {
-        let held = try_consume_context::<Arc<SqliteStore>>()
-            .and_then(|store| store.offline(row.id.clone()).ok())
+        let held = crate::ui::live::try_client()
+            .and_then(|client| client.stored().offline(row.id.clone()).ok())
             .map_or(0, |offline| {
                 usize::try_from(offline.messages).unwrap_or(usize::MAX)
             });

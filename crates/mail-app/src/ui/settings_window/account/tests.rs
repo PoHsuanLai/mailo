@@ -21,7 +21,7 @@ use std::time::Duration;
 const ADDRESS: &str = "poh@acme.example";
 
 fn poh(built: &Work) -> AccountId {
-    account_rows(&built.store)
+    account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
         .find(|row| row.address == ADDRESS)
         .map(|row| row.id)
@@ -147,14 +147,18 @@ async fn the_back_button_goes_back_to_the_list() {
 #[tokio::test]
 async fn remove_asks_then_removes_the_account_and_goes_back_to_the_list() {
     let built = work();
-    let before = account_rows(&built.store).len();
+    let before = account_rows(&crate::ui::fixtures::client(&built.store)).len();
     let (mut dom, seen) = pushed(&built);
     let ask = seen.one("aria-label", &format!("Remove {ADDRESS}"));
     let asked = click(&mut dom, ask).merge(drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains(&format!("Remove {ADDRESS}?")), "{page}");
     assert!(page.contains("Mail on the server isn’t deleted."), "{page}");
-    assert_eq!(account_rows(&built.store).len(), before, "removed unasked");
+    assert_eq!(
+        account_rows(&crate::ui::fixtures::client(&built.store)).len(),
+        before,
+        "removed unasked"
+    );
 
     // Escape while the question is up stays on the page.
     press(&mut dom, "Escape", INSIDE_THE_SHELL);
@@ -167,7 +171,7 @@ async fn remove_asks_then_removes_the_account_and_goes_back_to_the_list() {
         !on_account_page(page) && !page.contains(&gone)
     })
     .await;
-    let left = account_rows(&built.store);
+    let left = account_rows(&crate::ui::fixtures::client(&built.store));
     assert_eq!(left.len(), before - 1);
     assert!(
         left.iter().all(|row| row.address != ADDRESS),

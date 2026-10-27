@@ -26,12 +26,10 @@ use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
-use mail_core::SqliteStore;
 use mail_core::fetch::Link;
 use mail_core::sync::report::Offer;
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
 /// The button that signs in.
 pub(in crate::ui) const SIGN_IN: &str = "Sign In";
@@ -233,8 +231,8 @@ impl Reauth {
     /// sheet's does; what it came to is said, and a sign-in that worked is told to the account's
     /// link.
     pub(in crate::ui) fn use_graph(self, account: AccountId, name: String) {
-        let (Some(store), Some(fetching)) = (
-            try_consume_context::<Arc<SqliteStore>>(),
+        let (Some(client), Some(fetching)) = (
+            crate::ui::live::try_client(),
             try_consume_context::<Fetching>(),
         ) else {
             return;
@@ -244,7 +242,8 @@ impl Reauth {
         let mut revision = self.revision;
         dioxus::core::spawn_forever(async move {
             let switching = account.clone();
-            let answer = crate::edge::on_thread("mailo-graph", move || async move {
+            // The sign-in waits on a browser: a blocking thread's to wait for.
+            let answer = tokio::task::spawn_blocking(move || {
                 let environment = crate::edge::environment();
                 let secrets = crate::edge::secrets();
                 let saved = crate::edge::clients().saved();
@@ -253,24 +252,25 @@ impl Reauth {
                         log::warn!("the browser would not open the Microsoft sign-in: {why}");
                     }
                 };
-                mail_core::account::switch_to_graph(
-                    &store,
-                    switching,
-                    chrono::Utc::now(),
-                    mail_core::account::Credentials {
-                        password: None,
-                        saved: &saved,
-                        secrets: secrets.as_ref(),
-                        environment: &environment,
-                        on_url: &browse,
-                        signed: None,
-                    },
-                )
-                .await
-                .map(|added| added.outcome)
-                .map_err(String::from)
+                client
+                    .net()
+                    .switch_to_graph(
+                        switching,
+                        chrono::Utc::now(),
+                        mail_core::account::Credentials {
+                            password: None,
+                            saved: &saved,
+                            secrets: secrets.as_ref(),
+                            environment: &environment,
+                            on_url: &browse,
+                            signed: None,
+                        },
+                    )
+                    .map(|added| added.outcome)
+                    .map_err(String::from)
             });
-            let said = match answer.await {
+            // A thread that panicked is an answer that never came.
+            let said = match answer.await.ok() {
                 Some(Ok(mail_core::account::Outcome::SignedIn { .. })) => {
                     revision += 1;
                     fetching.signed_in(account);
@@ -294,8 +294,8 @@ impl Reauth {
     /// account is not asked about again while it is being signed in. Call it from an event
     /// handler.
     pub(in crate::ui) fn sign_in(self, address: &str, need: Need) {
-        let store = consume_context::<Arc<SqliteStore>>();
-        let Some(account) = account_rows(&store)
+        let client = crate::ui::live::client();
+        let Some(account) = account_rows(&client)
             .into_iter()
             .find(|row| row.address == address)
             .map(|row| row.id)
@@ -331,8 +331,8 @@ pub(in crate::ui) fn ReauthPrompt() -> Element {
     let Some(reauth) = try_consume_context::<Reauth>() else {
         return rsx! {};
     };
-    let store = consume_context::<Arc<SqliteStore>>();
-    let names: BTreeMap<AccountId, String> = account_rows(&store)
+    let client = crate::ui::live::client();
+    let names: BTreeMap<AccountId, String> = account_rows(&client)
         .into_iter()
         .map(|row| (row.id.clone(), row.shown()))
         .collect();

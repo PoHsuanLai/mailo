@@ -27,9 +27,7 @@ use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::icon::family::PlateFamily;
-use mail_core::SqliteStore;
 use porter_core::AccountId;
-use std::sync::Arc;
 
 /// The key of the Add Account… row, which no account id can be.
 const ADD: &str = " add";
@@ -93,11 +91,8 @@ fn AccountList(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     // from the Add Account… row.
     let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);
     let mut add_row = use_signal(|| None::<MountedRef>);
-    let store = try_consume_context::<Arc<SqliteStore>>();
-    let rows = store
-        .as_ref()
-        .map(|store| account_rows(store))
-        .unwrap_or_default();
+    let client = crate::ui::live::try_client();
+    let rows = client.as_ref().map(account_rows).unwrap_or_default();
     let mut items: Vec<ListItem<String>> = Vec::new();
     if rows.is_empty() {
         items.push(ListItem::row(

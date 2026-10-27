@@ -6,10 +6,8 @@
 //! ([`mail_core::message::Looks::post`]), as the unsubscribe lookout does for the way out.
 
 use dioxus::prelude::*;
-use mail_core::SqliteStore;
 use mail_core::message::Bodies;
 use mail_domain::ThreadId;
-use std::sync::Arc;
 
 /// Finds it, and puts down `tag` in `found` when it is there. Draws nothing.
 ///
@@ -27,16 +25,18 @@ pub(super) fn PostLookout(
         let bodies = bodies.clone();
         let looks = looks.clone();
         let tag = tag.clone();
-        let store = consume_context::<Arc<SqliteStore>>();
+        let client = crate::ui::live::client();
         let mut found = found;
         async move {
             let post = match looks.post_cached(thread, &bodies) {
                 Some(post) => post,
-                None => tokio::task::spawn_blocking(move || looks.post(&store, thread, &bodies))
-                    .await
-                    // A lookup that panicked found nothing, which offers nothing.
-                    .ok()
-                    .flatten(),
+                None => tokio::task::spawn_blocking(move || {
+                    client.looking(&looks).post(thread, &bodies)
+                })
+                .await
+                // A lookup that panicked found nothing, which offers nothing.
+                .ok()
+                .flatten(),
             };
             found.set(post.map(|_| tag));
         }

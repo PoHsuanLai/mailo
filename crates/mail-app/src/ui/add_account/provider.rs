@@ -2,27 +2,28 @@
 //! window's sheet runs.
 //!
 //! porter's sheet machine (`porter_core::sheet`, driven by `porter_service::AccountService`) is
-//! the add-account flow: it asks nothing and stores nothing by itself, it says what to draw and
+//! the add-account flow: it asks nothing and clients nothing by itself, it says what to draw and
 //! asks a provider's sign-in what to do next. This file is that sign-in for mail, over what mailo
 //! already has: the address's lookup (`mail_core::discover`), the browser sign-in
 //! (`mail_core::account::authorize`) and the account itself (`mail_core::account`, which writes mailo's
-//! store and files the password where the runtime reads it). Every rule the old sheet kept is
+//! client and files the password where the runtime reads it). Every rule the old sheet kept is
 //! kept here: look only when asked (the lookup sends the domain and nothing else), add only when
 //! told to (`Confirm`), the password goes to the add and nowhere else.
 //!
 //! When the person's own accounts are porter's, the provider is `porter-families`'
 //! and this file goes; the window and its mapping stay as they are.
 
+use mail_client::Client;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
+use mail_core::OAuthClients;
 use mail_core::account::{Outcome, Setup};
 use mail_core::discover::{Failed, Found, Looked as Resolved};
 use mail_core::error::CoreError;
 use mail_core::password::Password;
-use mail_core::{OAuthClients, SqliteStore};
 use mail_domain::presets::{self, Preset};
 use mail_domain::{AuthPlan, HttpAuth};
 use porter_core::sheet::{
@@ -66,7 +67,7 @@ pub type UrlSink = Arc<dyn Fn(&str) + Send + Sync>;
 pub type Authorize = dyn Fn(Issuer, Vec<String>, UrlSink) -> Waiting + Send + Sync;
 /// A sign-in in a browser, under way.
 pub type Waiting = Pin<Box<dyn Future<Output = Result<Credential, String>> + Send>>;
-/// Add the account to mailo's store, its secret to the keyring. Blocks.
+/// Add the account to mailo's client, its secret to the keyring. Blocks.
 pub type Add = dyn Fn(Request) -> Result<String, AddError> + Send + Sync;
 
 /// Why an add failed, for the sheet's one sentence, and what the server said, for the line under it.
@@ -122,15 +123,17 @@ pub struct Seams {
 
 impl Seams {
     /// The network, the keyring and the program's OAuth clients, `clients`.
-    pub(in crate::ui) fn real(store: Arc<SqliteStore>, clients: OAuthClients) -> Seams {
+    pub(in crate::ui) fn real(client: Client, clients: OAuthClients) -> Seams {
         let has = clients.clone();
         let signs_in = clients.clone();
         Seams {
-            lookup: Arc::new(|address| {
-                crate::edge::block_on(mail_core::discover::search(address, Utc::now()))
+            lookup: Arc::new({
+                let client = client.clone();
+                move |address| client.net().discover(address, Utc::now())
             }),
-            jmap: Arc::new(|domain| {
-                crate::edge::block_on(mail_core::discover::find_jmap(domain)).map_err(String::from)
+            jmap: Arc::new({
+                let client = client.clone();
+                move |domain| client.net().find_jmap(domain).map_err(String::from)
             }),
             client: Arc::new(move |issuer| has_client(issuer, &has)),
             authorize: Arc::new(move |issuer, scopes, urls| {
@@ -169,35 +172,34 @@ impl Seams {
                     signed,
                 } = request;
                 let environment = crate::edge::environment();
-                let added = crate::edge::block_on(mail_core::account::add_with_password(
-                    &store,
-                    &address,
-                    Some(&setup),
-                    false,
-                    false,
-                    Utc::now(),
-                    mail_core::account::Credentials {
-                        password: password.as_ref(),
-                        saved: &clients.saved(),
-                        secrets: crate::edge::secrets().as_ref(),
-                        environment: &environment,
-                        // The sign-in has been made and its address shown already.
-                        on_url: &|_| {},
-                        signed: signed.as_ref(),
-                    },
-                ))
-                .map_err(|why| AddError::from(why.to_string()))?;
+                let added = client
+                    .net()
+                    .add_with_password(
+                        &address,
+                        Some(&setup),
+                        false,
+                        false,
+                        Utc::now(),
+                        mail_core::account::Credentials {
+                            password: password.as_ref(),
+                            saved: &clients.saved(),
+                            secrets: crate::edge::secrets().as_ref(),
+                            environment: &environment,
+                            // The sign-in has been made and its address shown already.
+                            on_url: &|_| {},
+                            signed: signed.as_ref(),
+                        },
+                    )
+                    .map_err(|why| AddError::from(why.to_string()))?;
                 // A password is only filed by the add, so the server has not seen it yet. Try it
                 // now, while the form is still up: a wrong user name or password is said here in
                 // the server's words, not found at the first sync as "sign in again".
                 if matches!(added.outcome, Outcome::PasswordStored { bearer: false, .. }) {
                     let secrets = crate::edge::secrets();
-                    let checked = crate::edge::block_on(mail_core::sync::check_sign_in(
-                        &store,
-                        &added.address,
-                        secrets.clone(),
-                        Utc::now(),
-                    ));
+                    let checked =
+                        client
+                            .net()
+                            .check_sign_in(&added.address, secrets.clone(), Utc::now());
                     if let Err(why) = checked {
                         // An account that is new and cannot sign in is not kept, so the person
                         // is not left with one that says "sign in again" and can only be
@@ -205,12 +207,10 @@ impl Seams {
                         let removed = if added.updated {
                             Ok(None)
                         } else {
-                            crate::edge::block_on(mail_core::account::remove(
-                                &store,
-                                secrets.as_ref(),
-                                added.account.clone(),
-                            ))
-                            .map(Some)
+                            client
+                                .net()
+                                .remove_account(secrets.as_ref(), added.account.clone())
+                                .map(Some)
                         };
                         if let Err(trouble) = removed {
                             log::warn!(

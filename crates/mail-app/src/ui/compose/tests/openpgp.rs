@@ -10,6 +10,8 @@ use super::super::protection::{Mode, Protection, items, pick};
 use super::super::seal::SealBar;
 use super::*;
 use crate::ui::fixtures::{Seen, acct_account, click, rebuild_into, seeded, type_into};
+use mail_core::SqliteStore;
+use std::sync::Arc;
 
 thread_local! {
     /// The Settings windows the page last drawn asked for: the composer's bar sends a key to
@@ -167,7 +169,12 @@ async fn security_is_chosen_from_the_more_menu_and_drawn_only_while_set() {
     let markup = window.render();
     assert!(markup.contains("data-row=\"security\""), "{markup}");
     window.dom.in_runtime(|| {
-        super::super::life::save(&store, &mut page.write(), Utc::now()).unwrap();
+        super::super::life::save(
+            &crate::ui::fixtures::client(&store),
+            &mut page.write(),
+            Utc::now(),
+        )
+        .unwrap();
     });
     assert_eq!(store.draft(draft.id).unwrap().openpgp, OpenPgp::Sign);
     // The row's menu sets it back to None, and the row goes.
@@ -253,15 +260,12 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
     seams.lookup = {
         let asked = asked.clone();
         // What a domain's Web Key Directory answering would leave in the store.
-        Arc::new(move |store, address| {
+        Arc::new(move |client, address| {
             asked.lock().unwrap().push(address.to_owned());
-            let found = mail_core::pgp::keys::import(
-                store,
-                &MapSigningStore::default(),
-                armored.as_bytes(),
-                Utc::now(),
-            )
-            .map_err(|e| e.to_string())?;
+            let found = client
+                .keys()
+                .import(&MapSigningStore::default(), armored.as_bytes(), Utc::now())
+                .map_err(|e| e.to_string())?;
             Ok(found.into_iter().next().map(|one| one.key))
         })
     };

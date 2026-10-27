@@ -4,7 +4,7 @@
 //!
 //! This is what the sidebar's Today held. Arc's list of open tabs works because it empties
 //! itself; mailo moves nothing by time, so a list that only grew had no place at rest. Here it
-//! is one keystroke away and never in the way. What it lists is [`rows`], pure over the store
+//! is one keystroke away and never in the way. What it lists is [`rows`], pure over the client
 //! and Today, so a table test can say it.
 
 use super::super::menu::{MenuItem, Tile};
@@ -14,7 +14,7 @@ use crate::ui::space::SpaceId;
 use crate::ui::today::Today;
 use chrono::{DateTime, Utc};
 use ds::prelude::*;
-use mail_core::{SqliteStore, Store};
+use mail_client::Client;
 use mail_domain::{Draft, DraftId, ThreadId};
 
 /// How many conversations Recent lists. The rest are still a search away.
@@ -40,10 +40,10 @@ pub(super) fn draft_of(rest: &str) -> Option<DraftId> {
     uuid::Uuid::parse_str(rest).ok().map(DraftId::from_uuid)
 }
 
-/// Recent's rows: `space`'s opened conversations still in the store, newest first and at most
-/// [`SHOWN`], then its drafts put aside that are still in the store with something in them.
+/// Recent's rows: `space`'s opened conversations still in the client, newest first and at most
+/// [`SHOWN`], then its drafts put aside that are still in the client with something in them.
 pub(super) fn rows(
-    store: &SqliteStore,
+    client: &Client,
     today: &Today,
     space: SpaceId,
     now: DateTime<Utc>,
@@ -57,7 +57,7 @@ pub(super) fn rows(
     opened.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     let threads = opened
         .into_iter()
-        .filter_map(|(thread, _)| store.thread(thread).ok())
+        .filter_map(|(thread, _)| client.stored().thread(thread).ok())
         .take(SHOWN)
         .map(|loaded| {
             let summary = &loaded.summary;
@@ -76,7 +76,7 @@ pub(super) fn rows(
     let drafts = today
         .parked_in(space)
         .into_iter()
-        .filter_map(|parked| store.draft(parked.item).ok())
+        .filter_map(|parked| client.stored().draft(parked.item).ok())
         .filter(|draft| !draft.untouched())
         .map(|draft| MenuItem {
             help: Some(copy::status::draft_touched(&mail_core::when::listed(

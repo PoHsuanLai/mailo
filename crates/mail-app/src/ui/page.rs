@@ -1,7 +1,7 @@
 //! Group and Row Properties, applied to the loaded page only, and the list toolbar's ⋯ that
 //! holds them with Sort By, Organise by Conversation and Sync Now.
 //!
-//! Neither Group nor Row Properties asks the store for a different query; Sort By does, and is
+//! Neither Group nor Row Properties asks the client for a different query; Sort By does, and is
 //! kept: on the saved view it sorts, or under the place's key in `settings.toml`. Organise by
 //! Conversation does too: it is the place's own choice ([`super::organise`]), and a message to a
 //! row is another list.
@@ -20,10 +20,8 @@ use ds::components::controls::button_model::{Bezel, ImagePosition};
 use ds::host::measure::MountedRef;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
-use mail_core::{SqliteStore, Store};
 use mail_domain::{Property, Sort, SortDir, ThreadSummary, Threading};
 use std::borrow::Borrow;
-use std::sync::Arc;
 
 /// One band of the loaded page: its rows, each a conversation's summary or something that holds
 /// one (a message to a row holds its own, beside which message it is).
@@ -249,7 +247,7 @@ fn kept(edit: impl FnOnce(&mut crate::settings::WindowSettings)) {
     }
 }
 
-/// Sort the list by `sort`, and keep the choice: a saved view kept again in the store, which
+/// Sort the list by `sort`, and keep the choice: a saved view kept again in the client, which
 /// every window reads after `revision` moves; any other place's under its key in
 /// `settings.toml`, beside the window's other choices. A choice that cannot be kept still sorts
 /// this window's list, and says why in the log.
@@ -257,8 +255,8 @@ pub(super) fn sort_list(mut shell: Signal<Shell>, mut revision: Signal<u64>, sor
     let kept = shell.write().sort_by(sort);
     match kept {
         Some(SortKept::View(view)) => {
-            let store = consume_context::<Arc<SqliteStore>>();
-            match store.put_view(&view) {
+            let client = crate::ui::live::client();
+            match client.stored().put_view(&view) {
                 Ok(()) => revision += 1,
                 Err(why) => log::warn!("the view's order was not kept: {why}"),
             }
@@ -278,7 +276,7 @@ pub(super) fn sort_list(mut shell: Signal<Shell>, mut revision: Signal<u64>, sor
 }
 
 /// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one
-/// menu so the header is its title and four icons. Sort By asks the store for the list in
+/// menu so the header is its title and four icons. Sort By asks the client for the list in
 /// another order; grouping and the rows' parts are kept as settings ([`kept`]), so every window
 /// opens with them. Sync Now is the sidebar's sync mark's press, so it is here only while the
 /// sidebar is hidden; `syncs` is false with only local folders in view.

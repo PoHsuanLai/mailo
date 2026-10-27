@@ -23,11 +23,9 @@ use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::SqliteStore;
-use mail_core::identity::{self, Typed};
+use mail_core::identity::Typed;
 use mail_domain::{Identity, IdentityId, IsDefault};
 use porter_core::AccountId;
-use std::sync::Arc;
 
 /// The key of the Add Alias… row, which no identity's id can be.
 const ADD: &str = " add-alias";
@@ -49,26 +47,27 @@ struct Editing {
     refused: Option<String>,
 }
 
-/// The account's identities, its own first; why not, when the store cannot say. Without a store
+/// The account's identities, its own first; why not, when the client cannot say. Without a client
 /// to ask there are none.
 fn identities(account: &AccountId) -> Result<Vec<Identity>, String> {
-    match try_consume_context::<Arc<SqliteStore>>() {
-        Some(store) => {
-            identity::of_account(&store, account.clone()).map_err(crate::ui::remedy::told)
-        }
+    match crate::ui::live::try_client() {
+        Some(client) => client
+            .identities()
+            .of_account(account.clone())
+            .map_err(crate::ui::remedy::told),
         None => Ok(Vec::new()),
     }
 }
 
 /// Keep `typed` as the name of `account`'s own address, when it differs from what is kept. The
-/// revision moves only once it is kept; a store that refuses is said in `failed`.
+/// revision moves only once it is kept; a client that refuses is said in `failed`.
 fn keep_name(
     account: &AccountId,
     typed: &str,
     mut revision: Signal<u64>,
     mut failed: Signal<Option<(&'static str, String)>>,
 ) {
-    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
+    let Some(client) = crate::ui::live::try_client() else {
         return;
     };
     let kept = match identities(account) {
@@ -84,7 +83,7 @@ fn keep_name(
     if kept.as_deref().unwrap_or("") == typed.trim() {
         return;
     }
-    match identity::set_name(&store, account.clone(), typed) {
+    match client.identities().set_name(account.clone(), typed) {
         Ok(_) => {
             failed.set(None);
             revision += 1;
@@ -99,15 +98,18 @@ fn keep_name(
 /// Save the alias being edited: added or changed, then the fields close; refused, they stay
 /// with the reason under them.
 fn save(account: &AccountId, mut editing: Signal<Option<Editing>>, mut revision: Signal<u64>) {
-    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
+    let Some(client) = crate::ui::live::try_client() else {
         return;
     };
     let Some(open) = editing.peek().clone() else {
         return;
     };
     let kept = match open.id {
-        Some(id) => identity::edit(&store, id, &open.typed).map(|_| ()),
-        None => identity::add_alias(&store, account.clone(), &open.typed).map(|_| ()),
+        Some(id) => client.identities().edit(id, &open.typed).map(|_| ()),
+        None => client
+            .identities()
+            .add_alias(account.clone(), &open.typed)
+            .map(|_| ()),
     };
     match kept {
         Ok(()) => {
@@ -124,10 +126,10 @@ fn save(account: &AccountId, mut editing: Signal<Option<Editing>>, mut revision:
 
 /// Take the alias off its account, and close its fields.
 fn remove(id: IdentityId, mut editing: Signal<Option<Editing>>, mut revision: Signal<u64>) {
-    let Some(store) = try_consume_context::<Arc<SqliteStore>>() else {
+    let Some(client) = crate::ui::live::try_client() else {
         return;
     };
-    match identity::remove_alias(&store, id) {
+    match client.identities().remove_alias(id) {
         Ok(()) => {
             editing.set(None);
             revision += 1;

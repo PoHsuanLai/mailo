@@ -21,9 +21,7 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, BusyLook, ImagePosition};
 use ds::prelude::*;
-use mail_core::SqliteStore;
 use mail_core::fetch::Link;
-use std::sync::Arc;
 
 /// The mark's tip: its name, then the line when there is one, in the line's own fewer words
 /// for a tip ([`StatusLine::tip`]): "Sync · 3 min ago".
@@ -59,8 +57,8 @@ pub(super) fn dot(line: &StatusLine) -> Option<&'static str> {
 pub(super) fn SyncMark(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let rows = use_memo(move || {
         let _ = revision();
-        try_consume_context::<Arc<SqliteStore>>()
-            .map(|store| account_rows(&store))
+        crate::ui::live::try_client()
+            .map(|client| account_rows(&client))
             .unwrap_or_default()
     });
     let line = use_status(shell);

@@ -2,6 +2,7 @@
 //! open, what they list, and what a choice does. Every choice is an `rich_text::` op; nothing here
 //! edits text.
 
+use mail_client::Client;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::ui::emoji::Emoji;
@@ -130,12 +131,12 @@ pub(in crate::ui) fn query(page: &Page) -> Option<String> {
 /// While the `@` menu is open, ask the contact book for what follows the `@`: the same
 /// question, and so the same people in the same order, as the To and Cc fields. The whole book's
 /// top when nothing follows it yet.
-pub(in crate::ui) fn suggest_mention(page: &mut Page, store: &dyn mail_core::Store) {
+pub(in crate::ui) fn suggest_mention(page: &mut Page, client: &Client) {
     if !matches!(page.float, Float::Mention { .. }) {
         return;
     }
     if let Some(typed) = query(page) {
-        page.people = super::super::contacts::book::suggest(store, &typed);
+        page.people = super::super::contacts::book::suggest(client, &typed);
     }
 }
 

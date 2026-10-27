@@ -499,6 +499,8 @@ async fn new_mail_the_window_fetched_is_announced_while_notifications_are_on() {
                 })
             })
             .unwrap();
+            // The window hands the setting to the client's fetch when it renders again.
+            settle_quiet(&mut dom).await;
         }
         click(
             &mut dom,

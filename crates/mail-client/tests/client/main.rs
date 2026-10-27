@@ -553,7 +553,8 @@ fn counting() -> (mail_client::fetch::Seams, Arc<Mutex<Vec<AccountId>>>) {
             })
         }),
         pushers: Arc::new(|_| Vec::new()),
-        every: Arc::new(mail_core::sync::due::intervals),
+        config: None,
+        announce: None,
         daemon: Arc::new(|| mail_core::schedule::Daemon::Absent),
         schedule: Arc::new(|| mail_core::schedule::Schedule::Window),
         folder: Arc::new(|_, _, _, _| Err("no folders here".to_owned())),

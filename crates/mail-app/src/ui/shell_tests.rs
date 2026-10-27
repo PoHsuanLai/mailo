@@ -326,8 +326,11 @@ async fn scheduled_is_in_the_sidebar_only_while_a_send_waits_in_the_space() {
     // Another Space's: what the row is drawn from lists nothing there. Asked of the store, as
     // the window reaches a Space's accounts through effects whose order a test should not race.
     assert!(
-        crate::ui::compose::scheduled(&store, &crate::ui::space::Scope::Accounts(vec![theirs]))
-            .is_empty(),
+        crate::ui::compose::scheduled(
+            &crate::ui::fixtures::client(&store),
+            &crate::ui::space::Scope::Accounts(vec![theirs])
+        )
+        .is_empty(),
         "another Space's message would draw Scheduled"
     );
 }

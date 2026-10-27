@@ -73,8 +73,8 @@ pub(super) fn Places(
     let space = spaces.read().current().clone();
     let counted = use_memo(move || {
         let _ = revision();
-        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
-        counts(&store, spaces.read().current())
+        let client = crate::ui::live::client();
+        counts(&client, spaces.read().current())
     });
     // Every account with its folders and labels, kept read by the client.
     let accounts = use_live(|| mail_client::query::Accounts);
@@ -123,8 +123,8 @@ pub(super) fn Places(
         if let Some(desk) = desk {
             let _ = desk.outbox.read();
         }
-        let store = consume_context::<std::sync::Arc<mail_core::SqliteStore>>();
-        !crate::ui::compose::scheduled(&store, &in_scope()).is_empty()
+        let client = crate::ui::live::client();
+        !crate::ui::compose::scheduled(&client, &in_scope()).is_empty()
     });
     let show = use_signal(|| Show::Followed);
     let folders = use_memo(move || {

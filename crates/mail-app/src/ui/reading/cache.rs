@@ -13,8 +13,8 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use dioxus::prelude::*;
+use mail_client::Client;
 use mail_client::query::Conversation;
-use mail_core::SqliteStore;
 use mail_core::message::{FIRST_PAGE, Frames, Key, Looks, Sent, ahead};
 use mail_domain::{Message, ThreadId, ThreadSummary};
 use mail_mime::SanitizePolicy;
@@ -48,7 +48,7 @@ pub(in crate::ui) fn use_frames() -> Arc<Frames> {
 /// Render `later` on a blocking thread, then move `landed` so the reader draws them.
 pub(super) fn render_later(
     frames: Arc<Frames>,
-    store: Arc<SqliteStore>,
+    client: Client,
     later: Vec<(Message, SanitizePolicy)>,
     sent: std::rc::Rc<std::cell::RefCell<Sent>>,
     mut landed: Signal<u64>,
@@ -61,7 +61,7 @@ pub(super) fn render_later(
     spawn(async move {
         let _ = tokio::task::spawn_blocking(move || {
             for (message, policy) in &later {
-                let _ = frames.rendered(&store, message, *policy);
+                let _ = client.framing(&frames).rendered(message, *policy);
             }
         })
         .await;
@@ -80,7 +80,6 @@ pub(super) fn render_later(
 /// Their conversations are kept read by the client too, so opening one draws it at once rather
 /// than a frame after.
 pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) {
-    let store = use_context::<Arc<SqliteStore>>();
     let frames = use_frames();
     let client = crate::ui::live::use_client();
     let kept = use_hook(|| Rc::new(RefCell::new(Vec::new())));
@@ -104,7 +103,7 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
         // again.
         let next = client.prime(bodies.iter().map(|thread| Conversation(*thread)));
         *kept.borrow_mut() = next;
-        frames.warm(store.clone(), order, SanitizePolicy::FRAME);
+        client.framing(&frames).warm(order, SanitizePolicy::FRAME);
     });
 }
 
@@ -116,14 +115,14 @@ mod tests {
 
     #[test]
     fn warming_a_conversation_makes_opening_it_a_lookup() {
-        let (store, _dir) = crate::ui::fixtures::realistic();
-        let thread = crate::ui::fixtures::thread_like(&store, "rust-lang/rust");
-        let messages: Vec<Message> = store
+        let (client, _dir) = crate::ui::fixtures::realistic();
+        let thread = crate::ui::fixtures::thread_like(&client, "rust-lang/rust");
+        let messages: Vec<Message> = client
             .thread(thread)
             .unwrap()
             .messages
             .iter()
-            .map(|id| store.message(*id).unwrap())
+            .map(|id| client.message(*id).unwrap())
             .collect();
         let policy = SanitizePolicy::FRAME;
         assert!(
@@ -131,19 +130,19 @@ mod tests {
             "the fixture has bodies"
         );
         let frames = Frames::plain();
-        frames.warm_now(&store, &[thread], policy, || true);
+        frames.warm_now(&client, &[thread], policy, || true);
         for message in messages.iter().filter(|m| m.body.raw().is_some()) {
             let had = frames.peek(message, policy).expect("warmed");
-            assert_eq!(*had, frames.uncached(&store, message, policy));
+            assert_eq!(*had, frames.uncached(&client, message, policy));
         }
     }
 
     #[test]
     fn warming_that_is_no_longer_wanted_stops() {
-        let (store, _dir) = crate::ui::fixtures::realistic();
-        let thread = crate::ui::fixtures::thread_like(&store, "rust-lang/rust");
-        let message = store
-            .message(store.thread(thread).unwrap().messages[0])
+        let (client, _dir) = crate::ui::fixtures::realistic();
+        let thread = crate::ui::fixtures::thread_like(&client, "rust-lang/rust");
+        let message = client
+            .message(client.thread(thread).unwrap().messages[0])
             .unwrap();
         let policy = SanitizePolicy {
             remote_images: RemoteImages::Allowed,
@@ -151,7 +150,7 @@ mod tests {
             ..SanitizePolicy::FRAME
         };
         let frames = Frames::plain();
-        frames.warm_now(&store, &[thread], policy, || false);
+        frames.warm_now(&client, &[thread], policy, || false);
         assert_eq!(frames.peek(&message, policy), None);
     }
 }

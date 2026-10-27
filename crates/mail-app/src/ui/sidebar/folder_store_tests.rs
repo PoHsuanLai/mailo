@@ -8,10 +8,10 @@ use super::folder_tree::{Show, arrange};
 use crate::ui::fixtures::{
     chord, click, dispatching, empty, later, rebuild_into, right_click, type_into,
 };
-use crate::ui::ops::take_back;
 use chrono::Utc;
 use dioxus::prelude::*;
 use dioxus_core::ElementId;
+use mail_core::act::take_back;
 use mail_core::folder::Refusal;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
@@ -85,10 +85,13 @@ fn add_pop(store: &SqliteStore) {
     );
 }
 
-fn drawn(store: &SqliteStore) -> String {
+fn drawn(store: &Arc<SqliteStore>) -> String {
     arrange(
         &load(
-            &crate::ui::live::read_now(store, mail_client::query::Accounts),
+            &crate::ui::live::read_now(
+                &crate::ui::fixtures::client(store),
+                mail_client::query::Accounts,
+            ),
             &crate::ui::space::Scope::Accounts(vec![acct_imap()]),
         ),
         Show::Followed,
@@ -107,7 +110,13 @@ fn made_renamed_and_deleted_through_the_window_and_each_undone() {
     let create = FolderWork::Create {
         path: "Projects/Receipts".to_owned(),
     };
-    let made = perform(&store, acct_imap(), create, Some('/')).unwrap();
+    let made = perform(
+        &crate::ui::fixtures::client(&store),
+        acct_imap(),
+        create,
+        Some('/'),
+    )
+    .unwrap();
     assert_eq!(made.said, "Folder “Receipts” made");
     assert_eq!(drawn(&store), "Projects (2026, Receipts), 收據");
 
@@ -115,7 +124,13 @@ fn made_renamed_and_deleted_through_the_window_and_each_undone() {
         from: "Projects/Receipts".to_owned(),
         to: "Projects/Bills".to_owned(),
     };
-    let moved = perform(&store, acct_imap(), rename, Some('/')).unwrap();
+    let moved = perform(
+        &crate::ui::fixtures::client(&store),
+        acct_imap(),
+        rename,
+        Some('/'),
+    )
+    .unwrap();
     assert_eq!(moved.said, "“Receipts” renamed to “Bills”");
     assert_eq!(drawn(&store), "Projects (2026, Bills), 收據");
 
@@ -123,7 +138,13 @@ fn made_renamed_and_deleted_through_the_window_and_each_undone() {
         path: "Projects/Bills".to_owned(),
         non_empty: NonEmpty::Refuse,
     };
-    let gone = perform(&store, acct_imap(), delete, Some('/')).unwrap();
+    let gone = perform(
+        &crate::ui::fixtures::client(&store),
+        acct_imap(),
+        delete,
+        Some('/'),
+    )
+    .unwrap();
     assert_eq!(gone.said, "Folder “Bills” deleted");
     assert_eq!(drawn(&store), "Projects (2026), 收據");
     assert_eq!(queued(&store), 3, "each was queued for the server");
@@ -166,7 +187,13 @@ fn following_is_undone_too_and_a_refusal_changes_nothing() {
         path: "收據".to_owned(),
         subscription: Subscription::Unsubscribed,
     };
-    let done = perform(&store, acct_imap(), stop, Some('/')).unwrap();
+    let done = perform(
+        &crate::ui::fixtures::client(&store),
+        acct_imap(),
+        stop,
+        Some('/'),
+    )
+    .unwrap();
     assert_eq!(done.said, "Stopped following “收據”");
     assert_eq!(drawn(&store), "Projects (2026)");
     assert!(take_back(&store, done.undo.as_ref().unwrap()));
@@ -176,7 +203,13 @@ fn following_is_undone_too_and_a_refusal_changes_nothing() {
     let taken = FolderWork::Create {
         path: "Projects".to_owned(),
     };
-    let refusal = perform(&store, acct_imap(), taken, Some('/')).unwrap_err();
+    let refusal = perform(
+        &crate::ui::fixtures::client(&store),
+        acct_imap(),
+        taken,
+        Some('/'),
+    )
+    .unwrap_err();
     assert_eq!(
         refused(&refusal),
         "A folder called “Projects” already exists."
@@ -185,7 +218,13 @@ fn following_is_undone_too_and_a_refusal_changes_nothing() {
         from: "Sent".to_owned(),
         to: "Posted".to_owned(),
     };
-    let refusal = perform(&store, acct_imap(), sent, Some('/')).unwrap_err();
+    let refusal = perform(
+        &crate::ui::fixtures::client(&store),
+        acct_imap(),
+        sent,
+        Some('/'),
+    )
+    .unwrap_err();
     assert!(refused(&refusal).contains("Sent folder"), "{refusal}");
     assert_eq!(
         store.outbox_due(acct_imap(), Utc::now()).unwrap().len(),
@@ -254,7 +293,7 @@ fn a_delete_that_takes_mail_is_asked_first_and_offers_no_undo() {
         )
         .unwrap();
     let asked = perform(
-        &store,
+        &crate::ui::fixtures::client(&store),
         acct_imap(),
         FolderWork::Delete {
             path: "收據".to_owned(),
@@ -268,7 +307,7 @@ fn a_delete_that_takes_mail_is_asked_first_and_offers_no_undo() {
         Refusal::Folder(FolderError::NotEmpty { messages: 1, .. })
     ));
     let done = perform(
-        &store,
+        &crate::ui::fixtures::client(&store),
         acct_imap(),
         FolderWork::Delete {
             path: "收據".to_owned(),

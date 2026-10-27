@@ -4,7 +4,7 @@
 //!
 //! The colour is this computer's: no server keeps a label's colour where mailo can write it.
 
-use std::sync::Arc;
+use mail_client::Client;
 
 use dioxus::prelude::*;
 use ds::base::geometry::placement::{Align, Side};
@@ -13,7 +13,6 @@ use ds::components::controls::radio_group::Arrangement;
 use ds::components::overlays::popover::Arrow;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
-use mail_core::{SqliteStore, Store};
 use mail_domain::{Change, ChangeId, Hue, Label, LabelId, Patch};
 
 use crate::ui::copy;
@@ -21,11 +20,12 @@ use crate::ui::menu::anchor_at;
 use crate::ui::motion::{Follow, tell};
 
 /// The label `id`, on whichever account holds it.
-pub(super) fn label_of(store: &SqliteStore, id: LabelId) -> Option<Label> {
+pub(super) fn label_of(client: &Client, id: LabelId) -> Option<Label> {
     // No accounts read is no label to edit; the row stays as it is.
-    let accounts = store.list_accounts().unwrap_or_default();
+    let accounts = client.stored().list_accounts().unwrap_or_default();
     accounts.into_iter().find_map(|account| {
-        store
+        client
+            .stored()
             .labels(account.id)
             .ok()?
             .into_iter()
@@ -50,7 +50,7 @@ pub(super) fn choices() -> Vec<Choice<Option<Hue>>> {
 
 /// Keep `hue` as `label`'s colour, saying only a failure.
 fn keep(label: &Label, hue: Option<Hue>) {
-    let store = consume_context::<Arc<SqliteStore>>();
+    let client = crate::ui::live::client();
     let changed = Label {
         color: hue.map(|hue| hue.as_str().to_owned()),
         ..label.clone()
@@ -59,7 +59,7 @@ fn keep(label: &Label, hue: Option<Hue>) {
         id: ChangeId::generate(),
         changes: vec![Change::LabelUpsert(changed)],
     };
-    if let Err(why) = store.apply(label.account.clone(), &patch) {
+    if let Err(why) = client.stored().apply(label.account.clone(), &patch) {
         tell(why.to_string(), Follow::Nothing);
     }
 }

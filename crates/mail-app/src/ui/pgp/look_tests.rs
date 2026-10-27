@@ -74,7 +74,13 @@ fn a_key_arriving_by_any_road_opens_a_message_again_without_the_sheet() {
     );
     let body = message.body.raw();
     let looks = Looks::new();
-    let Look::Opened(first) = lookup(&looks, &store, &secrets, message.id, body) else {
+    let Look::Opened(first) = lookup(
+        &looks,
+        &crate::ui::fixtures::client(&store),
+        &secrets,
+        message.id,
+        body,
+    ) else {
         panic!("not opened");
     };
     assert!(first.shown.is_none(), "read without the key");
@@ -89,7 +95,13 @@ fn a_key_arriving_by_any_road_opens_a_message_again_without_the_sheet() {
         chrono::Utc::now(),
     )
     .unwrap();
-    let Look::Opened(second) = lookup(&looks, &store, &secrets, message.id, body) else {
+    let Look::Opened(second) = lookup(
+        &looks,
+        &crate::ui::fixtures::client(&store),
+        &secrets,
+        message.id,
+        body,
+    ) else {
         panic!("not opened");
     };
     assert!(looks.reads(Read::Seal) > before, "the old look was kept");

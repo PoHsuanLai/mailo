@@ -5,7 +5,7 @@ use crate::ui::fixtures::work;
 fn senders_are_counted_by_conversation_and_matched_whole() {
     let built = work();
     let _ = (built.root.path(), built.dana, built.sam);
-    let seen = history(&built.store);
+    let seen = history(&crate::ui::fixtures::client(&built.store));
 
     let dana = seen.get("Dana@Example.com").expect("Dana has written");
     assert_eq!(dana.threads, 2, "Dana started two conversations");
@@ -30,7 +30,7 @@ fn senders_are_counted_by_conversation_and_matched_whole() {
 #[test]
 fn writing_to_someone_is_what_replied_means() {
     let built = work();
-    let before = history(&built.store);
+    let before = history(&crate::ui::fixtures::client(&built.store));
     assert!(!before.get("dana@example.com").is_some_and(|d| d.replied));
     // One of the fixture's messages, rewritten as sent from the Google account to Dana.
     mail_store::testing::edit_messages(&built.store, |message| {
@@ -50,7 +50,7 @@ fn writing_to_someone_is_what_replied_means() {
         message.bcc.clear();
         true
     });
-    let after = history(&built.store);
+    let after = history(&crate::ui::fixtures::client(&built.store));
     assert!(
         after.get("dana@example.com").is_some_and(|d| d.replied),
         "a message to Dana from one of your accounts did not count"

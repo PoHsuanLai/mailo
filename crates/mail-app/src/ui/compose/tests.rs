@@ -1,5 +1,5 @@
 //! The composer page, without a window: recorded editor events replayed through the page's own
-//! handler, the guards, the draft's life against a real store, and the pill's faces.
+//! handler, the guards, the draft's life against a real client, and the pill's faces.
 
 mod emoji;
 mod faces;
@@ -20,12 +20,11 @@ mod wire;
 use crate::ui::row::listed::Listed;
 use ds::prelude::*;
 use std::cell::Cell;
-use std::sync::Arc;
 
 use chrono::{DateTime, TimeZone, Utc};
 use dioxus::prelude::*;
 use dioxus_core::{NoOpMutations, VirtualDom};
-use mail_core::SqliteStore;
+use mail_client::Client;
 use mail_domain::*;
 
 use super::body::Body;
@@ -225,8 +224,8 @@ fn ScheduledRows(shell: Signal<Shell>, revision: Signal<u64>) -> Element {
     let desk = use_context::<Desk>();
     let _ = desk.outbox.read();
     let _ = revision();
-    let store = consume_context::<Arc<SqliteStore>>();
-    let held = super::scheduled(&store, &crate::ui::space::Scope::All);
+    let client = crate::ui::live::client();
+    let held = super::scheduled(&client, &crate::ui::space::Scope::All);
     rsx! {
         for listed in held.into_iter().filter(|draft| matches!(draft.state, SendState::Scheduled { .. })).map(Listed::Draft) {
             crate::ui::row::ListRow {
@@ -257,13 +256,13 @@ struct Window {
 
 impl Window {
     fn open(
-        store: Arc<SqliteStore>,
+        client: Client,
         draft: Draft,
         dirs: Option<WindowDirs>,
     ) -> (Self, crate::ui::fixtures::Seen) {
         crate::ui::fixtures::dispatching();
         let mut dom = VirtualDom::new_with_props(PageHarness, PageHarnessProps { draft })
-            .with_root_context(store);
+            .with_root_context(client);
         if let Some(dirs) = dirs {
             dom = dom.with_root_context(dirs);
         }
