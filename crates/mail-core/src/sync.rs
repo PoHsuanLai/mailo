@@ -16,6 +16,7 @@ pub mod watcher;
 mod body;
 pub use body::fetch_body_with;
 mod jmap;
+mod quota;
 mod search;
 
 use crate::error::{CoreError, Logged};
@@ -30,6 +31,7 @@ use mail_runtime::{
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+pub use quota::has_quota;
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
 pub use search::search_server_with;
 use std::sync::Arc;

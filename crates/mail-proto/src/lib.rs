@@ -14,6 +14,7 @@ pub mod jmap;
 pub mod machine;
 pub mod mutf7;
 pub mod pop3;
+pub mod quota;
 pub mod search;
 pub mod sieve;
 pub mod smtp;
@@ -26,6 +27,7 @@ pub use imap::{
 };
 pub use machine::{Backend, IoNeed, IoReady, Machine, Moved, Progress, ProtoOutcome};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};
+pub use quota::Storage;
 pub use smtp::{
     Advertised, Authentication, EhloExtensions, Open, ReplyText, SignIn, SizeLimit, SmtpReply,
     SmtpSession, Submission,

@@ -1,7 +1,7 @@
 //! The session resource (RFC 8620 §2): where everything else is, and what the server allows.
 
 use super::field::{malformed, object, opt_string, string, unsigned};
-use super::{MAIL, SUBMISSION};
+use super::{MAIL, QUOTA, SUBMISSION};
 use crate::ProtoError;
 use mail_domain::JmapAccountId;
 use serde_json::Value;
@@ -25,6 +25,8 @@ pub struct Session {
     /// Whether its submissions may ask for delivery reports: the capability's
     /// `submissionExtensions` list `DSN` (RFC 8621 §1.3.2, RFC 3461).
     pub dsn: Dsn,
+    /// Whether that account says how much of its storage is used (RFC 9425).
+    pub quotas: Quotas,
     pub limits: Limits,
     /// The name the server knows the user by.
     pub username: String,
@@ -43,6 +45,13 @@ pub enum Submission {
 /// Whether the mail account's submission server takes RFC 3461's `NOTIFY` and `RET`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Dsn {
+    Offered,
+    Absent,
+}
+
+/// Whether the mail account has quotas to read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quotas {
     Offered,
     Absent,
 }
@@ -100,6 +109,10 @@ impl Session {
             .and_then(Value::as_object)
             .is_some_and(|extensions| extensions.keys().any(|k| k.eq_ignore_ascii_case("DSN")));
         let dsn = if dsn { Dsn::Offered } else { Dsn::Absent };
+        let quotas = match account_caps.and_then(|c| c.get(QUOTA)) {
+            Some(_) => Quotas::Offered,
+            None => Quotas::Absent,
+        };
         let core = value
             .get("capabilities")
             .and_then(|c| c.get(super::CORE))
@@ -126,6 +139,7 @@ impl Session {
             account,
             submission,
             dsn,
+            quotas,
             limits,
             username: opt_string(&value, "username")?.unwrap_or("").to_owned(),
             state: opt_string(&value, "state")?.unwrap_or("").to_owned(),

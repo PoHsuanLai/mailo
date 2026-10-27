@@ -55,6 +55,8 @@ pub struct State {
     pub submitted: Vec<Submitted>,
     /// Every method call received, by name, with its arguments.
     pub calls: Vec<(String, Value)>,
+    /// What `Quota/get` lists (RFC 9425 Quota objects).
+    pub quotas: Vec<Value>,
     next: u64,
 }
 
@@ -251,7 +253,8 @@ async fn connection(fake: Fake, sock: tokio::net::TcpStream) {
                     "name": USER, "isPersonal": true, "isReadOnly": false,
                     "accountCapabilities": {
                         "urn:ietf:params:jmap:mail": {},
-                        "urn:ietf:params:jmap:submission": {}
+                        "urn:ietf:params:jmap:submission": {},
+                        "urn:ietf:params:jmap:quota": {}
                     }
                 } },
                 "primaryAccounts": {
@@ -588,6 +591,9 @@ fn method(
         "Identity/get" => one(json!({
             "accountId": ACCOUNT_ID, "state": "i1",
             "list": [{ "id": "I1", "name": "Me", "email": USER }], "notFound": []
+        })),
+        "Quota/get" => one(json!({
+            "accountId": ACCOUNT_ID, "state": "q1", "list": state.quotas, "notFound": []
         })),
         _ => error("unknownMethod"),
     }

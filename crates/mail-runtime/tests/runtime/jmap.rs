@@ -1037,3 +1037,29 @@ async fn moving_to_a_folder_the_server_does_not_have_is_refused_for_good() {
         Some(MailboxRole::Inbox)
     );
 }
+
+#[tokio::test]
+async fn the_account_s_storage_is_the_tightest_mail_quota_the_server_lists() {
+    let mut s = setup().await;
+    // None listed: the server keeps no quota, which is no failure.
+    assert_eq!(s.engine.quota_jmap().await.unwrap(), None);
+    s.fake.state.lock().unwrap().quotas = vec![
+        serde_json::json!({
+            "id": "q1", "resourceType": "octets", "scope": "account", "name": "mail",
+            "types": ["Mail"], "used": 3_000, "hardLimit": 10_000,
+        }),
+        serde_json::json!({
+            "id": "q2", "resourceType": "count", "scope": "account", "name": "messages",
+            "types": ["Mail"], "used": 9, "hardLimit": 10,
+        }),
+    ];
+    assert_eq!(
+        s.engine.quota_jmap().await.unwrap(),
+        Some(mail_proto::Storage {
+            used: 3_000,
+            limit: 10_000,
+        })
+    );
+    let asked = s.fake.calls("Quota/get").pop().unwrap();
+    assert_eq!(asked["ids"], serde_json::Value::Null);
+}

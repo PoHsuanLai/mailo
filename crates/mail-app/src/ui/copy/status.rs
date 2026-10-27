@@ -333,6 +333,41 @@ pub mod account {
     pub const DESCRIPTION_HELP: &str = "Shown in the sidebar in place of the address.";
     /// The help under Sync while it is off.
     pub const PAUSED_HELP: &str = "mailo won\u{2019}t sync this account until you turn this on.";
+    /// An amount of storage, in the largest unit it fills: "512 kB", "1.2 GB", "15 GB".
+    ///
+    /// The unit is chosen after rounding to a tenth, so an amount that rounds up to 1024 of one
+    /// unit is said in the next, never as "1024 kB".
+    pub fn amount(bytes: u64) -> String {
+        const UNITS: [(&str, u64); 4] = [
+            ("kB", 1 << 10),
+            ("MB", 1 << 20),
+            ("GB", 1 << 30),
+            ("TB", 1 << 40),
+        ];
+        if bytes < UNITS[0].1 {
+            return format!("{bytes} B");
+        }
+        // The tenths of a unit that `bytes` comes to, rounded to nearest.
+        let tenths = |size: u64| (u128::from(bytes) * 10 + u128::from(size) / 2) / u128::from(size);
+        let (unit, tenths) = UNITS
+            .iter()
+            .map(|&(unit, size)| (unit, tenths(size)))
+            .find(|&(_, tenths)| tenths < 1024 * 10)
+            // Past what the units name, the last says it.
+            .unwrap_or_else(|| (UNITS[3].0, tenths(UNITS[3].1)));
+        match tenths % 10 {
+            0 => format!("{} {unit}", tenths / 10),
+            tenth => format!("{}.{tenth} {unit}", tenths / 10),
+        }
+    }
+    /// The Storage row: "1.2 GB of 15 GB used".
+    pub fn storage_used(used: &str, limit: &str) -> String {
+        format!("{used} of {limit} used")
+    }
+    /// The Storage row once little is left: mail that does not fit is refused by the server.
+    pub fn storage_nearly_full(used: &str, limit: &str) -> String {
+        format!("{used} of {limit} used, nearly full")
+    }
 }
 
 /// What a signature's row in Settings says of it: which default it is.

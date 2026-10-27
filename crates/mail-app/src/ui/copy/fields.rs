@@ -192,6 +192,9 @@ pub mod account {
     pub const JUNK: &str = "Junk";
     pub const TRASH: &str = "Trash";
     pub const ARCHIVE: &str = "Archive";
+    pub const SENDS_AS: &str = "Sends as";
+    /// How much of the account's storage its server says is used.
+    pub const STORAGE: &str = "Storage";
 }
 
 // A signature's page in Settings.

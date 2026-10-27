@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod partial;
+mod quota;
 mod search;
 mod split;
 pub(crate) mod wait;

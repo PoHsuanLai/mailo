@@ -5,9 +5,15 @@
 //! last and alone, Remove Account….
 //!
 //! What the account is called, whether it syncs and its folders' roles are changed here
-//! ([`edit`]). The servers are read, not edited: changing them is porter's server editor's,
-//! which the page will offer once mailo is on a porter that has it. Remove asks first in quire's
-//! alert, naming how much mail goes and whether the server still has it. Only the
+//! ([`edit`]). Under the servers, how much of the account's storage its server says is used,
+//! where the server keeps a quota (IMAP's `QUOTA`, JMAP's quotas: `mail_core::SyncOps::quota`). It
+//! is asked once as the page opens, off the thread that draws, and the row is left out until the
+//! server answers, and for good when it cannot or keeps none: the page is about the account, and
+//! a server that is slow or away must not hold it up or fill it with an error.
+//!
+//! The servers are read, not edited: changing them is porter's server editor's, which the page
+//! will offer once mailo is on a porter that has it. Remove asks first in quire's alert, naming
+//! how much mail goes and whether the server still has it. Only the
 //! confirming button removes; Escape and Cancel leave the page as it was. A removal runs off the
 //! thread that draws (the keyring blocks), on the window's own task, so turning to another page
 //! does not cut it short. When it is done the offline setting forgets the account, the revision
@@ -37,18 +43,24 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use mail_core::AccountSecrets;
-use mail_core::{SqliteStore, Store};
+use mail_core::{SqliteStore, Storage, Store};
 use porter_core::AccountId;
 use std::sync::Arc;
 
 /// What the button that asks says.
 const ASK: &str = "Remove Account\u{2026}";
 
-/// The keyring a removal forgets the sign-in from, handed in as a context so tests reach their
-/// own and never the user's.
+/// Ask an account's server how much of its storage is used: [`mail_core::SyncOps::quota`], or
+/// why it could not say. Blocks, so it is run off the thread that draws.
+pub(in crate::ui) type ReadStorage =
+    Arc<dyn Fn(Arc<SqliteStore>, AccountId) -> Result<Option<Storage>, String> + Send + Sync>;
+
+/// The keyring a removal forgets the sign-in from, and what asks a server how full the account
+/// is, handed in as a context so tests reach their own and never the user's.
 #[derive(Clone)]
 pub(in crate::ui) struct Seams {
     pub secrets: Arc<dyn AccountSecrets>,
+    pub storage: ReadStorage,
 }
 
 impl Seams {
@@ -57,14 +69,20 @@ impl Seams {
     pub(in crate::ui) fn real() -> Seams {
         Seams {
             secrets: crate::edge::secrets(),
+            storage: Arc::new(|store, account| {
+                let mail = crate::edge::mail(&store);
+                crate::edge::block_on(mail.sync().quota(account)).map_err(crate::ui::remedy::told)
+            }),
         }
     }
 
     /// A window's whose root handed none, as a test's does: a keyring that holds nothing, so a
-    /// removal forgets nothing and touches no keyring of the user's.
+    /// removal forgets nothing and touches no keyring of the user's, and no server to ask, so
+    /// the page says nothing of storage and opens no socket.
     fn none() -> Seams {
         Seams {
             secrets: Arc::new(mail_core::NoKeyring),
+            storage: Arc::new(|_, _| Ok(None)),
         }
     }
 }
@@ -168,6 +186,31 @@ fn sign_in(address: &str, account: &AccountId, need: Need) {
     }
 }
 
+/// How much of `account`'s storage its server says is used, once it has said: `None` until then,
+/// and for an account whose server keeps no quota, cannot be reached, or has none to ask.
+fn use_storage(account: AccountId) -> Option<Storage> {
+    let read = use_resource(use_reactive!(|account| {
+        let asked = row_of(&account)
+            .is_some_and(|row| mail_core::sync::has_quota(&row.plan.incoming))
+            .then(try_consume_context::<Arc<SqliteStore>>)
+            .flatten();
+        let ask = seams().storage;
+        async move {
+            let store = asked?;
+            tokio::task::spawn_blocking(move || ask(store, account))
+                .await
+                .ok()?
+                // Said nowhere: the row is left out, and the page is no place for a server's
+                // trouble, which the account's own status says when it matters.
+                .unwrap_or_else(|why| {
+                    log::debug!("no storage for the account page: {why}");
+                    None
+                })
+        }
+    }));
+    (*read.read()).flatten()
+}
+
 /// The account's page, under the pane's header, which names it.
 #[component]
 pub(super) fn AccountPage(
@@ -177,6 +220,7 @@ pub(super) fn AccountPage(
 ) -> Element {
     // Read again when an account comes or goes.
     let _ = revision();
+    let storage = use_storage(account.clone());
     // Whether the account waits for the person: the first window knows, and says so to this one.
     let waiting = use_needs();
     let row = row_of(&account);
@@ -245,7 +289,7 @@ pub(super) fn AccountPage(
                 sends_as::SendsAs { account: account.clone(), revision }
             }
             FormSection { title: Some(copy::headers::SERVERS.to_owned()),
-                for line in words::settings(&row.plan) {
+                for line in words::settings(&row.plan).into_iter().chain(storage.as_ref().map(words::storage)) {
                     FieldRow { key: "{line.label}", label: line.label,
                         Label { text: line.value }
                     }

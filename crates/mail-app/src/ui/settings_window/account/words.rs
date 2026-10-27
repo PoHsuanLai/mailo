@@ -6,6 +6,7 @@ use crate::ui::copy::controls::REMOVE;
 use crate::ui::copy::fields::account as row;
 use crate::ui::copy::status::account as said;
 use crate::ui::files::work::messages;
+use mail_core::Storage;
 use mail_core::account::RemoveError;
 use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
 use porter_provider::Issuer;
@@ -99,6 +100,22 @@ pub(super) fn settings(plan: &AccountPlan) -> Vec<Line> {
         },
     ));
     lines
+}
+
+/// The share of its storage past which an account is said to be nearly full.
+const NEARLY_FULL: f64 = 0.9;
+
+/// The Storage row, from what the account's server said it uses.
+pub(super) fn storage(storage: &Storage) -> Line {
+    let (used, limit) = (said::amount(storage.used), said::amount(storage.limit));
+    line(
+        row::STORAGE,
+        if storage.share() >= NEARLY_FULL {
+            said::storage_nearly_full(&used, &limit)
+        } else {
+            said::storage_used(&used, &limit)
+        },
+    )
 }
 
 /// What the confirmation says.
