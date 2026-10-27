@@ -33,7 +33,7 @@ mod dock;
 
 use chrono::{DateTime, Utc};
 use mail_core::Store;
-use mail_core::place::{place_filter, unread_in};
+use mail_core::mailbox_filter::{for_role, unread_in};
 use mail_core::scope::Scope;
 use mail_domain::{Filter, MailboxRole};
 use std::sync::Arc;
@@ -49,7 +49,7 @@ pub struct Unread(pub u64);
 /// sidebar's Inbox badge cannot disagree about what "unread in the inbox" means: snoozed
 /// conversations are away, and read ones are read.
 pub fn filter(scope: &Scope) -> Filter {
-    scope.over(unread_in(place_filter(MailboxRole::Inbox)))
+    scope.over(unread_in(for_role(MailboxRole::Inbox)))
 }
 
 /// Count them. One indexed query (`Store::count`), made off the thread that draws.

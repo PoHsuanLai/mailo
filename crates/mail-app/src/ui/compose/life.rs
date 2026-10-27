@@ -18,7 +18,7 @@ use super::protection::Protection;
 use super::recipients::commit_typed;
 use super::seal::SealBar;
 use crate::ui::today::Today;
-use mail_core::editor::missing_attachment;
+use mail_core::rich_text::missing_attachment;
 
 /// How long a send waits in the outbox before it may leave, which is how long Undo has.
 pub(in crate::ui) const GRACE: chrono::TimeDelta = chrono::TimeDelta::seconds(5);

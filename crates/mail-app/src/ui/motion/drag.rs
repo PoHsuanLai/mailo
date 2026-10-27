@@ -14,7 +14,7 @@ use crate::ui::view::{Place, Shell, Source};
 use dioxus::prelude::*;
 use ds::prelude::*;
 use mail_core::SqliteStore;
-use mail_core::place::place_role;
+use mail_core::mailbox_filter::role_of;
 use mail_domain::*;
 use std::sync::Arc;
 
@@ -44,7 +44,7 @@ pub(in crate::ui) fn view_kind(place: &Place) -> ViewKind {
     match &place.source {
         Source::Mail(Filter::HasLabel(label)) => ViewKind::PlaceLabel { label: *label },
         // A mailbox's place, found by the filter it lists, as the sidebar built it.
-        Source::Mail(filter) => match place_role(filter) {
+        Source::Mail(filter) => match role_of(filter) {
             Some(mailbox) => ViewKind::Place { mailbox },
             None => ViewKind::Query,
         },

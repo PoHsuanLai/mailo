@@ -9,7 +9,7 @@ use crate::ui::fixtures::{acct_account, seeded};
 use crate::ui::original::{Consent, FetchImage, Got, ReaderNet};
 use chrono::TimeZone;
 use ds_blitz::{PageSize, PrintError, PrintOutcome};
-use mail_core::print::Printed;
+use mail_core::html_document::Printed;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::{Pages, Script};

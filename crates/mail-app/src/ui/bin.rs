@@ -7,7 +7,7 @@
 //! when the window asks at all. Pure: the alert and its buttons are `ui::destroy`.
 
 use super::view::{Shell, Source};
-use mail_core::place::place_filter;
+use mail_core::mailbox_filter::for_role;
 use mail_domain::{MailboxRole, Message, ThreadId, ThreadSummary};
 
 /// A place mail is deleted forever from.
@@ -46,7 +46,7 @@ pub fn bin_shown(shell: &Shell) -> Option<Bin> {
     };
     [Bin::Trash, Bin::Spam]
         .into_iter()
-        .find(|bin| *filter == place_filter(bin.role()))
+        .find(|bin| *filter == for_role(bin.role()))
 }
 
 /// Whether `summary` has mail in `bin`, the bin shown, so Delete Forever reaches it from there.

@@ -7,7 +7,7 @@ use super::super::page::{Float, Fold, Guard, RowShown, When};
 use super::*;
 use crate::ui::app::App;
 use crate::ui::fixtures::{key, work};
-use mail_core::editor::{Check, Doc, ImageRef, Level, Object, ParaKind, Range, Table};
+use mail_core::rich_text::{Check, Doc, ImageRef, Level, Object, ParaKind, Range, Table};
 
 /// A small picture, embedded the way an image in a draft is: never fetched.
 fn picture() -> String {
@@ -56,7 +56,7 @@ fn composed(page: &mut Page) {
             ),
         ],
     };
-    page.session.caret = mail_core::editor::Caret::at(7, 1);
+    page.session.caret = mail_core::rich_text::Caret::at(7, 1);
     page.float = Float::Slash {
         anchor: Pos::new(7, 0),
         active: 0,

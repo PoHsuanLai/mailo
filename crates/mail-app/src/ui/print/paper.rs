@@ -1,4 +1,4 @@
-//! The printout on paper, for the `native` frontend: [`mail_core::print`]'s document made into a PDF
+//! The printout on paper, for the `native` frontend: [`mail_core::html_document`]'s document made into a PDF
 //! by quire (`ds_blitz::pdf`), with no webview anywhere.
 //!
 //! Blitz lays the document out and quire cuts it into pages. Neither reads CSS fragmentation
@@ -29,7 +29,7 @@
 //! named, as the document's `<p class="missing">`.
 
 use ds_blitz::{Margins, PageSize, PageSpec};
-use mail_core::print::{LABELS, Pictures, Printed};
+use mail_core::html_document::{LABELS, Pictures, Printed};
 use mail_mime::{Options, Script};
 
 /// What the top of a printout says when it names a picture instead of drawing it.
@@ -322,8 +322,15 @@ where
         missing_note: Some(PICTURES_NOTE),
         twelve_hour: clock == mail_core::when::Clock::H12,
     };
-    mail_core::print::document_with(store, *job.thread.as_uuid(), zone, now, &options, pictures)
-        .map_err(String::from)
+    mail_core::html_document::document_with(
+        store,
+        *job.thread.as_uuid(),
+        zone,
+        now,
+        &options,
+        pictures,
+    )
+    .map_err(String::from)
 }
 
 /// `printed` as a PDF on `paper`. Blocking, and slow next to a click (the layout, and the first

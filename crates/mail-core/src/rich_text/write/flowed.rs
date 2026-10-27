@@ -14,8 +14,8 @@
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::{ListTag, block_text, list_end, todo_box};
-use crate::editor::doc::{Doc, Node, Object, ParaKind};
-use crate::editor::text::runs_text;
+use crate::rich_text::doc::{Doc, Node, Object, ParaKind};
+use crate::rich_text::text::runs_text;
 
 /// Where a soft break is due, in grapheme clusters, the trailing space included.
 const WIDTH: usize = 72;

@@ -14,7 +14,7 @@ use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::prelude::*;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
-use mail_core::place::{pending_snooze, place_filter};
+use mail_core::mailbox_filter::{for_role, pending_snooze};
 use mail_core::query::{self};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
@@ -60,7 +60,7 @@ pub(super) fn counts(store: &SqliteStore, space: &Space) -> Counts {
     let pinned = store
         .threads(
             &Query {
-                filter: mail_core::view::scoped(scope.clone(), Filter::Pinned),
+                filter: mail_core::conversation::scoped(scope.clone(), Filter::Pinned),
                 sort: Sort {
                     property: Property::Pin,
                     dir: SortDir::Desc,
@@ -126,7 +126,7 @@ pub(in crate::ui) fn hex_colour(text: &str) -> Colour {
 /// A built-in place's glyph, found by what the place lists rather than by what it is called: the
 /// sidebar's and ⌘K's.
 pub(in crate::ui) fn place_icon(source: &Source) -> Icon {
-    let role = |role: MailboxRole| *source == Source::Mail(place_filter(role));
+    let role = |role: MailboxRole| *source == Source::Mail(for_role(role));
     match source {
         Source::Drafts => Icon::FilePen,
         Source::Waiting => Icon::Bell,

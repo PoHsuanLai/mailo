@@ -14,7 +14,7 @@ use super::{
     Asked, Reach, Step, asked, para_at, pointer_selection, pos_of, selected_text, step,
     text_position, word_at,
 };
-use mail_core::editor::{Doc, InputEvent, Node, Object, ParaKind, Pos, Range};
+use mail_core::rich_text::{Doc, InputEvent, Node, Object, ParaKind, Pos, Range};
 
 /// Our desktop's keymap, the one the window's tests are read on.
 fn ours() -> Platform {

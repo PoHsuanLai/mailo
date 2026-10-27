@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
-use mail_core::place::{pending_snooze, place_filter};
+use mail_core::mailbox_filter::{for_role, pending_snooze};
 use mail_core::transfer::{self, IoCause, Refusal, Seen};
 use mail_domain::{Filter, MailboxRole, Star};
 use porter_core::AccountId;
@@ -324,7 +324,7 @@ fn place_words(source: &Listed) -> Option<&'static str> {
         (MailboxRole::Spam, "spam"),
     ]
     .into_iter()
-    .find(|(role, _)| *filter == place_filter(*role))
+    .find(|(role, _)| *filter == for_role(*role))
     .map(|(_, words)| words)
 }
 
