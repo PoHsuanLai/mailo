@@ -240,10 +240,22 @@ impl<Q: Query> Job for Entry<Q> {
         }
         // Before the reading begins, so every commit up to it is one the reading sees.
         let as_of = store.generation();
-        let answer = store
-            .read_pinned(|| self.query.run(store, now))
-            .map_err(ClientError::from)
-            .and_then(|answer| answer);
+        // A reading that panics is a failed reading, not a reader thread gone: `running` is
+        // cleared below either way, so the entry reads again at the next commit.
+        let answer = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            store
+                .read_pinned(|| self.query.run(store, now))
+                .map_err(ClientError::from)
+                .and_then(|answer| answer)
+        }))
+        .unwrap_or_else(|panicked| {
+            let what = panicked
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_owned())
+                .or_else(|| panicked.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a reading panicked".to_owned());
+            Err(ClientError::Panicked(what))
+        });
         let mut state = self.state.lock();
         state.running = false;
         let last = state.snapshot.value().cloned();

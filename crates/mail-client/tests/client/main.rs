@@ -721,3 +721,51 @@ fn work_that_is_not_send_runs_on_a_thread_of_its_own_and_is_awaited_from_another
     }));
     assert_eq!(got, Some(42));
 }
+
+/// A reading that panics.
+#[derive(Clone, PartialEq, Eq)]
+struct Panics;
+
+impl Query for Panics {
+    type Output = ();
+    const READS: Topics = Topics::VIEWS;
+
+    fn run(&self, _store: &SqliteStore, _now: DateTime<Utc>) -> Result<(), ClientError> {
+        panic!("boom")
+    }
+}
+
+/// A reading that panics fails that reading and nothing else: the reader thread lives, the entry
+/// can be read again, and the client goes on answering what is asked of it.
+#[test]
+fn a_reading_that_panics_is_a_failed_reading_and_the_client_goes_on() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+    let live = client.live(Panics);
+    let failed = |live: &Live<()>| {
+        matches!(
+            live.snapshot(),
+            Snapshot::Failed {
+                error: ClientError::Panicked(_),
+                ..
+            }
+        )
+    };
+    for _ in 0..200 {
+        if failed(&live) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(failed(&live), "the panic was not said");
+    // Another commit reads it again, and the other readings are served by the same threads.
+    store.put_view(&view("one")).unwrap();
+    let counted = client.live(Counted::new("after"));
+    for _ in 0..200 {
+        if value(&counted).is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(value(&counted).is_some(), "the reader threads are gone");
+}

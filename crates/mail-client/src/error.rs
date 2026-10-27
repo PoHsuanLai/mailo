@@ -8,6 +8,9 @@ pub enum ClientError {
     /// The store refused, or could not be read: its words, for a front end to put into its own.
     #[error("the mail could not be read: {0}")]
     Store(String),
+    /// The reading itself failed (a bug in what it ran): said, and the next reading goes on.
+    #[error("reading the mail went wrong: {0}")]
+    Panicked(String),
 }
 
 impl From<StoreError> for ClientError {
