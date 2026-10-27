@@ -104,9 +104,9 @@ impl<T> Live<T> {
   invalidated at the next due instant by `mailo-clock`, which finds that instant again whenever
   a commit touches the conversations. A caller whose clock the client cannot sleep on (a test's
   window, on quire's virtual time, or one whose client reads on its thread) waits for
-  `Client::next_clock` itself and says when it has passed (`use_snooze_wake`). A caller whose time is not the
-  system's (a test's window, on quire's virtual clock) gives the client its own with
-  `Client::set_clock`, which reads again what reads the clock.
+  `Client::next_clock` itself and says when it has passed (`use_snooze_wake`). A caller whose
+  time is not the system's (a test's window, on quire's virtual clock) gives the client its own
+  with `Client::set_clock`, which reads again what reads the clock.
 
 ## Invalidation
 
