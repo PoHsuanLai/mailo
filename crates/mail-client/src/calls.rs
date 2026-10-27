@@ -6,26 +6,10 @@
 //! store. They run on the caller's thread, as a small read or write the caller needs the answer to
 //! at once.
 
-#![allow(clippy::too_many_arguments)]
-
 mod act {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::act::*;
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
     use mail_core::undo::Undo;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::act`.
     #[derive(Clone, Copy, Debug)]
@@ -39,15 +23,6 @@ mod act {
     }
 
     impl Act<'_> {
-        /// `mail_core::act::caps_here`.
-        pub fn caps_here(
-            &self,
-            account: AccountId,
-            now: chrono::DateTime<chrono::Utc>,
-        ) -> AccountCaps {
-            mail_core::act::caps_here(self.0.store(), account, now)
-        }
-
         /// `mail_core::act::perform`.
         pub fn perform(
             &self,
@@ -67,22 +42,10 @@ mod act {
 pub use act::Act;
 
 mod attach {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::attach::*;
     use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::attach`.
     #[derive(Clone, Copy, Debug)]
@@ -110,22 +73,12 @@ mod attach {
 pub use attach::Attach;
 
 mod compose {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use mail_core::compose::*;
     use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
     use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::compose`.
     #[derive(Clone, Copy, Debug)]
@@ -270,22 +223,9 @@ mod compose {
 pub use compose::Compose;
 
 mod contacts {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
     use mail_core::contacts::*;
     use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
-    use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::contacts`.
     #[derive(Clone, Copy, Debug)]
@@ -313,22 +253,8 @@ mod contacts {
 pub use contacts::Contacts;
 
 mod contacts_groups {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
     use mail_core::contacts::groups::*;
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
-    use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::contacts::groups`.
     #[derive(Clone, Copy, Debug)]
@@ -351,24 +277,14 @@ mod contacts_groups {
 pub use contacts_groups::ContactsGroups;
 
 mod export {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use mail_core::environment::Environment;
     use mail_core::error::CoreError;
     use mail_core::export::Target;
     use mail_core::export::*;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
     use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::export`.
     #[derive(Clone, Copy, Debug)]
@@ -408,22 +324,11 @@ mod export {
 pub use export::Export;
 
 mod folder {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
+    use chrono::{DateTime, Utc};
     use mail_core::folder::*;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
     use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::folder`.
     #[derive(Clone, Copy, Debug)]
@@ -451,22 +356,12 @@ mod folder {
 pub use folder::Folder;
 
 mod follow_up {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use mail_core::error::CoreError;
     use mail_core::follow_up::*;
     use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::follow_up`.
     #[derive(Clone, Copy, Debug)]
@@ -509,22 +404,9 @@ mod follow_up {
 pub use follow_up::FollowUp;
 
 mod history {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
-    use mail_core::history::*;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
+    use chrono::{DateTime, Utc};
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::history`.
     #[derive(Clone, Copy, Debug)]
@@ -547,22 +429,11 @@ mod history {
 pub use history::History;
 
 mod invite {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use mail_core::error::CoreError;
     use mail_core::invite::*;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::invite`.
     #[derive(Clone, Copy, Debug)]
@@ -596,22 +467,10 @@ mod invite {
 pub use invite::Invite;
 
 mod pgp {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::*;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
+    use chrono::{DateTime, Utc};
+    use mail_core::pgp::PgpError;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::pgp`.
     #[derive(Clone, Copy, Debug)]
@@ -644,22 +503,12 @@ mod pgp {
 pub use pgp::Pgp;
 
 mod pgp_keys {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
+    use chrono::{DateTime, Utc};
     use mail_core::pgp::keys::*;
     use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use mail_runtime::SigningStore;
 
     /// What the client calls in `mail_core::pgp::keys`.
     #[derive(Clone, Copy, Debug)]
@@ -726,22 +575,9 @@ mod pgp_keys {
 pub use pgp_keys::PgpKeys;
 
 mod preview {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
     use mail_core::preview::*;
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::preview`.
     #[derive(Clone, Copy, Debug)]
@@ -764,22 +600,12 @@ mod preview {
 pub use preview::Preview;
 
 mod print {
-    #![allow(unused_imports)]
     use crate::Client;
     use chrono::{DateTime, TimeZone, Utc};
     use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
     use mail_core::print::*;
-    use mail_core::smime::SmimeError;
     use mail_core::when::Clock;
-    use mail_domain::*;
     use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::print`.
     #[derive(Clone, Copy, Debug)]
@@ -829,22 +655,8 @@ mod print {
 pub use print::Print;
 
 mod query {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::query::*;
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::query`.
     #[derive(Clone, Copy, Debug)]
@@ -867,22 +679,11 @@ mod query {
 pub use query::Query;
 
 mod receipt {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
     use mail_core::receipt::*;
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::receipt`.
     #[derive(Clone, Copy, Debug)]
@@ -910,24 +711,14 @@ mod receipt {
 pub use receipt::Receipt;
 
 mod rules_manage {
-    #![allow(unused_imports)]
     use crate::Client;
     use chrono::{DateTime, TimeZone, Utc};
     use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
     use mail_core::rules::ListedRule;
     use mail_core::rules::manage::Draft;
     use mail_core::rules::manage::*;
-    use mail_core::smime::SmimeError;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
     use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::rules::manage`.
     #[derive(Clone, Copy, Debug)]
@@ -1010,22 +801,13 @@ mod rules_manage {
 pub use rules_manage::RulesManage;
 
 mod smime_certs {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
+    use chrono::{DateTime, Utc};
+    use mail_core::pgp::WithSecret;
     use mail_core::smime::SmimeError;
     use mail_core::smime::certs::*;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
+    use mail_runtime::SigningStore;
 
     /// What the client calls in `mail_core::smime::certs`.
     #[derive(Clone, Copy, Debug)]
@@ -1078,22 +860,10 @@ mod smime_certs {
 pub use smime_certs::SmimeCerts;
 
 mod smime {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
+    use chrono::{DateTime, Utc};
     use mail_core::smime::SmimeError;
-    use mail_core::smime::*;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::smime`.
     #[derive(Clone, Copy, Debug)]
@@ -1130,22 +900,10 @@ mod smime {
 pub use smime::Smime;
 
 mod snooze {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::snooze::*;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::snooze`.
     #[derive(Clone, Copy, Debug)]
@@ -1168,22 +926,8 @@ mod snooze {
 pub use snooze::Snooze;
 
 mod sync {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
-    use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::sync::*;
-    use mail_core::when::Clock;
-    use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
     use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::sync`.
     #[derive(Clone, Copy, Debug)]
@@ -1206,22 +950,10 @@ mod sync {
 pub use sync::Sync;
 
 mod template {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use mail_core::error::CoreError;
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
-    use mail_core::template::*;
-    use mail_core::when::Clock;
     use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
-    use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::template`.
     #[derive(Clone, Copy, Debug)]
@@ -1269,23 +1001,12 @@ mod template {
 pub use template::Templates;
 
 mod transfer {
-    #![allow(unused_imports)]
     use crate::Client;
-    use chrono::{DateTime, TimeZone, Utc};
+    use chrono::{DateTime, Utc};
     use mail_core::error::CoreError;
     use mail_core::import::{Destination, Imported, Source};
-    use mail_core::notify::Notifier;
-    use mail_core::pgp::{PgpError, WithSecret};
-    use mail_core::smime::SmimeError;
     use mail_core::transfer::*;
-    use mail_core::when::Clock;
-    use mail_domain::*;
-    use mail_mime::print::{Options, Pages};
-    use mail_runtime::{AccountSecrets, SigningStore};
-    use mail_store::{SqliteStore, Store, StoreError};
     use porter_core::AccountId;
-    use std::path::{Path, PathBuf};
-    use std::sync::Arc;
 
     /// What the client calls in `mail_core::transfer`.
     #[derive(Clone, Copy, Debug)]

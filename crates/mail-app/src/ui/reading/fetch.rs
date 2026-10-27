@@ -251,7 +251,7 @@ pub(super) fn BodyPane(message: MessageId, account: AccountId, mut landed: Signa
         let client = crate::ui::live::client();
         let fetch = fetchers().body;
         spawn(async move {
-            // `spawn_blocking`: the fetch waits on the application's runtime (`edge::block_on`).
+            // `spawn_blocking`: the fetch waits on the application's runtime (`Client::net`).
             // Claimed for as long as it runs, so a body pass that starts meanwhile leaves it to us.
             let done = tokio::task::spawn_blocking(move || {
                 let _claim = mail_core::wanted::claim(message);

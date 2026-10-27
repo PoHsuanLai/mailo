@@ -167,7 +167,7 @@ pub(super) fn start(
     let searched_for = account.clone();
     spawn(async move {
         let line = input.clone();
-        // `spawn_blocking`: the search waits on the application's runtime (`edge::block_on`), which
+        // `spawn_blocking`: the search waits on the application's runtime (`Client::net`), which
         // an async task must not.
         let done = tokio::task::spawn_blocking(move || {
             let searched = (search.0)(client.clone(), searched_for, &line, Utc::now());
