@@ -275,10 +275,10 @@ impl Reader {
             }
             ProtoOp::Folder(work) => self.folder_work(work, token).await,
             // Not kept through Graph: it makes a message from MIME only as a new draft with an
-            // id of its own, so replacing one would be a search by `internetMessageId` and a
-            // `DELETE` of each found, which nothing here does yet. A draft on a Graph account is
-            // this client's alone, as every draft was; nothing queues these for one, and a row
-            // that got into the outbox some other way is done with.
+            // id of its own, so replacing one would take a search by `internetMessageId` and a
+            // `DELETE` of each found, which this reader does not do. A draft on a Graph account
+            // is this client's alone; nothing queues these for one, and a row that got into the
+            // outbox some other way is done with.
             ProtoOp::KeepDraft { .. } | ProtoOp::DropDraft { .. } => Ok(ProtoOutcome::Applied),
             ProtoOp::Expunge { .. } => Err(refused_here(
                 "deleting mail for good, which this client doesn’t do through Microsoft Graph",

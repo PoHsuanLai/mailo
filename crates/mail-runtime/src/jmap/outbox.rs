@@ -4,9 +4,9 @@
 //! Each operation is one request. Flags, filing, labels and keywords are `Email/set` patches;
 //! an upload is `Email/import`; a send is an import and an `EmailSubmission/set` together;
 //! folder work is `Mailbox/set`; a draft's copy in Drafts is an `Email/query` for the copies
-//! already there, an import and an `Email/set` destroying those found. Destroying an email is done for one reason only — the user
-//! deleted it forever from Trash or Junk — and is checked against the server's own view before
-//! it is asked for.
+//! already there, an import and an `Email/set` destroying those found. Destroying one of the
+//! person's mail is done for one reason only — the user deleted it forever from Trash or Junk —
+//! and is checked against the server's own view before it is asked for.
 
 use super::{Client, JmapEngine, email_ids};
 use crate::{RuntimeError, SyncReport};

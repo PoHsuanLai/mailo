@@ -231,7 +231,7 @@ pub enum ProtoOp {
     /// copy in Drafts is [`ProtoOp::KeepDraft`], which also replaces the copy before it.
     ///
     /// `flags` and `date` are the message's own, said explicitly rather than derived from the
-    /// destination: a draft is `\Draft \Seen` because it is a draft, and an imported message
+    /// destination: a sent copy is `\Seen` because its sender wrote it, and an imported message
     /// read ten years ago is `\Seen` wherever it goes. It carried a `MailboxRole` until import
     /// needed flags that no role implies; an outbox row of that shape still reads, flagless.
     Append {
