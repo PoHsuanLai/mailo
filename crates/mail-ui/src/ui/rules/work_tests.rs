@@ -39,7 +39,6 @@ fn a_condition_the_rules_cannot_read_is_refused_and_not_kept() {
             &crate::ui::fixtures::client(&store)
                 .rules_manage()
                 .labels(acct_account()),
-            &mail_core::vip::Vips::default(),
             &Utc,
         );
         match refused {

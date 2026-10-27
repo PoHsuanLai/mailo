@@ -206,6 +206,10 @@ fn key(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<SearchKey, Unsaid> {
         Filter::Starred(Star::Starred) => SearchKey::Flagged,
         Filter::Starred(Star::Unstarred) => SearchKey::Unflagged,
         Filter::From(m) => SearchKey::From(whole(m)?),
+        // The server's FROM finds the address as text of the header, name or address; the mail it
+        // finds is judged again by the filter when it is read.
+        Filter::FromAddress(email) => SearchKey::From(email.clone()),
+        Filter::Cc(m) => SearchKey::Cc(whole(m)?),
         Filter::To(m) => {
             let who = whole(m)?;
             SearchKey::Or(
@@ -269,7 +273,7 @@ fn key(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<SearchKey, Unsaid> {
                 describe(filter)
             )));
         }
-        Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned => {
+        Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned | Filter::Vip => {
             return Err(kept_here(filter));
         }
     })

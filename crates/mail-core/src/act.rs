@@ -24,6 +24,15 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
     if entry.resend.is_some() {
         return false;
     }
+    // A copy the server has made stays made (`undo::reverse_intent`): taking the copy out of its
+    // folder here would put it back at the next sync, so once it has left the outbox there is
+    // nothing to take back.
+    if matches!(entry.remote, Some(RemoteIntent::Copy { .. }))
+        && has_server(store, entry.account.clone())
+        && queued_filing(store, entry).is_none()
+    {
+        return false;
+    }
     let reverse = entry
         .remote
         .as_ref()
@@ -55,7 +64,76 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
             .or_log("an undo could not be put back after its reverse failed to queue");
         return false;
     }
+    unteach(store, entry);
     true
+}
+
+/// What a gesture taught the junk filter, from the patch it applied: Spam taught that the
+/// messages it moved into Spam are junk, and Not Spam, or taking the Junk label off, that the
+/// messages it moved out of Spam or off that label are not.
+fn taught_by(store: &SqliteStore, entry: &Undo) -> Vec<(mail_store::junk::Judged, MessageId)> {
+    use mail_store::junk::Judged;
+    let was_spam: Vec<MessageId> = entry
+        .inverse
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::MessageMailbox(m, MailboxRole::Spam) => Some(*m),
+            _ => None,
+        })
+        .collect();
+    let junk_label = store
+        .labels(entry.account.clone())
+        .or_log("the labels could not be read to take back what a gesture taught")
+        .and_then(|labels| {
+            labels
+                .into_iter()
+                .find(|l| l.name.eq_ignore_ascii_case(crate::junk::JUNK_LABEL))
+                .map(|l| l.id)
+        });
+    entry
+        .forward
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::MessageMailbox(m, MailboxRole::Spam) => Some((Judged::Spam, *m)),
+            Change::MessageMailbox(m, _) if was_spam.contains(m) => Some((Judged::Ham, *m)),
+            Change::MessageLabel(m, label, Membership::Out) if Some(*label) == junk_label => {
+                Some((Judged::Ham, *m))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Take back from the junk filter what the operation `entry` undoes taught it, so an undone
+/// Spam or Not Spam leaves its counts as they were.
+fn unteach(store: &SqliteStore, entry: &Undo) {
+    for (judged, message) in taught_by(store, entry) {
+        store
+            .junk_forget(entry.account.clone(), message, judged)
+            .or_log("the junk filter could not forget what an undone gesture taught");
+    }
+}
+
+/// The queued move or copy `entry` made, while the server has not been tried with it. `None` once
+/// it has been sent, has been tried and is waiting to retry, or was settled; and when the outbox
+/// cannot be read, which then counts as sent.
+fn queued_filing(store: &SqliteStore, entry: &Undo) -> Option<mail_store::OutboxEntry> {
+    let queued_as: fn(&ProtoOp) -> bool = match &entry.remote {
+        Some(RemoteIntent::File { .. }) => |op| matches!(op, ProtoOp::File { .. }),
+        Some(RemoteIntent::Copy { .. }) => |op| matches!(op, ProtoOp::Copy { .. }),
+        _ => return None,
+    };
+    // The whole queue, not only what is due: a later operation waiting out a retry or a
+    // credential is later all the same.
+    store
+        .outbox_due(entry.account.clone(), queue_horizon())
+        .or_log("the outbox could not be read to find a taken-back move")?
+        .into_iter()
+        .find(|waiting| {
+            queued_as(&waiting.op) && waiting.attempts == 0 && waiting.undo == entry.inverse
+        })
 }
 
 /// A move or a copy to a folder taken back before the server heard of it is taken out of the
@@ -292,6 +370,16 @@ pub fn perform_on(
                 .collect();
             (!from_spam.is_empty()).then_some((mail_store::junk::Judged::Ham, from_spam))
         }
+        // Taking the Junk label off is the way to say Not Spam for mail that was marked and not
+        // moved ([`crate::junk::Treat::Mark`]).
+        Op::Label(label, Membership::Out) if is_junk_label(store, account.clone(), label) => {
+            let marked: Vec<_> = messages
+                .iter()
+                .filter(|m| m.labels.contains(&label))
+                .cloned()
+                .collect();
+            (!marked.is_empty()).then_some((mail_store::junk::Judged::Ham, marked))
+        }
         _ => None,
     };
     if let Some((judged, taught)) = taught {
@@ -306,6 +394,18 @@ pub fn perform_on(
         remote: applied.remote,
         resend: None,
     })
+}
+
+/// Whether `label` is the one a marked junk message carries.
+fn is_junk_label(store: &SqliteStore, account: AccountId, label: LabelId) -> bool {
+    store
+        .labels(account)
+        .or_log("the labels could not be read to see whether one marks junk")
+        .is_some_and(|labels| {
+            labels
+                .iter()
+                .any(|l| l.id == label && l.name.eq_ignore_ascii_case(crate::junk::JUNK_LABEL))
+        })
 }
 
 /// Delete forever what `thread` holds in Trash or Spam, here and on the server. Returns the
@@ -387,3 +487,6 @@ fn messages_of(store: &SqliteStore, loaded: &Thread) -> Vec<Message> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

@@ -42,16 +42,40 @@ pub(super) fn suggested<'a>(
     out
 }
 
-/// Mark or unmark `address`, saying a failure in `failed`, and move `revision` so every window
-/// reads the VIPs again.
-fn set(address: &str, name: Option<&str>, mark: Mark, mut failed: Signal<Option<String>>) {
+/// Mark or unmark `address` on a blocking thread, and hand `then` how it went: the failure in
+/// the window's words. The VIPs are read again by every window when the store moves.
+fn set(
+    address: &str,
+    name: Option<&str>,
+    mark: Mark,
+    then: impl FnOnce(Result<(), String>) + 'static,
+) {
     let client = crate::ui::live::client();
-    match client.query().set_vip(address, name, mark) {
-        Ok(()) => {
-            failed.set(None);
-        }
-        Err(why) => failed.set(Some(crate::ui::remedy::told(why))),
-    }
+    let (address, name) = (address.to_owned(), name.map(str::to_owned));
+    spawn(async move {
+        let done = tokio::task::spawn_blocking(move || {
+            client
+                .query()
+                .set_vip(&address, name.as_deref(), mark)
+                .map_err(crate::ui::remedy::told)
+        })
+        .await
+        .unwrap_or_else(|why| Err(why.to_string()));
+        then(done);
+    });
+}
+
+/// A button's mark or unmark: a failure is said in the dialog.
+fn set_with_dialog(
+    address: &str,
+    name: Option<&str>,
+    mark: Mark,
+    mut failed: Signal<Option<String>>,
+) {
+    set(address, name, mark, move |done| match done {
+        Ok(()) => failed.set(None),
+        Err(why) => failed.set(Some(why)),
+    });
 }
 
 #[component]
@@ -83,17 +107,22 @@ pub(super) fn VipsPage() -> Element {
     let offered = suggested(&pins, &vips);
     let failed = use_signal(|| None::<String>);
     let mut typed = use_signal(String::new);
+    // Why the address typed was not taken, under the field it was typed in.
+    let mut refused = use_signal(|| None::<String>);
     let add_typed = move || {
         let address = typed.peek().trim().to_owned();
         if address.is_empty() {
             return;
         }
-        set(&address, None, Mark::Vip, failed);
-        if failed.peek().is_none() {
-            typed.set(String::new());
-        }
+        set(&address, None, Mark::Vip, move |done| match done {
+            Ok(()) => {
+                refused.set(None);
+                typed.set(String::new());
+            }
+            Err(why) => refused.set(Some(why)),
+        });
     };
-    let mut on_enter = add_typed;
+    let on_enter = add_typed;
     let none = listed.is_empty();
     rsx! {
         Form {
@@ -113,7 +142,7 @@ pub(super) fn VipsPage() -> Element {
                             },
                             onclick: {
                                 let address = vip.address.clone();
-                                on_primary(move || set(&address, None, Mark::NotVip, failed))
+                                on_primary(move || set_with_dialog(&address, None, Mark::NotVip, failed))
                             },
                         }
                     }
@@ -131,7 +160,11 @@ pub(super) fn VipsPage() -> Element {
                             label: copy::fields::VIP_ADDRESS.to_owned(),
                             value: typed(),
                             placeholder: copy::fields::VIP_ADDRESS_EXAMPLE.to_owned(),
-                            oninput: move |value: String| typed.set(value),
+                            validity: crate::ui::views::refusal(refused.read().as_deref()),
+                            oninput: move |value: String| {
+                                refused.set(None);
+                                typed.set(value);
+                            },
                         }
                         Button {
                             label: copy::controls::ADD,
@@ -154,7 +187,7 @@ pub(super) fn VipsPage() -> Element {
                                 },
                                 onclick: {
                                     let (name, email) = (name.clone(), email.clone());
-                                    on_primary(move || set(&email, Some(&name), Mark::Vip, failed))
+                                    on_primary(move || set_with_dialog(&email, Some(&name), Mark::Vip, failed))
                                 },
                             }
                         }

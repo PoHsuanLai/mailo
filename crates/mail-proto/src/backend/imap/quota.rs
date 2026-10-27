@@ -10,7 +10,7 @@
 //! limit to say, and the walk ends with `None` without sending the command.
 
 use super::{Authenticate, ImapBackend};
-use crate::imap::{ImapCommand, ImapSession, ImapTranscript, has_capability};
+use crate::imap::{ImapCommand, ImapSession, ImapTranscript, has_capability, lacks_capability};
 use crate::machine::{IoReady, Machine, Progress, ProtoError};
 use crate::quota::{Storage, tightest};
 use imap_proto::{QuotaResourceName, Response};
@@ -98,10 +98,11 @@ impl Machine for Quota<'_> {
         match session.feed(ready) {
             Progress::Need(needs) => Progress::Need(needs),
             // The guard stopped the walk: no quota to read, which is an answer. Only the
-            // guard's refusal names the extension; one at sign-in (`LOGINDISABLED`, a credential
-            // of the wrong kind) is a failure still.
-            Progress::Failed(ProtoError::Unsupported(why))
-                if why.contains(QUOTA) && !has_capability(session.capabilities(), QUOTA) =>
+            // guard's refusal is that answer; one at sign-in (`LOGINDISABLED`, a credential of
+            // the wrong kind) is a failure still.
+            Progress::Failed(e)
+                if lacks_capability(&e, QUOTA)
+                    && !has_capability(session.capabilities(), QUOTA) =>
             {
                 Progress::Done(None)
             }

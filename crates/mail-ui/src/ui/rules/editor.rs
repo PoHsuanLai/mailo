@@ -299,12 +299,13 @@ fn RuleEditor(
         .into_iter()
         .map(|d| d.path)
         .collect();
-    let vips = client.query().vips();
     let templates = client.rules_manage().templates(account.clone());
     // Read as it is written: a condition that cannot be read is its field's error, and Save waits
     // for one that can, with every row's value in.
-    let filter = work::read_condition(&draft.query, &index, &vips, &chrono::Local).ok();
+    let filter = work::read_condition(&draft.query, &index, &chrono::Local).ok();
     let readable = conditions::ready(writing(), &rows(), filter.is_some());
+    // A size is measured on this computer, which a server may count differently.
+    let sized = draft.query.contains("larger:") || draft.query.contains("smaller:");
     let matching = filter
         .filter(|_| readable)
         .and_then(|filter| work::matching(&client, account.clone(), filter, chrono::Utc::now()));
@@ -338,6 +339,7 @@ fn RuleEditor(
                 Joined::All => copy::fields::WHEN_ALL_MATCH,
                 Joined::Any => copy::fields::WHEN_ANY_MATCH,
             }.to_owned()),
+            footer: sized.then(|| copy::fields::SIZE_COUNTED_HERE.to_owned()),
             ConditionRows {
                 writing,
                 joined,

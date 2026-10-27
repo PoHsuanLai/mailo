@@ -1,10 +1,10 @@
 //! Read receipts in the window: answered by the setting, once, and only where it is safe.
 
 use super::{
-    DECLINE_KEY, Destination, SEND_KEY, Standing, answer_asked, answer_of, answer_one, asks,
-    automatic, destination, items, mark_id,
+    DECLINE_KEY, Destination, SEND_KEY, Standing, answer_asked, answer_of, answer_one, answers_now,
+    asks, automatic, destination, items, mark_id,
 };
-use crate::settings::{MailSettings, ReadReceipts};
+use crate::settings::{MailSettings, MarkRead, ReadReceipts};
 use crate::ui::fixtures::{acct_account, dispatching, rebuild_into, seeded};
 use crate::ui::fixtures::{click, settle_for};
 use crate::ui::reading::Reader;
@@ -128,13 +128,14 @@ fn outbox(store: &SqliteStore) -> usize {
 }
 
 #[component]
-fn Open(thread: ThreadId, policy: Option<ReadReceipts>) -> Element {
+fn Open(thread: ThreadId, policy: Option<ReadReceipts>, mark: MarkRead) -> Element {
     let shell = use_signal(Shell::default);
     // A window's settings, when the case has one: a reader with none answers nothing.
     use_hook(|| {
         if let Some(policy) = policy {
             let mut settings = MailSettings::default();
             settings.reading.read_receipts = policy;
+            settings.reading.mark_read = mark;
             provide_context(Signal::new(settings));
         }
     });
@@ -150,9 +151,16 @@ async fn reader_under(
 ) -> (String, Arc<Looks>) {
     dispatching();
     let looks = Arc::new(Looks::new());
-    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread, policy })
-        .with_root_context(crate::ui::fixtures::client(&store))
-        .with_root_context(looks.clone());
+    let mut dom = VirtualDom::new_with_props(
+        Open,
+        OpenProps {
+            thread,
+            policy,
+            mark: MarkRead::OnOpen,
+        },
+    )
+    .with_root_context(crate::ui::fixtures::client(&store))
+    .with_root_context(looks.clone());
     let mut seen = rebuild_into(&mut dom);
     settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
     (dioxus_ssr::render(&dom), looks)
@@ -171,6 +179,7 @@ async fn running_under(
         OpenProps {
             thread,
             policy: Some(policy),
+            mark: MarkRead::OnOpen,
         },
     )
     .with_root_context(crate::ui::fixtures::client(&store))
@@ -323,6 +332,50 @@ async fn opening_under_always_queues_one_receipt_once() {
 
     let _ = reader_under(store.clone(), thread, Some(ReadReceipts::Always)).await;
     assert_eq!(submissions(&store), before + 1, "a second receipt");
+}
+
+/// A receipt is the reading's: under Always it goes once the reader has marked the thread read,
+/// so a thread left unread by `reading.mark_read` (Never) or still waiting out its delay has
+/// sent none, and one marked read on open has.
+#[tokio::test]
+async fn always_waits_for_the_conversation_to_be_marked_read() {
+    assert!(answers_now(ReadReceipts::Always, true));
+    assert!(!answers_now(ReadReceipts::Always, false));
+    assert!(!answers_now(ReadReceipts::Ask, true));
+    assert!(!answers_now(ReadReceipts::Never, true));
+
+    for (mark, sent) in [
+        (MarkRead::Never, false),
+        (MarkRead::AfterDelay, false),
+        (MarkRead::OnOpen, true),
+    ] {
+        let (store, _dir) = seeded();
+        let (thread, message) = put(&store, ASKS, Held::Body);
+        let before = submissions(&store);
+        dispatching();
+        let mut dom = VirtualDom::new_with_props(
+            Open,
+            OpenProps {
+                thread,
+                policy: Some(ReadReceipts::Always),
+                mark,
+            },
+        )
+        .with_root_context(crate::ui::fixtures::client(&store))
+        .with_root_context(Arc::new(Looks::new()));
+        let mut seen = rebuild_into(&mut dom);
+        settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+        assert_eq!(
+            submissions(&store),
+            before + usize::from(sent),
+            "{mark:?}: receipts queued"
+        );
+        assert_eq!(
+            store.receipt_answer(message).unwrap(),
+            sent.then_some(ReceiptAnswer::Sent),
+            "{mark:?}"
+        );
+    }
 }
 
 /// Under Always, a request whose receipt would go to another domain, and a message whose body

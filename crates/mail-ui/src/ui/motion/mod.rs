@@ -19,6 +19,7 @@ pub(super) use drag::Ghost;
 pub(super) use toast::Toast;
 
 use super::ops::resolve;
+use crate::ui::copy;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
@@ -129,6 +130,53 @@ pub(super) struct Motion {
     /// The message each of `order`'s rows is, while the list gives a message to a row; empty
     /// otherwise.
     pub messages: CopyValue<Vec<MessageId>>,
+    /// Writes asked of the client that are not done yet, and the undos pressed meanwhile.
+    pub underway: CopyValue<Underway>,
+}
+
+/// What a press has asked of the client that has not come back, so an Undo pressed in between
+/// takes back that press's gesture and not an older one.
+///
+/// Gestures are told apart, not counted: they are done in the order the client finishes them,
+/// which is not always the order they were asked in, so the entry an Undo owes is found by the
+/// gesture it was pressed for, never by being the newest on the stack when it is made.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(super) struct Underway {
+    next: u64,
+    /// Gestures asked and not done, oldest first, and whether an Undo is owed to each.
+    gestures: Vec<(u64, bool)>,
+}
+
+impl Underway {
+    /// A gesture is asked: the number it is done under.
+    fn asked(&mut self) -> u64 {
+        let this = self.next;
+        self.next += 1;
+        self.gestures.push((this, false));
+        this
+    }
+
+    /// An Undo is pressed: whether it waits for the newest gesture underway that is not owed
+    /// one already, rather than taking back the entry on the stack, which is an older
+    /// gesture's.
+    fn undo_pressed(&mut self) -> bool {
+        match self.gestures.iter_mut().rev().find(|(_, owed)| !*owed) {
+            Some((_, owed)) => {
+                *owed = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Gesture `this` is done, its entry kept or not. Whether an Undo was waiting for it, to be
+    /// made now.
+    fn done(&mut self, this: u64) -> bool {
+        match self.gestures.iter().position(|(asked, _)| *asked == this) {
+            Some(at) => self.gestures.remove(at).1,
+            None => false,
+        }
+    }
 }
 
 /// Make the motion state for the window. Called once, from `App`.
@@ -140,6 +188,7 @@ pub(super) fn use_motion() -> Motion {
         drag: Signal::new(drag::Drag::Idle),
         order: CopyValue::new(Vec::new()),
         messages: CopyValue::new(Vec::new()),
+        underway: CopyValue::new(Underway::default()),
     })
 }
 
@@ -164,7 +213,10 @@ pub(super) fn act(client: &Client, shell: Signal<Shell>, thread: ThreadId, op: O
 }
 
 /// Apply each op to its conversation now, as one gesture: one undo entry that takes every one
-/// of them back, and one toast that counts them. Returns how many were applied.
+/// of them back, and one toast that counts them. Returns how many were applied, when that is
+/// known as it returns (a client that applies on this thread); `0` while the write is still
+/// under way, which is not a claim that nothing will be applied: the list shows a refusal when
+/// the client reports it ([`Hiding::settle`]), and nothing moves on a count that is a guess.
 ///
 /// `Op::apply` is about one thread, so the ops are applied one by one; what makes them one
 /// gesture is that their undos are kept together (`UndoStack::push_all`). A row that no longer
@@ -185,7 +237,6 @@ pub(in crate::ui) fn act_saying(
     if ops.is_empty() {
         return 0;
     }
-    let count = ops.len();
     let asked: Vec<ThreadId> = ops.iter().map(|(thread, _)| *thread).collect();
     let hours = crate::ui::clock::hours();
     let hiding = super::list_query::hide(&ops);
@@ -197,13 +248,14 @@ pub(in crate::ui) fn act_saying(
         })
         .collect();
     let then_erase = deletes_now();
+    let motion = motion();
+    let gesture = begin(motion);
     let ticket = super::live::client().act(Command::Perform {
         ops,
         clock: hours,
         alone,
         then_erase,
     });
-    let motion = motion();
     if let Some(mut motion) = motion {
         motion.dest.set(None);
     }
@@ -214,6 +266,7 @@ pub(in crate::ui) fn act_saying(
         }) = acted
         else {
             hiding.settle(None, &[]);
+            end(motion, shell, gesture, None);
             return 0;
         };
         // What was refused stays where it was, so it is drawn again.
@@ -223,32 +276,58 @@ pub(in crate::ui) fn act_saying(
             .copied()
             .collect();
         hiding.settle(Some(generation), &refused);
-        performed(motion, shell, done, hours, instead)
+        let (applied, kept) = performed(motion, shell, done, hours, instead);
+        end(motion, shell, gesture, kept);
+        applied
     })
-    .unwrap_or(count)
+    .unwrap_or(0)
+}
+
+/// A gesture is asked of the client: the number to hand [`end`] when it is done.
+pub(in crate::ui) fn begin(motion: Option<Motion>) -> u64 {
+    motion.map_or(0, |mut motion| motion.underway.write().asked())
+}
+
+/// Gesture `gesture`, asked by [`begin`], is done, and `kept` is the entry it left on the stack
+/// (none when it applied nothing). An Undo pressed meanwhile takes back exactly that entry now,
+/// whatever other gestures finished first; a gesture that kept nothing leaves nothing to take
+/// back, and the Undo is not spent on an older one.
+pub(in crate::ui) fn end(
+    motion: Option<Motion>,
+    shell: Signal<Shell>,
+    gesture: u64,
+    kept: Option<UndoHandle>,
+) {
+    let Some(mut owner) = motion else {
+        return;
+    };
+    let owed = owner.underway.write().done(gesture);
+    if let (true, Some(handle)) = (owed, kept) {
+        undo_by(&crate::ui::live::client(), shell, motion, handle);
+    }
 }
 
 /// Keep what `done` takes back as one entry and say it: what an op applied comes to in the
-/// window. Returns how many were applied.
+/// window. Returns how many were applied, and the handle of the entry kept.
 fn performed(
     motion: Option<Motion>,
     shell: Signal<Shell>,
     done: Vec<(ThreadId, Op, Undo)>,
     hours: mail_client::when::Clock,
     instead: Option<String>,
-) -> usize {
+) -> (usize, Option<UndoHandle>) {
     let count = done.len();
     let said = match done.as_slice() {
-        [] => return 0,
+        [] => return (0, None),
         [(_, op, _), _, ..] => mail_client::undo::said_of(op, count, &chrono::Local, hours),
         [(_, _, undo)] => undo.said.clone(),
     };
     let said = instead.unwrap_or(said);
     let undos = done.into_iter().map(|(.., undo)| undo).collect();
-    if record_through(motion, shell, undos, said).is_none() {
-        return 0;
+    match record_through(motion, shell, undos, said) {
+        Some(handle) => (count, Some(handle)),
+        None => (0, None),
     }
-    count
 }
 
 /// What an action on `thread` reaches: the one message the reader shows alone, when `thread` is
@@ -293,6 +372,38 @@ pub(in crate::ui) fn when_done<T: 'static>(
         then(ticket.await);
     });
     None
+}
+
+/// Keep what the person made or forgot, written off the thread that draws like an op is: `then`
+/// is handed what came of it once it is done (the label a [`Keep::Label`] made, else `None`), or
+/// the sentence that says why not.
+pub(in crate::ui) fn keep(
+    keep: mail_client::act::Keep,
+    then: impl FnOnce(Result<Option<mail_domain::LabelId>, String>) + 'static,
+) {
+    let ticket = super::live::client().act(Command::Keep(keep));
+    when_done(ticket, move |acted| {
+        then(match acted {
+            Some(Acted {
+                done: Done::Kept(kept),
+                ..
+            }) => kept.map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why)),
+            _ => Err(copy::errors::NOT_KEPT_CLOSING.to_owned()),
+        })
+    });
+}
+
+/// The same, as a future: for a write that runs inside a task.
+pub(in crate::ui) async fn kept(keep: mail_client::act::Keep) -> Result<(), String> {
+    match super::live::client().act(Command::Keep(keep)).await {
+        Some(Acted {
+            done: Done::Kept(kept),
+            ..
+        }) => kept
+            .map(|_| ())
+            .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why)),
+        _ => Err(copy::errors::NOT_KEPT_CLOSING.to_owned()),
+    }
 }
 
 /// The one way an undoable action is kept and shown: `undos` go on the window's stack as one
@@ -445,7 +556,15 @@ pub(in crate::ui) fn spam_and_offer_unblock(
 }
 
 /// Take back the newest op: ⌘Z.
+///
+/// A gesture asked a moment ago and not done yet is the newest one: the undo waits for it and
+/// then takes it back, rather than taking back the one before.
 pub(super) fn undo_last(client: &Client, mut shell: Signal<Shell>) -> bool {
+    if let Some(mut motion) = motion()
+        && motion.underway.write().undo_pressed()
+    {
+        return true;
+    }
     let Some(entry) = shell.write().undo.pop() else {
         return false;
     };
@@ -649,6 +768,8 @@ pub(in crate::ui) fn belongs(
         corpus: None,
         folders: &folders,
         sizes: &[],
+        cc: &[],
+        vips: shell.vips.addresses(),
         now,
     })
 }

@@ -4,6 +4,10 @@
 //! `keywords` or `mailboxIds` value. A patch names only what the user changed, so a keyword or a
 //! mailbox another client added a second ago is left alone rather than overwritten by what this
 //! client last saw.
+//!
+//! A keyword's name is lower case here (RFC 8621 §4.1.1): a server stores it so, and a patch that
+//! names `$MailFlagBit0` would set a keyword no other client reads back. Reading is case
+//! blind, as [`mail_domain::Hue::from_keywords`] is.
 
 use super::Mailboxes;
 use super::field::{malformed, object};
@@ -27,11 +31,16 @@ pub fn flags_patch(read: Option<ReadState>, star: Option<Star>) -> Map<String, V
         // The colour goes with the flag, as Apple Mail clears it.
         if star == Star::Unstarred {
             for bit in FLAG_BIT_KEYWORDS {
-                patch.insert(format!("keywords/{bit}"), Value::Null);
+                patch.insert(keyword_path(bit), Value::Null);
             }
         }
     }
     patch
+}
+
+/// The patch path of the keyword `name`, in lower case.
+fn keyword_path(name: &str) -> String {
+    format!("keywords/{}", name.to_ascii_lowercase())
 }
 
 /// The patch that flags an email in `hue`: `$flagged`, with Apple Mail's colour keywords set
@@ -41,10 +50,10 @@ pub fn flag_patch(hue: Hue) -> Map<String, Value> {
     patch.insert("keywords/$flagged".to_owned(), json!(true));
     let (set, clear) = hue.flag_keywords();
     for bit in set {
-        patch.insert(format!("keywords/{bit}"), json!(true));
+        patch.insert(keyword_path(bit), json!(true));
     }
     for bit in clear {
-        patch.insert(format!("keywords/{bit}"), Value::Null);
+        patch.insert(keyword_path(bit), Value::Null);
     }
     patch
 }
@@ -55,7 +64,7 @@ pub fn keyword_patch(keyword: Keyword) -> Map<String, Value> {
         Keyword::MdnSent => "$MDNSent",
     };
     let mut patch = Map::new();
-    patch.insert(format!("keywords/{name}"), json!(true));
+    patch.insert(keyword_path(name), json!(true));
     patch
 }
 

@@ -26,7 +26,7 @@ use mail_domain::{Incoming, MailboxRole};
 /// Write one preference with `write`, then move the revision so everything that names the
 /// account reads it again; a client that refuses is said in `failed`.
 fn keep(
-    write: impl FnOnce(&mail_client::Stored<'_>) -> Result<(), mail_client::StoreError>,
+    write: impl FnOnce(&mail_client::Stored<'_>) -> Result<(), mail_client::prelude::StoreError>,
     mut failed: Signal<Option<String>>,
 ) {
     let Some(client) = crate::ui::live::try_client() else {
@@ -50,6 +50,8 @@ pub(super) fn About(row: AccountRow) -> Element {
         move || had.unwrap_or_default()
     });
     let syncing = row.syncing;
+    let (keeps_offered, keeps) = keeping_labels(&row);
+    let labelled = row.id.clone();
     let id = row.id.clone();
     let described = id.clone();
     rsx! {
@@ -84,10 +86,47 @@ pub(super) fn About(row: AccountRow) -> Element {
                 }
             }
         }
+        if keeps_offered {
+            FormSection {
+                FieldRow {
+                    label: field::LABELS,
+                    help: Some(TextLine::from(said::KEEP_LABELS_HELP)),
+                    Toggle {
+                        label: field::KEEP_LABELS_ON_THE_SERVER,
+                        value: if keeps { Check::On } else { Check::Off },
+                        onchange: move |now: Check| {
+                            let account = labelled.clone();
+                            keep(
+                                move |stored| stored.set_account_keeps_labels(account, now == Check::On),
+                                failed,
+                            );
+                        },
+                    }
+                }
+            }
+        }
         if let Some(why) = failed() {
             Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| { let mut failed = failed; failed.set(None) } }
         }
     }
+}
+
+/// Whether labels can be kept on `row`'s server as keywords, and whether the person said to: an
+/// IMAP account whose server is not Gmail, which has labels of its own.
+fn keeping_labels(row: &AccountRow) -> (bool, bool) {
+    let Some(client) = crate::ui::live::try_client() else {
+        return (false, false);
+    };
+    let offered = matches!(row.plan.incoming, Incoming::Imap { .. })
+        && client
+            .sync()
+            .caps_of(row.id.clone())
+            .is_some_and(|caps| caps.labels != mail_domain::ServerLabels::Supported);
+    let keeps = client
+        .stored()
+        .account_prefs(row.id.clone())
+        .is_ok_and(|prefs| prefs.keep_labels);
+    (offered, keeps)
 }
 
 /// The roles a person may give a folder, in the order the page lists them, with their words.

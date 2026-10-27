@@ -1,7 +1,8 @@
 //! A message as it came: its header lines (Show All Headers, ⇧⌘H) or its whole source (View
 //! Source, ⌥⌘R), as plain monospaced text in a sheet over the window, to read, select and copy.
 //!
-//! What is shown is the stored bytes (`mail_core::export::raw_message`), never a rendering, so a
+//! What is shown is the stored bytes (`mail_core::export::raw_head`: the first of them, off the
+//! thread that draws, never the whole blob), never a rendering, so a
 //! message that draws wrongly can be looked at whole. A message laid out as text is costly past
 //! a size, and one with large attachments is mostly base64 nobody reads, so the sheet shows the
 //! first [`SHOWN`] bytes, cut at a line's end, and says how much there was; Download in the ⋯
@@ -16,6 +17,8 @@ use ds::components::content::label::{Label, LabelRole, LabelStyle};
 use ds::components::overlays::sheet_attach::Attach;
 use ds::prelude::*;
 use mail_client::Client;
+use mail_client::export::RawHead;
+use mail_client::prelude::CoreError;
 use mail_domain::{MessageId, ThreadId, human_size};
 
 /// Which of a message's raw text a sheet shows.
@@ -61,25 +64,49 @@ fn header_block(raw: &[u8]) -> &[u8] {
 
 /// What `raw` shows as `what`, the first `most` bytes of it, cut back to the end of a line where
 /// there is one. Bytes that are not UTF-8 (an 8-bit header) show as the replacement character.
+#[cfg(test)]
 pub(super) fn shown(raw: &[u8], what: Raw, most: usize) -> Shown {
     let part = match what {
         Raw::Headers => header_block(raw),
         Raw::Source => raw,
     };
-    if part.len() <= most {
+    cut_at(part, part.len(), most)
+}
+
+/// What a message's first bytes show as `what`: the same as [`shown`] of the whole message, from
+/// only the head of it that was read (`head.bytes`, at most `most` + 1 of them).
+pub(super) fn shown_head(head: &RawHead, what: Raw, most: usize) -> Shown {
+    let whole = usize::try_from(head.whole).unwrap_or(usize::MAX);
+    let part = match what {
+        Raw::Headers => header_block(&head.bytes),
+        Raw::Source => &head.bytes[..],
+    };
+    // A part that runs to the end of what was read goes on as far as the message does.
+    let length = if part.len() == head.bytes.len() {
+        whole
+    } else {
+        part.len()
+    };
+    cut_at(part, length, most)
+}
+
+/// `part`, `length` bytes long in all of which `part` holds the first ones: whole when it fits in
+/// `most`, else its first `most` bytes cut back to the end of a line.
+fn cut_at(part: &[u8], length: usize, most: usize) -> Shown {
+    if length <= most {
         return Shown {
             text: String::from_utf8_lossy(part).into_owned(),
             cut: None,
         };
     }
-    let head = &part[..most];
+    let head = &part[..most.min(part.len())];
     let line = head
         .iter()
         .rposition(|byte| *byte == b'\n')
         .map_or(head, |at| &head[..=at]);
     Shown {
         text: String::from_utf8_lossy(line).into_owned(),
-        cut: Some(part.len()),
+        cut: Some(length),
     }
 }
 
@@ -143,11 +170,11 @@ pub(in crate::ui) fn RawSheet(shell: Signal<Shell>) -> Element {
 /// there is nothing).
 type Read = (Option<String>, Option<String>);
 
-/// Read `asked` from the client.
-fn read(client: &Client, asked: RawAsked) -> Read {
-    match client.export().raw_message(asked.message) {
-        Ok(Some(bytes)) => {
-            let shown = shown(&bytes, asked.raw, SHOWN);
+/// What the sheet shows of what the client read for `asked`: the text and the line about it.
+fn read_of(head: Result<Option<RawHead>, CoreError>, raw: Raw) -> Read {
+    match head {
+        Ok(Some(head)) => {
+            let shown = shown_head(&head, raw, SHOWN);
             let note = shown.cut.map(|whole| {
                 copy::status::source_cut(
                     &human_size(shown.text.len() as u64),
@@ -161,9 +188,42 @@ fn read(client: &Client, asked: RawAsked) -> Read {
     }
 }
 
+/// Read `asked` from the client: the first [`SHOWN`] bytes and one more, to know there are more,
+/// and never the whole of a large message.
+fn read(client: &Client, asked: RawAsked) -> Read {
+    read_of(
+        client.export().raw_head(asked.message, SHOWN + 1),
+        asked.raw,
+    )
+}
+
 #[component]
 fn RawBody(asked: RawAsked, title: &'static str, shell: Signal<Shell>) -> Element {
-    let (text, note) = use_hook(|| read(&crate::ui::live::client(), asked));
+    // Read off the thread that draws, as the sheet opens; the sheet says so until it is in.
+    let reading = use_resource(move || {
+        let client = crate::ui::live::client();
+        async move {
+            tokio::task::spawn_blocking(move || read(&client, asked))
+                .await
+                .unwrap_or_else(|_| (None, Some(copy::errors::NOT_READ_HERE.to_owned())))
+        }
+    });
+    let read_so_far: Option<Read> = (*reading.read()).clone();
+    let Some((text, note)) = read_so_far else {
+        return rsx! {
+            div { class: "raw-sheet",
+                Label { text: title, style: LabelStyle::Title }
+                Label {
+                    text: copy::status::LOADING,
+                    role: LabelRole::Tertiary,
+                    style: LabelStyle::Footnote,
+                }
+                div { class: "sheet-actions",
+                    SheetClose { label: copy::controls::DONE, on_close: move |()| close(shell) }
+                }
+            }
+        };
+    };
     rsx! {
         div { class: "raw-sheet",
             Label { text: title, style: LabelStyle::Title }
@@ -222,6 +282,64 @@ mod tests {
         // An 8-bit header shows, its byte replaced.
         let eight = shown(b"Subject: caf\xe9\r\n\r\n", Raw::Headers, 1024);
         assert_eq!(eight.text, "Subject: caf\u{fffd}\r\n");
+    }
+}
+
+#[cfg(test)]
+mod head_tests {
+    use super::*;
+
+    /// Only the head of a large message is read, and the sheet shows what it would of the whole:
+    /// the same text, and a cut that names the message's real size.
+    #[test]
+    fn a_head_shows_what_the_whole_would_and_names_the_real_size() {
+        let mut whole = b"From: ada@example.test\r\nSubject: Hi\r\n\r\n".to_vec();
+        whole.resize(10_000, b'a');
+        let most = 100;
+        let head = RawHead {
+            bytes: whole[..most + 1].to_vec(),
+            whole: whole.len() as u64,
+        };
+        for what in [Raw::Source, Raw::Headers] {
+            assert_eq!(
+                shown_head(&head, what, most).text,
+                shown(&whole, what, most).text,
+                "{what:?}"
+            );
+        }
+        assert_eq!(shown_head(&head, Raw::Source, most).cut, Some(10_000));
+        // The headers end inside the head: they were read whole, so nothing of them is cut.
+        let headers = shown_head(&head, Raw::Headers, most);
+        assert_eq!(headers.text, "From: ada@example.test\r\nSubject: Hi\r\n");
+        assert_eq!(headers.cut, None);
+        // A message that fits is shown whole.
+        let small = RawHead {
+            bytes: b"A: 1\r\n\r\nbody".to_vec(),
+            whole: 12,
+        };
+        let all = shown_head(&small, Raw::Source, most);
+        assert_eq!((all.text.as_str(), all.cut), ("A: 1\r\n\r\nbody", None));
+        // Headers that run past the head are cut, and say how long the message is.
+        let long = RawHead {
+            bytes: vec![b'h'; most + 1],
+            whole: 5_000,
+        };
+        assert_eq!(shown_head(&long, Raw::Headers, most).cut, Some(5_000));
+    }
+
+    #[test]
+    fn what_is_read_is_the_text_and_a_line_about_it() {
+        let (text, note) = read_of(Ok(None), Raw::Source);
+        assert_eq!(text, None);
+        assert_eq!(note.as_deref(), Some(copy::status::SOURCE_NOT_HERE));
+        let head = RawHead {
+            bytes: b"A: 1\r\n".to_vec(),
+            whole: 6,
+        };
+        assert_eq!(
+            read_of(Ok(Some(head)), Raw::Source),
+            (Some("A: 1\r\n".to_owned()), None)
+        );
     }
 }
 

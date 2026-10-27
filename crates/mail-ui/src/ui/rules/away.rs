@@ -122,6 +122,16 @@ where
         .map_err(|_| copy::errors::not_a_time(text))
 }
 
+/// Whether a reply is kept here for `row`: the one that switching it off would switch off.
+fn kept_here(client: &Client, row: &AccountRow) -> bool {
+    client
+        .stored()
+        .vacation(row.id.clone())
+        .ok()
+        .flatten()
+        .is_some()
+}
+
 /// Keep what the form says on `row`, returning what the page says of it.
 pub(in crate::ui) fn save<Tz: TimeZone>(
     client: &Client,
@@ -282,10 +292,15 @@ pub(super) fn AwayPage(row: AccountRow, pushed: Callback<AccountRow>) -> Element
                             away.write().reply = Reply::Off;
                             let client = crate::ui::live::client();
                             let form = away.peek().clone();
+                            // Switching off says nothing to a server that was never told: a
+                            // reply set elsewhere stays, as `mailo vacation off` leaves it.
+                            let had = kept_here(&client, &off);
                             match save(&client, &off, &form, Utc::now(), &chrono::Local, hours) {
                                 Ok(_) => {
                                     refused.set(None);
-                                    pushed.call(off.clone());
+                                    if mail_client::rules::server::off_reaches_server(had, true) {
+                                        pushed.call(off.clone());
+                                    }
                                 }
                                 Err(why) => refused.set(Some(why)),
                             }

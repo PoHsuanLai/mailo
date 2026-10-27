@@ -36,6 +36,9 @@ pub(in crate::ui) enum Pick {
     /// Download: the conversation's messages as the server sent them, an `.eml` each, into the
     /// downloads directory. The reader's ⋯ only.
     Download,
+    /// Save Attachments…: the files of the message the reader means, into a folder asked for.
+    /// The reader's ⋯ only, and only while that message has files ([`with_files`]).
+    SaveFiles,
     /// Print…: its ways to print, a further menu. The reader's ⋯ only.
     Print,
     /// View: the peek modes and a window of its own, a further menu. The reader's ⋯ only, and
@@ -164,12 +167,30 @@ pub(in crate::ui) fn reader_groups(
         .collect()
 }
 
+/// `groups`, the reader's ⋯, with Save Attachments… after Download: the files of the message the
+/// reader means are saved from the menu as well as from their tiles, which a right click or the
+/// pointer alone reach.
+pub(in crate::ui) fn with_files(mut groups: Vec<Vec<Pick>>) -> Vec<Vec<Pick>> {
+    if let Some(group) = groups
+        .iter_mut()
+        .find(|group| group.contains(&Pick::Download))
+    {
+        let after = group
+            .iter()
+            .position(|pick| *pick == Pick::Download)
+            .map_or(group.len(), |at| at + 1);
+        group.insert(after, Pick::SaveFiles);
+    }
+    groups
+}
+
 /// What a row is called: the side of its action the conversation is offered
 /// ([`mail_client::conversation::says`]), so an archived one says Move to Inbox and a pinned one Unpin. One
 /// that opens a further menu or a sheet ends in "…", as the Mac's do.
 pub(super) fn name(pick: Pick, summary: &ThreadSummary, now: DateTime<Utc>) -> &'static str {
     match pick {
         Pick::Download => menus::DOWNLOAD,
+        Pick::SaveFiles => menus::SAVE_ATTACHMENTS,
         Pick::Print => menus::PRINT,
         Pick::View => menus::VIEW,
         Pick::Unsubscribe => menus::UNSUBSCRIBE,
@@ -207,6 +228,7 @@ fn icon(pick: Pick) -> Icon {
         Pick::Redirect => Icon::ArrowUpRight,
         Pick::Again => Icon::FilePen,
         Pick::Download => Icon::Download,
+        Pick::SaveFiles => Icon::Paperclip,
         Pick::Print => Icon::Printer,
         Pick::View => Icon::Panel,
         Pick::Unsubscribe => Icon::LogOut,
@@ -215,7 +237,7 @@ fn icon(pick: Pick) -> Icon {
         Pick::Source => Icon::FileCode,
         Pick::DeleteDraft => Icon::Trash,
         Pick::CancelSending => Icon::X,
-        Pick::Vip => Icon::Star,
+        Pick::Vip => crate::ui::vip::GLYPH,
         Pick::Flags | Pick::Press(Pressed::Flag(_)) => Icon::Star,
         Pick::Press(Pressed::MoveTo) => Icon::FolderInput,
         Pick::Press(Pressed::CopyTo) => Icon::Copy,
@@ -725,6 +747,28 @@ mod tests {
         let sent = summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Sent));
         assert_eq!(name(Pick::Again, &sent, now()), m::SEND_AGAIN);
         assert_eq!(name(Pick::Again, &inbox, now()), m::EDIT_AS_NEW);
+    }
+
+    #[test]
+    fn save_attachments_follows_download_in_the_readers_menu_only_when_asked_for() {
+        let inbox = summary(|_| {});
+        let plain = reader_groups(&inbox, &[], false, (false, false, true));
+        assert!(!plain.iter().flatten().any(|pick| *pick == Pick::SaveFiles));
+        let with = with_files(plain.clone());
+        assert_eq!(
+            with[with.len() - 2..],
+            [
+                vec![Pick::Print, Pick::Download, Pick::SaveFiles],
+                vec![Pick::Headers, Pick::Source]
+            ]
+        );
+        assert_eq!(name(Pick::SaveFiles, &inbox, now()), m::SAVE_ATTACHMENTS);
+        assert!(
+            !groups(&inbox)
+                .iter()
+                .flatten()
+                .any(|pick| *pick == Pick::SaveFiles)
+        );
     }
 
     #[test]

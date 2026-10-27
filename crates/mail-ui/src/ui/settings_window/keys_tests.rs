@@ -28,6 +28,7 @@ fn each_kind_gets_the_control_detent_gives_it() {
             toggle("traditional", "natural"),
             switch("natural", "traditional"),
         ),
+        (toggle("after", "before"), switch("before", "after")),
         // A choice between two things is not a switch.
         (
             toggle("icons", "letters"),

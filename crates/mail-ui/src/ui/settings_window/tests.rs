@@ -126,7 +126,6 @@ const KEYED: &[(SettingsPage, &[&str])] = &[
             "Brand logos",
             "Prefer plain text",
             "Mark as read",
-            "Mark as read after",
             "Message text size",
             crate::ui::copy::headers::MESSAGE_LIST,
         ],
@@ -139,7 +138,7 @@ const KEYED: &[(SettingsPage, &[&str])] = &[
             crate::ui::copy::titles::VIPS,
             "Notify in",
             "Sound",
-            "Dock badge counts",
+            "Badge counts",
             crate::ui::copy::headers::NOTIFY_FOR_ACCOUNTS,
         ],
     ),
@@ -150,6 +149,17 @@ const KEYED: &[(SettingsPage, &[&str])] = &[
             crate::ui::copy::titles::TRUSTED_SENDERS,
             crate::ui::copy::headers::REMOTE_CONTENT,
             "Protect mail activity",
+        ],
+    ),
+    (
+        SettingsPage::JunkMail,
+        &[
+            "Filter Junk Mail",
+            "When Mail Is Junk",
+            crate::ui::copy::headers::NEVER_JUNK_MAIL_FROM,
+            "Contacts",
+            "Mail Addressed to My Full Name",
+            "Filter Before My Rules",
         ],
     ),
 ];
@@ -181,7 +191,9 @@ fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
         .flat_map(|page| super::pages::sections(page).iter())
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
-            super::pages::Line::Key(path) | super::pages::Line::Folder(path) => Some(*path),
+            super::pages::Line::Key(path)
+            | super::pages::Line::Folder(path)
+            | super::pages::Line::Address(path) => Some(*path),
             super::pages::Line::TrustedSenders
             | super::pages::Line::DefaultMail
             | super::pages::Line::Vips
@@ -242,6 +254,34 @@ async fn page_controls_write_settings_toml() {
         stored(&built).compose.spelling,
         Spelling::Off,
         "the check spelling switch"
+    );
+}
+
+/// Each account has a switch in Notifications: off puts its address, in lowercase, on the muted
+/// list, and on takes it off again.
+#[tokio::test]
+async fn an_account_s_switch_in_notifications_mutes_and_unmutes_it() {
+    let built = work();
+    let client = crate::ui::fixtures::client(&built.store);
+    let address = crate::ui::data::account_rows(&client)
+        .first()
+        .map(|row| row.address.clone())
+        .expect("the fixture has an account");
+    let (mut dom, seen) = opened_on(&built, SettingsPage::Notifications);
+    assert!(stored(&built).notifications.muted_accounts.is_empty());
+    // The switch carries its own label (its `aria-checked` is set before it), so it is the one
+    // element labelled with the address.
+    let switch = seen.one("aria-label", &address);
+    click(&mut dom, switch);
+    assert_eq!(
+        stored(&built).notifications.muted_accounts,
+        [address.to_lowercase()],
+        "switched off, muted"
+    );
+    click(&mut dom, switch);
+    assert!(
+        stored(&built).notifications.muted_accounts.is_empty(),
+        "switched on again, heard"
     );
 }
 
@@ -368,13 +408,14 @@ const PAGES: &[(SettingsPage, &str)] = &[
     (SettingsPage::Viewing, "Brand logos"),
     (SettingsPage::Notifications, "aria-label=\"Notifications\""),
     (SettingsPage::Privacy, "Load remote images"),
+    (SettingsPage::JunkMail, "Filter Junk Mail"),
     (SettingsPage::Rules, crate::ui::copy::controls::NEW_RULE),
     (SettingsPage::Vacation, "id=\"vacation-pane\""),
     (SettingsPage::Keyboard, "Change the key for"),
 ];
 
 #[test]
-fn settings_has_12_pages_in_that_order() {
+fn settings_has_13_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
         [
@@ -387,6 +428,7 @@ fn settings_has_12_pages_in_that_order() {
             crate::ui::copy::titles::VIEWING,
             crate::ui::copy::titles::NOTIFICATIONS,
             crate::ui::copy::titles::PRIVACY,
+            crate::ui::copy::titles::JUNK_MAIL,
             crate::ui::copy::titles::RULES,
             "Vacation Reply",
             crate::ui::copy::titles::KEYBOARD,
@@ -668,11 +710,6 @@ async fn the_vips_page_offers_the_pinned_people_and_removes_a_vip() {
         "{page}"
     );
     let dana = "dana@example.com";
-    let seen = click(
-        &mut dom,
-        seen.one("aria-label", &crate::ui::copy::aria::add_vip(dana)),
-    )
-    .merge(drain_seen(&mut dom));
     let held = |built: &Work| -> Vec<String> {
         built
             .store
@@ -682,18 +719,35 @@ async fn the_vips_page_offers_the_pinned_people_and_removes_a_vip() {
             .map(|vip| vip.address)
             .collect()
     };
+    // The store is written on a blocking thread: the test waits for it, then for the page that
+    // reads the store again.
+    let mut seen = click(
+        &mut dom,
+        seen.one("aria-label", &crate::ui::copy::aria::add_vip(dana)),
+    )
+    .merge(drain_seen(&mut dom));
+    let quiet = std::time::Duration::from_millis(100);
+    let bound = std::time::Duration::from_secs(10);
+    crate::ui::fixtures::settle_until(&mut dom, &mut seen, quiet, bound, |_| {
+        held(&built) == [dana]
+    })
+    .await;
+    let seen = seen.merge(crate::ui::fixtures::settle_quiet_seen(&mut dom).await);
     assert_eq!(held(&built), [dana]);
     let page = dioxus_ssr::render(&dom);
     assert!(
         !page.contains(&crate::ui::copy::aria::add_vip(dana)),
         "she is still offered: {page}"
     );
+    let mut seen = seen;
     click(
         &mut dom,
         seen.one("aria-label", &crate::ui::copy::aria::remove_vip(dana)),
     );
-    // Only the store is asked after the Remove.
-    let _ = drain_seen(&mut dom);
+    crate::ui::fixtures::settle_until(&mut dom, &mut seen, quiet, bound, |_| {
+        held(&built).is_empty()
+    })
+    .await;
     assert!(held(&built).is_empty());
 }
 
@@ -725,4 +779,136 @@ async fn turning_to_another_page_leaves_a_pushed_page_behind() {
         page.contains("data-page=\"Viewing\"") && !page.contains("viewing-pane-back-detail"),
         "Viewing opened on a page pushed over Privacy: {page}"
     );
+}
+
+/// Privacy draws the rows of the way images are protected and no others: a relay's for a relay, a
+/// proxy's for a proxy, none while they go straight.
+#[test]
+fn privacy_draws_only_the_rows_of_the_way_chosen() {
+    use super::pages::{Line, drawn};
+    use crate::settings::Protect;
+    let relay = [
+        Line::Key("privacy.relay_kind"),
+        Line::Address("privacy.relay"),
+        Line::RelayKey,
+    ];
+    let proxy = [Line::Address("privacy.proxy")];
+    for protect in [Protect::Off, Protect::Relay, Protect::Proxy] {
+        for line in relay {
+            assert_eq!(
+                drawn(line, protect),
+                protect == Protect::Relay,
+                "{line:?} {protect:?}"
+            );
+        }
+        for line in proxy {
+            assert_eq!(
+                drawn(line, protect),
+                protect == Protect::Proxy,
+                "{line:?} {protect:?}"
+            );
+        }
+        assert!(drawn(Line::Key("privacy.protect"), protect), "{protect:?}");
+    }
+}
+
+/// The wait before a conversation is marked read is a row only while marking it read is "After a
+/// Delay"; every other row of the page is there under any choice.
+#[test]
+fn the_mark_read_wait_is_drawn_only_after_a_delay() {
+    use super::pages::{Line, shown};
+    use crate::settings::MarkRead;
+    for mark in [MarkRead::OnOpen, MarkRead::AfterDelay, MarkRead::Never] {
+        let mut settings = MailSettings::default();
+        settings.reading.mark_read = mark;
+        assert_eq!(
+            shown(Line::Key("reading.mark_read_delay"), &settings),
+            mark == MarkRead::AfterDelay,
+            "{mark:?}"
+        );
+        assert!(shown(Line::Key("reading.mark_read"), &settings), "{mark:?}");
+        assert!(shown(Line::Key("reading.text_zoom"), &settings), "{mark:?}");
+    }
+}
+
+/// A relay or proxy that cannot be used is said under its own field, and a page for the way not
+/// chosen does not show the other's rows.
+#[tokio::test]
+async fn an_address_that_cannot_be_used_is_said_under_its_field() {
+    use crate::settings::{Protect, RouteProblem};
+    let built = work();
+    let mut settings = MailSettings::default();
+    settings.privacy.protect = Protect::Relay;
+    settings.privacy.relay = "http://relay.example.test".to_owned();
+    crate::settings::store(crate::settings::root_for(&built.dirs.config))
+        .save(&settings)
+        .unwrap_or_else(|why| panic!("{why:?}"));
+    let (dom, _) = opened_on(&built, SettingsPage::Privacy);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains(crate::ui::copy::fields::route_problem(RouteProblem::Relay)),
+        "{page}"
+    );
+    // The rows, not the words: the Protect popup names every way (Off, Relay, Proxy) whichever
+    // is chosen.
+    assert!(
+        page.contains("aria-label=\"Relay\" aria-invalid=\"true\""),
+        "{page}"
+    );
+    assert!(!page.contains("aria-label=\"Proxy\""), "{page}");
+    assert!(
+        !page.contains(crate::ui::copy::fields::route_problem(RouteProblem::Proxy)),
+        "{page}"
+    );
+}
+
+/// The junk switches have a page of their own, listed after Privacy, and General no longer holds
+/// them.
+#[test]
+fn the_junk_switches_are_on_their_own_page_after_privacy() {
+    let all = SettingsPage::ALL;
+    let privacy = all.iter().position(|page| *page == SettingsPage::Privacy);
+    let junk = all.iter().position(|page| *page == SettingsPage::JunkMail);
+    assert_eq!(junk, privacy.map(|at| at + 1));
+    let keys = |page| -> Vec<&'static str> {
+        super::pages::sections(page)
+            .iter()
+            .flat_map(|section| section.lines.iter())
+            .filter_map(|line| match line {
+                super::pages::Line::Key(path) => Some(*path),
+                _ => None,
+            })
+            .collect()
+    };
+    assert_eq!(
+        keys(SettingsPage::JunkMail),
+        [
+            "junk.filter",
+            "junk.treat",
+            "junk.spare_contacts",
+            "junk.spare_written_to",
+            "junk.spare_full_name",
+            "junk.trust_server",
+            "junk.order",
+        ]
+    );
+    assert!(
+        keys(SettingsPage::General)
+            .iter()
+            .all(|path| !path.starts_with("junk."))
+    );
+    assert!(
+        super::pages::sections(SettingsPage::General)
+            .iter()
+            .all(|section| section.title != Some("Junk Mail"))
+    );
+}
+
+#[tokio::test]
+async fn the_general_page_no_longer_draws_the_junk_mail_group() {
+    let built = work();
+    let (dom, _seen) = opened_on(&built, SettingsPage::General);
+    let markup = dioxus_ssr::render(&dom);
+    assert!(!markup.contains("Filter Junk Mail"), "{markup}");
+    assert!(!markup.contains("Never Junk Mail From"), "{markup}");
 }

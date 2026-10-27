@@ -278,7 +278,7 @@ impl SqliteStore {
     /// Where `message` is filed, if it is held.
     fn role_of(&self, message: MessageId) -> Result<Option<MailboxRole>, StoreError> {
         let found: Option<String> = self
-            .connection()
+            .reader()
             .prepare_cached("SELECT mailbox FROM messages WHERE id = ?1")?
             .query_row(params![message.to_string()], |r| r.get(0))
             .optional()?;
@@ -287,7 +287,7 @@ impl SqliteStore {
 
     /// Every mailbox `message` still has a server address in.
     fn mailboxes_of(&self, message: MessageId) -> Result<Vec<String>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt =
             db.prepare_cached("SELECT DISTINCT mailbox FROM remote_map WHERE message = ?1")?;
         let rows = stmt.query_map(params![message.to_string()], |r| r.get(0))?;
@@ -309,7 +309,7 @@ impl SqliteStore {
 
     fn thread_of(&self, message: MessageId) -> Result<Option<ThreadId>, StoreError> {
         let found: Option<String> = self
-            .connection()
+            .reader()
             .prepare_cached("SELECT thread FROM messages WHERE id = ?1")?
             .query_row(params![message.to_string()], |r| r.get(0))
             .optional()?;
@@ -335,15 +335,16 @@ impl SqliteStore {
             .prepare_cached(
                 "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
                      recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
-                     body_text, body_raw, attachments, fts_text, stored_at, flag)
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)
+                     body_text, body_raw, attachments, fts_text, stored_at, flag, size)
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22)
                  ON CONFLICT(id) DO UPDATE SET
                      thread=excluded.thread, subject=excluded.subject, from_name=excluded.from_name,
                      from_email=excluded.from_email, read=excluded.read,
                      star=excluded.star, flag=excluded.flag, mailbox=excluded.mailbox,
                      body_text=excluded.body_text,
                      attachments=excluded.attachments, recipients=excluded.recipients,
-                     fts_text=excluded.fts_text",
+                     fts_text=excluded.fts_text,
+                     size=max(excluded.size, messages.server_size)",
             )?
             .execute(params![
                 m.id.to_string(),
@@ -377,6 +378,8 @@ impl SqliteStore {
                 // First stored now; a conflict keeps the first (see migration 0040).
                 from_time(chrono::Utc::now()),
                 to_json("Hue", &m.flag)?,
+                // Bytes held in an `INTEGER`, which is signed: nothing is past `i64::MAX`.
+                i64::try_from(m.size()).unwrap_or(i64::MAX),
             ])?;
         for label in &m.labels {
             self.connection()
@@ -494,6 +497,8 @@ impl SqliteStore {
     /// every other write — the click that stars a message — waited for all of it. See
     /// [`chunks`] for why a chunk is as good a unit as the batch. An error stops the ingest at
     /// the chunk it is in; what earlier chunks wrote stays, and the next pass writes the rest.
+    /// The error is then [`StoreError::Partial`], carrying the patch of what stayed, so that the
+    /// messages that did arrive still meet the rules and the notifications.
     pub(super) fn write_ingest(
         &self,
         account: AccountId,
@@ -509,7 +514,19 @@ impl SqliteStore {
             chunks(ingest, INGEST_CHUNK)
         };
         for chunk in pieces {
-            changes.extend(self.write_ingest_chunk(account.clone(), chunk)?);
+            match self.write_ingest_chunk(account.clone(), chunk) {
+                Ok(written) => changes.extend(written),
+                Err(cause) if changes.is_empty() => return Err(cause),
+                Err(cause) => {
+                    return Err(StoreError::Partial {
+                        written: Box::new(Patch {
+                            id: mail_domain::ChangeId::generate(),
+                            changes,
+                        }),
+                        cause: Box::new(cause),
+                    });
+                }
+            }
             #[cfg(feature = "testing")]
             self.chunk_committed();
         }
@@ -538,6 +555,7 @@ impl SqliteStore {
                 params![account.to_string(), ingest.mailbox.path],
             )?;
             self.forget_destroyed_in(account.clone(), &ingest.mailbox.path)?;
+            self.forget_provider_threads_in(account.clone(), &ingest.mailbox.path)?;
         }
 
         for label in &ingest.labels {
@@ -849,7 +867,7 @@ impl SqliteStore {
     /// What body, if any, is held for this message.
     fn body_of(&self, message: MessageId) -> Result<Option<Body>, StoreError> {
         let held: Option<Option<String>> = self
-            .connection()
+            .reader()
             .prepare_cached("SELECT body_raw FROM messages WHERE id = ?1")?
             .query_row(params![message.to_string()], |r| r.get(0))
             .optional()?;
@@ -876,7 +894,7 @@ impl SqliteStore {
         self.connection()
             .prepare_cached(
                 "UPDATE messages SET body_text = ?2, body_raw = ?3, attachments = ?4,
-                 fts_text = ?5 WHERE id = ?1",
+                 fts_text = ?5, size = max(?6, server_size) WHERE id = ?1",
             )?
             .execute(params![
                 message.to_string(),
@@ -891,6 +909,7 @@ impl SqliteStore {
                     text.as_deref(),
                     &filled.attachments,
                 ),
+                i64::try_from(filled.size()).unwrap_or(i64::MAX),
             ])?;
         Ok(())
     }
@@ -920,7 +939,7 @@ impl SqliteStore {
     ) -> Result<Option<MessageId>, StoreError> {
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
         let found: Option<String> = self
-            .connection()
+            .reader()
             .prepare_cached(
                 "SELECT message FROM remote_map WHERE account=?1 AND mailbox=?2
                  AND uidvalidity IS ?3 AND uid IS ?4 AND uidl IS ?5",
@@ -966,6 +985,47 @@ impl SqliteStore {
                  AND uidvalidity IS ?3 AND uid IS ?4",
             )?
             .execute(params![acct, mailbox, uidvalidity, uid])?;
+        Ok(())
+    }
+
+    /// Drop every thread id held for a mailbox that is renumbered: none of them names anything.
+    fn forget_provider_threads_in(&self, account: AccountId, path: &str) -> Result<(), StoreError> {
+        self.connection().execute(
+            "DELETE FROM provider_thread WHERE account = ?1 AND mailbox = ?2",
+            params![account.to_string(), path],
+        )?;
+        Ok(())
+    }
+
+    /// The thread id held for the message at `from` goes with it to `to`, so a later message
+    /// that names the same thread id still finds the conversation by the address it has now.
+    fn remap_provider_thread(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        let (_, to_mailbox, to_validity, to_uid, _) = remote_key(account.clone(), to);
+        let (Some(to_validity), Some(to_uid)) = (to_validity, to_uid) else {
+            // An address with no uid holds no thread id; the old one names nothing now.
+            return self.forget_provider_thread(account, from);
+        };
+        let (acct, mailbox, uidvalidity, uid, _) = remote_key(account, from);
+        self.connection()
+            .prepare_cached(
+                "UPDATE OR REPLACE provider_thread
+                 SET mailbox = ?5, uidvalidity = ?6, uid = ?7
+                 WHERE account = ?1 AND mailbox = ?2 AND uidvalidity IS ?3 AND uid IS ?4",
+            )?
+            .execute(params![
+                acct,
+                mailbox,
+                uidvalidity,
+                uid,
+                to_mailbox,
+                to_validity,
+                to_uid
+            ])?;
         Ok(())
     }
 
@@ -1047,6 +1107,7 @@ impl SqliteStore {
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
         self.remap_destroyed(account.clone(), from, to)?;
+        self.remap_provider_thread(account.clone(), from, to)?;
         let Some(message) = self.message_by_remote(account.clone(), from)? else {
             return Ok(());
         };
@@ -1092,6 +1153,8 @@ impl SqliteStore {
         // Moved before its deletion was sent, to where nobody said: the deletion has nowhere to
         // go, and the sync that finds the message shows it again.
         self.forget_destroyed(account.clone(), remote)?;
+        // And the thread id it was held under: the sync that finds the message states it afresh.
+        self.forget_provider_thread(account.clone(), remote)?;
         let Some(message) = self.message_by_remote(account.clone(), remote)? else {
             return Ok(());
         };
@@ -1191,7 +1254,7 @@ impl SqliteStore {
 
     /// Local changes on this thread's messages that the server has not confirmed.
     fn pending_for_thread(&self, thread: ThreadId) -> Result<Vec<Change>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT p.changes FROM pending_changes p
              JOIN messages m ON m.id = p.message

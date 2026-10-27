@@ -37,8 +37,28 @@ pub struct PersonCard {
     pub name: String,
     /// Its addresses, normalised, in the card's order.
     pub addresses: Vec<String>,
-    /// The card, as vCard 4.0.
+    /// The card as its text is kept: a made or imported one as vCard 4.0, a synced one as the
+    /// server sent it, whatever its version.
     pub vcard: String,
     /// Where it lives, which decides where an edit goes: a group's home serves a card the same.
     pub home: GroupHome,
+}
+
+impl PersonCard {
+    /// A card listed by `name`, with `addresses`, whose text is `vcard`, living at `home`.
+    pub fn new(
+        id: CardId,
+        name: String,
+        addresses: Vec<String>,
+        vcard: String,
+        home: GroupHome,
+    ) -> Self {
+        Self {
+            id,
+            name,
+            addresses,
+            vcard,
+            home,
+        }
+    }
 }

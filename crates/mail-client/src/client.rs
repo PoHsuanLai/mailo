@@ -121,7 +121,7 @@ pub(crate) struct Shared {
     /// Fetching, once a caller asked for it.
     fetcher: OnceLock<Fetcher>,
     /// Stops the fetch thread.
-    fetch_stop: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    fetch_stop: Mutex<Option<tokio::sync::oneshot::Sender<Duration>>>,
     /// Wakes the clock thread to find its next moment again: set, then told.
     clock_poked: Mutex<bool>,
     clock_told: Condvar,
@@ -136,10 +136,13 @@ pub type FetchRun = std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>;
 /// A command, and where to say what it did.
 type Asked = (Command, tokio::sync::oneshot::Sender<Acted>);
 
+/// The values held of one type of query, found by [`Query::bucket`] and then by equality: a
+/// query is asked with what it reads (filters, accounts), which need not hash.
+type Held<Q> = HashMap<u64, Vec<(Q, Weak<Entry<Q>>)>>;
+
 #[derive(Default)]
 struct Registry {
-    /// The values of each type of query, found by equality: a query is asked with what it reads
-    /// (filters, accounts), which need not hash, and a caller holds a handful, not thousands.
+    /// Each type of query's [`Held`].
     by_query: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
     /// Every value, whatever its query, for the change thread to go through.
     every: Vec<Weak<dyn Job>>,
@@ -153,7 +156,12 @@ impl Client {
         let mut threads = Vec::new();
         for n in 0..readers(&shared.store) {
             let shared = shared.clone();
-            threads.push(spawn(&format!("mailo-read-{n}"), move || shared.read()));
+            threads.push(spawn(&format!("mailo-read-{n}"), move || {
+                // These hold a reader for as long as a read takes: the last is left for threads
+                // that must not wait on one of them, the window's drawing first.
+                SqliteStore::mark_worker_thread();
+                shared.read();
+            }));
         }
         {
             let shared = shared.clone();
@@ -217,19 +225,34 @@ impl Client {
             let held = registry
                 .by_query
                 .entry(TypeId::of::<Q>())
-                .or_insert_with(|| Box::new(Vec::<(Q, Weak<Entry<Q>>)>::new()))
-                .downcast_mut::<Vec<(Q, Weak<Entry<Q>>)>>()
-                .expect("each type of query has a list of its own type");
+                .or_insert_with(|| Box::new(Held::<Q>::new()))
+                .downcast_mut::<Held<Q>>()
+                .expect("each type of query has a map of its own type");
+            let bucket = query.bucket();
             let found = held
-                .iter()
+                .get(&bucket)
+                .into_iter()
+                .flatten()
                 .find(|(asked, _)| *asked == query)
                 .and_then(|(_, entry)| entry.upgrade());
             match found {
                 Some(entry) => (entry, false),
                 None => {
-                    held.retain(|(_, entry)| entry.strong_count() > 0);
                     let entry = Entry::new(query.clone());
-                    held.push((query, Arc::downgrade(&entry)));
+                    held.entry(bucket)
+                        .or_default()
+                        .retain(|(_, entry)| entry.strong_count() > 0);
+                    held.entry(bucket)
+                        .or_default()
+                        .push((query, Arc::downgrade(&entry)));
+                    // Values nobody holds any more are let go of as the map doubles, so the cost
+                    // of finding them is paid once for every one made.
+                    if held.len().is_power_of_two() {
+                        held.retain(|_, bucket| {
+                            bucket.retain(|(_, entry)| entry.strong_count() > 0);
+                            !bucket.is_empty()
+                        });
+                    }
                     let job: Arc<dyn Job> = entry.clone();
                     registry.every.push(Arc::downgrade(&job));
                     (entry, true)
@@ -357,21 +380,24 @@ impl Client {
 
     /// Fetch mail: every account's link, polled, pushed to and fetched on request by the one
     /// scheduler, reaching the servers through `seams`. Started once; a later call changes
-    /// nothing and is handed `None`.
+    /// nothing and is handed `None`, so the seams are those of the first window to ask and any
+    /// later window's are dropped.
     ///
     /// A client with threads of its own runs it on one, until the client stops. One that reads
     /// on its caller's thread hands back what to run, on a tokio runtime, for as long as fetching
     /// should go on.
     pub fn fetch(&self, seams: Seams) -> Option<FetchRun> {
         let shared = &self.0.shared;
-        let fetcher = Fetcher::new(seams, &shared.store, shared.now());
-        if shared.fetcher.set(fetcher).is_err() {
+        // Asking reads nothing: the accounts are found by the fetching thread ([`Fetcher::begin`]),
+        // so this is safe to call from the window's own thread. Only the first window's seams
+        // are kept; a later call is handed `None` and its seams are dropped.
+        if shared.fetcher.set(Fetcher::new(seams)).is_err() {
             return None;
         }
         if shared.inline {
             return crate::fetch::run(shared.clone()).map(|run| Box::pin(run) as FetchRun);
         }
-        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let (stop, stopped) = tokio::sync::oneshot::channel::<Duration>();
         *shared.fetch_stop.lock() = Some(stop);
         let shared = shared.clone();
         self.0.threads.lock().push(spawn("mailo-fetch", move || {
@@ -379,17 +405,22 @@ impl Client {
                 .enable_all()
                 .build()
                 .expect("the system starts a runtime");
+            // How long a stop gives the passes to end: what `stop` was given, or a short while
+            // when the client is dropped without being stopped.
+            let mut within = Duration::from_millis(500);
             if let Some(run) = crate::fetch::run(shared) {
-                runtime.block_on(async {
+                within = runtime.block_on(async {
                     tokio::select! {
-                        () = run => {}
+                        () = run => within,
                         // Told to stop, or the client gone.
-                        _ = stopped => {}
+                        told = stopped => told.unwrap_or(within),
                     }
                 });
             }
-            // A pass or a watch parked in a socket is not waited for.
-            runtime.shutdown_background();
+            // Stopped: the scheduler is dropped, and with it the sender of each running pass's
+            // cancel signal, which ends the pass; the runtime then waits, up to `within`, for
+            // the passes and watches on their threads to have ended.
+            runtime.shutdown_timeout(within);
         }));
         None
     }
@@ -446,7 +477,7 @@ impl Inner {
         self.shared.acts.lock().take();
         if let Some(stop) = self.shared.fetch_stop.lock().take() {
             // A fetch thread that has ended has nothing left to stop.
-            let _ = stop.send(());
+            let _ = stop.send(within);
         }
         self.shared.queued.notify_all();
         self.shared.poke_clock();

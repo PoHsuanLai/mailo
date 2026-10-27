@@ -15,7 +15,7 @@ use ds::file_drop::drag::FileDrop;
 use ds::file_drop::hook::{FileDropHandle, use_file_drop};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_client::CoreError;
+use mail_client::prelude::CoreError;
 
 use super::life;
 use super::page::{Guard, Page};
@@ -272,8 +272,8 @@ fn into_body(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), Bod
 mod tests {
     use super::{BodyRefused, Lands, Picked, read_picked, shown_in};
     use crate::settings::MessageFormat;
-    use mail_client::CoreError;
     use mail_client::compose::ATTACHMENT_BUDGET;
+    use mail_client::prelude::CoreError;
 
     /// A picture the body cannot take is attached; every other refusal is said.
     #[test]

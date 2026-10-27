@@ -6,7 +6,7 @@
 //! editor asks for them as fields, and gives them back.
 
 use super::Card;
-use crate::line::{ContentLine, escape, split_escaped};
+use crate::line::{ContentLine, Param, escape, split_escaped};
 
 /// One postal address: `ADR`'s seven parts (post office box; extended address; street;
 /// locality; region; postal code; country), each as written, comma-joined where the card gave
@@ -64,8 +64,8 @@ impl Postal {
         }
     }
 
-    fn line(&self) -> ContentLine {
-        let value = [
+    fn value(&self) -> String {
+        [
             &self.po_box,
             &self.extended,
             &self.street,
@@ -77,13 +77,36 @@ impl Postal {
         .iter()
         .map(|part| escape(part))
         .collect::<Vec<_>>()
-        .join(";");
-        let line = ContentLine::new("ADR", value);
+        .join(";")
+    }
+
+    fn line(&self) -> ContentLine {
+        let line = ContentLine::new("ADR", self.value());
         if self.kinds.is_empty() {
             return line;
         }
         let kinds: Vec<&str> = self.kinds.iter().map(String::as_str).collect();
         line.with("TYPE", &kinds)
+    }
+
+    /// This address as `old`'s line edited: the parts and the kinds are this address's, and
+    /// everything else the line said (its group, `LABEL`, `GEO`, `PREF`, `X-` parameters, and a
+    /// `pref` among its types) is as it was.
+    fn line_over(&self, old: &ContentLine) -> ContentLine {
+        let mut line = old.clone();
+        line.value = self.value();
+        let mut kinds = self.kinds.clone();
+        if old.has("TYPE", "pref") {
+            kinds.push("pref".to_owned());
+        }
+        line.params.retain(|param| param.name != "TYPE");
+        if !kinds.is_empty() {
+            line.params.push(Param {
+                name: "TYPE".to_owned(),
+                values: kinds,
+            });
+        }
+        line
     }
 }
 
@@ -110,12 +133,41 @@ impl Card {
             .iter()
             .position(|line| line.name == "ADR")
             .unwrap_or(self.other.len());
+        let old: Vec<ContentLine> = self
+            .other
+            .iter()
+            .filter(|line| line.name == "ADR")
+            .cloned()
+            .collect();
+        // Each address keeps the line it was read from: an address the editor gave back as it
+        // was is that line byte for byte; one edited in place (as many addresses as there were)
+        // is that line with its parts and kinds replaced; only a new address is a new line.
+        let mut used = vec![false; old.len()];
+        let mut same: Vec<Option<usize>> = vec![None; addresses.len()];
+        for (i, address) in addresses.iter().enumerate() {
+            if let Some(k) = (0..old.len()).find(|&k| !used[k] && Postal::read(&old[k]) == *address)
+            {
+                used[k] = true;
+                same[i] = Some(k);
+            }
+        }
+        let in_place = addresses.len() == old.len();
+        let mut new = Vec::new();
+        for (i, address) in addresses.iter().enumerate() {
+            if address.is_empty() {
+                continue;
+            }
+            new.push(match same[i] {
+                Some(k) => old[k].clone(),
+                None if in_place && !used[i] => {
+                    used[i] = true;
+                    address.line_over(&old[i])
+                }
+                None => address.line(),
+            });
+        }
         let before = self.other[..at].iter().filter(|line| line.name != "ADR");
         let after = self.other[at..].iter().filter(|line| line.name != "ADR");
-        let new = addresses
-            .iter()
-            .filter(|address| !address.is_empty())
-            .map(Postal::line);
         self.other = before.cloned().chain(new).chain(after.cloned()).collect();
     }
 }
@@ -183,5 +235,34 @@ mod tests {
             Some("ADR")
         );
         assert_eq!(card.postal(), [home]);
+    }
+
+    #[test]
+    fn an_edit_in_place_and_an_address_left_alone_keep_their_parameters() {
+        let mut card = parse(
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ada\r\n\
+             ADR;TYPE=home,pref;LABEL=\"Home\";GEO=\"geo:1,2\":;;1 Road;Bath;;;UK\r\n\
+             ADR;TYPE=work;X-KEEP=1:;;2 Lane;Leeds;;;UK\r\nEND:VCARD\r\n",
+        )
+        .remove(0);
+        let before = card.other.clone();
+        let mut postal = card.postal();
+        postal[1].street = "3 Lane".to_owned();
+        postal[1].kinds = vec!["home".to_owned()];
+        card.set_postal(&postal);
+        assert_eq!(
+            card.other[0], before[0],
+            "the one left alone is byte for byte"
+        );
+        let edited = &card.other[1];
+        assert_eq!(edited.value, ";;3 Lane;Leeds;;;UK");
+        assert!(edited.has("X-KEEP", "1"), "{edited:?}");
+        assert!(edited.has("TYPE", "home") && !edited.has("TYPE", "work"));
+
+        // Removing the first leaves the second as it was, not given the first's parameters.
+        let mut again = card.clone();
+        let rest = again.postal().split_off(1);
+        again.set_postal(&rest);
+        assert_eq!(again.other, card.other[1..]);
     }
 }

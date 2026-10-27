@@ -33,7 +33,8 @@ pub(super) fn suspicious(display: Option<&str>, email: &str, auth_passed: bool) 
 /// Whether a message from `email` (named `display`) opens with its remote images loaded, under
 /// `mode` and the `trusted` senders, without anyone pressing "Show images".
 ///
-/// - `Ask`: never. Each conversation is asked about, as before the setting existed.
+/// - `Never` and `Ask`: never. Under `Ask` each conversation is asked about; under `Never` the
+///   reader does not even ask.
 /// - `Always`: yes, except in Junk.
 /// - `Trusted`: only for an address on the list (in any case), and only when the sender is not
 ///   [`suspicious`].
@@ -53,7 +54,7 @@ pub(super) fn auto_allow(
         return false;
     }
     match mode {
-        LoadRemoteImages::Ask => false,
+        LoadRemoteImages::Never | LoadRemoteImages::Ask => false,
         LoadRemoteImages::Always => true,
         LoadRemoteImages::Trusted => {
             let email = email.trim();
@@ -193,7 +194,7 @@ pub(super) fn look_later(
 #[cfg(test)]
 mod tests {
     use super::auto_allow;
-    use crate::settings::LoadRemoteImages::{self, Always, Ask, Trusted};
+    use crate::settings::LoadRemoteImages::{self, Always, Ask, Never, Trusted};
 
     const SENDER: &str = "billing@shop.example";
 
@@ -230,14 +231,14 @@ mod tests {
     #[test]
     fn images_load_ahead_of_asking_only_where_the_mode_and_the_sender_allow() {
         let mut rows = Vec::new();
-        for mode in [Ask, Trusted, Always] {
+        for mode in [Never, Ask, Trusted, Always] {
             for listed in [false, true] {
                 for spoofed in [false, true] {
                     for dmarc in [false, true] {
                         for junk in [false, true] {
                             let loads = !junk
                                 && match mode {
-                                    Ask => false,
+                                    Never | Ask => false,
                                     Always => true,
                                     Trusted => listed && !spoofed && dmarc,
                                 };
@@ -250,6 +251,7 @@ mod tests {
         // The rule above, spelled out where it matters most, so a wrong rule cannot pass by
         // agreeing with itself.
         let spelled = [
+            row(Never, true, false, true, false, false),
             row(Ask, true, false, true, false, false),
             row(Trusted, true, false, true, false, true),
             row(Trusted, false, false, true, false, false),

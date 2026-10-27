@@ -69,6 +69,16 @@ pub enum StoreError {
     /// A contact was asked for under something that is not an address.
     #[error("{0:?} is not an email address")]
     BadAddress(String),
+    /// An ingest written in several commits stopped at one of them: `written` is what the
+    /// earlier commits put in the store, which stays, and `cause` is why the rest was not.
+    /// A caller that learns from a patch (what arrived, so the rules and the notifications
+    /// meet it) reads `written` before it reports the failure.
+    #[error("{cause} (after {} change(s) were written)", .written.changes.len())]
+    Partial {
+        written: Box<mail_domain::Patch>,
+        #[source]
+        cause: Box<StoreError>,
+    },
 }
 
 impl StoreError {
@@ -92,11 +102,22 @@ impl StoreError {
 }
 
 impl StoreError {
+    /// What a failed write had already committed, if it was written in several commits.
+    pub fn written(&self) -> Option<&mail_domain::Patch> {
+        match self {
+            StoreError::Partial { written, .. } => Some(written),
+            _ => None,
+        }
+    }
+
     /// Whether the database said "not now" rather than "no": another connection holds the lock
     /// (`SQLITE_BUSY`, `SQLITE_LOCKED`). The one failure of the store that going away and trying
     /// again is the remedy for; a [`StoreError::Conflict`] or a missing row will answer the same
     /// way every time.
     pub fn is_busy(&self) -> bool {
+        if let StoreError::Partial { cause, .. } = self {
+            return cause.is_busy();
+        }
         let StoreError::Db(cause) = self else {
             return false;
         };
@@ -152,6 +173,8 @@ impl Retryable for StoreError {
             | StoreError::BadAddress(_)
             | StoreError::Decode { .. }
             | StoreError::BadCursor => Retry::Fatal(self.to_string()),
+            // The same remedy as what stopped it.
+            StoreError::Partial { cause, .. } => cause.retry(),
             // Downgrading into an upgraded database. Stop, do not migrate backwards.
             StoreError::SchemaTooNew { .. } => Retry::Fatal(self.to_string()),
         }

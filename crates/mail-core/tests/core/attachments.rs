@@ -647,6 +647,26 @@ mod whole_message {
         assert_eq!(std::fs::read(&second).unwrap(), sent);
     }
 
+    /// A view of the source takes the first bytes and the size, not the whole of a large
+    /// message: a stored one of 40 MB gives the few bytes asked for.
+    #[test]
+    fn the_head_of_a_large_message_is_the_first_bytes_and_its_size() {
+        let store = store();
+        let mut sent = b"Subject: big\r\n\r\n".to_vec();
+        sent.resize(40 * 1024 * 1024, b'a');
+        let id = sent_as(&store, &sent);
+        let head = export::raw_head(&store, id, 1000).unwrap().unwrap();
+        assert_eq!(head.bytes, &sent[..1000]);
+        assert_eq!(head.whole, sent.len() as u64);
+        let little = b"Subject: s\r\n\r\nbody";
+        let small = sent_as(&store, little);
+        let head = export::raw_head(&store, small, 1000).unwrap().unwrap();
+        assert_eq!(head.bytes, &little[..]);
+        assert_eq!(head.whole, little.len() as u64);
+        let bare = ingested(&store, "x.pdf", b"x", b"raw", Here::HeadersOnly);
+        assert_eq!(export::raw_head(&store, bare, 1000).unwrap(), None);
+    }
+
     #[test]
     fn a_message_with_only_its_headers_here_has_none_and_writes_nothing() {
         let store = store();

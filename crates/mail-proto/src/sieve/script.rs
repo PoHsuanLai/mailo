@@ -276,7 +276,13 @@ fn test(filter: &Filter, account: AccountId) -> Result<String, Unmappable> {
         // The script is the account's own, so the clause is settled before it is written.
         Filter::Account(id) => if *id == account { "true" } else { "false" }.to_owned(),
         Filter::From(m) => address_test(&["from"], m, "from:")?,
+        Filter::FromAddress(email) => {
+            address_test(&["from"], &TextMatch::Exact(email.clone()), "from:")?
+        }
+        // The VIP list is this client's, and a script on the server cannot read it.
+        Filter::Vip => return Err(Unmappable::Clause("is:vip")),
         Filter::To(m) => address_test(&["to", "cc"], m, "to:")?,
+        Filter::Cc(m) => address_test(&["cc"], m, "cc:")?,
         Filter::Subject(TextMatch::Contains(s)) => {
             format!("header :contains \"subject\" {}", quoted(s))
         }

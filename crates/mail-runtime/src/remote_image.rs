@@ -104,10 +104,16 @@ impl ImageFetcher {
                 .https_only(true)
                 .redirect(follow_public()),
             // The relay is the person's, as their mail server is: it is reached as they wrote
-            // it, and it answers with the image, never a redirect to follow.
+            // it, it is checked against the system's authorities as well (`trusts_system`), and
+            // it answers with the image, never a redirect to follow.
             Route::Camo { .. } | Route::Token { .. } => builder
                 .no_proxy()
                 .redirect(reqwest::redirect::Policy::none()),
+        };
+        let builder = if trusts_system(&route) {
+            crate::roots::trusting_system(builder)
+        } else {
+            builder
         };
         let client = builder
             .build()
@@ -135,6 +141,15 @@ impl ImageFetcher {
     pub async fn get(&self, url: &str) -> Option<Image> {
         get(&self.client, &self.route, url).await
     }
+}
+
+/// Whether a fetch by `route` is checked against the system's certificate authorities as well as
+/// the bundled ones: a relay is a server the person set up, so a company's own authority
+/// installed on the machine is believed for it as for their mail server. An image's own host, and
+/// a proxy that reaches it, are on the public internet, where the bundled roots are the whole
+/// story.
+fn trusts_system(route: &Route) -> bool {
+    matches!(route, Route::Camo { .. } | Route::Token { .. })
 }
 
 /// At most three redirects, each to a public `https` address.

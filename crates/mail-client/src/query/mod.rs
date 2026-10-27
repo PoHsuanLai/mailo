@@ -238,6 +238,10 @@ impl Query for Pins {
 pub struct DraftsOf(pub Vec<AccountId>);
 
 impl Query for DraftsOf {
+    fn bucket(&self) -> u64 {
+        crate::live::bucket_of(&self.0)
+    }
+
     type Output = Vec<mail_domain::Draft>;
 
     const READS: Topics = Topics::DRAFTS.union(Topics::OUTBOX);
@@ -253,8 +257,12 @@ impl Query for DraftsOf {
 
 mod conversation;
 mod conversations;
+mod paces;
+mod summaries;
 pub use conversation::{Conversation, Messages};
 pub use conversations::{Conversations, Found, How, Search};
+pub use paces::Paces;
+pub use summaries::Summaries;
 
 // A search as typed, read into a filter.
 pub use mail_core::query::{Known, Token, is_either, named, parse_with, tokens, unnamed};

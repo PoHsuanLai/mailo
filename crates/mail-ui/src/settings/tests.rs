@@ -1,10 +1,10 @@
 //! The schema detent reads, and `settings.toml` read, started from the old files and written.
 
 use super::{
-    AttachmentSettings, BlockRemote, BrandLogos, ListOrder, LoadRemoteImages, MailSettings,
-    MarkRead, MarkReadDelay, NewMail, NotifyFor, PreferPlainText, Protect, ProviderMarks,
-    ReadReceipts, ReadingSettings, RelayKind, RemoveUnedited, RouteProblem, ServerSearch, Spelling,
-    TextZoom, ZoomStep, change, load, schema, store,
+    AttachmentSettings, BrandLogos, ListOrder, LoadRemoteImages, MailSettings, MarkRead,
+    MarkReadDelay, NewMail, NotifyFor, PreferPlainText, Protect, ProviderMarks, ReadReceipts,
+    ReadingSettings, RelayKind, RemoveUnedited, RouteProblem, ServerSearch, Spelling, TextZoom,
+    ZoomStep, change, load, schema, store,
 };
 use ds_settings::ConfigRoot;
 use ds_settings::schema::{KeyKind, Page, Schema};
@@ -85,7 +85,9 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
         (
             "reading.remote_images",
             KeyKind::Segmented {
-                variants: ["ask", "trusted", "always"].map(str::to_owned).to_vec(),
+                variants: ["never", "ask", "trusted", "always"]
+                    .map(str::to_owned)
+                    .to_vec(),
             },
         ),
         (
@@ -126,7 +128,6 @@ fn the_schema_names_every_key_on_mailo_s_page_in_mailo_s_file() {
                     .to_vec(),
             },
         ),
-        ("privacy.block_remote_content", pair("off", "on")),
         (
             "privacy.protect",
             KeyKind::Segmented {
@@ -678,10 +679,13 @@ fn private(set: impl FnOnce(&mut super::PrivacySettings)) -> super::PrivacySetti
 }
 
 #[test]
-fn privacy_starts_straight_and_unblocked() {
+fn privacy_starts_straight_and_asks_about_images() {
     let privacy = MailSettings::default().privacy;
     assert_eq!(privacy.protect, Protect::Off);
-    assert_eq!(privacy.block_remote_content, BlockRemote::Off);
+    assert_eq!(
+        MailSettings::default().reading.remote_images,
+        LoadRemoteImages::Ask
+    );
     assert_eq!(
         privacy.route(None),
         Ok(mail_core::remote_image::Route::Direct)
@@ -855,4 +859,125 @@ fn the_notification_settings_say_what_the_core_listens_for() {
         "addresses compare in lowercase"
     );
     assert!(settings.interest().hears("bo@example.test"));
+}
+
+/// The switch `privacy.block_remote_content` was is `reading.remote_images = "never"` now: "on"
+/// becomes Never, the old key goes whatever it said, and a later choice is not read over.
+#[test]
+fn the_old_block_remote_content_switch_becomes_never_once() {
+    for (old, want) in [
+        ("on", LoadRemoteImages::Never),
+        ("off", LoadRemoteImages::Ask),
+    ] {
+        let (dir, root) = scratch();
+        let file = mailo_dir(&dir).join("settings.toml");
+        write(
+            &mailo_dir(&dir),
+            "settings.toml",
+            &format!("[privacy]\nblock_remote_content = \"{old}\"\n"),
+        );
+        assert_eq!(load(&root).reading.remote_images, want, "{old}");
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(!text.contains("block_remote_content"), "{old}: {text}");
+        change(&root, |settings| {
+            settings.reading.remote_images = LoadRemoteImages::Always;
+        })
+        .unwrap();
+        assert_eq!(
+            load(&root).reading.remote_images,
+            LoadRemoteImages::Always,
+            "{old}"
+        );
+    }
+}
+
+/// A file whose privacy settings cannot be read is not "Protect: Off": images wait on it.
+#[test]
+fn a_damaged_privacy_setting_is_in_doubt_and_an_unrelated_one_is_not() {
+    use super::privacy_in_doubt;
+    for (name, text, doubt) in [
+        ("no file", None, false),
+        (
+            "a good file",
+            Some("[privacy]\nprotect = \"proxy\"\n"),
+            false,
+        ),
+        (
+            "a bad privacy key",
+            Some("[privacy]\nprotect = \"pigeon\"\n"),
+            true,
+        ),
+        ("not toml at all", Some("[[[ privacy"), true),
+        (
+            "an unrelated bad key",
+            Some("[reading]\nbrand_logos = \"sometimes\"\n"),
+            false,
+        ),
+    ] {
+        let (dir, root) = scratch();
+        if let Some(text) = text {
+            write(&mailo_dir(&dir), "settings.toml", text);
+        }
+        assert_eq!(privacy_in_doubt(&root), doubt, "{name}");
+    }
+}
+
+/// The number on the icon is asked for on every poll of the count: the file is read again when it
+/// has changed, and not before.
+#[test]
+fn the_badge_places_are_read_again_only_when_settings_toml_has_changed() {
+    use mail_client::notify::Places;
+    let (_dir, root) = scratch();
+    let memo = std::sync::Mutex::new(None);
+    assert_eq!(super::badge_places_under(&root, &memo), Places::Inbox);
+    change(&root, |set| {
+        set.notifications.badge = super::BadgeCounts::Followed;
+    })
+    .unwrap();
+    assert_eq!(
+        super::badge_places_under(&root, &memo),
+        Places::Followed,
+        "a changed file is read again"
+    );
+    let (looked, _) = memo.lock().unwrap().unwrap();
+    *memo.lock().unwrap() = Some((looked, Places::Inbox));
+    assert_eq!(
+        super::badge_places_under(&root, &memo),
+        Places::Inbox,
+        "an unchanged file is not read again"
+    );
+}
+
+#[test]
+fn the_junk_settings_start_filtering_sparing_and_trusting_the_server_before_the_rules() {
+    use mail_client::junk::{Filtering, Heed, Order, Treat};
+    let policy = MailSettings::default().junk.policy();
+    assert_eq!(policy.filtering, Filtering::On);
+    assert_eq!(policy.treat, Treat::Move);
+    assert_eq!(policy.contacts, Heed::Yes);
+    assert_eq!(policy.written_to, Heed::Yes);
+    assert_eq!(policy.full_name, Heed::Yes);
+    assert_eq!(policy.server_says, Heed::Yes);
+    assert_eq!(policy.order, Order::BeforeRules);
+    let schema = schema();
+    for path in [
+        "junk.filter",
+        "junk.spare_contacts",
+        "junk.spare_written_to",
+        "junk.spare_full_name",
+        "junk.trust_server",
+    ] {
+        let key = schema
+            .key
+            .iter()
+            .find(|key| key.path.0 == path)
+            .expect(path);
+        assert_eq!(key.default, toml::Value::String("on".to_owned()), "{path}");
+    }
+    let order = schema
+        .key
+        .iter()
+        .find(|key| key.path.0 == "junk.order")
+        .expect("junk.order");
+    assert_eq!(order.default, toml::Value::String("before".to_owned()));
 }

@@ -829,6 +829,15 @@ fn notify_is_not_sent_to_a_server_without_it() {
         matches!(progress, Progress::Failed(ProtoError::Unsupported(_))),
         "{progress:?}"
     );
+    let Progress::Failed(error) = progress else {
+        unreachable!()
+    };
+    assert!(mail_proto::lacks_capability(&error, "NOTIFY"));
+    // Some other thing missing is not a server without NOTIFY.
+    assert!(!mail_proto::lacks_capability(
+        &ProtoError::Unsupported("STARTTLS".to_owned()),
+        "NOTIFY"
+    ));
 }
 
 /// `COMPRESS DEFLATE` (RFC 4978) goes only to a server that offers it, and once it is accepted
@@ -886,4 +895,90 @@ fn compress_is_asked_for_when_offered_and_the_connection_follows() {
         }),
         "{needs:?}"
     );
+}
+
+/// A session whose last command is `COMPRESS` still switches the connection: the next session on
+/// it would otherwise write plain bytes to a server that now reads compressed ones.
+#[test]
+fn a_compress_that_ends_the_session_still_switches_the_connection() {
+    use mail_proto::IoNeed;
+    use mail_proto::machine::{IoReady, Machine, Progress};
+
+    let mut session = session(vec![ImapCommand::Compress]);
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(
+        &mut session,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    let needs = fed(&mut session, "a001 OK DEFLATE active\r\n\x01\x02");
+    assert_eq!(
+        needs,
+        [IoNeed::Deflate {
+            leftover: vec![1, 2]
+        }]
+    );
+    let Progress::Done(transcript) = session.feed(IoReady::Woke) else {
+        panic!("the session ends once the connection is switched");
+    };
+    assert_eq!(transcript.completed.len(), 1);
+}
+
+/// The idle that `NOTIFY` set up is followed by `NOTIFY NONE`, so a connection the next operation
+/// goes on with hears of nothing it will not read; a server that refuses it does not fail the
+/// session.
+#[test]
+fn notify_is_taken_down_when_the_idle_is_over() {
+    use mail_proto::machine::{IoReady, Machine, Progress};
+    let mut session = session(vec![
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned()],
+        },
+        ImapCommand::Idle,
+        ImapCommand::NotifyNone,
+    ]);
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(&mut session, "* OK ready\r\n");
+    let needs = fed(&mut session, "a001 OK done\r\n");
+    assert_eq!(written(&needs), ["a002 IDLE\r\n"]);
+    let needs = fed(
+        &mut session,
+        "+ idling\r\n* STATUS \"Lists\" (UIDNEXT 9)\r\n",
+    );
+    assert_eq!(written(&needs), ["DONE\r\n"]);
+    let needs = fed(&mut session, "a002 OK idle ended\r\n");
+    assert_eq!(written(&needs), ["a003 NOTIFY NONE\r\n"]);
+    let progress = session.feed(IoReady::Bytes(b"a003 NO not now\r\n".to_vec()));
+    assert!(matches!(progress, Progress::Done(_)), "{progress:?}");
+}
+
+/// An idle skipped because mail has already come still takes down what was set up for it.
+#[test]
+fn an_idle_skipped_for_news_still_takes_notify_down() {
+    use mail_proto::machine::{Machine, Progress};
+    let mut session = session(vec![
+        ImapCommand::Select {
+            mailbox: "INBOX".to_owned(),
+            access: Access::ReadOnly,
+            qresync: None,
+        },
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned()],
+        },
+        ImapCommand::IdleAfter { uidnext: 5 },
+        ImapCommand::NotifyNone,
+    ]);
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(&mut session, "* OK ready\r\n");
+    fed(
+        &mut session,
+        "* OK [UIDNEXT 9] next\r\na001 OK [READ-ONLY] done\r\n",
+    );
+    let needs = fed(&mut session, "a002 OK done\r\n");
+    assert_eq!(written(&needs), ["a003 NOTIFY NONE\r\n"]);
 }

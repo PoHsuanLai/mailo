@@ -42,8 +42,8 @@ use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
-use mail_client::AccountSecrets;
 use mail_client::Storage;
+use mail_client::prelude::AccountSecrets;
 use porter_core::AccountId;
 use std::sync::Arc;
 
@@ -69,9 +69,12 @@ impl Seams {
     pub(in crate::ui) fn real(client: &mail_client::Client) -> Seams {
         Seams {
             secrets: client.net().secrets(),
-            storage: Arc::new(|client, account| {
-                client.net().quota(account).map_err(crate::ui::remedy::told)
-            }),
+            storage: remembered(
+                Arc::new(|client, account| {
+                    client.net().quota(account).map_err(crate::ui::remedy::told)
+                }),
+                STORAGE_KEPT,
+            ),
         }
     }
 
@@ -80,10 +83,64 @@ impl Seams {
     /// the page says nothing of storage and opens no socket.
     fn none() -> Seams {
         Seams {
-            secrets: Arc::new(mail_client::NoKeyring),
+            secrets: Arc::new(mail_client::prelude::NoKeyring),
             storage: Arc::new(|_, _| Ok(None)),
         }
     }
+}
+
+/// How long a server's answer about an account's storage is kept: the page is opened again and
+/// again, and each ask is a connection and a sign-in.
+const STORAGE_KEPT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// How long the page waits for a server to say how full the account is before it says nothing of
+/// storage: a server that does not answer is not a reason to hold a thread, or the row, for good.
+const STORAGE_WAIT: std::time::Duration = std::time::Duration::from_secs(20);
+
+/// `ask`, but an answer is kept for `kept` and handed back to the next ask for the same account.
+/// A server that failed to answer is asked again.
+fn remembered(ask: ReadStorage, kept: std::time::Duration) -> ReadStorage {
+    type Told = std::collections::HashMap<AccountId, (std::time::Instant, Option<Storage>)>;
+    let told: Arc<std::sync::Mutex<Told>> = Arc::default();
+    Arc::new(move |client, account| {
+        let now = std::time::Instant::now();
+        let held = told
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&account)
+            .filter(|(at, _)| now.saturating_duration_since(*at) < kept)
+            .map(|(_, storage)| *storage);
+        if let Some(storage) = held {
+            return Ok(storage);
+        }
+        let storage = ask(client, account.clone())?;
+        told.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(account, (now, storage));
+        Ok(storage)
+    })
+}
+
+/// What `ask` says of `account`'s storage, or nothing once `wait` has passed. The server's own
+/// thread is not stopped, only left behind.
+async fn asked_within(
+    wait: std::time::Duration,
+    ask: ReadStorage,
+    client: mail_client::Client,
+    account: AccountId,
+) -> Option<Storage> {
+    let asked = tokio::task::spawn_blocking(move || ask(client, account));
+    let Ok(done) = tokio::time::timeout(wait, asked).await else {
+        log::debug!("no storage for the account page: the server did not answer in time");
+        return None;
+    };
+    done.ok()?
+        // Said nowhere: the row is left out, and the page is no place for a server's trouble,
+        // which the account's own status says when it matters.
+        .unwrap_or_else(|why| {
+            log::debug!("no storage for the account page: {why}");
+            None
+        })
 }
 
 fn seams() -> Seams {
@@ -196,28 +253,22 @@ fn sign_in(address: &str, account: &AccountId, need: Need) {
 /// How much of `account`'s storage its server says is used, once it has said: `None` until then,
 /// and for an account whose server keeps no quota, cannot be reached, or has none to ask.
 ///
-/// Not asked of an account that waits for the person to sign in again: that would be a sign-in
-/// attempt for nothing, each time the page opens.
+/// Not asked of an account that waits for the person to sign in again (that would be a sign-in
+/// attempt for nothing, each time the page opens), nor of one whose syncing is paused: a paused
+/// account is left alone by every connection mailo makes.
 fn use_storage(account: AccountId, waiting: Signal<Vec<(AccountId, Need)>>) -> Option<Storage> {
     let read = use_resource(use_reactive!(|account| {
         let waits = waiting.read().iter().any(|(id, _)| *id == account);
         let asked = row_of(&account)
-            .is_some_and(|row| !waits && mail_client::sync::has_quota(&row.plan.incoming))
+            .is_some_and(|row| {
+                !waits
+                    && row.syncing != mail_client::Syncing::Paused
+                    && mail_client::sync::has_quota(&row.plan.incoming)
+            })
             .then(crate::ui::live::try_client)
             .flatten();
         let ask = seams().storage;
-        async move {
-            let client = asked?;
-            tokio::task::spawn_blocking(move || ask(client, account))
-                .await
-                .ok()?
-                // Said nowhere: the row is left out, and the page is no place for a server's
-                // trouble, which the account's own status says when it matters.
-                .unwrap_or_else(|why| {
-                    log::debug!("no storage for the account page: {why}");
-                    None
-                })
-        }
+        async move { asked_within(STORAGE_WAIT, ask, asked?, account).await }
     }));
     (*read.read()).flatten()
 }

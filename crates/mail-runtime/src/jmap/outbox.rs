@@ -16,7 +16,8 @@ use mail_domain::{
     RemoteRef, Retry, Retryable, SendState, SystemFlag,
 };
 use mail_proto::jmap::{
-    self, CORE, Dsn, EmailSummary, Filed, Identity, Ids, MAIL, SUBMISSION, SetResult, Submission,
+    self, CORE, Dsn, EmailSummary, Filed, Identity, Ids, MAIL, Mailboxes, SUBMISSION, SetResult,
+    Submission,
 };
 use mail_proto::{ProtoError, ProtoOutcome, Refusal};
 use mail_store::{Dispatch, Settle, Store};
@@ -200,6 +201,25 @@ impl JmapEngine {
         Ok(())
     }
 
+    /// `mailboxes`, or the list read again if it lacks any of `paths`.
+    ///
+    /// A label or folder made here a moment ago is a mailbox the queue created just before, and
+    /// the list this engine holds predates it: look again before refusing.
+    async fn mailboxes_with(
+        &mut self,
+        paths: &[String],
+        mailboxes: Mailboxes,
+    ) -> Result<Mailboxes, RuntimeError> {
+        if paths
+            .iter()
+            .all(|path| mailboxes.id_for_path(path).is_some())
+        {
+            return Ok(mailboxes);
+        }
+        self.mailboxes = None;
+        self.refresh_mailboxes(Utc::now()).await
+    }
+
     /// Do one operation. `leaving` is when a submission leaves, stamped into its `Date`.
     async fn run(
         &mut self,
@@ -240,26 +260,14 @@ impl JmapEngine {
                 add,
                 remove,
             } => {
-                // A label made here a moment ago is a mailbox the queue created just before;
-                // the list this engine holds predates it, so look again before refusing.
-                let mailboxes = if add.iter().all(|n| mailboxes.id_for_path(n).is_some()) {
-                    mailboxes
-                } else {
-                    self.mailboxes = None;
-                    self.refresh_mailboxes(Utc::now()).await?
-                };
+                let mailboxes = self.mailboxes_with(&add, mailboxes).await?;
                 let update = patch_each(&remotes, jmap::labels_patch(&add, &remove, &mailboxes)?);
                 self.set(&client, update, Vec::new()).await
             }
             ProtoOp::File { remotes, folder } => {
-                // A folder made here a moment ago is not in the list this engine holds yet, as
-                // with a label: look again before refusing.
-                let mailboxes = if mailboxes.id_for_path(&folder).is_some() {
-                    mailboxes
-                } else {
-                    self.mailboxes = None;
-                    self.refresh_mailboxes(Utc::now()).await?
-                };
+                let mailboxes = self
+                    .mailboxes_with(std::slice::from_ref(&folder), mailboxes)
+                    .await?;
                 let update = patch_each(&remotes, jmap::file_patch(&folder, &mailboxes)?);
                 self.set(&client, update, Vec::new()).await
             }
@@ -267,12 +275,7 @@ impl JmapEngine {
             // added to its `mailboxIds`, and none taken away.
             ProtoOp::Copy { remotes, folder } => {
                 let add = [folder];
-                let mailboxes = if mailboxes.id_for_path(&add[0]).is_some() {
-                    mailboxes
-                } else {
-                    self.mailboxes = None;
-                    self.refresh_mailboxes(Utc::now()).await?
-                };
+                let mailboxes = self.mailboxes_with(&add, mailboxes).await?;
                 let update = patch_each(&remotes, jmap::labels_patch(&add, &[], &mailboxes)?);
                 self.set(&client, update, Vec::new()).await
             }

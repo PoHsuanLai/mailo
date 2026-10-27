@@ -20,24 +20,7 @@ pub const RECEIVED_WEIGHT: f64 = 1.0;
 /// Days after which an event counts half as much.
 pub const HALF_LIFE_DAYS: f64 = 90.0;
 
-/// An address as the book keys it: trimmed, unbracketed, lower-cased. `None` for anything
-/// without a local part and a domain.
-///
-/// Lower-cased whole, although RFC 5321 lets a server treat the local part's case as
-/// significant: none that matters does, and `Ada@x` and `ada@x` as two contacts would be a
-/// duplicate in every list the user sees.
-pub fn normalise(address: &str) -> Option<String> {
-    let trimmed = address
-        .trim()
-        .trim_start_matches('<')
-        .trim_end_matches('>')
-        .trim();
-    let (local, domain) = trimmed.rsplit_once('@')?;
-    if local.is_empty() || domain.is_empty() || trimmed.contains(char::is_whitespace) {
-        return None;
-    }
-    Some(trimmed.to_lowercase())
-}
+pub use mail_domain::address::normalise;
 
 /// A display name worth keeping: trimmed, unquoted, with runs of whitespace collapsed. Nothing
 /// when it is empty or merely repeats an address.

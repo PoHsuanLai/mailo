@@ -138,6 +138,19 @@ mod tests {
         let store = crate::support_tests::sqlite_with(&[("Lunch", mail, 10)]);
         mail_store::testing::seed_default_identity(&store, account(), "me@example.test", None);
         let now = mail_domain::testing::now();
+        // It has just arrived: unread (the shared store holds its messages as read).
+        store
+            .apply(
+                account(),
+                &mail_domain::Patch {
+                    id: mail_domain::ChangeId::generate(),
+                    changes: vec![mail_domain::Change::MessageRead(
+                        mail_domain::MessageId::from_uuid(uuid::Uuid::from_u128(0x9000)),
+                        ReadState::Unread,
+                    )],
+                },
+            )
+            .unwrap();
         let kept =
             crate::compose::draft_new(&store, account(), &[], "", "Back soon.", now).unwrap();
         crate::template::save(&store, kept.id, "Away", now).unwrap();

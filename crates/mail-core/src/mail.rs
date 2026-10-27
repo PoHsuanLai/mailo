@@ -139,7 +139,8 @@ impl std::fmt::Debug for Mail {
 impl Mail {
     /// A handle over `store`, with `runtime` as the one the application owns. The secrets are the
     /// platform's, the environment is empty, no OAuth client is at hand and the clock is the
-    /// wall's; change any with the `with_` methods.
+    /// wall's; change any with the `with_` methods. The junk filter judges nothing until
+    /// [`Mail::with_junk`] gives it the person's settings.
     pub fn new(store: Arc<SqliteStore>, runtime: Handle) -> Self {
         let secrets = platform_secrets(&runtime);
         Self {

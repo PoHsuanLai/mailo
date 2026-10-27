@@ -65,6 +65,9 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     // The window's keymap, with mailo's actions in it: this window is its own root.
     let core = use_window_core();
     let keys = core.keys;
+    // The conversation and the labels, as the client keeps them read: the window reads no store.
+    let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
+    let read = crate::ui::live::use_live(move || mail_client::query::Conversation(thread));
     let shell = use_signal(|| {
         let client = crate::ui::live::client();
         let mut shell = Shell {
@@ -72,7 +75,11 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             keymap: try_consume_context::<crate::ui::appearance::WindowDirs>()
                 .map(|dirs| crate::ui::keymap::load(&dirs.config))
                 .unwrap_or_default(),
-            labels: client.query().known_labels(),
+            labels: every
+                .peek()
+                .value()
+                .map(|accounts| crate::ui::sidebar::known_labels(accounts))
+                .unwrap_or_default(),
             accounts: client.compose().sending_accounts(),
             ..Shell::default()
         };
@@ -91,27 +98,17 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
     // which are the first window's.
     let today = use_signal(crate::ui::today::Today::default);
     let desk = use_window_desk(core, shell, spaces, None, today, None);
-    // Where the conversation was when the window opened, for [`left`].
-    let opened = use_hook(|| {
-        let client = crate::ui::live::client();
-        client
-            .stored()
-            .thread(thread)
-            .map(|loaded| loaded.summary.mailboxes)
-            .unwrap_or(MailboxSet::empty())
-    });
-    // Drawn again whenever either window moves the client.
-    let _ =
-        crate::ui::live::moved_for(mail_client::Topics::SUMMARIES | mail_client::Topics::LABELS);
-    let client = crate::ui::live::client();
-    let summary = client
-        .stored()
-        .thread(thread)
-        .ok()
-        .map(|loaded| loaded.summary);
+    // Drawn again whenever the client reads the conversation again, here or from another window.
+    let summary = conversation_of(&read.read(), thread);
+    // Where the conversation was when the window opened, for [`left`]: where it was when the
+    // client first had it.
+    let opened = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(None::<MailboxSet>)));
+    if opened.get().is_none() {
+        opened.set(summary.as_ref().map(|summary| summary.mailboxes));
+    }
     let note = summary
         .as_ref()
-        .and_then(|summary| left(opened, summary.mailboxes));
+        .and_then(|summary| left(opened.get()?, summary.mailboxes));
 
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
@@ -189,11 +186,8 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
             _ => {
                 // The same gesture the first window's keys make, over the one conversation
                 // there is: one undo, one toast.
-                let listed: Vec<ThreadSummary> = client
-                    .stored()
-                    .thread(thread)
-                    .map(|loaded| vec![loaded.summary])
-                    .unwrap_or_default();
+                let listed: Vec<ThreadSummary> =
+                    conversation_of(&read.peek(), thread).into_iter().collect();
                 crate::ui::picks::act_on_picked(&client, shell, action, &listed);
             }
         }
@@ -225,5 +219,20 @@ pub(in crate::ui) fn MessageShell(thread: ThreadId) -> Element {
                 crate::ui::motion::Toast { shell }
             }
         }
+    }
+}
+
+/// The summary of `thread` as the client has it read, when it has it.
+fn conversation_of(
+    read: &mail_client::Snapshot<Option<mail_client::query::Messages>>,
+    thread: ThreadId,
+) -> Option<ThreadSummary> {
+    match read {
+        mail_client::Snapshot::Ready { value, .. } => value
+            .as_ref()
+            .as_ref()
+            .filter(|loaded| loaded.summary.id == thread)
+            .map(|loaded| loaded.summary.clone()),
+        _ => None,
     }
 }

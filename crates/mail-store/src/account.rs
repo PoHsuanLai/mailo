@@ -5,7 +5,9 @@
 
 use crate::StoreError;
 use chrono::{DateTime, Utc};
-use mail_domain::{AccountCaps, AccountPlan, ArchiveMeans, FolderRoles, Identity, MailboxRole};
+use mail_domain::{
+    AccountCaps, AccountPlan, ArchiveMeans, FolderRoles, Identity, MailboxRole, ServerLabels,
+};
 use porter_core::AccountId;
 
 /// One account as it is stored.
@@ -56,6 +58,22 @@ pub struct AccountPrefs {
     pub syncing: Syncing,
     /// The server folder picked for each role, in place of the one auto-detection found.
     pub folders: Vec<(MailboxRole, String)>,
+    /// Whether labels are written to the server as keywords where it takes them
+    /// ([`ServerLabels::Keywords`]). Off until the person says so: a label's name is then shared
+    /// with every other mail program on the account. Gmail's own labels are not asked.
+    pub keep_labels: bool,
+}
+
+impl AccountPrefs {
+    /// `caps` as the person has them: the folders they picked laid over the roles the server
+    /// was observed to give ([`with_picks`]), and labels kept as keywords only if they said to.
+    pub fn over(&self, caps: AccountCaps) -> AccountCaps {
+        let mut caps = with_picks(caps, &self.folders);
+        if caps.labels == ServerLabels::Keywords && !self.keep_labels {
+            caps.labels = ServerLabels::LocalOnly;
+        }
+        caps
+    }
 }
 
 /// `caps` with the folders the person picked laid over the roles the server was observed to

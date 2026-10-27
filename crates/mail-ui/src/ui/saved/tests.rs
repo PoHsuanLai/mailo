@@ -14,7 +14,6 @@ fn known(labels: &[(String, LabelId)]) -> mail_core::query::Known<'_> {
     mail_core::query::Known {
         labels,
         accounts: &[],
-        vips: None,
     }
 }
 
@@ -189,4 +188,49 @@ fn a_sort_is_kept_by_the_place_it_sorts() {
     assert!(!shell.sortable());
     assert_eq!(shell.sort_by(by_size), None);
     assert_eq!(shell.query(50).sort, NEWEST_FIRST);
+}
+
+/// A sort that could not be kept is put back: a place's order to what it was before, a view's
+/// to the view's own.
+#[test]
+fn a_sort_that_was_not_kept_is_put_back() {
+    use crate::ui::view::NEWEST_FIRST;
+    let by_size = Sort {
+        property: Property::Size,
+        dir: SortDir::Desc,
+    };
+    let by_subject = Sort {
+        property: Property::Subject,
+        dir: SortDir::Asc,
+    };
+    let mut shell = Shell::default();
+    let before = shell.sort();
+    let kept = shell.sort_by(by_size).expect("the inbox sorts");
+    assert_eq!(shell.sort(), by_size);
+    shell.unsort(&kept, before);
+    assert_eq!(shell.sort(), NEWEST_FIRST);
+    assert!(shell.sorts.is_empty(), "no key left for the default order");
+
+    // A place that was sorted before goes back to that order, not to the default.
+    shell.sort_by(by_size);
+    let kept = shell.sort_by(by_subject).expect("the inbox sorts");
+    shell.unsort(&kept, by_size);
+    assert_eq!(shell.sort(), by_size);
+
+    let view = saved("Trips", "label:travel");
+    show_kept(&mut shell, &view);
+    let was = shell.sort();
+    let kept = shell.sort_by(by_subject).expect("a view sorts");
+    assert_eq!(shell.sort(), by_subject);
+    shell.unsort(&kept, was);
+    assert_eq!(shell.sort(), was);
+}
+
+/// The failure is said in the window's words, with the reason.
+#[test]
+fn a_sort_not_kept_says_why() {
+    assert_eq!(
+        crate::ui::copy::status::sort_not_kept("disk full."),
+        "The order was not kept: disk full."
+    );
 }

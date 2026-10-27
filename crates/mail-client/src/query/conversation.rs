@@ -19,6 +19,10 @@ pub struct Messages {
 }
 
 impl Query for Conversation {
+    fn bucket(&self) -> u64 {
+        crate::live::bucket_of(&self.0)
+    }
+
     /// `None` when there is no such conversation: it was deleted, or its last message moved
     /// into another.
     type Output = Option<Messages>;

@@ -296,6 +296,10 @@ pub enum RemoteIntent {
     ///
     /// Resolved by the store to [`crate::ProtoOp::Copy`] with the label's name, which is the
     /// folder's path, as [`RemoteIntent::File`] is.
+    ///
+    /// Where the server does not say the copy's address (IMAP without `UIDPLUS`), nothing here
+    /// can name the copy on the server, so it is not listed in the folder as a message there
+    /// until that folder's next sync finds it by its identity.
     Copy {
         messages: Vec<MessageId>,
         label: LabelId,

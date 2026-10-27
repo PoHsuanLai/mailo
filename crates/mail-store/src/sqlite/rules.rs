@@ -13,6 +13,27 @@ use rusqlite::{OptionalExtension, params};
 const RULE_COLUMNS: &str =
     "id, account, name, position, state, filter, actions, after, made_at, reply_days";
 
+/// A rule's actions column. An action this build does not know — a rule written by a newer one —
+/// is skipped with a log, so that the rule and every other rule still load; the rest of the rule
+/// runs, and saving it again drops the action.
+fn actions_of(text: &str) -> Result<Vec<mail_domain::RuleAction>, StoreError> {
+    let stored: Vec<serde_json::Value> = json("Rule.actions", text)?;
+    Ok(stored
+        .into_iter()
+        .filter_map(
+            |action| match serde_json::from_value::<mail_domain::RuleAction>(action) {
+                Ok(action) => Some(action),
+                Err(why) => {
+                    log::warn!(
+                        "a rule's action was skipped, as this version does not know it: {why}"
+                    );
+                    None
+                }
+            },
+        )
+        .collect())
+}
+
 impl SqliteStore {
     pub(super) fn load_rules(&self, account: AccountId) -> Result<Vec<Rule>, StoreError> {
         // `name` in binary order, as the in-memory store sorts `String`s.
@@ -30,7 +51,7 @@ impl SqliteStore {
                 position: row.get(3)?,
                 state: json("RuleState", &row.get::<_, String>(4)?)?,
                 filter: json("Rule.filter", &row.get::<_, String>(5)?)?,
-                actions: json("Rule.actions", &row.get::<_, String>(6)?)?,
+                actions: actions_of(&row.get::<_, String>(6)?)?,
                 after: json("AfterMatch", &row.get::<_, String>(7)?)?,
                 made: super::row::time("Rule.made_at", &row.get::<_, String>(8)?)?,
                 reply_days: row.get(9)?,

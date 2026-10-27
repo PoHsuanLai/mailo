@@ -15,8 +15,11 @@ CREATE TABLE junk_totals (
 );
 
 -- What each message was last learned as ('spam' or 'ham'), so learning it again changes
--- nothing and learning it the other way first takes back what it taught.
+-- nothing and learning it the other way first takes back what it taught. The words it taught
+-- are kept (one per line), so taking it back subtracts exactly those, whatever the message
+-- says by then.
 CREATE TABLE junk_learned (
     message TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
-    verdict TEXT NOT NULL
+    verdict TEXT NOT NULL,
+    words   TEXT NOT NULL DEFAULT ''
 );

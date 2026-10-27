@@ -11,7 +11,6 @@ crates/mail-ui/src/ui/keyboard.rs 5
 crates/mail-ui/src/ui/keymap.rs 17
 crates/mail-ui/src/ui/no_account.rs 3
 crates/mail-ui/src/ui/ops.rs 2
-crates/mail-ui/src/ui/prefs.rs 1
 crates/mail-ui/src/ui/reauth.rs 5
 crates/mail-ui/src/ui/remedy.rs 16
 crates/mail-ui/src/ui/row.rs 2
@@ -57,7 +56,7 @@ crates/mail-ui/src/ui/compose/wire.rs 1
 crates/mail-ui/src/ui/downloads/open.rs 14
 crates/mail-ui/src/ui/downloads/panel.rs 13
 crates/mail-ui/src/ui/emoji/mod.rs 9
-crates/mail-ui/src/ui/fetching/face.rs 4
+crates/mail-ui/src/ui/fetching/face.rs 3
 crates/mail-ui/src/ui/fetching/mod.rs 1
 crates/mail-ui/src/ui/fetching/status.rs 20
 crates/mail-ui/src/ui/files/export_sheet.rs 21

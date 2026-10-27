@@ -66,7 +66,8 @@ pub(in crate::ui) fn use_window_settings() {
     // The relay's key comes from the keyring, not the settings file, and is read again when the
     // file says it changed (`privacy.relay_key_changed`). Off the thread that draws: a keyring
     // answers when it likes.
-    let mut relay_key = use_signal(|| None::<String>);
+    // `None` until the keyring has answered, then the key or its absence.
+    let mut relay_key = use_signal(|| None::<Option<String>>);
     let _reading = use_resource(move || {
         let _changed = values.read().privacy.relay_key_changed;
         async move {
@@ -78,11 +79,34 @@ pub(in crate::ui) fn use_window_settings() {
                 .ok()
                 .and_then(Result::ok)
                 .flatten();
-            relay_key.set(read);
+            relay_key.set(Some(read));
         }
     });
+    // Why images cannot be fetched the way `privacy.*` says, if they cannot: what the Privacy page
+    // and the reader tell the person ([`route_problem`]). Not a missing key before the keyring
+    // has answered.
+    let problem = use_memo(move || {
+        let answered: Option<Option<String>> = relay_key();
+        let known = answered.is_some();
+        values
+            .read()
+            .privacy
+            .route(answered.as_ref().and_then(|key| key.as_deref()))
+            .err()
+            .filter(|problem| known || *problem != crate::settings::RouteProblem::RelayKey)
+    });
+    use_context_provider(|| problem);
+    // A `settings.toml` whose privacy settings cannot be read is the defaults, which would fetch
+    // straight whatever was chosen: then nothing is fetched (`settings::privacy_in_doubt`).
+    let watched = root.clone();
     use_effect(move || {
-        crate::ui::original::follow_privacy(&values.read().privacy, relay_key.read().as_deref());
+        let privacy = values.read().privacy.clone();
+        let answered: Option<Option<String>> = relay_key();
+        let doubt = watched.as_ref().is_some_and(settings::privacy_in_doubt);
+        crate::ui::original::follow_privacy(
+            (!doubt).then_some(&privacy),
+            answered.as_ref().and_then(|key| key.as_deref()),
+        );
     });
     use_future(move || {
         let root = root.clone();
@@ -98,6 +122,13 @@ pub(in crate::ui) fn use_window_settings() {
             }
         }
     });
+}
+
+/// Why images cannot be fetched the way `privacy.*` says, if they cannot: the relay's or the
+/// proxy's address is not one to use, or the relay has no key. `None` while they can, and where
+/// no window provided it.
+pub(in crate::ui) fn route_problem() -> Option<settings::RouteProblem> {
+    try_consume_context::<Memo<Option<settings::RouteProblem>>>().and_then(|problem| problem())
 }
 
 /// The settings in force, as a signal to read in a render or a resource: the window root's.
@@ -143,7 +174,7 @@ pub(in crate::ui) fn reread() {
 /// to write it, and shown at once either way. A write that fails changes nothing on screen.
 pub(in crate::ui) fn change(edit: impl FnOnce(&mut MailSettings)) -> Result<(), String> {
     let Some(mut values) = try_consume_context::<Signal<MailSettings>>() else {
-        return Err("The window has no settings to change.".to_owned());
+        return Err(crate::ui::copy::errors::NO_SETTINGS_TO_CHANGE.to_owned());
     };
     let next = match try_consume_context::<PrefsRoot>().and_then(|root| root.0) {
         Some(root) => {
@@ -162,6 +193,69 @@ pub(in crate::ui) fn change(edit: impl FnOnce(&mut MailSettings)) -> Result<(), 
     };
     values.set(next);
     Ok(())
+}
+
+/// Which request of a series is the newest: a write that lands after a newer one was asked for
+/// must not show its (older) settings over the newer.
+#[derive(Debug, Default)]
+pub(in crate::ui) struct Latest(std::sync::atomic::AtomicU64);
+
+impl Latest {
+    /// No request yet.
+    pub(in crate::ui) const fn new() -> Self {
+        Self(std::sync::atomic::AtomicU64::new(0))
+    }
+
+    /// A request has come; its number.
+    pub(in crate::ui) fn press(&self) -> u64 {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1
+    }
+
+    /// Whether no request has come since request number `n`.
+    pub(in crate::ui) fn is_last(&self, n: u64) -> bool {
+        self.0.load(std::sync::atomic::Ordering::SeqCst) == n
+    }
+}
+
+/// The requests [`change_later`] has been given, in the order they were asked for.
+static REQUESTS: Latest = Latest::new();
+
+/// [`change`] with the file written off the drawing thread: the window's contexts are taken now,
+/// the write runs on a blocking thread, and the other windows are told when it has landed. A write
+/// that fails changes nothing on screen.
+///
+/// The settings it read back are shown only if no newer request has been asked for meanwhile: a
+/// write that lands late holds an older value than what the window already shows (and what the
+/// newer request will write), and showing it would put the old value back for a moment or for good.
+pub(in crate::ui) fn change_later(
+    edit: impl FnOnce(&mut MailSettings) + Send + 'static,
+) -> impl std::future::Future<Output = Result<(), String>> + 'static {
+    let values = try_consume_context::<Signal<MailSettings>>();
+    let root = try_consume_context::<PrefsRoot>().and_then(|root| root.0);
+    let mine = REQUESTS.press();
+    async move {
+        let Some(mut values) = values else {
+            return Err(crate::ui::copy::errors::NO_SETTINGS_TO_CHANGE.to_owned());
+        };
+        let next = match root {
+            Some(root) => {
+                let next = tokio::task::spawn_blocking(move || settings::change(&root, edit))
+                    .await
+                    .map_err(|e| e.to_string())??;
+                crate::ui::configured::told_configuration();
+                next
+            }
+            None => {
+                let mut next = values.peek().clone();
+                edit(&mut next);
+                next
+            }
+        };
+        if REQUESTS.is_last(mine) {
+            values.set(next);
+        }
+        Ok(())
+    }
 }
 
 /// Change one key by its schema path (`compose.spelling`) to `value`, as the Settings sheet's
@@ -192,6 +286,7 @@ fn with_key(
 
 #[cfg(test)]
 mod tests {
+    use super::Latest;
     use crate::settings::{self, BrandLogos, MailSettings, NewMail, Spelling};
     use crate::ui::appearance::WindowDirs;
     use dioxus::prelude::*;
@@ -254,5 +349,17 @@ mod tests {
         assert_eq!(stored.compose.spelling, Spelling::Off);
         assert_eq!(stored.notifications.new_mail, NewMail::Off);
         assert_eq!(stored.reading.brand_logos, BrandLogos::On);
+    }
+
+    /// A write that lands after a newer request was asked for is not the latest, so it does not
+    /// show its older settings over the newer ones.
+    #[test]
+    fn a_stale_write_is_not_the_latest_request() {
+        let requests = Latest::default();
+        let first = requests.press();
+        assert!(requests.is_last(first));
+        let (second, third) = (requests.press(), requests.press());
+        assert!(!requests.is_last(first) && !requests.is_last(second));
+        assert!(requests.is_last(third));
     }
 }

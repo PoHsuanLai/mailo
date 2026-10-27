@@ -109,15 +109,26 @@ impl AppNet for MailNet {
     }
 }
 
-/// The way the window's images are fetched, as `privacy.*` says ([`follow`]): `None` while the
-/// person has chosen a relay or a proxy that cannot be used, when nothing is fetched at all
-/// rather than fetched straight from the image's host.
-static ROUTE: Mutex<Option<Route>> = Mutex::new(Some(Route::Direct));
+/// The way the window's images are fetched, as `privacy.*` says ([`follow`]): `None` until the
+/// settings have been read, and while they cannot be (a damaged file), or the person has chosen a
+/// relay or a proxy that cannot be used, when nothing is fetched at all rather than fetched
+/// straight from the image's host.
+static ROUTE: Mutex<Option<Route>> = Mutex::new(None);
 
-/// Fetch the window's images the way `privacy` says from now on.
-pub(crate) fn follow(privacy: &crate::settings::PrivacySettings, relay_key: Option<&str>) {
-    let route = privacy.route(relay_key).ok();
-    *ROUTE.lock().unwrap_or_else(PoisonError::into_inner) = route;
+/// The way `privacy` says images are fetched, or `None` when they are not to be: `privacy` is
+/// `None` when the settings cannot be trusted (`settings::privacy_in_doubt`), and a relay or a
+/// proxy that cannot be used is not taken as fetching straight.
+fn route_of(
+    privacy: Option<&crate::settings::PrivacySettings>,
+    relay_key: Option<&str>,
+) -> Option<Route> {
+    privacy?.route(relay_key).ok()
+}
+
+/// Fetch the window's images the way `privacy` says from now on; `None` for settings that cannot
+/// be trusted fetches none.
+pub(crate) fn follow(privacy: Option<&crate::settings::PrivacySettings>, relay_key: Option<&str>) {
+    *ROUTE.lock().unwrap_or_else(PoisonError::into_inner) = route_of(privacy, relay_key);
 }
 
 /// The web: one fetcher for the way images are fetched now, made by the first admitted image
@@ -138,10 +149,13 @@ impl Web {
     }
 
     fn fetcher(&self) -> Option<ImageFetcher> {
-        let route = ROUTE
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()?;
+        let route = ROUTE.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        self.fetcher_for(route)
+    }
+
+    /// The fetcher for `route`; none for no route, which fetches nothing.
+    fn fetcher_for(&self, route: Option<Route>) -> Option<ImageFetcher> {
+        let route = route?;
         let mut held = self.fetcher.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some((made_for, fetcher)) = held.as_ref()
             && *made_for == route
@@ -165,5 +179,34 @@ impl FetchImage for Web {
         if let Some(fetcher) = self.fetcher() {
             fetcher.fetch(url, done);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::{PrivacySettings, Protect};
+
+    #[test]
+    fn settings_that_are_not_known_or_cannot_be_used_fetch_nothing() {
+        let off = PrivacySettings::default();
+        assert_eq!(route_of(Some(&off), None), Some(Route::Direct));
+        // Damaged or unread: unknown, never "Off".
+        assert_eq!(route_of(None, None), None);
+        // A relay chosen with no address or key, and a proxy with no address.
+        for protect in [Protect::Relay, Protect::Proxy] {
+            let chosen = PrivacySettings {
+                protect,
+                ..PrivacySettings::default()
+            };
+            assert_eq!(route_of(Some(&chosen), None), None, "{protect:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn no_route_makes_no_fetcher() {
+        let web = Web::on(tokio::runtime::Handle::current());
+        assert!(web.fetcher_for(None).is_none());
+        assert!(web.fetcher_for(Some(Route::Direct)).is_some());
     }
 }

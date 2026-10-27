@@ -456,3 +456,130 @@ fn a_wrapped_indented_paragraph_is_led_on_its_first_line_only() {
         "the rest join straight on: {flowed:?}"
     );
 }
+
+fn turn(node: usize, kind: ParaKind) -> Vec<Op> {
+    vec![Op::SetKind {
+        range: collapsed(node, 0),
+        kind,
+    }]
+}
+
+/// A depth is a level of the kind it is in: it stays through a change within indent kinds or
+/// within quotes, and is zero across them or in code.
+#[test]
+fn depth_follows_the_kind_it_is_in() {
+    use ParaKind::{Bullet, Code, Heading, Numbered, Paragraph, Quote};
+    let cases = [
+        (Paragraph, Bullet, 2, 2),
+        (Bullet, Numbered, 2, 2),
+        (Bullet, Heading(Level::One), 1, 1),
+        (Quote, Quote, 2, 2),
+        (Quote, Paragraph, 2, 0),
+        (Paragraph, Quote, 2, 0),
+        (Bullet, Quote, 1, 0),
+        (Bullet, Code, 1, 0),
+        (Code, Paragraph, 0, 0),
+    ];
+    for (from, to, depth, want) in cases {
+        assert_eq!(depth_for(from, to, depth), want, "{from:?} to {to:?}");
+    }
+}
+
+/// SetKind brings the depth along by that rule, and its inverse puts back the kind and the depth.
+#[test]
+fn set_kind_sets_the_depth_and_its_inverse_restores_it() {
+    let before = doc_of(vec![
+        deep(ParaKind::Quote, "a", 2),
+        deep(ParaKind::Bullet, "b", 1),
+        deep(ParaKind::Paragraph, "c", 1),
+    ]);
+    let mut doc = before.clone();
+    let mut undo = Vec::new();
+    for node in 0..3 {
+        let op = turn(node, ParaKind::Quote).remove(0);
+        undo.push(apply(&mut doc, op).expect("applies"));
+    }
+    assert_eq!(levels(&doc), "quote2|quote0|quote0");
+    for inverse in undo.into_iter().rev() {
+        apply(&mut doc, inverse).expect("undoes");
+    }
+    assert_eq!(doc, before);
+
+    let mut doc = before.clone();
+    let all = whole(&doc);
+    let undo = apply(
+        &mut doc,
+        Op::SetKind {
+            range: all,
+            kind: ParaKind::Paragraph,
+        },
+    )
+    .expect("applies");
+    assert_eq!(levels(&doc), "p0|p1|p1");
+    apply(&mut doc, undo).expect("undoes");
+    assert_eq!(doc, before);
+}
+
+/// Joining two paragraphs of different kinds is undone to the kind and the depth the right one
+/// had, though setting its kind alone would have moved the depth.
+#[test]
+fn a_merge_is_undone_with_the_kind_and_the_depth_of_the_paragraph_it_took_in() {
+    let before = doc_of(vec![
+        deep(ParaKind::Paragraph, "a", 1),
+        deep(ParaKind::Code, "b", 1),
+        deep(ParaKind::Quote, "c", 2),
+        deep(ParaKind::Bullet, "d", 1),
+    ]);
+    for node in 1..4 {
+        let mut doc = before.clone();
+        let undo = apply(&mut doc, Op::Merge { node }).expect("merges");
+        apply(&mut doc, undo).expect("undoes");
+        assert_eq!(doc, before, "merge of node {node}");
+    }
+}
+
+/// Taking an item out, or bringing it out, leaves no item deeper than the list can nest it:
+/// what is drawn is what the sender receives.
+#[test]
+fn settled_lowers_the_items_an_edit_left_too_deep() {
+    let item = |text: &str, depth: u8| deep(ParaKind::Bullet, text, depth);
+    let doc = doc_of(vec![item("a", 0), item("b", 1), item("c", 2), item("d", 3)]);
+    let cases: [(&str, Vec<Op>, &str); 3] = [
+        (
+            "outdent the second",
+            indent(&doc, collapsed(1, 0), Nest::Out),
+            "ul0|ul0|ul1|ul2",
+        ),
+        (
+            "turn the second into a paragraph",
+            turn(1, ParaKind::Paragraph),
+            "ul0|p1|ul0|ul1",
+        ),
+        (
+            "delete the second",
+            vec![Op::Replace {
+                index: 1,
+                take: 1,
+                nodes: Vec::new(),
+            }],
+            "ul0|ul1|ul2",
+        ),
+    ];
+    for (what, ops, want) in cases {
+        let mut after = doc.clone();
+        apply_ops(&mut after, settled(&doc, ops));
+        assert_eq!(levels(&after), want, "{what}");
+        let written: Vec<usize> = after
+            .nodes
+            .iter()
+            .map(|node| match node {
+                Node::Para { layout, .. } => usize::from(layout.depth),
+                Node::Object(_) => 0,
+            })
+            .collect();
+        assert!(
+            written.windows(2).all(|pair| pair[1] <= pair[0] + 1),
+            "{what}: {written:?}"
+        );
+    }
+}

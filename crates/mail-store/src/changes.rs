@@ -80,6 +80,10 @@ struct Subscriber {
 }
 
 /// What a subscriber is woken by, once a commit is waiting for it.
+///
+/// Called on the committing thread, after the subscribers are let go of but while the writer is
+/// still held: it must not block, and must not wait on anything a writer holds (the store's
+/// writer, a lock a writer takes). It sets a flag or sends on a channel.
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
 impl std::fmt::Debug for Subscriber {
@@ -155,14 +159,20 @@ impl Changes {
     fn publish(&self, topics: Topics) {
         let generation = Generation(self.generation.fetch_add(1, Ordering::Release) + 1);
         let committed = Committed { topics, generation };
-        // A subscriber that has gone is dropped from the list; the others are told.
+        // A subscriber that has gone is dropped from the list; the others are told. Their wakes
+        // are called after the list is let go of, so one that takes a lock a subscriber holds
+        // while it subscribes cannot close a cycle with it.
+        let mut wakes: Vec<Wake> = Vec::new();
         self.subscribers.lock().retain(|subscriber| {
             let heard = subscriber.to.send(committed).is_ok();
             if heard && let Some(wake) = &subscriber.wake {
-                wake();
+                wakes.push(wake.clone());
             }
             heard
         });
+        for wake in wakes {
+            wake();
+        }
     }
 
     /// Hear every commit from now on, `wake` called each time one is waiting.

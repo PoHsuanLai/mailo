@@ -9,10 +9,10 @@
 //!
 //! ```text
 //! from:ada  to:bob  subject:lunch      a word in that field
-//! cc:bob                               addressed to: To or Cc, as to: is
+//! cc:bob                               copied on it (the Cc line; to: is To or Cc)
 //! is:unread is:read is:starred         state
 //! is:pinned is:snoozed is:kept       is:kept is starred or pinned
-//! is:vip                               from one of the VIPs
+//! is:vip                               written by one of the VIPs, as the list is when asked
 //! in:inbox  in:archive in:sent         where it lives
 //! in:spam   in:trash
 //! has:attachment                       what it carries
@@ -36,7 +36,6 @@
 //! its own rather than together.
 
 use crate::error::Logged;
-use crate::vip::Vips;
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use mail_domain::{Category, DateRange, Filter, LabelId, MailboxRole, ReadState, Star, TextMatch};
 use porter_core::AccountId;
@@ -94,11 +93,6 @@ pub trait Names {
     fn accounts(&self, _name: &str) -> Vec<AccountId> {
         Vec::new()
     }
-    /// What `is:vip` finds ([`Vips::filter`]): nothing while none are known, which is what it
-    /// means while nobody is a VIP.
-    fn vips(&self) -> Filter {
-        Vips::default().filter()
-    }
 }
 
 impl<F: Fn(&str) -> Vec<LabelId>> Names for F {
@@ -120,9 +114,6 @@ pub struct Known<'a> {
     pub labels: &'a [(String, LabelId)],
     /// Each account's address, with the account.
     pub accounts: &'a [(String, AccountId)],
-    /// Who `is:vip` means ([`crate::vip::read`]), handed in for the reason the labels are: the
-    /// list is the store's. `None` is nobody, and `is:vip` then finds nothing.
-    pub vips: Option<&'a Vips>,
 }
 
 impl Names for Known<'_> {
@@ -153,39 +144,6 @@ impl Names for Known<'_> {
             .map(|(_, id)| id.clone())
             .collect();
         if local.len() == 1 { local } else { Vec::new() }
-    }
-
-    fn vips(&self) -> Filter {
-        self.vips.map_or(Filter::Nothing, Vips::filter)
-    }
-}
-
-/// `names`, with who `is:vip` means: for a caller whose names know the labels and accounts but
-/// whose source of mail knows the VIPs ([`crate::search::Source::vips`]).
-pub struct WithVips<'a> {
-    pub names: &'a dyn Names,
-    pub vips: &'a Vips,
-}
-
-impl std::fmt::Debug for WithVips<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("WithVips")
-            .field("vips", &self.vips)
-            .finish_non_exhaustive()
-    }
-}
-
-impl Names for WithVips<'_> {
-    fn labels(&self, name: &str) -> Vec<LabelId> {
-        self.names.labels(name)
-    }
-
-    fn accounts(&self, name: &str) -> Vec<AccountId> {
-        self.names.accounts(name)
-    }
-
-    fn vips(&self) -> Filter {
-        self.vips.filter()
     }
 }
 
@@ -391,9 +349,9 @@ fn term<Tz: TimeZone>(token: &Token, zone: &Tz, names: &dyn Names) -> Option<Fil
     let matched = |v: &str| TextMatch::Contains(v.to_owned());
     let filter = match field.to_ascii_lowercase().as_str() {
         "from" => Filter::From(matched(value)),
-        // Cc is not kept apart from To in a conversation's recipients: both mean "addressed to",
-        // which is what a person looking for mail someone was copied on is after.
-        "to" | "cc" => Filter::To(matched(value)),
+        "to" => Filter::To(matched(value)),
+        // The Cc line alone: `to:` reads everyone the conversation was addressed to, copied or not.
+        "cc" => Filter::Cc(matched(value)),
         "subject" => Filter::Subject(matched(value)),
         "has" => match value.to_ascii_lowercase().as_str() {
             "attachment" | "attachments" | "file" => Filter::HasAttachment,
@@ -408,7 +366,9 @@ fn term<Tz: TimeZone>(token: &Token, zone: &Tz, names: &dyn Names) -> Option<Fil
             "snoozed" => Filter::Snoozed,
             // Starred or pinned. The one `Or` a term stands for.
             "kept" => crate::conversation::kept_filter(),
-            "vip" | "vips" => names.vips(),
+            // Whoever is on the VIP list when the filter is asked, not whoever was when it was
+            // typed: a saved view or a rule that says it follows the list.
+            "vip" | "vips" => Filter::Vip,
             _ => return None,
         },
         "in" => Filter::InMailbox(mailbox(value)?),

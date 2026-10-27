@@ -97,7 +97,25 @@ pub enum Filter {
     /// is listed: only `INBOX` and `Sent` are fetched there, so no other path has addresses.
     InFolder(MailboxRef),
     From(TextMatch),
+    /// Written by someone at exactly this address (the email alone, never a display name,
+    /// compared ASCII-case-insensitively): the thread's newest sender or any of its
+    /// [participants](ThreadSummary::participants), so a conversation stays found after
+    /// someone else has answered last.
+    ///
+    /// Not [`Filter::From`], whose needle is also read against the display name: anyone can
+    /// write `"ada@example.test" <someone@else.test>` and be found as that address.
+    FromAddress(String),
+    /// True when one of the thread's senders is a VIP: the addresses the store holds in its
+    /// VIP list **when the filter is asked**, handed in as [`MatchCtx::vips`]. A saved view or a
+    /// rule that says `is:vip` therefore follows the list as it changes, and never keeps the
+    /// people who were on it when it was saved. Answered like [`Filter::FromAddress`] for each
+    /// of them.
+    Vip,
     To(TextMatch),
+    /// Copied on one of the thread's messages: a `Cc` address or name fits. Unlike
+    /// [`Filter::To`], which reads the thread's merged recipients, this reads the `Cc` line
+    /// alone, handed in as [`MatchCtx::cc`].
+    Cc(TextMatch),
     Subject(TextMatch),
     /// Full text: subject, participants, snippet, and the plain-text body.
     ///
@@ -182,6 +200,9 @@ fn days_before(now: chrono::DateTime<chrono::Utc>, days: u32) -> chrono::DateTim
 /// Not the raw message's bytes: those are a blob only the SQLite store holds, absent while only
 /// the headers are here, and short by every attachment a large IMAP message left on the server.
 /// This is the same in both stores and in SQL, which is what the parity test holds them to.
+///
+/// The one definition: [`crate::Message::size`] is this, and the store's `messages.size` column
+/// and its SQL ([`Filter::Larger`]) hold what this gives.
 pub fn message_size(message: &crate::Message) -> u64 {
     let text = message.body.text().map_or(0, |text| text.len() as u64);
     message
@@ -249,12 +270,19 @@ impl Category {
 ///
 /// `sizes` is each of the thread's messages' [`message_size`], for [`Filter::Larger`] and
 /// [`Filter::Smaller`]; a caller without them passes `&[]`, and then neither matches.
+///
+/// `cc` is every address on the `Cc` line of any of the thread's messages, for [`Filter::Cc`];
+/// a caller without them passes `&[]`, and then it does not match. `vips` is the VIP list's
+/// addresses, for [`Filter::Vip`], handed in by whoever holds the list; with none, it does not
+/// match.
 #[derive(Debug, Clone, Copy)]
 pub struct MatchCtx<'a> {
     pub summary: &'a ThreadSummary,
     pub corpus: Option<&'a str>,
     pub folders: &'a [Placed],
     pub sizes: &'a [u64],
+    pub cc: &'a [Address],
+    pub vips: &'a [String],
     pub now: DateTime<Utc>,
 }
 
@@ -381,7 +409,10 @@ impl Filter {
                 .iter()
                 .any(|placed| placed.mailbox == *mailbox && placed.filed_here()),
             Filter::From(m) => address_fits(m, &s.from),
+            Filter::FromAddress(email) => sent_by(email, s),
+            Filter::Vip => ctx.vips.iter().any(|vip| sent_by(vip, s)),
             Filter::To(m) => to_fits(m, s),
+            Filter::Cc(m) => ctx.cc.iter().any(|a| address_fits(m, a)),
             Filter::Subject(m) => text_fits(m, &s.subject),
             Filter::Text(m) => text_search_fits(m, ctx),
             Filter::Date(range) => {
@@ -492,6 +523,16 @@ fn push_address<'a>(fields: &mut Vec<&'a str>, addr: &'a Address) {
     if let Some(name) = addr.name.as_deref() {
         fields.push(name);
     }
+}
+
+/// Whether `email` wrote in the thread: its newest sender, or any sender it has had.
+fn sent_by(email: &str, summary: &ThreadSummary) -> bool {
+    let email = email.trim();
+    summary.from.email.eq_ignore_ascii_case(email)
+        || summary
+            .participants
+            .iter()
+            .any(|p| p.email.eq_ignore_ascii_case(email))
 }
 
 /// Whether a [`Filter::To`] clause matches: whether anyone the thread was addressed to fits.

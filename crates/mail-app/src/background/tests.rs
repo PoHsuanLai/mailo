@@ -2,7 +2,6 @@
 //! thread, takes the person's lock or reads their settings.
 
 use super::*;
-use ds_settings::ConfigRoot;
 
 #[test]
 fn macos_stays_open_with_no_window_and_never_ends_by_itself() {
@@ -58,17 +57,4 @@ fn the_app_s_lock_is_the_watch_s_own_and_refuses_a_second_holder() {
     assert!(matches!(first, Step::Watch(_)), "{first:?}");
     let second = step(mail_core::ipc::watching::claim_at(&agent));
     assert!(matches!(second, Step::Wait), "{second:?}");
-}
-
-#[test]
-fn new_mail_is_said_as_the_settings_say_now() {
-    let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
-    let root = ConfigRoot::Scratch(dir.path().to_path_buf());
-    assert!(says_new_mail(None), "on as it ships");
-    assert!(says_new_mail(Some(&root)), "no file is the defaults");
-    mail_ui::settings::change(&root, |settings| {
-        settings.notifications.new_mail = mail_ui::settings::NewMail::Off;
-    })
-    .unwrap_or_else(|e| panic!("{e}"));
-    assert!(!says_new_mail(Some(&root)));
 }

@@ -155,6 +155,11 @@ fn private_files(path: &Path) -> Result<(), StoreError> {
 /// already holds. More would be file handles against a mailbox that belongs to one person.
 const READERS: usize = 3;
 
+thread_local! {
+    /// Whether this thread is one of the client's read workers ([`SqliteStore::mark_worker_thread`]).
+    static WORKER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// How many prepared statements each connection keeps.
 ///
 /// One ingest runs some thirty distinct statements per message and per thread, and `rusqlite`
@@ -262,7 +267,7 @@ impl SqliteStore {
         Ok(store)
     }
 
-    /// Re-derive every summary a migration queued, then forget them.
+    /// Re-derive every summary a migration queued, forgetting each one as it is rebuilt.
     ///
     /// For a derivation change SQL cannot express; see `0007_resummarize.sql`. Nothing queued is
     /// one indexed count and no work.
@@ -287,11 +292,19 @@ impl SqliteStore {
                     what: "summaries_to_refresh.thread".to_owned(),
                     why: e.to_string(),
                 })?;
-            // One thread that no longer decodes keeps the summary it had. Failing here would
-            // stop the database opening at all, over one row, on the first run after an upgrade.
-            let _ = self.refresh_summary(mail_domain::ThreadId::from_uuid(id));
+            // One thread that no longer decodes keeps the summary it had, and stays queued for
+            // the next open. Failing here would stop the database opening at all, over one row,
+            // on the first run after an upgrade; saying nothing would leave it stale for ever.
+            match self.refresh_summary(mail_domain::ThreadId::from_uuid(id)) {
+                Ok(()) => {
+                    tx.execute(
+                        "DELETE FROM summaries_to_refresh WHERE thread = ?1",
+                        [&thread],
+                    )?;
+                }
+                Err(e) => log::warn!("the summary of thread {thread} was not rebuilt: {e}"),
+            }
         }
-        tx.execute("DELETE FROM summaries_to_refresh", [])?;
         tx.commit().map_err(StoreError::db)?;
         Ok(())
     }
@@ -325,21 +338,14 @@ pub(crate) fn held(
 /// message columns. So it runs here, once, over the rows that have no segmented text yet — and
 /// the `AFTER UPDATE` trigger reindexes each one as it is written.
 ///
-/// Cheap to check and cheap to skip: one indexed-free count on a column that is `NOT NULL` for
-/// every row after the first run. A 2372-message maildrop takes a fraction of a second; a
-/// database that has already been backfilled does no work at all.
+/// [`BACKFILL_BATCH`] rows at a time, each batch in a transaction of its own: a migration that
+/// clears every row's text leaves the whole mailbox to index, and one transaction over all of it
+/// holds the writer, and the memory of every row, for as long as it takes. A batch that fails
+/// leaves the earlier ones done, and the next open goes on from there.
+///
+/// Cheap to check and cheap to skip: a database that has already been backfilled finds no row
+/// without text and does no work at all.
 fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
-    let pending: i64 = db
-        .query_row(
-            "SELECT count(*) FROM messages WHERE fts_text IS NULL",
-            [],
-            |r| r.get(0),
-        )
-        .map_err(StoreError::db)?;
-    if pending == 0 {
-        return Ok(());
-    }
-
     /// One row's worth of the columns the index is built from.
     type Indexed = (
         i64,
@@ -350,61 +356,67 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
         Option<String>,
         String,
     );
-    let rows: Vec<Indexed> = {
-        let mut stmt = db
-            .prepare(
-                "SELECT rowid, subject, from_name, from_email, recipients, body_text, attachments
-                 FROM messages WHERE fts_text IS NULL",
+    loop {
+        let rows: Vec<Indexed> = {
+            let mut stmt = db
+                .prepare(
+                    "SELECT rowid, subject, from_name, from_email, recipients, body_text, attachments
+                     FROM messages WHERE fts_text IS NULL LIMIT ?1",
+                )
+                .map_err(StoreError::db)?;
+            let mapped = stmt
+                .query_map([BACKFILL_BATCH], |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                    ))
+                })
+                .map_err(StoreError::db)?;
+            mapped
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::db)?
+        };
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let tx = db.unchecked_transaction().map_err(StoreError::db)?;
+        for (rowid, subject, from_name, from_email, recipients, body_text, attachments) in rows {
+            // A row whose recipients no longer decode is indexed without them, rather than
+            // stopping the database from opening over one message.
+            let recipients: read::Recipients =
+                row::json("Message.recipients", &recipients).unwrap_or_default();
+            let attachments: Vec<mail_domain::Attachment> =
+                // Its attachments likewise: indexed without their names rather than not at all.
+                row::json("Message.attachments", &attachments).unwrap_or_default();
+            let from = mail_domain::Address {
+                name: from_name,
+                email: from_email,
+            };
+            let text = crate::sql::message_index(
+                &subject,
+                &from,
+                &recipients.to,
+                &recipients.cc,
+                body_text.as_deref(),
+                &attachments,
+            );
+            tx.execute(
+                "UPDATE messages SET fts_text = ?2 WHERE rowid = ?1",
+                rusqlite::params![rowid, text],
             )
             .map_err(StoreError::db)?;
-        let mapped = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                    r.get(6)?,
-                ))
-            })
-            .map_err(StoreError::db)?;
-        mapped
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(StoreError::db)?
-    };
-
-    let tx = db.unchecked_transaction().map_err(StoreError::db)?;
-    for (rowid, subject, from_name, from_email, recipients, body_text, attachments) in rows {
-        // A row whose recipients no longer decode is indexed without them, rather than stopping
-        // the database from opening over one message.
-        let recipients: read::Recipients =
-            row::json("Message.recipients", &recipients).unwrap_or_default();
-        let attachments: Vec<mail_domain::Attachment> =
-            // Its attachments likewise: indexed without their names rather than not at all.
-            row::json("Message.attachments", &attachments).unwrap_or_default();
-        let from = mail_domain::Address {
-            name: from_name,
-            email: from_email,
-        };
-        let text = crate::sql::message_index(
-            &subject,
-            &from,
-            &recipients.to,
-            &recipients.cc,
-            body_text.as_deref(),
-            &attachments,
-        );
-        tx.execute(
-            "UPDATE messages SET fts_text = ?2 WHERE rowid = ?1",
-            rusqlite::params![rowid, text],
-        )
-        .map_err(StoreError::db)?;
+        }
+        tx.commit().map_err(StoreError::db)?;
     }
-    tx.commit().map_err(StoreError::db)?;
-    Ok(())
 }
+
+/// How many rows [`backfill_fts`] indexes in one transaction.
+const BACKFILL_BATCH: i64 = 1000;
 
 impl SqliteStore {
     /// The blobs, for callers that need to read a raw message or an attachment.
@@ -460,6 +472,14 @@ impl SqliteStore {
         wake: crate::changes::Wake,
     ) -> std::sync::mpsc::Receiver<Committed> {
         self.changes.subscribe(Some(wake))
+    }
+
+    /// Say that the calling thread is a worker that reads for others, as the client's read threads
+    /// are: it may hold a reader for as long as a read takes (a pinned snapshot, a slow query),
+    /// so it is kept off the last reader, which is the one the other threads — the window's
+    /// drawing among them — can always get.
+    pub fn mark_worker_thread() {
+        WORKER.set(true);
     }
 
     /// How many connections read beside the writer: none for an in-memory database. What a
@@ -545,6 +565,9 @@ impl SqliteStore {
     ///
     /// A thread inside [`Self::read_pinned`] is handed its pinned reader again, so every read it
     /// makes is of the one snapshot.
+    ///
+    /// The last reader is not a worker's ([`Self::mark_worker_thread`]): a thread that waits for a
+    /// reader waits on that one, so the window's drawing never waits behind a worker's pinned read.
     pub(crate) fn reader(&self) -> ReentrantMutexGuard<'_, Connection> {
         if self.db.is_owned_by_current_thread() {
             return self.db.lock();
@@ -556,18 +579,34 @@ impl SqliteStore {
         {
             return pinned.lock();
         }
-        for reader in &self.readers {
+        // The last reader is kept for threads that are not workers: workers, which may hold a
+        // reader for a whole pinned read, take the others, so the thread that draws never waits
+        // on one.
+        let Some((reserved, others)) = self.readers.split_last() else {
+            return self.db.lock();
+        };
+        if WORKER.get() && !others.is_empty() {
+            for reader in others {
+                if let Some(free) = reader.try_lock() {
+                    return free;
+                }
+            }
+            // Every reader a worker may use is busy with other workers: wait on one of them.
+            return others[0].lock();
+        }
+        if let Some(free) = reserved.try_lock() {
+            return free;
+        }
+        for reader in others {
             if let Some(free) = reader.try_lock() {
                 return free;
             }
         }
-        // Every reader busy: wait on one of them rather than on the writer, which may hold its
-        // lock for a whole ingest chunk. A thread holding the writer never gets here, so this wait
-        // cannot close a cycle with one.
-        match self.readers.first() {
-            Some(reader) => reader.lock(),
-            None => self.db.lock(),
-        }
+        // Every reader busy: wait on the reserved one, which only threads that are not workers
+        // hold, rather than on a worker's or on the writer, which may be held for a whole ingest
+        // chunk. A thread holding the writer never gets here, so this wait cannot close a cycle
+        // with one.
+        reserved.lock()
     }
 }
 
@@ -1053,7 +1092,9 @@ impl Store for SqliteStore {
             account_prefs::write_caps(&tx, &account, caps, &row::from_time(now))?;
             tx.commit()?;
         }
-        if caps.labels == mail_domain::ServerLabels::Keywords && !was_keywords {
+        // Judged on what is stored, which has the person's say over it: a server that takes
+        // keywords is not asked for them unless they chose to keep their labels there.
+        if !was_keywords && self.labels_as_keywords(account.clone())? {
             self.push_keyword_labels(account, now)?;
         }
         Ok(())
@@ -1088,15 +1129,34 @@ impl Store for SqliteStore {
         // The writer for the read too, so no other write to the attachments lands between it
         // and this one.
         let db = self.touch(Topics::SUMMARIES);
-        let mut attachments = self.message(message)?.attachments;
-        held(&mut attachments, message, section, blob, size)?;
+        let mut held_message = self.message(message)?;
+        held(&mut held_message.attachments, message, section, blob, size)?;
         db.execute(
-            "UPDATE messages SET attachments = ?2 WHERE id = ?1",
+            "UPDATE messages SET attachments = ?2, size = max(?3, server_size) WHERE id = ?1",
             rusqlite::params![
                 message.to_string(),
-                row::to_json("attachments", &attachments)?
+                row::to_json("attachments", &held_message.attachments)?,
+                i64::try_from(held_message.size()).unwrap_or(i64::MAX),
             ],
         )?;
+        Ok(())
+    }
+
+    fn hold_server_sizes(&self, sizes: &[(MessageId, u64)]) -> Result<(), StoreError> {
+        if sizes.is_empty() {
+            return Ok(());
+        }
+        let db = self.touch(Topics::SUMMARIES);
+        let tx = db.unchecked_transaction()?;
+        for (message, size) in sizes {
+            // Bytes held in an `INTEGER`, which is signed: nothing is past `i64::MAX`.
+            let size = i64::try_from(*size).unwrap_or(i64::MAX);
+            tx.prepare_cached(
+                "UPDATE messages SET server_size = ?2, size = max(size, ?2) WHERE id = ?1",
+            )?
+            .execute(rusqlite::params![message.to_string(), size])?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -1287,6 +1347,14 @@ impl Store for SqliteStore {
         mailbox: &MailboxRef,
     ) -> Result<mail_domain::FolderContents, StoreError> {
         self.contents(mailbox)
+    }
+
+    fn addressed_in(
+        &self,
+        mailbox: &MailboxRef,
+        messages: &[MessageId],
+    ) -> Result<Vec<MessageId>, StoreError> {
+        self.addressed(mailbox, messages)
     }
 
     fn outbox_settle(

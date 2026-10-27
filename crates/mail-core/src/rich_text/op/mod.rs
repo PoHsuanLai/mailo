@@ -241,11 +241,15 @@ fn merge(doc: &mut Doc, node: usize) -> Result<Op, OpError> {
         end: Pos::new(node, 0),
     };
     let mut ops = vec![split_back];
+    // Setting the kind brings the depth along by `depth_for`, so the depth the right half has
+    // then is not always the left's: it is set back after the kind, from what it is by then.
+    let mut depth = left.1.depth;
     if left.0 != right.0 {
         ops.push(Op::SetKind {
             range: at,
             kind: right.0,
         });
+        depth = depth_for(left.0, right.0, depth);
     }
     if left.1.align != right.1.align {
         ops.push(Op::SetAlign {
@@ -253,7 +257,7 @@ fn merge(doc: &mut Doc, node: usize) -> Result<Op, OpError> {
             align: right.1.align,
         });
     }
-    if left.1.depth != right.1.depth {
+    if depth != right.1.depth {
         ops.push(Op::SetDepth {
             range: at,
             depth: right.1.depth,
@@ -262,17 +266,62 @@ fn merge(doc: &mut Doc, node: usize) -> Result<Op, OpError> {
     Ok(one_or_seq_kept(ops))
 }
 
+/// The depth a paragraph has after it changes from kind `from` to kind `to` at `depth`.
+///
+/// A depth means a level of the kind it sits in: an indent for a paragraph, heading or list
+/// item, a quote level for a quote. It stays through a change within one of these and is
+/// zero when the change crosses between them (a quote becoming a paragraph, any kind
+/// becoming code), as [`crate::rich_text::format::quote`] leaves it.
+pub fn depth_for(from: ParaKind, to: ParaKind, depth: u8) -> u8 {
+    fn family(kind: ParaKind) -> u8 {
+        match kind {
+            ParaKind::Quote => 1,
+            ParaKind::Code => 2,
+            _ => 0,
+        }
+    }
+    if family(from) == family(to) && family(to) != 2 {
+        depth
+    } else {
+        0
+    }
+}
+
+/// Make every paragraph `range` touches `kind`, with the depth [`depth_for`] gives it, and
+/// answer with the edits that set each changed paragraph back: its kind, then its depth.
 fn set_kind(doc: &mut Doc, range: Range, kind: ParaKind) -> Result<Op, OpError> {
-    set_para(
-        doc,
-        range,
-        kind,
-        |node| match node {
-            Node::Para { kind, .. } => Some(kind),
-            Node::Object(_) => None,
-        },
-        |range, kind| Op::SetKind { range, kind },
-    )
+    let range = range.ordered();
+    check_range(doc, range)?;
+    let mut inverses = Vec::new();
+    for index in kind_targets(doc, range) {
+        let Node::Para {
+            kind: slot, layout, ..
+        } = &mut doc.nodes[index]
+        else {
+            continue;
+        };
+        let (previous, was) = (*slot, layout.depth);
+        let depth = depth_for(previous, kind, was);
+        *slot = kind;
+        layout.depth = depth;
+        let at = Range {
+            start: Pos::new(index, 0),
+            end: Pos::new(index, 0),
+        };
+        if previous != kind {
+            inverses.push(Op::SetKind {
+                range: at,
+                kind: previous,
+            });
+        }
+        if depth != was {
+            inverses.push(Op::SetDepth {
+                range: at,
+                depth: was,
+            });
+        }
+    }
+    Ok(one_or_seq(inverses, Op::SetKind { range, kind }))
 }
 
 fn set_align(doc: &mut Doc, range: Range, align: Align) -> Result<Op, OpError> {

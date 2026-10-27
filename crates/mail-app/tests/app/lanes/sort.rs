@@ -57,15 +57,15 @@ fn the_list_sorts_from_its_more_menu_and_keeps_the_order() {
     let want: Vec<String> = a_to_z().into_iter().rev().collect();
     window.until("the inbox is Z to A", |h| subjects(h) == want);
 
+    // The order is written a moment after the choice, off the drawing thread.
     let root = mail_ui::settings::root_for(&window.dirs().config);
-    assert_eq!(
-        mail_ui::settings::load(&root).window.sorts.get(INBOX_KEY),
-        Some(&ListOrder(Sort {
-            property: Property::Subject,
-            dir: SortDir::Desc,
-        })),
-        "the order is kept under the inbox's key"
-    );
+    let want = Some(ListOrder(Sort {
+        property: Property::Subject,
+        dir: SortDir::Desc,
+    }));
+    window.until("the order is kept under the inbox's key", move |_| {
+        mail_ui::settings::load(&root).window.sorts.get(INBOX_KEY) == want.as_ref()
+    });
 
     // Back to the date, which runs newest first when picked.
     sort_by(&mut window, copy::menus::sort_key(Property::Date));

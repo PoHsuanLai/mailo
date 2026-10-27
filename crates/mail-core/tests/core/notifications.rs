@@ -68,6 +68,38 @@ fn plan(port: u16) -> AccountPlan {
     }
 }
 
+/// A watch asks whose mail it says as each pass ends, so a change of the setting is followed
+/// from the next pass and not only from the next start.
+#[test]
+fn a_watch_asks_whose_mail_is_said_at_the_end_of_every_pass() {
+    use sync::report::{AccountReport, Counts, PassEnd};
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    with_account(&store, &plan(1));
+    let recorder = Recorder::default();
+    let asked = std::cell::Cell::new(0usize);
+    let whom = || {
+        asked.set(asked.get() + 1);
+        notify::Whom::Everyone
+    };
+    let announce = sync::Announce::To {
+        store: &store,
+        notifier: &recorder,
+        whom: &whom,
+    };
+    let end = PassEnd::Finished(AccountReport {
+        account: account(),
+        address: ME.to_owned(),
+        counts: Counts::default(),
+        trouble: Vec::new(),
+    });
+    let at = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+    for pass in 1..=3 {
+        sync::watcher::told(&end, announce, at, &|_| {});
+        assert_eq!(asked.get(), pass, "asked once for each pass");
+    }
+}
+
 #[test]
 fn the_floor_is_armed_once_and_a_restart_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -576,7 +608,7 @@ async fn watching<F: std::future::Future<Output = ()>>(
     let announce = sync::Announce::To {
         store,
         notifier: recorder,
-        whom: notify::Whom::Everyone,
+        whom: &|| notify::Whom::Everyone,
     };
     let loop_ = async {
         loop {

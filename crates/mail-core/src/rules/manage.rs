@@ -227,21 +227,17 @@ pub fn listed(store: &SqliteStore, account: AccountId) -> Result<Vec<ListedRule>
 /// its own through the same parser, and one the parser did not take as that term is refused here
 /// before it is kept.
 ///
-/// `vips` is who `is:vip` means now: a rule keeps the people it was saved with.
+/// `is:vip` is read as the clause it is, which asks the VIP list whenever the rule runs: a rule
+/// follows the list, and does not keep the people on it when the rule was saved.
 pub fn read_condition<Tz: TimeZone>(
     text: &str,
     labels: &[(String, LabelId)],
-    vips: &crate::vip::Vips,
     zone: &Tz,
 ) -> Result<Filter, ConditionError> {
     if text.trim().is_empty() {
         return Err(ConditionError::Blank);
     }
     let named = crate::query::named(labels);
-    let named = crate::query::WithVips {
-        names: &named,
-        vips,
-    };
     for word in text.split_whitespace() {
         let bare = word.strip_prefix('-').unwrap_or(word);
         if bare.starts_with('"') {
@@ -251,6 +247,13 @@ pub fn read_condition<Tz: TimeZone>(
             continue;
         };
         let alone = crate::query::parse_with(bare, zone, &named);
+        // Gmail's category is the server's to say, and a message here is never in one: a rule on
+        // it would never fire, and the script pushed to the server cannot say it.
+        if matches!(alone, Filter::Category(_)) {
+            return Err(ConditionError::UnknownField {
+                field: field.to_ascii_lowercase(),
+            });
+        }
         if !matches!(alone, Filter::Text(_)) {
             continue;
         }
@@ -310,13 +313,8 @@ pub fn save<Tz: TimeZone>(
             name: name.to_owned(),
         });
     }
-    let filter = read_condition(
-        &draft.query,
-        &labels(store, account.clone()),
-        &crate::vip::read(store),
-        zone,
-    )
-    .map_err(SaveError::Condition)?;
+    let filter = read_condition(&draft.query, &labels(store, account.clone()), zone)
+        .map_err(SaveError::Condition)?;
     if draft.actions.is_empty() && draft.after == AfterMatch::Continue {
         return Err(SaveError::NoAction);
     }
@@ -498,6 +496,12 @@ mod tests {
                     value: "nowhere".to_owned(),
                 },
             ),
+            (
+                "category:promotions",
+                UnknownField {
+                    field: "category".to_owned(),
+                },
+            ),
             ("is:important", BadIs),
             ("in:elsewhere", BadIn),
             ("has:wings", BadHas),
@@ -510,11 +514,7 @@ mod tests {
             ("   ", Blank),
         ];
         for (typed, expect) in cases {
-            assert_eq!(
-                read_condition(typed, &[], &crate::vip::Vips::default(), &Utc),
-                Err(expect),
-                "{typed:?}"
-            );
+            assert_eq!(read_condition(typed, &[], &Utc), Err(expect), "{typed:?}");
         }
         // What a search reads as text but a rule reads fine: a phrase, a negation, a plain word.
         for fine in [
@@ -523,7 +523,7 @@ mod tests {
             "subject:\"re: lunch\"",
         ] {
             assert!(
-                read_condition(fine, &[], &crate::vip::Vips::default(), &Utc).is_ok(),
+                read_condition(fine, &[], &Utc).is_ok(),
                 "{fine:?} was refused"
             );
         }

@@ -84,6 +84,8 @@ fn a_folder_place_lists_its_account_and_exactly_its_path() {
                 corpus: None,
                 folders: &placed,
                 sizes: &[],
+                cc: &[],
+                vips: &[],
                 now: at(0),
             })
         };

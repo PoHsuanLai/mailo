@@ -14,15 +14,27 @@ use super::header;
 /// The `X-Mozilla-Status` bit that marks a message deleted but not yet compacted away.
 const EXPUNGED: u32 = 0x0008;
 
+/// The `X-Mozilla-Status` bit (`Partial` in Thunderbird's message flags) that marks a message of
+/// an IMAP folder whose body Thunderbird fetched only a part of.
+const PARTIAL: u32 = 0x0400;
+
 /// The files beside the mboxes that are something else: indexes, filters, POP3 state, and
 /// whatever else Thunderbird or an add-on keeps there.
 const NOT_MAIL: [&str; 7] = ["msf", "dat", "json", "html", "sqlite", "js", "mab"];
 
 /// Whether `raw` is a message Thunderbird had deleted and not yet compacted out of its file.
 pub fn expunged(raw: &[u8]) -> bool {
-    header(raw, "X-Mozilla-Status")
-        .and_then(|v| u32::from_str_radix(v.trim(), 16).ok())
-        .is_some_and(|bits| bits & EXPUNGED != 0)
+    status(raw).is_some_and(|bits| bits & EXPUNGED != 0)
+}
+
+/// Whether `raw` is a message of which Thunderbird kept only a part: the file holds a cut-off
+/// body, which is not the message.
+pub fn truncated(raw: &[u8]) -> bool {
+    status(raw).is_some_and(|bits| bits & PARTIAL != 0)
+}
+
+fn status(raw: &[u8]) -> Option<u32> {
+    header(raw, "X-Mozilla-Status").and_then(|v| u32::from_str_radix(v.trim(), 16).ok())
 }
 
 /// The folder whose subfolders a `.sbd` directory holds: `Work.sbd` holds `Work`'s.
@@ -61,6 +73,19 @@ mod tests {
             assert_eq!(expunged(raw.as_bytes()), gone, "{status}");
         }
         assert!(!expunged(b"Subject: x\r\n\r\nX-Mozilla-Status: 0008\r\n"));
+    }
+
+    #[test]
+    fn a_message_with_a_body_cut_off_is_known() {
+        for (status, cut) in [
+            ("0001", false),
+            ("0400", true),
+            ("0401", true),
+            ("0200", false),
+        ] {
+            let raw = format!("X-Mozilla-Status: {status}\r\nSubject: x\r\n\r\nbody");
+            assert_eq!(truncated(raw.as_bytes()), cut, "{status}");
+        }
     }
 
     #[test]

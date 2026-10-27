@@ -10,7 +10,7 @@ use super::fixtures::{
 use crate::ui::copy;
 use dioxus::prelude::*;
 use mail_core::Store as _;
-use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir, TextMatch};
+use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir};
 
 const DANA: &str = "dana@example.com";
 const UIDL: &str = "Re: UIDL stability across a UIDVALIDITY change";
@@ -76,7 +76,7 @@ async fn a_sender_marked_vip_in_the_reader_is_marked_and_listed_in_the_vips_plac
         .store
         .threads(
             &Query {
-                filter: Filter::From(TextMatch::Exact(DANA.to_owned())),
+                filter: Filter::FromAddress(DANA.to_owned()),
                 sort: Sort {
                     property: Property::Date,
                     dir: SortDir::Desc,
@@ -141,4 +141,25 @@ fn an_own_address_cannot_be_marked_a_vip() {
     };
     assert!(!crate::ui::vip::markable(&shell, "me@example.test"));
     assert!(crate::ui::vip::markable(&shell, "bob@example.test"));
+}
+
+/// With the last VIP removed while the VIPs place is chosen, the choice goes to the Inbox: the
+/// sidebar no longer draws the VIPs place, and its list would be empty with nothing chosen in it.
+#[test]
+fn the_last_vip_removed_leaves_the_vips_place_for_the_inbox() {
+    use crate::ui::view::{is_vips, own_places, selected_after};
+    use mail_client::vip::Vips;
+
+    let some = Vips::new(["dana@example.test"]);
+    let was = own_places(&some);
+    let at = was.iter().position(is_vips).expect("the VIPs place");
+    let next = own_places(&Vips::default());
+    let inbox = next
+        .iter()
+        .position(|place| place.name == "Inbox")
+        .expect("the Inbox");
+    assert_eq!(selected_after(&was, at, &next, &Vips::default()), inbox);
+    // While somebody is a VIP the place stays chosen, and another place stays as it was.
+    assert_eq!(selected_after(&was, at, &own_places(&some), &some), at);
+    assert_eq!(selected_after(&was, 1, &next, &Vips::default()), 1);
 }

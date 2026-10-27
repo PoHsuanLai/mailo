@@ -1,4 +1,4 @@
-//! A label's editor: its ⋯ in the sidebar offers Edit Label…, and this popover hangs from the
+//! A label's editor: its right-click menu in the sidebar offers Edit Label…, and this popover hangs from the
 //! row. It holds the label's colour, none or one of the seven a flag can be, as quire's row of
 //! swatches; a pick is kept at once, and Escape or a click outside closes it.
 //!

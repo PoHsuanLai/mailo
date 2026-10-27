@@ -199,3 +199,32 @@ fn the_frozen_rows_still_read_back() {
         "the domain fixture's grouping"
     );
 }
+
+/// A row this build cannot read (a newer build's view, with a clause or a property this one has
+/// no name for) leaves out that view alone: the others still list, and the row stays for a build
+/// that can read it.
+#[test]
+fn a_view_that_cannot_be_read_is_left_out_and_the_others_still_list() {
+    let b = Both::new();
+    let before = view("Before");
+    let after = view("After");
+    b.sqlite.put_view(&before).unwrap();
+    b.sqlite
+        .raw_connection()
+        .execute(
+            "INSERT INTO views (id, view, position) VALUES (?1, ?2, 50)",
+            rusqlite::params![
+                "0c0c0c0c-0c0c-0c0c-0c0c-0c0c0c0c0c0c",
+                r#"{"name":"From the future","filter":{"kind":"a_clause_from_later","v":1}}"#
+            ],
+        )
+        .unwrap();
+    b.sqlite.put_view(&after).unwrap();
+    assert_eq!(names(&b.sqlite), ["Before", "After"]);
+    let kept: i64 = b
+        .sqlite
+        .raw_connection()
+        .query_row("SELECT count(*) FROM views", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(kept, 3, "the unreadable row is left where it is");
+}

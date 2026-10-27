@@ -95,6 +95,9 @@ pub(super) fn App() -> Element {
                     Err(why) => log::warn!("compose: {why}"),
                 }
             }
+            // A banner's Archive shows the Inbox now; the archive itself is done below, once the
+            // window's toast host exists (`super::start::archive`).
+            Some(start @ super::Start::Archive(_)) => super::start::show(&mut shell, &start),
             Some(super::Start::Inbox) | None => {}
         }
         shell
@@ -129,6 +132,23 @@ pub(super) fn App() -> Element {
     // conversation opens here, where the person reads, in a Space that shows its account, and
     // the window is raised with the click's token.
     super::handoff::use_handoff(shell, handle);
+    // A window started by a banner's Archive archives that conversation as its own Archive does:
+    // the toast with Undo, and a failure said in it.
+    // It runs as an effect, after the first draw: the toast host is mounted with the list, and a
+    // toast said before it is would only be kept as words, never shown.
+    let mut archive_asked = use_hook(|| {
+        CopyValue::new(match try_consume_context::<super::Start>() {
+            Some(super::Start::Archive(thread)) => Some(thread),
+            _ => None,
+        })
+    });
+    use_effect(move || {
+        let asked = archive_asked.write().take();
+        if let Some(thread) = asked {
+            let client = crate::ui::live::client();
+            super::start::archive(&client, shell, thread);
+        }
+    });
     let spaces = handle.spaces();
     let mut today_list = use_signal(|| boot.today.clone());
     // ⌘K's Recent reads it: what was opened and put aside in each Space.
@@ -303,11 +323,7 @@ pub(super) fn App() -> Element {
             // folder down by one, and the list must not jump to the folder above.
             let selected = {
                 let current = shell.peek();
-                current
-                    .places
-                    .get(current.selected)
-                    .and_then(|was| next.iter().position(|place| place.source == was.source))
-                    .unwrap_or_else(|| current.selected.min(next.len().saturating_sub(1)))
+                super::view::selected_after(&current.places, current.selected, &next, &vips)
             };
             let mut write = shell.write();
             write.places = next;
@@ -445,6 +461,7 @@ pub(super) fn App() -> Element {
         marking,
         paging,
         asked,
+        failed,
     } = use_list(shell, pages);
     // Render what the person is about to open before they open it — the top of the list, and
     // the neighbours of the open conversation — so that opening it is a lookup.
@@ -679,10 +696,6 @@ pub(super) fn App() -> Element {
                 }
                 return;
             }
-            Some(Intent::FilterUnread) => {
-                super::list::quick::toggle(shell, pages, super::quick::Toggle::Unread);
-                return;
-            }
             _ => {}
         }
         // A menu is showing its own cursor. Shortcuts would archive a thread the user is
@@ -698,6 +711,11 @@ pub(super) fn App() -> Element {
                 write.further = None;
                 super::host::Host::focus_app();
             }
+            return;
+        }
+        // Filtering the list is the list's, so a menu that is open takes the key first.
+        if intent == Some(Intent::FilterUnread) {
+            super::list::quick::toggle(shell, pages, super::quick::Toggle::Unread);
             return;
         }
         let listed = || -> Vec<ThreadId> { threads().iter().map(|t| t.id).collect() };
@@ -855,7 +873,7 @@ pub(super) fn App() -> Element {
                 panes: vec![SplitPane::new(LIST, rsx! {
                     ThreadList {
                         shell, pages, threads, messages, drafts, nothing, more,
-                        marking, top, paging, side_hidden, question: asked,
+                        marking, top, paging, side_hidden, question: asked, failed,
                     }
                 })],
                 section { class: "reader",

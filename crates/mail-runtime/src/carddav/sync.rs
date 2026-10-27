@@ -21,7 +21,7 @@
 //! `person::write_back`).
 
 use super::group::{self, Unwritten, put_group};
-use super::person::{self, addresses_of, put_person};
+use super::person::{self, put_person};
 use super::{CardDavFailure, Dav, same};
 use crate::RuntimeError;
 use mail_pim::dav::{self, Prop};
@@ -196,38 +196,63 @@ async fn listing(
 }
 
 /// A `sync-collection` report from `token`, or from nothing.
+///
+/// A server may answer only a first part of the changes and say so with a `507` for the
+/// collection itself (RFC 6578 §3.6), along with a token to go on from. The report is asked
+/// again from each such token until a reply is whole; a listing that is cut short and offers no
+/// way on is refused, so that the caller asks another way rather than treating a part as all.
 async fn report_changes(
     dav: &Dav,
     collection: &Url,
     token: Option<&str>,
 ) -> Result<Listing, CardDavFailure> {
-    let (url, reply) = dav
-        .multistatus(
-            "REPORT",
-            collection,
-            "0",
-            dav::sync_collection(token),
-            "sync-collection",
-        )
-        .await?;
-    let mut members = Vec::new();
-    let mut removed = Vec::new();
-    for response in &reply.responses {
-        let href = dav.resolve(&url, &response.href)?;
-        if same(&href, collection) {
-            continue;
+    let mut members: Vec<(Url, Option<String>)> = Vec::new();
+    let mut removed: Vec<Url> = Vec::new();
+    let mut from = token.map(str::to_owned);
+    let next = loop {
+        let (url, reply) = dav
+            .multistatus(
+                "REPORT",
+                collection,
+                "0",
+                dav::sync_collection(from.as_deref()),
+                "sync-collection",
+            )
+            .await?;
+        let mut truncated = false;
+        for response in &reply.responses {
+            let href = dav.resolve(&url, &response.href)?;
+            if same(&href, collection) {
+                truncated |= response.status == Some(507);
+                continue;
+            }
+            // A later part is newer than an earlier one: what it says replaces what was said.
+            members.retain(|(held, _)| held != &href);
+            removed.retain(|held| held != &href);
+            if response.gone() {
+                removed.push(href);
+            } else {
+                members.push((href, response.props.etag.clone()));
+            }
         }
-        if response.gone() {
-            removed.push(href);
-        } else {
-            members.push((href, response.props.etag.clone()));
+        if !truncated {
+            break reply.sync_token;
         }
-    }
+        match reply.sync_token {
+            Some(next) if from.as_deref() != Some(next.as_str()) => from = Some(next),
+            _ => {
+                return Err(CardDavFailure::Refused {
+                    status: 507,
+                    what: "sync-collection",
+                });
+            }
+        }
+    };
     Ok(Listing {
         members,
         removed,
         complete: token.is_none(),
-        token: reply.sync_token,
+        token: next,
         how: if token.is_some() {
             How::Incremental
         } else {
@@ -315,7 +340,9 @@ fn put_card<S: Store + ?Sized>(
     put_group(store, &book.url, href, card.as_ref(), name.as_deref())?;
     put_person(store, &book.url, href, card.as_ref(), &data)?;
     // A card that does not parse lists nobody.
-    let addresses = card.as_ref().map(addresses_of).unwrap_or_default();
+    let addresses = card
+        .as_ref()
+        .map_or_else(Default::default, mail_pim::Card::addresses);
     let before = book.cards.remove(href);
     for address in before.iter().flat_map(|c| &c.addresses) {
         if !addresses.contains(address) {

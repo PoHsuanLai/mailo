@@ -4,7 +4,7 @@
 use chrono::{TimeZone, Utc};
 use mail_domain::id::new_account_id;
 use mail_domain::presets::{self, Manual};
-use mail_domain::{FolderRoles, MailboxRole};
+use mail_domain::{FolderRoles, MailboxRole, ServerLabels};
 use mail_store::testing::in_memory;
 use mail_store::{AccountPrefs, NewAccount, Store, StoreError, Syncing};
 
@@ -172,4 +172,62 @@ fn a_folder_role_for_an_account_that_is_not_there_writes_nothing() {
         store.account_prefs(stranger).unwrap(),
         AccountPrefs::default()
     );
+}
+
+#[test]
+fn labels_stay_here_until_the_person_keeps_them_on_the_server() {
+    let store = in_memory();
+    let id = added(&store);
+    let mut observed = store.account_caps(id.clone()).unwrap().unwrap();
+    observed.labels = ServerLabels::Keywords;
+    store.put_caps(id.clone(), &observed, Utc::now()).unwrap();
+    let labels =
+        |store: &mail_store::SqliteStore| store.account_caps(id.clone()).unwrap().unwrap().labels;
+    assert!(!store.account_prefs(id.clone()).unwrap().keep_labels);
+    assert_eq!(
+        labels(&store),
+        ServerLabels::LocalOnly,
+        "the server takes them, nobody asked"
+    );
+
+    store
+        .set_account_keeps_labels(id.clone(), true, Utc::now())
+        .unwrap();
+    assert_eq!(labels(&store), ServerLabels::Keywords);
+    // A refresh of what the server says keeps the choice.
+    store.put_caps(id.clone(), &observed, Utc::now()).unwrap();
+    assert_eq!(labels(&store), ServerLabels::Keywords);
+
+    store
+        .set_account_keeps_labels(id.clone(), false, Utc::now())
+        .unwrap();
+    assert_eq!(labels(&store), ServerLabels::LocalOnly);
+}
+
+#[test]
+fn a_label_whose_keyword_another_already_makes_is_refused_where_labels_are_kept_there() {
+    let store = in_memory();
+    let id = added(&store);
+    let mut observed = store.account_caps(id.clone()).unwrap().unwrap();
+    observed.labels = ServerLabels::Keywords;
+    store.put_caps(id.clone(), &observed, Utc::now()).unwrap();
+
+    // Kept here alone, a name is only its own.
+    store.create_label(id.clone(), "Project X").unwrap();
+    store.create_label(id.clone(), "Project_X").unwrap();
+
+    store
+        .set_account_keeps_labels(id.clone(), true, Utc::now())
+        .unwrap();
+    store.create_label(id.clone(), "Café").unwrap();
+    for clash in ["project x", "Project  X", "Caf"] {
+        assert!(
+            matches!(
+                store.create_label(id.clone(), clash),
+                Err(StoreError::Conflict(_))
+            ),
+            "{clash:?} was made"
+        );
+    }
+    store.create_label(id.clone(), "Other").unwrap();
 }

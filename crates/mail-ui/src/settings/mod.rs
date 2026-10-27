@@ -16,14 +16,16 @@
 //! are and never written again.
 
 mod legacy;
+mod notices;
 mod words;
 
+pub use notices::{Notices, Shows};
 pub use words::{
-    BadgeCounts, BlockRemote, BrandLogos, CopyMyself, DeleteMeans, EraseAfter, GroupByDate,
-    JunkOrder, JunkSwitch, JunkTreat, LabelChips, LoadRemoteImages, MarkRead, MarkReadDelay,
-    MessageFormat, NewMail, NotifyFor, NotifyPlaces, NotifySound, PreferPlainText, Protect,
-    ProviderMarks, ReadReceipts, RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch,
-    SignatureAboveQuote, Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
+    BadgeCounts, BrandLogos, CopyMyself, DeleteMeans, EraseAfter, GroupByDate, JunkOrder,
+    JunkSwitch, JunkTreat, LabelChips, LoadRemoteImages, MarkRead, MarkReadDelay, MessageFormat,
+    NewMail, NotifyFor, NotifyPlaces, NotifySound, PreferPlainText, Protect, ProviderMarks,
+    ReadReceipts, RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch, SignatureAboveQuote,
+    Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
 };
 
 use ds::prelude::Word;
@@ -31,6 +33,7 @@ use ds_settings::schema::{AppId, FilePath, KeySpec, Page, Schema, SettingsSchema
 use ds_settings::{AppName, ConfigRoot, FileName, Format, SettingsDoc, Store};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::sync::{Mutex, PoisonError};
 
 /// The directory under the config root, and the schema's app id.
 pub const APP: AppName = AppName("mailo");
@@ -157,8 +160,8 @@ pub struct NotificationSettings {
     )]
     pub sound: NotifySound,
     #[settings(
-        label = "Dock badge counts",
-        help = "What the number on the Dock counts: unread conversations in the Inbox, or in every followed mailbox.",
+        label = "Badge counts",
+        help = "What the number on the app's icon counts: unread conversations in the Inbox, or in every followed mailbox.",
         section = "Mail"
     )]
     pub badge: BadgeCounts,
@@ -399,12 +402,6 @@ impl AttachmentSettings {
 #[settings(file = "mailo/settings.toml", domain = "privacy", page = page())]
 pub struct PrivacySettings {
     #[settings(
-        label = "Block all remote content",
-        help = "Never load a message's images from the web, and don't offer to.",
-        section = "Privacy"
-    )]
-    pub block_remote_content: BlockRemote,
-    #[settings(
         label = "Protect mail activity",
         help = "Hide your network address from the senders whose images load, through a relay or a proxy.",
         section = "Privacy"
@@ -492,13 +489,13 @@ pub struct MailboxSettings {
     pub delete: DeleteMeans,
     #[settings(
         label = "Erase Trash",
-        help = "Delete mail forever once it has been in Trash this long.",
+        help = "Delete mail forever once it has been in Trash this long, while Mailo is open.",
         section = "Mailboxes"
     )]
     pub erase_trash: EraseAfter,
     #[settings(
         label = "Erase Spam",
-        help = "Delete mail forever once it has been in Spam this long.",
+        help = "Delete mail forever once it has been in Spam this long, while Mailo is open.",
         section = "Mailboxes"
     )]
     pub erase_spam: EraseAfter,
@@ -521,44 +518,44 @@ impl MailboxSettings {
 #[settings(file = "mailo/settings.toml", domain = "junk", page = page())]
 pub struct JunkSettings {
     #[settings(
-        label = "Junk Filter",
+        label = "Filter Junk Mail",
         help = "Judge new mail in the inbox by what you have marked as spam and not spam.",
         section = "Junk Mail"
     )]
     pub filter: JunkSwitch,
     #[settings(
-        label = "Junk Mail",
+        label = "When Mail Is Junk",
         help = "Move it to Spam, or leave it in the inbox with a Junk label.",
         section = "Junk Mail"
     )]
     pub treat: JunkTreat,
     #[settings(
-        label = "Spare Contacts",
+        label = "Contacts",
         help = "Never call mail from someone in Contacts junk.",
-        section = "Junk Mail"
+        section = "Never Junk Mail From"
     )]
     pub spare_contacts: JunkSwitch,
     #[settings(
-        label = "Spare People I Write To",
+        label = "People You've Written To",
         help = "Never call mail from someone you have written to junk.",
-        section = "Junk Mail"
+        section = "Never Junk Mail From"
     )]
     pub spare_written_to: JunkSwitch,
     #[settings(
-        label = "Spare My Full Name",
+        label = "Mail Addressed to My Full Name",
         help = "Never call mail addressed to your full name junk.",
-        section = "Junk Mail"
+        section = "Never Junk Mail From"
     )]
     pub spare_full_name: JunkSwitch,
     #[settings(
-        label = "Trust the Server",
+        label = "Trust the Server's Spam Headers",
         help = "Take the server's own spam headers as its verdict.",
         section = "Junk Mail"
     )]
     pub trust_server: JunkSwitch,
     #[settings(
-        label = "Filter Order",
-        help = "Run the junk filter before your rules, or after them.",
+        label = "Filter Before My Rules",
+        help = "Run the junk filter before your rules. Off runs it after them.",
         section = "Junk Mail"
     )]
     pub order: JunkOrder,
@@ -595,7 +592,7 @@ pub enum RouteProblem {
     Relay,
     /// The relay has no key.
     RelayKey,
-    /// The proxy's address is not an `http`, `https` or `socks5` URL.
+    /// The proxy's address is not an `http`, `https` or `socks5h` URL.
     Proxy,
 }
 
@@ -686,13 +683,47 @@ fn with_word_labels(mut key: KeySpec) -> KeySpec {
     key
 }
 
-/// What the Dock's number counts, as the person's settings say; the Inbox where there are none
-/// to read.
+/// What the number on the app's icon counts, as the person's settings say; the Inbox where there
+/// are none to read. Asked on every poll of the count, so `settings.toml` is read again only
+/// when the file has changed.
 pub fn badge_places() -> mail_client::notify::Places {
+    static MEMO: Mutex<Option<Counted>> = Mutex::new(None);
     person_root()
-        .map(|root| load(&root).notifications.badge.into())
+        .map(|root| badge_places_under(&root, &MEMO))
         // No config directory to read counts the Inbox.
         .unwrap_or_default()
+}
+
+/// What `settings.toml` looked like when the badge's places were last read from it, and what they
+/// were.
+type Counted = (
+    Option<(std::time::SystemTime, u64)>,
+    mail_client::notify::Places,
+);
+
+/// The places the badge counts under `root`, read from `memo` while the file is as it was.
+fn badge_places_under(
+    root: &ConfigRoot,
+    memo: &Mutex<Option<Counted>>,
+) -> mail_client::notify::Places {
+    let looked = store(root.clone())
+        .path::<MailSettings>()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .and_then(|meta| Some((meta.modified().ok()?, meta.len())));
+    let mut memo = memo.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((seen, places)) = *memo
+        && seen == looked
+    {
+        return places;
+    }
+    let places: mail_client::notify::Places = load(root).notifications.badge.into();
+    // A first read may have written the file (from the old per-switch ones): look again.
+    let after = store(root.clone())
+        .path::<MailSettings>()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .and_then(|meta| Some((meta.modified().ok()?, meta.len())));
+    *memo = Some((after, places));
+    places
 }
 
 /// The config root a mailo config directory stands for: `~/.config/mailo` is `~/.config`, the
@@ -737,6 +768,7 @@ pub fn load(root: &ConfigRoot) -> MailSettings {
         .path::<MailSettings>()
         .is_some_and(|path| path.exists())
     {
+        fold_block_remote(&store);
         return store.load::<MailSettings>().value;
     }
     let Some(dir) = store.dir() else {
@@ -747,6 +779,60 @@ pub fn load(root: &ConfigRoot) -> MailSettings {
         let _ = store.save(&carried);
     }
     carried
+}
+
+/// Carry `privacy.block_remote_content`, the switch `reading.remote_images = "never"` replaced,
+/// into the file: `"on"` becomes `Never`, and the old key goes either way, so it is not read
+/// again over a later choice. A file that does not read is left alone.
+fn fold_block_remote(store: &Store) {
+    let Some(path) = store.path::<MailSettings>() else {
+        return;
+    };
+    let path = path.to_path_buf();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(mut table) = text.parse::<toml::Table>() else {
+        return;
+    };
+    let Some(old) = table
+        .get_mut("privacy")
+        .and_then(toml::Value::as_table_mut)
+        .and_then(|privacy| privacy.remove("block_remote_content"))
+    else {
+        return;
+    };
+    if old.as_str() == Some("on") {
+        let reading = table
+            .entry("reading")
+            .or_insert_with(|| toml::Value::Table(toml::Table::new()));
+        let Some(reading) = reading.as_table_mut() else {
+            return;
+        };
+        reading.insert(
+            "remote_images".to_owned(),
+            toml::Value::String("never".to_owned()),
+        );
+    }
+    let Ok(text) = toml::to_string(&table) else {
+        return;
+    };
+    let staged = path.with_extension("toml.tmp");
+    if let Err(e) = std::fs::write(&staged, text).and_then(|()| std::fs::rename(&staged, &path)) {
+        log::warn!("settings.toml: the old remote content switch was not carried over: {e}");
+    }
+}
+
+/// Whether what `settings.toml` under `root` says about `privacy.*` cannot be trusted: the whole
+/// file does not read, or a `privacy` key holds a value the setting does not take. Then the
+/// settings in force are the defaults, which would fetch images straight from their hosts
+/// whatever the person chose, so images wait until the file is mended.
+pub fn privacy_in_doubt(root: &ConfigRoot) -> bool {
+    store(root.clone())
+        .load::<MailSettings>()
+        .invalid
+        .iter()
+        .any(|key| key.path.is_empty() || key.path.starts_with("privacy"))
 }
 
 /// Why `settings.toml` under `root` cannot be used as it is: the whole file, or each key whose

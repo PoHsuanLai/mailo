@@ -161,6 +161,17 @@ fn two_asking_the_same_query_share_one_value_and_one_reading() {
 }
 
 #[test]
+fn a_caller_that_must_have_a_value_before_it_goes_on_waits_for_it() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+    let read = client.live(Counted::new("waited"));
+    assert_eq!(
+        read.wait_for(std::time::Duration::from_secs(10)).as_deref(),
+        Some(&0)
+    );
+}
+
+#[test]
 fn a_commit_reads_again_what_reads_what_it_touched_and_nothing_else() {
     let (store, _dir) = on_disk();
     let client = client(&store);
@@ -598,22 +609,11 @@ fn a_client_fetches_on_a_thread_of_its_own_the_accounts_it_has_and_those_added_a
     client.shutdown(Duration::from_secs(1));
 }
 
-#[test]
-fn a_send_that_comes_due_asks_its_account_for_a_pass_then() {
-    let (store, _dir) = on_disk();
-    let one = imap_account(&store, 1);
-    let client = client(&store);
-    let (mut seams, passes) = counting();
-    // Not the first pass's to carry: that one is a while off.
-    seams.timing.beat = Duration::from_secs(3600);
-    client.fetch(seams);
-    std::thread::sleep(Duration::from_millis(100));
-    assert!(passes.lock().unwrap().is_empty());
-
-    let due = Utc::now() + chrono::TimeDelta::milliseconds(300);
+/// A send in `account`'s outbox that is due at `due`.
+fn queue_send(store: &SqliteStore, account: &AccountId, due: DateTime<Utc>) {
     store
         .enqueue(
-            one.clone(),
+            account.clone(),
             mail_domain::RemoteIntent::Send {
                 draft: mail_domain::DraftId::generate(),
                 raw: mail_domain::BlobId::generate(),
@@ -628,6 +628,150 @@ fn a_send_that_comes_due_asks_its_account_for_a_pass_then() {
             due,
         )
         .unwrap();
+}
+
+/// `seams` with every pass held, once it has begun, until the returned gate is opened.
+fn held(seams: &mut mail_client::fetch::Seams) -> Arc<std::sync::atomic::AtomicBool> {
+    let gate = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let inner = seams.pass.clone();
+    let waiting = gate.clone();
+    seams.pass = Arc::new(move |store, started, account, hooks| {
+        while !waiting.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        inner(store, started, account, hooks)
+    });
+    gate
+}
+
+#[test]
+fn a_send_already_due_when_fetching_begins_goes_with_the_first_pass_and_is_not_asked_for_again() {
+    let (store, _dir) = on_disk();
+    let one = imap_account(&store, 1);
+    queue_send(&store, &one, Utc::now() - chrono::TimeDelta::seconds(5));
+    let client = client(&store);
+    let (seams, passes) = counting();
+    client.fetch(seams);
+    until("the first pass", || passes.lock().unwrap().len() == 1);
+    // Longer than the outbox waits before looking again.
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(passes.lock().unwrap().len(), 1, "asked for again");
+    client.shutdown(Duration::from_secs(1));
+}
+
+#[test]
+fn a_send_that_comes_due_while_its_account_is_fetching_is_asked_for_when_the_pass_ends_and_once() {
+    let (store, _dir) = on_disk();
+    let one = imap_account(&store, 1);
+    let client = client(&store);
+    let (mut seams, passes) = counting();
+    let gate = held(&mut seams);
+    // A pass is counted only once it is let go of, so none is counted while the link is busy.
+    client.fetch(seams);
+    std::thread::sleep(Duration::from_millis(150));
+    let due = Utc::now() + chrono::TimeDelta::milliseconds(200);
+    queue_send(&store, &one, due);
+    // Past due, the link still busy: nothing can have been asked for.
+    std::thread::sleep(Duration::from_millis(600));
+    assert!(passes.lock().unwrap().is_empty(), "the pass is still held");
+    gate.store(true, Ordering::SeqCst);
+    until("the first pass", || passes.lock().unwrap().len() == 1);
+    until("the send's own pass", || passes.lock().unwrap().len() == 2);
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(passes.lock().unwrap().len(), 2, "asked for more than once");
+    client.shutdown(Duration::from_secs(1));
+}
+
+#[test]
+fn two_sends_due_at_one_instant_ask_their_account_once() {
+    let (store, _dir) = on_disk();
+    let one = imap_account(&store, 1);
+    let client = client(&store);
+    let (mut seams, passes) = counting();
+    seams.timing.beat = Duration::from_secs(3600);
+    client.fetch(seams);
+    std::thread::sleep(Duration::from_millis(100));
+    let due = Utc::now() + chrono::TimeDelta::milliseconds(300);
+    queue_send(&store, &one, due);
+    queue_send(&store, &one, due);
+    until("the account asked for a pass", || {
+        !passes.lock().unwrap().is_empty()
+    });
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(passes.lock().unwrap().len(), 1, "asked once per instant");
+    client.shutdown(Duration::from_secs(1));
+}
+
+#[test]
+fn stopping_ends_a_pass_in_flight_and_waits_for_it() {
+    let (store, _dir) = on_disk();
+    imap_account(&store, 1);
+    let client = client(&store);
+    let (mut seams, _passes) = counting();
+    let begun = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let ended = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (began, finished) = (begun.clone(), ended.clone());
+    // A pass that goes on until it is told to end, as one parked in a socket does.
+    seams.pass = Arc::new(move |_, _, account, hooks| {
+        began.store(true, Ordering::SeqCst);
+        let cancel = hooks.cancel.get(&account).expect("a signal to end it");
+        while !*cancel.borrow() && cancel.has_changed().is_ok() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        finished.store(true, Ordering::SeqCst);
+        Err("ended".to_owned())
+    });
+    client.fetch(seams);
+    until("the pass begun", || begun.load(Ordering::SeqCst));
+    assert!(!ended.load(Ordering::SeqCst));
+
+    client.shutdown(Duration::from_secs(3));
+    assert!(
+        ended.load(Ordering::SeqCst),
+        "stopped with the pass still running"
+    );
+}
+
+#[test]
+fn asking_to_fetch_reads_the_store_on_the_fetching_thread_and_not_the_askers() {
+    let (store, _dir) = on_disk();
+    let first = imap_account(&store, 1);
+    let client = client(&store);
+    let (mut seams, passes) = counting();
+    let asker = std::thread::current().id();
+    let readers: Arc<Mutex<Vec<std::thread::ThreadId>>> = Arc::default();
+    let seen = readers.clone();
+    seams.pushers = Arc::new(move |_| {
+        seen.lock().unwrap().push(std::thread::current().id());
+        Vec::new()
+    });
+    client.fetch(seams);
+    assert!(
+        !readers.lock().unwrap().contains(&asker),
+        "the store was read on the asker's thread"
+    );
+    until("the account fetched", || {
+        passes.lock().unwrap().contains(&first)
+    });
+    assert!(!readers.lock().unwrap().is_empty());
+    assert!(!readers.lock().unwrap().contains(&asker));
+    client.shutdown(Duration::from_secs(1));
+}
+
+#[test]
+fn a_send_that_comes_due_asks_its_account_for_a_pass_then() {
+    let (store, _dir) = on_disk();
+    let one = imap_account(&store, 1);
+    let client = client(&store);
+    let (mut seams, passes) = counting();
+    // Not the first pass's to carry: that one is a while off.
+    seams.timing.beat = Duration::from_secs(3600);
+    client.fetch(seams);
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(passes.lock().unwrap().is_empty());
+
+    let due = Utc::now() + chrono::TimeDelta::milliseconds(300);
+    queue_send(&store, &one, due);
     until("the account asked for a pass", || {
         passes.lock().unwrap().contains(&one)
     });
@@ -788,6 +932,109 @@ fn a_caller_hears_only_the_topics_it_asked_for() {
     assert_eq!(*drafts.borrow_and_update(), 1);
     // The same topics share one counter.
     assert_eq!(*client.moved_for(Topics::DRAFTS).borrow(), 1);
+}
+
+/// A query that reads only the drafts, counting its readings.
+#[derive(Clone)]
+struct OnDrafts(Arc<AtomicUsize>);
+
+impl PartialEq for OnDrafts {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+impl Eq for OnDrafts {}
+
+impl Query for OnDrafts {
+    type Output = ();
+    const READS: Topics = Topics::DRAFTS;
+
+    fn run(&self, _store: &SqliteStore, _now: DateTime<Utc>) -> Result<(), ClientError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// A burst of commits to the mail itself (what ingesting a thousand messages is, as the client
+/// hears it) wakes nobody who asked for the drafts, and reads nothing that reads only them.
+#[test]
+fn a_thousand_commits_to_the_mail_do_not_wake_the_drafts() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+    let runs = Arc::new(AtomicUsize::new(0));
+    let drafts = client.live(OnDrafts(runs.clone()));
+    drafts.wait();
+    settled(&client);
+    let before = runs.load(Ordering::SeqCst);
+    let mut heard = client.moved_for(Topics::DRAFTS);
+    heard.borrow_and_update();
+    for _ in 0..1000 {
+        client.invalidate(Topics::SUMMARIES | Topics::LABELS);
+    }
+    settled(&client);
+    assert!(!heard.has_changed().unwrap(), "the drafts did not move");
+    assert_eq!(
+        runs.load(Ordering::SeqCst),
+        before,
+        "nothing read the drafts again"
+    );
+}
+
+/// A value asked for by id is read off the caller's thread, kept, and left out when the
+/// conversation is not there.
+#[test]
+fn summaries_asked_by_id_leave_out_what_is_not_there() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+    let missing = mail_domain::ThreadId::generate();
+    let live = client.live(mail_client::query::Summaries(vec![missing]));
+    assert!(live.wait().is_empty());
+}
+
+/// Each account's pace is read for the accounts asked, in the order asked.
+#[test]
+fn paces_are_read_for_the_accounts_asked_in_order() {
+    let (store, _dir) = on_disk();
+    seed_account(&store, account(1), "one@example.test");
+    seed_account(&store, account(2), "two@example.test");
+    let client = client(&store);
+    let live = client.live(mail_client::query::Paces(vec![account(2), account(1)]));
+    let paces = live.wait();
+    let ids: Vec<AccountId> = paces.iter().map(|(id, _)| id.clone()).collect();
+    assert_eq!(ids, vec![account(2), account(1)]);
+}
+
+/// A view kept, forgotten, and a label made go through the client's act thread and say what
+/// came of them.
+#[test]
+fn a_keep_is_written_by_the_act_thread_and_says_what_came_of_it() {
+    use mail_client::act::Keep;
+    use mail_client::{Command, Done};
+    let (store, _dir) = on_disk();
+    seed_account(&store, account(1), "one@example.test");
+    let client = client(&store);
+    let kept = view("Unread");
+    let ticket = client.act(Command::Keep(Keep::View(kept.clone())));
+    let acted = futures_block(ticket).expect("done");
+    assert_eq!(acted.done, Done::Kept(Ok(None)));
+    assert_eq!(store.views().unwrap().len(), 1);
+    let ticket = client.act(Command::Keep(Keep::ForgetView(kept.id)));
+    assert_eq!(futures_block(ticket).unwrap().done, Done::Kept(Ok(None)));
+    assert!(store.views().unwrap().is_empty());
+    let ticket = client.act(Command::Keep(Keep::Label {
+        account: account(1),
+        name: "Receipts".to_owned(),
+    }));
+    let Done::Kept(Ok(Some(_))) = futures_block(ticket).unwrap().done else {
+        panic!("a label was made");
+    };
+}
+
+fn futures_block<T>(future: impl std::future::Future<Output = T>) -> T {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(future)
 }
 
 /// A label of mail kept here, or of a POP3 account, is the organisation that account has: it is

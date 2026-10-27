@@ -11,7 +11,7 @@
 use crate::settings::RemoveUnedited;
 use dioxus::prelude::*;
 use mail_client::Client;
-use mail_client::StoreError;
+use mail_client::prelude::StoreError;
 use mail_domain::{MailboxRole, MessageId};
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
@@ -144,6 +144,11 @@ fn unedited(written: &Written) -> bool {
 static OPENED: Mutex<Ledger> = Mutex::new(Ledger {
     entries: Vec::new(),
 });
+
+/// Held by a test that records into [`OPENED`] and then removes from it: the ledger is the run's,
+/// and tests of the one run would otherwise remove each other's copies.
+#[cfg(test)]
+pub(in crate::ui) static RUN: Mutex<()> = Mutex::new(());
 
 fn opened() -> std::sync::MutexGuard<'static, Ledger> {
     OPENED.lock().unwrap_or_else(PoisonError::into_inner)

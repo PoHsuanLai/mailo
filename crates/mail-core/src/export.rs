@@ -165,11 +165,19 @@ fn fits_alone(store: &SqliteStore, filter: &Filter, message: &Message, now: Date
         Body::Absent => None,
     };
     let sizes = [mail_domain::filter::message_size(message)];
+    let vips: Vec<String> = store
+        .vips()
+        .or_log_default("the VIPs could not be read")
+        .into_iter()
+        .map(|vip| vip.address)
+        .collect();
     filter.fit(&MatchCtx {
         summary: &summary,
         corpus,
         folders: &folders,
         sizes: &sizes,
+        cc: &message.cc,
+        vips: &vips,
         now,
     })
 }
@@ -216,6 +224,33 @@ pub fn export(
 pub fn raw_message(store: &SqliteStore, id: MessageId) -> Result<Option<Vec<u8>>, CoreError> {
     let message = store.message(id)?;
     raw_of(store, &message)
+}
+
+/// The first bytes of a message's source, and how long the whole of it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawHead {
+    /// At most the `limit` asked for.
+    pub bytes: Vec<u8>,
+    /// The size of the whole source.
+    pub whole: u64,
+}
+
+/// At most the first `limit` bytes of `id`'s [`raw_message`], and its whole size: what a view of
+/// a message's source needs, without reading a large attachment in full. `None` while only its
+/// headers are here.
+pub fn raw_head(
+    store: &SqliteStore,
+    id: MessageId,
+    limit: usize,
+) -> Result<Option<RawHead>, CoreError> {
+    let message = store.message(id)?;
+    let Body::Present { raw, .. } = &message.body else {
+        return Ok(None);
+    };
+    Ok(Some(RawHead {
+        bytes: store.blobs().head(*raw, limit)?,
+        whole: store.blobs().size(*raw)?,
+    }))
 }
 
 /// Write `id`'s [`raw_message`] into `dir` as one `.eml` named from its subject, never over a

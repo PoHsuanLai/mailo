@@ -231,7 +231,8 @@ pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<R
         // Nor a copy, for the same reason: the copy's address arrives with that folder's next
         // sync, or with the server's answer. The undo takes it out of the folder here, and one
         // still waiting is taken out of the outbox as a filing is; a copy the server has made
-        // stays there, as a filing does.
+        // is not taken back at all (`crate::act::take_back` refuses it), or the next sync would
+        // put it back in the folder.
         //
         // Nor, above all, a deletion forever: the server's copy is gone once it is sent, and
         // the window never offers one an undo (`crate::destroy`).

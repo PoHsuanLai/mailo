@@ -234,3 +234,35 @@ async fn a_proxy_is_asked_to_connect_to_the_origin_and_nothing_goes_round_it() {
         "{head}"
     );
 }
+
+/// A relay is the person's own server, so the system's authorities are believed for it; what a
+/// sender chose, and the proxy that reaches it, keep to the bundled roots.
+#[test]
+fn only_a_relay_is_checked_against_the_systems_authorities() {
+    let base: reqwest::Url = "https://relay.example.test/".parse().unwrap();
+    for (route, system) in [
+        (Route::Direct, false),
+        (
+            Route::Proxy {
+                url: "socks5h://127.0.0.1:9050".to_owned(),
+            },
+            false,
+        ),
+        (
+            Route::Camo {
+                base: base.clone(),
+                key: "k".to_owned(),
+            },
+            true,
+        ),
+        (
+            Route::Token {
+                base,
+                token: "t".to_owned(),
+            },
+            true,
+        ),
+    ] {
+        assert_eq!(trusts_system(&route), system, "{route:?}");
+    }
+}

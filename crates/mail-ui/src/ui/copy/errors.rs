@@ -7,6 +7,9 @@ pub const THIS_ACCOUNT: &str = "this account";
 
 // A folder change refused.
 pub const POP3_NO_FOLDERS: &str = "POP3 has no folders.";
+/// A label that was not made: usually because another already has its name, or one the server
+/// would take for it.
+pub const LABEL_NOT_MADE: &str = "The label couldn’t be made. Another label may already use that name, or one the server would take for it.";
 pub const LOCAL_HAS_LABELS: &str = "Local mail has labels, not folders.";
 pub const ACCOUNT_GONE: &str = "That account isn’t here any more.";
 
@@ -132,6 +135,8 @@ pub fn couldnt_open(why: &str) -> String {
 /// Mail, a rule or a setting kept on this computer that could not be read.
 pub const NOT_READ_HERE: &str = "This couldn’t be read from this computer. Try again.";
 /// A change that could not be written on this computer.
+/// A change asked for as the app was closing, which was not made.
+pub const NOT_KEPT_CLOSING: &str = "The app was closing, so the change wasn\u{2019}t saved.";
 pub const NOT_KEPT_HERE: &str = "The change couldn’t be saved on this computer. Try again.";
 /// An attachment that could not be written to the downloads folder.
 pub const ATTACHMENT_NOT_SAVED: &str = "The attachment couldn’t be saved.";
@@ -186,6 +191,9 @@ pub fn login_item_not_removed(why: &str) -> String {
 /// What macOS asks before a login item runs.
 pub const ALLOW_LOGIN_ITEM: &str = "To check for mail while mailo is quit, turn mailo on in System Settings › General › Login Items.";
 
+/// A banner's Archive for a conversation this mailbox no longer has.
+pub const NOT_ARCHIVED: &str = "That conversation could not be archived.";
+
 /// `mailo open --inbox` with no account after it.
 pub const OPEN_INBOX_NEEDS_ACCOUNT: &str =
     "open --inbox needs an account id: mailo open --inbox <account>";
@@ -213,3 +221,6 @@ pub const RECEIPT_NOT_KEPT: &str = "The answer to the read receipt couldn’t be
 
 /// The relay key could not be kept in, or taken out of, the keyring.
 pub const RELAY_KEY_NOT_KEPT: &str = "The relay key couldn’t be kept in the keyring.";
+
+/// A settings change asked of a window that has no settings to change.
+pub const NO_SETTINGS_TO_CHANGE: &str = "The window has no settings to change.";

@@ -31,7 +31,6 @@
 
 use mail_core::SqliteStore;
 use mail_core::ipc::watching::{Refused, Watching};
-use mail_core::notify::{Notification, Notifier};
 use mail_core::schedule::End;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -142,23 +141,23 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
         log::warn!("Sync in another process will not reach mailo: {why}");
     }
     let accounts = follow_accounts(store);
-    let notifier = AsSet {
-        desktop: mail_core::notify::desktop::Desktop::connect_in_window(),
-        root: mail_ui::settings::person_root(),
-    };
+    // The app runs for days: what is said, whose mail, in which mailboxes, with which sound, and
+    // how the junk filter behaves are each read as they are used, so Settings is followed from
+    // the next pass and not from the next start.
+    let desktop = mail_core::notify::desktop::Desktop::connect_in_window();
+    let notifier = mail_ui::settings::Notices::new(
+        Box::new(move |notification, sound| desktop.show_with(notification, sound)),
+        mail_ui::settings::person_root(),
+    );
     let tell = |watched: mail_core::sync::report::Watched| told(&watched);
-    // Whose new mail is said, as the settings say as the watch starts.
-    let whom = mail_ui::settings::person_root()
-        .map(|root| mail_ui::settings::load(&root))
-        .unwrap_or_default()
-        .notifications
-        .notify_for
-        .into();
     loop {
         let mail = crate::edge::mail(store);
         let ran = crate::edge::block_on(mail.sync().watch_until(
             Some(&notifier),
-            whom,
+            mail_core::sync::watcher::Live {
+                whom: &|| notifier.whom(),
+                junk: &mail_ui::settings::junk_policy,
+            },
             &tell,
             Some(held.asked()),
             Some(accounts.clone()),
@@ -225,28 +224,6 @@ fn follow_accounts(store: &Arc<SqliteStore>) -> mail_core::ipc::watching::Asked 
         log::warn!("an account added now is fetched from mailo's next start: {why}");
     }
     accounts
-}
-
-/// The desktop's notifications while `notifications.new_mail` is on, read as each one is said:
-/// the app runs for days, and the switch in Settings is followed at once, as a window's is.
-struct AsSet {
-    desktop: mail_core::notify::desktop::Desktop,
-    root: Option<ds_settings::ConfigRoot>,
-}
-
-impl Notifier for AsSet {
-    fn show(&self, notification: &Notification) {
-        if says_new_mail(self.root.as_ref()) {
-            self.desktop.show(notification);
-        }
-    }
-}
-
-/// Whether the settings under `root` have new mail said; on, as they ship, where there are none.
-pub fn says_new_mail(root: Option<&ds_settings::ConfigRoot>) -> bool {
-    root.map_or(mail_ui::settings::NewMail::default(), |root| {
-        mail_ui::settings::load(root).notifications.new_mail
-    }) == mail_ui::settings::NewMail::On
 }
 
 #[cfg(test)]

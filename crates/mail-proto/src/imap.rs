@@ -239,6 +239,11 @@ pub enum ImapCommand {
     Notify {
         mailboxes: Vec<String>,
     },
+    /// `NOTIFY NONE`: stop hearing of the other mailboxes. Sent when the idle that
+    /// [`ImapCommand::Notify`] set up is over, so that the connection, which the next operation
+    /// may go on with, does not keep a subscription it never reads. A server that refuses it is
+    /// not failed: the connection is then no worse than one that was never reused.
+    NotifyNone,
     Noop,
     Logout,
 }
@@ -658,8 +663,8 @@ impl ImapSession {
         if let ImapCommand::IdleAfter { uidnext } = command
             && reported_uidnext(&self.transcript.untagged).is_some_and(|now| now > uidnext)
         {
-            self.phase = Phase::Finished;
-            return Progress::Done(std::mem::take(&mut self.transcript));
+            // No idle to wait in, and what was set up for it is still taken down.
+            return self.issue(index + 1);
         }
         if let ImapCommand::RequireUidValidity(expected) = command {
             return match reported_uidvalidity(&self.transcript.untagged) {
@@ -702,10 +707,7 @@ impl ImapSession {
             {
                 return self.issue(index + 1);
             }
-            return self.fail(ProtoError::Unsupported(format!(
-                "the server does not offer {}, so nothing was sent",
-                any.join(" or ")
-            )));
+            return self.fail(ProtoError::Unsupported(not_offered(any)));
         }
         if matches!(command, ImapCommand::Compress)
             && !has_capability(&self.transcript.capabilities, "COMPRESS=DEFLATE")
@@ -806,6 +808,7 @@ impl ImapSession {
             ImapCommand::Logout => "LOGOUT".to_owned(),
             ImapCommand::Idle | ImapCommand::IdleAfter { .. } => "IDLE".to_owned(),
             ImapCommand::Compress => "COMPRESS DEFLATE".to_owned(),
+            ImapCommand::NotifyNone => "NOTIFY NONE".to_owned(),
             ImapCommand::Notify { mailboxes } => {
                 let names: Vec<String> = mailboxes.iter().map(|m| wire(m)).collect();
                 // RFC 5465: `mailboxes` takes one mailbox, or a parenthesised list of them.
@@ -1293,12 +1296,27 @@ impl ImapSession {
                                 );
                                 Progress::Need(needs)
                             }
+                            // `COMPRESS` was the last command: nothing follows to be sent
+                            // compressed, but the connection is compressed now, and the next
+                            // session on it must find the transport switched. The switch is
+                            // asked for, and the session ends when it is done.
+                            Progress::Done(transcript) if compressed => {
+                                self.transcript = transcript;
+                                self.compressing = true;
+                                Progress::Need(vec![IoNeed::Deflate {
+                                    leftover: Vec::new(),
+                                }])
+                            }
                             other => other,
                         })
                     }
                     _ if matches!(
                         self.commands.get(index),
-                        Some(ImapCommand::UidStore { tolerate: true, .. } | ImapCommand::Compress)
+                        Some(
+                            ImapCommand::UidStore { tolerate: true, .. }
+                                | ImapCommand::Compress
+                                | ImapCommand::NotifyNone
+                        )
                     ) =>
                     {
                         Some(self.issue(index + 1))
@@ -1420,6 +1438,21 @@ fn offers_sasl(capabilities: &[String], mechanism: &str) -> bool {
     })
 }
 
+/// What a failed [`ImapCommand::RequireCapability`] says: none of `any` is offered.
+fn not_offered(any: &[String]) -> String {
+    format!(
+        "the server does not offer {}, so nothing was sent",
+        any.join(" or ")
+    )
+}
+
+/// Whether `error` is a [`ImapCommand::RequireCapability`] for `atom` alone failing: the server
+/// does not offer `atom`. Any other `Unsupported` — a server without `STARTTLS`, say — is a
+/// different thing missing.
+pub fn lacks_capability(error: &ProtoError, atom: &str) -> bool {
+    matches!(error, ProtoError::Unsupported(text) if *text == not_offered(&[atom.to_owned()]))
+}
+
 /// Whether the server advertised a capability, matched as a whole atom.
 ///
 /// `capabilities` holds `imap-proto`'s atoms rendered with `Debug`, so an entry looks like
@@ -1493,6 +1526,10 @@ impl Machine for ImapSession {
         match ready {
             IoReady::Eof => self.fail(ProtoError::UnexpectedEof),
             IoReady::TlsOpen if matches!(self.phase, Phase::AwaitingTls) => self.upgraded(),
+            // The switch to compression that ended the session was made; there is nothing to read.
+            IoReady::Woke if matches!(self.phase, Phase::Finished) => {
+                Progress::Done(std::mem::take(&mut self.transcript))
+            }
             IoReady::TlsOpen | IoReady::Woke => Progress::Need(vec![IoNeed::Read]),
             IoReady::Interrupt => match self.phase.clone() {
                 // The cancellation path IDLE exists for: wind down in protocol so the

@@ -5,6 +5,7 @@
 
 use crate::rich_text::doc::{Doc, Marks, Node, Presence};
 use crate::rich_text::error::OpError;
+use crate::rich_text::format::settled;
 use crate::rich_text::input::{InputEvent, Record, interpret};
 use crate::rich_text::keys::Caret;
 use crate::rich_text::markdown::{self, Shortcut};
@@ -64,7 +65,7 @@ impl Session {
                 Ok(())
             }
             Record::Typing(burst) => {
-                let ops = with_marks(edit.ops, self.pending.take());
+                let ops = settled(&self.doc, with_marks(edit.ops, self.pending.take()));
                 let inverses = apply_all(&mut self.doc, ops.clone())?;
                 self.log.record_typing(ops, inverses, at_ms, burst);
                 self.caret = edit.caret;
@@ -75,8 +76,9 @@ impl Session {
             }
             Record::Structural => {
                 self.pending = None;
-                let inverses = apply_all(&mut self.doc, edit.ops.clone())?;
-                self.log.record_structural(edit.ops, inverses);
+                let ops = settled(&self.doc, edit.ops);
+                let inverses = apply_all(&mut self.doc, ops.clone())?;
+                self.log.record_structural(ops, inverses);
                 self.caret = edit.caret;
                 Ok(())
             }
@@ -84,8 +86,9 @@ impl Session {
     }
 
     fn commit_shortcut(&mut self, shortcut: Shortcut) -> Result<(), OpError> {
-        let inverses = apply_all(&mut self.doc, shortcut.ops.clone())?;
-        self.log.record_structural(shortcut.ops, inverses);
+        let ops = settled(&self.doc, shortcut.ops);
+        let inverses = apply_all(&mut self.doc, ops.clone())?;
+        self.log.record_structural(ops, inverses);
         self.caret = Caret::at(shortcut.caret.node, shortcut.caret.offset);
         if let Some(mark) = shortcut.closes
             && let Some(Node::Para { runs, .. }) = self.doc.nodes.get(self.caret.pos.node)

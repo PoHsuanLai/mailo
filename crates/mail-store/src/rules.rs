@@ -262,6 +262,8 @@ fn act<S: Store + ?Sized>(
         ..Ran::default()
     };
     let mut fired = Vec::new();
+    // As the list is now, for `is:vip`: a rule follows it, and keeps nobody it was saved with.
+    let vips: Vec<String> = store.vips()?.into_iter().map(|vip| vip.address).collect();
     for rule in rules {
         let summary = one_message(&message);
         let corpus = match &message.body {
@@ -277,6 +279,8 @@ fn act<S: Store + ?Sized>(
             corpus,
             folders: &folders,
             sizes: &sizes,
+            cc: &message.cc,
+            vips: &vips,
             now,
         };
         if !rule.fits(&ctx) {

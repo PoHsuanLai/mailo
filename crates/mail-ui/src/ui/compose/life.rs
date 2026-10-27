@@ -5,8 +5,8 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_client::Client;
-use mail_client::SigningStore;
 use mail_client::compose::{Leaves, PictureSize};
+use mail_client::prelude::SigningStore;
 use mail_domain::*;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -147,7 +147,10 @@ pub(in crate::ui) fn pictures_queued(draft: DraftId) -> PictureSize {
 ///
 /// The record stays: dropped, it would let that autosave through. A page taken after it, as
 /// one is after the discard's Undo puts the draft back, is later and writes as ever.
-pub(crate) fn discard(client: &Client, draft: DraftId) -> Result<String, mail_client::CoreError> {
+pub(crate) fn discard(
+    client: &Client,
+    draft: DraftId,
+) -> Result<String, mail_client::prelude::CoreError> {
     discarding(draft, || client.compose().discard(draft))
 }
 
@@ -223,7 +226,9 @@ pub(in crate::ui) fn keep_on_server(
     match client.compose().keep_on_server(draft, now) {
         Ok(queued) => Ok(queued),
         // Discarded or sent from somewhere else meanwhile: there is nothing to keep.
-        Err(mail_client::CoreError::Store(mail_client::StoreError::NoDraft(_))) => Ok(false),
+        Err(mail_client::prelude::CoreError::Store(mail_client::prelude::StoreError::NoDraft(
+            _,
+        ))) => Ok(false),
         Err(why) => Err(why.to_string()),
     }
 }

@@ -81,13 +81,16 @@ pub(super) fn quote_level(page: Signal<Page>, nest: Nest) -> bool {
     true
 }
 
-/// Tab and Shift-Tab: in a list item, nest it or bring it out, and the key is taken even when the
-/// item can go no further; anywhere else the key is not the body's.
+/// What Tab and Shift-Tab do in `page`: in a list item, the edits that nest it or bring it out.
+/// `None` when there is nothing to do, because the item can go no further or the caret is not in
+/// a list; the key is then not the body's, so focus moves on and Tab never traps the keyboard.
+pub(super) fn tab_ops(page: &Page, nest: Nest) -> Option<Vec<Op>> {
+    tab(&page.session.doc, target(page), nest).filter(|ops| !ops.is_empty())
+}
+
+/// Tab and Shift-Tab: take the key when [`tab_ops`] has edits, and do them.
 pub(super) fn tab_key(page: Signal<Page>, nest: Nest) -> bool {
-    let ops = {
-        let read = page.peek();
-        tab(&read.session.doc, target(&read), nest)
-    };
+    let ops = tab_ops(&page.peek(), nest);
     match ops {
         Some(ops) => {
             keep(page, ops);
@@ -260,14 +263,18 @@ pub(super) fn Controls(page: Signal<Page>) -> Element {
     let keys = use_keys();
     let paragraph = keys.with_keymap(|keymap| paragraph_items(now_align, keymap));
     rsx! {
-        PullDownButton::<String> {
-            items: menu_items("", &size_items(now_size), false),
-            icon: Icon::Type,
-            common: Common {
-                aria_label: Some(copy::aria::TEXT_SIZE.to_owned()),
-                ..Common::default()
-            },
-            onpick: move |key: String| picked(page, &key),
+        // quire's tip around the pull-down: on its own it would say "Menu". The tip is the
+        // control's name, the same words its aria label carries.
+        Tooltip { text: copy::aria::TEXT_SIZE.to_owned(),
+            PullDownButton::<String> {
+                items: menu_items("", &size_items(now_size), false),
+                icon: Icon::Type,
+                common: Common {
+                    aria_label: Some(copy::aria::TEXT_SIZE.to_owned()),
+                    ..Common::default()
+                },
+                onpick: move |key: String| picked(page, &key),
+            }
         }
         Button {
             bezel: Bezel::Toolbar,
@@ -277,14 +284,16 @@ pub(super) fn Controls(page: Signal<Page>) -> Element {
             image: ImagePosition::Only,
             onclick: on_primary(move || page.write().float = Float::Colour),
         }
-        PullDownButton::<String> {
-            items: menu_items("", &paragraph, false),
-            icon: Icon::ListTree,
-            common: Common {
-                aria_label: Some(copy::aria::PARAGRAPH.to_owned()),
-                ..Common::default()
-            },
-            onpick: move |key: String| picked(page, &key),
+        Tooltip { text: copy::aria::PARAGRAPH.to_owned(),
+            PullDownButton::<String> {
+                items: menu_items("", &paragraph, false),
+                icon: Icon::ListTree,
+                common: Common {
+                    aria_label: Some(copy::aria::PARAGRAPH.to_owned()),
+                    ..Common::default()
+                },
+                onpick: move |key: String| picked(page, &key),
+            }
         }
     }
 }

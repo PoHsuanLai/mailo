@@ -36,6 +36,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// The bar's field, for focusing it again when ⌘F is pressed with the bar open.
 const FIELD: &str = ".find-bar input";
@@ -63,9 +64,9 @@ struct Inner {
 /// What a find put in one frame's document.
 #[derive(Debug, Default)]
 struct Marks {
-    /// The document they are in, by address: a frame drawn again holds a new document, in which
-    /// none of these nodes are.
-    doc: usize,
+    /// The document they are in, by the stamp the find put on it ([`stamp`]): a frame drawn again
+    /// holds a new document, which carries no stamp, and in which none of these nodes are.
+    doc: u64,
     /// Each text node stood aside, and what stands in its place: its words cut at the marks.
     wraps: Vec<(NodeId, Vec<NodeId>)>,
     /// Each match's marks, in order.
@@ -215,9 +216,33 @@ fn in_frame<T>(handle: &NodeHandle, change: impl FnOnce(&mut BaseDocument) -> T)
     Some(said)
 }
 
-/// Where `doc` is, to tell it from the document a frame drawn again holds.
-fn address(doc: &BaseDocument) -> usize {
-    std::ptr::from_ref(doc) as usize
+/// The attribute a find stamps its document's root element with, to know that document again.
+const STAMP: &str = "data-found-doc";
+
+/// The root element of `doc`, when it has one yet.
+fn root_of(doc: &BaseDocument) -> Option<NodeId> {
+    let root = doc.get_node(doc.root_node().id)?;
+    root.children
+        .iter()
+        .copied()
+        .find(|id| doc.get_node(*id).is_some_and(|node| node.is_element()))
+}
+
+/// Which document `doc` is: the stamp a find put on it, or 0 for a document none has marked.
+/// A document drawn again is a new one with no stamp, even where the old one's memory was
+/// reused, which an address could not tell apart.
+fn identity(doc: &BaseDocument) -> u64 {
+    root_of(doc)
+        .and_then(|id| doc.get_node(id))
+        .and_then(|node| node.attr(LocalName::from(STAMP)))
+        .and_then(|stamp| stamp.parse().ok())
+        .unwrap_or(0)
+}
+
+/// A stamp no earlier one was: 1 and up, never 0.
+fn next_stamp() -> u64 {
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    LAST.fetch_add(1, Ordering::Relaxed) + 1
 }
 
 /// An HTML element's or an attribute's name.
@@ -290,13 +315,15 @@ type Cut = (NodeId, String, Vec<(Range<usize>, usize)>);
 
 /// Mark `query`'s matches in `doc`, at most `most` of them.
 fn mark(doc: &mut BaseDocument, query: &str, most: usize) -> Marks {
-    let mut marks = Marks {
-        doc: address(doc),
-        ..Marks::default()
-    };
+    let mut marks = Marks::default();
     if query.trim().is_empty() || most == 0 {
         return marks;
     }
+    let Some(root) = root_of(doc) else {
+        return marks;
+    };
+    let stamp = next_stamp();
+    marks.doc = stamp;
     // Each text node a match is in, in reading order, with the pieces of it each match covers.
     let mut cuts: Vec<Cut> = Vec::new();
     let mut count = 0;
@@ -319,6 +346,7 @@ fn mark(doc: &mut BaseDocument, query: &str, most: usize) -> Marks {
     }
     marks.found = vec![Vec::new(); count];
     let mut changes = doc.mutate();
+    changes.set_attribute(root, attribute(STAMP), &stamp.to_string());
     for (node, text, pieces) in cuts {
         let mut parts = Vec::new();
         let mut at = 0;
@@ -350,7 +378,7 @@ fn mark(doc: &mut BaseDocument, query: &str, most: usize) -> Marks {
 /// Put back every text node `marks` stood aside, and take its marks out. Nothing in a document
 /// drawn again, or where the nodes are no longer as they were left.
 fn unmark(doc: &mut BaseDocument, marks: &Marks) {
-    if marks.doc != address(doc) {
+    if marks.doc == 0 || marks.doc != identity(doc) {
         return;
     }
     let mut changes = doc.mutate();
@@ -379,7 +407,7 @@ fn unmark(doc: &mut BaseDocument, marks: &Marks) {
 
 /// Draw match `at` of `marks` as the current one, and the one before as any other.
 fn point_at(doc: &mut BaseDocument, marks: &mut Marks, at: Option<usize>) {
-    if marks.doc != address(doc) || marks.current == at {
+    if marks.doc == 0 || marks.doc != identity(doc) || marks.current == at {
         return;
     }
     let mut changes = doc.mutate();
@@ -593,6 +621,20 @@ mod open_tests {
     fn find_is_taken_only_by_an_open_conversation() {
         assert!(took(Some(ThreadId::generate())));
         assert!(!took(None));
+    }
+}
+
+#[cfg(test)]
+mod stamp_tests {
+    use super::next_stamp;
+
+    /// Each document a find marks gets a stamp of its own, and 0 is left to documents no find has
+    /// marked, so a document drawn again never matches the marks of the one it replaced.
+    #[test]
+    fn every_stamp_is_new_and_none_is_the_unmarked() {
+        let (a, b, c) = (next_stamp(), next_stamp(), next_stamp());
+        assert!(a != 0 && b != 0 && c != 0);
+        assert!(a != b && b != c && a != c);
     }
 }
 

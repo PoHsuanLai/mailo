@@ -24,18 +24,18 @@ use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use ds::motion::detail::operation::Operation;
-use mail_client::Client;
 use mail_client::fetch::{Announce, Fetched, Seams, Speaking};
 use mail_client::fetch::{Event, FolderFetch, Link, Trigger};
 use mail_client::schedule::Timing;
 use mail_client::sync::fresh::Pace;
 use mail_client::sync::report::Offer;
+use mail_client::{Client, Snapshot};
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 pub(in crate::ui) use delegate::Delegate;
-pub(in crate::ui) use face::{CANNOT_LOAD, HasRows, ListFace, list_face};
+pub(in crate::ui) use face::{HasRows, ListFace, list_face};
 pub(in crate::ui) use folder::opened;
 pub(in crate::ui) use marks::sync_availability;
 pub(in crate::ui) use need::{Need, Needing, needs_you, use_needs};
@@ -52,6 +52,8 @@ pub(in crate::ui) struct Fetching {
     /// What each account's last pass offered beside its failure.
     offers: Signal<BTreeMap<AccountId, Offer>>,
     client: Signal<Client>,
+    /// How fresh each account is judged to be besides its link, as the client keeps it read.
+    paces: Memo<Snapshot<Vec<(AccountId, Pace)>>>,
 }
 
 impl Fetching {
@@ -155,15 +157,23 @@ impl Fetching {
 
     /// What `account`'s freshness is judged by besides its link: when the store last recorded a
     /// finished pass of it, by this window or by a watch beside it, and what its server allows.
-    /// Read from the store each time, as cheap as two lookups by key: a watch's passes move
-    /// nothing in this window's links.
+    /// As the client has it read: a watch's passes move nothing in this window's links, and the
+    /// store is not read here. An account not read yet is taken to poll at the default interval.
     pub(in crate::ui) fn pace(&self, account: &AccountId) -> Pace {
-        match crate::ui::live::try_client() {
-            Some(client) => client.stored().pace(account.clone()),
-            None => Pace::of_watch(&mail_domain::WatchMode::Poll {
-                every: mail_client::sync::due::IDLE,
-            }),
-        }
+        self.paces
+            .read()
+            .value()
+            .and_then(|paces| {
+                paces
+                    .iter()
+                    .find(|(id, _)| id == account)
+                    .map(|(_, pace)| *pace)
+            })
+            .unwrap_or_else(|| {
+                Pace::of_watch(&mail_domain::WatchMode::Poll {
+                    every: mail_client::sync::due::IDLE,
+                })
+            })
     }
 
     /// `account`'s own status line, what its tile's mark says: `None` for an account with
@@ -258,19 +268,27 @@ pub(in crate::ui) fn use_status(shell: Signal<Shell>) -> Option<StatusLine> {
 }
 
 /// Say which accounts came since the window last looked, once it has looked: an account added in
-/// its own window (or by `mailo account add`) is otherwise seen only as the sidebar changing.
-fn announce_added(before: &BTreeMap<AccountId, Link>, now: &BTreeMap<AccountId, Link>) {
-    if now.keys().all(|id| before.contains_key(id)) {
-        return;
-    }
-    for row in crate::ui::data::account_rows(&crate::ui::live::client()) {
-        if now.contains_key(&row.id) && !before.contains_key(&row.id) {
-            crate::ui::motion::tell(
-                crate::ui::copy::toasts::account_added(&row.address),
-                crate::ui::motion::Follow::Nothing,
-            );
+/// its own window (or by `mailo account add`) is otherwise seen only as the sidebar changing. As
+/// the client keeps the accounts read; the first reading is only what was already there.
+fn announce_added() {
+    let accounts = crate::ui::live::use_live(|| mail_client::query::Accounts);
+    let known = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(None::<BTreeSet<AccountId>>)));
+    use_effect(move || {
+        let Snapshot::Ready { value, .. } = &*accounts.read() else {
+            return;
+        };
+        let rows = crate::ui::data::rows_of(value);
+        let mut known = known.borrow_mut();
+        if let Some(before) = known.as_ref() {
+            for row in rows.iter().filter(|row| !before.contains(&row.id)) {
+                crate::ui::motion::tell(
+                    crate::ui::copy::toasts::account_added(&row.address),
+                    crate::ui::motion::Follow::Nothing,
+                );
+            }
         }
-    }
+        *known = Some(rows.iter().map(|row| row.id.clone()).collect());
+    });
 }
 
 /// What the client's fetching reaches, as this window lends it: the servers, unless a test
@@ -343,13 +361,18 @@ pub(in crate::ui) fn use_fetching() -> Fetching {
     let folders = use_signal(|| first.folders.clone());
     let ops = use_signal(BTreeMap::new);
     let held = use_signal(|| client.clone());
+    let paces = crate::ui::live::use_live(move || {
+        mail_client::query::Paces(links.read().keys().cloned().collect())
+    });
     let fetching = use_context_provider(|| Fetching {
         links,
         ops,
         folders,
         offers,
         client: held,
+        paces,
     });
+    announce_added();
     let _running = use_future(move || {
         let run = run.borrow_mut().take();
         async move {
@@ -376,8 +399,8 @@ pub(in crate::ui) fn use_fetching() -> Fetching {
     fetching
 }
 
-/// Write what the client's fetching now is into the window's signals, each only if it moved, and
-/// say which accounts came.
+/// Write what the client's fetching now is into the window's signals, each only if it moved.
+/// Which accounts came is [`announce_added`]'s, from the accounts the client has read.
 fn follow(fetching: Fetching, now: &Fetched) {
     let Fetching {
         mut links,
@@ -387,7 +410,6 @@ fn follow(fetching: Fetching, now: &Fetched) {
         ..
     } = fetching;
     if *links.peek() != now.links {
-        announce_added(&links.peek(), &now.links);
         let next: BTreeMap<AccountId, Operation> = now
             .links
             .iter()

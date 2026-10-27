@@ -157,6 +157,9 @@ fn user_label(store: &SqliteStore, name: &str) -> Label {
 fn keywords_read_back_as_the_labels_that_wrote_them() {
     let store = sqlite();
     store
+        .set_account_keeps_labels(acct_account(), true, at(0))
+        .unwrap();
+    store
         .put_caps(acct_account(), &caps(ServerLabels::Keywords), at(0))
         .unwrap();
     let m = delivered(&store);
@@ -187,6 +190,9 @@ fn keywords_read_back_as_the_labels_that_wrote_them() {
 fn a_label_with_no_keyword_outlives_a_sync() {
     let store = sqlite();
     store
+        .set_account_keeps_labels(acct_account(), true, at(0))
+        .unwrap();
+    store
         .put_caps(acct_account(), &caps(ServerLabels::Keywords), at(0))
         .unwrap();
     let m = delivered(&store);
@@ -210,6 +216,9 @@ fn a_label_with_no_keyword_outlives_a_sync() {
 #[test]
 fn labels_held_before_keywords_are_sent_when_the_server_keeps_them() {
     let store = sqlite();
+    store
+        .set_account_keeps_labels(acct_account(), true, at(0))
+        .unwrap();
     store
         .put_caps(acct_account(), &caps(ServerLabels::LocalOnly), at(0))
         .unwrap();

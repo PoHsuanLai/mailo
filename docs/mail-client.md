@@ -31,14 +31,18 @@ mail-app     → mail-ui, mail-client, mail-core                     (binary, CL
 ```
 
 The fence is the compiler: `mail-ui`'s `Cargo.toml` names no `mail-core`, `mail-store` or
-`mail-runtime` among its dependencies, so a store is not something the window can name. Its tests
+`mail-runtime` among its dependencies, so the window cannot name the store crate. `Stored`
+still shows the store's API (`Patch`, `StoreError`, rows) to the window that holds one. Its tests
 have them as dev-dependencies, to seed a store as a fixture and hand the window a client over it
 (`fixtures::client`); that code is compiled for tests alone. `mail-core` re-exports
 `SqliteStore` at its root, so dropping a dependency inside `mail-app` would fence nothing, and
-module privacy cannot hide another crate's paths. There is no lint and no allowlist: until the
-split, the stages simply convert the window, and the split is what keeps it converted.
+module privacy cannot hide another crate's paths. `scripts/check-boundary.sh` fails when `mail-ui`'s
+`[dependencies]` name one of those crates, and there is no allowlist: until the split, the
+stages simply convert the window, and the split is what keeps it converted.
 
-`mail-client` re-exports only what reads no store (`pure.rs`): `mail-core`'s words for mail
+The failures and seams a caller names beside the client's own (`CoreError`, `StoreError`,
+`Remedy`, `OAuthClients`, `SigningStore`, ...) are under `mail_client::prelude`; the crate root
+holds the client's own API. `mail-client` re-exports only what reads no store (`pure.rs`): `mail-core`'s words for mail
 (`Scope`, `undo`, `when`, `editor`, the pure parts of `view` and `place`, the shapes a call takes
 and hands back) and what it does with no store at all (parsing a search, the files under the
 config directory). Each re-exported module holds only what the window uses of `mail-core`'s. It
@@ -125,13 +129,13 @@ impl<T> Live<T> {
 Every write goes through the store, so the store says what changed.
 
 - **Topics** are bitflags in `mail-store`: `ACCOUNTS, LABELS, FOLDERS, SUMMARIES, DRAFTS,
-  OUTBOX, VIEWS, VIPS, CONTACTS, RULES, KEYS, TEMPLATES, SIGNATURES, IDENTITIES, PREFS,
-  FOLLOW_UPS, CLOCK`. Each query declares the topics it reads.
+  OUTBOX, VIEWS, CONTACTS, RULES, KEYS, TEMPLATES, IDENTITIES, FOLLOW_UPS, CLOCK` (and `ALL`).
+  The list is `mail-store`'s `changes.rs`. Each query declares the topics it reads.
 - **In this process.** `connection()` returns a `Writer` guard that counts how deep the thread
   holds the writer. A `commit_hook` marks the store dirty (a rolled-back transaction never
   reaches it, so there is no `rollback_hook`); `update_hook` cannot say which tables, because
-  SQLite does not call it for WITHOUT ROWID tables (`folders`, `vips`, `message_labels`,
-  `sync_state`, `pending_changes`). Write methods say what they touch
+  SQLite does not call it for WITHOUT ROWID tables (`folders`, `message_labels`, `sync_state`,
+  `pending_changes`). Write methods say what they touch
   (`self.touch(Topics::FOLDERS)`). When the outermost guard drops, after the commit is visible
   to readers, the store publishes `Committed { topics, generation }`. A commit that said nothing
   publishes `ALL`, so a missing declaration costs a recount, never a stale window.

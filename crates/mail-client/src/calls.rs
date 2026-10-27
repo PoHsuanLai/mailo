@@ -490,6 +490,15 @@ mod export {
             mail_core::export::export(self.0.store(), env, messages, target, now, progress)
         }
 
+        /// `mail_core::export::raw_head`.
+        pub fn raw_head(
+            &self,
+            id: MessageId,
+            limit: usize,
+        ) -> Result<Option<mail_core::export::RawHead>, CoreError> {
+            mail_core::export::raw_head(self.0.store(), id, limit)
+        }
+
         /// `mail_core::export::save_eml`.
         pub fn save_eml(&self, id: MessageId, dir: &Path) -> Result<Option<PathBuf>, CoreError> {
             mail_core::export::save_eml(self.0.store(), id, dir)

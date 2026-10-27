@@ -173,16 +173,8 @@ pub fn run(
                 .into_iter()
                 .map(|l| (l.name, l.id))
                 .collect();
-            let vips = crate::vip::read(store);
             let named = crate::query::named(&index);
-            let filter = crate::query::parse_with(
-                query,
-                &chrono::Local,
-                &crate::query::WithVips {
-                    names: &named,
-                    vips: &vips,
-                },
-            );
+            let filter = crate::query::parse_with(query, &chrono::Local, &named);
             let position = store
                 .rules(account.id.clone())?
                 .iter()

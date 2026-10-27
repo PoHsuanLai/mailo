@@ -192,6 +192,22 @@ pub(crate) fn first_stored(patch: &mail_domain::Patch) -> impl Iterator<Item = M
 }
 
 impl SyncReport {
+    /// Keep what a write that stopped part-way had already committed, and say the rest did not
+    /// follow. True when `error` was such a stop: the pass then ends with what it has, so the
+    /// messages that did arrive still meet the rules and the notifications, and the next pass
+    /// writes the rest.
+    pub(crate) fn stopped_by(&mut self, error: &RuntimeError) -> bool {
+        let RuntimeError::Store(error) = error else {
+            return false;
+        };
+        let Some(written) = error.written() else {
+            return false;
+        };
+        self.arrived.extend(first_stored(written));
+        self.needs_attention.push(error.to_string());
+        true
+    }
+
     /// Say that `count` messages of `mailbox` arrived and could not be read as messages. They
     /// were skipped, and the pass's cursor has moved past them, so nothing will fetch them
     /// again: the person is told rather than left with mail that silently never came.
@@ -329,9 +345,10 @@ pub struct AccountEngine<B: Backend> {
     /// ([`AccountEngine::downloading_since`]). `None`, every message, unless the account was set
     /// to be downloaded only so far back.
     since: Option<DateTime<Utc>>,
-    /// What the server was last observed to support with the folders the person picked for
-    /// roles laid over it ([`mail_store::with_picks`]), read back from the store after each
-    /// refresh. `None` while nothing is picked, and the backend's own belief stands.
+    /// What the server was last observed to support with what the person chose laid over it
+    /// ([`mail_store::AccountPrefs::over`]): folders picked for roles, and labels kept on the
+    /// server or not. Read back from the store after each refresh. `None` while they chose
+    /// nothing that changes it, and the backend's own belief stands.
     picked: Option<AccountCaps>,
     /// The mailboxes besides the one watched that a watch also hears of through `NOTIFY`
     /// ([`AccountEngine::with_also`]).
@@ -1559,8 +1576,10 @@ impl<B: Backend> AccountEngine<B> {
     /// Read back what was just written, with the person's picked folders over it, for the
     /// rest of this engine's life to file by.
     fn repick(&mut self) -> Result<(), RuntimeError> {
-        let picks = self.store.account_prefs(self.account.clone())?.folders;
-        self.picked = match picks.is_empty() {
+        let prefs = self.store.account_prefs(self.account.clone())?;
+        // Nothing the person said changes what the backend believes only when they picked no
+        // folder and chose to keep their labels on the server.
+        self.picked = match prefs.folders.is_empty() && prefs.keep_labels {
             true => None,
             false => self.store.account_caps(self.account.clone())?,
         };
@@ -1720,7 +1739,9 @@ impl<B: Backend> AccountEngine<B> {
             Ok(ProtoOutcome::Woken) => Ok(true),
             // No `NOTIFY`: nothing was sent past the capability check, and the other mailboxes
             // are the caller's to watch.
-            Err(RuntimeError::Proto(mail_proto::ProtoError::Unsupported(_))) if asking => {
+            Err(RuntimeError::Proto(ref e))
+                if asking && mail_proto::lacks_capability(e, "NOTIFY") =>
+            {
                 self.notify = Notify::Absent;
                 Ok(false)
             }
@@ -1869,14 +1890,25 @@ impl<B: Backend> AccountEngine<B> {
                     label_names,
                 }) => {
                     report.headers_fetched += items.len();
+                    // What the survey said each weighs, before the headers say nothing of it.
+                    let sizes: Vec<(RemoteRef, u64)> = wanted
+                        .iter()
+                        .filter(|(remote, _)| batch.contains(remote))
+                        .cloned()
+                        .collect();
                     let said = Said {
                         flags,
                         flag_colors,
                         label_names,
                     };
-                    let stored = self.absorb_headers(mailbox, items, said, now)?;
+                    let stored = match self.absorb_headers(mailbox, items, said, now) {
+                        Ok(stored) => stored,
+                        Err(e) if report.stopped_by(&e) => return Ok(report),
+                        Err(e) => return Err(e),
+                    };
                     report.unreadable(mailbox, stored.unreadable);
                     report.arrived.extend(first_stored(&stored.patch));
+                    self.keep_server_sizes(sizes)?;
                 }
                 Ok(_) => {}
                 Err(RuntimeError::Cancelled) => return Ok(report),
@@ -1895,6 +1927,28 @@ impl<B: Backend> AccountEngine<B> {
             self.synced.push(mailbox.path.clone());
         }
         Ok(report)
+    }
+
+    /// Keep the sizes a survey gave for messages whose headers are now held, so `larger:` and
+    /// `smaller:` find a message by the size the server says before its body is fetched. A size
+    /// of 0 is the survey not knowing (POP3 without `LIST`, a server that left it out), not an
+    /// empty message, and is not kept.
+    fn keep_server_sizes(&self, sizes: Vec<(RemoteRef, u64)>) -> Result<(), RuntimeError> {
+        let known: std::collections::HashMap<RemoteRef, u64> = sizes
+            .into_iter()
+            .filter(|(_, size)| *size > 0 && *size != u64::MAX)
+            .collect();
+        if known.is_empty() {
+            return Ok(());
+        }
+        let remotes: Vec<RemoteRef> = known.keys().cloned().collect();
+        let held = self.store.held_at(self.account.clone(), &remotes)?;
+        let sized: Vec<(mail_domain::MessageId, u64)> = held
+            .into_iter()
+            .filter_map(|(remote, message)| known.get(&remote).map(|size| (message, *size)))
+            .collect();
+        self.store.hold_server_sizes(&sized)?;
+        Ok(())
     }
 
     /// Keep the headers a `FetchHeaders` brought from `mailbox`, and what the server said of
@@ -1937,7 +1991,7 @@ impl<B: Backend> AccountEngine<B> {
         //
         // The colours and the keyword labels came on the same FETCH, for the same reason.
         if !said.flags.is_empty() || !said.flag_colors.is_empty() || !said.label_names.is_empty() {
-            self.store.ingest(
+            let flags = self.store.ingest(
                 self.account.clone(),
                 mail_domain::Ingest {
                     mailbox: mailbox.clone(),
@@ -1951,7 +2005,19 @@ impl<B: Backend> AccountEngine<B> {
                     provider_threads: Vec::new(),
                     gone: Vec::new(),
                 },
-            )?;
+            );
+            if let Err(cause) = flags {
+                // The messages are stored; only their flags are not. Say so, so they are
+                // not lost to the pass that reports what arrived.
+                let cause = match cause {
+                    mail_store::StoreError::Partial { cause, .. } => *cause,
+                    other => other,
+                };
+                return Err(RuntimeError::Store(mail_store::StoreError::Partial {
+                    written: Box::new(stored.patch),
+                    cause: Box::new(cause),
+                }));
+            }
         }
         Ok(stored)
     }
@@ -2027,7 +2093,7 @@ impl<B: Backend> AccountEngine<B> {
             .collect();
         if !new.is_empty() {
             report.headers_fetched += new.len();
-            let stored = crate::assemble::absorb_counted(
+            let stored = match crate::assemble::absorb_counted(
                 &self.store,
                 self.account.clone(),
                 crate::assemble::Destination {
@@ -2038,7 +2104,11 @@ impl<B: Backend> AccountEngine<B> {
                 new,
                 true,
                 now,
-            )?;
+            ) {
+                Ok(stored) => stored,
+                Err(e) if report.stopped_by(&e) => return Ok(report),
+                Err(e) => return Err(e),
+            };
             report.unreadable(mailbox, stored.unreadable);
             report.arrived.extend(first_stored(&stored.patch));
         }
@@ -2781,6 +2851,22 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn a_pass_stopped_part_way_ends_with_what_it_had_and_says_so() {
+        let mut report = SyncReport::default();
+        assert!(!report.stopped_by(&RuntimeError::Store(mail_store::StoreError::BadCursor)));
+        assert!(report.needs_attention.is_empty());
+        let partial = RuntimeError::Store(mail_store::StoreError::Partial {
+            written: Box::new(mail_domain::Patch {
+                id: mail_domain::ChangeId::generate(),
+                changes: Vec::new(),
+            }),
+            cause: Box::new(mail_store::StoreError::BadCursor),
+        });
+        assert!(report.stopped_by(&partial));
+        assert_eq!(report.needs_attention.len(), 1);
     }
 
     #[test]

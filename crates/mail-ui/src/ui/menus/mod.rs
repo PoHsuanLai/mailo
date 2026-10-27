@@ -26,10 +26,8 @@ use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::root::pass_through::ExtraClass;
-use mail_client::Client;
 use mail_client::when::Clock;
 use mail_domain::*;
-use porter_core::AccountId;
 
 /// The four times the snooze menu offers, as `(what it says, the phrase it means)`.
 const SNOOZE: &[(&str, &str)] = &[
@@ -359,14 +357,25 @@ pub(super) fn LabelMenu(
                     })
                     .collect();
                 if let Some(name) = key.strip_prefix("create:") {
-                    let Some(created) = create_label(&client, account.clone(), name) else {
-                        return;
+                    // Made off the thread that draws, and put on the conversations once it is.
+                    let keep = mail_client::act::Keep::Label {
+                        account: account.clone(),
+                        name: name.to_owned(),
                     };
-                    let ops = targets
-                        .into_iter()
-                        .map(|thread| (thread, Op::Label(created, Membership::In)))
-                        .collect();
-                    act_all(&client, shell, ops);
+                    crate::ui::motion::keep(keep, move |made| {
+                        let Ok(Some(created)) = made else {
+                            crate::ui::motion::tell(
+                                copy::errors::LABEL_NOT_MADE.to_owned(),
+                                crate::ui::motion::Follow::Nothing,
+                            );
+                            return;
+                        };
+                        let ops = targets
+                            .into_iter()
+                            .map(|thread| (thread, Op::Label(created, Membership::In)))
+                            .collect();
+                        act_all(&crate::ui::live::client(), shell, ops);
+                    });
                     done();
                     return;
                 }
@@ -390,12 +399,6 @@ pub(super) fn LabelMenu(
             onclose: move |()| done(),
         }
     }
-}
-
-/// A label the user just named. The client creates provider labels during ingest; this one is
-/// the user's, so its origin is `user`.
-fn create_label(client: &Client, account: AccountId, name: &str) -> Option<LabelId> {
-    client.stored().create_label(account, name).ok()
 }
 
 #[cfg(test)]

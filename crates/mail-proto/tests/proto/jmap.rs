@@ -497,9 +497,9 @@ fn patches_name_only_what_changed() {
         json!({
             "keywords/$seen": true,
             "keywords/$flagged": null,
-            "keywords/$MailFlagBit0": null,
-            "keywords/$MailFlagBit1": null,
-            "keywords/$MailFlagBit2": null,
+            "keywords/$mailflagbit0": null,
+            "keywords/$mailflagbit1": null,
+            "keywords/$mailflagbit2": null,
         })
     );
     // An orange flag: bit 0 set, the other two cleared, so a purple flag before it is gone.
@@ -507,9 +507,9 @@ fn patches_name_only_what_changed() {
         Value::Object(flag_patch(Hue::Orange)),
         json!({
             "keywords/$flagged": true,
-            "keywords/$MailFlagBit0": true,
-            "keywords/$MailFlagBit1": null,
-            "keywords/$MailFlagBit2": null,
+            "keywords/$mailflagbit0": true,
+            "keywords/$mailflagbit1": null,
+            "keywords/$mailflagbit2": null,
         })
     );
     assert_eq!(
@@ -571,7 +571,7 @@ fn patches_name_only_what_changed() {
     );
     assert_eq!(
         Value::Object(keyword_patch(mail_domain::Keyword::MdnSent)),
-        json!({ "keywords/$MDNSent": true })
+        json!({ "keywords/$mdnsent": true })
     );
 }
 

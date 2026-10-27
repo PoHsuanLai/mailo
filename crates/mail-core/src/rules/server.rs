@@ -14,7 +14,7 @@
 
 use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, TimeZone, Utc};
-use mail_domain::{AccountPlan, AuthPlan, DateRange, Incoming, IsDefault, Vacation};
+use mail_domain::{AccountPlan, DateRange, Incoming, IsDefault, Vacation};
 use mail_proto::sieve::{
     Active, NoSieve, Places, SieveJob, SieveOutcome, Takeover, Unmappable, compile, endpoint,
 };
@@ -354,8 +354,8 @@ pub async fn run_vacation(
 }
 
 /// Whether switching the reply off is said to the server: only when a reply was kept here to
-/// switch off, and the server keeps one.
-fn off_reaches_server(kept_here: bool, server_keeps_one: bool) -> bool {
+/// switch off, and the server keeps one. One rule for the command and for the page.
+pub fn off_reaches_server(kept_here: bool, server_keeps_one: bool) -> bool {
     kept_here && server_keeps_one
 }
 
@@ -376,7 +376,32 @@ pub async fn put_away(
         Err(why) => PushDone::NotPushed(why),
     };
     match away_server(&account.plan) {
-        Ok(AwayServer::Jmap) => set(AwayServer::Jmap, set_jmap(store, secrets, account).await),
+        Ok(AwayServer::Jmap) => {
+            let done = set_jmap(store, secrets.clone(), account).await;
+            if done.is_ok() && script_may_answer(&account.plan) {
+                // A reply this account kept in its Sieve script before the server kept it
+                // itself would go on answering beside the new one, and a reply switched off here
+                // would go on answering after: the script is written again without it. A server
+                // with no ManageSieve has no script to scrub, and says so by refusing the
+                // connection, which is not a reason to call the reply not set.
+                if let Err(why) = pushed(
+                    store,
+                    secrets.as_ref(),
+                    account,
+                    Takeover::Refuse,
+                    saved,
+                    now,
+                )
+                .await
+                {
+                    log::debug!(
+                        "{}: the Sieve script was not rewritten: {why}",
+                        account.address
+                    );
+                }
+            }
+            set(AwayServer::Jmap, done)
+        }
         Ok(AwayServer::Graph) => set(
             AwayServer::Graph,
             set_graph(store, secrets.as_ref(), account, saved, now).await,
@@ -394,6 +419,12 @@ pub async fn put_away(
             .await
         }
     }
+}
+
+/// Whether a JMAP account's server may hold a Sieve script from before it kept the reply itself:
+/// one a ManageSieve endpoint could be asked for ([`endpoint`]).
+fn script_may_answer(plan: &AccountPlan) -> bool {
+    matches!(plan.incoming, Incoming::Jmap { .. }) && endpoint(plan).is_ok()
 }
 
 /// Why a vacation reply was not set on a server that keeps it.
@@ -429,30 +460,16 @@ async fn set_graph(
     now: DateTime<Utc>,
 ) -> Result<(), CoreError> {
     let vacation = store.vacation(account.id.clone())?;
-    let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
-        return Err(not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
-            "an account that reads through Microsoft Graph signs in with Microsoft",
-        ))));
-    };
-    let client = mail_runtime::clients::client(saved, *issuer).ok_or_else(|| {
-        not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
-            "no OAuth client id is configured, so Microsoft Graph cannot be signed in to",
-        )))
-    })?;
-    let reach = mail_runtime::tokens::GraphReach::of(&account.plan);
-    let token = mail_runtime::tokens::graph_token(account.id.clone(), client, reach, secrets, now)
-        .await
-        .map_err(not_set)?;
-    let Credential::OAuth { access, .. } = token else {
-        return Err(not_set(RuntimeError::Secrets(mail_runtime::Failure::said(
-            "the Microsoft Graph credential kept for this account is not a token",
-        ))));
-    };
-    let http = mail_runtime::http::http_client().map_err(not_set)?;
-    let body = mail_proto::automatic_replies::automatic_replies(vacation.as_ref(), now);
-    mail_runtime::graph::replies::set_automatic_replies(&http, access.expose(), &body)
-        .await
-        .map_err(not_set)
+    mail_runtime::graph::replies::set(
+        account.id.clone(),
+        &account.plan,
+        vacation.as_ref(),
+        saved,
+        secrets,
+        now,
+    )
+    .await
+    .map_err(not_set)
 }
 
 /// Push after a change, saying so either way: kept here is not the same as running there.
@@ -635,7 +652,46 @@ async fn status(
 
 #[cfg(test)]
 mod off_tests {
-    use super::off_reaches_server;
+    use super::{off_reaches_server, script_may_answer};
+    use mail_domain::{
+        AccountPlan, AuthPlan, HttpAuth, Incoming, Outgoing, SaslMech, Tls, Username,
+    };
+
+    fn plan(incoming: Incoming) -> AccountPlan {
+        AccountPlan {
+            address: "ada@example.test".to_owned(),
+            incoming,
+            outgoing: Outgoing::Nowhere,
+            auth: AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_jmap_accounts_old_sieve_script_is_rewritten_when_a_server_could_hold_one() {
+        let jmap = |session: &str| Incoming::Jmap {
+            session: session.to_owned(),
+            auth: HttpAuth::Basic,
+        };
+        assert!(script_may_answer(&plan(jmap(
+            "https://mail.example.test/.well-known/jmap"
+        ))));
+        assert!(
+            !script_may_answer(&plan(jmap("not a url"))),
+            "no host to ask"
+        );
+        assert!(
+            !script_may_answer(&plan(Incoming::Imap {
+                host: "imap.example.test".to_owned(),
+                port: 993,
+                tls: Tls::Implicit,
+            })),
+            "an IMAP account's script is the one its reply is set in"
+        );
+    }
 
     #[test]
     fn off_is_said_to_the_server_only_for_a_reply_kept_here() {

@@ -20,6 +20,8 @@ pub const COMPOSING: &str = "Composing";
 pub const VIEWING: &str = "Viewing";
 pub const NOTIFICATIONS: &str = "Notifications";
 pub const PRIVACY: &str = "Privacy";
+/// The page of the junk filter's switches.
+pub const JUNK_MAIL: &str = "Junk Mail";
 pub const RULES: &str = "Rules";
 pub const KEYBOARD: &str = "Keyboard";
 /// Privacy's page of the senders whose images load.

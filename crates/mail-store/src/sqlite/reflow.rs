@@ -35,7 +35,7 @@ impl Kept {
 impl SqliteStore {
     /// Every draft and template whose text waits to be written as flowed text, with that text.
     pub fn reflow_queue(&self) -> Result<Vec<(Kept, String)>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut out = Vec::new();
         let mut stmt = db.prepare(
             "SELECT q.draft, d.body_text FROM drafts_to_reflow q

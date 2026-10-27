@@ -138,6 +138,19 @@ fn generic_rows() -> Vec<ImapRow> {
             )),
         ),
         (
+            "cc: is the Cc line alone",
+            Filter::Cc(contains("bob")),
+            Ok((inbox_archive.clone(), "a1 UID SEARCH CC \"bob\"\r\n")),
+        ),
+        (
+            "an address is a sender's address",
+            Filter::FromAddress("ada@example.test".to_owned()),
+            Ok((
+                inbox_archive.clone(),
+                "a1 UID SEARCH FROM \"ada@example.test\"\r\n",
+            )),
+        ),
+        (
             "-from:news is:starred",
             and(vec![
                 not(Filter::From(contains("news"))),
@@ -561,6 +574,16 @@ fn jmap_carries_the_query_whole_as_a_filter_tree() {
             Ok(json!({ "operator": "OR", "conditions": [{ "to": "bob" }, { "cc": "bob" }] })),
         ),
         (
+            "cc: is the Cc line alone",
+            Filter::Cc(contains("bob")),
+            Ok(json!({ "cc": "bob" })),
+        ),
+        (
+            "an address is a sender's address",
+            Filter::FromAddress("ada@example.test".to_owned()),
+            Ok(json!({ "from": "ada@example.test" })),
+        ),
+        (
             "state, attachment and a place",
             and(vec![
                 Filter::Read(ReadState::Unread),
@@ -705,6 +728,26 @@ fn graph_uses_filter_for_state_and_search_for_words_never_both() {
             Err(vec!["label: (labels stay on this computer for Microsoft accounts)"]),
         ),
         ("is:pinned", and(vec![Filter::Pinned, text("x")]), Err(vec!["is:pinned (kept on this computer)"])),
+        (
+            "larger: and smaller: are KQL size",
+            and(vec![Filter::Larger(5000), Filter::Smaller(100_000)]),
+            Ok(everywhere(GraphQuery::Search("(size:>5000 AND size:<100000)".to_owned()))),
+        ),
+        (
+            "cc: is the Cc line alone",
+            Filter::Cc(contains("bob")),
+            Ok(everywhere(GraphQuery::Search("cc:\"bob\"".to_owned()))),
+        ),
+        (
+            "an address is a sender's address",
+            Filter::FromAddress("ada@example.test".to_owned()),
+            Ok(everywhere(GraphQuery::Search("from:\"ada@example.test\"".to_owned()))),
+        ),
+        (
+            "is:vip is this client's list",
+            and(vec![Filter::Vip, text("x")]),
+            Err(vec!["is:vip (kept on this computer)"]),
+        ),
     ];
     for (name, filter, expected) in cases {
         match (graph::translate(&filter, account()), expected) {

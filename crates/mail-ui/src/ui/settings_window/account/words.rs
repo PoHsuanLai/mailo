@@ -107,7 +107,10 @@ const NEARLY_FULL: f64 = 0.9;
 
 /// The Storage row, from what the account's server said it uses.
 pub(super) fn storage(storage: &Storage) -> Line {
-    let (used, limit) = (said::amount(storage.used), said::amount(storage.limit));
+    let (used, limit) = (
+        mail_domain::human_size(storage.used),
+        mail_domain::human_size(storage.limit),
+    );
     line(
         row::STORAGE,
         if storage.share() >= NEARLY_FULL {

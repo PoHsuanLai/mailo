@@ -10,11 +10,21 @@ use rusqlite::params;
 impl SqliteStore {
     pub(super) fn load_views(&self) -> Result<Vec<View>, StoreError> {
         let db = self.reader();
-        let mut stmt = db.prepare_cached("SELECT view FROM views ORDER BY position, id")?;
+        let mut stmt = db.prepare_cached("SELECT id, view FROM views ORDER BY position, id")?;
         let mut rows = stmt.query([])?;
         let mut out = Vec::new();
         while let Some(row) = rows.next()? {
-            out.push(json("View", &row.get::<_, String>(0)?)?);
+            // A view this build cannot read (one a newer build wrote, with a property or a
+            // clause it does not know) is left out, and left in its row, rather than failing
+            // the whole list: the views it can read are still the person's. A build that knows
+            // it reads it again.
+            match json("View", &row.get::<_, String>(1)?) {
+                Ok(view) => out.push(view),
+                Err(e) => log::warn!(
+                    "the saved view {} could not be read and is left out: {e}",
+                    row.get::<_, String>(0)?
+                ),
+            }
         }
         Ok(out)
     }

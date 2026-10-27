@@ -51,7 +51,7 @@ fn list_end(nodes: &[Node], start: usize, tag: ListTag) -> usize {
 
 /// The depth each item of a run is written at: its own, but at most one below the item before
 /// it, and the first at the outer list's. A list nests inside an item, so it cannot skip one.
-fn written_depths(items: &[Node]) -> Vec<usize> {
+pub(crate) fn written_depths(items: &[Node]) -> Vec<usize> {
     let mut out: Vec<usize> = Vec::with_capacity(items.len());
     for node in items {
         let depth = match node {

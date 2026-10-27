@@ -14,7 +14,7 @@
 //! first and a click on it opens nothing.
 
 use super::{Act, Opens, act_for};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, PoisonError};
 
 /// At most this many notifications are remembered for a click at once.
@@ -45,21 +45,22 @@ pub struct Clicked {
 pub struct Held {
     order: VecDeque<u32>,
     opens: HashMap<u32, Opens>,
-    replies: HashMap<u32, String>,
+    replies: HashSet<u32>,
     tokens: HashMap<u32, String>,
 }
 
 impl Held {
-    /// Remember that notification `id` opens `opens` and offers to reply by `reply`, forgetting
-    /// the oldest past [`REMEMBERED`].
-    pub fn show(&mut self, id: u32, opens: Opens, reply: Option<String>) {
+    /// Remember that notification `id` opens `opens` and, when `reply`, offers a Reply button,
+    /// forgetting the oldest past [`REMEMBERED`].
+    pub fn show(&mut self, id: u32, opens: Opens, reply: bool) {
         if self.opens.insert(id, opens).is_none() {
             self.order.push_back(id);
         }
-        match reply {
-            Some(link) => self.replies.insert(id, link),
-            None => self.replies.remove(&id),
-        };
+        if reply {
+            self.replies.insert(id);
+        } else {
+            self.replies.remove(&id);
+        }
         while self.order.len() > REMEMBERED {
             if let Some(old) = self.order.pop_front() {
                 self.forget(old);
@@ -98,7 +99,7 @@ impl Held {
             }
             Signal::Invoked { id, action } => {
                 let opens = self.opens.get(&id)?.clone();
-                let act = act_for(&action, &opens, self.replies.get(&id).map(String::as_str))?;
+                let act = act_for(&action, &opens, self.replies.contains(&id))?;
                 Some(Clicked {
                     opens,
                     act,
@@ -121,9 +122,9 @@ pub struct Clicks {
 }
 
 impl Clicks {
-    /// Remember what notification `id` opens and how it replies. Called right after the server
-    /// answered `Notify`.
-    pub fn show(&self, id: u32, opens: Opens, reply: Option<String>) {
+    /// Remember what notification `id` opens and whether it offers Reply. Called right after the
+    /// server answered `Notify`.
+    pub fn show(&self, id: u32, opens: Opens, reply: bool) {
         self.held
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -239,7 +240,7 @@ mod tests {
     #[test]
     fn a_click_opens_what_the_notification_was_about_with_the_token_the_server_sent_first() {
         let mut held = Held::default();
-        held.show(7, thread(1), None);
+        held.show(7, thread(1), false);
         assert_eq!(
             held.hear(token(7, "tok-7")),
             None,
@@ -258,7 +259,7 @@ mod tests {
     #[test]
     fn a_server_that_sends_no_token_still_opens_the_message() {
         let mut held = Held::default();
-        held.show(1, Opens::Inbox(account()), None);
+        held.show(1, Opens::Inbox(account()), false);
         assert_eq!(
             held.hear(invoked(1, "default")),
             Some(Clicked {
@@ -267,7 +268,7 @@ mod tests {
                 token: None
             })
         );
-        held.show(2, Opens::Inbox(account()), None);
+        held.show(2, Opens::Inbox(account()), false);
         held.hear(token(2, ""));
         assert_eq!(
             held.hear(invoked(2, "default")),
@@ -282,10 +283,10 @@ mod tests {
     #[test]
     fn nothing_but_the_default_action_on_our_own_notification_opens_anything() {
         let mut held = Held::default();
-        held.show(3, thread(3), None);
+        held.show(3, thread(3), false);
         let cases = [
             ("an action we never offered", invoked(3, "delete")),
-            ("a reply with no link to start it", invoked(3, "reply")),
+            ("a reply that was not offered", invoked(3, "reply")),
             ("another program's notification", invoked(99, "default")),
             ("a close", Signal::Closed { id: 3 }),
             ("a click after the close", invoked(3, "default")),
@@ -299,8 +300,8 @@ mod tests {
     #[test]
     fn a_button_on_our_banner_starts_what_it_says_with_the_token_and_only_once_offered() {
         let mut held = Held::default();
-        held.show(4, thread(4), Some("mailto:ada%40example.test".to_owned()));
-        held.show(5, Opens::Inbox(account()), None);
+        held.show(4, thread(4), true);
+        held.show(5, Opens::Inbox(account()), false);
         held.hear(token(4, "tok-4"));
         assert_eq!(
             held.hear(invoked(4, "archive")),
@@ -312,7 +313,7 @@ mod tests {
         );
         assert_eq!(
             held.hear(invoked(4, "reply")).map(|c| c.act),
-            Some(Act::Reply("mailto:ada%40example.test".to_owned()))
+            Some(Act::Reply)
         );
         assert_eq!(
             held.hear(invoked(5, "archive")),
@@ -332,7 +333,7 @@ mod tests {
     fn a_server_that_never_says_closed_cannot_grow_the_memory_without_end() {
         let mut held = Held::default();
         for id in 0..(REMEMBERED as u32 + 10) {
-            held.show(id, thread(u128::from(id)), None);
+            held.show(id, thread(u128::from(id)), false);
             held.hear(token(id, "t"));
         }
         assert_eq!(held.len(), REMEMBERED);

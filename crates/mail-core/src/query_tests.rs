@@ -19,7 +19,6 @@ fn parse(input: &str) -> Filter {
     let known = Known {
         labels: &[],
         accounts: &accounts,
-        vips: None,
     };
     parse_with(input, &Utc, &known)
 }
@@ -41,8 +40,13 @@ fn each_new_operator_builds_its_filter() {
     const M: u64 = 1024 * 1024;
     let cases: Vec<(&str, &str, Filter)> = vec![
         (
-            "cc: is addressed to",
+            "cc: is the Cc line alone",
             "cc:bob",
+            Filter::Cc(TextMatch::Contains("bob".to_owned())),
+        ),
+        (
+            "to: is everyone addressed",
+            "to:bob",
             Filter::To(TextMatch::Contains("bob".to_owned())),
         ),
         ("larger: in mebibytes", "larger:5M", Filter::Larger(5 * M)),
@@ -148,7 +152,6 @@ fn the_search_box_keeps_an_either_or_whole() {
     let known = Known {
         labels: &[],
         accounts: &accounts,
-        vips: None,
     };
     let parsed = crate::search::parse("from:ada OR from:bob lunch ", &Utc, &known);
     assert_eq!(
@@ -177,7 +180,27 @@ fn a_size_reads_back_as_written() {
     }
 }
 
-/// `is:vip`: the VIPs' addresses as a filter, and the store listing what it asks for.
+/// `cc:` and `is:vip` written back read as the same clause.
+#[test]
+fn a_copy_and_a_vip_read_back_as_written() {
+    let words = mail_domain::filter::Words {
+        label: &|_| String::new(),
+        folder: &|path| path.to_owned(),
+        account: "",
+        snooze_due: "",
+        any_date: "",
+    };
+    for filter in [
+        Filter::Cc(TextMatch::Contains("bob".to_owned())),
+        Filter::Cc(TextMatch::Contains("bob smith".to_owned())),
+        Filter::Vip,
+    ] {
+        let spelled = filter.spelled(&words);
+        assert_eq!(parse(&spelled), filter, "{spelled}");
+    }
+}
+
+/// `is:vip`: a clause that follows the VIP list, and the store listing what it asks for.
 mod vip {
     use super::*;
     use crate::support_tests::{account as in_store, at, message};
@@ -186,79 +209,44 @@ mod vip {
     };
     use mail_store::{MemoryStore, Store};
 
-    fn vips() -> Vips {
-        Vips::new(["dana@example.test", "Bob@Example.test"])
-    }
-
-    fn parsed(typed: &str, vips: &Vips) -> Filter {
-        parse_with(
-            typed,
-            &Utc,
-            &WithVips {
-                names: &unnamed,
-                vips,
-            },
-        )
-    }
-
-    fn from(address: &str) -> Filter {
-        Filter::From(TextMatch::Exact(address.to_owned()))
-    }
-
     #[test]
-    fn is_vip_is_the_vips_addresses() {
-        let both = Filter::Or(vec![from("bob@example.test"), from("dana@example.test")]);
-        // (case, typed, the VIPs, the filter)
-        let cases: Vec<(&str, &str, Vips, Filter)> = vec![
-            ("is:vip", "is:vip", vips(), both.clone()),
-            ("its plural, any case", "is:VIPs", vips(), both.clone()),
-            (
-                "one VIP is that address alone",
-                "is:vip",
-                Vips::new(["dana@example.test"]),
-                from("dana@example.test"),
-            ),
-            (
-                "nobody a VIP finds nothing",
-                "is:vip",
-                Vips::default(),
-                Filter::Nothing,
-            ),
-            (
-                "negated",
-                "-is:vip",
-                vips(),
-                Filter::Not(Box::new(both.clone())),
-            ),
+    fn is_vip_is_the_clause_that_follows_the_list() {
+        // (case, typed, the filter): the list is never read here, so none of these keeps anyone.
+        let cases: Vec<(&str, &str, Filter)> = vec![
+            ("is:vip", "is:vip", Filter::Vip),
+            ("its plural, any case", "is:VIPs", Filter::Vip),
+            ("negated", "-is:vip", Filter::Not(Box::new(Filter::Vip))),
             (
                 "beside another term",
                 "is:vip is:unread",
-                vips(),
-                Filter::And(vec![both.clone(), Filter::Read(ReadState::Unread)]),
+                Filter::And(vec![Filter::Vip, Filter::Read(ReadState::Unread)]),
             ),
             (
                 "is:vipx is a word",
                 "is:vipx",
-                vips(),
                 Filter::Text(TextMatch::Contains("is:vipx".to_owned())),
             ),
         ];
-        for (case, typed, vips, want) in cases {
-            assert_eq!(parsed(typed, &vips), want, "{case}: {typed:?}");
+        for (case, typed, want) in cases {
+            assert_eq!(parse(typed), want, "{case}: {typed:?}");
         }
     }
 
-    /// The other half: the store lists what `is:vip` asks for, and only the whole address.
+    /// The other half: the store lists what `is:vip` asks for as the list is when it is asked,
+    /// by the address alone, and the same filter finds a different set once the list changes.
     #[test]
     fn the_store_lists_the_vips_conversations() {
         let store = MemoryStore::new();
+        // (sender's address, the display name it is written with)
         let senders = [
-            (1, "dana@example.test"),
-            (2, "bob@example.test"),
-            (3, "ada@example.test"),
-            (4, "notdana@example.test"),
+            (1, "dana@example.test", None),
+            (2, "bob@example.test", None),
+            (3, "ada@example.test", None),
+            (4, "notdana@example.test", None),
+            // Anyone can write a VIP's address as their name.
+            (5, "mallory@example.test", Some("dana@example.test")),
         ];
-        for (n, email) in senders {
+        for (n, email, name) in senders {
             let mut mail = message(
                 n,
                 &format!("from {email}"),
@@ -268,7 +256,7 @@ mod vip {
                 Star::Unstarred,
             );
             mail.from = Address {
-                name: None,
+                name: name.map(str::to_owned),
                 email: email.to_owned(),
             };
             store
@@ -281,9 +269,9 @@ mod vip {
                 )
                 .unwrap();
         }
-        let listed = |typed: &str, vips: &Vips| -> Vec<String> {
+        let listed = |typed: &str| -> Vec<String> {
             let query = Query {
-                filter: parsed(typed, vips),
+                filter: parse(typed),
                 sort: Sort {
                     property: Property::Date,
                     dir: SortDir::Desc,
@@ -301,29 +289,28 @@ mod vip {
                 .map(|summary| summary.from.email)
                 .collect()
         };
-        // (case, typed, the VIPs, the senders listed, newest first)
-        let cases: Vec<(&str, &str, Vips, Vec<&str>)> = vec![
-            (
-                "the VIPs",
-                "is:vip",
-                Vips::new(["DANA@example.test", "bob@example.test"]),
-                vec!["bob@example.test", "dana@example.test"],
-            ),
-            ("nobody", "is:vip", Vips::default(), vec![]),
-            (
-                "everyone else",
-                "-is:vip",
-                Vips::new(["dana@example.test"]),
-                vec![
-                    "notdana@example.test",
-                    "ada@example.test",
-                    "bob@example.test",
-                ],
-            ),
-        ];
-        for (case, typed, vips, want) in cases {
-            assert_eq!(listed(typed, &vips), want, "{case}");
-        }
+        assert_eq!(listed("is:vip"), Vec::<String>::new(), "nobody yet");
+        store.put_vip("DANA@example.test", None).unwrap();
+        store.put_vip("bob@example.test", None).unwrap();
+        assert_eq!(
+            listed("is:vip"),
+            ["bob@example.test", "dana@example.test"],
+            "the address alone, not a name that spells it"
+        );
+        assert_eq!(
+            listed("-is:vip"),
+            [
+                "mallory@example.test",
+                "notdana@example.test",
+                "ada@example.test"
+            ]
+        );
+        store.delete_vip("bob@example.test").unwrap();
+        assert_eq!(
+            listed("is:vip"),
+            ["dana@example.test"],
+            "the same filter follows the list"
+        );
     }
 }
 

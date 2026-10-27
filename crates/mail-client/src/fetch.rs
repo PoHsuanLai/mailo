@@ -154,6 +154,9 @@ impl std::fmt::Debug for Seams {
 /// Where every account's fetching stands.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Fetched {
+    /// Whether the accounts have been found yet: false from the ask to fetch until the fetching
+    /// thread has read them, so a front end does not take the empty `links` for accounts none.
+    pub began: bool,
     /// Each account that has a server, and its link.
     pub links: BTreeMap<AccountId, Link>,
     /// What each account's last pass offered beside its failure ([`offer_of`]).
@@ -209,28 +212,38 @@ fn intervals(seams: &Seams, store: &SqliteStore) -> Vec<(AccountId, Duration)> {
 }
 
 impl Fetcher {
-    pub(crate) fn new(seams: Seams, store: &SqliteStore, now: DateTime<Utc>) -> Fetcher {
+    /// Fetching asked for, nothing read yet: the accounts are found by [`Self::begin`], on the
+    /// thread that fetches, so asking from the window's thread reads no store.
+    pub(crate) fn new(seams: Seams) -> Fetcher {
         let (tx, inbox) = unbounded_channel();
         let (folders_tx, folders) = unbounded_channel();
-        let every = intervals(&seams, store);
-        let fetched = Fetched {
-            links: schedule::initial(store, &every, now),
-            ..Fetched::default()
-        };
-        // What the scheduler hears first: the accounts are known, and which to watch follows.
-        // The receiver is held below, so the send is not refused.
-        let _ = tx.send(Note::Accounts(every.clone()));
-        let pushed = (seams.pushers)(store);
         Fetcher {
             seams,
             tx,
             folders_tx,
             inboxes: Mutex::new(Some((inbox, folders))),
-            state: tokio::sync::watch::Sender::new(Arc::new(fetched)),
-            pushed: Mutex::new(pushed),
-            every: Mutex::new(every),
+            state: tokio::sync::watch::Sender::new(Arc::new(Fetched::default())),
+            pushed: Mutex::new(Vec::new()),
+            every: Mutex::new(Vec::new()),
             outbox: tokio::sync::Notify::new(),
         }
+    }
+
+    /// Find the accounts to fetch and where each one's link stands, and tell the scheduler. Reads
+    /// the store, so it is called on the fetching thread and never on the caller's.
+    fn begin(&self, store: &SqliteStore, now: DateTime<Utc>) {
+        let every = intervals(&self.seams, store);
+        let links = schedule::initial(store, &every, now);
+        let pushed = (self.seams.pushers)(store);
+        self.change(|fetched| {
+            fetched.links = links;
+            fetched.began = true;
+        });
+        *self.pushed.lock() = pushed;
+        *self.every.lock() = every.clone();
+        // What the scheduler hears first: the accounts are known, and which to watch follows.
+        // The receiver is held in `inboxes`, so the send is not refused.
+        let _ = self.tx.send(Note::Accounts(every));
     }
 
     /// The outbox changed: a send may have been queued, or have left.
@@ -482,6 +495,7 @@ impl Host for ClientHost {
 pub(crate) fn run(shared: Arc<Shared>) -> Option<impl std::future::Future<Output = ()>> {
     let fetcher = shared.fetcher()?;
     let (inbox, asked) = fetcher.inboxes.lock().take()?;
+    fetcher.begin(shared.store(), shared.now());
     let links = fetcher.state.borrow().links.clone();
     let every = fetcher.every.lock().iter().cloned().collect();
     let tx = fetcher.tx.clone();

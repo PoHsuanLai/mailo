@@ -539,6 +539,49 @@ async fn plain_text_body_is_rendered_in_sandboxed_iframe() {
     );
 }
 
+/// The reader over `thread` as a window whose Privacy relay or proxy is `problem` provides it.
+#[component]
+fn OpenRouted(thread: ThreadId, problem: Option<crate::settings::RouteProblem>) -> Element {
+    let routed = use_memo(move || problem);
+    use_context_provider(|| routed);
+    let shell = use_signal(Shell::default);
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
+}
+
+/// A relay or proxy that cannot be used is said where Load Images would be, and offers neither it
+/// nor Always Load from: the images are not fetched straight to make up for it.
+#[tokio::test]
+async fn an_unusable_route_says_so_in_place_of_load_images() {
+    use crate::settings::RouteProblem;
+    let html = "<p>Look at this:</p><img src=\"https://remote.example/pixel.png\">";
+    for problem in [
+        RouteProblem::Relay,
+        RouteProblem::RelayKey,
+        RouteProblem::Proxy,
+    ] {
+        let (store, thread, _dir) =
+            thread_of(&[("tracker test", html_message("tracker test", html))]);
+        let mut dom = VirtualDom::new_with_props(
+            OpenRouted,
+            OpenRoutedProps {
+                thread,
+                problem: Some(problem),
+            },
+        )
+        .with_root_context(crate::ui::fixtures::client(&store));
+        dom.rebuild_in_place();
+        let markup = dioxus_ssr::render(&dom);
+        assert!(
+            markup.contains(crate::ui::copy::status::images_not_routed(problem)),
+            "{problem:?}: the line is missing:\n{markup}"
+        );
+        assert!(
+            !markup.contains(crate::ui::copy::controls::LOAD_IMAGES),
+            "{problem:?}: Load Images is still offered:\n{markup}"
+        );
+    }
+}
+
 #[tokio::test]
 async fn blocked_remote_images_trigger_consent_banner() {
     let html = "<p>Look at this:</p><img src=\"https://remote.example/pixel.png\">";

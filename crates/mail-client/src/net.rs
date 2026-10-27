@@ -58,11 +58,29 @@ pub struct Net<'a>(&'a Client);
 /// The runtime a client never told how to reach servers waits on.
 static UNREACHED: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
+/// Said once, by the first call made on a client never told how to reach servers.
+static UNREACHED_SAID: std::sync::Once = std::sync::Once::new();
+
 /// The [`Mail`] over `store`, as `reach` says, or with no keyring when nothing does.
+///
+/// A program always says ([`Client::reach`]), so a client that was not told is a program that
+/// forgot to, and every sign-in it attempts will fail for want of a keyring: said once in the
+/// log, and a debug build stops. A test, which wants exactly that of a call it did not fake, is
+/// built with the `testing` feature and is neither.
 fn mail_over(reach: Option<&Reach>, store: Arc<SqliteStore>) -> Mail {
     match reach {
         Some(reach) => (reach.0)(store),
         None => {
+            UNREACHED_SAID.call_once(|| {
+                log::warn!(
+                    "a client that was not told how to reach servers was asked to: it has no keyring"
+                );
+            });
+            #[cfg(not(feature = "testing"))]
+            debug_assert!(
+                false,
+                "a client was asked to reach servers before the program said how (Client::reach)"
+            );
             let runtime = UNREACHED.get_or_init(|| {
                 tokio::runtime::Builder::new_multi_thread()
                     .worker_threads(1)
@@ -416,5 +434,19 @@ impl Net<'_> {
                 cancel,
             ),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_client_never_told_how_to_reach_servers_says_so_once_and_still_answers() {
+        let store = Arc::new(mail_store::testing::in_memory());
+        let client = Client::inline(store, Arc::new(mail_core::mail::SystemClock));
+        let _ = client.net().secrets();
+        let _ = client.net().secrets();
+        assert!(UNREACHED_SAID.is_completed());
     }
 }

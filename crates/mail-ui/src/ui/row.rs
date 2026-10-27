@@ -97,9 +97,14 @@ pub(super) fn ListRow(
     let sender = thread
         .as_ref()
         .map(|summary| (summary.from.email.clone(), summary.from.name.clone()));
-    let vip = sender
-        .as_ref()
-        .is_some_and(|(email, _)| shell.read().vips.includes(email));
+    // The mark is for the conversation, not for whoever wrote last: a VIP who started it stays
+    // marked after anyone else has answered.
+    let vip = thread.as_ref().is_some_and(|summary| {
+        shell
+            .read()
+            .vips
+            .any(std::iter::once(&summary.from).chain(&summary.participants))
+    });
     let mut menu_rows = listed.menu(chrono::Utc::now());
     if let Some((email, _)) = sender
         .as_ref()
@@ -111,7 +116,7 @@ pub(super) fn ListRow(
                 Pick::Vip,
                 crate::ui::vip::menu_words(&shell.read().vips, email),
             )
-            .with_image(MenuImage::Icon(Icon::Star)),
+            .with_image(MenuImage::Icon(crate::ui::vip::GLYPH)),
         );
     }
     let dragged = thread.as_ref().is_some_and(|summary| {

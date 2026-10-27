@@ -204,6 +204,38 @@ pub struct Item {
     /// When the source says it arrived: the mbox envelope's date, or the time in a Maildir
     /// file's name. The upload's internal date, with the `Date` header as the fallback.
     pub received: Option<DateTime<Utc>>,
+    pub completeness: Completeness,
+}
+
+/// How much of a message its source held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Completeness {
+    Whole,
+    /// An Apple Mail `.partial.emlx`: the message without the attachments stored beside it.
+    /// Imported as it is, and counted ([`Imported::partial`]).
+    WithoutAttachments,
+    /// A Thunderbird message of which only a part of the body was kept. Not imported, since a
+    /// cut-off body kept under the message's identity would stand in for the whole message when
+    /// it is imported complete; counted ([`Imported::cut_off`]).
+    CutOff,
+}
+
+impl Item {
+    /// Count this item as read, and say whether it is to be kept: a cut-off message is not.
+    fn tally(&self, total: &mut Imported) -> bool {
+        total.read += 1;
+        match self.completeness {
+            Completeness::Whole => true,
+            Completeness::WithoutAttachments => {
+                total.partial += 1;
+                true
+            }
+            Completeness::CutOff => {
+                total.cut_off += 1;
+                false
+            }
+        }
+    }
 }
 
 /// The messages in `source`, one at a time.
@@ -218,6 +250,7 @@ pub fn items(
                 // One message on its own says nothing about where it was: the inbox, read.
                 placement: archive::folder_placement(None, vec![mail_domain::SystemFlag::Seen]),
                 received: None,
+                completeness: Completeness::Whole,
             }))))
         }
         Source::Mbox(path) => mbox_items(path, mbox_folder(path), Mailer::Any),
@@ -233,6 +266,7 @@ pub fn items(
                         &found.name.flags,
                     ),
                     received: delivered_at(&found.name.unique),
+                    completeness: Completeness::Whole,
                 })
             })))
         }
@@ -250,7 +284,9 @@ pub fn items(
         Source::Thunderbird(root) => {
             let mut found = Vec::new();
             for account in thunderbird_accounts(root)? {
-                thunderbird_files(&account, None, &mut found)?;
+                let imap = dir_name(account.parent().unwrap_or(Path::new(".")))
+                    .is_some_and(|home| home == "ImapMail");
+                thunderbird_files(&account, None, imap, &mut found)?;
             }
             Ok(chained(found, Mailer::Thunderbird))
         }
@@ -297,10 +333,17 @@ fn mbox_items(
             Ok(message) => message,
             Err(e) => return Some(Err(CoreError::context(shown.clone(), e))),
         };
-        if mailer == Mailer::Thunderbird && thunderbird::expunged(&message.raw) {
+        let thunderbird = mailer == Mailer::Thunderbird;
+        if thunderbird && thunderbird::expunged(&message.raw) {
             return None;
         }
+        let cut = thunderbird && thunderbird::truncated(&message.raw);
         Some(Ok(Item {
+            completeness: if cut {
+                Completeness::CutOff
+            } else {
+                Completeness::Whole
+            },
             placement: mbox::placement(&message.raw, folder.as_deref()),
             raw: archive::crlf(&message.raw),
             received: message.envelope.date,
@@ -316,6 +359,14 @@ fn emlx_item(path: &Path, folder: Option<&str>) -> Result<Item, CoreError> {
         raw: archive::crlf(split.raw),
         placement: emlx::placement(folder, split.flags),
         received: split.received,
+        completeness: if path
+            .file_name()
+            .is_some_and(|name| emlx::is_partial(&name.to_string_lossy()))
+        {
+            Completeness::WithoutAttachments
+        } else {
+            Completeness::Whole
+        },
     })
 }
 
@@ -418,11 +469,23 @@ fn thunderbird_accounts(root: &Path) -> Result<Vec<PathBuf>, CoreError> {
 
 /// Every folder's mbox in a Thunderbird account directory, subfolders after their parent:
 /// `Work.sbd/2019` is `Work/2019`. An empty file is a folder with nothing kept offline.
+///
+/// An IMAP account's folders (`imap`, under `ImapMail`) are named in modified UTF-7, as on the
+/// wire, in their file and directory names: `Entw&APw-rfe` is `Entwürfe`. A local folder's name
+/// is its own.
 fn thunderbird_files(
     dir: &Path,
     parent: Option<&str>,
+    imap: bool,
     found: &mut Vec<Held>,
 ) -> Result<(), CoreError> {
+    let shown = |name: &str| {
+        if imap {
+            mail_proto::mutf7::decode(name)
+        } else {
+            name.to_owned()
+        }
+    };
     let listed = folder_entries(dir, parent)?;
     for (name, path, is_dir) in &listed {
         if *is_dir || !thunderbird::may_be_folder(name) {
@@ -430,12 +493,12 @@ fn thunderbird_files(
         }
         let empty = std::fs::metadata(path).map_err(CoreError::at(path))?.len() == 0;
         if !empty && matches!(sniff(path)?, Sniffed::Mbox) {
-            found.push(Held::Mbox(path.clone(), Some(nested(parent, name))));
+            found.push(Held::Mbox(path.clone(), Some(nested(parent, &shown(name)))));
         }
     }
     for (name, path, is_dir) in &listed {
         if let Some(folder) = thunderbird::folder_of_children(name).filter(|_| *is_dir) {
-            thunderbird_files(path, Some(&nested(parent, folder)), found)?;
+            thunderbird_files(path, Some(&nested(parent, &shown(folder))), imap, found)?;
         }
     }
     Ok(())
@@ -517,6 +580,11 @@ pub struct Imported {
     pub already: usize,
     /// Bytes that were not a message.
     pub unreadable: usize,
+    /// Read from Apple Mail's `.partial.emlx` files: imported without the attachments stored
+    /// beside them.
+    pub partial: usize,
+    /// Thunderbird messages of which only a part of the body was kept, and so left out.
+    pub cut_off: usize,
 }
 
 /// Import `source` into the local-only account, creating the account on first use.
@@ -533,7 +601,9 @@ pub fn into_local(
     let mut batch: Vec<Keep> = Vec::with_capacity(BATCH);
     for item in items(source)? {
         let item = item?;
-        total.read += 1;
+        if !item.tally(&mut total) {
+            continue;
+        }
         batch.push(Keep {
             raw: item.raw,
             placement: item.placement,
@@ -626,7 +696,9 @@ pub fn queue_uploads(
     let mut total = Imported::default();
     for item in items(source)? {
         let item = item?;
-        total.read += 1;
+        if !item.tally(&mut total) {
+            continue;
+        }
         let Ok(fields) = mail_mime::parse(&item.raw) else {
             total.unreadable += 1;
             continue;
@@ -932,6 +1004,60 @@ mod tests {
         if let Err(e) = refused {
             assert!(e.to_string().contains("the folder Projects"), "{e}");
         }
+    }
+
+    #[test]
+    fn an_imap_accounts_folder_names_are_read_from_modified_utf7() {
+        let dir = tempfile::tempdir().unwrap();
+        let account = dir.path().join("ImapMail/imap.example.test");
+        put(&account.join("Entw&APw-rfe"), mbox_of(&[("draft", None)]));
+        put(&account.join("Entw&APw-rfe.msf"), b"");
+        put(
+            &account.join("Entw&APw-rfe.sbd/Alt&AOQ-"),
+            mbox_of(&[("old", None)]),
+        );
+        let labels: Vec<Vec<String>> = read(&Source::Thunderbird(dir.path().to_owned()))
+            .into_iter()
+            .map(|message| message.2)
+            .collect();
+        assert!(labels.contains(&vec!["Entwürfe".to_owned()]), "{labels:?}");
+        assert!(
+            labels.contains(&vec!["Entwürfe/Altä".to_owned()]),
+            "{labels:?}"
+        );
+        // A local folder's name is its own: `&` in it is an ampersand.
+        let local = dir.path().join("Mail/Local Folders");
+        put(&local.join("R&D-x"), mbox_of(&[("rd", None)]));
+        put(&local.join("R&D-x.msf"), b"");
+        let all = read(&Source::Thunderbird(local));
+        assert_eq!(all[0].2, vec!["R&D-x".to_owned()]);
+    }
+
+    #[test]
+    fn a_message_cut_off_and_a_file_without_attachments_are_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let account = dir.path().join("ImapMail/imap.example.test");
+        put(
+            &account.join("INBOX"),
+            mbox_of(&[("whole", Some("0001")), ("cut", Some("0401"))]),
+        );
+        put(&account.join("INBOX.msf"), b"");
+        let mut total = Imported::default();
+        let kept: Vec<bool> = items(&Source::Thunderbird(dir.path().to_owned()))
+            .unwrap()
+            .map(|item| item.unwrap().tally(&mut total))
+            .collect();
+        assert_eq!(kept, [true, false]);
+        assert_eq!((total.read, total.cut_off, total.partial), (2, 1, 0));
+
+        let messages = dir.path().join("Messages");
+        put(&messages.join("1.partial.emlx"), emlx_of("a", 0));
+        put(&messages.join("2.emlx"), emlx_of("b", 0));
+        let mut total = Imported::default();
+        for item in items(&Source::AppleMail(dir.path().join("Messages"))).unwrap() {
+            assert!(item.unwrap().tally(&mut total));
+        }
+        assert_eq!((total.read, total.partial, total.cut_off), (2, 1, 0));
     }
 
     #[test]

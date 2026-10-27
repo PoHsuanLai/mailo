@@ -4,13 +4,14 @@
 //! keys them by, and one list across every account and Space. A Space's pinned people are that
 //! Space's shortcuts and stay so; they are offered as VIPs to mark, not made VIPs by being pinned.
 //!
-//! What a VIP changes is said here once, for every surface: `is:vip` finds their conversations
-//! ([`Vips::filter`], through [`crate::query::parse_with`]), the VIPs place lists them, a row and
-//! the reader mark their name, and "Notify for: VIPs only" announces their mail alone
+//! What a VIP changes is said here once, for every surface: `is:vip` finds the conversations any
+//! of them wrote in ([`Filter::Vip`], which asks the store's list whenever it is run, so a saved
+//! view or a rule follows the list), the VIPs place lists them, a row and the reader mark their
+//! name, and "Notify for: VIPs only" announces their mail alone
 //! ([`crate::notify::Whom`]).
 
 use crate::error::{CoreError, Logged};
-use mail_domain::{Filter, TextMatch};
+use mail_domain::Filter;
 use mail_store::Store;
 
 pub use mail_store::Vip;
@@ -46,19 +47,24 @@ impl Vips {
         self.0.is_empty()
     }
 
-    /// What `is:vip` finds: the conversations whose sender is one of them, matched on the whole
-    /// address as `from:` matches a word of it. Nothing at all while there are none.
+    /// What the VIPs place lists: [`Filter::Vip`] while there are any, and nothing at all while
+    /// there are none. The place is built again when the list fills or empties, which is what
+    /// lets the window move off it when the last VIP goes.
     pub fn filter(&self) -> Filter {
-        match self.0.as_slice() {
-            [] => Filter::Nothing,
-            [one] => from(one),
-            many => Filter::Or(many.iter().map(|address| from(address)).collect()),
+        if self.0.is_empty() {
+            Filter::Nothing
+        } else {
+            Filter::Vip
         }
     }
-}
 
-fn from(address: &str) -> Filter {
-    Filter::From(TextMatch::Exact(address.to_owned()))
+    /// Whether any of `people` is a VIP: how a row marks a conversation, by everyone who wrote
+    /// in it and not by the newest sender alone.
+    pub fn any<'a>(&self, people: impl IntoIterator<Item = &'a mail_domain::Address>) -> bool {
+        people
+            .into_iter()
+            .any(|person| self.includes(&person.email))
+    }
 }
 
 /// The VIPs the store holds, or none when it cannot say: a list that cannot be read marks
@@ -147,19 +153,31 @@ mod tests {
     }
 
     #[test]
-    fn the_filter_is_the_whole_address_of_each() {
+    fn the_place_lists_the_vips_clause_while_there_are_any() {
         let cases: [(&str, Vips, Filter); 3] = [
             ("nobody", Vips::default(), Filter::Nothing),
-            ("one", Vips::new(["ada@x.test"]), from("ada@x.test")),
-            (
-                "two",
-                Vips::new(["dana@x.test", "ada@x.test"]),
-                Filter::Or(vec![from("ada@x.test"), from("dana@x.test")]),
-            ),
+            ("one", Vips::new(["ada@x.test"]), Filter::Vip),
+            ("two", Vips::new(["dana@x.test", "ada@x.test"]), Filter::Vip),
         ];
         for (case, vips, want) in cases {
             assert_eq!(vips.filter(), want, "{case}");
         }
+    }
+
+    #[test]
+    fn a_conversation_is_marked_when_any_of_its_senders_is_a_vip() {
+        let person = |email: &str| mail_domain::Address {
+            name: None,
+            email: email.to_owned(),
+        };
+        let vips = Vips::new(["dana@x.test"]);
+        let thread = [person("Dana@X.test"), person("me@x.test")];
+        assert!(
+            vips.any(&thread),
+            "the VIP wrote first and someone else last"
+        );
+        assert!(!vips.any(&thread[1..]));
+        assert!(!Vips::default().any(&thread));
     }
 
     #[test]

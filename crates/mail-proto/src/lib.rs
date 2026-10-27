@@ -24,7 +24,7 @@ pub use diagnose::{Diagnosis, diagnose, diagnose_text};
 pub use error::{ProtoError, Refusal};
 pub use imap::{
     Access, Completed, ImapAuth, ImapCommand, ImapSession, ImapTranscript, Resume, Untagged,
-    has_capability,
+    has_capability, lacks_capability,
 };
 pub use machine::{Backend, IoNeed, IoReady, Machine, Moved, Progress, ProtoOutcome};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};

@@ -92,10 +92,9 @@ pub(in crate::ui) fn does(rule: &Rule) -> String {
 pub(in crate::ui) fn read_condition<Tz: TimeZone>(
     text: &str,
     labels: &[(String, LabelId)],
-    vips: &mail_client::vip::Vips,
     zone: &Tz,
 ) -> Result<Filter, String> {
-    manage::read_condition(text, labels, vips, zone).map_err(|why| refusal(&why))
+    manage::read_condition(text, labels, zone).map_err(|why| refusal(&why))
 }
 
 /// Why a condition is refused, as the sheet says it.

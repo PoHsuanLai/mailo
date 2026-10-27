@@ -454,3 +454,28 @@ fn imported_mail_goes_to_local_folders_or_an_imap_accounts_folder() {
         ]
     );
 }
+
+/// A Thunderbird profile is said to bring only what Thunderbird kept offline; Apple Mail and the
+/// other sources are not.
+#[test]
+fn only_a_thunderbird_profile_is_said_to_bring_only_what_was_kept_offline() {
+    let dir = PathBuf::from("profile");
+    let thunderbird = work::described(&Source::Thunderbird(dir.clone()), 3);
+    assert!(
+        thunderbird.contains(crate::ui::copy::status::THUNDERBIRD_OFFLINE_ONLY),
+        "{thunderbird}"
+    );
+    for other in [
+        Source::AppleMail(dir.clone()),
+        Source::Emlx(dir.clone()),
+        Source::Mbox(dir.clone()),
+        Source::Maildir(dir.clone()),
+        Source::Eml(dir),
+    ] {
+        let said = work::described(&other, 3);
+        assert!(
+            !said.contains(crate::ui::copy::status::THUNDERBIRD_OFFLINE_ONLY),
+            "{said}"
+        );
+    }
+}

@@ -452,8 +452,21 @@ impl SqliteStore {
     }
 
     /// A label the user named, on `account`. [`StoreError::Conflict`] when the account already
-    /// has one by that name, which is the answer a caller wants to give the user.
+    /// has one by that name, which is the answer a caller wants to give the user; and, on an
+    /// account that keeps its labels on the server as keywords, when another label's name makes
+    /// the same keyword (`Project X` and `Project_X`), which the server would take for one.
     pub fn create_label(&self, account: AccountId, name: &str) -> Result<LabelId, StoreError> {
+        if self.labels_as_keywords(account.clone())?
+            && let Some(keyword) = mail_domain::label_keyword(name)
+            && self
+                .keyed_labels(account.clone())?
+                .iter()
+                .any(|(_, held)| held.eq_ignore_ascii_case(&keyword))
+        {
+            return Err(StoreError::Conflict(
+                format!("{name:?} makes the same keyword as another label").into(),
+            ));
+        }
         let id = LabelId::generate();
         self.touch(Topics::LABELS).execute(
             "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, ?3, ?4)",
@@ -500,7 +513,7 @@ impl SqliteStore {
             return Ok(None);
         };
         Ok(self
-            .connection()
+            .reader()
             .query_row(
                 "SELECT thrid FROM provider_thread
                  WHERE account = ?1 AND mailbox = ?2 AND uidvalidity = ?3 AND uid = ?4",
@@ -516,7 +529,7 @@ impl SqliteStore {
         account: AccountId,
         thrid: &str,
     ) -> Result<Option<ThreadId>, StoreError> {
-        self.connection()
+        self.reader()
             .query_row(
                 "SELECT m.thread FROM provider_thread p
                  JOIN remote_map r ON r.account = p.account AND r.mailbox = p.mailbox

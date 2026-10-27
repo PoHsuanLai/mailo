@@ -230,6 +230,27 @@ impl SqliteStore {
         })
     }
 
+    /// Which of `messages` are addressed in `mailbox`, by one lookup each.
+    pub(super) fn addressed(
+        &self,
+        mailbox: &MailboxRef,
+        messages: &[MessageId],
+    ) -> Result<Vec<MessageId>, StoreError> {
+        let account = mailbox.account.to_string();
+        let db = self.reader();
+        let mut asked = db.prepare_cached(
+            "SELECT 1 FROM remote_map WHERE account = ?1 AND mailbox = ?2 AND message = ?3
+             LIMIT 1",
+        )?;
+        let mut held = Vec::new();
+        for message in messages {
+            if asked.exists(params![account, mailbox.path, message.to_string()])? {
+                held.push(*message);
+            }
+        }
+        Ok(held)
+    }
+
     /// The server has confirmed a mailbox is gone: let go of its addresses and cursor, and of
     /// any message that was nowhere else.
     ///

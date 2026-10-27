@@ -116,10 +116,6 @@ impl Source for Asked {
         self.top.borrow_mut().push((k, window.len()));
         Vec::new()
     }
-
-    fn vips(&self) -> crate::vip::Vips {
-        crate::vip::Vips::default()
-    }
 }
 
 /// What was typed, the page limits `listed` was asked for, and the `(k, window size)` of each

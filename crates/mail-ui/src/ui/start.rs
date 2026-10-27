@@ -3,7 +3,7 @@
 //! `mailo` with no arguments opens the window on the inbox. `mailo open <thread>` opens it on
 //! that conversation, which is what a desktop notification's click needs to become: the
 //! notification names the thread (`x-mailo-thread`), and whoever hears the click can start the
-//! window this way. `mailo open --inbox <account>` is a summary's click: that account's inbox.
+//! window this way (`mailo open --reply <thread>` and `--archive <thread>` are a banner's buttons). `mailo open --inbox <account>` is a summary's click: that account's inbox.
 //! Either is shown in a Space that holds the account ([`space_for`]). `mailo mailto:…` opens it
 //! on a composer holding what the link asks for, which is how the desktop runs its handler for
 //! the scheme (`packaging/org.quire.Mail.desktop`, `%u`):
@@ -11,6 +11,7 @@
 //! command line is the CLI's, and [`start_of`] says so by answering `None`.
 
 use crate::ui::view::Shell;
+use dioxus::prelude::Signal;
 use mail_client::Client;
 use mail_domain::{DraftId, ThreadId};
 use mail_mime::MailtoUri;
@@ -23,6 +24,9 @@ pub enum Start {
     Thread(ThreadId),
     /// A reply to the conversation, opened in the composer: a banner's Reply button.
     Reply(ThreadId),
+    /// The conversation archived by the window, as its Archive key does, with the toast and the
+    /// Undo: a banner's Archive button.
+    Archive(ThreadId),
     /// The inbox, in a Space that shows this account: a summary banner's click.
     InboxOf(AccountId),
     /// The composer, on a draft already saved (the one a `mailto:` link made).
@@ -49,6 +53,7 @@ pub fn start_of(args: &[String]) -> Option<Result<Start, String>> {
                 Err(crate::ui::copy::errors::OPEN_INBOX_NEEDS_ACCOUNT.to_owned())
             }
             [reply, thread] if reply == "--reply" => thread_arg(thread).map(Start::Reply),
+            [archive, thread] if archive == "--archive" => thread_arg(thread).map(Start::Archive),
             [thread] => thread_arg(thread).map(Start::Thread),
             [] => Err("open needs a thread id: mailo open <thread>".to_owned()),
             _ => Err("open takes one thread id: mailo open <thread>".to_owned()),
@@ -121,8 +126,23 @@ pub fn show(shell: &mut Shell, start: &Start) {
     match start {
         Start::Thread(thread) | Start::Reply(thread) => open_thread(shell, *thread),
         Start::InboxOf(_) => select_inbox(shell),
+        Start::Archive(_) => select_inbox(shell),
         Start::Inbox | Start::Compose(_) => {}
     }
+}
+
+/// Archive `thread` as the window's own Archive does ([`crate::ui::motion::act_kind`]): the
+/// row leaves, a toast says so and offers Undo, and ⌘Z takes it back. A conversation the client
+/// does not have is said in the same toast.
+pub fn archive(client: &Client, shell: Signal<Shell>, thread: ThreadId) {
+    if client.stored().thread(thread).is_err() {
+        crate::ui::motion::tell(
+            crate::ui::copy::errors::NOT_ARCHIVED.to_owned(),
+            crate::ui::motion::Follow::Nothing,
+        );
+        return;
+    }
+    crate::ui::motion::act_kind(client, shell, thread, mail_domain::OpKind::Archive);
 }
 
 /// The account whose mail `start` shows: a summary's own, a conversation's as the client has it.
@@ -132,7 +152,7 @@ pub fn account_of(client: &Client, start: &Start) -> Option<AccountId> {
     match start {
         // A conversation that cannot be read names no account; it is still opened, where the
         // window is, and the reader says what it can.
-        Start::Thread(thread) | Start::Reply(thread) => client
+        Start::Thread(thread) | Start::Reply(thread) | Start::Archive(thread) => client
             .stored()
             .thread(*thread)
             .ok()

@@ -59,11 +59,14 @@ pub fn searchable(plan: &AccountPlan) -> bool {
 /// `Err` when a part of it no server can match: a `re:/…/` pattern, which is matched here over
 /// what the store holds. An invalid pattern is that too: it matches nothing anywhere.
 ///
-/// `is:vip` is asked as the VIPs' addresses (`vips`), which a server matches as it matches
-/// `from:`.
+/// Parsed with the names the store parses with ([`crate::query::Known`]): `label:` against this
+/// account's `labels`, and `account:` against every account's address (`accounts`), which a
+/// server is told of as it is any account's clause. `is:vip` is asked as the VIPs' addresses
+/// (`vips`), each the address alone: the list is the store's, which a server cannot read.
 pub fn filter_of(
     input: &str,
     labels: &[(String, LabelId)],
+    accounts: &[(String, AccountId)],
     vips: &crate::vip::Vips,
 ) -> Result<Filter, Unsaid> {
     let extracted = crate::search::extract(input).map_err(|why| Unsaid(vec![why.to_string()]))?;
@@ -73,15 +76,46 @@ pub fn filter_of(
             pattern.as_str()
         )]));
     }
-    let named = crate::query::named(labels);
-    Ok(crate::query::parse_with(
-        &extracted.rest,
-        &chrono::Local,
-        &crate::query::WithVips {
-            names: &named,
-            vips,
-        },
+    let known = crate::query::Known { labels, accounts };
+    Ok(with_vips(
+        crate::query::parse_with(&extracted.rest, &chrono::Local, &known),
+        vips,
     ))
+}
+
+/// `filter` with each `is:vip` clause in it said as the addresses of `vips`, for a server that
+/// has no such list.
+fn with_vips(filter: Filter, vips: &crate::vip::Vips) -> Filter {
+    match filter {
+        // Nobody on the list is a clause that finds nothing, which every translation has a
+        // word for, where an either-or of no clauses it has not.
+        Filter::Vip => match vips.addresses() {
+            [] => Filter::Nothing,
+            [one] => Filter::FromAddress(one.clone()),
+            many => Filter::Or(many.iter().cloned().map(Filter::FromAddress).collect()),
+        },
+        Filter::And(parts) => Filter::And(parts.into_iter().map(|f| with_vips(f, vips)).collect()),
+        Filter::Or(parts) => Filter::Or(parts.into_iter().map(|f| with_vips(f, vips)).collect()),
+        Filter::Not(inner) => Filter::Not(Box::new(with_vips(*inner, vips))),
+        other => other,
+    }
+}
+
+/// Whether the line `input` asks for something only a server knows: a Gmail category, which a
+/// message held here never says. Searched on this computer alone it lists nothing (and `-category:`
+/// everything), so such a line is asked of the server without waiting to be told to, whatever the
+/// automatic setting says; and where the server cannot answer either, the answer says why.
+pub fn needs_server(input: &str) -> bool {
+    fn names_category(filter: &Filter) -> bool {
+        match filter {
+            Filter::Category(_) => true,
+            Filter::And(parts) | Filter::Or(parts) => parts.iter().any(names_category),
+            Filter::Not(part) => names_category(part),
+            _ => false,
+        }
+    }
+    filter_of(input, &[], &[], &crate::vip::Vips::default())
+        .is_ok_and(|filter| names_category(&filter))
 }
 
 /// Search `account`'s server for the line `input`, and keep what it finds.
@@ -96,7 +130,13 @@ pub async fn search(
         .into_iter()
         .map(|l| (l.name, l.id))
         .collect();
-    let filter = match filter_of(input, &named, &crate::vip::read(mail.store().as_ref())) {
+    let accounts = crate::query::known_accounts(mail.store());
+    let filter = match filter_of(
+        input,
+        &named,
+        &accounts,
+        &crate::vip::read(mail.store().as_ref()),
+    ) {
         Ok(filter) => filter,
         Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
     };
@@ -108,6 +148,19 @@ pub async fn search(
 mod tests {
     use super::*;
     use mail_domain::TextMatch;
+
+    #[test]
+    fn a_category_is_the_servers_to_say_and_nothing_else_is() {
+        for (input, want) in [
+            ("category:promotions", true),
+            ("from:ada -category:social", true),
+            ("from:ada category:forums OR subject:lunch", true),
+            ("from:ada", false),
+            ("promotions", false),
+        ] {
+            assert_eq!(needs_server(input), want, "{input}");
+        }
+    }
 
     #[test]
     fn off_until_turned_on() {
@@ -135,15 +188,46 @@ mod tests {
         ];
         for (input, expected) in cases {
             assert_eq!(
-                filter_of(input, &labels, &crate::vip::Vips::default()).map_err(|_| ()),
+                filter_of(input, &labels, &[], &crate::vip::Vips::default()).map_err(|_| ()),
                 expected,
                 "{input}"
             );
         }
-        let said = filter_of("re:/lun.h/", &labels, &crate::vip::Vips::default()).unwrap_err();
+        let said = filter_of("re:/lun.h/", &labels, &[], &crate::vip::Vips::default()).unwrap_err();
         assert_eq!(
             said.0,
             vec!["re:/lun.h/ (a pattern is matched on this computer, not by a server)".to_owned()]
+        );
+    }
+
+    #[test]
+    fn an_account_and_the_vips_are_said_as_the_store_hears_them() {
+        let work = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(1));
+        let accounts = [("work@example.test".to_owned(), work.clone())];
+        let some = crate::vip::Vips::new(["Dana@example.test", "bob@example.test"]);
+        let said =
+            |input: &str, vips: &crate::vip::Vips| filter_of(input, &[], &accounts, vips).unwrap();
+        assert_eq!(
+            said("account:work", &some),
+            Filter::Account(work),
+            "an account is the account, not the text account:work"
+        );
+        assert_eq!(
+            said("is:vip", &some),
+            Filter::Or(vec![
+                Filter::FromAddress("bob@example.test".to_owned()),
+                Filter::FromAddress("dana@example.test".to_owned()),
+            ]),
+            "the address alone, each, as the list keeps them"
+        );
+        assert_eq!(
+            said("-is:vip", &crate::vip::Vips::new(["bob@example.test"])),
+            Filter::Not(Box::new(Filter::FromAddress("bob@example.test".to_owned())))
+        );
+        assert_eq!(
+            said("is:vip", &crate::vip::Vips::default()),
+            Filter::Nothing,
+            "nobody on the list finds nothing, not an either-or of none"
         );
     }
 }

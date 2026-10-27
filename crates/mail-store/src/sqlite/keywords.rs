@@ -28,7 +28,7 @@ impl SqliteStore {
 
     /// Every label of `account` whose name makes a keyword, with that keyword.
     pub(super) fn keyed_labels(&self, account: AccountId) -> Result<Keyed, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached("SELECT id, name FROM labels WHERE account = ?1")?;
         let rows = stmt
             .query_map(params![account.to_string()], |r| {
@@ -91,7 +91,7 @@ impl SqliteStore {
     ) -> Result<(), StoreError> {
         for (label, _) in self.keyed_labels(account.clone())? {
             let messages = {
-                let db = self.connection();
+                let db = self.reader();
                 let mut stmt =
                     db.prepare_cached("SELECT message FROM message_labels WHERE label = ?1")?;
                 let rows = stmt

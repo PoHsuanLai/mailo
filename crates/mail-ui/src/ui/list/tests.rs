@@ -251,3 +251,43 @@ fn the_search_shown_says_where_it_looked() {
         assert_eq!(searched(scope, "Inbox", looked, *all), *want, "{name}");
     }
 }
+
+/// The quick filter's Unread key is the list's, so a menu that is open takes the key first:
+/// with the list's ⋯ menu showing it filters nothing, and with it shut it shows the filter row.
+#[tokio::test]
+async fn the_unread_filter_key_waits_for_an_open_menu() {
+    // The stylesheet in the markup names the class too: the row is the element wearing it.
+    const FILTER_ROW: &str = "class=\"quick-filter\"";
+    use crate::ui::fixtures::{INSIDE_THE_SHELL, PRIMARY, click, drain_seen, rebuild_into, work};
+    use dioxus::html::input_data::keyboard_types::Modifiers;
+
+    dispatching();
+    let built = work();
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(crate::ui::fixtures::client(&built.store))
+        .with_root_context(built.dirs.clone());
+    let seen = rebuild_into(&mut dom);
+    let seen = seen.merge(drain_seen(&mut dom));
+    let shell = dioxus_core::ElementId(INSIDE_THE_SHELL as usize);
+    let page = until(&mut dom, |page| page.contains("ds-list-item")).await;
+    assert!(!page.contains(FILTER_ROW), "the row before any key");
+
+    let more = seen.one("aria-label", crate::ui::copy::aria::MORE);
+    click(&mut dom, more);
+    let _ = drain_seen(&mut dom);
+    crate::ui::fixtures::chord(&mut dom, "u", PRIMARY | Modifiers::ALT, shell);
+    let _ = drain_seen(&mut dom);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        !page.contains(FILTER_ROW),
+        "the key filtered the list under an open menu"
+    );
+
+    // Escape shuts the menu, and the key is the list's again.
+    crate::ui::fixtures::chord(&mut dom, "Escape", Modifiers::empty(), shell);
+    let _ = drain_seen(&mut dom);
+    crate::ui::fixtures::chord(&mut dom, "u", PRIMARY | Modifiers::ALT, shell);
+    let _ = drain_seen(&mut dom);
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains(FILTER_ROW), "the key with no menu open");
+}

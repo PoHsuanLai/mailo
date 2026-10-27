@@ -1,12 +1,12 @@
-//! What to do about a failure: [`mail_client::Remedy`] in the window's words.
+//! What to do about a failure: [`mail_client::prelude::Remedy`] in the window's words.
 //!
 //! `mail-core` says which step mends a failure and names no command; the terminal words it as
 //! one to type (`cli::remedy`), and this words it as a place to go and a thing to do, because a
 //! person in the window has no command line to type into. A failure is told as its own words,
 //! then the step as a sentence of its own.
 
-use mail_client::CoreError;
-use mail_client::{Remedy, SignInWith};
+use mail_client::prelude::CoreError;
+use mail_client::prelude::{Remedy, SignInWith};
 
 /// The step, as a sentence without its full stop, so it reads after the failure's own words.
 pub(in crate::ui) fn words(remedy: &Remedy) -> String {

@@ -151,7 +151,8 @@ fn apply(rule: Rule, phase: Signal<Phase>, mut running: Signal<String>) {
 /// Put `row`'s rules and vacation reply on its server, when it has one that runs them: on a
 /// blocking thread, saying only a failure, in `said`.
 fn push(row: AccountRow, mut said: Said) {
-    if reach(&row.plan).is_err() {
+    if let Err(why) = reach(&row.plan) {
+        log::debug!("{}: no server to put the rules on: {why}", row.address);
         return;
     }
     let client = crate::ui::live::client();
@@ -177,7 +178,10 @@ fn push_away(row: AccountRow, mut said: Said) {
         Ok(AwayServer::Sieve) => return push(row, said),
         Ok(AwayServer::Jmap | AwayServer::Graph) => {}
         // Nowhere to put one: the page offers no switch for such an account.
-        Err(_) => return,
+        Err(why) => {
+            log::debug!("{}: no reply to put on a server: {why}", row.address);
+            return;
+        }
     }
     let client = crate::ui::live::client();
     let set = try_consume_context::<AwaySetter>()

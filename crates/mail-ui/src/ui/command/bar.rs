@@ -50,18 +50,98 @@ pub(in crate::ui) struct Terms {
 }
 
 /// `query` split as the header shows it. The operators are the ones the panel draws as chips
-/// under its field (`items::chips` once a search is typed); each is taken out of the line once,
-/// and what is left keeps its order, its spaces closed up.
+/// under its field (`items::chips` once a search is typed). Each is cut out of the line at the
+/// place the parser read it from, token by token, so a word that merely contains an operator's
+/// text (`xfrom:ada` before `from:ada`) stays a word; what is left keeps its order, its spaces
+/// closed up.
 pub(in crate::ui) fn terms(query: &str) -> Terms {
     let chips = search::parse(query, &Utc, &mail_client::query::unnamed).operator_tokens;
-    let mut rest = query.to_owned();
+    let spans = token_spans(query);
+    let mut taken = vec![false; spans.len()];
+    let mut at = 0;
     for chip in &chips {
-        if let Some(at) = rest.find(chip.as_str()) {
-            rest.replace_range(at..at + chip.len(), " ");
+        // An either-or chip is its terms joined by ` OR `, over the joiners as typed.
+        let parts: Vec<&str> = chip.split(" OR ").collect();
+        while at < spans.len() {
+            match chip_run(query, &spans, at, &parts) {
+                Some(last) => {
+                    taken[at..=last].fill(true);
+                    at = last + 1;
+                    break;
+                }
+                None => at += 1,
+            }
         }
     }
-    let words = rest.split_whitespace().collect::<Vec<_>>().join(" ");
+    let words = spans
+        .iter()
+        .zip(&taken)
+        .filter(|(_, taken)| !**taken)
+        .map(|((from, to), _)| &query[*from..*to])
+        .collect::<Vec<_>>()
+        .join(" ");
     Terms { chips, words }
+}
+
+/// The index of the last token of the operator that starts at token `at` and reads as `parts`
+/// (one term, or several joined by `OR` or `|`), if one does.
+fn chip_run(query: &str, spans: &[(usize, usize)], at: usize, parts: &[&str]) -> Option<usize> {
+    let text = |index: usize| spans.get(index).map(|(from, to)| &query[*from..*to]);
+    let mut last = at;
+    for (n, part) in parts.iter().enumerate() {
+        if n > 0 {
+            if !matches!(text(last + 1), Some("OR" | "|")) {
+                return None;
+            }
+            last += 1;
+        }
+        let next = if n == 0 { at } else { last + 1 };
+        if text(next) != Some(*part) {
+            return None;
+        }
+        last = next;
+    }
+    Some(last)
+}
+
+/// Move `to` past the next closing quote (or the end), taking its characters from `chars`.
+fn close_quote(chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>, to: &mut usize) {
+    for (at, quote) in chars.by_ref() {
+        *to = at + quote.len_utf8();
+        if quote == '"' {
+            break;
+        }
+    }
+}
+
+/// Where each whitespace-separated token of `query` lies, as byte ranges. A quoted run, also as
+/// a field's value (`subject:"lunch plans"`), is one token: the parser's own split.
+fn token_spans(query: &str) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    let mut chars = query.char_indices().peekable();
+    while let Some((from, c)) = chars.next() {
+        if c.is_whitespace() {
+            continue;
+        }
+        let mut to = from + c.len_utf8();
+        if c == '"' {
+            close_quote(&mut chars, &mut to);
+        } else {
+            while let Some(&(at, next)) = chars.peek() {
+                if next.is_whitespace() {
+                    break;
+                }
+                chars.next();
+                to = at + next.len_utf8();
+                if next == '"' && query[from..to].ends_with(":\"") {
+                    close_quote(&mut chars, &mut to);
+                    break;
+                }
+            }
+        }
+        out.push((from, to));
+    }
+    out
 }
 
 /// The toolbar's magnifier: a press brings up the panel.
@@ -220,6 +300,14 @@ mod tests {
                 "ada",
             ),
             ("from:ada", &["from:ada"], ""),
+            // A word that holds an operator's text is a word; the operator is the token itself.
+            ("xfrom:ada from:ada", &["from:ada"], "xfrom:ada"),
+            (
+                "from:ada OR from:bob lunch",
+                &["from:ada OR from:bob"],
+                "lunch",
+            ),
+            ("a from:ada | from:bob b", &["from:ada OR from:bob"], "a b"),
         ];
         for (query, chips, words) in cases {
             let want = Terms {

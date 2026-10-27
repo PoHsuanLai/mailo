@@ -14,14 +14,16 @@
 //!   answered by this rule within its days;
 //! - mail whose bytes are not here yet, which cannot be read for any of the above.
 //!
+//! - mail the server itself marked spam (`X-Spam-Flag: YES`, `X-Spam-Status: Yes`).
+//!
 //! And when the mail has just arrived (not when the person picked it and asked), mail dated
-//! before the rule was made: a re-download, or a mailbox fetched anew after its UIDVALIDITY
-//! changed, never sends the history.
+//! before the rule was made, mail already read, and mail older than a day: a re-download,
+//! or a mailbox fetched anew after its UIDVALIDITY changed, never sends the history.
 
 use crate::error::CoreError;
 use crate::notify::Own;
 use chrono::{DateTime, TimeDelta, Utc};
-use mail_domain::{Message, RuleAction};
+use mail_domain::{Message, ReadState, RuleAction};
 use mail_store::SqliteStore;
 use mail_store::rules::Left;
 
@@ -53,8 +55,17 @@ pub enum Refusal {
     NotHere,
     /// Dated before the rule was made.
     BeforeTheRule,
+    /// Said to have just arrived, but already read or dated long ago: history fetched again.
+    Stale,
+    /// The server marked it spam.
+    Spam,
     /// This rule answered the sender within its days already.
     Recently,
+}
+
+/// How long after its date mail still counts as having just arrived: a day.
+fn fresh() -> TimeDelta {
+    TimeDelta::days(1)
 }
 
 /// The header names in `raw`'s header section, as written.
@@ -96,6 +107,9 @@ pub fn headers_allow(
     let Some(raw) = raw else {
         return Err(Refusal::NotHere);
     };
+    if crate::junk::server_says_spam(raw) {
+        return Err(Refusal::Spam);
+    }
     let header = |name: &str| mail_mime::archive::header(raw, name);
     if let Some(auto) = header("Auto-Submitted")
         && !auto.trim().eq_ignore_ascii_case("no")
@@ -160,6 +174,11 @@ pub fn guard(
     };
     if occasion == Occasion::Arrival && message.date < left.made {
         return Err(Refusal::BeforeTheRule);
+    }
+    if occasion == Occasion::Arrival
+        && (message.read == ReadState::Read || message.date < now - fresh())
+    {
+        return Err(Refusal::Stale);
     }
     let raw = crate::export::raw_message(store, message.id)
         .or_else_none("a rule could not read a message");
@@ -350,6 +369,61 @@ mod tests {
             headers_allow(None, "ada@example.test", &own(), Sends::Reply),
             Err(Refusal::NotHere),
             "headers only"
+        );
+    }
+
+    #[test]
+    fn spam_the_server_marked_is_not_answered_or_forwarded() {
+        for flag in ["X-Spam-Flag: YES\r\n", "X-Spam-Status: Yes, score=9\r\n"] {
+            assert_eq!(
+                headers_allow(
+                    Some(&mail(&format!("{PATH}{flag}"))),
+                    "ada@example.test",
+                    &own(),
+                    Sends::Forward
+                ),
+                Err(Refusal::Spam),
+                "{flag}"
+            );
+        }
+    }
+
+    fn rule_made_at(made: DateTime<Utc>) -> Left {
+        Left {
+            message: mail_domain::MessageId::generate(),
+            action: RuleAction::Forward("friend@example.test".to_owned()),
+            rule: mail_domain::RuleId::generate(),
+            made,
+            reply_days: 7,
+        }
+    }
+
+    #[test]
+    fn mail_that_arrives_again_is_not_new_mail() {
+        use crate::support_tests::{at, message};
+        use mail_domain::Star;
+        let store = mail_store::testing::in_memory();
+        let now = at(10 * 86_400);
+        let rule = rule_made_at(at(0));
+        let guarded = |read, secs, occasion| {
+            let message = message(1, "Hello", "Body", secs, read, Star::Unstarred);
+            guard(&store, &rule, &message, &own(), occasion, now)
+        };
+        // Dated after the rule, but a month old by now: fetched anew.
+        assert_eq!(
+            guarded(ReadState::Unread, 86_400, Occasion::Arrival),
+            Err(Refusal::Stale)
+        );
+        // Fresh, but already read.
+        assert_eq!(
+            guarded(ReadState::Read, 10 * 86_400 - 60, Occasion::Arrival),
+            Err(Refusal::Stale)
+        );
+        // Asked for by the person: old and read mail is theirs to send for. It goes on to read
+        // the message's bytes, which this store lacks.
+        assert_eq!(
+            guarded(ReadState::Read, 86_400, Occasion::Asked),
+            Err(Refusal::NotHere)
         );
     }
 

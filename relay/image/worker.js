@@ -61,7 +61,8 @@ export default {
 // Whether an image may be fetched from `url`: https, on a public name or address.
 export function allowed(url) {
   if (url.protocol !== "https:" || url.username || url.password) return false;
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  // A name may end in the root's dot ("localhost."), which is the same name.
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
   if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return false;
   if (host.endsWith(".internal") || !host.includes(".") && !host.includes(":")) return false;
   const v4 = host.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);

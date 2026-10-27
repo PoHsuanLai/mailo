@@ -174,6 +174,9 @@ fn a_message_is_deleted_once_the_store_no_longer_has_it() {
 /// When Mailo Quits. This is the only test that records into the run's ledger.
 #[test]
 fn the_setting_decides_when_the_recorded_copies_go() {
+    let _alone = super::RUN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (store, _dir) = crate::ui::fixtures::seeded();
     let client = crate::ui::fixtures::client(&store);
     let thread = crate::ui::fixtures::thread_like(&store, "hi");

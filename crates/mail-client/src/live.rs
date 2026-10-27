@@ -18,9 +18,25 @@ pub trait Query: Clone + Eq + Send + Sync + 'static {
     /// What it reads: a commit that touched none of these leaves its answer as it was.
     const READS: Topics;
 
+    /// A number equal queries share, so the client finds a value that is held without comparing
+    /// the query to every other of its type. Queries that differ may share one number; `Eq`
+    /// decides. The default is one number for all, which is a scan; a query that is asked in
+    /// numbers, one for each conversation open, says its own ([`bucket_of`]).
+    fn bucket(&self) -> u64 {
+        0
+    }
+
     /// Read it. Every read made here is of one moment of the database
     /// ([`SqliteStore::read_pinned`]), and `now` is the client's clock.
     fn run(&self, store: &SqliteStore, now: DateTime<Utc>) -> Result<Self::Output, ClientError>;
+}
+
+/// A [`Query::bucket`] from what a query is made of.
+pub fn bucket_of(of: &impl std::hash::Hash) -> u64 {
+    use std::hash::Hasher;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    of.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// A value as it stands: being read for the first time, read, or failing to be read again.
@@ -131,21 +147,34 @@ impl<T: Send + Sync + 'static> Live<T> {
         self.told.changed().await.is_ok()
     }
 
+    /// Wait up to `timeout` for the value to be read, here on this thread: for a caller that must
+    /// have it before it goes on, such as a window's first frame. `None` when it was not read in
+    /// time or its reading failed; the caller then goes on with what the `Live` shows as it
+    /// stands. Never reads the store itself: the client's threads do.
+    pub fn wait_for(&self, timeout: std::time::Duration) -> Option<Arc<T>> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            match self.snapshot() {
+                Snapshot::Ready { value, .. } => return Some(value),
+                Snapshot::Failed { .. } => return None,
+                Snapshot::Loading { .. } => {}
+            }
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
     /// Wait for the value to be read, here on this thread. For tests.
     #[cfg(feature = "testing")]
     pub fn wait(&self) -> Arc<T> {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        loop {
-            match self.snapshot() {
-                Snapshot::Ready { value, .. } => return value,
+        match self.wait_for(std::time::Duration::from_secs(10)) {
+            Some(value) => value,
+            None => match self.snapshot() {
                 Snapshot::Failed { error, .. } => panic!("the value could not be read: {error}"),
-                Snapshot::Loading { .. } => {}
-            }
-            assert!(
-                std::time::Instant::now() < deadline,
-                "the value was not read within ten seconds"
-            );
-            std::thread::sleep(std::time::Duration::from_millis(2));
+                _ => panic!("the value was not read within ten seconds"),
+            },
         }
     }
 }

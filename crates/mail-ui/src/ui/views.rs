@@ -54,21 +54,25 @@ fn save(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
     let Some(draft) = shell.peek().view_editor.clone() else {
         return;
     };
-    let client = crate::ui::live::client();
-    let kept = draft
-        .build(&shell.peek().known(), &chrono::Local)
-        .and_then(|view| {
-            client
-                .stored()
-                .put_view(&view)
-                .map(|()| view)
-                .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why))
-        });
-    match kept {
+    // Written off the thread that draws; the sheet closes and the list shows it once it is kept,
+    // or the sheet says why not.
+    // Built before the match: the borrow of the shell ends here, since an answer that is already
+    // known writes the shell at once.
+    let built = draft.build(&shell.peek().known(), &chrono::Local);
+    match built {
         Ok(view) => {
-            saved::show_kept(&mut shell.write(), &view);
-            pages.set(1);
-            crate::ui::host::Host::focus_app();
+            let kept = view.clone();
+            crate::ui::motion::keep(
+                mail_client::act::Keep::View(view),
+                move |result| match result {
+                    Ok(_) => {
+                        saved::show_kept(&mut shell.write(), &kept);
+                        pages.set(1);
+                        crate::ui::host::Host::focus_app();
+                    }
+                    Err(why) => edit(shell, |draft| draft.refused = Some(why)),
+                },
+            );
         }
         Err(why) => edit(shell, |draft| draft.refused = Some(why)),
     }
@@ -79,18 +83,17 @@ fn delete(mut shell: Signal<Shell>, mut pages: Signal<u32>) {
     let Some(id) = shell.peek().view_editor.as_ref().and_then(|draft| draft.id) else {
         return;
     };
-    let client = crate::ui::live::client();
-    match client.stored().delete_view(id) {
-        Ok(()) => {
-            saved::show_forgotten(&mut shell.write(), id);
-            pages.set(1);
-            crate::ui::host::Host::focus_app();
-        }
-        Err(why) => {
-            let said = crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why);
-            edit(shell, |draft| draft.refused = Some(said));
-        }
-    }
+    crate::ui::motion::keep(
+        mail_client::act::Keep::ForgetView(id),
+        move |result| match result {
+            Ok(_) => {
+                saved::show_forgotten(&mut shell.write(), id);
+                pages.set(1);
+                crate::ui::host::Host::focus_app();
+            }
+            Err(why) => edit(shell, |draft| draft.refused = Some(why)),
+        },
+    );
 }
 
 fn group_items(draft: &ViewDraft, labels: &[(String, mail_domain::LabelId)]) -> Vec<MenuItem> {
@@ -311,7 +314,7 @@ pub(in crate::ui) fn ViewSheet(shell: Signal<Shell>, pages: Signal<u32>) -> Elem
 }
 
 /// A refusal quire's field draws under itself: the words, and one stamp for each phrasing.
-fn refusal(why: Option<&str>) -> Validity {
+pub(in crate::ui) fn refusal(why: Option<&str>) -> Validity {
     match why {
         None => Validity::Valid,
         Some(why) => Validity::Invalid(Invalid {

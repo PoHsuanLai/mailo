@@ -592,7 +592,7 @@ fn delete_draft(mut page: Signal<Page>, shell: Signal<Shell>, desk: Desk) {
 fn deleted(
     client: &Client,
     stored: Draft,
-) -> Result<mail_client::undo::Undo, mail_client::CoreError> {
+) -> Result<mail_client::undo::Undo, mail_client::prelude::CoreError> {
     life::discard(client, stored.id)?;
     Ok(mail_client::undo::Undo {
         said: crate::ui::copy::toasts::DRAFT_DELETED.to_owned(),
@@ -635,7 +635,7 @@ pub(in crate::ui) fn delete_stored_draft(shell: Signal<Shell>, draft: DraftId) {
     let outcome = client
         .stored()
         .draft(draft)
-        .map_err(mail_client::CoreError::from)
+        .map_err(mail_client::prelude::CoreError::from)
         .and_then(|stored| deleted(&client, stored));
     match outcome {
         Ok(undo) => forget(shell, desk, draft, undo),

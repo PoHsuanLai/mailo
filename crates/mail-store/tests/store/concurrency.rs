@@ -519,7 +519,10 @@ mod a_reader_that_is_not_the_writer {
             std::thread::yield_now();
         }
 
-        let bound = Duration::from_millis(200);
+        // A read queued behind the writer waits out its whole transaction, which is held for
+        // three seconds, so any bound well under that tells the two apart; a loaded machine
+        // making a fast read slow does not reach a second.
+        let bound = Duration::from_secs(1);
         let mut slow = Vec::new();
         for (name, read) in the_window_reads(thread, message) {
             let started = Instant::now();
@@ -569,6 +572,82 @@ mod a_reader_that_is_not_the_writer {
         drop(db);
         assert_eq!(inside, "not committed");
     }
+}
+
+/// A worker's pinned read does not keep the thread that draws from reading: workers stay off the
+/// last reader, which every other thread waits on, however long a worker holds its own.
+#[test]
+fn the_drawing_thread_never_waits_on_a_workers_pinned_read() {
+    use std::sync::mpsc::channel;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
+    seed_account(&store, acct_account(), "me@example.test");
+    let (pinned, pinned_rx) = channel::<()>();
+    let (release, released) = channel::<()>();
+    let released = Arc::new(std::sync::Mutex::new(released));
+
+    // As many workers as the client runs, each holding a snapshot until the end of the test.
+    let workers: Vec<_> = (0..store.reader_count() - 1)
+        .map(|_| {
+            let (store, pinned, released) = (store.clone(), pinned.clone(), released.clone());
+            std::thread::spawn(move || {
+                SqliteStore::mark_worker_thread();
+                store
+                    .read_pinned(|| {
+                        let _ = store.count(&Filter::All, at(0)).unwrap();
+                        pinned.send(()).unwrap();
+                        // One message releases one worker.
+                        let _ = released.lock().unwrap().recv();
+                    })
+                    .unwrap();
+            })
+        })
+        .collect();
+    for _ in &workers {
+        pinned_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    // Another thread holds the last reader a moment, as a sync pass reads; the drawing thread
+    // arrives while it does and must wait for that, and for nothing else.
+    let (holding, holding_rx) = channel::<()>();
+    let (let_go, let_go_rx) = channel::<()>();
+    let other = {
+        let store = store.clone();
+        std::thread::spawn(move || {
+            store
+                .read_pinned(|| {
+                    holding.send(()).unwrap();
+                    let _ = let_go_rx.recv();
+                })
+                .unwrap();
+        })
+    };
+    holding_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let (drew, drew_rx) = channel::<u64>();
+    let drawing = {
+        let store = store.clone();
+        std::thread::spawn(move || {
+            drew.send(store.count(&Filter::All, at(0)).unwrap())
+                .unwrap();
+        })
+    };
+    std::thread::sleep(Duration::from_millis(100));
+    let_go.send(()).unwrap();
+    let counted = drew_rx.recv_timeout(Duration::from_secs(5));
+
+    for _ in &workers {
+        let _ = release.send(());
+    }
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    other.join().unwrap();
+    drawing.join().unwrap();
+    assert_eq!(
+        counted,
+        Ok(0),
+        "the read waited on a worker's pinned reader"
+    );
 }
 
 /// An ingest larger than one chunk.
@@ -627,6 +706,37 @@ mod an_ingest_in_chunks {
         assert_eq!(patch.changes.len(), 3 * total as usize);
     }
 
+    /// A later chunk that fails does not take the earlier chunks' arrivals with it: the error
+    /// carries the patch of what stayed.
+    #[test]
+    fn that_stops_part_way_says_what_it_had_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap();
+        seed_account(&store, acct_account(), "me@example.test");
+        on_ingest_chunk(&store, |store| {
+            store
+                .raw_connection()
+                .execute_batch(
+                    "CREATE TRIGGER IF NOT EXISTS refuse_messages BEFORE INSERT ON messages \
+                     BEGIN SELECT RAISE(ABORT, 'full'); END;",
+                )
+                .unwrap();
+        });
+        let batch = ingest_of(&store, 0, (INGEST_CHUNK + 50) as i64);
+        let error = store.ingest(acct_account(), batch).unwrap_err();
+        let written = error.written().expect("the error carries what was written");
+        let upserts = written
+            .changes
+            .iter()
+            .filter(|c| matches!(c, mail_domain::Change::MessageUpsert(_)))
+            .count();
+        assert_eq!(upserts, INGEST_CHUNK);
+        assert_eq!(
+            store.count(&Filter::All, at(0)).unwrap(),
+            INGEST_CHUNK as u64
+        );
+    }
+
     /// A UIDVALIDITY reset is one commit however large: no reader sees the mailbox with its
     /// addresses dropped and its messages only partly there.
     #[test]
@@ -664,4 +774,104 @@ mod an_ingest_in_chunks {
             Some(SyncCursor::Pop)
         );
     }
+}
+
+/// The window's reads are kept by name in `the_window_reads`, and a list kept by hand misses the
+/// read nobody added to it. This is the rule it checks, held at the source: a function of the
+/// SQLite store that only reads takes [`SqliteStore::reader`] and never the writer, which a sync
+/// holds for a whole chunk. A read made inside a write is handed the writer by `reader` itself
+/// (the thread already holds it), so there is no read the rule has to leave out.
+///
+/// A function counts as writing when it names a statement that changes the database, runs one
+/// (`execute`, a transaction), or touches a topic; one that hands the writer out (`-> Writer`)
+/// is the writer's own door.
+#[test]
+fn a_store_function_that_only_reads_never_takes_the_writer() {
+    const WRITES: [&str; 14] = [
+        "INSERT ",
+        "UPDATE ",
+        "DELETE ",
+        "REPLACE ",
+        "CREATE ",
+        "DROP ",
+        "ALTER ",
+        "PRAGMA",
+        ".execute",
+        "execute_batch",
+        "transaction(",
+        ".touch(",
+        "write_change",
+        "VACUUM",
+    ];
+    let is_fn = |line: &str| {
+        let line = line.trim_start();
+        [
+            "fn ",
+            "pub fn ",
+            "pub(super) fn ",
+            "pub(crate) fn ",
+            "async fn ",
+            "pub async fn ",
+        ]
+        .iter()
+        .any(|opening| line.starts_with(opening))
+    };
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/sqlite");
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "rs"))
+        .collect();
+    files.sort();
+    assert!(
+        files.len() > 10,
+        "the scan found {} files in {dir:?}",
+        files.len()
+    );
+    let mut offenders = Vec::new();
+    let mut functions = 0;
+    for path in files {
+        let text = std::fs::read_to_string(&path).unwrap();
+        // What follows a `#[cfg(test)]` is the file's own tests, which may take either.
+        let source: Vec<&str> = text
+            .lines()
+            .take_while(|line| line.trim() != "#[cfg(test)]")
+            .collect();
+        let starts: Vec<usize> = (0..source.len()).filter(|i| is_fn(source[*i])).collect();
+        for (n, start) in starts.iter().enumerate() {
+            let end = starts.get(n + 1).copied().unwrap_or(source.len());
+            functions += 1;
+            let code: Vec<&str> = source[*start..end]
+                .iter()
+                .copied()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .collect();
+            let body = code.join("\n");
+            // Down to the first line that opens the body.
+            let mut signature = String::new();
+            for line in &code {
+                signature.push_str(line);
+                if line.contains('{') {
+                    break;
+                }
+            }
+            if body.contains(".connection()")
+                && !signature.contains("Writer")
+                && !WRITES.iter().any(|write| body.contains(write))
+            {
+                offenders.push(format!(
+                    "{}:{}: {}",
+                    path.file_name().unwrap().to_string_lossy(),
+                    start + 1,
+                    source[*start].trim()
+                ));
+            }
+        }
+    }
+    assert!(functions > 100, "the scan read only {functions} functions");
+    assert!(
+        offenders.is_empty(),
+        "these only read, and take the writer: use `self.reader()`\n{}",
+        offenders.join("\n")
+    );
 }

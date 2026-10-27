@@ -9,7 +9,8 @@
 //! writes it. The name is the one the file will be written under. Save asks nothing: it lands in
 //! the downloads folder (`attachments.downloads_folder`, else the system's), and a toast says
 //! which. A tile's right click offers Save to…, which asks for a folder first; Save All… writes
-//! every part into one folder it asks for, in one go, with one toast. A name already taken in the
+//! every part into one folder it asks for, in one go, with one toast; the reader's ⋯ has both
+//! as Save Attachments… for the message it means ([`files_meant`]). A name already taken in the
 //! folder gets " (2)" and on (`mail_core::attach::write_new`): nothing is written over.
 //!
 //! Each tile's progress is a `mail_client::fetch::Download`: Running turns its button Busy, Saved
@@ -68,6 +69,19 @@ enum Pick {
 struct Held {
     at: Point,
     part: Part,
+}
+
+/// The message the reader's ⋯ › Save Attachments… means among `messages`, each with how many
+/// files it shows: the one opened alone (`focus`) when it has files, else the newest that has
+/// some. A conversation of messages without files, or a folded message, means none.
+pub(super) fn files_meant(
+    messages: &[(MessageId, usize)],
+    focus: Option<MessageId>,
+) -> Option<(MessageId, usize)> {
+    match focus.and_then(|focus| messages.iter().find(|(id, _)| *id == focus)) {
+        Some(&(id, files)) => (files > 0).then_some((id, files)),
+        None => messages.iter().rev().find(|(_, files)| *files > 0).copied(),
+    }
 }
 
 /// The strip for one message. Each tile's download is its own state, kept here by index.
@@ -236,6 +250,23 @@ pub(super) fn Attachments(
                 Pick::Save => all.save(part, crate::ui::files::save_dir()),
                 Pick::SaveTo => all.save_to(part),
                 Pick::SaveAll => all.save_all_to(parts.clone()),
+            }
+        }
+    });
+    // The reader's ⋯ › Save Attachments…: this message's files into a folder asked for, as Save All…
+    // is, or Save to… when there is one.
+    use_effect({
+        let all = all.clone();
+        let parts = parts.clone();
+        move || {
+            if shell.read().save != Some(message) {
+                return;
+            }
+            shell.write().save = None;
+            match parts.as_slice() {
+                [] => {}
+                [only] => all.save_to(only.clone()),
+                _ => all.save_all_to(parts.clone()),
             }
         }
     });
@@ -590,6 +621,30 @@ fn finish(
             );
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod meant_tests {
+    use super::files_meant;
+    use mail_domain::MessageId;
+
+    #[test]
+    fn the_menu_means_the_message_opened_alone_else_the_newest_with_files() {
+        let [a, b, c] = [(); 3].map(|()| MessageId::generate());
+        assert_eq!(files_meant(&[(a, 2), (b, 1), (c, 0)], None), Some((b, 1)));
+        assert_eq!(
+            files_meant(&[(a, 2), (b, 1), (c, 0)], Some(a)),
+            Some((a, 2))
+        );
+        assert_eq!(files_meant(&[(a, 2), (b, 1)], Some(c)), Some((b, 1)));
+        assert_eq!(
+            files_meant(&[(a, 2), (b, 0)], Some(b)),
+            None,
+            "opened alone, no files"
+        );
+        assert_eq!(files_meant(&[(a, 0), (b, 0)], None), None);
+        assert_eq!(files_meant(&[], None), None);
     }
 }
 

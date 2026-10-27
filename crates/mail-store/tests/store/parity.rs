@@ -85,6 +85,15 @@ struct Spec {
     date: i64,
     /// An attachment named after one of [`WORDS`], of this many bytes, still on the server.
     attached: Option<(usize, u64)>,
+    /// Copied to an address built from one of [`WORDS`], as the sender's is.
+    cc: Option<usize>,
+    /// Whether the sender is on the VIP list.
+    vip: bool,
+}
+
+/// A sender's or a recipient's address, built from one of [`WORDS`].
+fn address_of(word: usize) -> String {
+    format!("{}@example.test", WORDS[word].replace(['%', ' '], ""))
 }
 
 /// Folders a queued `File` moves, or a queued `Copy` copies, a message into: one it may already
@@ -146,6 +155,8 @@ fn spec() -> impl Strategy<Value = Spec> {
             prop::option::of(0..MOVES.len()),
             0i64..4_000,
             prop::option::of((0..WORDS.len(), 0u64..60)),
+            prop::option::of(0..WORDS.len()),
+            any::<bool>(),
         ),
     )
         .prop_map(
@@ -161,7 +172,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                 mailbox,
                 labels,
                 folders,
-                (moving, copying, date, attached),
+                (moving, copying, date, attached, cc, vip),
             )| {
                 Spec {
                     thread,
@@ -179,6 +190,8 @@ fn spec() -> impl Strategy<Value = Spec> {
                     copying,
                     date,
                     attached,
+                    cc,
+                    vip,
                 }
             },
         )
@@ -226,6 +239,14 @@ fn filter() -> impl Strategy<Value = Filter> {
         })),
         text.clone().prop_map(Filter::From),
         text.clone().prop_map(Filter::To),
+        text.clone().prop_map(Filter::Cc),
+        // The address alone, in any ASCII case, which `lower` and `eq_ignore_ascii_case` fold alike.
+        (0..WORDS.len(), any::<bool>()).prop_map(|(i, shout)| Filter::FromAddress(if shout {
+            address_of(i).to_ascii_uppercase()
+        } else {
+            address_of(i)
+        })),
+        Just(Filter::Vip),
         text.clone().prop_map(Filter::Subject),
         text.prop_map(Filter::Text),
         (0u64..80).prop_map(Filter::Larger),
@@ -298,15 +319,20 @@ fn build(specs: &[Spec]) -> Both {
             date: at(s.date),
             from: Address {
                 name: s.from_name.map(|n| WORDS[n].to_owned()),
-                email: format!(
-                    "{}@example.test",
-                    WORDS[s.from_local].replace(['%', ' '], "")
-                ),
+                email: address_of(s.from_local),
             },
             to: vec![Address {
                 name: None,
-                email: format!("{}@example.test", WORDS[s.to_local].replace(['%', ' '], "")),
+                email: address_of(s.to_local),
             }],
+            cc: s
+                .cc
+                .map(|word| Address {
+                    name: None,
+                    email: address_of(word),
+                })
+                .into_iter()
+                .collect(),
             subject: words(&s.subject),
             rfc_message_id: Some(format!("m{i}@example.test")),
             read: if s.read {
@@ -343,6 +369,10 @@ fn build(specs: &[Spec]) -> Both {
         let patch = patch(vec![Change::MessageUpsert(Box::new(message.clone()))]);
         sqlite.apply(acct_account(), &patch).unwrap();
         memory.apply(acct_account(), &patch).unwrap();
+        if s.vip {
+            sqlite.put_vip(&message.from.email, None).unwrap();
+            memory.put_vip(&message.from.email, None).unwrap();
+        }
         held.push((message, s));
     }
 

@@ -39,14 +39,18 @@ pub(in crate::ui) fn turn(mut shell: Signal<Shell>) {
                 threading: next,
                 ..view.clone()
             };
-            let client = crate::ui::live::client();
-            if let Err(why) = client.stored().put_view(&view) {
-                log::warn!("Organise by Conversation was not kept in the view: {why}");
-                return;
-            }
-            let mut write = shell.write();
-            write.places[at] = saved_place(&view);
-            write.focus = None;
+            // Written off the thread that draws; the list turns once the view is kept.
+            crate::ui::motion::keep(mail_client::act::Keep::View(view.clone()), move |result| {
+                if let Err(why) = result {
+                    log::warn!("Organise by Conversation was not kept in the view: {why}");
+                    return;
+                }
+                let mut write = shell.write();
+                if let Some(place) = write.places.get_mut(at) {
+                    *place = saved_place(&view);
+                }
+                write.focus = None;
+            });
         }
         None => {
             {

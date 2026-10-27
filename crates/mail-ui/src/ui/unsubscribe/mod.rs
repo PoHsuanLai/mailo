@@ -186,6 +186,8 @@ pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender:
         .map(|thread| (thread, Op::Archive))
         .collect();
     let hours = crate::ui::clock::hours();
+    let motion = super::motion::motion();
+    let gesture = super::motion::begin(motion);
     let ticket = crate::ui::live::client().act(Command::Perform {
         ops,
         clock: hours,
@@ -193,7 +195,6 @@ pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender:
         then_erase: false,
     });
     let list = list.to_owned();
-    let motion = super::motion::motion();
     super::motion::when_done(ticket, move |acted| {
         let undone: Vec<Undo> = match acted {
             Some(Acted {
@@ -208,7 +209,8 @@ pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender:
             1 => format!("Archived 1 conversation from {list}"),
             n => format!("Archived {n} conversations from {list}"),
         };
-        super::motion::record_through(motion, shell, undone, text);
+        let kept = super::motion::record_through(motion, shell, undone, text);
+        super::motion::end(motion, shell, gesture, kept);
     });
 }
 

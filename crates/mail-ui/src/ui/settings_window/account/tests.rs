@@ -291,6 +291,120 @@ async fn an_account_waiting_to_sign_in_is_not_asked_for_its_storage() {
     );
 }
 
+/// An account whose syncing the person paused is left alone by every connection mailo makes, and
+/// the page's ask for its storage is one.
+#[tokio::test]
+async fn a_paused_account_is_not_asked_for_its_storage() {
+    let built = work();
+    let asked: Arc<Mutex<Vec<AccountId>>> = Arc::default();
+    let seams = Seams {
+        secrets: Arc::new(mail_core::NoKeyring),
+        storage: Arc::new({
+            let asked = asked.clone();
+            move |_, account| {
+                asked.lock().unwrap().push(account);
+                Ok(None)
+            }
+        }),
+    };
+    crate::ui::fixtures::client(&built.store)
+        .stored()
+        .set_account_syncing(poh(&built), mail_client::Syncing::Paused)
+        .unwrap();
+    dispatching();
+    let mut dom = VirtualDom::new(settings_root)
+        .with_root_context(crate::ui::fixtures::client(&built.store))
+        .with_root_context(built.dirs.clone())
+        .with_root_context(seams);
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    let seen = click(
+        &mut dom,
+        seen.one("aria-label", SettingsPage::Accounts.name()),
+    )
+    .merge(drain_seen(&mut dom));
+    let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
+    let _ = click(&mut dom, row).merge(drain_seen(&mut dom));
+    let _ = until(&mut dom, on_account_page).await;
+    assert!(
+        asked.lock().unwrap().is_empty(),
+        "asked a server of a paused account"
+    );
+}
+
+/// The page is opened again and again; a server's answer is kept for a while, and a failure is
+/// asked again.
+#[test]
+fn a_servers_answer_about_storage_is_kept_and_a_failure_is_not() {
+    let built = work();
+    let client = crate::ui::fixtures::client(&built.store);
+    let account = poh(&built);
+    let calls = Arc::new(Mutex::new(0usize));
+    let ask = |fail_first: bool| -> super::ReadStorage {
+        let calls = calls.clone();
+        Arc::new(move |_, _| {
+            let mut calls = calls.lock().unwrap();
+            *calls += 1;
+            if fail_first && *calls == 1 {
+                return Err("refused".to_owned());
+            }
+            Ok(Some(Storage {
+                used: 1 << 30,
+                limit: 2 << 30,
+            }))
+        })
+    };
+    let kept = super::remembered(ask(false), Duration::from_secs(60));
+    assert!(kept(client.clone(), account.clone()).unwrap().is_some());
+    assert!(kept(client.clone(), account.clone()).unwrap().is_some());
+    assert_eq!(*calls.lock().unwrap(), 1, "the second look did not ask");
+
+    *calls.lock().unwrap() = 0;
+    let forgotten = super::remembered(ask(false), Duration::ZERO);
+    let _ = forgotten(client.clone(), account.clone());
+    let _ = forgotten(client.clone(), account.clone());
+    assert_eq!(
+        *calls.lock().unwrap(),
+        2,
+        "an answer kept for no time is asked again"
+    );
+
+    *calls.lock().unwrap() = 0;
+    let failing = super::remembered(ask(true), Duration::from_secs(60));
+    assert!(failing(client.clone(), account.clone()).is_err());
+    assert!(failing(client, account).unwrap().is_some());
+    assert_eq!(*calls.lock().unwrap(), 2, "a failure is not kept");
+}
+
+/// A server that does not answer is not waited for for good.
+#[tokio::test]
+async fn a_server_that_does_not_answer_in_time_leaves_storage_unsaid() {
+    let built = work();
+    let client = crate::ui::fixtures::client(&built.store);
+    let account = poh(&built);
+    let slow: super::ReadStorage = Arc::new(|_, _| {
+        std::thread::sleep(Duration::from_millis(600));
+        Ok(Some(Storage { used: 1, limit: 2 }))
+    });
+    let fast: super::ReadStorage = Arc::new(|_, _| Ok(Some(Storage { used: 1, limit: 2 })));
+    assert_eq!(
+        super::asked_within(
+            Duration::from_millis(50),
+            slow,
+            client.clone(),
+            account.clone()
+        )
+        .await,
+        None,
+        "a slow server is not waited for"
+    );
+    assert!(
+        super::asked_within(Duration::from_secs(30), fast, client, account)
+            .await
+            .is_some(),
+        "a prompt one is heard"
+    );
+}
+
 #[tokio::test]
 async fn without_a_server_to_ask_the_page_says_nothing_of_storage() {
     let built = work();

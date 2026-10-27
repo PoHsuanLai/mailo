@@ -35,6 +35,9 @@ pub(super) struct ListView {
     /// that drops 240 rows would otherwise stay unreadable while they leave. An archive is the
     /// same question, and its row still leaves the way the design says.
     pub asked: ReadSignal<u64>,
+    /// Whether the last reading of the rows failed (the rows shown, if any, are an earlier
+    /// one's): the pane says so when it has none.
+    pub failed: Memo<bool>,
 }
 
 /// The list for `shell`, `pages` pages deep, as the client keeps it read: again whenever a commit
@@ -66,7 +69,7 @@ pub(super) fn use_list(shell: Signal<Shell>, pages: Signal<u32>) -> ListView {
     // The generation the rows were read at, which tells the window's own writes in them from
     // those still on their way.
     let mut read_at = use_signal(Generation::default);
-    let hides = use_signal(Vec::<Hide>::new);
+    let mut hides = use_signal(Vec::<Hide>::new);
     let listed = use_memo(move || request().0.filter());
     use_context_provider(|| Hidden {
         hides,
@@ -86,6 +89,11 @@ pub(super) fn use_list(shell: Signal<Shell>, pages: Signal<u32>) -> ListView {
         };
         if *read_at.peek() != *as_of {
             read_at.set(*as_of);
+            // Those the rows have been read past are no longer anything to keep.
+            let past = |hide: &Hide| hide.until.is_some_and(|until| until <= *as_of);
+            if hides.peek().iter().any(past) {
+                hides.write().retain(|hide| !past(hide));
+            }
         }
         let done = Listed::from(value.as_ref());
         if *answered.peek() != question {
@@ -134,6 +142,7 @@ pub(super) fn use_list(shell: Signal<Shell>, pages: Signal<u32>) -> ListView {
         marking: use_memo(move || drawn.read().marking.clone()),
         paging: use_memo(move || pages() > reached()),
         asked: asked.into(),
+        failed: use_memo(move || matches!(*found.read(), Snapshot::Failed { .. })),
     }
 }
 
@@ -256,6 +265,32 @@ fn drops_rows(was: &Listed, next: &Listed) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The files that draw the list, the window and the status ask the store nothing: what a
+    /// frame shows is a query the client keeps read, and what a press changes is a command. A
+    /// call to `stored()` on the thread that draws waits behind whatever an ingest holds.
+    #[test]
+    fn the_files_that_draw_ask_the_store_nothing() {
+        let files = [
+            ("list.rs", include_str!("list.rs")),
+            ("list_query.rs", include_str!("list_query.rs")),
+            ("window/root.rs", include_str!("window/root.rs")),
+            ("fetching/mod.rs", include_str!("fetching/mod.rs")),
+            ("menus/mod.rs", include_str!("menus/mod.rs")),
+            ("views.rs", include_str!("views.rs")),
+            ("organise.rs", include_str!("organise.rs")),
+            ("reading/mod.rs", include_str!("reading/mod.rs")),
+        ];
+        for (name, source) in files {
+            let drawn = source.split("#[cfg(test)]").next().unwrap_or(source);
+            let calls: Vec<&str> = drawn
+                .lines()
+                .filter(|line| !line.trim_start().starts_with("//"))
+                .filter(|line| line.contains(".stored()"))
+                .collect();
+            assert!(calls.is_empty(), "{name} asks the store: {calls:?}");
+        }
+    }
 
     use mail_domain::*;
 

@@ -38,8 +38,8 @@ pub const MESSAGE_LIST: &str = "Message list";
 pub const COMPOSING: &str = "Composing";
 /// Deleting, and how long Trash and Spam keep mail.
 pub const MAILBOXES: &str = "Mailboxes";
-/// The junk filter's switches.
-pub const JUNK_MAIL: &str = "Junk Mail";
+/// Settings › Junk Mail: the switches for the senders the filter never calls junk.
+pub const NEVER_JUNK_MAIL_FROM: &str = "Never Junk Mail From";
 /// An account's keys and certificates, on its page in Settings.
 pub const ENCRYPTION: &str = "Encryption";
 /// An account's servers and sign-in, on its page in Settings: the one place a protocol is named.

@@ -117,6 +117,33 @@ fn a_server_without_keywords_is_sent_the_flag_alone() {
     );
 }
 
+/// Gmail turns every keyword into a label of its own, so a colour's bits would show up there as
+/// labels: it is sent the flag alone, and what a survey reads from its keywords is no colour.
+#[test]
+fn gmail_is_sent_the_flag_alone_and_its_keywords_are_no_colour() {
+    stores(
+        ServerLabels::Supported,
+        ProtoOp::SetFlag {
+            remotes: vec![at(7)],
+            hue: Hue::Orange,
+        },
+        &["7 +FLAGS (\\Flagged)"],
+    );
+    stores(
+        ServerLabels::Supported,
+        ProtoOp::SetFlags {
+            remotes: vec![at(7)],
+            read: None,
+            star: Some(Star::Unstarred),
+        },
+        &["7 -FLAGS (\\Flagged)"],
+    );
+    assert_eq!(
+        surveyed(ServerLabels::Supported, FETCHED).flag_colors,
+        Vec::new()
+    );
+}
+
 /// Unflagged, the colour goes too, as Apple Mail clears it.
 #[test]
 fn unflagging_clears_the_colour() {
@@ -168,12 +195,18 @@ fn local_labels_are_not_sent() {
 }
 
 fn surveyed(labels: ServerLabels, fetch_lines: &str) -> Ingest {
+    // Gmail's labels are asked for with the survey; no other server is asked for them.
+    let asked = if matches!(labels, ServerLabels::Supported) {
+        " X-GM-LABELS"
+    } else {
+        ""
+    };
     let trace = format!(
         "{SIGN_IN}\
          C: a002 EXAMINE \"INBOX\"\n\
          S: * OK [UIDVALIDITY 1] UIDs valid.\n\
          S: a002 OK [READ-ONLY] EXAMINE completed\n\
-         C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE)\n\
+         C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE{asked})\n\
          {fetch_lines}\
          S: a003 OK Success\n\
          DONE\n"

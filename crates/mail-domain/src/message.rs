@@ -306,10 +306,7 @@ impl Message {
     /// header fetch, and short by every attachment a large IMAP message left on the server; this
     /// is the same in both stores and in SQL (migration 0041).
     pub fn size(&self) -> u64 {
-        let text = self.body.text().map_or(0, |text| text.len() as u64);
-        self.attachments
-            .iter()
-            .fold(text, |sum, part| sum.saturating_add(part.size))
+        crate::filter::message_size(self)
     }
 }
 

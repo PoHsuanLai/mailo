@@ -18,11 +18,16 @@ use mail_store::{
 use porter_core::AccountId;
 
 /// The store's answers, through a client ([`Client::stored`]).
+///
+/// Every call here may block: it runs on the caller's thread and waits for a reader or the
+/// writer, behind whatever an ingest or a long query holds. So none is made from a frame being
+/// drawn, nor from a handler on the thread that draws; what a frame shows is a query
+/// ([`crate::Query`]) and what a press changes is a command ([`crate::Command`]).
 #[derive(Clone, Copy, Debug)]
 pub struct Stored<'a>(&'a Client);
 
 impl Client {
-    /// What is kept, read on the caller's thread.
+    /// What is kept, read on the caller's thread. May block ([`Stored`]).
     pub fn stored(&self) -> Stored<'_> {
         Stored(self)
     }
@@ -185,6 +190,17 @@ impl Stored<'_> {
         syncing: mail_store::Syncing,
     ) -> Result<(), StoreError> {
         self.0.store().set_account_syncing(account, syncing)
+    }
+
+    /// Keep `account`'s labels on its server as keywords, or here alone.
+    pub fn set_account_keeps_labels(
+        &self,
+        account: AccountId,
+        keeps: bool,
+    ) -> Result<(), StoreError> {
+        self.0
+            .store()
+            .set_account_keeps_labels(account, keeps, chrono::Utc::now())
     }
 
     pub fn set_folder_role(

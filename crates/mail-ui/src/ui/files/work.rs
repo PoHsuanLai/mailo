@@ -44,15 +44,7 @@ pub(in crate::ui) fn look(path: &Path) -> Looked {
     match transfer::look(path) {
         Seen::Blank => Looked::Blank,
         Seen::Mail { source, count } => {
-            let kind = match source {
-                Source::Mbox(_) => "mbox",
-                Source::Maildir(_) => "Maildir",
-                Source::Eml(_) => "One message file",
-                Source::Emlx(_) => copy::status::SOURCE_EMLX,
-                Source::AppleMail(_) => copy::status::SOURCE_APPLE_MAIL,
-                Source::Thunderbird(_) => copy::status::SOURCE_THUNDERBIRD,
-            };
-            let said = format!("{kind}, {}", messages(count));
+            let said = described(&source, count);
             Looked::Mail {
                 source,
                 count,
@@ -60,6 +52,24 @@ pub(in crate::ui) fn look(path: &Path) -> Looked {
             }
         }
         Seen::Refused(why) => Looked::Refused(refused(path, &why)),
+    }
+}
+
+/// What the sheet says of a source it found: its kind and message count, and for a Thunderbird
+/// profile that only what Thunderbird kept offline can be imported.
+pub(in crate::ui) fn described(source: &Source, count: usize) -> String {
+    let kind = match source {
+        Source::Mbox(_) => "mbox",
+        Source::Maildir(_) => "Maildir",
+        Source::Eml(_) => "One message file",
+        Source::Emlx(_) => copy::status::SOURCE_EMLX,
+        Source::AppleMail(_) => copy::status::SOURCE_APPLE_MAIL,
+        Source::Thunderbird(_) => copy::status::SOURCE_THUNDERBIRD,
+    };
+    let said = format!("{kind}, {}", messages(count));
+    match source {
+        Source::Thunderbird(_) => format!("{said}. {}", copy::status::THUNDERBIRD_OFFLINE_ONLY),
+        _ => said,
     }
 }
 

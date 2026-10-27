@@ -108,10 +108,12 @@ fn kql(filter: &Filter) -> Result<String, Unsaid> {
         Filter::Or(parts) => joined(each(parts, kql)?, "OR"),
         Filter::Not(inner) => format!("NOT {}", kql(inner)?),
         Filter::From(m) => format!("from:{}", whole(m)?),
+        Filter::FromAddress(email) => format!("from:{}", value(email)?),
         Filter::To(m) => {
             let who = whole(m)?;
             format!("(to:{who} OR cc:{who})")
         }
+        Filter::Cc(m) => format!("cc:{}", whole(m)?),
         Filter::Subject(m) => format!("subject:{}", whole(m)?),
         Filter::Text(TextMatch::Contains(needle)) => joined(
             words(needle)
@@ -155,12 +157,9 @@ fn kql(filter: &Filter) -> Result<String, Unsaid> {
                 describe(filter)
             )));
         }
-        Filter::Larger(_) | Filter::Smaller(_) => {
-            return Err(Unsaid::one(format!(
-                "{} (Graph has no search by size)",
-                describe(filter)
-            )));
-        }
+        // KQL's `size` is the message's bytes (`size:>N` is more than N), whole message.
+        Filter::Larger(bytes) => format!("size:>{bytes}"),
+        Filter::Smaller(bytes) => format!("size:<{bytes}"),
         // Fixed against a clock before a server is asked (`Filter::at`).
         Filter::NewerThan(_) | Filter::OlderThan(_) => {
             return Err(Unsaid::one(format!(
@@ -172,7 +171,8 @@ fn kql(filter: &Filter) -> Result<String, Unsaid> {
         | Filter::Account(_)
         | Filter::Snoozed
         | Filter::SnoozeDue
-        | Filter::Pinned => return Err(kept_here(filter)),
+        | Filter::Pinned
+        | Filter::Vip => return Err(kept_here(filter)),
     })
 }
 

@@ -10,6 +10,8 @@
 //! any run of white space matching any other: a line the sender wrapped still holds the phrase.
 //! Matches do not overlap: `aa` is found twice in `aaaa`, as a browser counts it.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ops::Range;
 
 use mail_domain::filter::search_tokens;
@@ -85,7 +87,37 @@ fn fold(ch: char) -> Option<char> {
     if invisible(ch) {
         return None;
     }
-    // One char's tokens are that char folded, or nothing for punctuation, which is kept as it is.
+    folded_apart(ch)
+}
+
+/// The most distinct non-ASCII chars [`folded_apart`] remembers: a message is in a few scripts,
+/// and a cache past this is dropped whole rather than grown.
+const REMEMBERED: usize = 4096;
+
+/// A non-ASCII, visible `ch` as it is compared. Folding goes through `search_tokens`, which
+/// allocates, and a find folds every char of every shown message on every keystroke; a char folds
+/// the same each time, so it is worked out once per thread and remembered.
+fn folded_apart(ch: char) -> Option<char> {
+    thread_local! {
+        static SEEN: RefCell<HashMap<char, Option<char>>> = RefCell::new(HashMap::new());
+    }
+    SEEN.with(|seen| {
+        let mut seen = seen.borrow_mut();
+        if let Some(known) = seen.get(&ch) {
+            return *known;
+        }
+        let worked = fold_by_tokens(ch);
+        if seen.len() >= REMEMBERED {
+            seen.clear();
+        }
+        seen.insert(ch, worked);
+        worked
+    })
+}
+
+/// `ch` folded as search folds it. One char's tokens are that char folded, or nothing for
+/// punctuation, which is kept as it is.
+fn fold_by_tokens(ch: char) -> Option<char> {
     let token = search_tokens(ch.encode_utf8(&mut [0; 4]));
     token
         .first()
@@ -124,7 +156,7 @@ fn pieces(origin: &[Origin]) -> Found {
 
 #[cfg(test)]
 mod tests {
-    use super::{Found, MOST_FOUND, find_in};
+    use super::{Found, MOST_FOUND, find_in, fold_by_tokens, folded_apart};
 
     /// Each match as the text of its pieces.
     fn said(runs: &[&str], found: &[Found]) -> Vec<Vec<String>> {
@@ -230,6 +262,20 @@ mod tests {
                 .collect();
             assert_eq!(said(case.runs, &found), want, "{}", case.name);
         }
+    }
+
+    /// A char remembered folds as it did the first time, and a find over a long text in several
+    /// scripts gives the same matches the second time it is asked.
+    #[test]
+    fn a_remembered_fold_is_the_fold_worked_out() {
+        for ch in "éÉßŁ郵件ｱ，。—".chars() {
+            assert_eq!(folded_apart(ch), fold_by_tokens(ch), "{ch}");
+            assert_eq!(folded_apart(ch), fold_by_tokens(ch), "{ch} again");
+        }
+        let text = "Résumé 郵件 ".repeat(200);
+        let first = find_in(&[&text], "résumé 郵件");
+        assert_eq!(first.len(), 200);
+        assert_eq!(find_in(&[&text], "résumé 郵件"), first);
     }
 
     #[test]

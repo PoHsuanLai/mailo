@@ -17,7 +17,7 @@ use dioxus::prelude::*;
 use ds::prelude::*;
 use ds::style::tokens::control_size::ControlSize;
 use mail_client::Client;
-use mail_client::Searched;
+use mail_client::prelude::Searched;
 use mail_domain::ThreadId;
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -218,7 +218,10 @@ pub(super) fn ServerSearch(
     use_effect(use_reactive(
         (&input, &accounts),
         move |(wanted, everyone)| {
-            if automatic() != mail_client::server_search::Automatic::On {
+            // A category is only the server's to say, so a line that names one is asked at once.
+            if automatic() != mail_client::server_search::Automatic::On
+                && !mail_client::server_search::needs_server(&wanted)
+            {
                 return;
             }
             for (account, _) in &everyone {

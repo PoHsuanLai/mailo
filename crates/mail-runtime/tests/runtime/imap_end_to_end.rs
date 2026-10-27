@@ -2102,6 +2102,10 @@ mod pushing {
                 .any(|c| c.contains("NOTIFY SET") && c.contains("\"Lists\"")),
             "{sent:?}"
         );
+        assert!(
+            sent.iter().any(|c| c.ends_with("NOTIFY NONE")),
+            "the connection is left hearing of nothing: {sent:?}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

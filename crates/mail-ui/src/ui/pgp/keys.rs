@@ -14,7 +14,7 @@
 
 use chrono::Utc;
 use mail_client::Client;
-use mail_client::SigningStore;
+use mail_client::prelude::SigningStore;
 use mail_domain::{Fingerprint, PgpKey, SecretHeld};
 use std::path::{Path, PathBuf};
 

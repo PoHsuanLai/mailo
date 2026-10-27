@@ -17,7 +17,7 @@ use super::row::{AccountMark, ListRow};
 use super::server_search::{Asked, ServerSearch, found_threads};
 use super::view_groups::group_list;
 use crate::ui::copy;
-use crate::ui::fetching::{CANNOT_LOAD, Fetching, HasRows, ListFace, Need, list_face};
+use crate::ui::fetching::{Fetching, HasRows, ListFace, Need, list_face};
 use crate::ui::reauth::{Reauth, SIGN_IN};
 use crate::ui::view::{Nothing, Shell};
 use dioxus::prelude::*;
@@ -137,6 +137,8 @@ pub(super) fn ThreadList(
     side_hidden: Signal<bool>,
     /// Which question the rows answer (`list_query::ListView::asked`).
     question: ReadSignal<u64>,
+    /// Whether the client could not read the rows (`list_query::ListView::failed`).
+    failed: Memo<bool>,
 ) -> Element {
     let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
     let rows = use_memo(move || {
@@ -149,20 +151,32 @@ pub(super) fn ThreadList(
     // Each account's server asked for a searched line, and what it answered.
     let asked = use_signal(Vec::<Asked>::new);
     // What the servers found for the line shown that the list does not already hold, newest
-    // first, as the client has each conversation now.
-    let found = use_memo(move || {
-        let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
+    // first, as the client has each conversation now: kept read by the client, never looked up
+    // here.
+    let hits = use_memo(move || {
         let line = marking.read().line.clone();
         if line.is_empty() {
             return Vec::new();
         }
         let listed: Vec<ThreadId> = threads.read().iter().map(|t| t.id).collect();
-        let client = crate::ui::live::client();
         found_threads(&asked.read(), &line, &listed)
-            .into_iter()
-            .filter_map(|thread| client.stored().thread(thread).ok())
-            .map(|thread| thread.summary)
-            .collect::<Vec<ThreadSummary>>()
+    });
+    let summaries = crate::ui::live::use_live(move || mail_client::query::Summaries(hits()));
+    // Only the hits asked for now: while the answer to a new line is read, the last one's is
+    // not drawn under it.
+    let found = use_memo(move || {
+        let wanted = hits.read();
+        summaries
+            .read()
+            .value()
+            .map(|summaries| {
+                summaries
+                    .iter()
+                    .filter(|summary| wanted.contains(&summary.id))
+                    .cloned()
+                    .collect::<Vec<ThreadSummary>>()
+            })
+            .unwrap_or_default()
     });
     let place = shell
         .read()
@@ -412,14 +426,26 @@ pub(super) fn ThreadList(
         }),
         _ => None,
     };
+    // A reading that failed, of the accounts or of the rows, with nothing earlier to show: said,
+    // not drawn as an empty mailbox.
+    let unread =
+        nothing_here && (failed() || matches!(*every.read(), mail_client::Snapshot::Failed { .. }));
     let phase = match &face {
+        ListFace::Empty | ListFace::NoAccount | ListFace::NoMatch(_) | ListFace::Filtered
+            if unread =>
+        {
+            Phase::Failed {
+                title: copy::status::CANNOT_LOAD.to_owned(),
+                description: Some(copy::status::NOT_READ.to_owned().into()),
+            }
+        }
         ListFace::FirstSync => Phase::Loading(
             fetching
                 .map(|fetching| fetching.op_in_view(&shell.read()))
                 .unwrap_or_default(),
         ),
         ListFace::CannotLoad(problem) => Phase::Failed {
-            title: CANNOT_LOAD.to_owned(),
+            title: copy::status::CANNOT_LOAD.to_owned(),
             description: Some(
                 problem
                     .description(
@@ -540,7 +566,7 @@ pub(super) fn ThreadList(
                     }
                     // Over the empty list, not under it: the list fills the pane, and what the
                     // pane says (and Clear Filter, Add Account) would be drawn past its end.
-                    if nothing_here {
+                    if nothing_here && !unread {
                         div { class: "list-empty",
                             EmptyState {
                                 form: empty_form,

@@ -94,7 +94,7 @@ pub enum NotifySound {
     Silent,
 }
 
-/// `notifications.badge`: what the Dock's number counts.
+/// `notifications.badge`: what the number on the app's icon counts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
 #[word(case = snake)]
@@ -227,14 +227,17 @@ pub enum BrandLogos {
 /// `reading.remote_images`: when a message's remote images load without asking.
 ///
 /// A remote image is fetched from the sender's server as the message is read, which tells the
-/// sender when it was read and from which network address. `Ask` is the default: nothing loads
-/// until "Show images" is pressed for the conversation. `Trusted` loads a sender's images when
+/// sender when it was read and from which network address. `Never` loads nothing remote and does
+/// not offer to: no "Load Images", whatever else is set. `Ask` is the default: nothing loads
+/// until "Load Images" is pressed for the conversation. `Trusted` loads a sender's images when
 /// their address is in `reading.trusted_image_senders` and the message proves it came from them;
-/// `Always` loads every message's. Junk is asked about whatever this says.
+/// `Always` loads every message's. Junk is asked about whatever this says (and never loads under
+/// `Never`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
 #[word(case = snake)]
 pub enum LoadRemoteImages {
+    Never,
     #[default]
     Ask,
     #[word(label = "From senders I trust")]
@@ -430,7 +433,7 @@ pub enum JunkTreat {
     #[default]
     #[word(label = "Move to Spam")]
     Move,
-    #[word(label = "Mark as Junk")]
+    #[word(label = "Label Junk")]
     Mark,
 }
 
@@ -557,7 +560,7 @@ pub enum WhileQuit {
 /// `Off` fetches each image from its own host, which sees the reader's network address. `Relay`
 /// fetches it through the relay at `privacy.relay` (a Camo relay or a token relay, by
 /// `privacy.relay_kind`), so the host sees the relay's. `Proxy` sends every image fetch through
-/// the proxy at `privacy.proxy` (Tor, a VPN's). Which images load at all is
+/// the proxy at `privacy.proxy` (Tor, a VPN's). Which images load at all (none, under `Never`) is
 /// `reading.remote_images`'s to say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]
@@ -581,17 +584,6 @@ pub enum RelayKind {
     #[default]
     Camo,
     Token,
-}
-
-/// `privacy.block_remote_content`: whether a message's remote content can be loaded at all.
-/// `On` hides "Show images" and loads nothing remote, whatever `reading.remote_images` says.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
-#[serde(rename_all = "snake_case")]
-#[word(case = snake)]
-pub enum BlockRemote {
-    #[default]
-    Off,
-    On,
 }
 
 /// `mailboxes.delete`: what Delete does to mail outside Trash and Spam.

@@ -155,7 +155,9 @@ fn fallback_plan(address: &str) -> AccountPlan {
 
 /// Every configured account, or why the client could not say. Where an empty answer would be
 /// acted on (taking accounts out of the Spaces), a failed read must not look like no accounts.
-pub(super) fn known_accounts(client: &Client) -> Result<Vec<AccountId>, mail_client::StoreError> {
+pub(super) fn known_accounts(
+    client: &Client,
+) -> Result<Vec<AccountId>, mail_client::prelude::StoreError> {
     Ok(client
         .stored()
         .list_accounts()?
@@ -355,6 +357,8 @@ mod quick_tests {
                             corpus: None,
                             folders: &[],
                             sizes: &[],
+                            cc: &[],
+                            vips: &[],
                             now,
                         })
                     })

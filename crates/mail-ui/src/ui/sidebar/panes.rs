@@ -10,15 +10,16 @@ use crate::ui::view::{
     Place, Shell, SideList, Source, folder_of, is_label_place, is_vips, saved_of,
 };
 use dioxus::prelude::*;
+use ds::base::press::{PointerButton, Press};
 use ds::base::vocab::{Emphasis, RowState};
 use ds::components::content::avatar::{AvatarFace, AvatarShape, AvatarSize, AvatarTone};
 use ds::components::controls::badge::{Badge, BadgeContent, BadgeTone};
 use ds::components::lists::list::model::{ListItem, ListStyle};
 use ds::components::lists::row::row::RowMounted;
 use ds::components::menus::item::item::{MenuImage, MenuItem};
-use ds::components::menus::pop_up_button::{PopUpButton, PopUpKind};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
+use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
 use ds::style::tokens::hex::{Colour, Hex};
 use ds::style::tokens::person::PersonSwatch;
@@ -47,19 +48,14 @@ pub(super) struct Counts {
     pub pinned: Vec<Favourite>,
 }
 
-/// What Favourites needs read for `space`: its pins as filters, as the labels, accounts and VIPs
-/// it is told of resolve them, in the Space's scope.
+/// What Favourites needs read for `space`: its pins as filters, as the labels and accounts it is
+/// told of resolve them, in the Space's scope.
 pub(super) fn pins_of(
     space: &Space,
     labels: &[(String, LabelId)],
     accounts: &[(String, porter_core::AccountId)],
-    vips: &mail_client::vip::Vips,
 ) -> query::Pins {
-    let known = query::Known {
-        labels,
-        accounts,
-        vips: Some(vips),
-    };
+    let known = query::Known { labels, accounts };
     query::Pins {
         scope: space.payload.scope().filter(),
         pins: space
@@ -129,7 +125,7 @@ pub(in crate::ui) fn hex_colour(text: &str) -> Colour {
 /// sidebar's and ⌘K's. The VIPs place by its key, since what it lists is whoever they are.
 pub(in crate::ui) fn place_icon(place: &Place) -> Icon {
     if is_vips(place) {
-        return Icon::Sparkles;
+        return crate::ui::vip::GLYPH;
     }
     let source = &place.source;
     let role = |role: MailboxRole| *source == Source::Mail(for_role(role));
@@ -294,8 +290,9 @@ fn PlaceRow(
     let state = use_hook(motion);
     let accepts = shell.read().places.get(index).is_some_and(drag::accepts);
     let drop = state.map_or(DropState::Idle, |state| drop_of(&state, index, accepts));
-    // A label's row wears the label's colour and has a ⋯ that edits it.
+    // A label's row wears the label's colour, and its right-click menu edits it.
     let mut editing = use_signal(|| false);
+    let mut menu_at = use_signal(|| None::<Rect>);
     let mut kept = use_signal(|| 0u32);
     let row_ref = use_signal(|| None::<MountedRef>);
     let label = match shell.read().places.get(index).map(|place| &place.source) {
@@ -316,21 +313,33 @@ fn PlaceRow(
         }),
         None => RowLeading::Icon(icon),
     };
-    let accessory = match &label {
-        Some(label) => Accessory::Slot(rsx! {
-            if let Some(count) = count {
-                Badge { content: BadgeContent::Number(count_of(count)), tone: BadgeTone::Quiet, size: ControlSize::Small }
-            }
-            PopUpButton::<&'static str> {
-                kind: PopUpKind::Overflow,
-                title: Some(copy::aria::actions_for(&label.name)),
-                size: ControlSize::Small,
-                items: vec![MenuItem::new(copy::menus::EDIT_LABEL, copy::menus::EDIT_LABEL).with_image(MenuImage::Icon(Icon::Pen))],
-                onpick: move |_: &'static str| editing.set(true),
-            }
+    let accessory = match (&label, count) {
+        (Some(_), Some(count)) => Accessory::Slot(rsx! {
+            Badge { content: BadgeContent::Number(count_of(count)), tone: BadgeTone::Quiet, size: ControlSize::Small }
         }),
-        None => count.map_or(Accessory::None, |count| Accessory::Badge(count_of(count))),
+        (Some(_), None) => Accessory::None,
+        (None, count) => count.map_or(Accessory::None, |count| Accessory::Badge(count_of(count))),
     };
+    let menu = match (&label, menu_at()) {
+        (Some(label), Some(at)) => rsx! {
+            Menu::<&'static str> {
+                placement: MenuPlacement::Context,
+                anchor: crate::ui::menu::anchor_for(row_ref(), Some(at)),
+                items: vec![MenuItem::new(copy::menus::EDIT_LABEL, copy::menus::EDIT_LABEL).with_image(MenuImage::Icon(Icon::Pen))],
+                common: Common {
+                    aria_label: Some(copy::aria::actions_for(&label.name)),
+                    ..Common::default()
+                },
+                onpick: move |_: &'static str| {
+                    menu_at.set(None);
+                    editing.set(true);
+                },
+                onclose: move |()| menu_at.set(None),
+            }
+        },
+        _ => rsx! {},
+    };
+    let labelled = label.is_some();
     let editor = match (&label, editing()) {
         (Some(label), true) => rsx! {
             super::label_editor::LabelEditor {
@@ -354,7 +363,17 @@ fn PlaceRow(
                 drop,
                 ..RowState::default()
             },
-            onclick: move |_| {
+            onclick: move |press: Press| {
+                // A label's right click is its menu, the row having no ⋯ of its own: Edit Label…
+                // at the pointer. The row has taken the event's default, so the Space's menu
+                // around the sidebar does not open as well.
+                if labelled && press.button == PointerButton::Secondary {
+                    menu_at.set(Some(Rect {
+                        origin: press.at,
+                        size: Size { width: Px(0.0), height: Px(0.0) },
+                    }));
+                    return;
+                }
                 super::go_to(shell, pages, index);
             },
             onpointerenter: move |_| {
@@ -364,6 +383,7 @@ fn PlaceRow(
             },
             onpointerleave: move |_| drag::over(None, index),
         }
+        {menu}
         {editor}
     }
 }

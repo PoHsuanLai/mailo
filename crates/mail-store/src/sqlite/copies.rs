@@ -26,7 +26,7 @@ impl SqliteStore {
         before: DateTime<Utc>,
         limit: u32,
     ) -> Result<Vec<RemoteRef>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
              FROM remote_map r
@@ -56,7 +56,7 @@ impl SqliteStore {
         mailbox: &MailboxRef,
         limit: u32,
     ) -> Result<Vec<RemoteRef>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
              FROM remote_map r

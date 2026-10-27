@@ -19,11 +19,11 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use mail_client::CoreError;
 use mail_client::account::{Outcome, Setup};
 use mail_client::discover::{Failed, Found, Looked as Resolved};
 use mail_client::password::Password;
-use mail_client::{Environment, OAuthClients};
+use mail_client::prelude::CoreError;
+use mail_client::prelude::{Environment, OAuthClients};
 use mail_domain::presets::{self, Preset};
 use mail_domain::{AuthPlan, HttpAuth};
 use porter_core::sheet::{

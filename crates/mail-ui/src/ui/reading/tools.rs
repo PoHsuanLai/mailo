@@ -16,7 +16,7 @@
 //! handed on whole.
 
 use super::super::row::act::{Pressed, press};
-use super::super::row::menu::{Pick, reader_groups, rows_blocking};
+use super::super::row::menu::{Pick, reader_groups, rows_blocking, with_files};
 use super::super::toolbar::{Tool, ToolButton};
 use super::fetch;
 use crate::ui::copy;
@@ -165,6 +165,7 @@ pub(super) fn ReaderMore(
     shell: Signal<Shell>,
     #[props(default)] leave: Option<Offer>,
     #[props(default)] list: bool,
+    #[props(default)] files: Option<(MessageId, usize)>,
 ) -> Element {
     let mut open = use_signal(|| false);
     let mut further = use_signal(|| Further::None);
@@ -179,17 +180,33 @@ pub(super) fn ReaderMore(
         .map(|email| (summary.account.clone(), email));
     // Asked through the alert's own phase, so Unsubscribe's sending state is the alert's.
     let mut leaving = use_signal(|| Phase::Closed);
-    let items = with_keys(rows_blocking(
-        &reader_groups(
-            &summary,
-            &toolbar,
-            peek.is_some(),
-            (leave.is_some(), list, blocking.is_some()),
-        ),
+    let groups = reader_groups(
+        &summary,
+        &toolbar,
+        peek.is_some(),
+        (leave.is_some(), list, blocking.is_some()),
+    );
+    // Save Attachments… only while a message shown has files, named for one or several.
+    let groups = if files.is_some() {
+        with_files(groups)
+    } else {
+        groups
+    };
+    let mut items = with_keys(rows_blocking(
+        &groups,
         &summary,
         chrono::Utc::now(),
         blocking.as_deref(),
     ));
+    if let Some((_, 1)) = files {
+        for row in &mut items {
+            if let ds::components::menus::item::item::MenuItem::Item { value, title, .. } = row
+                && *value == Pick::SaveFiles
+            {
+                *title = copy::menus::SAVE_ATTACHMENT.to_owned();
+            }
+        }
+    }
     let done = move |()| further.set(Further::None);
     rsx! {
         Button {
@@ -235,6 +252,11 @@ pub(super) fn ReaderMore(
                             further: crate::ui::view::Further::Redirect,
                             opened: Opened::Reader,
                         }),
+                        Pick::SaveFiles => {
+                            if let Some((message, _)) = files {
+                                shell.write().save = Some(message);
+                            }
+                        }
                         Pick::Headers => super::source::ask(shell, id, super::Raw::Headers),
                         Pick::Source => super::source::ask(shell, id, super::Raw::Source),
                         // A draft's, never offered here; Flag ▸ only opens its colours.

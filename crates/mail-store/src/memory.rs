@@ -51,6 +51,8 @@ struct Inner {
     /// Message identity. Many [`RemoteRef`]s may point at one entry; the key is not the ref.
     by_key: HashMap<AccountId, HashMap<MessageKey, MessageId>>,
     remotes: Vec<RemoteRow>,
+    /// The size the server gave a message, where it did: `messages.server_size`.
+    server_sizes: BTreeMap<MessageId, u64>,
     /// Addresses of messages deleted forever, until the server no longer lists them.
     destroyed: Vec<destroyed::DestroyedRow>,
     /// Messages a search of the server brought here, with when. Dropped with the message.
@@ -148,6 +150,7 @@ impl Default for Inner {
             messages: BTreeMap::new(),
             by_key: HashMap::new(),
             remotes: Vec::new(),
+            server_sizes: BTreeMap::new(),
             destroyed: Vec::new(),
             found: BTreeMap::new(),
             unplaced: BTreeMap::new(),
@@ -461,6 +464,16 @@ impl Store for MemoryStore {
         remotes: &[RemoteRef],
     ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError> {
         Ok(self.inner.borrow().held_at(account, remotes))
+    }
+
+    fn hold_server_sizes(&self, sizes: &[(MessageId, u64)]) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        for (message, size) in sizes {
+            if inner.messages.contains_key(message) {
+                inner.server_sizes.insert(*message, *size);
+            }
+        }
+        Ok(())
     }
 
     fn mark_found(
@@ -998,6 +1011,7 @@ impl Inner {
     /// therefore sit across that join; FTS5 will not, because a phrase cannot cross rows.
     fn matching(&self, filter: &Filter, now: DateTime<Utc>) -> Vec<ThreadSummary> {
         let ids: Vec<ThreadId> = self.threads.keys().copied().collect();
+        let vips: Vec<String> = self.vips.keys().cloned().collect();
         let mut out = Vec::new();
         for id in ids {
             let Some((summary, body)) = self.view(id) else {
@@ -1008,13 +1022,20 @@ impl Inner {
                 messages.iter().flat_map(|m| self.placed_of(m.id)).collect();
             let sizes: Vec<u64> = messages
                 .iter()
-                .map(mail_domain::filter::message_size)
+                .map(|m| {
+                    mail_domain::filter::message_size(m)
+                        .max(self.server_sizes.get(&m.id).copied().unwrap_or(0))
+                })
                 .collect();
+            let cc: Vec<mail_domain::Address> =
+                messages.iter().flat_map(|m| m.cc.clone()).collect();
             let ctx = MatchCtx {
                 summary: &summary,
                 corpus: body.as_deref(),
                 folders: &folders,
                 sizes: &sizes,
+                cc: &cc,
+                vips: &vips,
                 now,
             };
             if filter.fit(&ctx) {
@@ -1239,6 +1260,7 @@ impl Inner {
             map.remove(&prev.key);
         }
         self.remotes.retain(|row| row.message != id);
+        self.server_sizes.remove(&id);
         self.unplaced.retain(|(_, message), _| *message != id);
         self.pending.retain(|row| row.message != id);
         self.receipts.remove(&id);

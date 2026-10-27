@@ -14,6 +14,25 @@ pub struct Unwritten {
     pub why: String,
 }
 
+/// Whether a refused `PUT` will be refused again: any client error but a timeout or a rate
+/// limit, such as a read-only book's `403`. The edit it refused is then marked
+/// [`mail_store::Edit::Refused`], for a group and a person's card alike, so that it is said once
+/// rather than at every sync for ever.
+pub(super) fn refused_for_good(status: u16) -> bool {
+    (400..500).contains(&status) && !matches!(status, 408 | 429)
+}
+
+/// What is said of an edit the server refused with `status`.
+pub(super) fn refusal(status: u16) -> String {
+    if refused_for_good(status) {
+        format!(
+            "the server does not take it ({status}); it is kept here until the server's card changes"
+        )
+    } else {
+        format!("the server refused it ({status})")
+    }
+}
+
 /// `group` as a vCard 4.0 `KIND:group` card (RFC 6350 §6.1.4, §6.6.5).
 ///
 /// `held` is the card the group was last synced from, when it was: everything of it the group
@@ -94,10 +113,17 @@ pub(super) async fn write_back<S: Store + ?Sized>(
                 why: "it changed on the server; the next sync brings that in and sends this again"
                     .to_owned(),
             }),
-            Err(CardDavFailure::Refused { status, .. }) => unwritten.push(Unwritten {
-                name: group.name.clone(),
-                why: format!("the server refused it ({status})"),
-            }),
+            Err(CardDavFailure::Refused { status, .. }) => {
+                unwritten.push(Unwritten {
+                    name: group.name.clone(),
+                    why: refusal(status),
+                });
+                if refused_for_good(status) {
+                    let mut kept = group.clone();
+                    kept.home = kept.home.refused();
+                    store.put_group(&kept)?;
+                }
+            }
             Err(other) => return Err(other.into()),
         }
     }

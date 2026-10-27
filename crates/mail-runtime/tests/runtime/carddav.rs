@@ -43,6 +43,11 @@ struct Server {
     puts: Vec<(String, Option<String>, String)>,
     /// Answer every `PUT` `412`, as a server does whose card changed after the listing.
     stale_on_put: bool,
+    /// Answer a sync from nothing with only the first card, a `507` for the book and a token to
+    /// go on from (RFC 6578 §3.6).
+    truncate_first: bool,
+    /// Answer every `PUT` `403`, as a read-only book does.
+    read_only: bool,
 }
 
 impl Server {
@@ -147,6 +152,9 @@ impl Server {
         self.puts
             .push((path.to_owned(), if_match.clone(), body.to_owned()));
         let current = self.cards.get(path).map(|(etag, _)| etag.clone());
+        if self.read_only {
+            return status("403 Forbidden", "");
+        }
         if self.stale_on_put || (if_match.is_some() && if_match != current) {
             return status("412 Precondition Failed", "");
         }
@@ -191,6 +199,17 @@ impl Server {
             }
         };
         let mut all = String::new();
+        if from.is_none() && self.truncate_first {
+            if let Some((path, (etag, _))) = self.cards.iter().next() {
+                all.push_str(&response(path, &format!("<d:getetag>{etag}</d:getetag>")));
+            }
+            all.push_str(&format!(
+                "<d:response><d:href>{BOOK}</d:href>\
+                 <d:status>HTTP/1.1 507 Insufficient Storage</d:status></d:response>\
+                 <d:sync-token>https://{HOST}/sync/0</d:sync-token>"
+            ));
+            return multistatus(&all);
+        }
         match from {
             None => {
                 for (path, (etag, _)) in &self.cards {
@@ -432,6 +451,32 @@ async fn a_sync_brings_cards_in_and_the_next_one_only_what_changed() {
         .unwrap();
     assert_eq!((third.changed, third.removed), (0, 0));
     assert_eq!(server.lock().unwrap().seen.len(), 1);
+}
+
+#[tokio::test]
+async fn a_first_part_of_a_listing_is_gone_on_from_and_deletes_no_card() {
+    let server: Shared = Arc::default();
+    {
+        let mut s = server.lock().unwrap();
+        s.put("ada", &card("Ada", &["ada@example.test"]));
+        s.put("bob", &card("Bob", &["bob@example.test"]));
+        s.put("cy", &card("Cy", &["cy@example.test"]));
+    }
+    let addr = serve(server.clone()).await;
+    let store = MemoryStore::new();
+    let dav = dav(addr, ada());
+    carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+
+    // The token is lost and the server now answers a sync from nothing in parts.
+    server.lock().unwrap().truncate_first = true;
+    let mut book = book_at(addr, &store).await;
+    book.token = None;
+    let synced = carddav::sync(&dav, &store, book).await.unwrap();
+    assert_eq!(synced.removed, 0, "the cards the first part left out stay");
+    assert_eq!(names(&store).len(), 3);
+    assert!(book_at(addr, &store).await.token.is_some());
 }
 
 #[tokio::test]
@@ -888,6 +933,34 @@ async fn a_write_refused_as_stale_leaves_the_edit_for_the_next_sync() {
     assert_eq!(server.lock().unwrap().puts.len(), 2);
 }
 
+#[tokio::test]
+async fn an_edit_a_read_only_book_refuses_is_said_once_and_not_sent_again() {
+    let server: Shared = Arc::default();
+    let (addr, store, dav, id) = one_group(&server, &["mailto:bob@example.test"]).await;
+    edit_group(&store, &id, "Mine", "mailto:cy@example.test");
+    server.lock().unwrap().read_only = true;
+
+    let first = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!((first.written, first.unwritten.len()), (0, 1));
+    let group = store.group(&id).unwrap().unwrap();
+    assert!(matches!(
+        group.home,
+        GroupHome::Book {
+            edit: Edit::Refused,
+            ..
+        }
+    ));
+    assert_eq!(group.name, "Mine", "the edit is kept");
+
+    let second = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!((second.written, second.unwritten.len()), (0, 0));
+    assert_eq!(server.lock().unwrap().puts.len(), 1, "not sent again");
+}
+
 /// A person's card comes down whole, with what nothing here reads; one edited here goes back
 /// over the etag it came with and is synced again; one gone from the server goes from here.
 #[tokio::test]
@@ -922,10 +995,11 @@ async fn a_persons_card_is_kept_whole_written_back_when_edited_and_goes_with_its
 
     let mut edited = card.clone();
     edited.note = Some("met at the society".to_owned());
-    let mut person = carddav::person_card(
-        &edited,
-        mail_pim::vcard::write(&edited),
+    let mut person = mail_store::PersonCard::new(
         id.clone(),
+        edited.list_name(),
+        edited.addresses(),
+        mail_pim::vcard::write(&edited),
         held.home.clone(),
     );
     if let GroupHome::Book { edit, .. } = &mut person.home {
@@ -986,10 +1060,11 @@ async fn an_edited_card_is_sent_over_the_servers_newer_one_not_over_the_one_edit
     // Edited here, from the card as it was.
     let mut edited = mail_pim::vcard::parse(&held.vcard).remove(0);
     edited.note = Some("met at the society".to_owned());
-    let mut person = carddav::person_card(
-        &edited,
-        mail_pim::vcard::write(&edited),
+    let mut person = mail_store::PersonCard::new(
         id.clone(),
+        edited.list_name(),
+        edited.addresses(),
+        mail_pim::vcard::write(&edited),
         held.home.clone(),
     );
     if let GroupHome::Book { edit, .. } = &mut person.home {

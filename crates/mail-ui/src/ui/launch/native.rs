@@ -51,13 +51,14 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         .or_else(crate::settings::person_root);
     // Whether they are on is asked as each is said (`follow_up::speaking`), so Settings' switch
     // takes effect without a restart.
+    // Which mailboxes, which sound and which accounts are muted are read as well, for the same
+    // reason (`settings::Notices`).
     let notices = dirs.as_ref().map(|dirs| {
-        let interest = crate::ui::prefs::root_of(dirs)
-            .map(|root| crate::settings::load(&root).notifications.interest())
-            .unwrap_or_default();
-        crate::ui::follow_up::Notices(std::sync::Arc::new(
-            mail_client::notify::desktop::Desktop::connect_in_window().with_interest(interest),
-        ))
+        let desktop = mail_client::notify::desktop::Desktop::connect_in_window();
+        crate::ui::follow_up::Notices(std::sync::Arc::new(crate::settings::Notices::new(
+            Box::new(move |notification, sound| desktop.show_with(notification, sound)),
+            crate::ui::prefs::root_of(dirs),
+        )))
     });
     // And the login item's switch, read as the window opens.
     let while_quit = dirs
@@ -205,12 +206,58 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     let ran = ds_blitz::launch(ShellRoot, config);
     // The last window closed: the copies Open wrote go now, unedited, when the setting says so,
     // as it says by then.
-    if let Some(root) = quit_root {
+    clean_up_at_quit(quit_root.as_ref());
+    ran
+}
+
+/// What the quit removes: the copies Open wrote, unedited, when the setting under `root` says so.
+/// No settings to ask, nothing removed.
+fn clean_up_at_quit(root: Option<&ds_settings::ConfigRoot>) {
+    if let Some(root) = root {
         crate::ui::downloads::unedited::remove_on_quit(
-            crate::settings::load(&root).attachments.remove_unedited,
+            crate::settings::load(root).attachments.remove_unedited,
         );
     }
-    ran
+}
+
+#[cfg(test)]
+mod quit_tests {
+    use super::clean_up_at_quit;
+    use crate::settings::RemoveUnedited;
+    use crate::ui::downloads::unedited;
+
+    /// The quit asks the settings under its root, and removes the recorded copies only under When
+    /// Mailo Quits; with no settings to ask it removes nothing.
+    #[test]
+    fn the_quit_removes_unedited_copies_only_when_the_setting_says_so() {
+        let _alone = unedited::RUN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let root = scratch.path().join("mailo-open-test");
+        std::fs::create_dir_all(&root).expect("Open's folder");
+        let config = scratch.path().join("config");
+        std::fs::create_dir_all(&config).expect("the config folder");
+        let settings = crate::settings::root_for(&config);
+        let copy = root.join("plans.txt");
+        std::fs::write(&copy, b"plans").expect("a copy");
+        unedited::record(&root, &copy, mail_domain::MessageId::generate());
+
+        clean_up_at_quit(None);
+        assert!(copy.exists(), "removed with no settings to ask");
+        for setting in [RemoveUnedited::Never, RemoveUnedited::AfterMessageIsDeleted] {
+            crate::settings::change(&settings, |all| all.attachments.remove_unedited = setting)
+                .expect("the setting is written");
+            clean_up_at_quit(Some(&settings));
+            assert!(copy.exists(), "removed at quit under {setting:?}");
+        }
+        crate::settings::change(&settings, |all| {
+            all.attachments.remove_unedited = RemoveUnedited::WhenMailoQuits;
+        })
+        .expect("the setting is written");
+        clean_up_at_quit(Some(&settings));
+        assert!(!copy.exists(), "kept at quit under When Mailo Quits");
+    }
 }
 
 /// The root contexts the window reads, for `AppConfig` or `HarnessConfig::with_contexts`: the
@@ -251,6 +298,11 @@ fn window_contexts(
         _accounts: client.live(mail_client::query::Accounts),
         _views: client.live(mail_client::query::Views),
     };
+    // Waited for, here and now, for a moment at most: a window opened before they are read would
+    // draw its first frame without its places. A read that fails or is slow is not waited on
+    // further; the window shows what it has and the places arrive with the next frame.
+    primed._accounts.wait_for(PRIMED_WITHIN);
+    primed._views.wait_for(PRIMED_WITHIN);
     let mut contexts = RootContexts::new()
         .with(client)
         .with(primed)
@@ -268,6 +320,9 @@ fn window_contexts(
         None => contexts,
     }
 }
+
+/// How long the launch waits for the first reads of the accounts and the saved views.
+const PRIMED_WITHIN: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Values the client reads before a window asks for them, held so they stay read.
 #[derive(Clone, Debug)]

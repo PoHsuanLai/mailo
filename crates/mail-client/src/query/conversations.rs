@@ -141,7 +141,6 @@ fn searched(
     let label = mail_core::query::Known {
         labels: &search.labels,
         accounts: &search.accounts,
-        vips: None,
     };
     let highlight = match search::list_highlight(&search.input, &chrono::Local, &label) {
         Ok(highlight) => highlight,
@@ -237,9 +236,5 @@ impl Source for Scoped<'_> {
         now: DateTime<Utc>,
     ) -> Vec<(ThreadSummary, f64)> {
         <SqliteStore as Source>::top(self.store, &self.narrow(filter), k, window, now)
-    }
-
-    fn vips(&self) -> mail_core::vip::Vips {
-        <SqliteStore as Source>::vips(self.store)
     }
 }

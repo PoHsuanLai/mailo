@@ -72,8 +72,6 @@ pub(super) fn Places(
     let space = spaces.read().current().clone();
     // Every account with its folders and labels, kept read by the client.
     let accounts = use_live(|| mail_client::query::Accounts);
-    // And the VIPs, which a pin of a search may name.
-    let vips = use_live(|| mail_client::query::VipList);
     // The Space's pins counted and its pinned conversations, kept read: nothing here reads the
     // store while a frame is drawn.
     let pinned = use_live(move || {
@@ -86,12 +84,7 @@ pub(super) fn Places(
             .iter()
             .map(|account| (account.address.clone(), account.id.clone()))
             .collect();
-        let vips = vips
-            .read()
-            .value()
-            .map(|vips| (**vips).clone())
-            .unwrap_or_default();
-        pins_of(spaces.read().current(), &labels, &named, &vips)
+        pins_of(spaces.read().current(), &labels, &named)
     });
     let counted = use_memo(move || {
         pinned

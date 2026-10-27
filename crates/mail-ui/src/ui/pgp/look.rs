@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use mail_client::Client;
-use mail_client::SigningStore;
 use mail_client::message::{Looks, Opening, Protection, Sealed};
+use mail_client::prelude::SigningStore;
 use mail_domain::*;
 use mail_mime::Parsed;
 

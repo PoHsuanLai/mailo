@@ -13,7 +13,7 @@ pub(in crate::ui) use super::items::{
 use super::page::{Float, List, Page};
 use mail_client::rich_text::{
     Action, Caret, ImageRef, InputEvent, Node, Object, Op, ParaKind, Pos, Range, Table, apply_all,
-    catalog, joins_cc, node_len, runs_text, turn_into,
+    catalog, joins_cc, node_len, runs_text, settled, turn_into,
 };
 
 /// The longest query a `/` or `@` menu follows before it gives up and closes.
@@ -153,6 +153,7 @@ pub(in crate::ui) enum Picked {
 
 /// Apply `ops` as one undo step, with the caret after them.
 pub(in crate::ui) fn commit(page: &mut Page, ops: Vec<Op>, caret: Caret) -> bool {
+    let ops = settled(&page.session.doc, ops);
     let mut doc = page.session.doc.clone();
     let Ok(inverses) = apply_all(&mut doc, ops.clone()) else {
         return false;

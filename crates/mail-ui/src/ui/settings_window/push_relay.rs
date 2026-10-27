@@ -17,8 +17,8 @@ use ds::components::fields::field_row::FieldRow;
 use ds::components::fields::text_field_model::Invalid;
 use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
-use mail_client::CoreError;
 use mail_client::RelayRefused;
+use mail_client::prelude::CoreError;
 
 /// The account's field. Only a Graph account has one (the caller's to know).
 #[component]

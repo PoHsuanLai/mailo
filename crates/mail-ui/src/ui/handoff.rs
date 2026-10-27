@@ -65,6 +65,12 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>, spaces: Handle) {
                         let _ = super::ops::open_composer(&client, shell, writes);
                         token
                     }
+                    Request::Archive { thread, token } => {
+                        log::info!(target: crate::ui::TRACE, "asked to archive {thread}");
+                        let client = crate::ui::live::client();
+                        super::start::archive(&client, shell, thread);
+                        token
+                    }
                     Request::Inbox { account, token } => {
                         log::info!(target: crate::ui::TRACE, "opened the inbox of {account}");
                         arrive(spaces, shell, &super::Start::InboxOf(account));

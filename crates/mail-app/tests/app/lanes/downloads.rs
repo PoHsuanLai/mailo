@@ -414,3 +414,53 @@ fn save_to_asks_for_a_folder_and_save_follows_the_setting() {
     );
     assert_eq!(window.asked().len(), 1, "Save asked for a folder");
 }
+
+/// Open the reader's ⋯ and pick `name`, which the menu says by how many files the message has.
+fn more_menu(window: &mut Window, name: &str) {
+    window.click(&format!(
+        ".reader-head button[*|aria-label=\"{}\"]",
+        mail_ui::ui::copy::aria::MORE
+    ));
+    window.menu_item(name);
+}
+
+/// The reader's ⋯ saves a message's files without a right click: Save Attachments… asks for a
+/// folder and writes every file into it.
+#[test]
+fn the_more_menu_saves_the_files_into_a_folder_chosen() {
+    let mut window = Window::open(with_three_parts);
+    let chosen = tempfile::tempdir().expect("a folder to choose");
+    window.answer(vec![chosen.path().to_path_buf()]);
+    window.open_subject(SAVE_ALL_SUBJECT);
+    window.until("the reader shows the three tiles", |h| {
+        h.count(".reader .att-tile") == 3
+    });
+    more_menu(&mut window, mail_ui::ui::copy::menus::SAVE_ATTACHMENTS);
+    let written = |name: &str| chosen.path().join(name);
+    window.until("every part is written into the folder", |_| {
+        written("minutes.txt").exists()
+            && written("minutes (2).txt").exists()
+            && written("escape.txt").exists()
+    });
+    assert_eq!(
+        window.asked(),
+        [mail_ui::ui::native::DialogAsk::Folder],
+        "Save Attachments asked for something other than a folder"
+    );
+}
+
+/// With one file the same row says so, and writes that file.
+#[test]
+fn the_more_menu_names_a_single_file_and_saves_it() {
+    let mut single = Window::open(with_notes);
+    let chosen = tempfile::tempdir().expect("a folder to choose");
+    single.answer(vec![chosen.path().to_path_buf()]);
+    single.open_subject(SUBJECT);
+    single.until("the reader shows the tile", |h| {
+        h.count(".reader .att-tile") == 1
+    });
+    more_menu(&mut single, mail_ui::ui::copy::menus::SAVE_ATTACHMENT);
+    single.until("the file is written into the folder", |_| {
+        chosen.path().join(NAME).exists()
+    });
+}

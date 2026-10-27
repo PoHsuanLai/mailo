@@ -13,7 +13,7 @@
 //! socket cannot have (too long for `sockaddr_un`, no home) means no hand-off, as no bus does on
 //! Linux.
 
-use super::{Request, inbox_uri, reply_uri, requests_of, uri_of};
+use super::{Request, archive_uri, inbox_uri, reply_uri, requests_of, uri_of};
 use mail_client::profile::ProfileId;
 use mail_domain::ThreadId;
 use porter_core::AccountId;
@@ -310,6 +310,11 @@ pub fn deliver_mailto(profile: &ProfileId, uri: &str, _token: Option<&str>) -> b
 /// Ask the running window to open a reply to `thread`. True when one took it.
 pub fn deliver_reply(profile: &ProfileId, thread: ThreadId, _token: Option<&str>) -> bool {
     socket_path(profile).is_some_and(|path| send(&path, &reply_uri(thread)))
+}
+
+/// Ask the running window to archive `thread`. True when one took it.
+pub fn deliver_archive(profile: &ProfileId, thread: ThreadId, _token: Option<&str>) -> bool {
+    socket_path(profile).is_some_and(|path| send(&path, &archive_uri(thread)))
 }
 
 /// Ask the running window to show `account`'s inbox. True when one took it.

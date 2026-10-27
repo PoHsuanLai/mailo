@@ -6,7 +6,7 @@
 //! reader and the VIPs place together.
 
 use crate::ui::copy;
-use crate::ui::motion::{Follow, tell};
+use crate::ui::motion::tell_through;
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::prelude::*;
@@ -30,16 +30,28 @@ pub(in crate::ui) fn markable(shell: &Shell, address: &str) -> bool {
 }
 
 /// Mark `address` a VIP (`name` the name the mail gave) or take the mark off, and say only a
-/// failure. The shell's copy is read again at once, and the store moving makes the VIPs place and
-/// every other window follow.
+/// failure. The write runs on a blocking thread; the shell's copy is read again when it has
+/// landed, and the store moving makes the VIPs place and every other window follow.
 pub(in crate::ui) fn set(marking: Marking, address: &str, name: Option<&str>, mark: Mark) {
     let Marking { mut shell } = marking;
     let client = crate::ui::live::client();
-    if let Err(why) = client.query().set_vip(address, name, mark) {
-        tell(crate::ui::remedy::told(why), Follow::Nothing);
-        return;
-    }
-    shell.write().vips = client.query().vips();
+    let motion = crate::ui::motion::motion();
+    let (address, name) = (address.to_owned(), name.map(str::to_owned));
+    spawn(async move {
+        let done = tokio::task::spawn_blocking(move || {
+            client
+                .query()
+                .set_vip(&address, name.as_deref(), mark)
+                .map(|()| client.query().vips())
+                .map_err(crate::ui::remedy::told)
+        })
+        .await
+        .unwrap_or_else(|why| Err(why.to_string()));
+        match done {
+            Ok(vips) => shell.write().vips = vips,
+            Err(why) => tell_through(motion, why),
+        }
+    });
 }
 
 /// The menu row that marks `address`, or takes the mark off: its words, by what `vips` holds.
@@ -50,14 +62,19 @@ pub(in crate::ui) fn menu_words(vips: &mail_client::vip::Vips, address: &str) ->
     }
 }
 
-/// The mark beside a VIP's name: a small star in the quiet ink, named VIP. Its tooltip says what
-/// the star means, since a row's own star is the conversation's.
+/// The one glyph that means VIP, wherever a VIP is marked or listed: the mark beside a name, the
+/// menu rows that add or remove one, and the VIPs place in the sidebar. Not the star, which is
+/// the conversation's own.
+pub(in crate::ui) const GLYPH: Icon = Icon::Sparkles;
+
+/// The mark beside a VIP's name: a small [`GLYPH`] in the quiet ink, named VIP. Its tooltip says
+/// what the mark means.
 #[component]
 pub(in crate::ui) fn VipMark() -> Element {
     rsx! {
         Tooltip { text: copy::aria::VIP.to_owned(),
             span { class: "vip-mark", aria_label: copy::aria::VIP, "data-vip": "true",
-                Glyph { icon: Icon::Star, size: IconSize::Compact }
+                Glyph { icon: GLYPH, size: IconSize::Compact }
             }
         }
     }

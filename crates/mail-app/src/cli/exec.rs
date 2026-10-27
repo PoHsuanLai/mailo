@@ -228,7 +228,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     // Sync needs an async runtime and the store by Arc, so it is dispatched here rather than
     // inside super::run, which is deliberately synchronous and testable.
     if matches!(command, Command::Sync) {
-        let mail = crate::edge::syncing_mail(&store);
+        let mail = crate::edge::mail(&store);
         let ends = crate::edge::block_on(mail.sync().run(Default::default()))
             .map_err(super::remedy::error)?;
         print!("{}", super::sync::run_text(&store, &ends));
@@ -417,25 +417,6 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
                 }
             }
         };
-        let set = match notify {
-            super::WatchNotify::Never => None,
-            super::WatchNotify::AsSet => Some(
-                mail_ui::settings::person_root()
-                    .map(|root| mail_ui::settings::load(&root))
-                    // No settings file is the defaults, as everywhere.
-                    .unwrap_or_default()
-                    .notifications,
-            ),
-        };
-        let notifications = set.as_ref().map_or(mail_core::notify::Setting::Off, |set| {
-            mail_core::notify::Setting::from(set.new_mail)
-        });
-        // Whose new mail is said: everyone's, or the VIPs' alone.
-        let whom = set
-            .as_ref()
-            .map_or(mail_core::notify::Whom::Everyone, |set| {
-                mail_core::notify::Whom::from(set.notify_for)
-            });
         if let Some(why) = watching.doorless() {
             eprintln!("Sync in an open window will not reach this watch: {why}");
         }
@@ -457,28 +438,44 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             }
             let _ = std::io::stdout().flush();
         };
-        let mail = crate::edge::syncing_mail(&store);
-        // The desktop's notification service when notifications are on; with none to reach it
-        // says nothing, and the watch goes on fetching.
-        let desktop;
-        let notifier: Option<&dyn mail_core::notify::Notifier> = match notifications {
-            mail_core::notify::Setting::On => {
-                let interest = mail_ui::settings::person_root()
-                    .map(|root| mail_ui::settings::load(&root))
-                    .unwrap_or_default()
-                    .notifications
-                    .interest();
-                desktop = mail_core::notify::desktop::Desktop::connect().with_interest(interest);
-                Some(&desktop)
+        let mail = crate::edge::mail(&store);
+        // The desktop's notification service unless the watch was told to say nothing. What it
+        // says, whose mail, in which mailboxes, with which sound, and how the junk filter
+        // behaves are read as each pass ends or starts (`Notices`, `junk_policy`), so a change
+        // in Settings reaches a watch that has been running for days. With no service to reach
+        // it says nothing, and the watch goes on fetching.
+        let notices = match notify {
+            super::WatchNotify::Never => None,
+            super::WatchNotify::AsSet => {
+                let desktop = mail_core::notify::desktop::Desktop::connect();
+                Some(mail_ui::settings::Notices::new(
+                    Box::new(move |notification, sound| desktop.show_with(notification, sound)),
+                    mail_ui::settings::person_root(),
+                ))
             }
-            mail_core::notify::Setting::Off => None,
+        };
+        let notifier = notices
+            .as_ref()
+            .map(|notices| notices as &dyn mail_core::notify::Notifier);
+        let whom = || {
+            notices
+                .as_ref()
+                .map_or(mail_core::notify::Whom::Everyone, |notices| notices.whom())
         };
         // A Sync asked for at the watch's door (`ipc::watching`) is a pass now, here.
         let asked = Some(watching.asked());
         // Only ends when every account has stopped for a reason worth stopping for — a
         // credential the server refused, which no amount of retrying fixes.
-        let ends = crate::edge::block_on(mail.sync().watch(notifier, whom, &say, asked))
-            .map_err(super::remedy::error)?;
+        let ends = crate::edge::block_on(mail.sync().watch(
+            notifier,
+            mail_core::sync::watcher::Live {
+                whom: &whom,
+                junk: &mail_ui::settings::junk_policy,
+            },
+            &say,
+            asked,
+        ))
+        .map_err(super::remedy::error)?;
         print!("{}", super::sync::run_text(&store, &ends));
         return Err("stopped watching; nothing left to watch".to_owned());
     }

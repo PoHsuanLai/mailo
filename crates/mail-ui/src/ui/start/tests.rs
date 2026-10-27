@@ -232,7 +232,7 @@ fn a_banners_reply_starts_the_window_on_a_reply_to_its_conversation() {
     let one = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
     let args_of = mail_core::notify::desktop::Launch {
         opens: mail_core::notify::Opens::Thread(one),
-        act: mail_core::notify::Act::Reply("mailto:ada%40example.test".to_owned()),
+        act: mail_core::notify::Act::Reply,
     }
     .args();
     assert_eq!(
@@ -251,6 +251,83 @@ fn a_banners_reply_starts_the_window_on_a_reply_to_its_conversation() {
         super::start_of(&args(&["open", "--reply", "not an id!"])),
         Some(Err(_))
     ));
+}
+
+/// A banner's Archive launches the window on an archive of that conversation, not the headless
+/// `archive` command, which has no window to offer an Undo or to say a failure in.
+#[test]
+fn a_banners_archive_starts_the_window_on_an_archive_of_its_conversation() {
+    let one = ThreadId::from_uuid(uuid::Uuid::from_u128(0x7001));
+    let args_of = mail_core::notify::desktop::Launch {
+        opens: mail_core::notify::Opens::Thread(one),
+        act: mail_core::notify::Act::Archive,
+    }
+    .args();
+    assert_eq!(
+        args_of,
+        ["open".to_owned(), "--archive".to_owned(), one.to_string()]
+    );
+    assert_eq!(
+        super::start_of(&args_of),
+        Some(Ok(super::Start::Archive(one)))
+    );
+    assert!(matches!(
+        super::start_of(&args(&["open", "--archive"])),
+        Some(Err(_))
+    ));
+    assert!(matches!(
+        super::start_of(&args(&["open", "--archive", "not an id!"])),
+        Some(Err(_))
+    ));
+}
+
+/// A window started on an archive files the conversation, says so with an Undo, and the Undo puts
+/// it back: the same path as the window's Archive key.
+#[tokio::test]
+async fn a_window_started_on_an_archive_archives_it_and_offers_undo() {
+    use crate::ui::fixtures::{
+        INSIDE_THE_SHELL, PRIMARY, chord, dispatching, rebuild_into, settle_quiet, work,
+    };
+    use mail_domain::MailboxRole;
+    dispatching();
+    let built = work();
+    let in_inbox = |store: &mail_core::SqliteStore| {
+        store
+            .thread(built.dana)
+            .unwrap()
+            .summary
+            .mailboxes
+            .contains(MailboxRole::Inbox)
+    };
+    assert!(in_inbox(&built.store));
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(crate::ui::fixtures::client(&built.store))
+        .with_root_context(built.dirs.clone())
+        .with_root_context(Start::Archive(built.dana));
+    let _seen = rebuild_into(&mut dom);
+    let mut page = String::new();
+    for _ in 0..8 {
+        settle_quiet(&mut dom).await;
+        page = dioxus_ssr::render(&dom);
+        if !in_inbox(&built.store) && page.contains("ds-toast-action") {
+            break;
+        }
+    }
+    assert!(
+        !in_inbox(&built.store),
+        "the banner's Archive archived nothing"
+    );
+    assert!(
+        page.contains("class=\"ds-toast-action\""),
+        "no toast with an Undo:\n{page}"
+    );
+    chord(
+        &mut dom,
+        "z",
+        PRIMARY,
+        dioxus::dioxus_core::ElementId(INSIDE_THE_SHELL as usize),
+    );
+    assert!(in_inbox(&built.store), "Undo did not put it back");
 }
 
 /// What a desktop notification's click launches, and what the window makes of those arguments.

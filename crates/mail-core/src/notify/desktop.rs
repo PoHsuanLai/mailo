@@ -33,7 +33,7 @@
 //!   all, so the registered PowerShell id is the one that always works. No activation token: it
 //!   is a Wayland and X11 notion.
 
-use super::{Act, Interest, Notification, Notifier, Opens, Sound};
+use super::{Act, Notification, Notifier, Opens, Sound};
 #[cfg(any(windows, target_os = "macos"))]
 use notify_rust::NotificationResponse;
 #[cfg(not(all(unix, not(target_os = "macos"))))]
@@ -59,8 +59,6 @@ pub struct Desktop {
     /// does; `mailo watch`, a command in a terminal, does not).
     #[cfg(target_os = "macos")]
     run_loop: bool,
-    /// What the person asked to hear about, and with which sound.
-    interest: Interest,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,15 +76,7 @@ impl Desktop {
             hearing: hearing(reach),
             #[cfg(target_os = "macos")]
             run_loop: false,
-            interest: Interest::default(),
         }
-    }
-
-    /// This notifier, told what the person asked to hear about and with which sound.
-    #[must_use]
-    pub fn with_interest(mut self, interest: Interest) -> Self {
-        self.interest = interest;
-        self
     }
 
     /// As [`connect`](Self::connect), for the window: the process that runs the application's
@@ -155,11 +145,7 @@ macro_rules! wait_on {
             let mut clicked = None;
             // A notification closed without an answer is a click nobody made.
             let _ = $shown.wait_for_response(|response: &NotificationResponse| {
-                clicked = answer(
-                    response,
-                    &$notification.opens,
-                    $notification.reply.as_deref(),
-                );
+                clicked = answer(response, &$notification.opens, $notification.reply);
             });
             if let Some(launch) = clicked {
                 start(launch, None);
@@ -169,16 +155,19 @@ macro_rules! wait_on {
 }
 
 impl Notifier for Desktop {
-    fn interest(&self) -> Interest {
-        self.interest.clone()
-    }
-
     fn show(&self, notification: &Notification) {
+        self.show_with(notification, Sound::default());
+    }
+}
+
+impl Desktop {
+    /// [`show`](Notifier::show) with `sound`: what a notifier that reads the person's settings as
+    /// each is said ([`super::Interest`]) chooses.
+    pub fn show_with(&self, notification: &Notification, sound: Sound) {
         if self.reach == Reach::Nowhere {
             return;
         }
         let notification = notification.clone();
-        let sound = self.interest.sound;
         let hearing = self.hearing.clone();
         #[cfg(target_os = "macos")]
         let run_loop = self.run_loop;
@@ -191,11 +180,7 @@ impl Notifier for Desktop {
                 return;
             };
             #[cfg(all(unix, not(target_os = "macos")))]
-            hearing.show(
-                shown.id(),
-                notification.opens.clone(),
-                notification.reply.clone(),
-            );
+            hearing.show(shown.id(), notification.opens.clone(), notification.reply);
             #[cfg(windows)]
             wait_on!(shown, notification, hearing);
             // On macOS only the window hears a click (the module's notes say why); `shown` sends
@@ -269,19 +254,24 @@ pub struct Launch {
 
 impl Launch {
     /// The arguments that start the program: `open <thread>`, or `open --inbox <account>` for a
-    /// summary's account's inbox, `archive <thread>` for the Archive button, and `open --reply <thread>`
-    /// for Reply.
+    /// summary's account's inbox, `open --archive <thread>` for the Archive button, and
+    /// `open --reply <thread>` for Reply: each button runs in the window, where its result is
+    /// seen and an Undo is offered.
     pub fn args(&self) -> Vec<String> {
         match (&self.act, &self.opens) {
+            // The archive the window does, with its toast and Undo; a failure is the window's to say.
             (Act::Archive, Opens::Thread(thread)) => {
-                vec!["archive".to_owned(), thread.to_string()]
+                vec![
+                    "open".to_owned(),
+                    "--archive".to_owned(),
+                    thread.to_string(),
+                ]
             }
             // The reply to the conversation the banner is about, in the account it is in: a
             // `mailto:` link names neither.
-            (Act::Reply(_), Opens::Thread(thread)) => {
+            (Act::Reply, Opens::Thread(thread)) => {
                 vec!["open".to_owned(), "--reply".to_owned(), thread.to_string()]
             }
-            (Act::Reply(link), Opens::Inbox(_)) => vec![link.clone()],
             (Act::Open, Opens::Thread(thread)) => {
                 vec!["open".to_owned(), thread.to_string()]
             }
@@ -290,20 +280,16 @@ impl Launch {
                 "--inbox".to_owned(),
                 account.as_str().to_owned(),
             ],
-            (Act::Archive, Opens::Inbox(_)) => Vec::new(),
+            (Act::Archive | Act::Reply, Opens::Inbox(_)) => Vec::new(),
         }
     }
 }
 
 /// What follows from the service's answer about a notification that opens `opens` and offers
-/// `reply`: a program to start for a click on the notification or on a button it offered, and
+/// a Reply button when `reply`: a program to start for a click on the notification or on a button it offered, and
 /// nothing for a close or for any other action.
 #[cfg(any(windows, target_os = "macos"))]
-pub fn answer(
-    response: &NotificationResponse,
-    opens: &Opens,
-    reply: Option<&str>,
-) -> Option<Launch> {
+pub fn answer(response: &NotificationResponse, opens: &Opens, reply: bool) -> Option<Launch> {
     let act = match response {
         NotificationResponse::Default => Some(Act::Open),
         NotificationResponse::Action(action) => super::act_for(action, opens, reply),
@@ -362,7 +348,8 @@ fn built(n: &Notification, sound: Sound) -> notify_rust::Notification {
 }
 
 /// Linux: the freedesktop hints, the icon, the bubble's own action and the buttons of a banner
-/// about one conversation, the sound, and a body escaped for a server that reads it as markup.
+/// about one conversation, the sound (the freedesktop sound theme's name for it, as the one hint
+/// that says so: two would leave the server to take either), and a body escaped for a server that reads it as markup.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn platform(out: &mut notify_rust::Notification, n: &Notification, sound: Sound) {
     use notify_rust::Hint;
@@ -372,8 +359,6 @@ fn platform(out: &mut notify_rust::Notification, n: &Notification, sound: Sound)
         // The freedesktop category for this event, which servers use to pick a sound and to
         // group.
         .hint(Hint::Category("email.arrived".to_owned()))
-        // The freedesktop sound theme's name for it, for a server that plays sounds by name.
-        .sound_name("message-new-email")
         .hint(Hint::DesktopEntry("org.quire.Mail".to_owned()))
         .hint(Hint::Custom(
             "x-mailo-account".to_owned(),
@@ -415,7 +400,7 @@ fn buttons(out: &mut notify_rust::Notification, n: &Notification) {
     if matches!(n.opens, Opens::Thread(_)) {
         out.action(super::ARCHIVE_ACTION, "Archive");
     }
-    if n.reply.is_some() {
+    if n.reply {
         out.action(super::REPLY_ACTION, "Reply");
     }
 }
@@ -501,18 +486,49 @@ mod tests {
                 "archive",
                 Opens::Thread(one),
                 Act::Archive,
-                vec!["archive", "00000000-0000-0000-0000-000000000001"],
+                vec!["open", "--archive", "00000000-0000-0000-0000-000000000001"],
             ),
             (
                 "reply",
                 Opens::Thread(one),
-                Act::Reply("mailto:ada%40example.test".to_owned()),
+                Act::Reply,
                 vec!["open", "--reply", "00000000-0000-0000-0000-000000000001"],
             ),
         ];
         for (name, opens, act, args) in cases {
             assert_eq!(Launch { opens, act }.args(), args, "{name}");
         }
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    #[test]
+    fn a_banner_asks_the_server_for_the_one_sound_chosen_or_for_none() {
+        use notify_rust::Hint;
+        let note = Notification {
+            account: mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc)),
+            summary: "Ada".to_owned(),
+            body: "lunch".to_owned(),
+            opens: Opens::Thread(mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(1))),
+            reply: true,
+        };
+        let names = |sound| -> Vec<String> {
+            built(&note, sound)
+                .hints
+                .iter()
+                .filter_map(|hint| match hint {
+                    Hint::SoundName(name) => Some(name.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_eq!(names(Sound::Ping), vec!["message".to_owned()]);
+        assert_eq!(names(Sound::Default), vec!["message-new-email".to_owned()]);
+        assert!(names(Sound::Silent).is_empty());
+        assert!(
+            built(&note, Sound::Silent)
+                .hints
+                .contains(&Hint::SuppressSound(true))
+        );
     }
 
     #[test]
@@ -589,10 +605,10 @@ mod tests {
             ),
         ];
         for (name, response, expect) in cases {
-            assert_eq!(answer(&response, &thread(1), None), expect, "{name}");
+            assert_eq!(answer(&response, &thread(1), false), expect, "{name}");
         }
         assert_eq!(
-            answer(&NotificationResponse::Default, &inbox(), None),
+            answer(&NotificationResponse::Default, &inbox(), false),
             Some(Launch {
                 opens: inbox(),
                 act: Act::Open
@@ -602,12 +618,12 @@ mod tests {
         assert_eq!(
             answer(
                 &NotificationResponse::Action("reply".to_owned()),
-                thread(1),
-                Some("mailto:ada%40example.test")
+                &thread(1),
+                true
             )
             .map(|launch| launch.act),
-            Some(Act::Reply("mailto:ada%40example.test".to_owned())),
-            "the reply button, with its link"
+            Some(Act::Reply),
+            "the reply button, when it was offered"
         );
     }
 

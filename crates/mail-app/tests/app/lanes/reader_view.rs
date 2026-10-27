@@ -57,9 +57,13 @@ fn open(edit: impl FnOnce(&mut MailSettings) + 'static) -> Window {
     })
 }
 
-/// The settings as the window's config directory holds them.
-fn stored(window: &Window) -> MailSettings {
-    mail_ui::settings::load(&mail_ui::settings::root_for(&window.dirs().config))
+/// Wait for the text size to be in the settings file: it is written a moment after the last
+/// press, off the drawing thread.
+fn kept(window: &mut Window, zoom: u16) {
+    let root = mail_ui::settings::root_for(&window.dirs().config);
+    window.until(&format!("text size {zoom} is written"), move |_| {
+        mail_ui::settings::load(&root).reading.text_zoom == TextZoom(zoom)
+    });
 }
 
 /// What `read` measures the open message as, once it has stopped changing.
@@ -98,7 +102,7 @@ fn bigger_smaller_and_actual_size_draw_the_message_s_text_and_are_kept() {
         (bigger / own - 1.1).abs() < 0.03,
         "⌘+ drew the word {own} -> {bigger}"
     );
-    assert_eq!(stored(&window).reading.text_zoom, TextZoom(110));
+    kept(&mut window, 110);
 
     // ⌘− twice: a rung under its own size.
     window.press(&[PRIMARY], Key::Char('-'), 2);
@@ -107,16 +111,16 @@ fn bigger_smaller_and_actual_size_draw_the_message_s_text_and_are_kept() {
         (smaller / own - 0.9).abs() < 0.03,
         "⌘− twice drew the word {own} -> {smaller}"
     );
-    assert_eq!(stored(&window).reading.text_zoom, TextZoom(90));
+    kept(&mut window, 90);
 
     // ⌘0: its own size again.
     window.press(&[PRIMARY], Key::Char('0'), 1);
+    kept(&mut window, 100);
     let actual = settled(&mut window, word);
     assert!(
         (actual - own).abs() < 0.5,
         "⌘0 drew the word {actual}, not {own}"
     );
-    assert_eq!(stored(&window).reading.text_zoom, TextZoom(100));
 }
 
 #[test]

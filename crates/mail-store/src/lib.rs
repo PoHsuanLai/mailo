@@ -503,6 +503,14 @@ pub trait Store {
     /// How many of `account`'s messages are held here in full, and what is still on the server.
     fn offline(&self, account: AccountId) -> Result<Offline, StoreError>;
 
+    /// Keep the size the server gave each of these messages, in bytes.
+    ///
+    /// A message held by its headers alone has no text and no parts to size it by, so without
+    /// this `larger:` and `smaller:` read it as no bytes. The size searched is the larger of
+    /// this and what is held, so a body or part arriving later only sharpens it. A message not
+    /// held is left out.
+    fn hold_server_sizes(&self, sizes: &[(MessageId, u64)]) -> Result<(), StoreError>;
+
     /// The messages held here at these server addresses, each with its address; an address
     /// that names nothing held is left out. What a search of the server asks before fetching
     /// anything: what it found and already has needs no header fetched again.
@@ -642,6 +650,22 @@ pub trait Store {
     /// server is asked again when the delete is sent, because a folder never synced holds
     /// nothing here whatever it holds there.
     fn folder_contents(&self, mailbox: &MailboxRef) -> Result<FolderContents, StoreError>;
+
+    /// Which of `messages` the client has a server address for in `mailbox`: the part of
+    /// [`folder_contents`](Self::folder_contents)' answer that is about them, asked without
+    /// reading the rest of the folder.
+    fn addressed_in(
+        &self,
+        mailbox: &MailboxRef,
+        messages: &[mail_domain::MessageId],
+    ) -> Result<Vec<mail_domain::MessageId>, StoreError> {
+        let held = self.folder_contents(mailbox)?.mapped;
+        Ok(messages
+            .iter()
+            .copied()
+            .filter(|message| held.contains(message))
+            .collect())
+    }
 
     /// Record how a queued operation finished and act on it.
     ///

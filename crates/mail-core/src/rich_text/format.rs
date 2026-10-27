@@ -8,8 +8,9 @@
 use mail_mime::{Align, TextColor, TextSize};
 
 use crate::rich_text::doc::{Doc, Layout, Marks, Node, ParaKind, Pos, Range};
-use crate::rich_text::op::{Op, kind_targets};
+use crate::rich_text::op::{Op, apply_all, kind_targets};
 use crate::rich_text::text::{marks_at, para_len};
+use crate::rich_text::write::written_depths;
 
 /// Which way a level goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +101,42 @@ pub fn quote(doc: &Doc, range: Range, nest: Nest) -> Vec<Op> {
             (Nest::Out, ParaKind::Quote) => ops.push(kind_of(index, ParaKind::Paragraph)),
             (Nest::Out, _) => {}
         }
+    }
+    ops
+}
+
+/// `ops` and, after them, the edits that bring every list item's depth to the depth it is sent
+/// at: at most one below the item before it ([`written_depths`]). An edit that takes an item
+/// out, lowers one, or turns one into a paragraph can leave the items after it deeper than the
+/// list can nest; this is what keeps what the composer draws what the sender receives. `ops`
+/// that do not apply are returned as they are.
+pub fn settled(doc: &Doc, mut ops: Vec<Op>) -> Vec<Op> {
+    let mut after = doc.clone();
+    if apply_all(&mut after, ops.clone()).is_err() {
+        return ops;
+    }
+    let mut start = 0;
+    while start < after.nodes.len() {
+        let item = |node: &Node| matches!(node, Node::Para { kind, .. } if is_item(*kind));
+        if !item(&after.nodes[start]) {
+            start += 1;
+            continue;
+        }
+        let end = start
+            + after.nodes[start..]
+                .iter()
+                .take_while(|node| item(node))
+                .count();
+        let written = written_depths(&after.nodes[start..end]);
+        for (index, depth) in (start..end).zip(written) {
+            if let Node::Para { layout, .. } = &after.nodes[index]
+                && usize::from(layout.depth) != depth
+            {
+                let depth = u8::try_from(depth).unwrap_or(Layout::MAX_DEPTH);
+                ops.push(depth_of(index, depth));
+            }
+        }
+        start = end;
     }
     ops
 }

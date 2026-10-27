@@ -3,8 +3,8 @@
 //! already open. Laid out as detent lays out a program's page: a sidebar of pages, each a column
 //! of titled groups of rows.
 //!
-//! Pages: General, Accounts, Contacts, Signatures, Spaces, Composing, Viewing, Notifications, Privacy, Rules,
-//! Vacation Reply and Keyboard. General, Composing, Viewing, Notifications and Privacy draw
+//! Pages: General, Accounts, Contacts, Signatures, Spaces, Composing, Viewing, Notifications, Privacy, Junk Mail, Rules,
+//! Vacation Reply and Keyboard. General, Composing, Viewing, Notifications, Privacy and Junk Mail draw
 //! mailo's settings schema (`crate::settings`) as groups of rows ([`pages`], each row a key's,
 //! drawn by [`keys`]), the same keys detent draws on mailo's page and writes to the same
 //! `mailo/settings.toml`. Accounts lists each account, whose row pushes its own page into the
@@ -73,7 +73,7 @@ pub(in crate::ui) const TITLE: &str = copy::titles::SETTINGS;
 const SIZE: (u32, u32) = (780, 620);
 
 impl SettingsPage {
-    pub(in crate::ui) const ALL: [SettingsPage; 12] = [
+    pub(in crate::ui) const ALL: [SettingsPage; 13] = [
         SettingsPage::General,
         SettingsPage::Accounts,
         SettingsPage::Contacts,
@@ -83,6 +83,7 @@ impl SettingsPage {
         SettingsPage::Viewing,
         SettingsPage::Notifications,
         SettingsPage::Privacy,
+        SettingsPage::JunkMail,
         SettingsPage::Rules,
         SettingsPage::Vacation,
         SettingsPage::Keyboard,
@@ -100,6 +101,7 @@ impl SettingsPage {
             SettingsPage::Viewing => copy::titles::VIEWING,
             SettingsPage::Notifications => copy::titles::NOTIFICATIONS,
             SettingsPage::Privacy => copy::titles::PRIVACY,
+            SettingsPage::JunkMail => copy::titles::JUNK_MAIL,
             SettingsPage::Rules => copy::titles::RULES,
             SettingsPage::Vacation => copy::titles::VACATION_REPLY,
             SettingsPage::Keyboard => copy::titles::KEYBOARD,
@@ -117,6 +119,7 @@ impl SettingsPage {
             SettingsPage::Viewing => Icon::Image,
             SettingsPage::Notifications => Icon::Bell,
             SettingsPage::Privacy => Icon::Lock,
+            SettingsPage::JunkMail => Icon::OctagonAlert,
             SettingsPage::Rules => Icon::FolderInput,
             SettingsPage::Vacation => Icon::Sun,
             SettingsPage::Keyboard => Icon::Keyboard,
@@ -393,7 +396,8 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>) -> Element {
                     | SettingsPage::Composing
                     | SettingsPage::Viewing
                     | SettingsPage::Notifications
-                    | SettingsPage::Privacy => rsx! { pages::Page { key: "{page.name()}", page } },
+                    | SettingsPage::Privacy
+                    | SettingsPage::JunkMail => rsx! { pages::Page { key: "{page.name()}", page } },
                     SettingsPage::Accounts => rsx! { accounts::Accounts { shell } },
                     SettingsPage::Contacts => rsx! { crate::ui::contacts::page::Contacts { shell } },
                     SettingsPage::Signatures => rsx! { signatures::Signatures { shell } },

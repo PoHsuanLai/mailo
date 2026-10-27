@@ -60,6 +60,8 @@ mod tests {
             added: 3,
             already: 1,
             unreadable: 1,
+            partial: 0,
+            cut_off: 0,
         };
         assert_eq!(
             said(&total, &Destination::Local),
@@ -81,5 +83,19 @@ mod tests {
             "5 message(s) read; 3 queued for Archive on me@example.test; 1 already there\n"
         );
         assert_eq!(progress(&total), "  5 read, 3 new");
+        let cut = Imported {
+            partial: 2,
+            cut_off: 1,
+            ..total
+        };
+        let words = said(&cut, &Destination::Local);
+        assert!(
+            words.contains("; 2 without the attachments Apple Mail keeps beside them"),
+            "{words}"
+        );
+        assert!(
+            words.contains("; 1 left out: Thunderbird kept only part of them"),
+            "{words}"
+        );
     }
 }

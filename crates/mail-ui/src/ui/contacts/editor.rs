@@ -161,7 +161,7 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
     if let (Some(vips), true) = (&vips, markable) {
         items.push(crate::ui::menu::MenuItem::icon(
             VIP,
-            Icon::Star,
+            crate::ui::vip::GLYPH,
             crate::ui::vip::menu_words(vips, &address),
         ));
     }

@@ -249,30 +249,36 @@ fn kept(edit: impl FnOnce(&mut crate::settings::WindowSettings)) {
 
 /// Sort the list by `sort`, and keep the choice: a saved view kept again in the client, which
 /// every window reads after `revision` moves; any other place's under its key in
-/// `settings.toml`, beside the window's other choices. A choice that cannot be kept still sorts
-/// this window's list, and says why in the log.
+/// `settings.toml`, beside the window's other choices. The list shows the new order at once; the
+/// write runs off the drawing thread, and a choice that cannot be kept puts the list back in the
+/// order it had and says why.
 pub(super) fn sort_list(mut shell: Signal<Shell>, sort: Sort) {
-    let kept = shell.write().sort_by(sort);
-    match kept {
-        Some(SortKept::View(view)) => {
-            let client = crate::ui::live::client();
-            match client.stored().put_view(&view) {
-                Ok(()) => {}
-                Err(why) => log::warn!("the view's order was not kept: {why}"),
+    let previous = shell.peek().sort();
+    let Some(kept) = shell.write().sort_by(sort) else {
+        return;
+    };
+    let motion = crate::ui::motion::motion();
+    let write: std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>>>> =
+        match &kept {
+            SortKept::View(view) => Box::pin(crate::ui::motion::kept(
+                mail_client::act::Keep::View(view.clone()),
+            )),
+            SortKept::Place(key, sort) => {
+                let (key, sort) = (key.clone(), *sort);
+                Box::pin(crate::ui::prefs::change_later(move |settings| {
+                    settings
+                        .window
+                        .sorts
+                        .insert(key, crate::settings::ListOrder(sort));
+                }))
             }
+        };
+    spawn(async move {
+        if let Err(why) = write.await {
+            shell.write().unsort(&kept, previous);
+            crate::ui::motion::tell_through(motion, copy::status::sort_not_kept(&why));
         }
-        Some(SortKept::Place(key, sort)) => {
-            if let Err(why) = crate::ui::prefs::change(move |settings| {
-                settings
-                    .window
-                    .sorts
-                    .insert(key, crate::settings::ListOrder(sort));
-            }) {
-                log::warn!("the list's order was not kept: {why}");
-            }
-        }
-        None => {}
-    }
+    });
 }
 
 /// The list toolbar's ⋯: what the list offers beyond New Message and Search, folded into one

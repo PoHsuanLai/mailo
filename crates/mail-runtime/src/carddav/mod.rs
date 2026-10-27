@@ -20,7 +20,6 @@ mod sync;
 
 pub use discover::{Collection, discover};
 pub use group::{Unwritten, group_card};
-pub use person::{addresses_of, person_card};
 pub use sync::{How, Synced, sync};
 
 use crate::RuntimeError;

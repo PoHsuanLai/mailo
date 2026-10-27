@@ -394,6 +394,54 @@ fn command_p_prints_the_conversation_in_a_window_of_its_own() {
     settle_until(&mut window, |_| dialogs.load(Ordering::SeqCst) == 1);
 }
 
+/// ⌘F in a conversation's window of its own brings up the find bar over it, as it does in the
+/// main window, and Escape takes it away again.
+#[test]
+fn command_f_finds_in_a_window_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let lunch = thread(&store, INBOX[2].1).id;
+    let mut window = message_window(&store, lunch);
+    assert_eq!(
+        window.count(".find-bar"),
+        0,
+        "the bar was open at the start"
+    );
+
+    window.chord(&[PRIMARY], Key::Char('f'));
+    settle_until(&mut window, |h| h.count(".find-bar") == 1);
+
+    window.key(Key::Escape);
+    settle_until(&mut window, |h| h.count(".find-bar") == 0);
+}
+
+/// ⇧⌘H in a conversation's window of its own shows the headers in a sheet over it, read off the
+/// thread that draws, and Escape closes the sheet.
+#[test]
+fn show_all_headers_opens_a_sheet_in_a_window_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let lunch = thread(&store, INBOX[2].1).id;
+    let mut window = message_window(&store, lunch);
+    assert_eq!(
+        window.count(".raw-sheet"),
+        0,
+        "the sheet was open at the start"
+    );
+
+    window.chord(&[PRIMARY, Key::Shift], Key::Char('h'));
+    settle_until(&mut window, |h| h.count(".raw-sheet") == 1);
+    // Read in a task: the sheet says so, then shows the text or why there is none.
+    settle_until(&mut window, |h| {
+        h.count(".raw-text") == 1
+            || h.text_of(".raw-sheet")
+                .is_some_and(|text| text.contains("downloaded"))
+    });
+
+    window.key(Key::Escape);
+    settle_until(&mut window, |h| h.count(".raw-sheet") == 0);
+}
+
 /// A banner's click, or `mailo open` from a terminal, reaches the running window over the session
 /// bus as a request (`ui/handoff`); here the bus is left out and the request is pushed straight
 /// into the window's queue, and the window opens that conversation itself, where the person is

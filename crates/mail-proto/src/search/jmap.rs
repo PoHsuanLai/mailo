@@ -62,6 +62,8 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
         Filter::Starred(Star::Starred) => json!({ "hasKeyword": "$flagged" }),
         Filter::Starred(Star::Unstarred) => json!({ "notKeyword": "$flagged" }),
         Filter::From(m) => json!({ "from": whole(m)? }),
+        Filter::FromAddress(email) => json!({ "from": email }),
+        Filter::Cc(m) => json!({ "cc": whole(m)? }),
         Filter::To(m) => {
             let who = whole(m)?;
             operator("OR", vec![json!({ "to": who }), json!({ "cc": who })])
@@ -111,7 +113,7 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
             super::named(ctx.labels_named, *label).and_then(|n| ctx.mailboxes.id_for_path(n)),
             "label: (the server lists no mailbox of that name)".to_owned(),
         )?,
-        Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned => {
+        Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned | Filter::Vip => {
             return Err(kept_here(filter));
         }
         Filter::Category(_) => {

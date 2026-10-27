@@ -169,14 +169,14 @@ impl ImapBackend {
     ///
     /// `EXAMINE` rather than `SELECT` wherever possible: a read-only selection cannot set
     /// `\Recent` or implicitly expunge, and fetching should never have a side effect.
-    /// Whether the server keeps keywords on its messages: Gmail does, and so does a server
-    /// whose `PERMANENTFLAGS` lists `\*`. Elsewhere a keyword may be refused, or kept for the
-    /// session and lost, so none is written and none is read for a meaning.
+    /// Whether the server keeps keywords on its messages, and may be given ours: a server whose
+    /// `PERMANENTFLAGS` lists `\*` and whose account keeps its labels there
+    /// ([`ServerLabels::Keywords`]). Not Gmail, whose keywords come back as labels of its own
+    /// (a flag colour's bits would show as labels there); not a server that may refuse a
+    /// keyword, or keep it for the session and lose it. Where it is not, none is written and
+    /// none is read for a meaning.
     fn keeps_keywords(&self) -> bool {
-        matches!(
-            self.caps.labels,
-            ServerLabels::Supported | ServerLabels::Keywords
-        )
+        matches!(self.caps.labels, ServerLabels::Keywords)
     }
 
     /// Labels by name, as keywords on `remotes`: each name's keyword added or taken away. A
@@ -942,18 +942,24 @@ impl Backend for ImapBackend {
                     Some(uidnext) => ImapCommand::IdleAfter { uidnext },
                     None => ImapCommand::Idle,
                 };
+                let notified = !also.is_empty();
                 let mut walk = Vec::new();
                 // Other mailboxes through NOTIFY, and nothing at all where the server has none:
                 // the guard ends the walk as unsupported before a mailbox is selected, which is
                 // how the caller learns to watch them another way.
-                if !also.is_empty() {
+                if notified {
                     walk.push(ImapCommand::RequireCapability(vec!["NOTIFY".to_owned()]));
                 }
                 walk.push(Self::select(&mailbox, Access::ReadOnly));
-                if !also.is_empty() {
+                if notified {
                     walk.push(ImapCommand::Notify { mailboxes: also });
                 }
                 walk.push(idle);
+                // The connection may be resumed for the next operation: it is left hearing of
+                // nothing it will not read.
+                if notified {
+                    walk.push(ImapCommand::NotifyNone);
+                }
                 self.queue(walk)
             }
             ProtoOp::Expunge { .. } => Progress::Failed(ProtoError::Unsupported(

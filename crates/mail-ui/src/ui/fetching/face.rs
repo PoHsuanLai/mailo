@@ -67,9 +67,6 @@ impl Problem {
     }
 }
 
-/// The title of the pane when nothing can be loaded.
-pub const CANNOT_LOAD: &str = "Couldn\u{2019}t load this mailbox";
-
 /// What the list pane shows, given its rows, the links of the accounts in scope and why it is
 /// empty if it is.
 pub fn list_face(has_rows: HasRows, links: &[&Link], nothing: &Nothing) -> ListFace {
@@ -77,7 +74,15 @@ pub fn list_face(has_rows: HasRows, links: &[&Link], nothing: &Nothing) -> ListF
         (HasRows::Yes, _) => ListFace::Rows,
         (HasRows::No, Nothing::NoAccount) => ListFace::NoAccount,
         (HasRows::No, Nothing::NoMatch(words)) => ListFace::NoMatch(words.clone()),
-        (HasRows::No, Nothing::Filtered) => ListFace::Filtered,
+        // A first sync still filling the folder has not yet said what the filter leaves: the
+        // filter's empty list is the truth only once the mail has come.
+        (HasRows::No, Nothing::Filtered) => {
+            if links.iter().any(|link| still_filling(link)) {
+                ListFace::FirstSync
+            } else {
+                ListFace::Filtered
+            }
+        }
         (HasRows::No, Nothing::EmptyFolder) => {
             if links.iter().any(|link| still_filling(link)) {
                 ListFace::FirstSync
@@ -200,6 +205,20 @@ mod tests {
         assert_eq!(
             list_face(HasRows::No, &[&fresh], &Nothing::NoMatch("tax".into())),
             ListFace::NoMatch("tax".into())
+        );
+    }
+
+    #[test]
+    fn a_filter_does_not_hide_the_first_sync_it_cannot_judge_yet() {
+        let filling = Link::Fresh;
+        assert_eq!(
+            list_face(HasRows::No, &[&filling], &Nothing::Filtered),
+            ListFace::FirstSync
+        );
+        let settled = current();
+        assert_eq!(
+            list_face(HasRows::No, &[&settled], &Nothing::Filtered),
+            ListFace::Filtered
         );
     }
 

@@ -75,12 +75,12 @@ pub mod rich_text {
         Node, Object, Op, ParaKind, Person, Pos, Presence, Range, Run, SNIPPET, Session, Table,
         TextColor, TextSize, align_at, apply, apply_all, catalog, filter, grapheme_len, indent,
         joins_cc, marks_at_start, missing_attachment, node_len, nodes_from_blocks,
-        nodes_from_plain, plain_to_flowed, quote, runs_text, step_size, tab, to_flowed, to_html,
-        turn_into,
+        nodes_from_plain, plain_to_flowed, quote, runs_text, settled, step_size, tab, to_flowed,
+        to_html, turn_into,
     };
 }
 pub mod export {
-    pub use mail_core::export::{Exported, Target};
+    pub use mail_core::export::{Exported, RawHead, Target};
 }
 pub mod folder {
     pub use mail_core::folder::Refusal;
@@ -111,7 +111,9 @@ pub mod message {
     };
 }
 pub mod notify {
-    pub use mail_core::notify::{Interest, Notifier, Places, Setting, Sound, Whom, load};
+    pub use mail_core::notify::{
+        Interest, Notification, Notifier, Places, Setting, Sound, Whom, load,
+    };
     #[cfg(feature = "desktop")]
     pub mod desktop {
         pub use mail_core::notify::desktop::Desktop;
@@ -167,7 +169,7 @@ pub mod rules {
     }
     pub mod server {
         pub use mail_core::rules::server::{
-            AwayServer, PushDone, away_server, instant, vacation_for,
+            AwayServer, PushDone, away_server, instant, off_reaches_server, vacation_for,
         };
     }
 
@@ -190,7 +192,7 @@ pub mod search {
     };
 }
 pub mod server_search {
-    pub use mail_core::server_search::{Automatic, load, searchable};
+    pub use mail_core::server_search::{Automatic, load, needs_server, searchable};
 }
 pub mod smime {
     pub use mail_core::smime::{Protected, SmimeError};

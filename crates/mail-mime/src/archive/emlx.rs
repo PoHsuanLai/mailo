@@ -4,7 +4,8 @@
 //! the message itself (RFC 5322, LF line endings), and an XML property list Apple Mail keeps its
 //! own facts in. Two of those facts matter here: `flags`, a bit field, and `date-received`, in
 //! seconds since the epoch. A `.partial.emlx` is the same with its larger attachments stored
-//! beside it rather than inside; what is inside is still a message.
+//! beside it rather than inside; what is inside is still a message, without those attachments
+//! ([`is_partial`]).
 //!
 //! Apple Mail keeps the files in its library under `Name.mbox` packages and also writes them
 //! into an export; the walking is the caller's, and everything decidable from one file is here.
@@ -21,6 +22,15 @@ const ANSWERED: u64 = 1 << 2;
 const FLAGGED: u64 = 1 << 4;
 const DRAFT: u64 = 1 << 6;
 const JUNK: u64 = 1 << 24;
+
+/// Whether a file named `file` is a `.partial.emlx`: its larger attachments are stored beside it,
+/// not in it.
+pub fn is_partial(file: &str) -> bool {
+    file.len() > ".partial.emlx".len()
+        && file
+            .get(file.len() - ".partial.emlx".len()..)
+            .is_some_and(|tail| tail.eq_ignore_ascii_case(".partial.emlx"))
+}
 
 /// One `.emlx`, split.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +116,14 @@ pub fn folder_of_package(dir: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use mail_domain::{ReadState, Star};
+
+    #[test]
+    fn a_partial_file_is_known_by_its_name() {
+        assert!(is_partial("11.partial.emlx"));
+        assert!(is_partial("11.PARTIAL.emlx"));
+        assert!(!is_partial("11.emlx"));
+        assert!(!is_partial(".partial.emlx"));
+    }
 
     fn file(message: &[u8], plist: &str) -> Vec<u8> {
         let mut out = format!("{:<10}\n", message.len()).into_bytes();

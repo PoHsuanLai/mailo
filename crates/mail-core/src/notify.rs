@@ -102,9 +102,12 @@ pub enum Places {
     /// The Inbox, and nothing else.
     #[default]
     Inbox,
-    /// The Inbox and every other mailbox the account's server lists as followed, bar the ones
-    /// nobody is waiting on (Junk, Trash, Sent, Drafts, Archive and the views a server calls All
-    /// Mail, Starred and Important).
+    /// The Inbox and every other mailbox the account's server lists as followed: a folder the
+    /// person made, or the server's own without a special use. The ones nobody is waiting on are
+    /// never followed (Archive, All Mail, Starred and Important have a special use), and mail
+    /// filed as Junk, Trash, Sent or Drafts is not announced wherever it is held. Mail filed as
+    /// Archive is announced only from a followed folder, which is how a folder the person made
+    /// is filed.
     Followed,
 }
 
@@ -256,9 +259,9 @@ pub struct Notification {
     /// Plain text. A transport that speaks markup escapes it.
     pub body: String,
     pub opens: Opens,
-    /// A `mailto:` link that starts the reply, for a banner's Reply button: only a banner about
-    /// one message has one.
-    pub reply: Option<String>,
+    /// Whether the banner offers Reply: only a banner about one message does, and the reply is
+    /// to its conversation ([`Opens::Thread`]), in the account the message is in.
+    pub reply: bool,
 }
 
 /// What a button on a banner, or a click on the banner, does.
@@ -266,10 +269,10 @@ pub struct Notification {
 pub enum Act {
     /// Show what the notification was about.
     Open,
-    /// Archive the conversation, without opening a window.
+    /// Archive the conversation, in the window, which offers the Undo.
     Archive,
-    /// Open the composer on this `mailto:` link.
-    Reply(String),
+    /// Open the composer on a reply to the conversation.
+    Reply,
 }
 
 /// The action key of a banner's click, which every server invokes for the banner itself.
@@ -279,42 +282,14 @@ pub const ARCHIVE_ACTION: &str = "archive";
 pub const REPLY_ACTION: &str = "reply";
 
 /// What follows from the action a server or the system reports for a notification that opens
-/// `opens` and offers `reply`: nothing for an action that was not offered.
-pub fn act_for(action: &str, opens: &Opens, reply: Option<&str>) -> Option<Act> {
+/// `opens` and offers Reply when `reply`: nothing for an action that was not offered.
+pub fn act_for(action: &str, opens: &Opens, reply: bool) -> Option<Act> {
     match (action, opens, reply) {
         (DEFAULT_ACTION, _, _) => Some(Act::Open),
         (ARCHIVE_ACTION, Opens::Thread(_), _) => Some(Act::Archive),
-        (REPLY_ACTION, _, Some(link)) => Some(Act::Reply(link.to_owned())),
+        (REPLY_ACTION, Opens::Thread(_), true) => Some(Act::Reply),
         _ => None,
     }
-}
-
-/// `text` as the value of a `mailto:` header: everything but the unreserved characters escaped.
-fn mailto_value(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for byte in text.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                out.push(char::from(byte));
-            }
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
-}
-
-/// The link that starts a reply to `message`: its sender, and its subject under one `Re:`.
-fn reply_link(message: &Message) -> String {
-    let subject = message.subject.trim();
-    let subject = match subject.get(..3) {
-        Some(head) if head.eq_ignore_ascii_case("re:") => subject.to_owned(),
-        _ => format!("Re: {subject}"),
-    };
-    format!(
-        "mailto:{}?subject={}",
-        mailto_value(&message.from.email),
-        mailto_value(&subject)
-    )
 }
 
 /// At most this many arrivals are announced one by one; more become one summary.
@@ -336,7 +311,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
                 summary: sender(message),
                 body: mail_domain::subject_or_none(&message.subject).into_owned(),
                 opens: Opens::Thread(message.thread),
-                reply: Some(reply_link(message)),
+                reply: true,
             })
             .collect();
     }
@@ -366,7 +341,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
         account,
         summary: format!("{} new messages", announced.len()),
         body,
-        reply: None,
+        reply: false,
     }]
 }
 
@@ -398,8 +373,9 @@ pub enum Announce<'a> {
     To {
         store: &'a SqliteStore,
         notifier: &'a dyn Notifier,
-        /// Whose mail is said.
-        whom: Whom,
+        /// Whose mail is said, asked as each pass ends: the person's setting changed meanwhile
+        /// is followed from the next pass.
+        whom: &'a dyn Fn() -> Whom,
     },
 }
 
@@ -445,7 +421,7 @@ pub fn announce(
     let heard = Heard::of(whom, store);
     let followed = match interest.places {
         Places::Inbox => HashSet::new(),
-        Places::Followed => followed_messages(store, &account)?,
+        Places::Followed => followed_messages(store, &account, arrived)?,
     };
     let mut held = Vec::with_capacity(arrived.len());
     for id in arrived {
@@ -506,17 +482,19 @@ fn account_heard(
         .is_none_or(|stored| interest.hears(&stored.address)))
 }
 
-/// The messages held in a mailbox of `account` that its server lists as followed and that is
-/// not the Inbox or a place nobody is waiting on: a folder the person made, or the server's
-/// own without a special use.
+/// Which of `arrived`, a pass's new messages, are held in a mailbox of `account` that its server
+/// lists as followed and that is not the Inbox or a place nobody is waiting on: a folder the
+/// person made, or the server's own without a special use. Asked of the arrivals alone, so a
+/// pass costs what it brought and not what the followed folders hold.
 fn followed_messages(
     store: &SqliteStore,
     account: &AccountId,
+    arrived: &[MessageId],
 ) -> Result<HashSet<MessageId>, CoreError> {
     let mut held = HashSet::new();
     for mailbox in store.followed_folders()? {
         if mailbox.account == *account {
-            held.extend(store.folder_contents(&mailbox)?.mapped);
+            held.extend(store.addressed_in(&mailbox, arrived)?);
         }
     }
     Ok(held)
@@ -731,16 +709,14 @@ mod tests {
                     summary: "Ada Lovelace".to_owned(),
                     body: "lunch on friday".to_owned(),
                     opens: Opens::Thread(a.thread),
-                    reply: Some(
-                        "mailto:ada%40example.test?subject=Re%3A%20lunch%20on%20friday".to_owned()
-                    ),
+                    reply: true,
                 },
                 Notification {
                     account: account(),
                     summary: "bob@example.test".to_owned(),
                     body: "(no subject)".to_owned(),
                     opens: Opens::Thread(b.thread),
-                    reply: Some("mailto:bob%40example.test?subject=Re%3A%20".to_owned()),
+                    reply: true,
                 },
             ]
         );
@@ -777,7 +753,7 @@ mod tests {
                 // Ada sent three; the rest one each, in the order they came.
                 body: "From Ada, Newsletter, Bob and 2 others".to_owned(),
                 opens: Opens::Inbox(account()),
-                reply: None,
+                reply: false,
             }]
         );
         assert_eq!(
@@ -899,9 +875,9 @@ mod tests {
     }
 
     #[test]
-    fn a_banner_offers_archive_for_a_conversation_and_reply_when_it_has_a_link() {
+    fn a_banner_offers_archive_and_reply_for_a_conversation_and_only_when_it_offers_them() {
         let thread = || Opens::Thread(ThreadId::from_uuid(uuid::Uuid::from_u128(1)));
-        let link = Some("mailto:ada%40example.test");
+        let link = true;
         let cases = [
             (
                 "the banner",
@@ -914,7 +890,7 @@ mod tests {
                 "the banner of a summary",
                 DEFAULT_ACTION,
                 Opens::Inbox(account()),
-                None,
+                false,
                 Some(Act::Open),
             ),
             (
@@ -928,36 +904,22 @@ mod tests {
                 "archive of a summary",
                 ARCHIVE_ACTION,
                 Opens::Inbox(account()),
-                None,
+                false,
                 None,
             ),
+            ("reply", REPLY_ACTION, thread(), link, Some(Act::Reply)),
+            ("reply not offered", REPLY_ACTION, thread(), false, None),
             (
-                "reply",
+                "reply of a summary",
                 REPLY_ACTION,
-                thread(),
-                link,
-                Some(Act::Reply("mailto:ada%40example.test".to_owned())),
+                Opens::Inbox(account()),
+                true,
+                None,
             ),
-            ("reply with no link", REPLY_ACTION, thread(), None, None),
             ("an action never offered", "delete", thread(), link, None),
         ];
         for (name, action, opens, reply, expect) in cases {
             assert_eq!(act_for(action, &opens, reply), expect, "{name}");
         }
-    }
-
-    #[test]
-    fn a_reply_link_names_the_sender_and_one_re_and_reads_back_as_a_link() {
-        let mut m = message(1, ("Ada", "ada+news@example.test"), "Re: lunch & more");
-        let link = reply_link(&m);
-        assert_eq!(
-            link,
-            "mailto:ada%2Bnews%40example.test?subject=Re%3A%20lunch%20%26%20more"
-        );
-        let parsed: mail_mime::MailtoUri = link.parse().unwrap();
-        assert_eq!(parsed.subject, "Re: lunch & more");
-        assert_eq!(parsed.to[0].email, "ada+news@example.test");
-        m.subject = "lunch".to_owned();
-        assert!(reply_link(&m).ends_with("subject=Re%3A%20lunch"));
     }
 }

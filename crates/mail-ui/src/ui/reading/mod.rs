@@ -21,6 +21,7 @@ mod thumb;
 mod tools;
 mod words;
 
+use super::copy;
 use super::press::on_primary;
 use super::text::{attachment_rows, stamp};
 use crate::ui::view::Shell;
@@ -32,11 +33,12 @@ use ds::components::content::avatar::{
     AvatarFace, AvatarShape, AvatarSize, AvatarTone, person_hue,
 };
 use ds::components::content::label::LabelStyle;
+use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
 use mail_client::Client;
 use mail_client::Snapshot;
 use mail_client::message::{FrameBody, INLINE_BYTES, Sent};
-use mail_client::query::Conversation;
+use mail_client::query::{Conversation, Messages};
 use mail_domain::*;
 pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
@@ -47,17 +49,22 @@ use std::rc::Rc;
 use std::sync::Arc;
 pub(in crate::ui) use tools::compose_on;
 
-/// Whether what is shown is unread now: `message` when it was opened alone, else any of `thread`.
-fn is_unread(client: &Client, thread: ThreadId, only: Option<MessageId>) -> bool {
+/// Whether what is shown is unread now, as the client has the conversation read: `message` when
+/// it was opened alone, else any of `thread`. A conversation not read yet, or gone, is not
+/// unread: nothing here reads the store.
+fn is_unread(read: &Snapshot<Option<Messages>>, thread: ThreadId, only: Option<MessageId>) -> bool {
+    let Snapshot::Ready { value, .. } = read else {
+        return false;
+    };
+    let Some(loaded) = value.as_ref().as_ref().filter(|l| l.summary.id == thread) else {
+        return false;
+    };
     match only {
-        Some(message) => client
-            .stored()
-            .message(message)
-            .is_ok_and(|alone| alone.thread == thread && alone.read == ReadState::Unread),
-        None => client
-            .stored()
-            .thread(thread)
-            .is_ok_and(|loaded| loaded.summary.read == ReadState::Unread),
+        Some(message) => loaded
+            .messages
+            .iter()
+            .any(|alone| alone.id == message && alone.read == ReadState::Unread),
+        None => loaded.summary.read == ReadState::Unread,
     }
 }
 
@@ -85,15 +92,32 @@ fn mark_read(client: &Client, thread: ThreadId, only: Option<MessageId>) {
     super::motion::when_done(ticket, |_| ());
 }
 
-/// Bigger, Smaller or Actual Size: the reader's text size a step along, written to the settings,
-/// so every window and the next launch draw messages at it.
+/// How long the text size is left alone after a press before it is written to the settings: a
+/// key held down or tapped on is one write, of where it ended.
+const ZOOM_SETTLES: std::time::Duration = std::time::Duration::from_millis(300);
+
+/// Bigger, Smaller or Actual Size: the reader's text size a step along, drawn at once in this
+/// window, and written to the settings once the presses stop (the other windows and the next
+/// launch then draw messages at it).
 pub(in crate::ui) fn zoom(step: crate::settings::ZoomStep) {
-    let stepped = crate::ui::prefs::change(|settings| {
-        settings.reading.text_zoom = settings.reading.text_zoom.stepped(step);
+    static PRESSES: crate::ui::prefs::Latest = crate::ui::prefs::Latest::new();
+    let Some(mut shown) = try_consume_context::<Signal<crate::settings::MailSettings>>() else {
+        log::warn!("text size: the window has no settings to change");
+        return;
+    };
+    let next = shown.peek().reading.text_zoom.stepped(step);
+    shown.write().reading.text_zoom = next;
+    let mine = PRESSES.press();
+    let write = crate::ui::prefs::change_later(move |settings| settings.reading.text_zoom = next);
+    dioxus::dioxus_core::spawn_forever(async move {
+        ds::base::time::clock::sleep(ZOOM_SETTLES).await;
+        if !PRESSES.is_last(mine) {
+            return;
+        }
+        if let Err(why) = write.await {
+            log::warn!("text size: {why}");
+        }
     });
-    if let Err(why) = stepped {
-        log::warn!("text size: {why}");
-    }
 }
 
 /// The first character of `name`, uppercased.
@@ -153,6 +177,32 @@ fn gone() -> Element {
     rsx! {
         div { class: "reader-empty",
             EmptyState { title: "Conversation gone" }
+        }
+    }
+}
+
+/// A conversation the client could not read: said, with the reason to try again, not drawn as a
+/// conversation that is gone.
+fn cannot_load() -> Element {
+    rsx! {
+        div { class: "reader-empty",
+            EmptyState {
+                form: EmptyForm::Failure,
+                title: copy::status::CONVERSATION_CANNOT_LOAD,
+                description: Some(copy::status::NOT_READ.to_owned().into()),
+            }
+        }
+    }
+}
+
+/// Outline lines where the conversation will be, while the client reads it for the first time:
+/// the pane reads as "coming", not as empty.
+fn loading() -> Element {
+    rsx! {
+        div { class: "reader-loading", "aria-busy": "true",
+            for n in 0..3 {
+                SkeletonRow { key: "{n}", lines: SkeletonLines::Two }
+            }
         }
     }
 }
@@ -251,14 +301,28 @@ pub(super) fn Reader(
         let pending = pending.clone();
         use_drop(move || pending.borrow_mut().left());
     }
+    // Decided once per conversation shown, when the client has read it: what is unread cannot be
+    // told before, and a reading that follows a commit (the one this effect's own mark makes)
+    // decides nothing again.
+    let decided = use_hook(|| Rc::new(std::cell::Cell::new(None::<(ThreadId, Option<MessageId>)>)));
     {
         let client = client.clone();
         use_effect(use_reactive!(|thread, only| {
+            if decided.get() == Some((thread, only)) {
+                return;
+            }
+            let now: Snapshot<Option<Messages>> = (*read.read()).clone();
+            if !matches!(&now, Snapshot::Ready { value, .. }
+                if value.as_ref().as_ref().is_some_and(|loaded| loaded.summary.id == thread))
+            {
+                return;
+            }
+            decided.set(Some((thread, only)));
             let reading = settings
                 .map(|settings| settings.peek().reading.clone())
                 // A reader with no window around it (a test's) marks read on open, as ever.
                 .unwrap_or_default();
-            let unread = is_unread(&client, thread, only);
+            let unread = is_unread(&now, thread, only);
             match marking::on_show(reading.mark_read, reading.mark_read_delay, unread) {
                 marking::Mark::Now => {
                     pending.borrow_mut().left();
@@ -276,7 +340,7 @@ pub(super) fn Reader(
                         let due = pending
                             .borrow_mut()
                             .due(thread, ds::base::time::clock::now());
-                        if due && is_unread(&client, thread, only) {
+                        if due && is_unread(&read.peek(), thread, only) {
                             mark_read(&client, thread, only);
                         }
                     });
@@ -291,8 +355,8 @@ pub(super) fn Reader(
     let loaded = match held.as_deref() {
         Some(Some(loaded)) if loaded.summary.id == thread => loaded,
         Some(None) if matches!(snapshot, Snapshot::Ready { .. }) => return gone(),
-        _ if matches!(snapshot, Snapshot::Failed { .. }) => return gone(),
-        _ => return rsx! { div { class: "reader-empty" } },
+        _ if matches!(snapshot, Snapshot::Failed { .. }) => return cannot_load(),
+        _ => return loading(),
     };
     let only = only.filter(|message| loaded.messages.iter().any(|held| held.id == *message));
     // Read here, in the render, so adding a trusted sender or changing the mode draws the reader
@@ -302,11 +366,12 @@ pub(super) fn Reader(
         .unwrap_or_default();
     // A message with both bodies is rendered, and looked up, as the setting prefers.
     frames.prefer(reading.prefer_plain_text.into());
-    // "Block all remote content": nothing remote loads, by press or by setting, and nothing
+    // "Load remote images: Never": nothing remote loads, by press or by setting, and nothing
     // offers to load it.
-    let block_all = settings.is_some_and(|settings| {
-        settings.read().privacy.block_remote_content == crate::settings::BlockRemote::On
-    });
+    let block_all = reading.remote_images == crate::settings::LoadRemoteImages::Never;
+    // Images that cannot be fetched the way Privacy says are not fetched another way: the line
+    // over the message says so, where it would offer Load Images.
+    let route_problem = crate::ui::prefs::route_problem();
     let pressed = shell.read().show_remote_images && !block_all;
     let peek = shell.read().peek;
     // What this reader sent to be rendered off the thread, and the count that moves when some of
@@ -480,7 +545,11 @@ pub(super) fn Reader(
         .zip(&folds)
         .rev()
         .find(|((_, _, remote, showing), fold)| {
-            !block_all && **fold == fold::Fold::Open && *remote && !showing
+            // With no usable route even images that would load are held, and the line says why.
+            !block_all
+                && **fold == fold::Fold::Open
+                && *remote
+                && (route_problem.is_some() || !showing)
         })
         .map(|((message, ..), _)| message.clone());
     // "Always load from" the blocked sender: offered where it could ever load their images
@@ -489,7 +558,8 @@ pub(super) fn Reader(
     // trust everyone who forges it next.
     // Until the sender's checks are known it is not offered; it appears when they land.
     let offer = blocked.as_ref().and_then(|message| {
-        let worth = reading.remote_images != crate::settings::LoadRemoteImages::Always
+        let worth = route_problem.is_none()
+            && reading.remote_images != crate::settings::LoadRemoteImages::Always
             && message.mailbox != MailboxRole::Spam
             && !message.from.email.trim().is_empty();
         if !worth {
@@ -519,6 +589,17 @@ pub(super) fn Reader(
         })
         .collect();
 
+    // The message the ⋯ › Save Attachments… means, among those whose files are drawn.
+    let files = attachments::files_meant(
+        &shown
+            .iter()
+            .zip(&attached)
+            .zip(&folds)
+            .filter(|(_, fold)| **fold != fold::Fold::Folded)
+            .map(|(((message, ..), rows), _)| (message.id, rows.len()))
+            .collect::<Vec<_>>(),
+        only,
+    );
     // The person's own addresses, for the header to leave out a To line of only them.
     let yours: Vec<String> = super::data::account_rows(&client)
         .into_iter()
@@ -542,6 +623,7 @@ pub(super) fn Reader(
                             shell,
                             leave,
                             list,
+                            files,
                         }
                     }
                 }
@@ -555,7 +637,7 @@ pub(super) fn Reader(
                 }
                 Label { text: subject, style: LabelStyle::Title, common: crate::ui::common::classed("reader-subject") }
             }
-            super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone() }
+            super::receipt::Receipts { key: "{leave_key}", bodies: bodies.clone(), settled: !is_unread(&snapshot, thread, only) }
             super::unsubscribe::Lookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: way_out }
             list_post::PostLookout { key: "{leave_key}", thread, bodies: bodies.clone(), tag: leave_key.clone(), found: list_post }
         }
@@ -609,7 +691,7 @@ pub(super) fn Reader(
                         }
                     }
                     if fold != fold::Fold::Folded && blocked.as_ref().is_some_and(|blocked| blocked.id == message.id) {
-                            ImagesHidden { shell, offer: offer.clone() }
+                            ImagesHidden { shell, offer: offer.clone(), problem: route_problem }
                     }
                     if fold != fold::Fold::Folded {
                         super::pgp::Seal {
@@ -723,12 +805,25 @@ fn use_frame_images(
 
 /// One quiet line over the newest message whose remote images are held back: they are hidden,
 /// and Load Images shows this conversation's. `offer` is the sender whose images could load from
-/// now on, where that is safe to offer (Always Load from). Not a banner: nothing is wrong.
+/// now on, where that is safe to offer (Always Load from). Not a banner: nothing is wrong. When
+/// the relay or proxy chosen in Privacy cannot be used (`problem`), the line says so instead and
+/// offers nothing: the images are not fetched straight to make up for it.
 #[component]
-fn ImagesHidden(shell: Signal<Shell>, offer: Option<String>) -> Element {
+fn ImagesHidden(
+    shell: Signal<Shell>,
+    offer: Option<String>,
+    problem: Option<crate::settings::RouteProblem>,
+) -> Element {
     use super::copy::{controls, status};
     use ds::components::controls::button_model::Bezel;
     use ds::root::common::Common;
+    if let Some(problem) = problem {
+        return rsx! {
+            p { class: "images-hidden", role: "status",
+                Label { text: status::images_not_routed(problem), role: ds::components::content::label::LabelRole::Tertiary, style: LabelStyle::Footnote }
+            }
+        };
+    }
     rsx! {
         p { class: "images-hidden", role: "status",
             Label { text: status::IMAGES_HIDDEN, role: ds::components::content::label::LabelRole::Tertiary, style: LabelStyle::Footnote }

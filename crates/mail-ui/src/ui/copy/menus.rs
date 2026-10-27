@@ -128,6 +128,10 @@ pub const SAVE: &str = "Save";
 pub const SAVE_TO: &str = "Save to…";
 /// An attachment's right click, when its message has more than one.
 pub const SAVE_ALL: &str = "Save All…";
+/// The reader's ⋯, when a shown message has files: all of them into a folder the person chooses.
+pub const SAVE_ATTACHMENTS: &str = "Save Attachments…";
+/// The same, when the message has one file.
+pub const SAVE_ATTACHMENT: &str = "Save Attachment…";
 pub const PRINT: &str = "Print…";
 /// The reader's ⋯ and a message's own menu: the message's header lines as they came.
 pub const SHOW_ALL_HEADERS: &str = "Show All Headers";

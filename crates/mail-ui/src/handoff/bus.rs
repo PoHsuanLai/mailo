@@ -2,7 +2,8 @@
 //! calling it from `mailo open`.
 
 use super::{
-    ActivationToken, Request, inbox_uri, name_of, path_of, reply_uri, requests_of, uri_of,
+    ActivationToken, Request, archive_uri, inbox_uri, name_of, path_of, reply_uri, requests_of,
+    uri_of,
 };
 use mail_client::profile::ProfileId;
 use mail_domain::ThreadId;
@@ -126,6 +127,11 @@ pub fn deliver_inbox(profile: &ProfileId, account: &AccountId, token: Option<&st
 /// Ask `profile`'s running window to open a reply to `thread`. True when one took it.
 pub fn deliver_reply(profile: &ProfileId, thread: ThreadId, token: Option<&str>) -> bool {
     open(profile, &reply_uri(thread), token)
+}
+
+/// Ask `profile`'s running window to archive `thread`. True when one took it.
+pub fn deliver_archive(profile: &ProfileId, thread: ThreadId, token: Option<&str>) -> bool {
+    open(profile, &archive_uri(thread), token)
 }
 
 /// Ask `profile`'s running window to raise itself. True when one did; false when none is running.

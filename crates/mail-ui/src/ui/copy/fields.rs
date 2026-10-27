@@ -113,6 +113,9 @@ pub const IS_LARGER: &str = "is larger than";
 pub const IS_SMALLER: &str = "is smaller than";
 pub const IS_NEWER: &str = "is newer than";
 pub const IS_OLDER: &str = "is older than";
+/// Under a rule's conditions when one is a size: the server may count a message's size otherwise.
+pub const SIZE_COUNTED_HERE: &str =
+    "Sizes are counted on this computer, so a server may count a message differently.";
 /// A size condition's field, while it is empty.
 pub const A_SIZE: &str = "5M";
 /// An age condition's field, while it is empty.
@@ -185,6 +188,8 @@ pub mod account {
     /// The switch that pauses an account's syncing.
     pub const SYNC: &str = "Sync";
     pub const SYNC_THIS_ACCOUNT: &str = "Sync this account";
+    pub const LABELS: &str = "Labels";
+    pub const KEEP_LABELS_ON_THE_SERVER: &str = "Keep labels on the server";
 
     // The folders picked for roles, in the order the page lists them.
     pub const DRAFTS: &str = "Drafts";
@@ -243,3 +248,18 @@ pub const RELAY_KEY_PLACEHOLDER: &str = "Paste the key";
 
 /// The relay key's field, once one is kept.
 pub const RELAY_KEY_PLACEHOLDER_KEPT: &str = "Kept in the keyring";
+
+/// What is wrong with the privacy relay or proxy chosen, said under the field that holds it. Until
+/// it is mended, images wait rather than load straight from the sender.
+pub fn route_problem(problem: crate::settings::RouteProblem) -> &'static str {
+    use crate::settings::RouteProblem;
+    match problem {
+        RouteProblem::Relay => {
+            "Use the relay\u{2019}s https:// address, such as https://camo.example.com."
+        }
+        RouteProblem::RelayKey => "Paste the key the relay was set up with.",
+        RouteProblem::Proxy => {
+            "Use an http://, https:// or socks5h:// address, such as socks5h://127.0.0.1:9050."
+        }
+    }
+}

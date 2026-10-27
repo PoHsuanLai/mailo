@@ -13,8 +13,11 @@
 //! default, nothing is looked up and nothing is answered: the request stays as it came, and a
 //! later `mailo receipt` can still answer it. Under [`ReadReceipts::Ask`] each request outside
 //! Junk is a small mark in its message's header (and two rows in the message's menu), Send
-//! Receipt or Don't Send, and nothing goes until one is chosen. Under [`ReadReceipts::Always`] a receipt is queued the first time a message that
-//! asks is opened, and only where [`automatic`] says it is safe.
+//! Receipt or Don't Send, and nothing goes until one is chosen. Under [`ReadReceipts::Always`] a
+//! receipt is queued the first time a message that asks is read, and only where [`automatic`]
+//! says it is safe. Read is the reader's own decision (`reading.mark_read`): a conversation that
+//! is left unread, or is waiting out its delay, has not been read, so no receipt goes until it is
+//! marked read ([`answers_now`]).
 
 use crate::settings::{MailSettings, ReadReceipts};
 use chrono::{DateTime, Utc};
@@ -217,19 +220,55 @@ pub(in crate::ui) fn lookup(looks: &Looks, client: &Client, key: &Bodies) -> Vec
 #[derive(Clone, Copy)]
 pub(in crate::ui) struct Asks(pub Signal<Vec<Question>>);
 
+/// Whether a receipt is given on its own now: under [`ReadReceipts::Always`], once the reader has
+/// marked what it shows read. Until then the person has not read it, whatever the setting says
+/// about opening it ("Never" mark as read never reads it; "After a delay" waits out the delay).
+pub(in crate::ui) fn answers_now(policy: ReadReceipts, settled: bool) -> bool {
+    policy == ReadReceipts::Always && settled
+}
+
+/// The policy the window's settings hold, or the default for a reader with no window around it.
+fn policy_of(settings: Option<Signal<MailSettings>>) -> ReadReceipts {
+    settings
+        .map(|settings| settings.peek().reading.read_receipts)
+        .unwrap_or_default()
+}
+
 /// The open thread's requests, answered by the setting, or put to the person under
 /// [`ReadReceipts::Ask`] through the reader's [`Asks`]. Draws nothing.
 ///
 /// Keyed by the reader on the thread and its bodies, so a body arriving looks again and one
 /// thread's answer is never given for another. The setting is read as the thread opens: changing
 /// it later answers the next thread opened, not this one again. A reader with no window around
-/// it (a test's) has no settings, and answers nothing.
+/// it (a test's) has no settings, and answers nothing. `settled` is whether the reader has
+/// decided the thread is read ([`answers_now`]): under Always the answers wait for it.
 #[component]
-pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
+pub(in crate::ui) fn Receipts(bodies: Bodies, settled: bool) -> Element {
     let looks = crate::ui::reading::use_looks();
     let settings = use_hook(try_consume_context::<Signal<MailSettings>>);
     let client = crate::ui::live::client();
     let asks = try_consume_context::<Asks>();
+    // Under Always: once the thread is read, answer what asks, once for this thread and these
+    // bodies.
+    let answered = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(false)));
+    {
+        let (looks, client, bodies) = (looks.clone(), client.clone(), bodies.clone());
+        use_effect(use_reactive!(|settled| {
+            let policy = policy_of(settings);
+            if !answers_now(policy, settled) || answered.replace(true) {
+                return;
+            }
+            let (looks, client, bodies) = (looks.clone(), client.clone(), bodies.clone());
+            spawn(async move {
+                // A lookup that panicked answers nothing.
+                let _ = tokio::task::spawn_blocking(move || {
+                    let standings = lookup(&looks, &client, &bodies);
+                    answer_asked(&looks, &client, &standings, policy, Utc::now());
+                })
+                .await;
+            });
+        }));
+    }
     let asked = {
         let looks = looks.clone();
         let client = client.clone();
@@ -237,20 +276,14 @@ pub(in crate::ui) fn Receipts(bodies: Bodies) -> Element {
             let bodies = bodies.clone();
             let looks = looks.clone();
             let client = client.clone();
-            let policy = settings
-                .map(|settings| settings.peek().reading.read_receipts)
-                .unwrap_or_default();
+            let policy = policy_of(settings);
             async move {
                 let asked = tokio::task::spawn_blocking(move || match policy {
-                    ReadReceipts::Never => Vec::new(),
+                    // Always answers when the thread is read, below; Never has nothing to find.
+                    ReadReceipts::Never | ReadReceipts::Always => Vec::new(),
                     ReadReceipts::Ask => {
                         let standings = lookup(&looks, &client, &bodies);
                         questions(&client, &standings, policy)
-                    }
-                    ReadReceipts::Always => {
-                        let standings = lookup(&looks, &client, &bodies);
-                        answer_asked(&looks, &client, &standings, policy, Utc::now());
-                        Vec::new()
                     }
                 })
                 .await;

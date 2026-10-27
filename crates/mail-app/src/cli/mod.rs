@@ -125,7 +125,8 @@ pub enum Command {
     Snooze { thread: ThreadId, when: String },
     /// Bring a snoozed conversation back now.
     Wake { thread: ThreadId },
-    /// File a conversation in Archive (what a notification's Archive button runs).
+    /// File a conversation in Archive, from a terminal (a banner's Archive button asks the window
+    /// instead, where the Undo is).
     Archive { thread: ThreadId },
     /// The attachments on a message.
     Attachments { message: MessageId },
@@ -1599,7 +1600,6 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             let known = mail_core::query::Known {
                 labels: &labels,
                 accounts: &accounts,
-                vips: None,
             };
             Ok(search::search(store, needle, *limit, &known, now, clock))
         }

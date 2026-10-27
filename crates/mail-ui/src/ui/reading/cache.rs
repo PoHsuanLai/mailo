@@ -77,8 +77,8 @@ pub(super) fn render_later(
 /// Warmed under the frame's policy, which is the one a conversation opens with: showing remote
 /// images is asked for per conversation, and opening another one clears it.
 ///
-/// Their conversations are kept read by the client too, so opening one draws it at once rather
-/// than a frame after.
+/// The open conversation is kept read by the client too, so it draws at once rather than a frame
+/// after; the neighbours are only rendered, not kept read.
 pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) {
     let frames = use_frames();
     let client = crate::ui::live::use_client();
@@ -99,9 +99,11 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
         // it: a message without its body yet cannot be rendered ahead, only fetched ahead.
         let bodies: Vec<ThreadId> = open().into_iter().chain(order.iter().copied()).collect();
         mail_client::wanted::ask_first(&bodies);
-        // Asked for before the last ones are let go, so a conversation in both is not read
-        // again.
-        let next = client.prime(bodies.iter().map(|thread| Conversation(*thread)));
+        // Only the open conversation is kept read as a whole: a value that every commit reads
+        // again, body by body. The neighbours are rendered by `warm` below, which reads each
+        // once on its own thread and keeps nothing of it. Asked for before the last one is let
+        // go, so the same conversation is not read again.
+        let next = client.prime(open().into_iter().map(Conversation));
         *kept.borrow_mut() = next;
         client.framing(&frames).warm(order, SanitizePolicy::FRAME);
     });

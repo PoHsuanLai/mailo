@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
 use mail_client::Client;
-use mail_client::SigningStore;
+use mail_client::prelude::SigningStore;
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
 
 use super::super::common::{add_mark, tile};

@@ -8,7 +8,7 @@
 //! folder of its own and opens it in the app the system gives its kind, recording the copy so
 //! `attachments.remove_unedited` can remove it again (`downloads::unedited`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use dioxus::prelude::*;
 use ds::components::controls::button_model::{Bezel, ImagePosition};
@@ -190,8 +190,8 @@ fn save(viewing: Viewing, toasts: Toasts) {
 /// one for people (the part is still on the server, or there is no such part), else `said`, with
 /// core's words in the log.
 #[track_caller]
-fn attachment_failure(failure: mail_client::CoreError, said: &str) -> String {
-    use mail_client::CoreError;
+fn attachment_failure(failure: mail_client::prelude::CoreError, said: &str) -> String {
+    use mail_client::prelude::CoreError;
     match failure {
         CoreError::AttachmentOnServer { .. } | CoreError::NoAttachment { .. } => {
             crate::ui::remedy::told(failure)
@@ -305,6 +305,20 @@ impl Owner {
     }
 }
 
+/// Write the part into its message's folder under `root` for Open, and record the copy so
+/// `attachments.remove_unedited` can remove it while it is unchanged. Blocking.
+fn write_for_open(client: &Client, root: &Path, viewing: Viewing) -> Result<PathBuf, String> {
+    let said = copy::errors::ATTACHMENT_NOT_OPENED;
+    let dir = root.join(viewing.message.to_string());
+    std::fs::create_dir_all(&dir).map_err(|why| plainly(said, why))?;
+    let path = client
+        .attach()
+        .save(viewing.message, viewing.index, &dir)
+        .map_err(|why| attachment_failure(why, said))?;
+    crate::ui::downloads::unedited::record(root, &path, viewing.message);
+    Ok(path)
+}
+
 /// Open the part in the app the system gives its kind. From a press or a key: the write and the
 /// opener run off the thread that draws, and only a failure is said.
 pub(super) fn open_in_app(viewing: Viewing) {
@@ -314,14 +328,7 @@ pub(super) fn open_in_app(viewing: Viewing) {
         let said = copy::errors::ATTACHMENT_NOT_OPENED;
         let opened = tokio::task::spawn_blocking(move || {
             let root = open_root().map_err(|why| plainly(said, why))?;
-            let dir = root.join(viewing.message.to_string());
-            std::fs::create_dir_all(&dir).map_err(|why| plainly(said, why))?;
-            let path = client
-                .attach()
-                .save(viewing.message, viewing.index, &dir)
-                .map_err(|why| attachment_failure(why, said))?;
-            // Recorded, so `attachments.remove_unedited` can remove it while it is unchanged.
-            crate::ui::downloads::unedited::record(&root, &path, viewing.message);
+            let path = write_for_open(&client, &root, viewing)?;
             crate::ui::downloads::open_file(&path).map_err(|why| why.told(said))
         })
         .await
@@ -478,8 +485,33 @@ fn SheetView(sheet: Sheet) -> Element {
 
 #[cfg(test)]
 mod tests {
-    use super::{LEFT_OPEN_FOR, OPEN_PREFIX, sweep_in};
+    use super::{LEFT_OPEN_FOR, OPEN_PREFIX, sweep_in, write_for_open};
+    use crate::settings::RemoveUnedited;
+    use crate::ui::downloads::unedited;
+    use crate::ui::view::Viewing;
+    use mail_core::Store as _;
     use std::time::SystemTime;
+
+    /// Open writes a copy of the part and records it: the quit removes it, unedited, under When
+    /// Mailo Quits. Without the record the copy stays for ever.
+    #[test]
+    fn a_copy_open_writes_is_recorded_for_the_quit_to_remove() {
+        let _alone = unedited::RUN
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (store, _dir) = crate::ui::fixtures::held_and_remote();
+        let client = crate::ui::fixtures::client(&store);
+        let thread = crate::ui::fixtures::thread_like(&store, "quarterly");
+        let message = store.thread(thread).expect("the thread").messages[0];
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let root = scratch.path().join(format!("{OPEN_PREFIX}test"));
+        std::fs::create_dir_all(&root).expect("Open's folder");
+
+        let path = write_for_open(&client, &root, Viewing::of(message, 0)).expect("written");
+        assert!(path.starts_with(&root) && path.exists(), "{path:?}");
+        unedited::remove_on_quit(RemoveUnedited::WhenMailoQuits);
+        assert!(!path.exists(), "the copy Open wrote was not recorded");
+    }
 
     /// A folder an earlier run's Open left, once old enough, is cleared away; a new one, a file
     /// named like one, and anything else in the temporary folder are left.

@@ -28,6 +28,11 @@ pub fn rules_not_applied(why: &str) -> String {
     format!("Rules not applied: {why}.")
 }
 
+/// A list order that could not be kept, so the list is back in the order it had.
+pub fn sort_not_kept(why: &str) -> String {
+    format!("The order was not kept: {}.", why.trim_end_matches('.'))
+}
+
 /// Apply Rules with nothing open or picked.
 pub const NOTHING_TO_APPLY_RULES_TO: &str = "Pick or open conversations to apply rules to them.";
 
@@ -77,6 +82,18 @@ pub fn page_of(page: u32, count: u32) -> String {
 pub const SOURCE_EMLX: &str = "Apple Mail message";
 pub const SOURCE_APPLE_MAIL: &str = "Apple Mail mailboxes";
 pub const SOURCE_THUNDERBIRD: &str = "Thunderbird profile";
+/// Under a Thunderbird profile on the Import sheet: an IMAP account's mail is only there if
+/// Thunderbird downloaded it.
+pub const THUNDERBIRD_OFFLINE_ONLY: &str = "Only the mail Thunderbird kept offline is imported, so messages it left on the server are not included.";
+// What an import says when it is done, beyond the count: mail the source held only a part of.
+/// Messages read from Apple Mail files whose larger attachments are stored beside them.
+pub fn import_without_attachments(count: usize) -> String {
+    format!("{count} without the attachments Apple Mail keeps beside them")
+}
+/// Thunderbird messages of which only a part was downloaded, and that were not imported.
+pub fn import_cut_off(count: usize) -> String {
+    format!("{count} left out: Thunderbird kept only part of them")
+}
 
 pub const LOADING: &str = "Loading…";
 pub const NOT_DOWNLOADED: &str = "Not downloaded yet";
@@ -110,6 +127,24 @@ pub fn one_time_code(code: &str) -> String {
 
 /// The quiet line over a message whose remote images are held back; its actions follow it.
 pub const IMAGES_HIDDEN: &str = "Images hidden";
+
+/// The same line when the relay or proxy chosen in Privacy settings cannot be used: images wait
+/// for it rather than load straight from the sender, and the line says what to mend.
+pub fn images_not_routed(problem: crate::settings::RouteProblem) -> &'static str {
+    use crate::settings::RouteProblem;
+    match problem {
+        RouteProblem::Relay => {
+            "Images hidden. The privacy relay\u{2019}s address can\u{2019}t be used. Check Privacy in Settings."
+        }
+        RouteProblem::RelayKey => {
+            "Images hidden. The privacy relay has no key. Add it in Privacy settings."
+        }
+        RouteProblem::Proxy => {
+            "Images hidden. The privacy proxy\u{2019}s address can\u{2019}t be used. Check Privacy in Settings."
+        }
+    }
+}
+
 /// The message source sheet, for a message whose body is not here yet.
 pub const SOURCE_NOT_HERE: &str = "This message isn’t downloaded yet.";
 
@@ -333,34 +368,9 @@ pub mod account {
     pub const DESCRIPTION_HELP: &str = "Shown in the sidebar in place of the address.";
     /// The help under Sync while it is off.
     pub const PAUSED_HELP: &str = "mailo won\u{2019}t sync this account until you turn this on.";
-    /// An amount of storage, in the largest unit it fills: "512 kB", "1.2 GB", "15 GB".
-    ///
-    /// The unit is chosen after rounding to a tenth, so an amount that rounds up to 1024 of one
-    /// unit is said in the next, never as "1024 kB".
-    pub fn amount(bytes: u64) -> String {
-        const UNITS: [(&str, u64); 4] = [
-            ("kB", 1 << 10),
-            ("MB", 1 << 20),
-            ("GB", 1 << 30),
-            ("TB", 1 << 40),
-        ];
-        if bytes < UNITS[0].1 {
-            return format!("{bytes} B");
-        }
-        // The tenths of a unit that `bytes` comes to, rounded to nearest.
-        let tenths = |size: u64| (u128::from(bytes) * 10 + u128::from(size) / 2) / u128::from(size);
-        let (unit, tenths) = UNITS
-            .iter()
-            .map(|&(unit, size)| (unit, tenths(size)))
-            .find(|&(_, tenths)| tenths < 1024 * 10)
-            // Past what the units name, the last says it.
-            .unwrap_or_else(|| (UNITS[3].0, tenths(UNITS[3].1)));
-        match tenths % 10 {
-            0 => format!("{} {unit}", tenths / 10),
-            tenth => format!("{}.{tenth} {unit}", tenths / 10),
-        }
-    }
-    /// The Storage row: "1.2 GB of 15 GB used".
+    /// The help under Keep Labels on the Server: what it shares, and what it leaves out.
+    pub const KEEP_LABELS_HELP: &str = "Writes each label to the server as a keyword, so other mail programs on this account see it. Names are shared as they are spelled, with spaces and accents turned into underscores or left out.";
+    /// The Storage row: "1.2 GB of 15.0 GB used".
     pub fn storage_used(used: &str, limit: &str) -> String {
         format!("{used} of {limit} used")
     }
@@ -421,3 +431,12 @@ pub fn members(count: usize) -> String {
         many => format!("{many} members"),
     }
 }
+
+/// The title of the list pane when nothing can be loaded.
+pub const CANNOT_LOAD: &str = "Couldn\u{2019}t load this mailbox";
+
+/// Under [`CANNOT_LOAD`] when the client could not read the accounts or the rows from the store.
+pub const NOT_READ: &str = "The mail on this computer could not be read. Try again.";
+
+/// The title of the reader when the conversation could not be read.
+pub const CONVERSATION_CANNOT_LOAD: &str = "Couldn\u{2019}t load this conversation";

@@ -11,9 +11,11 @@
 use chrono::{DateTime, Utc};
 use mail_core::undo::Undo;
 use mail_domain::{
-    Filter, MailboxRole, MatchCtx, Membership, MessageId, Op, Target, ThreadId, ThreadSummary,
+    Filter, LabelId, MailboxRole, MatchCtx, Membership, MessageId, Op, Target, ThreadId,
+    ThreadSummary, View, ViewId,
 };
-use mail_store::{Generation, SqliteStore};
+use mail_store::{Generation, SqliteStore, Store};
+use porter_core::AccountId;
 
 /// What to change.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +36,19 @@ pub enum Command {
     TakeBack(Vec<Undo>),
     /// Delete for good what each conversation holds in Trash or Spam.
     Destroy(Vec<ThreadId>),
+    /// Keep something the person made or forgot.
+    Keep(Keep),
+}
+
+/// What a person makes or forgets, written like an op is: off the thread that draws.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Keep {
+    /// A saved view, new or changed.
+    View(View),
+    /// A saved view, forgotten.
+    ForgetView(ViewId),
+    /// A label named for an account.
+    Label { account: AccountId, name: String },
 }
 
 /// What a [`Command`] did.
@@ -45,6 +60,9 @@ pub enum Done {
     TookBack { back: Vec<Undo>, refused: Vec<Undo> },
     /// The messages deleted.
     Destroyed(Vec<MessageId>),
+    /// What a [`Keep`] came to: the label it made, for one that makes a label, else `None`; or
+    /// why it was not kept.
+    Kept(Result<Option<LabelId>, String>),
 }
 
 /// A command done: what it did, and the generation a value read at or after has it.
@@ -121,6 +139,14 @@ pub(crate) fn apply(store: &SqliteStore, command: Command) -> Acted {
                 .flatten()
                 .collect(),
         ),
+        Command::Keep(keep) => Done::Kept(
+            match keep {
+                Keep::View(view) => store.put_view(&view).map(|()| None),
+                Keep::ForgetView(id) => store.delete_view(id).map(|()| None),
+                Keep::Label { account, name } => store.create_label(account, &name).map(Some),
+            }
+            .map_err(|why| why.to_string()),
+        ),
     };
     Acted {
         done,
@@ -184,7 +210,7 @@ pub fn after(summary: &ThreadSummary, op: &Op) -> Option<ThreadSummary> {
 
 /// Whether `op` takes the conversation `summary` sums up out of what `filter` lists at `now`:
 /// it is listed now, and will not be. A filter the summary alone cannot answer (words in the
-/// mail, a server folder) is never said to lose it, so a caller that hides on this hides
+/// mail, a server folder, who the VIPs are) is never said to lose it, so a caller that hides on this hides
 /// nothing it should have kept.
 pub fn leaves(filter: &Filter, summary: &ThreadSummary, op: &Op, now: DateTime<Utc>) -> bool {
     let fits = |summary: &ThreadSummary| {
@@ -193,6 +219,8 @@ pub fn leaves(filter: &Filter, summary: &ThreadSummary, op: &Op, now: DateTime<U
             corpus: None,
             folders: &[],
             sizes: &[],
+            cc: &[],
+            vips: &[],
             now,
         })
     };
@@ -282,6 +310,13 @@ mod tests {
             (
                 "words the summary cannot answer",
                 words,
+                summary(),
+                Op::Archive,
+                false,
+            ),
+            (
+                "the VIP list, which the summary does not carry",
+                Filter::Vip,
                 summary(),
                 Op::Archive,
                 false,

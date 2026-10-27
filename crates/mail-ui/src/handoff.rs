@@ -65,6 +65,8 @@ pub enum Handoff {
     Inbox(AccountId),
     /// `mailo reply <thread>`: open a reply to the conversation.
     Reply(ThreadId),
+    /// `mailo open --archive <thread>`: archive the conversation, in the window.
+    Archive(ThreadId),
     /// `mailo mailto:…`: compose on the link.
     Mailto(String),
     /// A bare `mailo`: raise the window.
@@ -80,6 +82,7 @@ impl Handoff {
             (_, Some(uri)) => Some(Handoff::Mailto(uri.to_owned())),
             (Some(Start::Thread(thread)), None) => Some(Handoff::Open(*thread)),
             (Some(Start::Reply(thread)), None) => Some(Handoff::Reply(*thread)),
+            (Some(Start::Archive(thread)), None) => Some(Handoff::Archive(*thread)),
             (Some(Start::InboxOf(account)), None) => Some(Handoff::Inbox(account.clone())),
             (Some(Start::Inbox), None) => Some(Handoff::Activate),
             _ => None,
@@ -93,6 +96,7 @@ impl Handoff {
             Handoff::Open(thread) => deliver(profile, *thread, token),
             Handoff::Inbox(account) => deliver_inbox(profile, account, token),
             Handoff::Reply(thread) => deliver_reply(profile, *thread, token),
+            Handoff::Archive(thread) => deliver_archive(profile, *thread, token),
             Handoff::Mailto(uri) => deliver_mailto(profile, uri, token),
             Handoff::Activate => deliver_activate(profile, token),
         }
@@ -136,6 +140,11 @@ pub enum Request {
         thread: ThreadId,
         token: Option<ActivationToken>,
     },
+    /// Archive this conversation as the window's Archive does, and raise the window.
+    Archive {
+        thread: ThreadId,
+        token: Option<ActivationToken>,
+    },
     /// Open the composer on what this `mailto:` link asks for, and raise the window.
     Mailto {
         link: MailtoUri,
@@ -171,6 +180,20 @@ pub fn reply_of(uri: &str) -> Option<ThreadId> {
     id.parse().ok().map(ThreadId::from_uuid)
 }
 
+/// The scheme and path of an archive of a conversation: `mailo:archive/<id>`.
+const ARCHIVE_PREFIX: &str = "mailo:archive/";
+
+/// The URI that asks a running window to archive `thread`.
+pub fn archive_uri(thread: ThreadId) -> String {
+    format!("{ARCHIVE_PREFIX}{thread}")
+}
+
+/// The conversation `uri` asks to archive, or `None` for one that is not of ours.
+pub fn archive_of(uri: &str) -> Option<ThreadId> {
+    let id = uri.strip_prefix(ARCHIVE_PREFIX)?;
+    id.parse().ok().map(ThreadId::from_uuid)
+}
+
 /// The scheme and path of an account's inbox: `mailo:inbox/<account>`.
 const INBOX_PREFIX: &str = "mailo:inbox/";
 
@@ -201,6 +224,11 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
                     thread,
                     token: None,
                 })
+            } else if let Some(thread) = archive_of(uri) {
+                Some(Request::Archive {
+                    thread,
+                    token: None,
+                })
             } else if let Some(account) = inbox_of(uri) {
                 Some(Request::Inbox {
                     account,
@@ -217,6 +245,7 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
         Some(
             Request::Thread { token: first, .. }
             | Request::Reply { token: first, .. }
+            | Request::Archive { token: first, .. }
             | Request::Inbox { token: first, .. }
             | Request::Mailto { token: first, .. },
         ) => {
@@ -231,22 +260,24 @@ pub fn requests_of(uris: &[String], token: Option<ActivationToken>) -> Vec<Reque
 mod bus;
 #[cfg(not(any(target_os = "macos", windows)))]
 pub use bus::{
-    Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, deliver_reply, serve,
+    Requests, deliver, deliver_activate, deliver_archive, deliver_inbox, deliver_mailto,
+    deliver_reply, serve,
 };
 
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "macos")]
 pub use macos::{
-    Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, deliver_reply, hear_reopen,
-    serve,
+    Requests, deliver, deliver_activate, deliver_archive, deliver_inbox, deliver_mailto,
+    deliver_reply, hear_reopen, serve,
 };
 
 #[cfg(windows)]
 mod none;
 #[cfg(windows)]
 pub use none::{
-    Requests, deliver, deliver_activate, deliver_inbox, deliver_mailto, deliver_reply, serve,
+    Requests, deliver, deliver_activate, deliver_archive, deliver_inbox, deliver_mailto,
+    deliver_reply, serve,
 };
 
 #[cfg(test)]
@@ -284,6 +315,10 @@ mod tests {
         assert_eq!(
             Handoff::of(Some(&Start::Reply(thread)), None),
             Some(Handoff::Reply(thread))
+        );
+        assert_eq!(
+            Handoff::of(Some(&Start::Archive(thread)), None),
+            Some(Handoff::Archive(thread))
         );
         assert_eq!(Handoff::of(None, None), None);
 
@@ -343,6 +378,29 @@ mod tests {
         assert_eq!(
             requests_of(&[reply_uri(thread)], token.clone()),
             vec![Request::Reply { thread, token }]
+        );
+    }
+
+    /// A banner's Archive asks for the window to archive its conversation, by a URI of its own
+    /// that is neither the conversation's nor a reply's.
+    #[test]
+    fn an_archive_round_trips_through_its_uri_and_is_a_request() {
+        let thread = ThreadId::from_uuid(uuid::Uuid::from_u128(0x1234));
+        assert_eq!(archive_of(&archive_uri(thread)), Some(thread));
+        assert_eq!(thread_of(&archive_uri(thread)), None);
+        assert_eq!(reply_of(&archive_uri(thread)), None);
+        assert_eq!(archive_of(&reply_uri(thread)), None);
+        for uri in [
+            "mailo:archive",
+            "mailo:archive/",
+            "mailo:archive/not-a-uuid",
+        ] {
+            assert_eq!(archive_of(uri), None, "{uri:?}");
+        }
+        let token = ActivationToken::new("t");
+        assert_eq!(
+            requests_of(&[archive_uri(thread)], token.clone()),
+            vec![Request::Archive { thread, token }]
         );
     }
 

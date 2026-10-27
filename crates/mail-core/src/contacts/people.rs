@@ -16,8 +16,13 @@ use crate::error::{CoreError, Logged};
 use mail_domain::filter::search_tokens;
 pub use mail_pim::vcard::Details;
 use mail_pim::vcard::{self, Card, apply, details_of};
-use mail_runtime::carddav::{addresses_of, person_card};
 use mail_store::{CardId, Contact, GroupHome, Origin, PersonCard, Store, StoreError};
+
+/// `card`, whose text is `vcard`, as the store keeps a person's card: listed by its display
+/// name, else its first address.
+pub(crate) fn person_card(card: &Card, vcard: String, id: CardId, home: GroupHome) -> PersonCard {
+    PersonCard::new(id, card.list_name(), card.addresses(), vcard, home)
+}
 
 /// Why a change to a card was not made.
 #[derive(Debug)]
@@ -232,7 +237,7 @@ pub fn photo_of(store: &dyn Store, address: &str) -> Option<String> {
 /// card imported before with that `UID` replaced. A card that says nothing — no name, no
 /// address — is not kept.
 pub(crate) fn import_card(store: &dyn Store, card: &Card) -> Result<bool, StoreError> {
-    if card.display_name().is_none() && addresses_of(card).is_empty() {
+    if card.display_name().is_none() && card.addresses().is_empty() {
         return Ok(false);
     }
     let mut card = card.clone();

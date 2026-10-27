@@ -46,12 +46,13 @@ pub fn alone(message: &Message, conversation: &ThreadSummary) -> ThreadSummary {
 
 /// Whether `filter` lists `message` on its own: [`Filter::fit`] asked of the message as a
 /// conversation of one (`summary`, from [`alone`]), with its own body for words and its own
-/// server addresses (`folders`) for a folder.
+/// server addresses (`folders`) for a folder, and the VIPs' addresses (`vips`) for `is:vip`.
 pub fn fits(
     filter: &Filter,
     summary: &ThreadSummary,
     message: &Message,
     folders: &[Placed],
+    vips: &[String],
     now: DateTime<Utc>,
 ) -> bool {
     filter.fit(&MatchCtx {
@@ -59,6 +60,8 @@ pub fn fits(
         corpus: message.body.text(),
         folders,
         sizes: &[mail_domain::filter::message_size(message)],
+        cc: &message.cc,
+        vips,
         now,
     })
 }
@@ -85,6 +88,7 @@ pub fn listed(
 ) -> Result<Page<Single>, CoreError> {
     let limit = query.page.limit;
     let folders = names_folder(&query.filter);
+    let vips: Vec<String> = store.vips()?.into_iter().map(|vip| vip.address).collect();
     let mut after = query.page.after.clone();
     let mut items: Vec<Single> = Vec::new();
     loop {
@@ -109,7 +113,7 @@ pub fn listed(
             } else {
                 Vec::new()
             };
-            if !fits(&query.filter, &summary, &message, &placed, now) {
+            if !fits(&query.filter, &summary, &message, &placed, &vips, now) {
                 after = Some(at);
                 continue;
             }

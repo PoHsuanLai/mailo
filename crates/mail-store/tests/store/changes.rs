@@ -213,3 +213,30 @@ fn a_read_pinned_inside_another_runs_in_the_same_moment() {
 
     assert_eq!(inner, 0);
 }
+
+#[test]
+fn a_wake_that_subscribes_does_not_deadlock_the_commit_that_called_it() {
+    // The wake runs on the committing thread: one that takes the subscribers' own lock, as a
+    // window opening a second listener would, must not be called with that lock held.
+    let store = std::sync::Arc::new(in_memory());
+    let later: std::sync::Arc<std::sync::Mutex<Vec<Receiver<Committed>>>> = Default::default();
+    let (inside, kept) = (store.clone(), later.clone());
+    let _first = store.subscribe_waking(std::sync::Arc::new(move || {
+        kept.lock().unwrap().push(inside.subscribe());
+    }));
+
+    let (done, finished) = std::sync::mpsc::channel();
+    let writing = store.clone();
+    std::thread::spawn(move || {
+        writing.put_view(&view("Unread")).unwrap();
+        done.send(()).unwrap();
+    });
+
+    assert!(
+        finished
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .is_ok(),
+        "the commit waited on its own subscribers"
+    );
+    assert_eq!(later.lock().unwrap().len(), 1);
+}

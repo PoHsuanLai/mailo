@@ -35,7 +35,8 @@ pub use doc::{
 };
 pub use error::OpError;
 pub use format::{
-    Nest, align_at, color_at, indent, is_item, marks_at_start, quote, size_at, step_size, tab,
+    Nest, align_at, color_at, indent, is_item, marks_at_start, quote, settled, size_at, step_size,
+    tab,
 };
 pub use input::{Edit, InputEvent, Record, interpret};
 pub use keys::{Caret, Grip, Motion, backspace, enter};
@@ -44,7 +45,7 @@ pub use markdown::{Shortcut, shortcuts};
 pub use mention::{
     Person, has_attachment, joins_cc, mentions_attachment, missing_attachment, resolve,
 };
-pub use op::{Op, apply, apply_all};
+pub use op::{Op, apply, apply_all, depth_for};
 pub use session::Session;
 pub use slash::{Action, Item, SNIPPET, catalog, filter, turn_into};
 pub use text::{grapheme_len, node_len, para_len, runs_text};

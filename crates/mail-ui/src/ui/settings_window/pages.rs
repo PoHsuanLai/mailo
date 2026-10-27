@@ -1,4 +1,4 @@
-//! The pages that draw mailo's settings: General, Composing, Viewing, Notifications and Privacy.
+//! The pages that draw mailo's settings: General, Composing, Viewing, Notifications, Privacy and Junk Mail.
 //!
 //! Each page is a list of groups of [`Line`]s ([`sections`]): a key of the schema, drawn by its
 //! kind ([`super::keys`]) as detent draws it, the row that opens the trusted senders, or the row
@@ -17,7 +17,9 @@ use crate::ui::press::on_primary;
 use crate::ui::view::SettingsPage;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
+use ds::components::fields::text_field_model::Invalid;
 use ds::components::lists::list::model::ListStyle;
+use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
@@ -39,6 +41,9 @@ pub(super) enum Line {
     /// The privacy relay's key: a field that keeps what is typed in the keyring, never in the
     /// settings file ([`RelayKey`]).
     RelayKey,
+    /// The schema's text key at this path, holding an address: a field that says what is wrong
+    /// with it while the way it names cannot be used ([`AddressRow`]).
+    Address(&'static str),
     /// The schema's text key at this path, holding a folder: drawn as the folder, with Choose…
     /// to pick another in the system's dialog, and Use Downloads to go back to the default.
     Folder(&'static str),
@@ -69,18 +74,6 @@ pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
                     Line::Key("mailboxes.delete"),
                     Line::Key("mailboxes.erase_trash"),
                     Line::Key("mailboxes.erase_spam"),
-                ],
-            },
-            Section {
-                title: Some(copy::headers::JUNK_MAIL),
-                lines: &[
-                    Line::Key("junk.filter"),
-                    Line::Key("junk.treat"),
-                    Line::Key("junk.spare_contacts"),
-                    Line::Key("junk.spare_written_to"),
-                    Line::Key("junk.spare_full_name"),
-                    Line::Key("junk.trust_server"),
-                    Line::Key("junk.order"),
                 ],
             },
         ],
@@ -146,13 +139,30 @@ pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
             Section {
                 title: Some(copy::headers::REMOTE_CONTENT),
                 lines: &[
-                    Line::Key("privacy.block_remote_content"),
                     Line::Key("privacy.protect"),
                     Line::Key("privacy.relay_kind"),
-                    Line::Key("privacy.relay"),
+                    Line::Address("privacy.relay"),
                     Line::RelayKey,
-                    Line::Key("privacy.proxy"),
+                    Line::Address("privacy.proxy"),
                 ],
+            },
+        ],
+        SettingsPage::JunkMail => &[
+            Section {
+                title: None,
+                lines: &[Line::Key("junk.filter"), Line::Key("junk.treat")],
+            },
+            Section {
+                title: Some(copy::headers::NEVER_JUNK_MAIL_FROM),
+                lines: &[
+                    Line::Key("junk.spare_contacts"),
+                    Line::Key("junk.spare_written_to"),
+                    Line::Key("junk.spare_full_name"),
+                ],
+            },
+            Section {
+                title: None,
+                lines: &[Line::Key("junk.trust_server"), Line::Key("junk.order")],
             },
         ],
         SettingsPage::Accounts
@@ -250,6 +260,31 @@ fn key_at(path: &str) -> Option<KeySpec> {
         })
 }
 
+/// Whether `line` is drawn while images are protected as `protect` says: the relay's rows only
+/// for a relay, the proxy's only for a proxy, since a row for the way not chosen sets nothing.
+pub(super) fn drawn(line: Line, protect: crate::settings::Protect) -> bool {
+    use crate::settings::Protect;
+    match line {
+        Line::Key("privacy.relay_kind") | Line::Address("privacy.relay") | Line::RelayKey => {
+            protect == Protect::Relay
+        }
+        Line::Address("privacy.proxy") => protect == Protect::Proxy,
+        _ => true,
+    }
+}
+
+/// Whether `line` is drawn under `settings`: the rows of the way images are protected
+/// ([`drawn`]), and the wait before a conversation is marked read only while marking it read is
+/// "After a Delay", since a wait under any other choice sets nothing.
+pub(super) fn shown(line: Line, settings: &crate::settings::MailSettings) -> bool {
+    match line {
+        Line::Key("reading.mark_read_delay") => {
+            settings.reading.mark_read == crate::settings::MarkRead::AfterDelay
+        }
+        _ => drawn(line, settings.privacy.protect),
+    }
+}
+
 /// The root: each group's rows.
 #[component]
 fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandler<()>) -> Element {
@@ -273,7 +308,7 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandle
         Form {
             for (at, section) in sections(page).iter().enumerate() {
                 FormSection { key: "{at}", title: section.title.map(str::to_owned),
-                    for line in section.lines.iter().copied() {
+                    for line in section.lines.iter().copied().filter(|line| shown(*line, &settings)) {
                         match line {
                             Line::Key(path) if path == crate::settings::WHILE_QUIT && !keeps => rsx! {},
                             Line::Key(path) => match key_at(path) {
@@ -285,6 +320,12 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandle
                             Line::DefaultMail => rsx! { crate::ui::default_mail::DefaultMailRow {} },
                             Line::MutedAccounts => rsx! { MutedAccounts { failed } },
                             Line::RelayKey => rsx! { RelayKey { failed } },
+                            Line::Address(path) => match key_at(path) {
+                                Some(spec) => rsx! {
+                                    AddressRow { key: "{path}", value: value_of(&values, &spec), spec, onedit }
+                                },
+                                None => rsx! {},
+                            },
                             Line::Folder(path) => match key_at(path) {
                                 Some(spec) => rsx! {
                                     FolderRow { key: "{path}", value: value_of(&values, &spec), spec, onedit }
@@ -380,6 +421,51 @@ fn said_of(
             copy::titles::LOGIN_ITEM_NOT_CHANGED,
             copy::errors::login_item_not_removed(&why),
         )),
+    }
+}
+
+/// A text key that holds an address: a field, written when it is left, that says what is wrong
+/// with it while the way it names cannot be used ([`crate::ui::prefs::route_problem`]). Images
+/// wait on it, and the field is where the person is told.
+#[component]
+fn AddressRow(
+    spec: KeySpec,
+    value: toml::Value,
+    onedit: EventHandler<(String, toml::Value)>,
+) -> Element {
+    let path = spec.path.0.clone();
+    let mut typed = use_signal(|| value.as_str().unwrap_or_default().to_owned());
+    let ours = match path.as_str() {
+        "privacy.relay" => Some(crate::settings::RouteProblem::Relay),
+        "privacy.proxy" => Some(crate::settings::RouteProblem::Proxy),
+        _ => None,
+    };
+    // An address is wrong whatever the relay's key is, so it is judged from the settings alone: the
+    // window's, which this row follows as they change, with or without the keyring having answered.
+    let problem = crate::ui::prefs::current().privacy.route(None).err();
+    let validity = match problem.filter(|problem| Some(*problem) == ours) {
+        None => Validity::Valid,
+        Some(problem) => {
+            let why = copy::fields::route_problem(problem);
+            Validity::Invalid(Invalid {
+                message: why.to_owned().into(),
+                stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
+            })
+        }
+    };
+    rsx! {
+        FieldRow { label: TextLine::from(spec.label.0.clone()),
+            TextField {
+                label: spec.label.0.clone(),
+                value: typed(),
+                validity,
+                oninput: move |text: String| typed.set(text),
+                onblur: move |()| {
+                    let text = typed.peek().trim().to_owned();
+                    onedit.call((path.clone(), toml::Value::String(text)));
+                },
+            }
+        }
     }
 }
 

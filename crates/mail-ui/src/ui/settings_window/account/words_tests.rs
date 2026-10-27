@@ -1,7 +1,8 @@
 use super::{asking, refused, settings, storage};
-use crate::ui::copy::status::account::{amount, storage_nearly_full, storage_used};
+use crate::ui::copy::status::account::{storage_nearly_full, storage_used};
 use mail_core::Storage;
 use mail_core::account::RemoveError;
+use mail_domain::human_size as amount;
 use mail_domain::{
     AccountPlan, Address, AuthPlan, HttpAuth, Identity, Incoming, LeaveOnServer, Outgoing,
     SaslMech, Tls, Username,
@@ -201,33 +202,6 @@ fn a_refusal_says_the_account_was_not_removed_or_already_was() {
     for (error, has) in cases {
         let said = refused(&error);
         assert!(said.contains(has), "{error:?}: {said}");
-    }
-}
-
-#[test]
-fn an_amount_is_said_in_the_largest_unit_it_fills() {
-    let cases: [(u64, &str); 17] = [
-        (0, "0 B"),
-        (512, "512 B"),
-        (1023, "1023 B"),
-        (1024, "1 kB"),
-        (1536, "1.5 kB"),
-        (300 << 20, "300 MB"),
-        // Rounds to 1023.9 kB, and one byte more to a whole MB, never "1024.0 kB".
-        (1_048_524, "1023.9 kB"),
-        (1_048_525, "1 MB"),
-        ((1 << 20) - 1, "1 MB"),
-        (1 << 20, "1 MB"),
-        (1288 << 20, "1.3 GB"),
-        ((1 << 30) - 1, "1 GB"),
-        (15 << 30, "15 GB"),
-        ((1 << 40) - 1, "1 TB"),
-        (2 << 40, "2 TB"),
-        (1500 << 40, "1500 TB"),
-        (u64::MAX, "16777216 TB"),
-    ];
-    for (bytes, said) in cases {
-        assert_eq!(amount(bytes), said, "{bytes}");
     }
 }
 

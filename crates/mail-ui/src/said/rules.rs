@@ -1,7 +1,7 @@
 //! What pushing the rules to a server did, in words: the command line prints it, the window
 //! shows it.
 
-use mail_client::Pushed;
+use mail_client::prelude::Pushed;
 use mail_proto::sieve::{Deleted, SieveOutcome, VacationPlaced};
 use std::fmt::Write as _;
 

@@ -512,6 +512,9 @@ fn filters() -> Vec<Filter> {
         Filter::Smaller(1_000),
         Filter::NewerThan(7),
         Filter::OlderThan(365),
+        Filter::FromAddress("ada@example.test".to_owned()),
+        Filter::Vip,
+        Filter::Cc(TextMatch::Exact("carol@example.test".to_owned())),
     ]
 }
 
@@ -1507,6 +1510,12 @@ fixtures! {
         ..ingest()
     },
     "filter_category.json" => Vec<Filter> = Category::ALL.into_iter().map(Filter::Category).collect(),
+    // Who wrote, who is a VIP now, and who was copied, added after the files above were frozen.
+    "filters_people.json" => Vec<Filter> = vec![
+        Filter::FromAddress("ada@example.test".to_owned()),
+        Filter::Vip,
+        Filter::Cc(TextMatch::Contains("bob".to_owned())),
+    ],
     "message.json" => Message = message(),
     "thread.json" => Thread = thread(),
     "label.json" => Label = label(),

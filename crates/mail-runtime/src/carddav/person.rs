@@ -1,46 +1,13 @@
 //! People's cards over CardDAV: a synced card kept whole as a [`PersonCard`], and one edited here
 //! written back.
 
-use super::group::Unwritten;
+use super::group::{Unwritten, refusal, refused_for_good};
 use super::{CardDavFailure, Dav, Put};
 use crate::RuntimeError;
 use mail_pim::Card;
 use mail_pim::vcard;
 use mail_store::{AddressBook, BookCard, CardId, Edit, GroupHome, PersonCard, Store};
 use url::Url;
-
-/// `card`'s addresses as the book keys them: normalised, most preferred first, each once.
-pub fn addresses_of(card: &Card) -> Vec<String> {
-    let mut addresses: Vec<String> = Vec::new();
-    for address in card
-        .addresses_by_preference()
-        .into_iter()
-        .filter_map(mail_store::contact::normalise)
-    {
-        if !addresses.contains(&address) {
-            addresses.push(address);
-        }
-    }
-    addresses
-}
-
-/// `card`, whose text is `vcard`, as the store keeps a person's card: listed by its display
-/// name, else its first address.
-pub fn person_card(card: &Card, vcard: String, id: CardId, home: GroupHome) -> PersonCard {
-    let addresses = addresses_of(card);
-    let name = card
-        .display_name()
-        .or_else(|| addresses.first().cloned())
-        // A card with no name or address is listed by an empty name.
-        .unwrap_or_default();
-    PersonCard {
-        id,
-        name,
-        addresses,
-        vcard,
-        home,
-    }
-}
 
 /// The person's card at `href` of the book at `url`, as the server now has it, or gone.
 ///
@@ -66,7 +33,13 @@ pub(super) fn put_person<S: Store + ?Sized>(
         href: href.to_owned(),
         edit: Edit::Synced,
     };
-    store.put_card(&person_card(card, vcard.to_owned(), id, home))?;
+    store.put_card(&PersonCard::new(
+        id,
+        card.list_name(),
+        card.addresses(),
+        vcard.to_owned(),
+        home,
+    ))?;
     Ok(())
 }
 
@@ -142,10 +115,18 @@ pub(super) async fn write_back<S: Store + ?Sized>(
                 why: "it changed on the server; the next sync brings that in and sends this again"
                     .to_owned(),
             }),
-            Err(CardDavFailure::Refused { status, .. }) => unwritten.push(Unwritten {
-                name: person.name.clone(),
-                why: format!("the server refused it ({status})"),
-            }),
+            Err(CardDavFailure::Refused { status, .. }) => {
+                unwritten.push(Unwritten {
+                    name: person.name.clone(),
+                    why: refusal(status),
+                });
+                if refused_for_good(status) {
+                    store.put_card(&PersonCard {
+                        home: person.home.clone().refused(),
+                        ..person.clone()
+                    })?;
+                }
+            }
             Err(other) => return Err(other.into()),
         }
     }

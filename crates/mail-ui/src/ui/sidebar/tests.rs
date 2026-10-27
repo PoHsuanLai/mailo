@@ -271,3 +271,38 @@ fn attributes(raw: &str) -> Vec<(String, String)> {
     }
     out
 }
+
+/// A label's row has no ⋯ of its own: its right click offers Edit Label… and a plain row's
+/// offers nothing of the label's.
+#[tokio::test]
+async fn a_label_row_offers_edit_label_on_a_right_click_and_has_no_overflow_button() {
+    use crate::ui::fixtures::{
+        dispatching, menu_names, rebuild_into, right_click, settle, settle_quiet_seen, work,
+    };
+    dispatching();
+    let built = work();
+    let mut dom = VirtualDom::new(App)
+        .with_root_context(crate::ui::fixtures::client(&built.store))
+        .with_root_context(built.dirs.clone());
+    let seen = rebuild_into(&mut dom);
+    let seen = seen.merge(settle_quiet_seen(&mut dom).await);
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        !page.contains(&crate::ui::copy::aria::actions_for("spec")),
+        "an always-visible overflow button on the label's row"
+    );
+    assert!(
+        menu_names(&page).is_empty(),
+        "a menu open before any right click"
+    );
+
+    let row = seen.one("data-place", "spec");
+    let menu = right_click(&mut dom, row);
+    let _ = settle(&mut dom, menu);
+    let page = dioxus_ssr::render(&dom);
+    assert_eq!(
+        menu_names(&page),
+        [crate::ui::copy::menus::EDIT_LABEL],
+        "the label row's right click"
+    );
+}

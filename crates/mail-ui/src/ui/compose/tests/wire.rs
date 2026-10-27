@@ -3,8 +3,9 @@
 use super::super::float::{pick_mention, pick_slash};
 use super::super::page::{Float, RowShown};
 use super::super::render::{para_renders, reset_para_renders};
+use super::super::styling::tab_ops;
 use super::*;
-use mail_core::rich_text::{Level, Mark, ParaKind, to_html};
+use mail_core::rich_text::{Level, Mark, Nest, Node, ParaKind, to_html};
 
 #[test]
 fn typed_markdown_becomes_a_bold_run_and_the_markup_shows_it() {
@@ -254,4 +255,36 @@ fn a_mention_adds_the_person_to_cc() {
     type_text(&mut page, "and @da");
     pick_mention(&mut page, "dana@example.test");
     assert_eq!(page.cc.len(), before + 1);
+}
+
+/// Tab is the body's only when it does something in a list: an item that can nest, or come out,
+/// takes the key; the first item, an item at the margin and a plain paragraph let focus move on.
+#[test]
+fn tab_is_taken_only_when_it_changes_a_list() {
+    let mut page = page_of("");
+    page.session.doc.nodes = vec![
+        Node::plain(ParaKind::Bullet, "a"),
+        Node::plain(ParaKind::Bullet, "b"),
+        Node::plain(ParaKind::Paragraph, "c"),
+    ];
+    let at = |page: &mut Page, node: usize| {
+        page.session.caret = mail_core::rich_text::Caret::at(node, 0)
+    };
+    at(&mut page, 0);
+    assert!(
+        tab_ops(&page, Nest::In).is_none(),
+        "the first item cannot nest"
+    );
+    assert!(
+        tab_ops(&page, Nest::Out).is_none(),
+        "an item at the margin cannot come out"
+    );
+    at(&mut page, 1);
+    assert!(tab_ops(&page, Nest::In).is_some_and(|ops| !ops.is_empty()));
+    assert!(tab_ops(&page, Nest::Out).is_none());
+    at(&mut page, 2);
+    assert!(
+        tab_ops(&page, Nest::In).is_none(),
+        "outside a list Tab is not the body's"
+    );
 }

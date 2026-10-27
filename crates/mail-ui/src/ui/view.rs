@@ -21,6 +21,35 @@ pub use mail_client::conversation::{
     own_places, place_key, places_with, saved_of, saved_place, scoped_unread_filter, unread_filter,
 };
 
+/// The place to have chosen once the places are `next`, the window having had `was` with `selected`
+/// chosen: the same place, found again by its source. A place that has gone leaves the choice at
+/// its index, kept in range. The VIPs place is drawn only while somebody is a VIP, so with the
+/// last one removed it goes from the sidebar and the choice goes to the Inbox, not to a list the
+/// sidebar no longer shows.
+pub fn selected_after(
+    was: &[Place],
+    selected: usize,
+    next: &[Place],
+    vips: &mail_client::vip::Vips,
+) -> usize {
+    let current = was.get(selected);
+    if vips.is_empty() && current.is_some_and(is_vips) {
+        let inbox = default_places()
+            .into_iter()
+            .next()
+            .map(|place| place.source);
+        if let Some(at) = next
+            .iter()
+            .position(|place| Some(&place.source) == inbox.as_ref())
+        {
+            return at;
+        }
+    }
+    current
+        .and_then(|was| next.iter().position(|place| place.source == was.source))
+        .unwrap_or_else(|| selected.min(next.len().saturating_sub(1)))
+}
+
 /// What a Mute button or menu item says for these conversations: what pressing it would do.
 pub fn mute_label(summaries: &[ThreadSummary]) -> &'static str {
     match mute_for_all(summaries) {
@@ -462,6 +491,8 @@ pub enum SettingsPage {
     /// What a message may fetch or tell the sender when it is read: remote images, the relay and
     /// the proxy they go through, and read receipts.
     Privacy,
+    /// How mail the junk filter calls junk is treated, and what the filter never calls junk.
+    JunkMail,
     Rules,
     /// An account's vacation reply, which its server sends.
     Vacation,
@@ -716,6 +747,9 @@ pub struct Shell {
     /// A message's header lines or its whole source, in a sheet over the window. `None` is
     /// closed. Belongs to the open thread, as [`Self::preview`] does.
     pub raw: Option<crate::ui::reading::RawAsked>,
+    /// The message whose files the reader's ⋯ › Save Attachments… asked to save into a folder:
+    /// its strip (`reading::attachments`) takes the ask and clears it. Belongs to the open thread.
+    pub save: Option<MessageId>,
     /// ⌘F's bar over the open conversation. `None` is closed. Belongs to the open thread, as
     /// Peek does.
     pub find: Option<Finding>,
@@ -888,6 +922,7 @@ impl Default for Shell {
             undo: mail_client::undo::UndoStack::default(),
             preview: None,
             raw: None,
+            save: None,
             find: None,
         }
     }
@@ -899,7 +934,6 @@ impl Shell {
         mail_client::query::Known {
             labels: &self.labels,
             accounts: &self.accounts,
-            vips: Some(&self.vips),
         }
     }
 
@@ -994,6 +1028,28 @@ impl Shell {
         let key = place_key(place);
         self.sorts.insert(key.clone(), sort);
         Some(SortKept::Place(key, sort))
+    }
+
+    /// Put back the order `kept` changed, `previous` being the one the list had, when the choice
+    /// could not be kept: the list goes back to what the store and `settings.toml` still hold.
+    pub fn unsort(&mut self, kept: &SortKept, previous: Sort) {
+        match kept {
+            SortKept::View(view) => {
+                for place in &mut self.places {
+                    if let Source::Saved(saved) = &mut place.source
+                        && saved.id == view.id
+                    {
+                        saved.sort = previous;
+                    }
+                }
+            }
+            SortKept::Place(key, _) if previous == NEWEST_FIRST => {
+                self.sorts.remove(key);
+            }
+            SortKept::Place(key, _) => {
+                self.sorts.insert(key.clone(), previous);
+            }
+        }
     }
 
     /// The saved view the list is showing, if it is showing one.
@@ -1145,6 +1201,7 @@ impl Shell {
             self.show_remote_images = false;
             self.preview = None;
             self.raw = None;
+            self.save = None;
             self.find = None;
         }
     }
@@ -1159,6 +1216,7 @@ impl Shell {
         self.show_remote_images = false;
         self.preview = None;
         self.raw = None;
+        self.save = None;
         self.find = None;
     }
 
@@ -1200,6 +1258,7 @@ impl Shell {
         self.show_remote_images = false;
         self.preview = None;
         self.raw = None;
+        self.save = None;
         self.find = None;
     }
 
@@ -1314,7 +1373,7 @@ impl Shell {
     }
 
     /// The sanitizer policy when nothing remote may load, however it is asked
-    /// (`privacy.block_remote_content`).
+    /// (`reading.remote_images = "never"`).
     pub fn policy_blocked() -> SanitizePolicy {
         SanitizePolicy {
             remote_images: RemoteImages::Blocked,

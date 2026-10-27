@@ -846,3 +846,23 @@ fn what_a_rule_says_or_sends_is_left_to_the_caller_and_never_done_over_the_backl
     );
     assert_eq!(speaking(&MemoryStore::new(), raw), seen);
 }
+
+#[test]
+fn a_rule_with_an_action_this_build_does_not_know_still_loads_without_it() {
+    let store = sqlite();
+    let kept = rule(1, "kept", Filter::All, vec![RuleAction::Star]);
+    let newer = rule(2, "newer", Filter::All, vec![RuleAction::Archive]);
+    store.put_rule(&kept).unwrap();
+    store.put_rule(&newer).unwrap();
+    store
+        .raw_connection()
+        .execute(
+            "UPDATE rules SET actions = ?1 WHERE name = 'newer'",
+            [r#"[{"kind":"from_the_future","v":"x"},{"kind":"archive"}]"#],
+        )
+        .unwrap();
+    let listed = store.rules(acct_account()).unwrap();
+    assert_eq!(listed.len(), 2);
+    assert_eq!(listed[0].actions, vec![RuleAction::Star]);
+    assert_eq!(listed[1].actions, vec![RuleAction::Archive]);
+}

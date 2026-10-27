@@ -585,6 +585,9 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE drafts DROP COLUMN delivery;
              DROP TABLE drafts_to_reflow;
              DROP TABLE templates_to_reflow;
+             DROP INDEX messages_size;
+             ALTER TABLE messages DROP COLUMN server_size;
+             ALTER TABLE messages DROP COLUMN size;
              ALTER TABLE messages DROP COLUMN flag;
              ALTER TABLE thread_summary DROP COLUMN flag;
              DELETE FROM schema_version WHERE version >= 12;",

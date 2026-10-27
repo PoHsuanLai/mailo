@@ -33,6 +33,14 @@ fn message(n: u128, from: &str, subject: &str, text: &str) -> Message {
     }
 }
 
+/// The policy the person's settings give by default: the filter switched on.
+fn on() -> Policy {
+    Policy {
+        filtering: Filtering::On,
+        ..Policy::default()
+    }
+}
+
 fn stored(store: &SqliteStore, mut message: Message, raw: &[u8]) -> Message {
     let blob = store.blobs().put(raw).unwrap();
     if let Body::Present { raw, .. } = &mut message.body {
@@ -55,14 +63,14 @@ const HAMMY: &str = "minutes from the meeting about the quarterly budget review"
 
 /// A store whose filter has learned enough: spam about prizes, good mail about meetings.
 fn trained() -> SqliteStore {
+    trained_as(Some("Ada Lovelace"))
+}
+
+/// [`trained`], for a user whose identity has `name`.
+fn trained_as(name: Option<&str>) -> SqliteStore {
     let store = mail_store::testing::in_memory();
     mail_store::testing::seed_account(&store, account(), "ada@example.test");
-    mail_store::testing::seed_default_identity(
-        &store,
-        account(),
-        "ada@example.test",
-        Some("Ada Lovelace"),
-    );
+    mail_store::testing::seed_default_identity(&store, account(), "ada@example.test", name);
     for n in 0..ENOUGH as u128 {
         let spam = stored(
             &store,
@@ -182,7 +190,7 @@ fn new_mail_is_judged_as_the_policy_says() {
     }
     let base = || Case {
         name: "",
-        policy: Policy::default(),
+        policy: on(),
         from: "promo@prizes.example",
         to_name: None,
         text: SPAMMY,
@@ -210,7 +218,7 @@ fn new_mail_is_judged_as_the_policy_says() {
             name: "marked, not moved",
             policy: Policy {
                 treat: Treat::Mark,
-                ..Policy::default()
+                ..on()
             },
             want_mailbox: MailboxRole::Inbox,
             want_label: true,
@@ -227,7 +235,7 @@ fn new_mail_is_judged_as_the_policy_says() {
             name: "unless Contacts are not heeded",
             policy: Policy {
                 contacts: Heed::No,
-                ..Policy::default()
+                ..on()
             },
             contact: Some(mail_store::Origin::Manual),
             ..base()
@@ -250,7 +258,7 @@ fn new_mail_is_judged_as_the_policy_says() {
             name: "unless it is not heeded",
             policy: Policy {
                 server_says: Heed::No,
-                ..Policy::default()
+                ..on()
             },
             from: "carol@work.example",
             text: HAMMY,
@@ -270,7 +278,7 @@ fn new_mail_is_judged_as_the_policy_says() {
             name: "off judges nothing",
             policy: Policy {
                 filtering: Filtering::Off,
-                ..Policy::default()
+                ..on()
             },
             want_junk: false,
             want_mailbox: MailboxRole::Inbox,
@@ -320,4 +328,145 @@ fn new_mail_is_judged_as_the_policy_says() {
             case.name
         );
     }
+}
+
+#[test]
+fn a_handle_nobody_set_up_does_not_judge() {
+    assert_eq!(Policy::default().filtering, Filtering::Off);
+    let store = trained();
+    let arriving = stored(
+        &store,
+        message(500, "promo@prizes.example", "Hello", SPAMMY),
+        b"",
+    );
+    let sifted = sift(
+        &store,
+        account(),
+        &caps(),
+        &[arriving.id],
+        &Policy::default(),
+        at(1000),
+    )
+    .unwrap();
+    assert!(sifted.junk.is_empty());
+    assert_eq!(
+        store.message(arriving.id).unwrap().mailbox,
+        MailboxRole::Inbox
+    );
+}
+
+#[test]
+fn a_message_of_a_hundred_thousand_words_is_judged_by_its_first_two_thousand() {
+    let text: String = (0..100_000).map(|n| format!("w{n:06} ")).collect();
+    let big = message(1, "promo@prizes.example", "Subject words", &text);
+    let words = words(&big);
+    assert_eq!(words.len(), MOST_WORDS);
+    assert_eq!(words[0], "from:prizes.example");
+    assert_eq!(&words[1..3], ["subject", "words"]);
+    assert_eq!(words[3], "w000000");
+}
+
+#[test]
+fn an_identity_with_an_empty_name_spares_nobody() {
+    let store = trained_as(Some(""));
+    let mut arriving = message(500, "promo@prizes.example", "Hello", SPAMMY);
+    arriving.to = vec![Address::named("", "ada@example.test")];
+    let arriving = stored(&store, arriving, b"");
+    let sifted = sift(&store, account(), &caps(), &[arriving.id], &on(), at(1000)).unwrap();
+    assert!(
+        sifted.junk.contains(&arriving.id),
+        "spared by an empty name"
+    );
+}
+
+#[test]
+fn mail_whose_body_has_not_come_is_not_judged() {
+    let store = trained();
+    let mut arriving = message(500, "promo@prizes.example", "winner claim prize", SPAMMY);
+    arriving.body = Body::Absent;
+    store
+        .apply(
+            account(),
+            &Patch {
+                id: ChangeId::generate(),
+                changes: vec![Change::MessageUpsert(Box::new(arriving.clone()))],
+            },
+        )
+        .unwrap();
+    let sifted = sift(&store, account(), &caps(), &[arriving.id], &on(), at(1000)).unwrap();
+    assert!(sifted.junk.is_empty());
+}
+
+#[test]
+fn undoing_spam_and_not_spam_leaves_the_counts_as_they_were() {
+    let store = trained();
+    let counts = || {
+        let c = store.junk_counts(account(), &[]).unwrap();
+        (c.spam, c.ham)
+    };
+    let before = counts();
+    let arriving = stored(
+        &store,
+        message(500, "promo@prizes.example", "Hello", SPAMMY),
+        b"",
+    );
+    let spam =
+        crate::act::perform(&store, arriving.thread, Op::Spam, crate::when::Clock::H24).unwrap();
+    assert_eq!(counts(), (before.0 + 1, before.1));
+    assert!(crate::act::take_back(&store, &spam));
+    assert_eq!(counts(), before, "Spam, undone");
+
+    // Not Spam: from the Spam folder back out.
+    crate::act::perform(&store, arriving.thread, Op::Spam, crate::when::Clock::H24).unwrap();
+    let restored = crate::act::perform(
+        &store,
+        arriving.thread,
+        Op::Restore,
+        crate::when::Clock::H24,
+    )
+    .unwrap();
+    // Spam taught spam, then Not Spam turned it to ham.
+    assert_eq!(counts(), (before.0, before.1 + 1));
+    assert!(crate::act::take_back(&store, &restored));
+    assert_eq!(
+        counts(),
+        (before.0, before.1),
+        "ham forgotten, the spam it turned stays gone"
+    );
+}
+
+#[test]
+fn taking_the_junk_label_off_teaches_not_spam() {
+    let store = trained();
+    let counts = || store.junk_counts(account(), &[]).unwrap().ham;
+    let arriving = stored(
+        &store,
+        message(500, "promo@prizes.example", "Hello", SPAMMY),
+        b"",
+    );
+    let label = mail_store::rules::label_named(
+        &store,
+        account(),
+        JUNK_LABEL,
+        mail_domain::LabelOrigin::User,
+    )
+    .unwrap();
+    crate::act::perform(
+        &store,
+        arriving.thread,
+        Op::Label(label, Membership::In),
+        crate::when::Clock::H24,
+    )
+    .unwrap();
+    let before = counts();
+    let off = crate::act::perform(
+        &store,
+        arriving.thread,
+        Op::Label(label, Membership::Out),
+        crate::when::Clock::H24,
+    )
+    .unwrap();
+    assert_eq!(counts(), before + 1);
+    assert!(crate::act::take_back(&store, &off));
+    assert_eq!(counts(), before);
 }

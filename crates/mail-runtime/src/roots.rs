@@ -9,9 +9,10 @@
 //! could not be used at all.
 //!
 //! The servers an account is set up with use these: its IMAP, POP3, SMTP and ManageSieve
-//! connections, its HTTP ones (JMAP, Graph, CardDAV, the token endpoint), and the discovery that
-//! finds them. What a sender chooses (remote images, logos, WKD, an unsubscribe page) is on the
-//! public internet, where the bundled roots are the whole story, and keeps to them.
+//! connections, its HTTP ones (JMAP, Graph, CardDAV, the token endpoint), the discovery that
+//! finds them, and the image relay the person set up (`remote_image`). What a sender
+//! chooses (remote images, logos, WKD, an unsubscribe page) is on the public internet, where the
+//! bundled roots are the whole story, and keeps to them.
 
 use std::sync::{Arc, OnceLock};
 

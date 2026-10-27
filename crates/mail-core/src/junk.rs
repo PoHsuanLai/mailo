@@ -23,12 +23,15 @@ use mail_domain::{
 use mail_store::junk::{Judged, JunkCounts, Learned};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
+use std::collections::BTreeSet;
 
 /// Whether the filter judges new mail at all.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Filtering {
-    #[default]
     On,
+    /// A handle nobody has set the junk filter on does not judge: the settings loader says `On`
+    /// when the person's settings do.
+    #[default]
     Off,
 }
 
@@ -90,14 +93,22 @@ pub const THRESHOLD: f64 = 0.9;
 /// How many of a message's words decide: the ones furthest from neutral.
 const TELLING: usize = 15;
 
-/// The distinct words a message is judged by: its subject's and its text's, folded to lower
-/// case, three to twenty letters or digits long, and its sender's domain as one word.
+/// The most words one message teaches or is judged by: a message of a hundred thousand
+/// different tokens is not worth more than its first two thousand.
+pub const MOST_WORDS: usize = 2000;
+
+/// The distinct words a message is judged by: its sender's domain as one word, then its
+/// subject's and its text's, folded to lower case, three to twenty letters or digits long, at
+/// most [`MOST_WORDS`] of them, the earlier first.
 pub fn words(message: &Message) -> Vec<String> {
+    let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut out: Vec<String> = Vec::new();
+    // Whether there is room for no more.
     let mut add = |word: String| {
-        if !out.contains(&word) {
+        if out.len() < MOST_WORDS && seen.insert(word.clone()) {
             out.push(word);
         }
+        out.len() >= MOST_WORDS
     };
     if let Some((_, domain)) = message.from.email.rsplit_once('@') {
         add(format!("from:{}", domain.to_ascii_lowercase()));
@@ -109,8 +120,11 @@ pub fn words(message: &Message) -> Vec<String> {
     for source in [message.subject.as_str(), text] {
         for word in source.split(|c: char| !c.is_alphanumeric()) {
             let count = word.chars().count();
-            if (3..=20).contains(&count) && !word.chars().all(|c| c.is_ascii_digit()) {
-                add(word.to_lowercase());
+            if (3..=20).contains(&count)
+                && !word.chars().all(|c| c.is_ascii_digit())
+                && add(word.to_lowercase())
+            {
+                return out;
             }
         }
     }
@@ -251,6 +265,7 @@ pub fn sift(
         .identities(account.clone())?
         .into_iter()
         .filter_map(|identity| identity.from.name)
+        .filter(|name| !name.trim().is_empty())
         .collect();
     for id in arrived {
         let Ok(message) = store.message(*id) else {
@@ -267,6 +282,10 @@ pub fn sift(
             }
             MailboxRole::Inbox => {}
             _ => continue,
+        }
+        // Only its headers are here yet, and a subject alone is too little to call it junk.
+        if matches!(message.body, Body::Absent) {
+            continue;
         }
         if spared(store, &message, policy, &names) {
             continue;

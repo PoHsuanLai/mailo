@@ -48,10 +48,6 @@ impl Source for Indexed<'_> {
     ) -> Vec<(ThreadSummary, f64)> {
         <MemoryStore as Source>::top(self.store, filter, k, window, now)
     }
-
-    fn vips(&self) -> crate::vip::Vips {
-        <MemoryStore as Source>::vips(self.store)
-    }
 }
 
 fn vocabulary(store: &MemoryStore, now: DateTime<Utc>) -> Vec<Term> {

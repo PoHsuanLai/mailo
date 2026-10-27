@@ -367,7 +367,10 @@ impl JmapEngine {
                     arrivals,
                     headers_only,
                     now,
-                )?;
+                )
+                .inspect_err(|e| {
+                    report.stopped_by(e);
+                })?;
                 report.unreadable(&self.mailbox(), stored.unreadable);
                 report
                     .arrived

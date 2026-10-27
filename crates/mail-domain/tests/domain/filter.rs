@@ -792,6 +792,8 @@ fn fit_decides_every_case() {
             corpus: case.body,
             folders: &[],
             sizes: &[],
+            cc: &[],
+            vips: &[],
             now: case.now,
         };
         assert_eq!(
@@ -826,6 +828,8 @@ fn to_matches_thread_recipients() {
             corpus: None,
             folders: &[],
             sizes: &[],
+            cc: &[],
+            vips: &[],
             now: now(),
         }
     }
@@ -858,6 +862,8 @@ fn text_matches_thread_recipients() {
         corpus: None,
         folders: &[],
         sizes: &[],
+        cc: &[],
+        vips: &[],
         now: now(),
     };
     assert!(Filter::Text(TextMatch::Contains("hopper".into())).fit(&ctx));
@@ -1013,6 +1019,8 @@ fn in_folder_matches_a_message_held_there_and_filed_as_held() {
             corpus: None,
             folders: &folders,
             sizes: &[],
+            cc: &[],
+            vips: &[],
             now: now(),
         };
         assert_eq!(filter.fit(&ctx), want, "{name}: {filter:?}");
@@ -1068,6 +1076,8 @@ fn a_queued_copy_lists_the_message_in_its_folder() {
                 corpus: None,
                 folders,
                 sizes: &[],
+                cc: &[],
+                vips: &[],
                 now: now(),
             })
         };
@@ -1091,5 +1101,101 @@ fn in_folder_is_an_additive_clause_in_a_saved_view() {
     assert_eq!(
         serde_json::from_str::<Filter>(old).unwrap(),
         Filter::InMailbox(MailboxRole::Inbox)
+    );
+}
+
+/// `FromAddress` is the address alone, whatever name it is written under, and any sender of the
+/// thread: the one who wrote last, or one who wrote earlier.
+#[test]
+fn from_address_is_an_address_of_any_sender_and_never_a_name() {
+    let fits = |filter: &Filter, s: &ThreadSummary| {
+        filter.fit(&MatchCtx {
+            summary: s,
+            corpus: None,
+            folders: &[],
+            sizes: &[],
+            cc: &[],
+            vips: &[],
+            now: now(),
+        })
+    };
+    let ada = Filter::FromAddress("ADA@example.com".to_owned());
+    let base = summary(|_| {});
+    assert!(fits(&ada, &base), "the newest sender, in any case");
+    // Bob answered last; Ada wrote earlier and is still a sender of the thread.
+    let answered = summary(|s| s.from = addr(Some("Bob Stone"), "bob@example.org"));
+    assert!(fits(&ada, &answered), "an earlier sender");
+    // Someone writes under the name of an address that is not theirs.
+    let spoofed = summary(|s| {
+        s.from = addr(Some("ada@example.com"), "mallory@example.test");
+        s.participants = vec![s.from.clone()];
+    });
+    assert!(!fits(&ada, &spoofed), "a display name is not an address");
+    assert!(
+        fits(&Filter::From(exact("ada@example.com")), &spoofed),
+        "`from:` still reads the name, which is the difference"
+    );
+    assert!(!fits(&Filter::FromAddress("ada@example".to_owned()), &base));
+}
+
+/// `Vip` asks the list handed in when it is asked: the same filter, a different list, a different
+/// answer, and by any sender of the thread.
+#[test]
+fn vip_follows_the_list_it_is_asked_with() {
+    let fits = |s: &ThreadSummary, vips: &[String]| {
+        Filter::Vip.fit(&MatchCtx {
+            summary: s,
+            corpus: None,
+            folders: &[],
+            sizes: &[],
+            cc: &[],
+            vips,
+            now: now(),
+        })
+    };
+    let base = summary(|_| {});
+    let ada = ["ada@example.com".to_owned()];
+    let bob = ["bob@example.org".to_owned()];
+    assert!(fits(&base, &ada), "the newest sender is a VIP");
+    assert!(fits(&base, &bob), "a sender who is not the newest");
+    assert!(!fits(&base, &["carol@example.test".to_owned()]));
+    assert!(!fits(&base, &[]), "nobody is a VIP");
+}
+
+/// `Cc` reads the Cc line only; `To` reads everyone addressed, copied or not.
+#[test]
+fn cc_matches_the_copied_addresses_and_not_the_recipients() {
+    let s = summary(|s| {
+        s.recipients = vec![
+            addr(None, "bob@example.org"),
+            addr(None, "carol@example.org"),
+        ]
+    });
+    let copied = [addr(Some("Carol"), "carol@example.org")];
+    let fits = |filter: Filter, cc: &[Address]| {
+        filter.fit(&MatchCtx {
+            summary: &s,
+            corpus: None,
+            folders: &[],
+            sizes: &[],
+            cc,
+            vips: &[],
+            now: now(),
+        })
+    };
+    assert!(fits(Filter::Cc(contains("carol")), &copied));
+    assert!(
+        fits(Filter::Cc(contains("CAROL")), &copied),
+        "ASCII case folded"
+    );
+    assert!(fits(Filter::Cc(exact("carol@example.org")), &copied));
+    assert!(
+        !fits(Filter::Cc(contains("bob")), &copied),
+        "bob was addressed, not copied"
+    );
+    assert!(fits(Filter::To(contains("bob")), &copied), "to: reads both");
+    assert!(
+        !fits(Filter::Cc(contains("carol")), &[]),
+        "no Cc line, no match"
     );
 }

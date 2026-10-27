@@ -90,6 +90,31 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
             format!("(ts.thread IN ({IN_FOLDER} UNION {COPYING_IN}))")
         }
         Filter::From(m) => like_either("ts.from_email", "ts.from_name", m, params),
+        // The address alone, exactly: `lower` is ASCII-only as `eq_ignore_ascii_case` is. Against
+        // the newest sender and every sender the thread has had (`ts.participants`).
+        Filter::FromAddress(email) => {
+            params.push(SqlValue::Text(email.trim().to_owned()));
+            params.push(SqlValue::Text(email.trim().to_owned()));
+            format!("({SENT_BY})")
+        }
+        // The VIP list as the `vips` table holds it when the query runs (addresses lower-cased
+        // as the book keeps them), so a saved view and a rule follow the list as it changes.
+        Filter::Vip => "(EXISTS (SELECT 1 FROM vips v WHERE lower(ts.from_email) = v.address \
+             OR EXISTS (SELECT 1 FROM json_each(ts.participants) p \
+                 WHERE lower(json_extract(p.value, '$.email')) = v.address)))"
+            .to_owned(),
+        Filter::Cc(m) => {
+            let pattern = like_pattern(m);
+            params.push(SqlValue::Text(pattern.clone()));
+            params.push(SqlValue::Text(pattern));
+            // Uncorrelated with `ts`, as the size clauses are: the threads with a message
+            // copied to an address that fits, found once.
+            format!(
+                "(ts.thread IN (SELECT m.thread FROM messages m, \
+                 json_each(m.recipients, '$.cc') c WHERE \
+                 json_extract(c.value, '$.email') {LIKE} OR json_extract(c.value, '$.name') {LIKE}))"
+            )
+        }
         Filter::To(m) => {
             let pattern = like_pattern(m);
             params.push(SqlValue::Text(pattern.clone()));
@@ -126,20 +151,19 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
         }
         Filter::Larger(bytes) => {
             params.push(SqlValue::Int(clamped(*bytes)));
-            format!("(ts.thread IN (SELECT m.thread FROM messages m WHERE {MESSAGE_SIZE} > ?))")
+            "(ts.thread IN (SELECT m.thread FROM messages m WHERE m.size > ?))".to_owned()
         }
         Filter::Smaller(bytes) => {
             params.push(SqlValue::Int(clamped(*bytes)));
-            format!("(ts.thread IN (SELECT m.thread FROM messages m WHERE {MESSAGE_SIZE} < ?))")
+            "(ts.thread IN (SELECT m.thread FROM messages m WHERE m.size < ?))".to_owned()
         }
     }
 }
 
-/// [`mail_domain::filter::message_size`] of the message aliased `m`, in SQL: the bytes of its
-/// text (a `TEXT` cast to a `BLOB` counts bytes, not characters), and each part's stated size.
-/// Uncorrelated with `ts`, as [`Filter::InFolder`] is, so it runs once rather than per thread.
-const MESSAGE_SIZE: &str = "(COALESCE(length(CAST(m.body_text AS BLOB)), 0) + \
-     COALESCE((SELECT SUM(json_extract(a.value, '$.size')) FROM json_each(m.attachments) a), 0))";
+/// Whether the address bound twice is the thread's newest sender or one of its senders, for
+/// [`Filter::FromAddress`].
+const SENT_BY: &str = "lower(ts.from_email) = lower(?) OR EXISTS (SELECT 1 \
+     FROM json_each(ts.participants) p WHERE lower(json_extract(p.value, '$.email')) = lower(?))";
 
 /// A size as SQLite's integers hold it: nothing anyone types is past `i64::MAX`, and one that
 /// were would compare as the largest there is.

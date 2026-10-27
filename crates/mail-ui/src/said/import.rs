@@ -15,6 +15,18 @@ pub fn said(total: &Imported, into: &Destination) -> String {
     if total.unreadable > 0 {
         out.push_str(&format!("; {} not a message, skipped", total.unreadable));
     }
+    if total.partial > 0 {
+        out.push_str(&format!(
+            "; {}",
+            crate::ui::copy::status::import_without_attachments(total.partial)
+        ));
+    }
+    if total.cut_off > 0 {
+        out.push_str(&format!(
+            "; {}",
+            crate::ui::copy::status::import_cut_off(total.cut_off)
+        ));
+    }
     out.push('\n');
     out
 }

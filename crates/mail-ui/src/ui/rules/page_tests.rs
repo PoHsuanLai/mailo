@@ -524,6 +524,41 @@ async fn a_jmap_account_s_reply_is_set_on_its_server_and_no_script_is_pushed() {
     );
 }
 
+/// Switching the reply off says nothing to a server that was never told of one: a reply set
+/// elsewhere stays, as `mailo vacation off` leaves it.
+#[tokio::test]
+async fn switching_off_a_reply_that_was_never_kept_here_sets_nothing_on_the_server() {
+    dispatching();
+    let (store, _dir) = crate::ui::fixtures::empty();
+    let row = jmap_account(&store);
+    let (pusher, pushed) = counting();
+    let set = Arc::new(AtomicUsize::new(0));
+    let setter = AwaySetter(Arc::new({
+        let set = set.clone();
+        move |_: &mail_client::Client, _: &mail_core::sync::Configured| {
+            set.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }));
+    let mut dom = vacation_sheet(&store, row.id.clone(), pusher).with_root_context(setter);
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    // Off as it ships: the switch turns the form on, and turning it off again keeps nothing.
+    let switch = seen.fixed("role", "switch")[0];
+    click(&mut dom, switch);
+    landed(&mut dom, Seen::default()).await;
+    click(&mut dom, switch);
+    landed(&mut dom, Seen::default()).await;
+    assert_eq!(
+        set.load(Ordering::SeqCst),
+        0,
+        "a reply set elsewhere was switched off"
+    );
+    assert_eq!(pushed.load(Ordering::SeqCst), 0, "a script was pushed");
+}
+
 /// "Run on existing mail" in each phase it passes through.
 #[component]
 fn Phases() -> Element {

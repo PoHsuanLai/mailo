@@ -31,3 +31,7 @@ pub fn deliver_activate(_profile: &ProfileId, _token: Option<&str>) -> bool {
 pub fn deliver_reply(_profile: &ProfileId, _thread: ThreadId, _token: Option<&str>) -> bool {
     false
 }
+
+pub fn deliver_archive(_profile: &ProfileId, _thread: ThreadId, _token: Option<&str>) -> bool {
+    false
+}
