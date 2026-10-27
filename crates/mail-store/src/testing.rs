@@ -77,13 +77,11 @@ pub fn seed_identity(store: &SqliteStore, identity: &Identity) {
     store
         .connection()
         .execute(
-            "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
-                 is_default)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO identities (id, account, from_name, from_email, reply_to, is_default)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(id) DO UPDATE SET account = excluded.account,
                  from_name = excluded.from_name, from_email = excluded.from_email,
-                 reply_to = excluded.reply_to, signature = excluded.signature,
-                 is_default = excluded.is_default",
+                 reply_to = excluded.reply_to, is_default = excluded.is_default",
             params![
                 identity.id.to_string(),
                 identity.account.to_string(),
@@ -93,7 +91,6 @@ pub fn seed_identity(store: &SqliteStore, identity: &Identity) {
                     .reply_to
                     .as_ref()
                     .map(|reply_to| serde_json::to_string(&Some(reply_to)).expect("encodes")),
-                identity.signature,
                 serde_json::to_string(&identity.default).expect("a default flag encodes"),
             ],
         )

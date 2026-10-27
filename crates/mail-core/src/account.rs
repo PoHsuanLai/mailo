@@ -1011,9 +1011,11 @@ mod tests {
             add_address(&store, "someone@gmail.com").unwrap();
             let account = store.list_accounts().unwrap().remove(0).id;
             let mut mine = store.identities(account).unwrap().remove(0);
-            mine.signature = Some("Ada, sent from mailo".to_owned());
             mine.from.name = Some("Ada".to_owned());
             mail_store::testing::seed_identity(&store, &mine);
+            store
+                .set_signature(mine.id, Some("Ada, sent from mailo"))
+                .unwrap();
 
             add_address(&store, "someone@gmail.com").unwrap();
 

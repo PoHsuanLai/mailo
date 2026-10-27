@@ -19,11 +19,10 @@ use rusqlite::{OptionalExtension, Row, params};
 
 /// The columns of an identity, in the order [`identity_of`] reads them.
 ///
-/// Its signature is the text of its default for new mail (`signatures`), else what the column on
-/// `identities` held, which only a row written without going through `set_signature` still has.
+/// Its signature is the text of its default for new mail (`signatures`). The `signature` column
+/// on `identities` says nothing: it is empty, and stays so.
 const IDENTITY: &str = "id, account, from_name, from_email, reply_to,
-    coalesce((SELECT s.body_text FROM signatures s
-              WHERE s.identity = identities.id AND s.for_new = 1), signature),
+    (SELECT s.body_text FROM signatures s WHERE s.identity = identities.id AND s.for_new = 1),
     is_default";
 
 /// An identity out of a row selected with [`IDENTITY`].
