@@ -129,7 +129,8 @@ async function notify(request: Request, env: GraphEnv, key: string, url: URL): P
   if (token !== null) {
     return new Response(token, {
       status: 200,
-      headers: { "Content-Type": "text/plain; charset=utf-8" },
+      // Whoever knows a key can have any text echoed: as plain text, never sniffed as a page.
+      headers: { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" },
     });
   }
   const items = await notifications(request);
@@ -194,8 +195,9 @@ export async function sha256(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-/// Whether two hex digests are the same, in time that does not depend on where they differ.
-function same(a: string, b: string): boolean {
+/// Whether two strings (hex digests, the path secret) are the same, in time that does not
+/// depend on where they differ.
+export function same(a: string, b: string): boolean {
   if (a.length !== b.length) {
     return false;
   }

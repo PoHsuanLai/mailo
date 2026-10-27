@@ -1,8 +1,9 @@
 //! Push relay on an account's page in Settings: shown for a Microsoft 365 account that reads
-//! through Graph and for no other, kept when Return is pressed, and refused, with the field put
-//! back, for an address that cannot be a relay's. Against the fixture's store only: nothing is
-//! registered or subscribed from a page.
+//! through Graph and for no other, kept when Return is pressed, and refused under the field, which
+//! is marked invalid, for an address that cannot be a relay's. Against the fixture's store only:
+//! nothing is registered or subscribed from a page.
 
+use crate::ui::copy::errors::{RELAY_EXTRAS, RELAY_NOT_HTTPS};
 use crate::ui::copy::fields::account::{PUSH_RELAY, PUSH_RELAY_EXAMPLE};
 use crate::ui::data::account_rows;
 use crate::ui::fixtures::{Work, chord, drain_seen, type_into, work};
@@ -62,19 +63,36 @@ async fn a_relay_is_kept_on_return_and_one_that_cannot_be_is_refused() {
         Some("https://relay.example.test")
     );
 
-    // Not HTTPS: said, and what was kept stays.
+    // Not HTTPS: said under the field, which is marked invalid, and what was kept stays.
     type_into(&mut dom, field, "http://relay.example.test");
     chord(&mut dom, "Enter", Modifiers::empty(), field);
-    drain_seen(&mut dom);
+    let seen = drain_seen(&mut dom);
+    assert_eq!(seen.all("aria-invalid", "true"), [field]);
     let page = dioxus_ssr::render(&dom);
     assert!(
-        page.contains(crate::ui::copy::titles::NOT_SAVED),
+        page.contains(RELAY_NOT_HTTPS),
         "the refusal is not said: {page}"
+    );
+    assert!(
+        !page.contains(crate::ui::copy::titles::NOT_SAVED),
+        "said in a dialog: {page}"
     );
     assert_eq!(
         graph_push::relay(&built.store, id.clone()).as_deref(),
         Some("https://relay.example.test")
     );
+
+    // Each refusal in its own words.
+    type_into(&mut dom, field, "https://relay.example.test/?a=b");
+    chord(&mut dom, "Enter", Modifiers::empty(), field);
+    drain_seen(&mut dom);
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains(RELAY_EXTRAS), "{page}");
+
+    // Typing again takes the mark away.
+    let seen = type_into(&mut dom, field, "https://relay.example.test/a");
+    let seen = seen.merge(drain_seen(&mut dom));
+    assert_eq!(seen.all("aria-invalid", "false"), [field]);
 
     // Emptied: polled again.
     type_into(&mut dom, field, "");

@@ -150,7 +150,7 @@ pub mod account {
     /// (`settings_window::push_relay`): the row's label, and the field's name to a screen reader.
     pub const PUSH_RELAY: &str = "Push relay";
     /// The field's placeholder while no relay is set.
-    pub const PUSH_RELAY_EXAMPLE: &str = "https://relay.example.com";
+    pub const PUSH_RELAY_EXAMPLE: &str = "https://relay.example.com/path-secret";
     /// Under the field.
     pub const PUSH_RELAY_HELP: &str =
         "New mail arrives at once through a relay you deploy. Leave it empty to check on a timer.";

@@ -5,19 +5,21 @@
 //! (`relay/` in the repository, deployed by the person on a Cloudflare account of their own) is
 //! that address, and passes each notification on (`mail_core::sync::graph_push`). Empty, the
 //! account is checked on a timer as before. The address is kept when the field is left or
-//! Return pressed, checked first; one that cannot be a relay's is said in a dialog and the field
-//! goes back to what was kept. Keeping one moves the revision, so the window's scheduler reads
-//! again which accounts are pushed to.
+//! Return pressed, checked first; why one cannot be a relay's is said under the field, which
+//! keeps what was typed until it is changed. Keeping one moves the revision, so the window's
+//! scheduler reads again which accounts are pushed to.
 
-use crate::ui::common::Problem;
-use crate::ui::copy;
+use crate::ui::copy::errors;
 use crate::ui::copy::fields::account as row;
 use crate::ui::data::AccountRow;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
+use ds::components::fields::text_field_model::Invalid;
+use ds::motion::detail::stamp::EventStamp;
 use ds::prelude::*;
-use mail_core::SqliteStore;
 use mail_core::sync::graph_push;
+use mail_core::{CoreError, SqliteStore};
+use mail_runtime::graph::push::RelayRefused;
 use std::sync::Arc;
 
 /// The account's field. Only a Graph account has one (the caller's to know).
@@ -35,7 +37,7 @@ pub(super) fn PushRelay(row: AccountRow, revision: Signal<u64>) -> Element {
         }
     };
     let mut typed = use_signal(kept.clone());
-    let mut failed = use_signal(|| None::<String>);
+    let mut failed = use_signal(|| None::<&'static str>);
     let mut keep = move || {
         let Some(store) = store.as_ref() else {
             return;
@@ -46,13 +48,11 @@ pub(super) fn PushRelay(row: AccountRow, revision: Signal<u64>) -> Element {
         }
         match graph_push::set_relay(store, id.clone(), &now) {
             Ok(stored) => {
+                failed.set(None);
                 typed.set(stored.unwrap_or_default());
                 revision += 1;
             }
-            Err(error) => {
-                typed.set(kept());
-                failed.set(Some(error.to_string()));
-            }
+            Err(error) => failed.set(Some(refused(&error))),
         }
     };
     rsx! {
@@ -63,7 +63,11 @@ pub(super) fn PushRelay(row: AccountRow, revision: Signal<u64>) -> Element {
                 label: row::PUSH_RELAY,
                 value: typed(),
                 placeholder: row::PUSH_RELAY_EXAMPLE,
-                oninput: move |text: String| typed.set(text),
+                validity: refusal(failed()),
+                oninput: move |text: String| {
+                    typed.set(text);
+                    failed.set(None);
+                },
                 onblur: {
                     let mut keep = keep.clone();
                     move |()| keep()
@@ -71,9 +75,30 @@ pub(super) fn PushRelay(row: AccountRow, revision: Signal<u64>) -> Element {
                 onsubmit: move |_| keep(),
             }
         }
-        if let Some(why) = failed() {
-            Problem { title: copy::titles::NOT_SAVED, why, onclose: move |()| failed.set(None) }
+    }
+}
+
+/// Why `error` kept the relay from being set, in the window's words.
+fn refused(error: &CoreError) -> &'static str {
+    match error {
+        CoreError::Relay(RelayRefused::NotAnAddress) => errors::RELAY_NOT_AN_ADDRESS,
+        CoreError::Relay(RelayRefused::NotHttps) => errors::RELAY_NOT_HTTPS,
+        CoreError::Relay(RelayRefused::Extras) => errors::RELAY_EXTRAS,
+        other => {
+            log::warn!("the push relay could not be kept: {other}");
+            errors::RELAY_NOT_KEPT
         }
+    }
+}
+
+/// What the field draws under itself: nothing, or why, with one stamp for each phrasing.
+fn refusal(why: Option<&'static str>) -> Validity {
+    match why {
+        None => Validity::Valid,
+        Some(why) => Validity::Invalid(Invalid {
+            message: why.into(),
+            stamp: EventStamp(u32::try_from(why.len()).unwrap_or(0)),
+        }),
     }
 }
 

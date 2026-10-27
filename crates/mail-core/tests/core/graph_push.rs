@@ -577,6 +577,98 @@ async fn a_subscription_near_its_end_is_renewed_and_one_graph_removed_is_made_ag
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lifecycle_frame_about_another_subscription_is_not_acted_on() {
+    let (graph_at, graph) = graph().await;
+    let (relay_at, relay) = relay().await;
+    let store = store(Some(&relay_at));
+    let watch = watching(store.clone(), secrets(), &graph_at);
+    assert!(until(|| relay.lock().unwrap().listens == 1).await);
+    assert_eq!(watch.heard(Heard::Mail, 1).await, 1, "set up anew");
+    assert_eq!(
+        store
+            .graph_push(account())
+            .unwrap()
+            .subscription
+            .unwrap()
+            .id,
+        "sub-1"
+    );
+
+    // About one let go before: Graph is not asked to make or renew anything.
+    for lifecycle_event in ["subscriptionRemoved", "reauthorizationRequired"] {
+        forward(
+            &relay,
+            json!({ "type": "lifecycle", "subscriptionId": "sub-earlier",
+                    "lifecycleEvent": lifecycle_event }),
+        );
+    }
+    // A change after them, heard once they have been read.
+    forward(
+        &relay,
+        json!({ "type": "change", "subscriptionId": "sub-1", "changeType": "created" }),
+    );
+    assert_eq!(watch.heard(Heard::Mail, 2).await, 2);
+    let methods: Vec<String> = graph
+        .lock()
+        .unwrap()
+        .asked
+        .iter()
+        .map(|r| r.method.clone())
+        .collect();
+    assert_eq!(methods, ["POST"], "only the first subscription was made");
+    assert_eq!(
+        store
+            .graph_push(account())
+            .unwrap()
+            .subscription
+            .unwrap()
+            .id,
+        "sub-1"
+    );
+    assert_eq!(watch.stop(), Ok(()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_relay_changed_while_listening_is_listened_to_afresh() {
+    let (graph_at, graph) = graph().await;
+    let (first_at, first) = relay().await;
+    let (second_at, second) = relay().await;
+    let store = store(Some(&first_at));
+    let secrets = secrets();
+    let watch = watching(store.clone(), secrets.clone(), &graph_at);
+    assert!(until(|| first.lock().unwrap().listens == 1).await);
+    assert_eq!(watch.heard(Heard::Mail, 1).await, 1);
+
+    // Changed in Settings while the socket to the first is held: the next wait lets this
+    // listener go, to be opened again at once for the second.
+    graph_push::set_relay(&store, account(), &second_at).unwrap();
+    forward(
+        &first,
+        json!({ "type": "change", "subscriptionId": "sub-1", "changeType": "created" }),
+    );
+    let Watching {
+        done, stop: _stop, ..
+    } = watch;
+    let lost = done.join().unwrap().unwrap_err();
+    assert_eq!(lost.retry, Retry::Now, "{lost:?}");
+
+    // Opened again, as the scheduler does: registered and subscribed at the second, and the
+    // subscription to the first let go.
+    let again = watching(store.clone(), secrets, &graph_at);
+    assert!(until(|| second.lock().unwrap().listens == 1).await);
+    let held = store.graph_push(account()).unwrap();
+    let registered = held.registered.unwrap();
+    assert_eq!(registered.relay, second_at);
+    assert!(second.lock().unwrap().keys.contains_key(&registered.key));
+    assert_eq!(held.subscription.unwrap().id, "sub-2");
+    assert!(
+        !graph.lock().unwrap().held.contains("sub-1"),
+        "the subscription to the first relay is let go"
+    );
+    assert_eq!(again.stop(), Ok(()));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_renewal_graph_no_longer_knows_makes_the_subscription_again() {
     let (graph_at, graph) = graph().await;
     let (relay_at, relay) = relay().await;

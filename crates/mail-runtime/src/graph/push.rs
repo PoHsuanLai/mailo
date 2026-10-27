@@ -69,8 +69,29 @@ pub const RENEW_WITHIN: TimeDelta = TimeDelta::hours(24);
 /// auto-response); a NAT that forgot the connection is found by the silence after.
 const PING: Duration = Duration::from_secs(30);
 
-/// How long the relay may say nothing, not even to a ping, before the socket is called lost.
+/// How long a ping may go unanswered, with nothing else heard either, before the socket is called
+/// lost.
 const SILENCE: Duration = Duration::from_secs(90);
+
+/// How a socket is kept: pinged every `ping`, and lost once a ping has gone unanswered for
+/// `silence`. [`PING`] and [`SILENCE`], except under test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Pacing {
+    ping: Duration,
+    silence: Duration,
+}
+
+impl Default for Pacing {
+    fn default() -> Self {
+        Pacing {
+            ping: PING,
+            silence: SILENCE,
+        }
+    }
+}
+
+/// The largest message or frame taken from the relay. Its alerts are a few hundred bytes.
+const MAX_FRAME: usize = 64 * 1024;
 
 /// The longest a request to the relay, or the socket's opening, may take.
 const OPENING: Duration = Duration::from_secs(30);
@@ -171,7 +192,12 @@ impl Relay {
 
     fn host(&self) -> &str {
         // `parse` refused an address without a host: there is always one.
-        self.0.host_str().unwrap_or_default()
+        // An IPv6 host is written in brackets in an address, and not in a connection.
+        self.0
+            .host_str()
+            .unwrap_or_default()
+            .trim_start_matches('[')
+            .trim_end_matches(']')
     }
 
     fn port(&self) -> u16 {
@@ -227,16 +253,19 @@ pub fn secret_key(account: AccountId) -> SecretKey {
 }
 
 /// What a frame from the relay says.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// A lifecycle frame names the subscription it is about. One made before, by this listener or an
+/// earlier one, can still be heard of after it was let go, and is not the current one's to act on.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Alert {
     /// A message was created in the inbox.
     Mail,
     /// The relay dropped notifications while nobody listened, or Graph says it did (`missed`).
     Missed,
-    /// Graph removed the subscription (`subscriptionRemoved`): it is made again.
-    Removed,
-    /// Graph wants the subscription reauthorised (`reauthorizationRequired`): it is renewed.
-    Reauthorize,
+    /// Graph removed this subscription (`subscriptionRemoved`): it is made again.
+    Removed(String),
+    /// Graph wants this subscription reauthorised (`reauthorizationRequired`): it is renewed.
+    Reauthorize(String),
     /// The relay answered a ping.
     Pong,
 }
@@ -255,12 +284,20 @@ pub fn alert_of(text: &str) -> Option<Alert> {
     match value.get("type")?.as_str()? {
         "change" => Some(Alert::Mail),
         "missed" => Some(Alert::Missed),
-        "lifecycle" => match value.get("lifecycleEvent")?.as_str()? {
-            "subscriptionRemoved" => Some(Alert::Removed),
-            "reauthorizationRequired" => Some(Alert::Reauthorize),
-            "missed" => Some(Alert::Missed),
-            _ => None,
-        },
+        "lifecycle" => {
+            let id = || {
+                value
+                    .get("subscriptionId")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned)
+            };
+            match value.get("lifecycleEvent")?.as_str()? {
+                "subscriptionRemoved" => Some(Alert::Removed(id()?)),
+                "reauthorizationRequired" => Some(Alert::Reauthorize(id()?)),
+                "missed" => Some(Alert::Missed),
+                _ => None,
+            }
+        }
         _ => None,
     }
 }
@@ -495,11 +532,13 @@ struct Socket {
     ws: WebSocketStream<Box<dyn Io>>,
     /// When it opened: it is let go at [`IDLE_REARM`].
     opened: Instant,
-    /// When the relay last said anything.
-    heard: Instant,
     /// When the next ping is due. Kept here rather than timed from each call, since a wait ends
     /// at every poll interval, which may be shorter than [`PING`].
     ping: Instant,
+    /// When the ping still waiting for an answer was sent. Any frame answers it: what matters is
+    /// that the relay is still there.
+    unanswered: Option<Instant>,
+    pacing: Pacing,
 }
 
 /// What opening the socket found.
@@ -514,8 +553,13 @@ fn lost(why: &str) -> RuntimeError {
     RuntimeError::Connect(Failure::said(format!("the push relay {why}")))
 }
 
-/// Open the socket to `relay` for `key`, presenting `secret`.
-async fn open_socket(relay: &Relay, key: &str, secret: &str) -> Result<Opened, RuntimeError> {
+/// Open the socket to `relay` for `key`, presenting `secret`, to be kept at `pacing`.
+async fn open_socket(
+    relay: &Relay,
+    key: &str,
+    secret: &str,
+    pacing: Pacing,
+) -> Result<Opened, RuntimeError> {
     within(OPENING, "opening the push relay's connection", async {
         let tcp = tokio::net::TcpStream::connect((relay.host(), relay.port()))
             .await
@@ -534,14 +578,18 @@ async fn open_socket(relay: &Relay, key: &str, secret: &str) -> Result<Opened, R
         request
             .headers_mut()
             .insert(http::header::AUTHORIZATION, bearer);
-        match tokio_tungstenite::client_async(request, io).await {
+        let config = tungstenite::protocol::WebSocketConfig::default()
+            .max_message_size(Some(MAX_FRAME))
+            .max_frame_size(Some(MAX_FRAME));
+        match tokio_tungstenite::client_async_with_config(request, io, Some(config)).await {
             Ok((ws, _)) => {
                 let now = Instant::now();
                 Ok(Opened::Socket(Box::new(Socket {
                     ws,
                     opened: now,
-                    heard: now,
-                    ping: now + PING,
+                    ping: now + pacing.ping,
+                    unanswered: None,
+                    pacing,
                 })))
             }
             Err(tungstenite::Error::Http(response))
@@ -556,18 +604,27 @@ async fn open_socket(relay: &Relay, key: &str, secret: &str) -> Result<Opened, R
 }
 
 impl Socket {
-    /// The next alert, pinging the relay while it is quiet. An error when the socket closes, or
-    /// the relay has said nothing, not even to a ping, for [`SILENCE`].
+    /// The next alert, pinging the relay while it is quiet. An error when the socket closes, or a
+    /// ping has gone unanswered, with nothing else heard either, for the pacing's `silence`.
+    ///
+    /// Nothing reads the socket while a pass runs between two waits, so the frames that came
+    /// meanwhile are read first (`biased`) and only then the clock: a pass longer than the silence
+    /// is not the relay going quiet.
     async fn next(&mut self) -> Result<Alert, RuntimeError> {
         loop {
+            let deadline = match self.unanswered {
+                Some(sent) => sent + self.pacing.silence,
+                None => self.ping,
+            };
             tokio::select! {
+                biased;
                 frame = self.ws.next() => {
                     let frame = match frame {
                         None => return Err(lost("closed the connection")),
                         Some(Err(e)) => return Err(unreachable("the push relay", e)),
                         Some(Ok(frame)) => frame,
                     };
-                    self.heard = Instant::now();
+                    self.unanswered = None;
                     match frame {
                         Message::Text(text) => match alert_of(text.as_str()) {
                             Some(Alert::Pong) | None => {}
@@ -577,14 +634,16 @@ impl Socket {
                         Message::Ping(_) | Message::Pong(_) | Message::Binary(_) | Message::Frame(_) => {}
                     }
                 }
-                () = tokio::time::sleep_until(self.ping) => {
-                    self.ping = Instant::now() + PING;
-                    if self.heard.elapsed() >= SILENCE {
+                () = tokio::time::sleep_until(deadline) => {
+                    if self.unanswered.is_some() {
                         return Err(RuntimeError::Stalled {
                             doing: "listening to the push relay",
-                            after: SILENCE,
+                            after: self.pacing.silence,
                         });
                     }
+                    let now = Instant::now();
+                    self.ping = now + self.pacing.ping;
+                    self.unanswered = Some(now);
                     self.ws
                         .send(Message::text(PING_TEXT))
                         .await
@@ -629,6 +688,7 @@ pub struct Listener {
     /// Registered by this listener: a relay that refuses the key again is refusing, not
     /// forgetting.
     fresh: bool,
+    pacing: Pacing,
 }
 
 impl std::fmt::Debug for Listener {
@@ -684,6 +744,7 @@ impl Listener {
             outbox: crate::engine::Schedule::default().outbox,
             owed: false,
             fresh: false,
+            pacing: Pacing::default(),
         };
         let kept = this.kept_secret().await?;
         match (held.registered, kept) {
@@ -832,6 +893,11 @@ impl Listener {
         self.subscription.as_ref()
     }
 
+    /// Whether `id` is the subscription held now, so a lifecycle frame about it is acted on.
+    fn current(&self, id: &str) -> bool {
+        self.subscription.as_ref().is_some_and(|held| held.id == id)
+    }
+
     /// Wait for an alert from the relay, a send coming due, or `poll`, whichever is first. See
     /// the module's documentation. Reads the wall clock, as a watch must.
     pub async fn wait(
@@ -839,6 +905,16 @@ impl Listener {
         cancel: &mut Cancel,
         poll: Duration,
     ) -> Result<Woke, RuntimeError> {
+        // The relay set now. One changed while this listened is listened to afresh, by a listener
+        // opened for it: this one's key, subscription and socket are all the old relay's.
+        let set = relay_of(&self.store.graph_push(self.account.clone())?)?;
+        if set != self.relay {
+            self.socket = None;
+            return Err(RuntimeError::Graph {
+                why: "the push relay was changed".to_owned(),
+                retry: Retry::Now,
+            });
+        }
         if std::mem::take(&mut self.owed) {
             return Ok(Woke::Mail);
         }
@@ -854,7 +930,7 @@ impl Listener {
         tokio::pin!(alarm, interval);
         loop {
             if self.socket.is_none() {
-                match open_socket(&self.relay, &self.key, &self.secret).await? {
+                match open_socket(&self.relay, &self.key, &self.secret, self.pacing).await? {
                     Opened::Socket(socket) => self.socket = Some(socket),
                     Opened::Unknown if self.fresh => {
                         return Err(RuntimeError::Graph {
@@ -892,18 +968,19 @@ impl Listener {
             };
             match step {
                 Step::Alert(Ok(Alert::Mail | Alert::Missed)) => return Ok(Woke::Mail),
-                Step::Alert(Ok(Alert::Removed)) => {
+                Step::Alert(Ok(Alert::Removed(id))) if self.current(&id) => {
                     self.subscribe_again(Utc::now()).await?;
                     self.owed = false;
                     return Ok(Woke::Mail);
                 }
-                Step::Alert(Ok(Alert::Reauthorize)) => {
+                Step::Alert(Ok(Alert::Reauthorize(id))) if self.current(&id) => {
                     self.keep_subscribed(Utc::now(), true).await?;
                     if std::mem::take(&mut self.owed) {
                         return Ok(Woke::Mail);
                     }
                 }
-                Step::Alert(Ok(Alert::Pong)) => {}
+                // About a subscription let go before, or the relay answering a ping.
+                Step::Alert(Ok(Alert::Removed(_) | Alert::Reauthorize(_) | Alert::Pong)) => {}
                 Step::Alert(Err(e)) => {
                     self.socket = None;
                     return Err(e);
@@ -1010,12 +1087,21 @@ mod tests {
         );
         assert_eq!(alert_of(r#"{"type":"missed"}"#), Some(Alert::Missed));
         assert_eq!(
-            alert_of(r#"{"type":"lifecycle","lifecycleEvent":"subscriptionRemoved"}"#),
-            Some(Alert::Removed)
+            alert_of(
+                r#"{"type":"lifecycle","subscriptionId":"s1","lifecycleEvent":"subscriptionRemoved"}"#
+            ),
+            Some(Alert::Removed("s1".to_owned()))
         );
         assert_eq!(
-            alert_of(r#"{"type":"lifecycle","lifecycleEvent":"reauthorizationRequired"}"#),
-            Some(Alert::Reauthorize)
+            alert_of(
+                r#"{"type":"lifecycle","subscriptionId":"s2","lifecycleEvent":"reauthorizationRequired"}"#
+            ),
+            Some(Alert::Reauthorize("s2".to_owned()))
+        );
+        // One that names no subscription is about none this side holds.
+        assert_eq!(
+            alert_of(r#"{"type":"lifecycle","lifecycleEvent":"subscriptionRemoved"}"#),
+            None
         );
         assert_eq!(
             alert_of(r#"{"type":"lifecycle","lifecycleEvent":"missed"}"#),
@@ -1024,6 +1110,87 @@ mod tests {
         assert_eq!(alert_of("pong"), Some(Alert::Pong));
         assert_eq!(alert_of(r#"{"type":"other"}"#), None);
         assert_eq!(alert_of("not json"), None);
+    }
+
+    /// A relay on loopback that upgrades whatever asks, answers `ping` with `pong` while
+    /// `answers` is true, and sends down the socket what it is given.
+    async fn relay_on_loopback(
+        answers: bool,
+    ) -> (Relay, tokio::sync::mpsc::UnboundedSender<&'static str>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let relay = Relay::parse(&format!(
+            "http://127.0.0.1:{}",
+            listener.local_addr().unwrap().port()
+        ))
+        .unwrap();
+        let (say, mut said) = tokio::sync::mpsc::unbounded_channel::<&'static str>();
+        tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            let mut ws = tokio_tungstenite::accept_async(tcp).await.unwrap();
+            loop {
+                tokio::select! {
+                    frame = said.recv() => match frame {
+                        Some(frame) => ws.send(Message::text(frame)).await.unwrap(),
+                        None => return,
+                    },
+                    heard = ws.next() => match heard {
+                        Some(Ok(Message::Text(text))) if answers && text.as_str() == PING_TEXT => {
+                            ws.send(Message::text(PONG)).await.unwrap();
+                        }
+                        Some(Ok(_)) => {}
+                        _ => return,
+                    },
+                }
+            }
+        });
+        (relay, say)
+    }
+
+    const QUICK: Pacing = Pacing {
+        ping: Duration::from_millis(40),
+        silence: Duration::from_millis(150),
+    };
+
+    async fn socket_to(relay: &Relay) -> Box<Socket> {
+        match open_socket(relay, "k", "s", QUICK).await.unwrap() {
+            Opened::Socket(socket) => socket,
+            Opened::Unknown => panic!("the loopback relay knows every key"),
+        }
+    }
+
+    const CHANGE: &str = r#"{"type":"change","subscriptionId":"s","changeType":"created"}"#;
+
+    #[tokio::test]
+    async fn a_pass_longer_than_the_silence_is_not_the_relay_going_quiet() {
+        let (relay, say) = relay_on_loopback(true).await;
+        let mut socket = socket_to(&relay).await;
+        say.send(CHANGE).unwrap();
+        assert_eq!(socket.next().await.unwrap(), Alert::Mail);
+        // A pass runs, and nobody reads the socket for longer than the silence. The relay is
+        // there all the while: the next wait hears the next alert rather than calling it lost.
+        tokio::time::sleep(QUICK.silence * 3).await;
+        say.send(CHANGE).unwrap();
+        assert_eq!(socket.next().await.unwrap(), Alert::Mail);
+        // And it keeps pinging, answered, past the silence, until an alert.
+        let later = say.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(QUICK.silence * 3).await;
+            later.send(CHANGE).unwrap();
+        });
+        assert_eq!(socket.next().await.unwrap(), Alert::Mail);
+    }
+
+    #[tokio::test]
+    async fn a_ping_unanswered_for_the_silence_is_a_lost_socket() {
+        let (relay, _say) = relay_on_loopback(false).await;
+        let mut socket = socket_to(&relay).await;
+        let started = Instant::now();
+        let error = socket.next().await.unwrap_err();
+        assert!(
+            matches!(error, RuntimeError::Stalled { after, .. } if after == QUICK.silence),
+            "{error:?}"
+        );
+        assert!(started.elapsed() >= QUICK.ping + QUICK.silence);
     }
 
     #[test]

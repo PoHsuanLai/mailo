@@ -2,11 +2,15 @@
 // no Cloudflare account is asked for. Graph's side is played by posting what Graph posts; mailo's
 // by registering and opening the WebSocket as it does.
 
-import { SELF } from "cloudflare:test";
+import { SELF, createExecutionContext } from "cloudflare:test";
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import { sha256 } from "../src/graph";
+import worker from "../src/index";
 
-const BASE = "https://relay.example.test";
+const HOST = "https://relay.example.test";
+/// The relay's address as mailo is given it: the host and the path secret (vitest.config.ts).
+const BASE = `${HOST}/test-path-secret`;
 
 let counter = 0;
 /// A fresh key, secret and clientState for each test, registered.
@@ -70,6 +74,7 @@ describe("the Graph relay", () => {
     );
     expect(response.status).toBe(200);
     expect(response.headers.get("Content-Type")).toMatch(/^text\/plain/);
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(await response.text()).toBe(token);
   });
 
@@ -185,5 +190,30 @@ describe("the Graph relay", () => {
     expect(junk.status).toBe(202);
     expect((await SELF.fetch(`${BASE}/graph/notify/bad`, { method: "POST" })).status).toBe(404);
     expect((await SELF.fetch(`${BASE}/elsewhere`)).status).toBe(404);
+  });
+
+  it("is reached only under the path secret", async () => {
+    const asked = JSON.stringify({
+      key: `outside-key-${crypto.randomUUID()}`,
+      clientStateHash: await sha256("s"),
+      listenTokenHash: await sha256("t"),
+    });
+    for (const base of [HOST, `${HOST}/wrong-path-secret`, `${HOST}/test-path-secre`]) {
+      const register = await SELF.fetch(`${base}/graph/register`, { method: "POST", body: asked });
+      expect(register.status).toBe(404);
+      const echo = await SELF.fetch(`${base}/graph/notify/some-key-0123456789?validationToken=t`, {
+        method: "POST",
+      });
+      expect(echo.status).toBe(404);
+    }
+    // With no secret set, nothing is reached, under any path.
+    const unset = await worker.fetch(
+      new Request(`${BASE}/graph/register`, { method: "POST", body: asked }) as Parameters<
+        typeof worker.fetch
+      >[0],
+      { GRAPH_RELAY: env.GRAPH_RELAY },
+      createExecutionContext(),
+    );
+    expect(unset.status).toBe(404);
   });
 });

@@ -10,6 +10,14 @@ pub const POP3_NO_FOLDERS: &str = "POP3 has no folders.";
 pub const LOCAL_HAS_LABELS: &str = "Local mail has labels, not folders.";
 pub const ACCOUNT_GONE: &str = "That account isn’t here any more.";
 
+// A push relay's address refused, said under the field on the account's page.
+pub const RELAY_NOT_AN_ADDRESS: &str =
+    "Enter the relay\u{2019}s web address, starting with https://.";
+pub const RELAY_NOT_HTTPS: &str = "The relay\u{2019}s address must start with https://.";
+pub const RELAY_EXTRAS: &str =
+    "The relay\u{2019}s address can\u{2019}t have a query, a fragment or a password.";
+pub const RELAY_NOT_KEPT: &str = "The relay couldn\u{2019}t be saved. Try again.";
+
 /// Add Account: a provider picked with an address at another provider's own domain (iCloud with
 /// a Gmail address, as an Apple ID often is).
 pub fn address_at_other_provider(
