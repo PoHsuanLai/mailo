@@ -114,53 +114,46 @@ impl crate::mail::SyncOps<'_> {
             mail.secrets(),
             &registry,
             account,
-            cancel,
-            hold,
-            grace,
+            Watch {
+                cancel,
+                hold,
+                grace,
+            },
             heard,
         )
         .await
     }
 }
 
+/// How long a watch lasts and how it is paced: the signal that ends it, the hold on its
+/// reconnects ([`Hold`]), and the grace after which a wait that has not failed counts as
+/// established.
+#[derive(Debug)]
+pub struct Watch {
+    pub cancel: watch::Receiver<bool>,
+    pub hold: Option<Hold>,
+    pub grace: Duration,
+}
+
 /// [`SyncOps::listen`](crate::SyncOps), with the secret store named, so a test can run it.
-#[allow(clippy::too_many_arguments)]
 pub async fn listen_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     account: AccountId,
-    cancel: watch::Receiver<bool>,
-    hold: Option<Hold>,
-    grace: Duration,
+    watch: Watch,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
-    let listening = Listening {
-        cancel,
-        hold,
-        grace,
-    };
     listen_at(
         store,
         secrets,
         registry,
         SUBSCRIPTIONS,
         account,
-        listening,
+        watch,
         heard,
     )
     .await
-}
-
-/// When a wait on one account ends and how it is held: what the listening functions take beside
-/// the account.
-#[derive(Debug)]
-pub struct Listening {
-    pub cancel: watch::Receiver<bool>,
-    /// Described at [`Hold`].
-    pub hold: Option<Hold>,
-    /// How long a connection must hold before it is heard as established ([`GRACE`]).
-    pub grace: Duration,
 }
 
 /// [`listen_with`], with Graph's subscriptions at `subscriptions` rather than Microsoft's: a
@@ -171,14 +164,14 @@ pub async fn listen_at(
     registry: &ClientRegistry,
     subscriptions: &str,
     account: AccountId,
-    listening: Listening,
+    watch: Watch,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
-    let Listening {
+    let Watch {
         cancel,
         hold,
         grace,
-    } = listening;
+    } = watch;
     let account = configured(&store)
         .map_err(|why| unsupported(&why.to_string()))?
         .into_iter()

@@ -358,7 +358,7 @@ fn watching(store: Arc<SqliteStore>, secrets: Arc<MemorySecrets>, graph: &str) -
             &mail_runtime::testing::fake_clients(),
             &graph,
             account(),
-            live::Listening {
+            live::Watch {
                 cancel,
                 hold: None,
                 grace: Duration::from_millis(100),
@@ -702,7 +702,7 @@ fn a_graph_account_without_a_relay_is_polled() {
         &mail_runtime::testing::fake_clients(),
         "http://127.0.0.1:9/v1.0/subscriptions",
         account(),
-        live::Listening {
+        live::Watch {
             cancel,
             hold: None,
             grace: Duration::from_millis(100),
@@ -744,7 +744,7 @@ async fn an_unreachable_relay_is_a_loss_the_scheduler_waits_out_while_polling() 
             &mail_runtime::testing::fake_clients(),
             &graph_at,
             account(),
-            live::Listening {
+            live::Watch {
                 cancel,
                 hold: None,
                 grace: Duration::from_millis(100),
