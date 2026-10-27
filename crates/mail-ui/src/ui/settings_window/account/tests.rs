@@ -251,6 +251,46 @@ async fn the_page_says_how_much_storage_the_server_counts_once_it_has_said() {
     assert!(at(storage) < at(crate::ui::copy::headers::ENCRYPTION));
 }
 
+/// An account that waits for a sign-in is not asked for its storage: the page would only try the
+/// sign-in again.
+#[tokio::test]
+async fn an_account_waiting_to_sign_in_is_not_asked_for_its_storage() {
+    use crate::ui::fetching::{Need, Needing};
+    let built = work();
+    let asked: Arc<Mutex<Vec<AccountId>>> = Arc::default();
+    let seams = Seams {
+        secrets: Arc::new(mail_core::NoKeyring),
+        storage: Arc::new({
+            let asked = asked.clone();
+            move |_, account| {
+                asked.lock().unwrap().push(account);
+                Ok(None)
+            }
+        }),
+    };
+    let needing = Needing::default();
+    needing.say(vec![(poh(&built), Need::SignIn)]);
+    dispatching();
+    let mut dom = VirtualDom::new(settings_root)
+        .with_root_context(crate::ui::fixtures::client(&built.store))
+        .with_root_context(built.dirs.clone())
+        .with_root_context(seams)
+        .with_root_context(needing);
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    let seen = click(
+        &mut dom,
+        seen.one("aria-label", SettingsPage::Accounts.name()),
+    )
+    .merge(drain_seen(&mut dom));
+    let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
+    let _ = click(&mut dom, row).merge(drain_seen(&mut dom));
+    let _ = until(&mut dom, on_account_page).await;
+    assert!(
+        asked.lock().unwrap().is_empty(),
+        "asked a server that needs a sign-in"
+    );
+}
+
 #[tokio::test]
 async fn without_a_server_to_ask_the_page_says_nothing_of_storage() {
     let built = work();

@@ -195,10 +195,14 @@ fn sign_in(address: &str, account: &AccountId, need: Need) {
 
 /// How much of `account`'s storage its server says is used, once it has said: `None` until then,
 /// and for an account whose server keeps no quota, cannot be reached, or has none to ask.
-fn use_storage(account: AccountId) -> Option<Storage> {
+///
+/// Not asked of an account that waits for the person to sign in again: that would be a sign-in
+/// attempt for nothing, each time the page opens.
+fn use_storage(account: AccountId, waiting: Signal<Vec<(AccountId, Need)>>) -> Option<Storage> {
     let read = use_resource(use_reactive!(|account| {
+        let waits = waiting.read().iter().any(|(id, _)| *id == account);
         let asked = row_of(&account)
-            .is_some_and(|row| mail_client::sync::has_quota(&row.plan.incoming))
+            .is_some_and(|row| !waits && mail_client::sync::has_quota(&row.plan.incoming))
             .then(crate::ui::live::try_client)
             .flatten();
         let ask = seams().storage;
@@ -223,9 +227,9 @@ fn use_storage(account: AccountId) -> Option<Storage> {
 pub(super) fn AccountPage(shell: Signal<Shell>, account: AccountId) -> Element {
     // Read again when an account comes or goes.
     let _ = crate::ui::live::moved();
-    let storage = use_storage(account.clone());
     // Whether the account waits for the person: the first window knows, and says so to this one.
     let waiting = use_needs();
+    let storage = use_storage(account.clone(), waiting);
     let row = row_of(&account);
     // Removed from elsewhere while the page was shown: the pane goes back to the list.
     let gone = row.is_none();
