@@ -179,3 +179,9 @@ pub const DELETE_GROUP: &str = "Delete Group\u{2026}";
 pub const CHOOSE_PHOTO: &str = "Choose Photo\u{2026}";
 pub const REMOVE_PHOTO: &str = "Remove Photo";
 pub const ADD_ADDRESS: &str = "Add Address";
+
+/// Apply Rules' alert: apply the rules and send what they send.
+pub const APPLY_AND_SEND: &str = "Apply and Send";
+
+/// Apply Rules' alert: apply the rules but leave out what sends mail.
+pub const APPLY_WITHOUT_SENDING: &str = "Apply Without Sending";

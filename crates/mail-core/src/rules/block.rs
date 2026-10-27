@@ -94,6 +94,8 @@ pub fn block(store: &SqliteStore, account: AccountId, email: &str) -> Result<Blo
         filter: condition(email),
         actions: vec![RuleAction::Spam],
         after: AfterMatch::Stop,
+        made: Utc::now(),
+        reply_days: mail_domain::rule::DEFAULT_REPLY_DAYS,
     };
     store.put_rule(&rule)?;
     Ok(Blocked::Made(rule))

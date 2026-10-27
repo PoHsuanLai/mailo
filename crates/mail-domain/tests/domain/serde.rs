@@ -276,6 +276,7 @@ fn draft() -> Draft {
         smime: Smime::None,
         priority: mail_domain::Priority::Normal,
         delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Failed {
             reason: "550 rejected".to_owned(),
             retry: Retry::After(Duration::from_secs(90)),
@@ -517,6 +518,8 @@ fn filters() -> Vec<Filter> {
 fn rules() -> Vec<Rule> {
     vec![
         Rule {
+            made: Default::default(),
+            reply_days: 4,
             id: RuleId::from_uuid(uuid(20)),
             account: account(),
             name: "Bills".to_owned(),
@@ -535,6 +538,8 @@ fn rules() -> Vec<Rule> {
             after: AfterMatch::Stop,
         },
         Rule {
+            made: Default::default(),
+            reply_days: 4,
             id: RuleId::from_uuid(uuid(21)),
             account: account(),
             name: "Tidy".to_owned(),
@@ -1729,6 +1734,7 @@ fixtures! {
     "draft_priority.json" => Draft = Draft {
         priority: Priority::High,
         delivery: DeliveryReport::Requested,
+        automatic: false,
         ..draft()
     },
     "priorities.json" => Vec<Priority> = Priority::ALL.to_vec(),

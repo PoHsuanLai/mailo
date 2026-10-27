@@ -518,7 +518,11 @@ fn table_names(db: &Connection) -> Vec<String> {
 pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
     let db = Connection::open(db_path).expect("open the database");
     db.execute_batch(
-        "DROP INDEX thread_summary_sort_subject; DROP INDEX thread_summary_sort_sender;
+        "DROP TABLE rule_replied;
+             ALTER TABLE rules DROP COLUMN made_at;
+             ALTER TABLE rules DROP COLUMN reply_days;
+             ALTER TABLE drafts DROP COLUMN automatic;
+             DROP INDEX thread_summary_sort_subject; DROP INDEX thread_summary_sort_sender;
              DROP INDEX thread_summary_sort_size; DROP INDEX thread_summary_sort_unread;
              DROP INDEX thread_summary_sort_starred; DROP INDEX thread_summary_sort_pin;
              ALTER TABLE thread_summary DROP COLUMN sort_subject;

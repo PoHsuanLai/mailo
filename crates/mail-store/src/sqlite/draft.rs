@@ -17,7 +17,7 @@ use rusqlite::params;
 /// The columns a [`Draft`] is read back from, in the order [`SqliteStore::read_draft`] expects.
 const DRAFT_COLUMNS: &str = "id, account, identity, recipients, subject, in_reply_to, \
      forward_of, body_text, body_html, attachments, state, updated_at, receipt, openpgp, smime, \
-     priority, delivery";
+     priority, delivery, automatic";
 
 impl SqliteStore {
     /// Insert or replace a draft.
@@ -38,8 +38,8 @@ impl SqliteStore {
             "INSERT OR REPLACE INTO drafts
                (id, account, identity, recipients, subject, in_reply_to, forward_of,
                 body_text, body_html, attachments, state, updated_at, receipt, openpgp, smime,
-                priority, delivery)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+                priority, delivery, automatic)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 draft.id.to_string(),
                 draft.account.to_string(),
@@ -58,6 +58,7 @@ impl SqliteStore {
                 to_json("Smime", &draft.smime)?,
                 to_json("Priority", &draft.priority)?,
                 to_json("DeliveryReport", &draft.delivery)?,
+                draft.automatic,
             ],
         )?;
         Ok(())
@@ -140,6 +141,7 @@ impl SqliteStore {
             smime: json("Smime", &row.get::<_, String>(14)?)?,
             priority: json("Priority", &row.get::<_, String>(15)?)?,
             delivery: json("DeliveryReport", &row.get::<_, String>(16)?)?,
+            automatic: row.get(17)?,
             state,
             updated: time("Draft.updated_at", &row.get::<_, String>(11)?)?,
         })

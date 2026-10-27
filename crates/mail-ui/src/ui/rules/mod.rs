@@ -14,6 +14,7 @@
 //!
 //! The pages are quire's `PaneStack`; which are shown is the window's `Shell` (`rules.path`).
 
+pub(in crate::ui) mod apply;
 mod away;
 mod conditions;
 mod editor;

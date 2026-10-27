@@ -220,3 +220,10 @@ pub const ADD_MEMBERS: &str = "Add people by address";
 
 /// The file dialog's filter for a contact's photo.
 pub const PICTURE_FILES: &str = "Picture";
+
+/// A Reply rule's field: the days it leaves before it answers the same sender again.
+pub const REPLY_AGAIN_AFTER: &str = "Reply again after (days)";
+
+/// What that field means.
+pub const REPLY_AGAIN_FOOTER: &str =
+    "A sender is answered once, then again only after this many days.";

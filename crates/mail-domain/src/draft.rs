@@ -113,6 +113,11 @@ pub struct Draft {
     /// drafts persisted before delivery reports existed still load, asking for none.
     #[serde(default)]
     pub delivery: DeliveryReport,
+    /// Whether a rule made it, not a person: it goes out with `Auto-Submitted: auto-replied`
+    /// (RFC 3834), so another machine's rule knows not to answer it. Defaulted so drafts
+    /// persisted before rules sent mail load as a person's.
+    #[serde(default)]
+    pub automatic: bool,
     pub state: SendState,
     pub updated: DateTime<Utc>,
 }
@@ -185,6 +190,7 @@ impl Draft {
             smime: Smime::None,
             priority: Priority::Normal,
             delivery: DeliveryReport::Unrequested,
+            automatic: false,
             state: SendState::Editing,
             updated: now,
         }
@@ -220,6 +226,7 @@ impl Draft {
             smime: Smime::None,
             priority: Priority::Normal,
             delivery: DeliveryReport::Unrequested,
+            automatic: false,
             state: SendState::Editing,
             updated: now,
         }
@@ -253,6 +260,7 @@ impl Draft {
             smime: Smime::None,
             priority: Priority::Normal,
             delivery: DeliveryReport::Unrequested,
+            automatic: false,
             state: SendState::Editing,
             updated: now,
         }

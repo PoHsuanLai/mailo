@@ -36,6 +36,25 @@ pub struct Rule {
     /// What to do, in order. A rule with none only matters for [`AfterMatch::Stop`].
     pub actions: Vec<RuleAction>,
     pub after: AfterMatch,
+    /// When the rule was made. A rule that sends mail (Reply, Forward) answers only mail dated
+    /// after it, so mail downloaded again, or fetched anew after a mailbox's UIDVALIDITY reset,
+    /// never sends the history.
+    #[serde(default = "epoch")]
+    pub made: DateTime<Utc>,
+    /// A Reply answers one sender at most once in this many days.
+    #[serde(default = "default_reply_days")]
+    pub reply_days: u32,
+}
+
+/// How many days a Reply rule leaves between two answers to one sender.
+pub const DEFAULT_REPLY_DAYS: u32 = 4;
+
+fn default_reply_days() -> u32 {
+    DEFAULT_REPLY_DAYS
+}
+
+fn epoch() -> DateTime<Utc> {
+    DateTime::<Utc>::UNIX_EPOCH
 }
 
 /// Whether a rule runs.

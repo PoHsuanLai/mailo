@@ -253,6 +253,7 @@ fn draft() -> Draft {
         smime: mail_domain::Smime::None,
         priority: mail_domain::Priority::Normal,
         delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: now(),
     }
@@ -548,6 +549,7 @@ async fn a_delivery_receipt_reaches_rcpt_to_where_the_server_offers_dsn() {
         let it = open(port, 1);
         let asking = Draft {
             delivery: DeliveryReport::Requested,
+            automatic: false,
             ..it.draft.clone()
         };
         queue(&it.store, &asking, None);

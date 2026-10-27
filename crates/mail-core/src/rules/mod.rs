@@ -7,6 +7,7 @@
 //! it can run there too; see [`server`].
 
 pub mod block;
+pub mod guard;
 pub mod manage;
 pub mod server;
 pub mod speak;
@@ -197,6 +198,8 @@ pub fn run(
                 filter,
                 actions: actions.clone(),
                 after: *after,
+                made: Utc::now(),
+                reply_days: mail_domain::rule::DEFAULT_REPLY_DAYS,
             };
             store.put_rule(&rule)?;
             Ok(RulesDone::Added {

@@ -482,6 +482,7 @@ impl Page {
             receipt: self.receipt,
             priority: self.priority,
             delivery: self.delivery,
+            automatic: false,
             openpgp: self.protection.openpgp(),
             smime: self.protection.smime(),
             updated: now,

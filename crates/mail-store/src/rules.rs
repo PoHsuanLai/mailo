@@ -31,7 +31,20 @@ pub struct Ran {
     pub muted: Vec<MessageId>,
     /// What rules asked of a message that a store cannot do: send mail about it, or raise a
     /// notification ([`RuleAction::speaks`]). The caller carries them out, in order.
-    pub left: Vec<(MessageId, RuleAction)>,
+    pub left: Vec<Left>,
+}
+
+/// One thing a rule asked of a message that only a running client can do, with what the rule
+/// says about doing it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Left {
+    pub message: MessageId,
+    pub action: RuleAction,
+    pub rule: mail_domain::RuleId,
+    /// When the rule was made: it sends only for mail dated after.
+    pub made: DateTime<Utc>,
+    /// For a Reply, the days it leaves between two answers to one sender.
+    pub reply_days: u32,
 }
 
 impl Ran {
@@ -124,7 +137,7 @@ pub fn muted<S: Store + ?Sized>(
 
 /// Whether a run carries out the actions that send mail or raise a notification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Speaking {
+pub enum Speaking {
     /// Mail arriving, or messages the user picked: what such an action is for.
     Yes,
     /// The mail already here, in bulk: a forward of every old invoice, or a notification for
@@ -202,13 +215,14 @@ pub fn run_now<S: Store + ?Sized>(
 }
 
 /// Run the account's enabled rules, in order, over messages the user picked: Mail's Apply
-/// Rules. Every action is carried out, those that send or notify included, as they would be
-/// had the messages just arrived. Messages on another account, or gone, are skipped.
+/// Rules. Every action is carried out, those that send or notify included unless `speaking` is
+/// [`Speaking::No`], as they would be had the messages just arrived. Messages on another account, or gone, are skipped.
 pub fn apply_to<S: Store + ?Sized>(
     store: &S,
     account: AccountId,
     caps: &AccountCaps,
     picked: &[MessageId],
+    speaking: Speaking,
     now: DateTime<Utc>,
 ) -> Result<Ran, StoreError> {
     let rules = store.rules(account.clone())?;
@@ -226,7 +240,7 @@ pub fn apply_to<S: Store + ?Sized>(
         if message.account != account {
             continue;
         }
-        ran.absorb(act(store, caps, &ordered, message, Speaking::Yes, now)?);
+        ran.absorb(act(store, caps, &ordered, message, speaking, now)?);
     }
     Ok(ran)
 }
@@ -272,7 +286,13 @@ fn act<S: Store + ?Sized>(
         for action in &rule.actions {
             if action.speaks() {
                 if speaking == Speaking::Yes {
-                    ran.left.push((message.id, action.clone()));
+                    ran.left.push(Left {
+                        message: message.id,
+                        action: action.clone(),
+                        rule: rule.id,
+                        made: rule.made,
+                        reply_days: rule.reply_days,
+                    });
                 }
                 continue;
             }

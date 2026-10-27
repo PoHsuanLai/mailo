@@ -434,6 +434,28 @@ fn RuleEditor(
                     }
                 }
         }
+        // How often one sender is answered again, for a rule that replies.
+        if draft.actions.iter().any(|a| matches!(a, RuleAction::Reply(_))) {
+            FormSection {
+                footer: Some(copy::fields::REPLY_AGAIN_FOOTER.to_owned()),
+                FieldRow {
+                    label: copy::fields::REPLY_AGAIN_AFTER,
+                    TextField {
+                        label: copy::fields::REPLY_AGAIN_AFTER.to_owned(),
+                        value: draft.reply_days.to_string(),
+                        placeholder: mail_client::rules::manage::DEFAULT_REPLY_DAYS.to_string(),
+                        common: classed("rules-field"),
+                        oninput: move |value: String| {
+                            if let Some(draft) = editing.write().as_mut()
+                                && let Ok(days) = value.trim().parse::<u32>()
+                            {
+                                draft.reply_days = days.clamp(1, 365);
+                            }
+                        },
+                    }
+                }
+            }
+        }
         FormSection {
             FieldRow {
                 label: "After it matches",

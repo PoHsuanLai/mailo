@@ -390,9 +390,15 @@ mod rules_manage {
         pub fn apply_to(
             &self,
             threads: &[mail_domain::ThreadId],
+            sending: Sending,
             now: DateTime<Utc>,
         ) -> Result<usize, CoreError> {
-            mail_core::rules::manage::apply_to(self.0.store(), threads, now)
+            mail_core::rules::manage::apply_to(self.0.store(), threads, sending, now)
+        }
+
+        /// `mail_core::rules::manage::would_send`.
+        pub fn would_send(&self, threads: &[mail_domain::ThreadId]) -> bool {
+            mail_core::rules::manage::would_send(self.0.store(), threads)
         }
     }
 }

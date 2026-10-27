@@ -41,6 +41,8 @@ fn folders() -> AccountCaps {
 
 fn rule(position: u32, name: &str, filter: Filter, actions: Vec<RuleAction>) -> Rule {
     Rule {
+        made: Default::default(),
+        reply_days: 4,
         id: RuleId::generate(),
         account: acct_account(),
         name: name.to_owned(),
@@ -777,8 +779,12 @@ fn speaking<S: Store>(store: &S, raw: BlobId) -> Spoken {
     let patch = store.ingest(acct_account(), ingest(vec![boss])).unwrap();
     let ran = rules::at_arrival(store, acct_account(), &gmail(), &arrived(&patch), at(10)).unwrap();
     let left = |ran: &Ran| -> Vec<RuleAction> {
-        assert!(ran.left.iter().all(|(on, _)| *on == id), "{:?}", ran.left);
-        ran.left.iter().map(|(_, action)| action.clone()).collect()
+        assert!(
+            ran.left.iter().all(|one| one.message == id),
+            "{:?}",
+            ran.left
+        );
+        ran.left.iter().map(|one| one.action.clone()).collect()
     };
     let state = state(store, id);
     let boss_rule = store.rules(acct_account()).unwrap().remove(0);
@@ -792,8 +798,24 @@ fn speaking<S: Store>(store: &S, raw: BlobId) -> Spoken {
         &mut |_| {},
     )
     .unwrap();
-    let picked = rules::apply_to(store, acct_account(), &gmail(), &[id], at(30)).unwrap();
-    let other = rules::apply_to(store, acct_other(), &gmail(), &[id], at(40)).unwrap();
+    let picked = rules::apply_to(
+        store,
+        acct_account(),
+        &gmail(),
+        &[id],
+        rules::Speaking::Yes,
+        at(30),
+    )
+    .unwrap();
+    let other = rules::apply_to(
+        store,
+        acct_other(),
+        &gmail(),
+        &[id],
+        rules::Speaking::Yes,
+        at(40),
+    )
+    .unwrap();
     Spoken {
         arrival: left(&ran),
         state,

@@ -161,8 +161,9 @@ pub mod rules {
     pub use mail_core::rules::ListedRule;
     pub mod manage {
         pub use mail_core::rules::manage::{
-            ConditionError, Draft, SaveError, Step, read_condition,
+            ConditionError, Draft, SaveError, Sending, Step, read_condition,
         };
+        pub use mail_domain::rule::DEFAULT_REPLY_DAYS;
     }
     pub mod server {
         pub use mail_core::rules::server::{

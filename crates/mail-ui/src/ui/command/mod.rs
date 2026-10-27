@@ -201,8 +201,7 @@ fn run_action(
                 return;
             }
             let client = crate::ui::live::client();
-            let said = super::rules::work::apply_to(&client, &targets, chrono::Utc::now());
-            super::motion::tell(said, super::motion::Follow::Nothing);
+            super::rules::apply::apply_or_ask(&client, shell, targets);
         }
         CommandId::Print => {
             close(shell);

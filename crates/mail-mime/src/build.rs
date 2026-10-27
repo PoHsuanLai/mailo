@@ -294,6 +294,10 @@ fn write(
             .header("X-Priority", Raw::new(x_priority))
             .header("Importance", Raw::new(importance));
     }
+    // What a rule sent says so (RFC 3834), so no other machine's rule answers it in turn.
+    if draft.automatic {
+        builder = builder.header("Auto-Submitted", Raw::new("auto-replied"));
+    }
     // No HTML part is a plain-text message: `text/plain` alone, not `multipart/alternative`.
     if let Some(html) = draft.html.as_deref() {
         builder = builder.html_body(html);

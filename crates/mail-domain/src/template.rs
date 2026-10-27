@@ -113,6 +113,7 @@ impl Template {
             // message as it goes out; a template is the words, kept for many.
             priority: crate::priority::Priority::Normal,
             delivery: crate::receipt::DeliveryReport::Unrequested,
+            automatic: false,
             state: SendState::Editing,
             updated: now,
         }
@@ -162,6 +163,7 @@ mod tests {
             smime: Smime::Sign,
             priority: crate::priority::Priority::High,
             delivery: crate::receipt::DeliveryReport::Requested,
+            automatic: false,
             state: SendState::Sent {
                 at: at(8),
                 message: None,

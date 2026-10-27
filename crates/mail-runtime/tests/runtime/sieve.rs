@@ -150,6 +150,8 @@ fn auth() -> SieveAuth {
 
 fn rule(position: u32, name: &str, filter: Filter, actions: Vec<RuleAction>) -> Rule {
     Rule {
+        made: Default::default(),
+        reply_days: 4,
         id: RuleId::generate(),
         account: acct_account(),
         name: name.to_owned(),

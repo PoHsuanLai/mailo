@@ -529,6 +529,12 @@ pub(super) fn App() -> Element {
             return;
         }
         // Tidy Up likewise: Esc cancels it, and only its button archives.
+        if shell.read().applying_rules.is_some() {
+            if key == "Escape" {
+                super::rules::apply::close(shell);
+            }
+            return;
+        }
         if shell.read().tidying.is_some() {
             if key == "Escape" {
                 super::tidy::close(shell);
@@ -873,6 +879,9 @@ pub(super) fn App() -> Element {
             }
             if shell.read().destroying.is_some() {
                 super::destroy::DestroyAlert { shell }
+            }
+            if shell.read().applying_rules.is_some() {
+                super::rules::apply::ApplyRulesAlert { shell }
             }
             if shell.read().tidying.is_some() {
                 super::tidy::TidySheet { shell }

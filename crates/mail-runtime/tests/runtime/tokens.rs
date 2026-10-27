@@ -764,6 +764,7 @@ fn queued(graph_port: u16, registration: ClientEntry, graph: Credential) -> Send
         smime: mail_domain::Smime::None,
         priority: mail_domain::Priority::Normal,
         delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: t0(),
     };

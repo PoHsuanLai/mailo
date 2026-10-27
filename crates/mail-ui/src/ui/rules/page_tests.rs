@@ -696,3 +696,61 @@ async fn undo_puts_a_deleted_rule_back_as_it_was() {
         "the rule is back in the store and not on the page"
     );
 }
+
+/// A rule that replies says how many days it leaves before it answers one sender again, four
+/// by default and kept as typed; a rule that does not reply has no such field.
+#[tokio::test]
+async fn a_replying_rule_has_the_days_between_answers() {
+    dispatching();
+    let (store, _dir) = crate::ui::fixtures::empty();
+    let row = own_server(&store);
+    let client = crate::ui::fixtures::client(&store);
+    let mut ids = Vec::new();
+    for (name, actions) in [
+        ("Away", vec![RuleAction::Reply("Away".to_owned())]),
+        ("Filed", vec![RuleAction::Archive]),
+    ] {
+        let draft = Draft {
+            name: name.to_owned(),
+            query: "from:boss@example.test".to_owned(),
+            actions,
+            ..Draft::blank()
+        };
+        ids.push(
+            work::save(&client, row.id.clone(), &draft, &Utc)
+                .unwrap()
+                .id,
+        );
+    }
+    assert_eq!(
+        work::listed(&client, row.id.clone()).unwrap()[0]
+            .rule
+            .reply_days,
+        4
+    );
+
+    let (push, _) = counting();
+    let mut dom = sheet_at(&store, row.id.clone(), push, RulesAt::Rule(Some(ids[0])));
+    let seen = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await
+    };
+    type_into(&mut dom, seen.one("aria-placeholder", "4"), "9");
+    click(&mut dom, seen.one("aria-label", copy::aria::SAVE_RULE));
+    landed(&mut dom, Seen::default()).await;
+    let kept = work::listed(&client, row.id.clone()).unwrap();
+    let away = kept.iter().find(|l| l.rule.id == ids[0]).unwrap();
+    assert_eq!(away.rule.reply_days, 9, "the days were not kept");
+
+    let (push, _) = counting();
+    let mut dom = sheet_at(&store, row.id, push, RulesAt::Rule(Some(ids[1])));
+    let page = {
+        let first = rebuild_into(&mut dom);
+        landed(&mut dom, first).await;
+        dioxus_ssr::render(&dom)
+    };
+    assert!(
+        !page.contains(copy::fields::REPLY_AGAIN_AFTER),
+        "an archive rule has no days"
+    );
+}

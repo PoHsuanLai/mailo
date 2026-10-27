@@ -102,3 +102,9 @@ pub fn delete_group(name: &str) -> String {
 pub const DELETE_CONTACT_KEEPS: &str = "Mail from and to them is kept. This can’t be undone.";
 /// What deleting a group leaves.
 pub const DELETE_GROUP_KEEPS: &str = "The people in it stay in Contacts. This can’t be undone.";
+
+/// Asked before Apply Rules on conversations when a rule of the account replies or forwards.
+pub const APPLY_RULES_SENDS: &str = "Apply Rules and Send Mail?";
+
+/// What applying rules that reply or forward does.
+pub const APPLY_RULES_SENDS_BODY: &str = "Some of your rules reply to or forward mail. Applying them to these conversations can send mail. Mail that comes from a list, a machine or yourself is never answered.";

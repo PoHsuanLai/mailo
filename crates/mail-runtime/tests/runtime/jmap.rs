@@ -758,6 +758,7 @@ async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_non
             smime: Smime::None,
             priority: Priority::Normal,
             delivery: DeliveryReport::Unrequested,
+            automatic: false,
             state: SendState::Editing,
             updated: now(),
         };

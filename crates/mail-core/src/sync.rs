@@ -1190,7 +1190,12 @@ async fn pass_on<B: mail_proto::Backend>(
         Ok(ran) => {
             done.counts.ruled.extend(ran.acted);
             // Forwards and replies are queued before the drain, so they leave in this pass.
-            let noted = crate::rules::speak::carry_out(engine.store(), &ran.left, now);
+            let noted = crate::rules::speak::carry_out(
+                engine.store(),
+                &ran.left,
+                crate::rules::guard::Occasion::Arrival,
+                now,
+            );
             done.counts.noted.extend(noted);
         }
         Err(e) => done.trouble(None, e.retry(), format!("rules: {e}")),

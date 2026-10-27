@@ -10,7 +10,8 @@ use mail_domain::{Rule, RuleId, Vacation};
 use porter_core::AccountId;
 use rusqlite::{OptionalExtension, params};
 
-const RULE_COLUMNS: &str = "id, account, name, position, state, filter, actions, after";
+const RULE_COLUMNS: &str =
+    "id, account, name, position, state, filter, actions, after, made_at, reply_days";
 
 impl SqliteStore {
     pub(super) fn load_rules(&self, account: AccountId) -> Result<Vec<Rule>, StoreError> {
@@ -31,6 +32,8 @@ impl SqliteStore {
                 filter: json("Rule.filter", &row.get::<_, String>(5)?)?,
                 actions: json("Rule.actions", &row.get::<_, String>(6)?)?,
                 after: json("AfterMatch", &row.get::<_, String>(7)?)?,
+                made: super::row::time("Rule.made_at", &row.get::<_, String>(8)?)?,
+                reply_days: row.get(9)?,
             });
         }
         Ok(out)
@@ -51,12 +54,14 @@ impl SqliteStore {
             return Err(StoreError::RuleNameTaken(rule.name.clone()));
         }
         db.execute(
-            "INSERT INTO rules (id, account, name, position, state, filter, actions, after)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO rules (id, account, name, position, state, filter, actions, after,
+                                made_at, reply_days)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT (id) DO UPDATE SET
                  account = excluded.account, name = excluded.name,
                  position = excluded.position, state = excluded.state,
-                 filter = excluded.filter, actions = excluded.actions, after = excluded.after",
+                 filter = excluded.filter, actions = excluded.actions, after = excluded.after,
+                 made_at = excluded.made_at, reply_days = excluded.reply_days",
             params![
                 rule.id.to_string(),
                 rule.account.to_string(),
@@ -66,9 +71,41 @@ impl SqliteStore {
                 to_json("Rule.filter", &rule.filter)?,
                 to_json("Rule.actions", &rule.actions)?,
                 to_json("AfterMatch", &rule.after)?,
+                from_time(rule.made),
+                rule.reply_days,
             ],
         )?;
         Ok(())
+    }
+
+    /// Whether `rule` may answer `sender` now, and if so, that it has: one answer to a sender
+    /// at most once in `within`. Checked and written together, so two passes cannot both answer.
+    pub fn claim_reply(
+        &self,
+        rule: RuleId,
+        sender: &str,
+        now: DateTime<Utc>,
+        within: chrono::TimeDelta,
+    ) -> Result<bool, StoreError> {
+        let db = self.touch(Topics::RULES);
+        let sender = sender.trim().to_ascii_lowercase();
+        let last: Option<String> = db
+            .query_row(
+                "SELECT replied_at FROM rule_replied WHERE rule = ?1 AND sender = ?2",
+                params![rule.to_string(), sender],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(last) = last
+            && now < super::row::time("rule_replied.replied_at", &last)? + within
+        {
+            return Ok(false);
+        }
+        db.execute(
+            "INSERT OR REPLACE INTO rule_replied (rule, sender, replied_at) VALUES (?1, ?2, ?3)",
+            params![rule.to_string(), sender, from_time(now)],
+        )?;
+        Ok(true)
     }
 
     pub(super) fn remove_rule(&self, id: RuleId) -> Result<(), StoreError> {

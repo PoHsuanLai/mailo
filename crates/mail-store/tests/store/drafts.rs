@@ -60,6 +60,7 @@ fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
         // Not the defaults, so a column the store forgot reads back as a difference.
         priority: mail_domain::Priority::High,
         delivery: mail_domain::DeliveryReport::Requested,
+        automatic: false,
         state: SendState::Editing,
         updated: at(10),
     }

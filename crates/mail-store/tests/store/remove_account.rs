@@ -237,6 +237,7 @@ fn a_blob_a_kept_draft_attaches_stays() {
         smime: Smime::None,
         priority: mail_domain::Priority::Normal,
         delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: at(2),
     };

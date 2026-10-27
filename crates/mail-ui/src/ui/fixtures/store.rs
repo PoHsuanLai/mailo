@@ -140,6 +140,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
                     smime: mail_domain::Smime::None,
                     priority: mail_domain::Priority::Normal,
                     delivery: mail_domain::DeliveryReport::Unrequested,
+                    automatic: false,
                     state: SendState::Editing,
                     updated: chrono::Utc::now(),
                 }))],

@@ -469,6 +469,7 @@ fn a_delivery_report_is_asked_of_the_envelope_and_never_of_the_bytes() {
     assert_eq!(asked.delivery, DeliveryReport::Requested);
     let unasked = Draft {
         delivery: DeliveryReport::Unrequested,
+        automatic: false,
         ..asking.clone()
     };
     let plain = posting(&unasked, &me, None, &[]).unwrap();

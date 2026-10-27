@@ -700,6 +700,9 @@ pub struct Shell {
     pub keyboard: KeyboardPage,
     /// The Delete forever / Empty Trash confirmation while it is open. `None` is closed.
     pub destroying: Option<crate::ui::bin::Destroying>,
+    /// The conversations Apply Rules is asking about, while its alert is open: a rule of theirs
+    /// replies or forwards, and the person says whether it may. `None` is closed.
+    pub applying_rules: Option<Vec<ThreadId>>,
     /// The Tidy Up sheet while it is open, at the age chosen. `None` is closed.
     pub tidying: Option<crate::ui::tidy::Age>,
     /// A new message was asked for with no account to send it from: the alert that says so,
@@ -879,6 +882,7 @@ impl Default for Shell {
             vacation_pane: PanePath::new(VacationAt::List),
             settings: None,
             destroying: None,
+            applying_rules: None,
             tidying: None,
             no_account: false,
             undo: mail_client::undo::UndoStack::default(),

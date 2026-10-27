@@ -66,9 +66,10 @@ pub(in crate::ui) fn matching(
 pub(in crate::ui) fn apply_to(
     client: &Client,
     threads: &[mail_domain::ThreadId],
+    sending: mail_client::rules::manage::Sending,
     now: DateTime<Utc>,
 ) -> String {
-    match client.rules_manage().apply_to(threads, now) {
+    match client.rules_manage().apply_to(threads, sending, now) {
         Ok(acted) => copy::status::rules_applied(acted),
         Err(why) => copy::status::rules_not_applied(&why.to_string()),
     }

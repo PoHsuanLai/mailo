@@ -301,6 +301,7 @@ fn draft() -> Draft {
         smime: Smime::None,
         priority: Priority::Normal,
         delivery: DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: now(),
     }

@@ -424,6 +424,7 @@ fn draft(to: Vec<Address>, subject: &str) -> Draft {
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
         delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         priority: mail_domain::Priority::Normal,
     }
 }

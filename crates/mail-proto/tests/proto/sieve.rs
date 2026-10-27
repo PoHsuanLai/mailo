@@ -24,6 +24,8 @@ fn at(day: u32) -> DateTime<Utc> {
 
 fn rule(position: u32, name: &str, filter: Filter, actions: Vec<RuleAction>) -> Rule {
     Rule {
+        made: Default::default(),
+        reply_days: 4,
         id: RuleId::from_uuid(uuid::Uuid::from_u128(u128::from(position) + 100)),
         account: account(),
         name: name.to_owned(),

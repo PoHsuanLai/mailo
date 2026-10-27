@@ -807,6 +807,7 @@ mod sending_apart {
             smime: Smime::None,
             priority: mail_domain::Priority::Normal,
             delivery: mail_domain::DeliveryReport::Unrequested,
+            automatic: false,
             state: SendState::Editing,
             updated: now(),
         };
