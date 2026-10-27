@@ -11,7 +11,7 @@ use crate::error::CoreError;
 use crate::error::Logged;
 use mail_domain::filter::search_tokens;
 use mail_pim::vcard::{self, Member};
-use mail_store::{Contact, Edit, Group, GroupHome, GroupId, Store};
+use mail_store::{Contact, Group, GroupHome, GroupId, Store};
 use std::collections::BTreeSet;
 
 /// How many groups the To and Cc menus offer above the people.
@@ -93,8 +93,8 @@ struct Named {
     address: String,
 }
 
-/// What members are resolved against: every synced card with a `UID` and an address, and every
-/// group.
+/// What members are resolved against: every synced card and every card made here with a `UID`
+/// and an address, and every group.
 struct Index {
     cards: Vec<Named>,
     groups: Vec<Group>,
@@ -123,6 +123,26 @@ impl Index {
                     address: address.clone(),
                 });
             }
+        }
+        // A card made or imported here, which a group's `MEMBER` may name by its `UID` as well.
+        for person in store
+            .cards()
+            .or_log_default("the people's cards could not be read")
+            .into_iter()
+            .filter(|person| person.home == GroupHome::Local)
+        {
+            let parsed = vcard::parse(&person.vcard).into_iter().next();
+            let (Some(uid), Some(address)) = (
+                parsed.as_ref().and_then(|card| card.uid.clone()),
+                person.addresses.first(),
+            ) else {
+                continue;
+            };
+            cards.push(Named {
+                key: vcard::uid_key(&uid),
+                name: Some(person.name.clone()),
+                address: address.clone(),
+            });
         }
         Self {
             cards,
@@ -279,9 +299,7 @@ pub fn create(store: &dyn Store, name: &str) -> Result<Group, GroupError> {
 /// Store `group` as the user changed it. A synced one is marked edited, so the next sync of its
 /// book writes it back as a `KIND:group` card.
 fn keep(store: &dyn Store, mut group: Group) -> Result<Group, GroupError> {
-    if let GroupHome::Book { edit, .. } = &mut group.home {
-        *edit = Edit::Edited;
-    }
+    group.home = group.home.edited();
     store.put_group(&group)?;
     Ok(group)
 }

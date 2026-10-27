@@ -256,6 +256,10 @@ pub const COPY: &str = "Copy";
 // A label's ⋯ in the sidebar, and its editor's first colour.
 pub const EDIT_LABEL: &str = "Edit Label…";
 pub const NO_COLOUR: &str = "None";
+pub const ADD_TO_CONTACTS: &str = "Add to Contacts";
+pub const SHOW_CONTACT_CARD: &str = "Show Contact Card";
+/// ⌘K's way to Settings › Contacts.
+pub const OPEN_CONTACTS: &str = "Contacts";
 
 // A link's menu, at the pointer, in the Mac's order.
 pub const OPEN_LINK: &str = "Open Link";

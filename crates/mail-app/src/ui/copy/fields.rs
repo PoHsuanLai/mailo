@@ -204,3 +204,19 @@ pub const SIGNATURE_NAME: &str = "Signature name";
 pub const DEFAULT_FOR_NEW_MESSAGES: &str = "Default for new messages";
 /// The switch that starts every reply and forward with it.
 pub const DEFAULT_FOR_REPLIES: &str = "Default for replies";
+// A person's card in Settings › Contacts, and a group's page.
+pub const FIND_CONTACTS: &str = "Search contacts";
+pub const ANOTHER_EMAIL: &str = "Add an address";
+pub const ANOTHER_PHONE: &str = "Add a number";
+pub const STREET: &str = "Street";
+pub const CITY: &str = "City";
+pub const REGION: &str = "State or region";
+pub const POSTAL_CODE: &str = "Postal code";
+pub const COUNTRY: &str = "Country";
+pub const NOTE: &str = "Note";
+pub const PHOTO: &str = "Photo";
+pub const GROUP_NAME: &str = "Group name";
+pub const ADD_MEMBERS: &str = "Add people by address";
+
+/// The file dialog's filter for a contact's photo.
+pub const PICTURE_FILES: &str = "Picture";

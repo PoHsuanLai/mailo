@@ -66,3 +66,8 @@ pub const TO_ARCHIVE: &str = "To archive";
 /// The format bar's Paragraph menu: its alignment rows, then its levels.
 pub const ALIGNMENT: &str = "Alignment";
 pub const LEVELS: &str = "Levels";
+// Settings › Contacts: its two lists, and a card's postal addresses.
+pub const PEOPLE: &str = "People";
+pub const GROUPS: &str = "Groups";
+pub const ADDRESSES: &str = "Addresses";
+pub const MEMBERS: &str = "Members";

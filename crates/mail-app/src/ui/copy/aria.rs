@@ -189,3 +189,16 @@ pub const TEXT_SIZE: &str = "Text Size";
 pub const TEXT_COLOUR: &str = "Text Colour";
 /// The pull-down of alignment, indentation and quote level.
 pub const PARAGRAPH: &str = "Paragraph";
+/// Settings › Contacts: the rows that add a card and a group.
+pub const ADD_A_CONTACT: &str = "Add a contact";
+pub const ADD_A_GROUP: &str = "Add a group";
+
+/// A member's remove button on a group's page.
+pub fn remove_member(who: &str) -> String {
+    format!("Remove {who} from the group")
+}
+
+/// A card's photo, where it stands for the person.
+pub fn photo_of(name: &str) -> String {
+    format!("Photo of {name}")
+}

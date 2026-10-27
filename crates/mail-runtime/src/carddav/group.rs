@@ -7,7 +7,7 @@ use mail_pim::vcard::{self, CardKind};
 use mail_store::{AddressBook, BookCard, Edit, Group, GroupHome, GroupId, Store};
 use url::Url;
 
-/// A group edited here that one sync did not write back.
+/// A group or a person's card edited here that one sync did not write back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unwritten {
     pub name: String,
@@ -121,15 +121,7 @@ pub(super) fn put_group<S: Store + ?Sized>(
         return Ok(());
     };
     let held = store.group(&id)?;
-    let edited = held.as_ref().filter(|g| {
-        matches!(
-            g.home,
-            GroupHome::Book {
-                edit: Edit::Edited,
-                ..
-            }
-        )
-    });
+    let edited = held.as_ref().filter(|g| g.home.is_edited());
     let group = match edited {
         Some(edited) => Group {
             uid: card.uid.clone(),

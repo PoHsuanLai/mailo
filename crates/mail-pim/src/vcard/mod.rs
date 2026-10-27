@@ -11,10 +11,12 @@
 //! names nothing this program knows is still a member, and is written back as it was read.
 
 mod member;
+mod postal;
 mod read;
 mod write;
 
 pub use member::{Member, uid_key};
+pub use postal::Postal;
 
 pub use read::{parse, parse_bytes};
 pub use write::{write, write_all};

@@ -303,6 +303,7 @@ mod tests {
             cards: 2,
             addresses: 1,
             groups: 0,
+            people: 2,
             empty: 1,
         });
         assert!(
@@ -314,6 +315,7 @@ mod tests {
             cards: 2,
             addresses: 1,
             groups: 1,
+            people: 1,
             empty: 0,
         });
         assert!(said.contains("imported 1 group"), "{said}");

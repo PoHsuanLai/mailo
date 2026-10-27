@@ -14,7 +14,7 @@ use dioxus::dioxus_core::{self, VirtualDom};
 use std::sync::{Arc, Mutex};
 
 /// The Settings window over `built`, on `page`.
-pub(super) fn opened_on(built: &Work, page: SettingsPage) -> (VirtualDom, Seen) {
+pub(in crate::ui) fn opened_on(built: &Work, page: SettingsPage) -> (VirtualDom, Seen) {
     dispatching();
     let mut dom = VirtualDom::new(settings_root)
         .with_root_context(built.store.clone())
@@ -357,6 +357,10 @@ const PAGES: &[(SettingsPage, &str)] = &[
         SettingsPage::Accounts,
         crate::ui::copy::controls::ADD_ACCOUNT,
     ),
+    (
+        SettingsPage::Contacts,
+        crate::ui::copy::controls::NEW_CONTACT,
+    ),
     (SettingsPage::Signatures, "id=\"signatures-pane\""),
     (SettingsPage::Spaces, crate::ui::copy::controls::NEW_SPACE),
     (SettingsPage::Composing, "Check spelling"),
@@ -369,12 +373,13 @@ const PAGES: &[(SettingsPage, &str)] = &[
 ];
 
 #[test]
-fn settings_has_11_pages_in_that_order() {
+fn settings_has_12_pages_in_that_order() {
     assert_eq!(
         SettingsPage::ALL.map(SettingsPage::name),
         [
             crate::ui::copy::titles::GENERAL,
             crate::ui::copy::titles::ACCOUNTS,
+            crate::ui::copy::titles::CONTACTS,
             crate::ui::copy::titles::SIGNATURES,
             crate::ui::copy::titles::SPACES,
             crate::ui::copy::titles::COMPOSING,

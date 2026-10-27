@@ -6,6 +6,7 @@
 
 mod account_prefs;
 mod accounts;
+mod cards;
 mod concurrency;
 mod contacts;
 mod destroy;

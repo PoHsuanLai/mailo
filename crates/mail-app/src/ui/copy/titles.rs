@@ -75,3 +75,6 @@ pub const NOT_SET_ASIDE: &str = "The Files Weren’t Set Aside";
 pub const ALL_HEADERS: &str = "All Headers";
 /// The sheet that shows the whole message as it came.
 pub const MESSAGE_SOURCE: &str = "Message Source";
+
+/// Settings' address book: its sidebar row and the root of its pane.
+pub const CONTACTS: &str = "Contacts";

@@ -10,6 +10,7 @@ mod draft;
 mod folders;
 mod forget;
 pub use forget::Freed;
+mod cards;
 mod found;
 mod graph_push;
 mod groups;
@@ -1306,6 +1307,26 @@ impl Store for SqliteStore {
 
     fn delete_group(&self, id: &crate::GroupId) -> Result<bool, StoreError> {
         self.drop_group(id)
+    }
+
+    fn cards(&self) -> Result<Vec<crate::PersonCard>, StoreError> {
+        self.every_card()
+    }
+
+    fn card(&self, id: &crate::CardId) -> Result<Option<crate::PersonCard>, StoreError> {
+        self.one_card(id)
+    }
+
+    fn card_of(&self, address: &str) -> Result<Option<crate::PersonCard>, StoreError> {
+        self.card_listing(address)
+    }
+
+    fn put_card(&self, card: &crate::PersonCard) -> Result<(), StoreError> {
+        self.write_card(card)
+    }
+
+    fn delete_card(&self, id: &crate::CardId) -> Result<bool, StoreError> {
+        self.drop_card(id)
     }
 }
 

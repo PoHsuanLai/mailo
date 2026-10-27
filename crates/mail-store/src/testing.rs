@@ -544,6 +544,7 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE threads DROP COLUMN mute;
              ALTER TABLE thread_summary DROP COLUMN mute;
              DROP TABLE contact_groups;
+             DROP TABLE contact_card_addresses; DROP TABLE contact_cards;
              DROP TABLE views;
              DROP TABLE destroyed;
              DROP INDEX thread_summary_follow_up;

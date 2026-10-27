@@ -70,6 +70,28 @@ pub enum Edit {
     Edited,
 }
 
+impl GroupHome {
+    /// Whether this is a synced card holding a change the server has not been sent.
+    pub fn is_edited(&self) -> bool {
+        matches!(
+            self,
+            GroupHome::Book {
+                edit: Edit::Edited,
+                ..
+            }
+        )
+    }
+
+    /// This home with its change marked as not yet sent; a local one is left as it is.
+    #[must_use]
+    pub fn edited(mut self) -> Self {
+        if let GroupHome::Book { edit, .. } = &mut self {
+            *edit = Edit::Edited;
+        }
+        self
+    }
+}
+
 impl Group {
     /// The address book a synced group belongs to, `None` for a local one.
     pub fn book(&self) -> Option<&str> {

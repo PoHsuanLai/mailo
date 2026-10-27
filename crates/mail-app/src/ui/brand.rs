@@ -1,4 +1,6 @@
 //! A sender's brand logo in place of their initial: in the reader's head, and on the sender card.
+//! A photo on the sender's card in Contacts comes first: it is the person, where a logo is only
+//! their domain's.
 //!
 //! Found off the thread that draws, once per message and body, like the checks line beside it
 //! (`checks.rs`): the switch, the believed `Authentication-Results` and the cache are read on a
@@ -146,8 +148,29 @@ fn side_of(size: AvatarSize) -> u8 {
     }
 }
 
-/// The message header's avatar: the sender's logo when there is one, else quire's avatar with
-/// their initial. Keyed by its parent on the message and its body, as the checks line is.
+/// The photo on the sender's card in Contacts, read off the thread that draws; `None` before,
+/// and for a sender whose card has none written in.
+fn use_card_photo(from: String) -> Signal<Option<String>> {
+    let mut photo = use_signal(|| None::<String>);
+    let _find = use_resource(move || {
+        let store = consume_context::<Arc<SqliteStore>>();
+        let from = from.clone();
+        async move {
+            let found = tokio::task::spawn_blocking(move || {
+                super::contacts::book::photo(store.as_ref(), &from)
+            })
+            .await;
+            if let Ok(Some(src)) = found {
+                photo.set(Some(src));
+            }
+        }
+    });
+    photo
+}
+
+/// The message header's avatar: the photo on the sender's card when there is one, else their
+/// logo when there is one, else quire's avatar with their initial. Keyed by its parent on the
+/// message and its body, as the checks line is.
 #[component]
 pub(in crate::ui) fn ReaderAvatar(
     message: MessageId,
@@ -155,7 +178,17 @@ pub(in crate::ui) fn ReaderAvatar(
     from: String,
     face: ds::components::content::avatar::AvatarFace,
 ) -> Element {
+    let photo = use_card_photo(from.clone());
     let logo = use_brand_logo(message, body, from.clone());
+    if let Some(src) = photo() {
+        let alt = crate::ui::copy::aria::photo_of(&from);
+        let side = side_of(face.size);
+        return rsx! {
+            div { class: "reader-av reader-logo", style: "width: {side}px; height: {side}px;",
+                img { src: "{src}", alt: "{alt}" }
+            }
+        };
+    }
     match logo() {
         Some(src) => {
             let alt = format!("Logo of {}", domain_of(&from).unwrap_or_default());

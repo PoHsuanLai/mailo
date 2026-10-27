@@ -412,3 +412,12 @@ pub fn searched_in(account: &str) -> String {
 pub fn searched_page_of(place: &str) -> String {
     format!("on this page of {place}")
 }
+
+/// A group's row in Settings › Contacts: how many members it has.
+pub fn members(count: usize) -> String {
+    match count {
+        0 => "No members".to_owned(),
+        1 => "1 member".to_owned(),
+        many => format!("{many} members"),
+    }
+}

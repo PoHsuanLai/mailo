@@ -1,7 +1,9 @@
 //! A person, edited from their name in mail: the reader's sender name, right-clicked, offers Edit
-//! Contact…, and this popover hangs from the name. It holds the one thing a person writes into
-//! the book by hand, the name; Return or Save keeps it ([`book::name`]), and the entry is then
-//! the user's, so mail never renames it. Escape or a click outside leaves the book as it was.
+//! Contact…, and this popover hangs from the name; and Add to Contacts, which makes the sender a
+//! card, or Show Contact Card when one already lists them, which opens it in Settings. The popover
+//! holds the one thing a person writes into the book by hand, the name; Return or Save keeps it
+//! ([`book::name`]), and the entry is then the user's, so mail never renames it. Escape or a click
+//! outside leaves the book as it was.
 
 use std::sync::Arc;
 
@@ -107,6 +109,35 @@ enum Asked {
 /// The keys of the name menu's rows.
 const EDIT: &str = "edit-contact";
 const VIP: &str = "vip";
+const ADD: &str = "add-contact";
+const SHOW: &str = "show-card";
+
+/// The name menu's second row: Show Contact Card when a card lists the sender, else Add to
+/// Contacts.
+fn card_row(address: &str) -> crate::ui::menu::MenuItem {
+    let store = consume_context::<Arc<SqliteStore>>();
+    match book::card_of(store.as_ref(), address) {
+        Some(_) => {
+            crate::ui::menu::MenuItem::icon(SHOW, Icon::Group, copy::menus::SHOW_CONTACT_CARD)
+        }
+        None => crate::ui::menu::MenuItem::icon(ADD, Icon::Plus, copy::menus::ADD_TO_CONTACTS),
+    }
+}
+
+/// Add to Contacts, or Show Contact Card: the sender's card, made if there was none, opened in
+/// Settings › Contacts. A new card is said in a toast.
+fn show_card(address: &str, in_mail: &str) {
+    let store = consume_context::<Arc<SqliteStore>>();
+    match book::add_sender(store.as_ref(), address, in_mail) {
+        Ok((card, said)) => {
+            if let Some(said) = said {
+                tell(said, Follow::Nothing);
+            }
+            crate::ui::settings_window::open_card(card);
+        }
+        Err(why) => tell(why, Follow::Nothing),
+    }
+}
 
 /// A sender's name in the reader's header, in the headline type: `shown`, which is their address
 /// when the mail gave no name (`in_mail` empty), and the VIP mark after it when they are one. A
@@ -125,6 +156,7 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
         Icon::Pen,
         copy::menus::EDIT_CONTACT,
     )];
+    items.push(card_row(&address));
     if let Some(vips) = &vips {
         items.push(crate::ui::menu::MenuItem::icon(
             VIP,
@@ -164,12 +196,18 @@ pub(in crate::ui) fn SenderName(shown: String, in_mail: String, address: String)
                     placed: Some(placed),
                     title: String::new(),
                     items,
-                    on_pick: move |key: String| {
-                        if key == VIP {
-                            asked.set(Asked::Resting);
-                            on_vip();
-                        } else {
-                            asked.set(Asked::Editing);
+                    on_pick: {
+                        let (address, in_mail) = (address.clone(), in_mail.clone());
+                        move |key: String| {
+                            if key == VIP {
+                                asked.set(Asked::Resting);
+                                on_vip();
+                            } else if key == EDIT {
+                                asked.set(Asked::Editing);
+                            } else {
+                                asked.set(Asked::Resting);
+                                show_card(&address, &in_mail);
+                            }
                         }
                     },
                     on_close: move |()| {

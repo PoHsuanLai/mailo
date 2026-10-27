@@ -60,6 +60,7 @@ fn SettingsShell() -> Element {
                 settings: Some(first.page()),
                 accounts_pane: first.pane(),
                 spaces_pane: first.spaces_pane(),
+                contacts_pane: first.contacts_pane(),
                 appearance: try_consume_context::<crate::ui::view::Appearance>()
                     .unwrap_or_default(),
                 keymap: dirs
@@ -124,6 +125,10 @@ fn SettingsShell() -> Element {
         let space_pushed = !shell.read().spaces_pane.is_root();
         if key == "Escape" && space_pushed && shell.read().settings == Some(SettingsPage::Spaces) {
             super::spaces::back(shell, handle);
+        }
+        let card_pushed = !shell.read().contacts_pane.is_root();
+        if key == "Escape" && card_pushed && shell.read().settings == Some(SettingsPage::Contacts) {
+            crate::ui::contacts::page::back(shell);
         }
         let reply_pushed = !shell.read().vacation_pane.is_root();
         if key == "Escape" && reply_pushed && shell.read().settings == Some(SettingsPage::Vacation)

@@ -18,11 +18,7 @@ pub fn imported(done: &Imported) -> String {
         );
     }
     if done.empty > 0 {
-        let _ = writeln!(
-            out,
-            "{} cards had no email address and were skipped",
-            done.empty
-        );
+        let _ = writeln!(out, "{} cards had no email address", done.empty);
     }
     out
 }

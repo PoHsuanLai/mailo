@@ -120,3 +120,7 @@ pub fn not_opened(why: &str) -> String {
 
 /// ⌘K's Redirect…, Reply to List or Edit as New with no conversation open behind it.
 pub const OPEN_ONE_FIRST: &str = "Open a conversation first.";
+/// Add to Contacts made a card.
+pub fn added_to_contacts(name: &str) -> String {
+    format!("Added {name} to Contacts.")
+}

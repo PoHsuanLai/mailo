@@ -41,8 +41,8 @@ pub mod testing;
 pub use account::{AccountPrefs, NewAccount, StoredAccount, Syncing, with_picks};
 pub use blob::Blobs;
 pub use contact::{
-    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally, Vip,
-    no_reply,
+    AddressBook, BookCard, CardId, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin,
+    PersonCard, Tally, Vip, no_reply,
 };
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use file::write_atomic;
@@ -810,6 +810,22 @@ pub trait Store {
 
     /// Forget a contact group. `true` when there was one. Its members stay in the book.
     fn delete_group(&self, id: &GroupId) -> Result<bool, StoreError>;
+
+    /// Every person's card, by name without regard to ASCII case, then by id.
+    fn cards(&self) -> Result<Vec<PersonCard>, StoreError>;
+
+    /// One person's card; `None` when there is none.
+    fn card(&self, id: &CardId) -> Result<Option<PersonCard>, StoreError>;
+
+    /// The card listing `address`, in any case: the first by id when several do. `None` when
+    /// none does, or it is not an address.
+    fn card_of(&self, address: &str) -> Result<Option<PersonCard>, StoreError>;
+
+    /// Add a person's card, or replace the one with its id.
+    fn put_card(&self, card: &PersonCard) -> Result<(), StoreError>;
+
+    /// Forget a person's card. `true` when there was one. Its addresses stay in the book.
+    fn delete_card(&self, id: &CardId) -> Result<bool, StoreError>;
 
     /// Every conversation with a follow-up reminder, waiting or returned, soonest due first and
     /// ties by thread id, on every account.

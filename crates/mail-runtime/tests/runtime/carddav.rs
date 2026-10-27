@@ -887,3 +887,79 @@ async fn a_write_refused_as_stale_leaves_the_edit_for_the_next_sync() {
     assert_eq!(again.written, 1);
     assert_eq!(server.lock().unwrap().puts.len(), 2);
 }
+
+/// A person's card comes down whole, with what nothing here reads; one edited here goes back
+/// over the etag it came with and is synced again; one gone from the server goes from here.
+#[tokio::test]
+async fn a_persons_card_is_kept_whole_written_back_when_edited_and_goes_with_its_card() {
+    use mail_store::CardId;
+    let server: Shared = Arc::default();
+    server.lock().unwrap().put(
+        "ada",
+        "BEGIN:VCARD\r\nVERSION:4.0\r\nUID:ada-1\r\nFN:Ada\r\nEMAIL:ada@example.test\r\n\
+         TEL:+44 1\r\nADR;TYPE=home:;;1 Road;Bath;;;\r\nEND:VCARD\r\n",
+    );
+    let addr = serve(server.clone()).await;
+    let store = MemoryStore::new();
+    let dav = dav(addr, ada());
+    carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    let id = CardId(base(addr, &format!("{BOOK}ada.vcf")).to_string());
+    let held = store.card(&id).unwrap().expect("the card is kept");
+    assert_eq!(held.name, "Ada");
+    assert_eq!(held.addresses, ["ada@example.test"]);
+    assert_eq!(
+        store.card_of("ADA@example.test").unwrap(),
+        Some(held.clone())
+    );
+    let card = mail_pim::vcard::parse(&held.vcard).remove(0);
+    assert_eq!(card.phones[0].number, "+44 1");
+    assert_eq!(card.postal()[0].locality, "Bath");
+    let etag = server.lock().unwrap().cards[&format!("{BOOK}ada.vcf")]
+        .0
+        .clone();
+
+    let mut edited = card.clone();
+    edited.note = Some("met at the society".to_owned());
+    let mut person = carddav::person_card(
+        &edited,
+        mail_pim::vcard::write(&edited),
+        id.clone(),
+        held.home.clone(),
+    );
+    if let GroupHome::Book { edit, .. } = &mut person.home {
+        *edit = Edit::Edited;
+    }
+    store.put_card(&person).unwrap();
+    let done = carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!((done.written, done.unwritten.len()), (1, 0));
+    let (path, if_match, body) = server.lock().unwrap().puts[0].clone();
+    assert_eq!(
+        (path.as_str(), if_match),
+        (format!("{BOOK}ada.vcf").as_str(), Some(etag))
+    );
+    let sent = mail_pim::vcard::parse(&body).remove(0);
+    assert_eq!(sent.note.as_deref(), Some("met at the society"));
+    assert_eq!(
+        sent.postal()[0].street,
+        "1 Road",
+        "what the edit did not touch rides along"
+    );
+    assert!(matches!(
+        store.card(&id).unwrap().unwrap().home,
+        GroupHome::Book {
+            edit: Edit::Synced,
+            ..
+        }
+    ));
+
+    server.lock().unwrap().remove("ada");
+    carddav::sync(&dav, &store, book_at(addr, &store).await)
+        .await
+        .unwrap();
+    assert_eq!(store.card(&id).unwrap(), None);
+    assert_eq!(store.card_of("ada@example.test").unwrap(), None);
+}

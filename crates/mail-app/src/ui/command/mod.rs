@@ -242,6 +242,9 @@ fn run_action(
         CommandId::Contacts(cards) => {
             close(shell);
             match cards {
+                Cards::Open => {
+                    super::settings_window::open_at(crate::ui::view::SettingsPage::Contacts);
+                }
                 Cards::Import => super::contacts::import_cards(),
                 Cards::Export => super::contacts::export_cards(),
             }
