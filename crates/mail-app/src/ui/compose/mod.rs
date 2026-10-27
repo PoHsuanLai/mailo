@@ -409,8 +409,10 @@ fn send_page(
         &store,
         secrets.as_ref(),
         &mut page.write(),
-        anyway,
-        life::grace(),
+        life::Pressed {
+            anyway,
+            grace: life::grace(),
+        },
         // The window's clock, which a reminder asked for here is later measured against.
         super::clock::now(),
         &chrono::Local,

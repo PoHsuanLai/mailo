@@ -80,8 +80,10 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
                 &built.store,
                 &mail_core::testing::MapSigningStore::default(),
                 &mut write,
-                Anyway::Yes,
-                chrono::TimeDelta::seconds(5),
+                life::Pressed {
+                    anyway: Anyway::Yes,
+                    grace: chrono::TimeDelta::seconds(5),
+                },
                 Utc::now(),
                 &chrono::Local,
                 mail_core::when::Clock::H24,

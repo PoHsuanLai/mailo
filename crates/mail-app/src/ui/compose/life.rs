@@ -208,18 +208,24 @@ pub(in crate::ui) enum Sent {
     },
 }
 
+/// What pressing Send carried: whether to go on past the missing-attachment warning, and the
+/// Undo wait read at that moment.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::ui) struct Pressed {
+    pub anyway: Anyway,
+    pub grace: chrono::TimeDelta,
+}
+
 /// Send, if the guards allow it: no recipients shakes the To row, a mentioned attachment with
 /// nothing attached shows the warning bar once, and a draft OpenPGP or S/MIME cannot sign or
 /// encrypt as it asks says why in the same bar. A plain draft is queued here, with `secrets` as
 /// the keyring; a draft to be sealed comes back as [`Sent::Sealing`]. A send that leaves now waits
 /// `grace` first ([`grace`]).
-#[allow(clippy::too_many_arguments)]
 pub(in crate::ui) fn send<Tz: TimeZone>(
     store: &SqliteStore,
     secrets: &dyn SigningStore,
     page: &mut Page,
-    anyway: Anyway,
-    grace: chrono::TimeDelta,
+    pressed: Pressed,
     now: DateTime<Utc>,
     zone: &Tz,
     clock: mail_core::when::Clock,
@@ -227,6 +233,7 @@ pub(in crate::ui) fn send<Tz: TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
+    let Pressed { anyway, grace } = pressed;
     if !commit_typed(page, List::To)
         || !commit_typed(page, List::Cc)
         || !commit_typed(page, List::Bcc)
@@ -296,10 +303,9 @@ pub(in crate::ui) fn queue(
 }
 
 /// Queue the saved draft to leave as `leaves` says, after `grace` when that is now, signed and
-/// encrypted as it asks, with `ask`
-/// for its OpenPGP key's passphrase. Returns when it may leave, or why not, typed: a key that
-/// stayed locked is [`mail_core::compose::SendError::locked`]. For a draft to be sealed this reads
-/// the keyring, and the window calls it on a blocking thread.
+/// encrypted as it asks, with `ask` for its OpenPGP key's passphrase. Returns when it may leave,
+/// or why not, typed: a key that stayed locked is [`mail_core::compose::SendError::locked`]. For a
+/// draft to be sealed this reads the keyring, and the window calls it on a blocking thread.
 ///
 /// `remind` is held as the message's follow-up reminder until it has left (`mail_core::follow_up`);
 /// with none, a reminder an earlier send of the draft held goes.
