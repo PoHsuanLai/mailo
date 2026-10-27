@@ -107,12 +107,13 @@ pub(in crate::ui) fn groups(summary: &ThreadSummary) -> Vec<Vec<Pick>> {
 /// Redirect… and Edit as New after Forward, Mute beside Pin, Mark as Spam and Block Sender where
 /// the conversation can be), View first where the reader is a pane (`view`), Unsubscribe… with
 /// what takes the conversation away while its list offers a way out (`leave`), and Print and
-/// Download last.
+/// Download last. Block Sender is there only where `block` says the conversation has a sender
+/// to block, one that is not the user ([`mail_core::rules::block::who_to_block`]).
 pub(in crate::ui) fn reader_groups(
     summary: &ThreadSummary,
     toolbar: &[OpKind],
     view: bool,
-    (leave, list): (bool, bool),
+    (leave, list, block): (bool, bool, bool),
 ) -> Vec<Vec<Pick>> {
     let mut picks = groups(summary);
     if list {
@@ -122,7 +123,9 @@ pub(in crate::ui) fn reader_groups(
     picks[1].push(op(OpKind::Mute));
     if offers(summary, OpKind::Spam) {
         picks[3].push(op(OpKind::Spam));
-        picks[3].push(Pick::BlockSender);
+        if block {
+            picks[3].push(Pick::BlockSender);
+        }
     }
     if leave {
         picks[3].push(Pick::Unsubscribe);
@@ -206,6 +209,26 @@ pub(in crate::ui) fn rows(
                 MenuItem::new(*pick, name(*pick, summary, now))
                     .with_image(MenuImage::Icon(icon(*pick))),
             );
+        }
+    }
+    out
+}
+
+/// [`rows`], with Block Sender naming `blocking`, the address its rule is about.
+pub(in crate::ui) fn rows_blocking(
+    groups: &[Vec<Pick>],
+    summary: &ThreadSummary,
+    now: DateTime<Utc>,
+    blocking: Option<&str>,
+) -> Vec<MenuItem<Pick>> {
+    let mut out = rows(groups, summary, now);
+    if let Some(email) = blocking {
+        for row in &mut out {
+            if let MenuItem::Item { value, title, .. } = row
+                && *value == Pick::BlockSender
+            {
+                *title = menus::block_sender(email);
+            }
         }
     }
     out
@@ -463,7 +486,10 @@ mod tests {
         let read = summary(|s| s.read = ReadState::Read);
         let toolbar = [OpKind::Reply, OpKind::Archive, OpKind::Trash];
         assert_eq!(
-            named(&reader_groups(&read, &toolbar, true, (false, false)), &read),
+            named(
+                &reader_groups(&read, &toolbar, true, (false, false, true)),
+                &read
+            ),
             [
                 m::VIEW,
                 "-",
@@ -524,7 +550,7 @@ mod tests {
             ),
         ];
         for (case, toolbar, leave, want) in cases {
-            let groups = reader_groups(&read, toolbar, true, (*leave, false));
+            let groups = reader_groups(&read, toolbar, true, (*leave, false, true));
             let found = groups
                 .iter()
                 .find(|group| group.contains(&Pick::Unsubscribe))
@@ -542,6 +568,37 @@ mod tests {
         assert!(!row.iter().flatten().any(|pick| *pick == Pick::BlockSender));
     }
 
+    /// Block Sender is offered only with someone to block, and names them.
+    #[test]
+    fn block_sender_needs_someone_to_block_and_names_them() {
+        let inbox = summary(|_| {});
+        let has = |block: bool| {
+            reader_groups(&inbox, &[], false, (false, false, block))
+                .iter()
+                .flatten()
+                .any(|pick| *pick == Pick::BlockSender)
+        };
+        assert!(has(true));
+        assert!(
+            !has(false),
+            "a conversation of the user's own mail has no one to block"
+        );
+        let groups = reader_groups(&inbox, &[], false, (false, false, true));
+        let items = rows_blocking(&groups, &inbox, now(), Some("pest@spam.example"));
+        let titles: Vec<String> = items
+            .into_iter()
+            .filter_map(|row| match row {
+                MenuItem::Item { title, .. } => Some(title),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            titles.contains(&"Block pest@spam.example".to_owned()),
+            "{titles:?}"
+        );
+        assert!(!titles.contains(&m::BLOCK_SENDER.to_owned()), "{titles:?}");
+    }
+
     /// Reply to List follows Reply All only where the list names its address, and Redirect… and
     /// Edit as New follow Forward always; none is on a row's menu. A conversation only in Sent
     /// calls Edit as New Send Again.
@@ -551,7 +608,8 @@ mod tests {
         let toolbar = [OpKind::Reply];
         let reply_all = Pick::Press(Pressed::Op(OpKind::ReplyAll));
         let forward = Pick::Press(Pressed::Op(OpKind::Forward));
-        let first = |list: bool| reader_groups(&inbox, &toolbar, false, (false, list))[0].clone();
+        let first =
+            |list: bool| reader_groups(&inbox, &toolbar, false, (false, list, true))[0].clone();
         assert_eq!(
             first(true),
             [
@@ -581,7 +639,7 @@ mod tests {
     #[test]
     fn print_and_download_are_the_reader_s_last_group_and_not_the_row_s() {
         let inbox = summary(|_| {});
-        let reader = reader_groups(&inbox, &[], false, (false, false));
+        let reader = reader_groups(&inbox, &[], false, (false, false, true));
         assert_eq!(
             reader.last().map(Vec::as_slice),
             Some(&[Pick::Print, Pick::Download][..])
@@ -600,7 +658,7 @@ mod tests {
             summary(|s| s.mailboxes = MailboxSet::only(MailboxRole::Trash)),
         ] {
             let listed = named(
-                &reader_groups(&conversation, &[], true, (true, true)),
+                &reader_groups(&conversation, &[], true, (true, true, true)),
                 &conversation,
             );
             let rows: Vec<&String> = listed.iter().filter(|name| *name != "-").collect();

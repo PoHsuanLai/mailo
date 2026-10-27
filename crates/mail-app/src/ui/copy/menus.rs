@@ -120,6 +120,10 @@ pub const VIEW: &str = "View";
 pub const UNSUBSCRIBE: &str = "Unsubscribe…";
 /// The reader's ⋯: the sender's mail goes to Spam from now on, and this conversation with it.
 pub const BLOCK_SENDER: &str = "Block Sender";
+/// The same, naming whose mail it is: the newest sender who is not the user.
+pub fn block_sender(email: &str) -> String {
+    format!("Block {email}")
+}
 
 /// The word for the side of an action a conversation is offered.
 pub fn offered(say: mail_core::view::Say) -> &'static str {

@@ -44,6 +44,13 @@ pub(in crate::ui) enum Follow {
     SignIn(crate::ui::add_account::Retry),
     /// Undo for something deleted in Settings that is not mail: put it back as it was.
     Restore(Restore),
+    /// After Block Sender: take back the conversation's move to Spam (`undo`, when it moved) and
+    /// delete the rule the block made (`rule`, none when the sender was blocked already, so that
+    /// rule is not this gesture's to remove).
+    Unblock {
+        rule: Option<Rule>,
+        undo: Option<UndoHandle>,
+    },
     /// Nothing to take back: an unsubscribe, once made, is the list's.
     Nothing,
 }
@@ -101,6 +108,9 @@ pub(super) struct Toasts {
     /// What the Undo of a deletion in Settings does: it reads what to put back from
     /// [`Motion::toast`] when pressed.
     pub on_restore: EventHandler<()>,
+    /// What the Undo of Block Sender does: it reads the rule and the move to take back from
+    /// [`Motion::toast`] when pressed.
+    pub on_unblock: EventHandler<()>,
 }
 
 /// The motion state the window shares.
@@ -323,6 +333,25 @@ pub(in crate::ui) fn offer_restore(
     }
 }
 
+/// Block Sender's second half: file `thread` in Spam as Mark as Spam does, and say `text` once,
+/// with the one Undo that takes back both that move and `rule`, the rule just made
+/// ([`Follow::Unblock`]).
+pub(in crate::ui) fn spam_and_offer_unblock(
+    store: &SqliteStore,
+    mut shell: Signal<Shell>,
+    mut revision: Signal<u64>,
+    thread: ThreadId,
+    rule: Option<Rule>,
+    text: String,
+) {
+    let hours = crate::ui::clock::hours();
+    let moved = resolve(store, thread, OpKind::Spam)
+        .and_then(|op| perform(store, thread, op, hours))
+        .and_then(|undo| shell.write().undo.push_all(vec![undo]));
+    revision += 1;
+    tell(text, Follow::Unblock { rule, undo: moved });
+}
+
 /// Take back the newest op: ⌘Z.
 pub(super) fn undo_last(
     store: &SqliteStore,
@@ -448,6 +477,19 @@ impl Motion {
                     text,
                     ToastAction::new(crate::ui::copy::controls::UNDO),
                     toasts.on_restore,
+                );
+            }
+            (follow @ Follow::Unblock { .. }, Some(toasts)) => {
+                let serial = self.toast.peek().as_ref().map_or(0, |said| said.serial) + 1;
+                self.toast.set(Some(Said {
+                    text: text.clone(),
+                    serial,
+                    follow,
+                }));
+                toasts.hub.push_action(
+                    text,
+                    ToastAction::new(crate::ui::copy::controls::UNDO),
+                    toasts.on_unblock,
                 );
             }
             (Follow::SignIn(retry), Some(toasts)) => {

@@ -59,6 +59,25 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
                 }
             }
         });
+        let on_unblock = EventHandler::new(move |()| {
+            let mut said = state.toast;
+            let offered = said.peek().clone();
+            said.set(None);
+            if let Some(Follow::Unblock { rule, undo }) = offered.map(|said| said.follow) {
+                let store = consume_context::<Arc<SqliteStore>>();
+                let mut revision = revision;
+                if let Some(rule) = rule
+                    && let Err(why) = mail_core::rules::manage::delete(&store, &rule)
+                {
+                    super::tell(super::not_put_back(why), Follow::Nothing);
+                    return;
+                }
+                if let Some(handle) = undo {
+                    undo_by(&store, shell, revision, Some(state), handle);
+                }
+                revision += 1;
+            }
+        });
         let mut toasts = state.toasts;
         toasts.set(Some(Toasts {
             hub,
@@ -66,6 +85,7 @@ pub(in crate::ui) fn Toast(shell: Signal<Shell>, revision: Signal<u64>) -> Eleme
             on_archive,
             on_sign_in,
             on_restore,
+            on_unblock,
         }));
     });
     rsx! {}

@@ -16,7 +16,7 @@
 //! handed on whole.
 
 use super::super::row::act::{Pressed, press};
-use super::super::row::menu::{Pick, reader_groups, rows};
+use super::super::row::menu::{Pick, reader_groups, rows_blocking};
 use super::super::toolbar::{Tool, ToolButton};
 use super::fetch;
 use crate::ui::copy;
@@ -173,13 +173,27 @@ pub(super) fn ReaderMore(
     let mut further = use_signal(|| Further::None);
     let tool = use_signal(|| None::<MountedRef>);
     let id = summary.id;
-    let sender = (summary.account.clone(), summary.from.email.clone());
+    // Whose mail Block Sender would block: the newest sender who is not the user. Nobody, and
+    // the item is left out, when every message is the user's own or the store cannot say.
+    let blocking = consume_context::<Arc<SqliteStore>>();
+    let blocking = mail_core::rules::block::who_to_block(&blocking, id)
+        .ok()
+        .flatten();
+    let sender = blocking
+        .clone()
+        .map(|email| (summary.account.clone(), email));
     // Asked through the alert's own phase, so Unsubscribe's sending state is the alert's.
     let mut leaving = use_signal(|| Phase::Closed);
-    let items = rows(
-        &reader_groups(&summary, &toolbar, peek.is_some(), (leave.is_some(), list)),
+    let items = rows_blocking(
+        &reader_groups(
+            &summary,
+            &toolbar,
+            peek.is_some(),
+            (leave.is_some(), list, blocking.is_some()),
+        ),
         &summary,
         chrono::Utc::now(),
+        blocking.as_deref(),
     );
     let done = move |()| further.set(Further::None);
     rsx! {
@@ -215,8 +229,9 @@ pub(super) fn ReaderMore(
                         }
                         Pick::Download => download(id),
                         Pick::BlockSender => {
-                            let (account, email) = sender.clone();
-                            block_sender(shell, revision, id, account, &email);
+                            if let Some((account, email)) = sender.clone() {
+                                block_sender(shell, revision, id, account, &email);
+                            }
                         }
                         Pick::ReplyList => compose_on(shell, revision, id, Composes::ReplyList),
                         Pick::Again => compose_on(shell, revision, id, Composes::Again),
@@ -251,10 +266,11 @@ pub(super) fn ReaderMore(
     }
 }
 
-/// Block the newest message's sender on its account (`mail_core::rules::block`): a rule, first
-/// in the order, that files their mail in Spam as it arrives. This conversation goes to Spam now
-/// as Mark as Spam takes it, so it is undone as that is; the rule stays until it is taken off in
-/// Rules, as Apple Mail's blocked senders stay until they are unblocked.
+/// Block `email`, the conversation's newest sender who is not the user
+/// (`mail_core::rules::block::who_to_block`), on its account (`mail_core::rules::block`): a rule,
+/// first in the order, that files their mail in Spam as it arrives. This conversation goes to
+/// Spam now as Mark as Spam takes it. One toast says both, and its Undo takes both back: the move
+/// and the rule, unless the sender was blocked already, when that rule is not this gesture's.
 fn block_sender(
     shell: Signal<Shell>,
     revision: Signal<u64>,
@@ -263,22 +279,25 @@ fn block_sender(
     email: &str,
 ) {
     let store = consume_context::<Arc<SqliteStore>>();
-    let toasts = try_consume_context::<ds::stack::toast_hub::ToastHub>();
-    let said = match mail_core::rules::block::block(&store, account, email) {
-        Ok(_) => {
-            press(
+    match mail_core::rules::block::block(&store, account, email) {
+        Ok(blocked) => {
+            let rule = match blocked {
+                mail_core::rules::block::Blocked::Made(rule) => Some(rule),
+                mail_core::rules::block::Blocked::Already(_) => None,
+            };
+            crate::ui::motion::spam_and_offer_unblock(
+                &store,
                 shell,
                 revision,
                 thread,
-                Pressed::Op(OpKind::Spam),
-                Opened::Reader,
+                rule,
+                copy::toasts::blocked(email),
             );
-            copy::toasts::blocked(email)
         }
-        Err(why) => copy::toasts::not_blocked(email, &why.to_string()),
-    };
-    if let Some(toasts) = toasts {
-        toasts.push(said, None);
+        Err(why) => tell(
+            copy::toasts::not_blocked(email, &crate::ui::remedy::told(why)),
+            Follow::Nothing,
+        ),
     }
 }
 

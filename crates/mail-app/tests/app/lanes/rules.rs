@@ -118,7 +118,7 @@ fn block_sender_makes_a_rule_and_files_the_conversation_in_spam() {
         ".reader-head [*|aria-label=\"{}\"]",
         copy::aria::MORE
     ));
-    window.menu_item(copy::menus::BLOCK_SENDER);
+    window.menu_item(&copy::menus::block_sender(&sender));
     window.until("the toast says the sender is blocked", |h| {
         h.text_of(".ds-toast-body") == Some(copy::toasts::blocked(&sender))
     });
@@ -135,4 +135,20 @@ fn block_sender_makes_a_rule_and_files_the_conversation_in_spam() {
         .expect("a rule for the sender");
     assert_eq!(block.actions, vec![RuleAction::Spam]);
     assert!(rules.iter().all(|rule| rule.position >= block.position));
+
+    // The one toast's Undo takes back both: the rule and the move to Spam.
+    window.click(".ds-toast-action");
+    let store = window.store.clone();
+    window.until("the conversation is out of Spam", |_| {
+        !super::look::conversation(&store, subject)
+            .mailboxes
+            .contains(MailboxRole::Spam)
+    });
+    let rules = window.store.rules(super::window::account()).unwrap();
+    assert!(
+        rules
+            .iter()
+            .all(|rule| rule.filter != Filter::From(TextMatch::Exact(sender.clone()))),
+        "the rule is still there: {rules:?}"
+    );
 }
