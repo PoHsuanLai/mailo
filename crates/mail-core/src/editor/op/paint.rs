@@ -47,8 +47,10 @@ pub(super) fn set_link(doc: &mut Doc, range: Range, url: Option<SafeUrl>) -> Res
         doc,
         range,
         url,
-        |marks| marks.link.clone(),
-        |marks, url| marks.link = url,
+        Field {
+            get: |marks| marks.link.clone(),
+            put: |marks, url| marks.link = url,
+        },
         |range, url| Op::SetLink { range, url },
     )
 }
@@ -58,8 +60,10 @@ pub(super) fn set_size(doc: &mut Doc, range: Range, size: Option<TextSize>) -> R
         doc,
         range,
         size,
-        |marks| marks.size,
-        |marks, size| marks.size = size,
+        Field {
+            get: |marks| marks.size,
+            put: |marks, size| marks.size = size,
+        },
         |range, size| Op::SetSize { range, size },
     )
 }
@@ -73,14 +77,15 @@ pub(super) fn set_color(
         doc,
         range,
         color,
-        |marks| marks.color,
-        |marks, color| marks.color = color,
+        Field {
+            get: |marks| marks.color,
+            put: |marks, color| marks.color = color,
+        },
         |range, color| Op::SetColor { range, color },
     )
 }
 
-/// One of a run's valued marks (its link, size or colour): how it is read, how it is written,
-/// and the edit that sets it over a range.
+/// One of a run's valued marks (its link, size or colour): how it is read and how it is written.
 struct Field<T> {
     get: fn(&Marks) -> T,
     put: fn(&mut Marks, T),
@@ -92,11 +97,9 @@ fn set_field<T: Clone + PartialEq>(
     doc: &mut Doc,
     range: Range,
     value: T,
-    get: fn(&Marks) -> T,
-    put: fn(&mut Marks, T),
+    field: Field<T>,
     op: fn(Range, T) -> Op,
 ) -> Result<Op, OpError> {
-    let field = Field { get, put };
     let range = range.ordered();
     check_range(doc, range)?;
     let mut inverses = Vec::new();

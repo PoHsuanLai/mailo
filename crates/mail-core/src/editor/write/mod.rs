@@ -36,9 +36,9 @@ impl ListTag {
 /// another list (`tag` is the first item's).
 fn list_end(nodes: &[Node], start: usize, tag: ListTag) -> usize {
     let goes_on = |node: &Node| match node {
-        Node::Para { kind, layout, .. } => ListTag::of(*kind).is_some_and(|other| {
-            layout.depth > 0 || std::mem::discriminant(&other) == std::mem::discriminant(&tag)
-        }),
+        Node::Para { kind, layout, .. } => {
+            ListTag::of(*kind).is_some_and(|other| layout.depth > 0 || same_list(other, tag))
+        }
         Node::Object(_) => false,
     };
     start

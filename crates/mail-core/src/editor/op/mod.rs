@@ -259,7 +259,7 @@ fn merge(doc: &mut Doc, node: usize) -> Result<Op, OpError> {
             depth: right.1.depth,
         });
     }
-    Ok(one_or_seq_kept(ops))
+    Ok(one_or_all(ops))
 }
 
 fn set_kind(doc: &mut Doc, range: Range, kind: ParaKind) -> Result<Op, OpError> {
@@ -397,7 +397,7 @@ fn normalize_nodes(nodes: Vec<Node>) -> Vec<Node> {
 }
 
 /// `ops` as one edit: the only one, or all of them in order.
-fn one_or_seq_kept(mut ops: Vec<Op>) -> Op {
+fn one_or_all(mut ops: Vec<Op>) -> Op {
     if ops.len() == 1 {
         ops.remove(0)
     } else {
@@ -405,12 +405,10 @@ fn one_or_seq_kept(mut ops: Vec<Op>) -> Op {
     }
 }
 
-fn one_or_seq(mut inverses: Vec<Op>, noop: Op) -> Op {
+fn one_or_seq(inverses: Vec<Op>, noop: Op) -> Op {
     if inverses.is_empty() {
         noop
-    } else if inverses.len() == 1 {
-        inverses.remove(0)
     } else {
-        Op::Seq(inverses)
+        one_or_all(inverses)
     }
 }
