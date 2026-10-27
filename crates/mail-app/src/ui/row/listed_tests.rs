@@ -193,6 +193,17 @@ fn a_click_opens_the_row() {
     for click in [Click::Plain, Click::Toggle, Click::Range] {
         assert_eq!(listed.open(click), Opens::Thread(thread.id, click));
     }
+    let message = MessageId::generate();
+    let listed = Listed::Message(thread.clone(), message);
+    assert_eq!(
+        listed.open(Click::Plain),
+        Opens::Message(thread.id, message)
+    );
+    assert_eq!(
+        listed.open(Click::Toggle),
+        Opens::Thread(thread.id, Click::Toggle)
+    );
+    assert_eq!(listed.open(Click::Range), Opens::Range(message));
     let drafted = draft("Notes", &[], SendState::Scheduled { at: now() });
     let id = drafted.id;
     let listed = Listed::Draft(drafted);

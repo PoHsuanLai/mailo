@@ -957,10 +957,12 @@ impl Shell {
         self.preview = None;
     }
 
-    /// Open `message` alone, from its row in a list of single messages: its conversation is the
-    /// one open, picked as [`Self::open`] picks it, and the reader shows that message.
-    pub fn open_message(&mut self, thread: ThreadId, message: MessageId) {
+    /// Open `message` alone, from its row `at` in a list of single messages: its conversation is
+    /// the one open, picked as [`Self::open`] picks it from that row, and the reader shows that
+    /// message.
+    pub fn open_message(&mut self, thread: ThreadId, message: MessageId, at: usize) {
         self.open(thread);
+        self.picked = Picked::clicked_row(thread, at);
         self.focus = Some(message);
     }
 
@@ -1002,6 +1004,17 @@ impl Shell {
             Click::Toggle => self.picked = self.picked.toggle(thread, self.open, ids),
             Click::Range => self.picked = self.picked.range(thread, self.open, ids),
         }
+    }
+
+    /// A Shift-click on the row `at` of a list of single messages, whose `ids` name a
+    /// conversation once for each of its messages: the range is of rows.
+    pub fn click_row(&mut self, at: usize, ids: &[ThreadId]) {
+        self.picked = self.picked.range_rows(at, self.open, ids);
+    }
+
+    /// Shift+j or Shift+k among the rows of a list of single messages.
+    pub fn extend_rows(&mut self, toward: Toward, ids: &[ThreadId]) {
+        self.picked = self.picked.extend_rows(toward, self.open, ids);
     }
 
     /// Shift+j or Shift+k among the listed `ids`.
@@ -1538,11 +1551,11 @@ mod listing_tests {
 
         let thread = ThreadId::generate();
         let message = MessageId::generate();
-        shell.open_message(thread, message);
+        shell.open_message(thread, message, 0);
         assert_eq!((shell.open, shell.focus), (Some(thread), Some(message)));
         shell.open(thread);
         assert_eq!(shell.focus, None, "opened whole");
-        shell.open_message(thread, message);
+        shell.open_message(thread, message, 0);
 
         let waiting = shell
             .places

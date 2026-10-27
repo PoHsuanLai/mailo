@@ -51,6 +51,9 @@ pub(in crate::ui) enum Opens {
     Thread(ThreadId, Click),
     /// One message of the conversation, opened alone: a plain click on a message's own row.
     Message(ThreadId, MessageId),
+    /// A Shift-click on a message's own row: the range is of rows, from the anchor row to this
+    /// one, and the message says which row it is.
+    Range(MessageId),
     /// The draft, in the composer; one held for its time, on its page.
     Draft(DraftId),
 }
@@ -164,14 +167,15 @@ impl Listed {
     }
 
     /// What `click` on the row opens. A draft is not picked with others: any click opens it. A
-    /// message's plain click opens it alone; Ctrl and Shift pick its conversation, which is what
-    /// every action on the selection reaches.
+    /// message's plain click opens it alone; Ctrl picks its conversation, which is what every
+    /// action on the selection reaches, and Shift picks the rows to it.
     pub(in crate::ui) fn open(&self, click: Click) -> Opens {
         match self {
             Listed::Thread(summary) => Opens::Thread(summary.id, click),
             Listed::Message(summary, message) => match click {
                 Click::Plain => Opens::Message(summary.id, *message),
-                Click::Toggle | Click::Range => Opens::Thread(summary.id, click),
+                Click::Toggle => Opens::Thread(summary.id, click),
+                Click::Range => Opens::Range(*message),
             },
             Listed::Draft(draft) => Opens::Draft(draft.id),
         }

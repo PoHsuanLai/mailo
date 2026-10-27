@@ -179,7 +179,21 @@ pub(super) fn ListRow(
                     };
                     match open_on.open(click) {
                         Opens::Thread(id, click) => shell.write().click(id, click, &drawn_order()),
-                        Opens::Message(id, message) => shell.write().open_message(id, message),
+                        Opens::Message(id, message) => {
+                            let at = super::picks::drawn_messages()
+                                .iter()
+                                .position(|shown| *shown == message)
+                                .unwrap_or_default();
+                            shell.write().open_message(id, message, at);
+                        }
+                        Opens::Range(message) => {
+                            if let Some(at) = super::picks::drawn_messages()
+                                .iter()
+                                .position(|shown| *shown == message)
+                            {
+                                shell.write().click_row(at, &drawn_order());
+                            }
+                        }
                         Opens::Draft(id) => {
                             let store = consume_context::<Arc<SqliteStore>>();
                             let _ = open_composer(&store, shell, Writes::Draft(id));

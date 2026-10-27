@@ -234,13 +234,16 @@ pub(super) fn ThreadList(
         }
     };
     // Which conversation each listed message is of, for the keyboard's cursor to open one.
-    let of_message: std::collections::HashMap<MessageId, ThreadId> = shown
+    let of_message: std::collections::HashMap<MessageId, (ThreadId, usize)> = shown
         .iter()
-        .filter_map(|row| row.message.map(|message| (message, row.summary.id)))
+        .enumerate()
+        .filter_map(|(at, row)| row.message.map(|message| (message, (row.summary.id, at))))
         .collect();
     if let Some(state) = state {
         let mut order = state.order;
         order.set(keys.clone());
+        let mut messages = state.messages;
+        messages.set(shown.iter().filter_map(|row| row.message).collect());
     }
     // The list's items, top to bottom: drafts, a search's top results, then the bands, then
     // what a search of the server found that the list does not hold.
@@ -345,8 +348,8 @@ pub(super) fn ThreadList(
     let open_slot = move |slot: Slot| match slot {
         Slot::Thread(id) | Slot::Top(id) | Slot::Server(id) => shell.write().open(id),
         Slot::Message(message) => {
-            if let Some(id) = of_message.get(&message) {
-                shell.write().open_message(*id, message);
+            if let Some((id, at)) = of_message.get(&message) {
+                shell.write().open_message(*id, message, *at);
             }
         }
         Slot::Draft(_) | Slot::Band(_) | Slot::TopHeading | Slot::ServerHeading => {}

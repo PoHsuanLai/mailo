@@ -28,6 +28,14 @@ pub(super) fn drawn_order() -> Vec<ThreadId> {
         .unwrap_or_default()
 }
 
+/// The messages the list drew last, one for each of the rows [`drawn_order`] gives, while it
+/// lists a message to a row; empty while it lists conversations.
+pub(super) fn drawn_messages() -> Vec<MessageId> {
+    motion()
+        .map(|state| state.messages.read().clone())
+        .unwrap_or_default()
+}
+
 /// The conversations an action on `thread`'s own row means: the selection when the row is in
 /// it, the row alone when it is not (`Shell::with_selection`).
 pub(super) fn with_selection(shell: Signal<Shell>, thread: ThreadId) -> Vec<ThreadId> {

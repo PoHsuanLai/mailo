@@ -75,8 +75,23 @@ pub(super) enum Writes {
     New,
     /// A reply or forward of a conversation: the row's buttons, `r`, `a`, `f` and ⌘K's forward.
     On(ThreadId, Composes),
+    /// A reply or forward of the one message of a conversation the reader shows, opened from a
+    /// list of single messages: the message answered is that one, not the newest.
+    OnMessage(ThreadId, MessageId, Composes),
     /// A draft already stored: its row in Drafts, ⌘K's Recent, a `mailto:` link.
     Draft(DraftId),
+}
+
+impl Writes {
+    /// A reply or forward of `thread`: of the message the reader shows alone when `thread` is the
+    /// open conversation and was opened from a message's own row ([`Shell::focus`]), else of the
+    /// conversation.
+    pub(super) fn answering(shell: &Shell, thread: ThreadId, what: Composes) -> Self {
+        match shell.focus {
+            Some(message) if shell.open == Some(thread) => Self::OnMessage(thread, message, what),
+            _ => Self::On(thread, what),
+        }
+    }
 }
 
 /// Open the composer on `what`. With no account to send from, a new message says so and offers
@@ -102,14 +117,18 @@ pub(super) fn open_composer(
                 .map(|draft| copied(store, draft))
                 .map(|draft| shell.write().compose(&draft))
         }
-        Writes::On(thread, composes) => {
+        Writes::On(thread, composes) | Writes::OnMessage(thread, _, composes) => {
+            let only = match what {
+                Writes::OnMessage(_, message, _) => Some(message),
+                _ => None,
+            };
             // Read here, as the press is heard: the selection is the window's, in its frames.
             let selected = composes
                 .answers()
                 .then(|| store.thread(thread).ok())
                 .flatten()
                 .and_then(|loaded| crate::ui::reading::selection::selected(&loaded.messages));
-            start_composing(store, thread, composes, selected)
+            start_composing_on(store, thread, only, composes, selected)
                 .map(|draft| copied(store, draft))
                 .map(|draft| shell.write().compose(&draft))
         }
@@ -141,42 +160,52 @@ fn copied(store: &SqliteStore, draft: Draft) -> Draft {
 }
 
 /// Create the draft `what` opens on `thread`. `selected` is the text selected in one of its
-/// messages, and that message: an answer answers it and quotes only that.
-pub(super) fn start_composing(
+/// messages, and that message: an answer answers it and quotes only that. `only` is the one
+/// message to answer, forward or write again, when the reader shows one alone; the
+/// conversation's newest otherwise.
+pub(super) fn start_composing_on(
     store: &SqliteStore,
     thread: ThreadId,
+    only: Option<MessageId>,
     what: Composes,
     selected: Option<(MessageId, String)>,
 ) -> Result<Draft, String> {
     match what {
-        Composes::Reply(scope) => start_reply(store, thread, Answer::Scope(scope), selected),
-        Composes::ReplyList => start_reply(store, thread, Answer::List, selected),
+        Composes::Reply(scope) => start_reply(store, thread, only, Answer::Scope(scope), selected),
+        Composes::ReplyList => start_reply(store, thread, only, Answer::List, selected),
         Composes::Again => {
-            let target = newest(store, thread)?;
+            let target = match only {
+                Some(message) => message,
+                None => newest(store, thread)?,
+            };
             mail_core::compose::draft_again(store, target, chrono::Utc::now()).map_err(String::from)
         }
         Composes::Forward | Composes::ForwardAttached => {
-            let loaded = store.thread(thread).map_err(|e| e.to_string())?;
-            let messages: Vec<Message> = loaded
-                .messages
-                .iter()
-                .filter_map(|id| store.message(*id).ok())
-                .collect();
-            let target = reply_target(&messages)
-                .ok_or_else(|| "that conversation has no message to forward".to_owned())?;
+            let target = match only {
+                Some(message) => message,
+                None => {
+                    let loaded = store.thread(thread).map_err(|e| e.to_string())?;
+                    let messages: Vec<Message> = loaded
+                        .messages
+                        .iter()
+                        .filter_map(|id| store.message(*id).ok())
+                        .collect();
+                    reply_target(&messages)
+                        .ok_or_else(|| "that conversation has no message to forward".to_owned())?
+                        .id
+                }
+            };
             // No recipients: a forward has none of its own and the composer is where the user
             // names them. The draft is saved regardless, so closing the window does not lose it.
             let forwarded = match what {
                 Composes::ForwardAttached => mail_core::compose::draft_forward_attached(
                     store,
-                    target.id,
+                    target,
                     &[],
                     "",
                     chrono::Utc::now(),
                 ),
-                _ => {
-                    mail_core::compose::draft_forward(store, target.id, &[], "", chrono::Utc::now())
-                }
+                _ => mail_core::compose::draft_forward(store, target, &[], "", chrono::Utc::now()),
             };
             forwarded.map_err(String::from)
         }
@@ -199,12 +228,14 @@ pub(super) fn newest(store: &SqliteStore, thread: ThreadId) -> Result<MessageId,
 fn start_reply(
     store: &SqliteStore,
     thread: ThreadId,
+    only: Option<MessageId>,
     to: Answer,
     selected: Option<(MessageId, String)>,
 ) -> Result<Draft, String> {
-    let (target, quote) = match &selected {
-        Some((message, text)) => (*message, Quote::Selection(text)),
-        None => (newest(store, thread)?, Quote::Whole),
+    let (target, quote) = match (&selected, only) {
+        (Some((message, text)), _) => (*message, Quote::Selection(text)),
+        (None, Some(message)) => (message, Quote::Whole),
+        (None, None) => (newest(store, thread)?, Quote::Whole),
     };
     // Where the signature goes is the person's setting: under the quoted original unless asked.
     let placement = super::prefs::current()

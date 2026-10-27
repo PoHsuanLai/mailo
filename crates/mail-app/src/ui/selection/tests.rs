@@ -235,3 +235,40 @@ fn a_conversation_listed_twice_is_chosen_once() {
     let picked = Picked::all(&listed);
     assert_eq!(picked.chosen(&listed), [a, b]);
 }
+
+/// A list that gives conversation `a` two rows: [a, b, a, c].
+fn flat() -> ([ThreadId; 4], [ThreadId; 3]) {
+    let make = |n: u128| ThreadId::from_uuid(uuid::Uuid::from_u128(n));
+    let (a, b, c) = (make(1), make(2), make(3));
+    ([a, b, a, c], [a, b, c])
+}
+
+#[test]
+fn a_range_in_a_list_of_single_messages_is_measured_from_the_row_clicked() {
+    let (ids, [a, b, c]) = flat();
+    // Clicked on a's second row, Shift-clicked on c: b is above both, so it is not between.
+    let picked = Picked::clicked_row(a, 2).range_rows(3, Some(a), &ids);
+    assert_eq!(picked.chosen(&ids), [a, c]);
+    // Shift-clicked back up on b: rows 1 to 2.
+    let up = Picked::clicked_row(a, 2).range_rows(1, Some(a), &ids);
+    assert_eq!(up.chosen(&ids), [a, b]);
+    // Measured again from the same anchor row.
+    let again = picked.range_rows(1, Some(a), &ids);
+    assert_eq!(again.chosen(&ids), [a, b]);
+}
+
+#[test]
+fn shift_j_and_k_in_a_list_of_single_messages_move_by_row() {
+    let (ids, [a, b, c]) = flat();
+    let start = Picked::clicked_row(a, 2);
+    let down = start.extend_rows(Toward::Next, Some(a), &ids);
+    assert_eq!(
+        down.chosen(&ids),
+        [a, c],
+        "past a's second row, not its first"
+    );
+    let at_end = down.extend_rows(Toward::Next, Some(a), &ids);
+    assert_eq!(at_end.chosen(&ids), [a, c], "stops at the last row");
+    let up = start.extend_rows(Toward::Previous, Some(a), &ids);
+    assert_eq!(up.chosen(&ids), [a, b]);
+}

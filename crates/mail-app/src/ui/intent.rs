@@ -97,7 +97,7 @@ pub(in crate::ui) fn on_thread(
         Shortcut::Forward => Composes::Forward,
         _ => return,
     };
-    if open_composer(store, shell, Writes::On(thread, what)).is_ok() {
+    if open_composer(store, shell, Writes::answering(&shell.peek(), thread, what)).is_ok() {
         revision += 1;
     }
 }

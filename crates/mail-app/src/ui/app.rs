@@ -641,7 +641,7 @@ pub(super) fn App() -> Element {
                     if let Some(next) = mail_core::view::step(here, &singles, forward)
                         && let Some(at) = singles.iter().position(|m| *m == next)
                     {
-                        shell.write().open_message(rows[at].id, next);
+                        shell.write().open_message(rows[at].id, next, at);
                     }
                 } else {
                     let ids: Vec<ThreadId> = rows.iter().map(|t| t.id).collect();
@@ -656,7 +656,13 @@ pub(super) fn App() -> Element {
                 } else {
                     Toward::Previous
                 };
-                shell.write().extend(toward, &listed());
+                let singles = messages();
+                if singles.is_empty() || singles.len() != threads().len() {
+                    shell.write().extend(toward, &listed());
+                } else {
+                    // A message to a row: the range moves by row, as a conversation can have several.
+                    shell.write().extend_rows(toward, &listed());
+                }
             }
             Shortcut::Back => {
                 if shell.read().composing.is_some() {

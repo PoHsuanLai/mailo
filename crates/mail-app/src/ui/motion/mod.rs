@@ -16,7 +16,7 @@ mod toast;
 pub(super) use drag::Ghost;
 pub(super) use toast::Toast;
 
-use super::ops::{perform, resolve, take_back};
+use super::ops::{resolve, take_back};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
@@ -118,6 +118,9 @@ pub(super) struct Motion {
     pub drag: Signal<drag::Drag>,
     /// The ids the list drew last, in order. Not reactive: only an op reads it.
     pub order: CopyValue<Vec<ThreadId>>,
+    /// The message each of `order`'s rows is, while the list gives a message to a row; empty
+    /// otherwise.
+    pub messages: CopyValue<Vec<MessageId>>,
 }
 
 /// Make the motion state for the window. Called once, from `App`.
@@ -128,6 +131,7 @@ pub(super) fn use_motion() -> Motion {
         dest: Signal::new(None),
         drag: Signal::new(drag::Drag::Idle),
         order: CopyValue::new(Vec::new()),
+        messages: CopyValue::new(Vec::new()),
     })
 }
 
@@ -174,7 +178,8 @@ pub(super) fn act_all(
     let mut undos = Vec::new();
     let mut done = Vec::new();
     for (thread, op) in ops {
-        if let Some(undo) = perform(store, thread, op.clone(), hours) {
+        let target = target_of(shell, thread);
+        if let Some(undo) = mail_core::act::perform_on(store, thread, target, op.clone(), hours) {
             undos.push(undo);
             done.push(op);
         }
@@ -193,6 +198,25 @@ pub(super) fn act_all(
         motion.dest.set(None);
     }
     count
+}
+
+/// What an action on `thread` reaches: the one message the reader shows alone, when `thread` is
+/// the open conversation opened from a message's own row and nothing is picked, else the
+/// conversation whole. A picked row is a conversation, whichever of its messages' rows it is.
+fn target_of(shell: Signal<Shell>, thread: ThreadId) -> Target {
+    let current = shell.peek();
+    match current.focus {
+        Some(message)
+            if current.open == Some(thread)
+                && current
+                    .picked
+                    .chosen(&super::picks::drawn_order())
+                    .is_empty() =>
+        {
+            Target::Messages(vec![message])
+        }
+        _ => Target::Threads(vec![thread]),
+    }
 }
 
 /// The one way an undoable action is kept and shown: `undos` go on the window's stack as one
