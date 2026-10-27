@@ -446,3 +446,33 @@ async fn trusting_senders_with_none_yet_says_there_are_none() {
         "{page}"
     );
 }
+
+#[tokio::test]
+async fn turning_to_another_page_leaves_a_pushed_page_behind() {
+    let built = work();
+    let asked = super::SettingsAsked::default();
+    asked.ask(SettingsAt::Page(SettingsPage::Privacy));
+    dispatching();
+    let mut dom = VirtualDom::new(settings_root)
+        .with_root_context(built.store.clone())
+        .with_root_context(built.dirs.clone())
+        .with_root_context(asked.clone());
+    let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    click(&mut dom, seen.one("id", "privacy-pane-open-trusted"));
+    asked.ask(SettingsAt::Page(SettingsPage::Viewing));
+    for _ in 0..20 {
+        let quiet = std::time::Duration::from_millis(50);
+        if tokio::time::timeout(quiet, dom.wait_for_work())
+            .await
+            .is_err()
+        {
+            break;
+        }
+        dom.render_immediate(&mut dioxus_core::NoOpMutations);
+    }
+    let page = dioxus_ssr::render(&dom);
+    assert!(
+        page.contains("data-page=\"Viewing\"") && !page.contains("viewing-pane-back-detail"),
+        "Viewing opened on a page pushed over Privacy: {page}"
+    );
+}
