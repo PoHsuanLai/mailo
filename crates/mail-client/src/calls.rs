@@ -576,24 +576,28 @@ pub use pgp_keys::PgpKeys;
 
 mod preview {
     use crate::Client;
-    use mail_core::preview::*;
+    use mail_core::attachment_image::*;
     use mail_domain::*;
 
-    /// What the client calls in `mail_core::preview`.
+    /// What the client calls in `mail_core::attachment_image`.
     #[derive(Clone, Copy, Debug)]
     pub struct Preview<'a>(pub(super) &'a Client);
 
     impl Client {
-        /// `mail_core::preview`, over this client's store.
+        /// `mail_core::attachment_image`, over this client's store.
         pub fn preview(&self) -> Preview<'_> {
             Preview(self)
         }
     }
 
     impl Preview<'_> {
-        /// `mail_core::preview::load`.
-        pub fn load(&self, message: MessageId, index: usize) -> Result<(Kind, Vec<u8>), Unshown> {
-            mail_core::preview::load(self.0.store(), message, index)
+        /// `mail_core::attachment_image::load`.
+        pub fn load(
+            &self,
+            message: MessageId,
+            index: usize,
+        ) -> Result<(Kind, Vec<u8>), Unavailable> {
+            mail_core::attachment_image::load(self.0.store(), message, index)
         }
     }
 }
@@ -603,23 +607,23 @@ mod print {
     use crate::Client;
     use chrono::{DateTime, TimeZone, Utc};
     use mail_core::error::CoreError;
-    use mail_core::print::*;
+    use mail_core::html_document::*;
     use mail_core::when::Clock;
     use mail_mime::print::{Options, Pages};
 
-    /// What the client calls in `mail_core::print`.
+    /// What the client calls in `mail_core::html_document`.
     #[derive(Clone, Copy, Debug)]
     pub struct Print<'a>(pub(super) &'a Client);
 
     impl Client {
-        /// `mail_core::print`, over this client's store.
+        /// `mail_core::html_document`, over this client's store.
         pub fn print(&self) -> Print<'_> {
             Print(self)
         }
     }
 
     impl Print<'_> {
-        /// `mail_core::print::document`.
+        /// `mail_core::html_document::document`.
         pub fn document<Tz>(
             &self,
             id: uuid::Uuid,
@@ -632,10 +636,10 @@ mod print {
             Tz: TimeZone,
             Tz::Offset: std::fmt::Display,
         {
-            mail_core::print::document(self.0.store(), id, zone, now, pages, clock)
+            mail_core::html_document::document(self.0.store(), id, zone, now, pages, clock)
         }
 
-        /// `mail_core::print::document_with`.
+        /// `mail_core::html_document::document_with`.
         pub fn document_with<Tz>(
             &self,
             id: uuid::Uuid,
@@ -648,7 +652,14 @@ mod print {
             Tz: TimeZone,
             Tz::Offset: std::fmt::Display,
         {
-            mail_core::print::document_with(self.0.store(), id, zone, now, options, pictures)
+            mail_core::html_document::document_with(
+                self.0.store(),
+                id,
+                zone,
+                now,
+                options,
+                pictures,
+            )
         }
     }
 }

@@ -51,7 +51,7 @@ use super::wire::{self, Heard};
 use crate::ui::actions;
 use crate::ui::host::Host;
 use crate::ui::view::Shell;
-use mail_core::editor::{Caret, Doc, InputEvent, Pos, Range};
+use mail_core::rich_text::{Caret, Doc, InputEvent, Pos, Range};
 
 /// Frames a read of the surface's place waits for the document to be laid out and free.
 const TRIES: usize = 24;

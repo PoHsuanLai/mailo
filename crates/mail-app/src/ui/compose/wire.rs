@@ -4,7 +4,7 @@
 
 use super::float;
 use super::page::Page;
-use mail_core::editor::{InputEvent, Range};
+use mail_core::rich_text::{InputEvent, Range};
 
 /// An editor event, as the surface hands it to the page.
 #[derive(Debug, Clone, PartialEq, Eq)]

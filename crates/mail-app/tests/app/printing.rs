@@ -234,7 +234,7 @@ fn out_writes_the_file_it_names() {
 
 #[test]
 fn a_subject_cannot_choose_where_its_file_goes() {
-    use mail_core::print::file_name;
+    use mail_core::html_document::file_name;
     assert_eq!(file_name("Lunch"), "Lunch.html");
     assert_eq!(
         file_name("../../.ssh/authorized_keys"),

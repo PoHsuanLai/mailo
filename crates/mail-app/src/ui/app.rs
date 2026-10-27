@@ -15,7 +15,7 @@ use crate::ui::selection::Toward;
 use crate::ui::space::Spaces;
 use crate::ui::view::{
     Appearance, Listing, PageMenu, Peek, Shell, Shortcut, nothing_to_show, places_with,
-    scoped_badge,
+    scoped_unread_filter,
 };
 use chordkit::StandardAction;
 use dioxus::prelude::*;
@@ -197,7 +197,7 @@ pub(super) fn App() -> Element {
             .read()
             .places
             .iter()
-            .map(|place| scoped_badge(&place.source, scope.clone()))
+            .map(|place| scoped_unread_filter(&place.source, scope.clone()))
             .collect::<Vec<Option<Filter>>>()
     });
     // The counts, kept by the client and read again as mail arrives or changes, off the thread
@@ -576,7 +576,9 @@ pub(super) fn App() -> Element {
         match action {
             Shortcut::Next | Shortcut::Previous => {
                 let ids: Vec<ThreadId> = threads().iter().map(|t| t.id).collect();
-                if let Some(id) = mail_core::view::step(open, &ids, action == Shortcut::Next) {
+                if let Some(id) =
+                    mail_core::conversation::step(open, &ids, action == Shortcut::Next)
+                {
                     shell.write().open(id);
                 }
             }

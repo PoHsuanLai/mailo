@@ -114,8 +114,8 @@ impl Framing<'_> {
         self.of.rendered(self.client.store(), message, policy)
     }
 
-    /// [`Frames::on_the_frame`].
-    pub fn on_the_frame(
+    /// [`Frames::render_inline`].
+    pub fn render_inline(
         &self,
         message: &Message,
         policy: SanitizePolicy,
@@ -124,7 +124,7 @@ impl Framing<'_> {
         later: &mut Vec<(Message, SanitizePolicy)>,
     ) -> Option<Arc<FrameBody>> {
         self.of
-            .on_the_frame(self.client.store(), message, policy, room, sent, later)
+            .render_inline(self.client.store(), message, policy, room, sent, later)
     }
 
     /// [`Frames::warm`].

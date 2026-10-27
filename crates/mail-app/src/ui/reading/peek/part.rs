@@ -22,7 +22,7 @@ use super::own::{self, Sheet};
 use crate::ui::copy;
 use crate::ui::remedy::plainly;
 use crate::ui::view::{Preview, Shell, Viewing};
-use mail_core::preview::{self, Kind, Page, Picture, Unshown};
+use mail_core::attachment_image::{self, Kind, Page, Picture, Unavailable};
 
 /// The most of a calendar, a contact or a message that is read whole to draw it.
 const OWN_LIMIT: u64 = 16 << 20;
@@ -91,21 +91,24 @@ fn unreadable(why: impl std::fmt::Display) -> Drawn {
     Drawn::Said(copy::status::no_preview(copy::status::UNREADABLE))
 }
 
-/// A picture or a PDF page `mail_core::preview` decodes; anything else is anyview's.
+/// A picture or a PDF page `mail_core::attachment_image` decodes; anything else is anyview's.
 fn picture(client: &Client, message: MessageId, index: usize, page: u32) -> Drawn {
     match client.preview().load(message, index) {
-        Ok((Kind::Pdf, bytes)) => match preview::pdf_page(bytes, page, preview::PAGE) {
-            Ok(page) => Drawn::Page(page),
-            Err(refusal) => Drawn::Said(refusal.sentence()),
-        },
-        Ok((kind, bytes)) => match preview::picture(&bytes, kind, preview::VIEW) {
+        Ok((Kind::Pdf, bytes)) => {
+            match attachment_image::pdf_page(bytes, page, attachment_image::PDF_PAGE) {
+                Ok(page) => Drawn::Page(page),
+                Err(refusal) => Drawn::Said(refusal.sentence()),
+            }
+        }
+        Ok((kind, bytes)) => match attachment_image::picture(&bytes, kind, attachment_image::LARGE)
+        {
             Ok(picture) => Drawn::Picture(picture),
             Err(refusal) => Drawn::Said(refusal.sentence()),
         },
-        Err(Unshown::Refused(refusal)) => Drawn::Said(refusal.sentence()),
-        Err(Unshown::NotHere) => Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned()),
-        Err(Unshown::NotAPicture) => beyond_mailo(client, message, index),
-        Err(Unshown::Store(why)) => unreadable(why),
+        Err(Unavailable::Refused(refusal)) => Drawn::Said(refusal.sentence()),
+        Err(Unavailable::NotHere) => Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned()),
+        Err(Unavailable::NotAPicture) => beyond_mailo(client, message, index),
+        Err(Unavailable::Store(why)) => unreadable(why),
     }
 }
 
