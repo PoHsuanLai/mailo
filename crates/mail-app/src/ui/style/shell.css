@@ -79,7 +79,8 @@
 .list-head { display: flex; align-items: center; gap: var(--s-8); width: 100%; min-width: 0; }
 .list-head h2 { font-size: var(--fs-title); min-width: 0; flex: 0 1 auto; white-space: nowrap; overflow: hidden; }
 /* A line of what the list is doing or why it is not: faint, and in the danger ink when it is bad.
-   The header's takes the room left of the title; the server search's is centred (`list.css`). */
+   The selection count in the header takes the room left of the actions; the server search's is
+   centred (`list.css`). */
 .status { font-size: var(--fs-help); color: var(--ink-faint); }
 .status.bad { color: var(--danger); font-weight: 600; }
 .list-head .status { min-width: 0; flex: 1 1 0; white-space: nowrap; overflow: hidden; }
