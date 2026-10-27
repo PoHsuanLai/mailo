@@ -172,6 +172,21 @@ fn an_image_in_the_body_goes_inside_the_html_s_related_part() {
         .unwrap_or_else(|err| panic!("{}: {err}", case.name));
         assert_eq!(outline(&raw), case.expect, "{}", case.name);
 
+        // RFC 2387 §3.1: a related part says what type its root is.
+        let parsed = MessageParser::default().parse(&raw).expect("parses");
+        for part in &parsed.parts {
+            let related = part.content_type().is_some_and(|ct| {
+                ct.ctype().eq_ignore_ascii_case("multipart")
+                    && ct
+                        .subtype()
+                        .is_some_and(|sub| sub.eq_ignore_ascii_case("related"))
+            });
+            if related {
+                let said = part.content_type().and_then(|ct| ct.attribute("type"));
+                assert_eq!(said, Some("text/html"), "{}", case.name);
+            }
+        }
+
         // Each inline part says it is inline and names its Content-ID, and nothing else is.
         let parsed = MessageParser::default().parse(&raw).expect("parses");
         let inline: Vec<&str> = parsed

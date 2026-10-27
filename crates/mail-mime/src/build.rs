@@ -350,7 +350,9 @@ fn write(
         let mut parts = Vec::with_capacity(inline.len() + 1);
         parts.push(html);
         parts.extend(inline);
-        builder.html_body = Some(MimePart::new("multipart/related", parts));
+        // `type` names the root's type, which RFC 2387 §3.1 requires; the root is the HTML.
+        let related = ContentType::new("multipart/related").attribute("type", "text/html");
+        builder.html_body = Some(MimePart::new(related, parts));
     }
 
     builder

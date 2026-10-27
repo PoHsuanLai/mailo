@@ -16,10 +16,11 @@ use ds::file_drop::drag::FileDrop;
 use ds::file_drop::hook::{FileDropHandle, use_file_drop};
 use ds::prelude::*;
 use ds::root::common::Common;
-use mail_core::SqliteStore;
+use mail_core::{CoreError, SqliteStore};
 
 use super::life;
 use super::page::{Guard, Page};
+use crate::settings::MessageFormat;
 use crate::ui::press::on_primary;
 use mail_core::compose::ATTACHMENT_BUDGET;
 
@@ -90,8 +91,19 @@ pub(super) fn use_drop_target(page: Signal<Page>) -> FileDropHandle {
 /// brought nothing for (`crate::ui::pasted_image`).
 pub(super) fn paste_image(mut page: Signal<Page>, png: Vec<u8>) {
     let name = crate::ui::copy::fields::PASTED_IMAGE;
-    if let Err(why) = into_body(page, name, &png) {
-        page.write().notice = Some(why);
+    let placed = match shown_in(page.peek().format, Lands::Body) {
+        Lands::Body => into_body(page, name, &png),
+        Lands::Files => as_file(page, name, &png).map_err(BodyRefused::Said),
+    };
+    match placed {
+        Ok(()) => {}
+        Err(BodyRefused::Said(why)) => page.write().notice = Some(why),
+        // A pasted picture the body cannot hold is kept as a file, as a dropped one is.
+        Err(BodyRefused::AsFile) => {
+            if let Err(why) = as_file(page, name, &png) {
+                page.write().notice = Some(why);
+            }
+        }
     }
 }
 
@@ -102,6 +114,35 @@ enum Lands {
     Files,
     /// Into the body, as a picture at the caret.
     Body,
+}
+
+/// Where a file wanted `wanted` goes on a page written as `format`: a plain-text message has no
+/// HTML to show a picture in, so everything on it is a file.
+fn shown_in(format: MessageFormat, wanted: Lands) -> Lands {
+    match format {
+        MessageFormat::Plain => Lands::Files,
+        MessageFormat::Rich => wanted,
+    }
+}
+
+/// Why a picture was not put into the body: it goes as a file instead, or the person is told.
+#[derive(Debug, PartialEq, Eq)]
+enum BodyRefused {
+    /// Not a picture the body can show, or too large for the pictures in one body: it is still a
+    /// file that can be sent.
+    AsFile,
+    Said(String),
+}
+
+impl BodyRefused {
+    fn of(why: CoreError) -> Self {
+        match why {
+            CoreError::NotAnInlineImage { .. } | CoreError::InlineImagesTooBig { .. } => {
+                BodyRefused::AsFile
+            }
+            other => BodyRefused::Said(crate::ui::remedy::told(other)),
+        }
+    }
 }
 
 /// A file asked for, read when it is a regular file within the budget.
@@ -165,26 +206,19 @@ fn take(mut page: Signal<Page>, paths: Vec<(PathBuf, Lands)>) {
                     continue;
                 }
             };
-            if lands == Lands::Body {
-                if let Err(why) = into_body(page, &name, &bytes) {
-                    refused.push(why);
+            if shown_in(page.peek().format, lands) == Lands::Body {
+                match into_body(page, &name, &bytes) {
+                    Ok(()) => continue,
+                    Err(BodyRefused::Said(why)) => {
+                        refused.push(why);
+                        continue;
+                    }
+                    // A photo too large to embed, or a type the body does not draw, is attached.
+                    Err(BodyRefused::AsFile) => {}
                 }
-                continue;
             }
-            let store = consume_context::<Arc<SqliteStore>>();
-            let draft = page.peek().draft;
-            let now = chrono::Utc::now();
-            let saved = life::save(&store, &mut page.write(), now).and_then(|_| {
-                mail_core::compose::attach_bytes(&store, draft, &name, &bytes, now)
-                    .map_err(crate::ui::remedy::told)
-            });
-            match saved {
-                Ok(stored) => {
-                    let mut write = page.write();
-                    write.attached = mail_core::compose::attached_to(&store, &stored);
-                    write.guard = Guard::Clear;
-                }
-                Err(why) => refused.push(why),
+            if let Err(why) = as_file(page, &name, &bytes) {
+                refused.push(why);
             }
         }
         if !refused.is_empty() {
@@ -193,17 +227,31 @@ fn take(mut page: Signal<Page>, paths: Vec<(PathBuf, Lands)>) {
     });
 }
 
-/// Store the picture `bytes`, named `name`, on the draft, and show it in the body at the caret,
-/// as one undo step. The page is saved first, so the store's draft is the page's when the
-/// picture is added to it.
-fn into_body(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), String> {
+/// Store `bytes`, named `name`, on the draft as a file in the strip at the body's end.
+fn as_file(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), String> {
     let store = consume_context::<Arc<SqliteStore>>();
     let draft = page.peek().draft;
     let now = chrono::Utc::now();
-    let (stored, cid) = life::save(&store, &mut page.write(), now).and_then(|_| {
-        mail_core::compose::attach_inline(&store, draft, name, bytes, now)
+    let stored = life::save(&store, &mut page.write(), now).and_then(|_| {
+        mail_core::compose::attach_bytes(&store, draft, name, bytes, now)
             .map_err(crate::ui::remedy::told)
     })?;
+    let mut write = page.write();
+    write.attached = mail_core::compose::attached_to(&store, &stored);
+    write.guard = Guard::Clear;
+    Ok(())
+}
+
+/// Store the picture `bytes`, named `name`, on the draft, and show it in the body at the caret,
+/// as one undo step. The page is saved first, so the store's draft is the page's when the
+/// picture is added to it. A picture the body cannot take is [`BodyRefused::AsFile`].
+fn into_body(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), BodyRefused> {
+    let store = consume_context::<Arc<SqliteStore>>();
+    let draft = page.peek().draft;
+    let now = chrono::Utc::now();
+    life::save(&store, &mut page.write(), now).map_err(BodyRefused::Said)?;
+    let (stored, cid) = mail_core::compose::attach_inline(&store, draft, name, bytes, now)
+        .map_err(BodyRefused::of)?;
     let mime = stored
         .attachments
         .iter()
@@ -217,8 +265,40 @@ fn into_body(mut page: Signal<Page>, name: &str, bytes: &[u8]) -> Result<(), Str
 
 #[cfg(test)]
 mod tests {
-    use super::{Picked, read_picked};
+    use super::{BodyRefused, Lands, Picked, read_picked, shown_in};
+    use crate::settings::MessageFormat;
+    use mail_core::CoreError;
     use mail_core::compose::ATTACHMENT_BUDGET;
+
+    /// A picture the body cannot take is attached; every other refusal is said.
+    #[test]
+    fn a_picture_the_body_cannot_hold_goes_as_a_file() {
+        assert_eq!(
+            BodyRefused::of(CoreError::InlineImagesTooBig {
+                limit: "6 MB".to_owned()
+            }),
+            BodyRefused::AsFile
+        );
+        assert_eq!(
+            BodyRefused::of(CoreError::NotAnInlineImage {
+                name: "scan.tiff".to_owned()
+            }),
+            BodyRefused::AsFile
+        );
+        assert!(matches!(
+            BodyRefused::of(CoreError::DraftOnItsWay),
+            BodyRefused::Said(_)
+        ));
+    }
+
+    /// A plain-text message has no HTML to show a picture in: all of it goes as files.
+    #[test]
+    fn on_a_plain_text_message_every_file_is_a_file() {
+        assert_eq!(shown_in(MessageFormat::Plain, Lands::Body), Lands::Files);
+        assert_eq!(shown_in(MessageFormat::Plain, Lands::Files), Lands::Files);
+        assert_eq!(shown_in(MessageFormat::Rich, Lands::Body), Lands::Body);
+        assert_eq!(shown_in(MessageFormat::Rich, Lands::Files), Lands::Files);
+    }
 
     fn kind(picked: &Picked) -> &'static str {
         match picked {
