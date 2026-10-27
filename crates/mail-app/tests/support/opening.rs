@@ -46,7 +46,7 @@ pub struct Open<'a> {
     pub start: mail_ui::ui::Start,
     pub fallback: FocusFallback,
     pub clock: Clock,
-    /// Handed to the window besides the store: a recorder, a clock, a revision.
+    /// Handed to the window besides the client: a recorder, say.
     pub with: Option<Box<dyn FnOnce(RootContexts) -> RootContexts + 'a>>,
     /// The window's print dialog; `None` is one that cancels, so no test opens the system's.
     pub printer: Option<mail_ui::ui::native::Printer>,

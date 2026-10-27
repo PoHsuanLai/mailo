@@ -1,5 +1,5 @@
 //! The Settings window beside the lane's main window: the same store, the same file dialog and
-//! save directory, and the same revision, so what it changes the main window hears.
+//! save directory, and the same `Configured`, so what it changes the main window hears.
 
 use ds_blitz::{FocusFallback, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
