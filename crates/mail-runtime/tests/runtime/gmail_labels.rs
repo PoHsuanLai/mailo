@@ -174,10 +174,7 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
         .threads(
             &Query {
                 filter: Filter::HasLabel(travel.id),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 10,

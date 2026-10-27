@@ -311,10 +311,7 @@ fn listed(store: &SqliteStore, filter: Filter) -> Vec<String> {
         .threads(
             &Query {
                 filter,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 1000,

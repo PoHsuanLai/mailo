@@ -227,10 +227,7 @@ mod what_the_store_returns {
             .threads(
                 &Query {
                     filter: parse(search),
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
+                    sort: Sort::NEWEST_FIRST,
                     page: PageReq {
                         after: None,
                         limit: 50,

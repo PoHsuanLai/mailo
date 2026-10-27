@@ -377,10 +377,7 @@ fn the_message(store: &SqliteStore) -> MessageId {
         .threads(
             &Query {
                 filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 10,
@@ -668,10 +665,7 @@ async fn an_operation_on_a_message_in_two_mailboxes_names_each_uid_in_its_own() 
         .threads(
             &Query {
                 filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 10,
@@ -964,10 +958,7 @@ async fn in_two_mailboxes(
             .threads(
                 &Query {
                     filter: Filter::All,
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
+                    sort: Sort::NEWEST_FIRST,
                     page: PageReq {
                         after: None,
                         limit: 10,

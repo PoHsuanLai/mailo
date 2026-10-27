@@ -314,10 +314,7 @@ fn fixture(port: u16) -> Fixture {
 fn subjects(store: &SqliteStore) -> Vec<String> {
     let query = Query {
         filter: Filter::Account(acct_account()),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: 50,
@@ -363,10 +360,7 @@ async fn searches_all_mail_and_keeps_only_what_is_new(esearch: bool) {
         .threads(
             &Query {
                 filter: Filter::Subject(TextMatch::Contains("2019".to_owned())),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 5,
@@ -381,10 +375,7 @@ async fn searches_all_mail_and_keeps_only_what_is_new(esearch: bool) {
         .threads(
             &Query {
                 filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 50,

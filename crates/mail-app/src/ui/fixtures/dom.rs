@@ -76,10 +76,7 @@ pub(in crate::ui) fn thread_like(store: &SqliteStore, needle: &str) -> ThreadId 
         .threads(
             &Query {
                 filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 50,

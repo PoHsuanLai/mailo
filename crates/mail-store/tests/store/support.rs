@@ -176,10 +176,7 @@ pub fn patch(changes: Vec<Change>) -> Patch {
 pub fn query(filter: Filter, limit: u32) -> Query {
     Query {
         filter,
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq { after: None, limit },
     }
 }

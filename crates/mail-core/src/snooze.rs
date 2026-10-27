@@ -12,8 +12,8 @@ use crate::error::{CoreError, TimeError};
 use chrono::{DateTime, Datelike, Local, TimeDelta, TimeZone, Timelike, Utc, Weekday};
 use mail_domain::{
     AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, Filter, FolderRoles, Message, MoveExt, Op,
-    PageReq, Property, Query, ServerLabels, ServerThreads, Snooze, Sort, SortDir, Supported,
-    Target, ThreadId, WatchMode,
+    PageReq, Query, ServerLabels, ServerThreads, Snooze, Sort, Supported, Target, ThreadId,
+    WatchMode,
 };
 use mail_store::{SqliteStore, Store};
 
@@ -41,10 +41,7 @@ pub fn next_wake(store: &SqliteStore, now: DateTime<Utc>) -> Option<DateTime<Utc
     loop {
         let query = Query {
             filter: filter.clone(),
-            sort: Sort {
-                property: Property::Date,
-                dir: SortDir::Desc,
-            },
+            sort: Sort::NEWEST_FIRST,
             page: PageReq { after, limit: 500 },
         };
         let Some(page) = store

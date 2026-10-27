@@ -117,10 +117,10 @@ fn every_grouping_has_a_key_that_finds_it_again() {
 /// `settings.toml`, a view's on the view. A search, or Drafts, offers no sort and keeps none.
 #[test]
 fn a_sort_is_kept_by_the_place_it_sorts() {
-    use crate::ui::view::{NEWEST_FIRST, SortKept, place_key};
+    use crate::ui::view::{SortKept, place_key};
     let view = saved("Trips", "label:travel");
     let mut shell = Shell::default();
-    assert_eq!(shell.query(50).sort, NEWEST_FIRST);
+    assert_eq!(shell.query(50).sort, Sort::NEWEST_FIRST);
     let by_size = Sort {
         property: Property::Size,
         dir: SortDir::Desc,
@@ -134,7 +134,7 @@ fn a_sort_is_kept_by_the_place_it_sorts() {
     assert_eq!(shell.query(50).sort, by_size);
     // Another place keeps its own.
     shell.select(3);
-    assert_eq!(shell.query(50).sort, NEWEST_FIRST);
+    assert_eq!(shell.query(50).sort, Sort::NEWEST_FIRST);
     shell.select(0);
     assert_eq!(shell.query(50).sort, by_size);
 
@@ -156,5 +156,5 @@ fn a_sort_is_kept_by_the_place_it_sorts() {
     shell.search = "lunch".to_owned();
     assert!(!shell.sortable());
     assert_eq!(shell.sort_by(by_size), None);
-    assert_eq!(shell.query(50).sort, NEWEST_FIRST);
+    assert_eq!(shell.query(50).sort, Sort::NEWEST_FIRST);
 }

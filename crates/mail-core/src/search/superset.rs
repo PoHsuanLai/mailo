@@ -55,10 +55,7 @@ fn vocabulary(store: &MemoryStore, now: DateTime<Utc>) -> Vec<Term> {
         .threads(
             &Query {
                 filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 1000,
@@ -97,10 +94,7 @@ fn matching(store: &MemoryStore, filter: &Filter, now: DateTime<Utc>) -> BTreeSe
         .threads(
             &Query {
                 filter: filter.clone(),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 1000,

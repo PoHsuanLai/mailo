@@ -95,6 +95,20 @@ pub struct Sort {
     pub dir: SortDir,
 }
 
+impl Sort {
+    /// The order a place's list is in until one is chosen: the newest conversation first.
+    pub const NEWEST_FIRST: Sort = Sort {
+        property: Property::Date,
+        dir: SortDir::Desc,
+    };
+}
+
+impl Default for Sort {
+    fn default() -> Self {
+        Sort::NEWEST_FIRST
+    }
+}
+
 /// A saved view: the filter, plus how to present its results.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct View {

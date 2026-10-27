@@ -301,10 +301,7 @@ mod a_reader_that_is_not_the_writer {
                 .threads(
                     &Query {
                         filter: Filter::All,
-                        sort: Sort {
-                            property: Property::Date,
-                            dir: SortDir::Desc
-                        },
+                        sort: Sort::NEWEST_FIRST,
                         page: PageReq {
                             after: None,
                             limit: 10

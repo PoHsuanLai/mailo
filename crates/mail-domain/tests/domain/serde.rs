@@ -566,10 +566,7 @@ fn view() -> View {
             label: LabelId::from_uuid(uuid(3)),
         },
         filter: Filter::And(filters()),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         group_by: Some(GroupKey::Property(Property::From)),
         threading: Threading::Threaded,
         shown: vec![Property::Date, Property::Subject, Property::Attachments],
@@ -2002,4 +1999,19 @@ fn mailbox_role_word_is_its_serde_name() {
         assert_eq!(role.to_string(), role.as_str());
         assert_eq!(role.as_str().parse(), Ok(role));
     }
+}
+
+/// The list's own order is newest first, said once: the default sort is that constant, and it is
+/// what a stored view with no sort of its own reads back as.
+#[test]
+fn the_default_sort_is_newest_first() {
+    assert_eq!(Sort::default(), Sort::NEWEST_FIRST);
+    assert_eq!(
+        (Sort::NEWEST_FIRST.property, Sort::NEWEST_FIRST.dir),
+        (Property::Date, SortDir::Desc)
+    );
+    assert_eq!(
+        serde_json::to_string(&Sort::NEWEST_FIRST).unwrap(),
+        r#"{"property":"date","dir":"desc"}"#
+    );
 }

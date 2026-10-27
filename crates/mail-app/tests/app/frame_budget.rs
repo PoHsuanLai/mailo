@@ -176,10 +176,7 @@ fn accounts(store: &SqliteStore) -> Vec<AccountId> {
 fn page(limit: u32, filter: Filter) -> Query {
     Query {
         filter,
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq { after: None, limit },
     }
 }

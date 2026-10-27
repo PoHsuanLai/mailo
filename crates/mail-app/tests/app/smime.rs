@@ -484,10 +484,7 @@ mod reading {
             .threads(
                 &Query {
                     filter: Filter::Text(TextMatch::Contains(word.to_owned())),
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
+                    sort: Sort::NEWEST_FIRST,
                     page: PageReq {
                         after: None,
                         limit: 50,

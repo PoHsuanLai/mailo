@@ -481,7 +481,7 @@ mod tests {
         let parts = PageParts::default();
         let cases: [(Sort, &str); 3] = [
             (
-                crate::ui::view::NEWEST_FIRST,
+                Sort::NEWEST_FIRST,
                 "Sort By ▸ [✓Date, Sender, Subject, Size, Unread, Starred, -, Oldest First, ✓Newest First]",
             ),
             (

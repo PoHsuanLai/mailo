@@ -830,10 +830,7 @@ async fn a_literal_body_survives_a_line_that_looks_like_a_tagged_response() {
         .threads(
             &Query {
                 filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 50,
@@ -1150,10 +1147,7 @@ mod round_trip {
             .threads(
                 &Query {
                     filter: Filter::All,
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
+                    sort: Sort::NEWEST_FIRST,
                     page: PageReq {
                         after: None,
                         limit: 10,
@@ -1317,10 +1311,7 @@ mod archiving {
             .threads(
                 &Query {
                     filter: Filter::All,
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
+                    sort: Sort::NEWEST_FIRST,
                     page: PageReq {
                         after: None,
                         limit: 10,

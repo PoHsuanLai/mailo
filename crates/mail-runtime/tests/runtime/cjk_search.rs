@@ -20,10 +20,7 @@ fn found(store: &SqliteStore, needle: &str) -> usize {
         .threads(
             &Query {
                 filter: Filter::Text(TextMatch::Contains(needle.to_owned())),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 50,
@@ -75,10 +72,7 @@ fn subject_hits(store: &SqliteStore, needle: &str) -> usize {
         .threads(
             &Query {
                 filter: Filter::Subject(TextMatch::Contains(needle.to_owned())),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 10,
@@ -156,10 +150,7 @@ fn chinese_mail_is_listed_and_found_by_its_parts() {
         .threads(
             &Query {
                 filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 10,

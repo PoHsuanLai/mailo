@@ -88,10 +88,7 @@ pub(in crate::ui) fn candidates(
     ]);
     let mut query = Query {
         filter: mail_core::view::scoped(scope, filter),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: PAGE,

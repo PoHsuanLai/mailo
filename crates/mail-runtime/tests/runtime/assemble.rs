@@ -39,10 +39,7 @@ fn arrive(
 fn query(filter: Filter) -> Query {
     Query {
         filter,
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: 50,

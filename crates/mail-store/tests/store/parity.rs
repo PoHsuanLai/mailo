@@ -395,10 +395,7 @@ const ASCII_PREFIXES: &[&str] = &["", "a", "re", "lun", "fr", "50", "cafe", "pla
 fn ids(store: &dyn Store, f: &Filter) -> BTreeSet<ThreadId> {
     let query = Query {
         filter: f.clone(),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         // Larger than any generated corpus: this compares result SETS, and pagination has its
         // own test. A short page here would compare two different questions.
         page: PageReq {
@@ -472,7 +469,7 @@ proptest! {
                 .threads(
                     &Query {
                         filter: f.clone(),
-                        sort: Sort { property: Property::Date, dir: SortDir::Desc },
+                        sort: Sort::NEWEST_FIRST,
                         page: PageReq { after: None, limit: window as u32 },
                     },
                     now(),

@@ -122,10 +122,7 @@ fn fixture_view() -> View {
             Filter::Read(ReadState::Unread),
             Filter::From(TextMatch::Contains("billing".to_owned())),
         ]),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         group_by: Some(GroupKey::Star),
         threading: Threading::Threaded,
         shown: Vec::new(),

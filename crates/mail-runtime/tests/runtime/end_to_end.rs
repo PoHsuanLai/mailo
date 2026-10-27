@@ -301,10 +301,7 @@ async fn a_whole_sync_over_a_real_socket_lands_mail_in_the_store() {
 
     let query = |filter: Filter| Query {
         filter,
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: 50,
@@ -611,10 +608,7 @@ async fn the_body_pass_fetches_what_the_window_is_showing_first() {
         .threads(
             &Query {
                 filter: Filter::All,
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 10,

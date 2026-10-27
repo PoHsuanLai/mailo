@@ -277,10 +277,7 @@ fn local_folders_send_nothing_and_tell_no_server() {
         .threads(
             &Query {
                 filter: Filter::Account(local.clone()),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 10,

@@ -14,8 +14,8 @@ use crate::environment::Environment;
 use crate::error::{CoreError, Logged};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, Mute, PageReq, Pin, Property,
-    Query, Snooze, Sort, SortDir, SystemFlag, ThreadSummary,
+    Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, Mute, PageReq, Pin, Query,
+    Snooze, Sort, SystemFlag, ThreadSummary,
 };
 use mail_mime::archive::{maildir, mbox};
 use mail_store::{SqliteStore, Store};
@@ -79,10 +79,7 @@ pub fn select(
         let page = store.threads(
             &Query {
                 filter: filter.clone(),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: after.clone(),
                     limit: PAGE,

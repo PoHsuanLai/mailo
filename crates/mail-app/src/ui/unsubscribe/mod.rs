@@ -152,10 +152,7 @@ pub(in crate::ui) fn archive_from(
             Filter::From(TextMatch::Exact(sender.to_owned())),
             Filter::InMailbox(MailboxRole::Inbox),
         ]),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: 500,

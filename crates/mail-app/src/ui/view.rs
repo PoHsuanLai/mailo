@@ -229,12 +229,6 @@ pub enum Grouping {
     Saved(GroupKey),
 }
 
-/// The order a place's list is in until one is chosen.
-pub const NEWEST_FIRST: Sort = Sort {
-    property: Property::Date,
-    dir: SortDir::Desc,
-};
-
 /// What keeps a sort chosen from the list's ⋯ ([`Shell::sort_by`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SortKept {
@@ -752,7 +746,7 @@ impl Shell {
     /// results that live in the Inbox.
     pub fn query(&self, limit: u32) -> Query {
         let needle = self.search.trim();
-        let mut sort = NEWEST_FIRST;
+        let mut sort = Sort::NEWEST_FIRST;
         let filter = if needle.is_empty() {
             match self.places.get(self.selected).map(|place| &place.source) {
                 Some(Source::Mail(filter)) => {
@@ -791,7 +785,7 @@ impl Shell {
     /// else newest first.
     pub fn sort(&self) -> Sort {
         let Some(place) = self.places.get(self.selected) else {
-            return NEWEST_FIRST;
+            return Sort::NEWEST_FIRST;
         };
         match saved_of(place) {
             Some(view) => view.sort,
@@ -799,7 +793,7 @@ impl Shell {
                 .sorts
                 .get(&place_key(place))
                 .copied()
-                .unwrap_or(NEWEST_FIRST),
+                .unwrap_or(Sort::NEWEST_FIRST),
         }
     }
 

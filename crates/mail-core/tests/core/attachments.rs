@@ -378,10 +378,7 @@ JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCg==\r\n\
             .threads(
                 &Query {
                     filter: Filter::All,
-                    sort: Sort {
-                        property: Property::Date,
-                        dir: SortDir::Desc,
-                    },
+                    sort: Sort::NEWEST_FIRST,
                     page: PageReq {
                         after: None,
                         limit: 10,

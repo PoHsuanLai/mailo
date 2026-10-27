@@ -1902,10 +1902,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
 fn list_query(filter: Filter, limit: u32) -> Query {
     Query {
         filter,
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq { after: None, limit },
     }
 }

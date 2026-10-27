@@ -6,7 +6,7 @@
 
 use crate::error::Logged;
 use chrono::{DateTime, Utc};
-use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir, ThreadId, ThreadSummary};
+use mail_domain::{Filter, PageReq, Query, Sort, ThreadId, ThreadSummary};
 use mail_store::Store;
 
 /// One entry in the full-text vocabulary, as the store reports it.
@@ -53,10 +53,7 @@ impl<S: Store + ?Sized> Source for S {
     fn listed(&self, filter: &Filter, page: PageReq, now: DateTime<Utc>) -> Vec<ThreadSummary> {
         let query = Query {
             filter: filter.clone(),
-            sort: Sort {
-                property: Property::Date,
-                dir: SortDir::Desc,
-            },
+            sort: Sort::NEWEST_FIRST,
             page,
         };
         // A search box that panics because the store missed a row is worse than an empty

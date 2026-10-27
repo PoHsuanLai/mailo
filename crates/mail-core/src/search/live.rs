@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::support_tests::{at, sqlite_with};
-use mail_domain::{Filter, PageReq, Property, Query, Sort, SortDir, TextMatch};
+use mail_domain::{Filter, PageReq, Query, Sort, TextMatch};
 use mail_store::Store;
 
 fn subjects(input: &str, store: &mail_store::SqliteStore) -> Vec<String> {
@@ -29,10 +29,7 @@ fn half_a_word_finds_its_thread_through_the_index() {
     // Whole-word matching alone does not find it: that is what expansion adds.
     let whole = Query {
         filter: Filter::Text(TextMatch::Contains("uidval".to_owned())),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: 10,

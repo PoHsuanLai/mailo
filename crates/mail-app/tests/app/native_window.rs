@@ -82,10 +82,7 @@ fn seeded(dir: &std::path::Path) -> Arc<SqliteStore> {
 fn thread(store: &SqliteStore, subject: &str) -> ThreadSummary {
     let query = Query {
         filter: Filter::Account(acct_account()),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: 100,

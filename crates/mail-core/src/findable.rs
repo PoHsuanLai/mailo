@@ -15,8 +15,7 @@ use crate::error::CoreError;
 use crate::notify::{Own, own_addresses};
 use chrono::{DateTime, Utc};
 use mail_domain::{
-    Address, Filter, LabelId, MailboxRole, PageReq, Property, Query, Sort, SortDir, ThreadSummary,
-    subject_or_none,
+    Address, Filter, LabelId, MailboxRole, PageReq, Query, Sort, ThreadSummary, subject_or_none,
 };
 use mail_store::{SqliteStore, Store, StoreError};
 use std::collections::{BTreeMap, HashMap};
@@ -152,10 +151,7 @@ pub fn conversations(
         let page = store.threads(
             &Query {
                 filter: kept(),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq { after, limit: PAGE },
             },
             now,

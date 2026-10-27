@@ -44,10 +44,7 @@ fn subjects(store: &SqliteStore, role: MailboxRole) -> Vec<String> {
         .threads(
             &Query {
                 filter: Filter::InMailbox(role),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 50,

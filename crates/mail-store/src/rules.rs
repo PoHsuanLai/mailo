@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 use mail_domain::rule::{self, one_message};
 use mail_domain::{
     AccountCaps, AfterMatch, Body, Change, ChangeId, Filter, Label, LabelId, LabelOrigin,
-    MailboxRole, MatchCtx, Membership, Message, MessageId, Mute, Op, PageReq, Patch, Property,
-    Query, ReadState, Rule, RuleAction, RuleState, Sort, SortDir, Star, Target,
+    MailboxRole, MatchCtx, Membership, Message, MessageId, Mute, Op, PageReq, Patch, Query,
+    ReadState, Rule, RuleAction, RuleState, Sort, Star, Target,
 };
 use porter_core::AccountId;
 
@@ -144,10 +144,7 @@ pub fn run_now<S: Store + ?Sized>(
         let page = store.threads(
             &Query {
                 filter: Filter::Account(chosen.account.clone()),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: after.clone(),
                     limit: batch.max(1),

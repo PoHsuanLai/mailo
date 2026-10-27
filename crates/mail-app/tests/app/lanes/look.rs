@@ -5,8 +5,7 @@ use chrono::{DateTime, Utc};
 use ds_harness::Harness;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{
-    DraftId, Filter, MailboxRole, PageReq, Property, ProtoOp, Query, Sort, SortDir, TextMatch,
-    ThreadSummary,
+    DraftId, Filter, MailboxRole, PageReq, ProtoOp, Query, Sort, TextMatch, ThreadSummary,
 };
 
 use super::seed::account;
@@ -123,10 +122,7 @@ pub fn parsed(raw: &str) -> mail_mime::Parsed {
 pub fn listed(store: &SqliteStore, filter: Filter, at: DateTime<Utc>) -> Vec<ThreadSummary> {
     let query = Query {
         filter,
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: 50,

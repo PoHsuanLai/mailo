@@ -62,10 +62,7 @@ fn arrive(store: &SqliteStore, n: u32, from: &str, headers: &str) -> Message {
         .threads(
             &Query {
                 filter: Filter::Subject(TextMatch::Exact(format!("note {n}"))),
-                sort: Sort {
-                    property: Property::Date,
-                    dir: SortDir::Desc,
-                },
+                sort: Sort::NEWEST_FIRST,
                 page: PageReq {
                     after: None,
                     limit: 5,

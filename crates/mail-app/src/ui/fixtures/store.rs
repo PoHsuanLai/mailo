@@ -363,10 +363,7 @@ pub(in crate::ui) fn held_and_remote() -> (Arc<SqliteStore>, tempfile::TempDir) 
 pub(in crate::ui) fn inbox_query() -> Query {
     Query {
         filter: Filter::InMailbox(MailboxRole::Inbox),
-        sort: Sort {
-            property: Property::Date,
-            dir: SortDir::Desc,
-        },
+        sort: Sort::NEWEST_FIRST,
         page: PageReq {
             after: None,
             limit: 50,
