@@ -1464,7 +1464,11 @@ fn user_labels(line: &str) -> Vec<String> {
                 chars.next();
             }
         }
-        if value.is_empty() || value.starts_with('\\') {
+        // Not a label: a flag colour's bits, which Gmail lists beside the labels it keeps.
+        let colour_bit = mail_domain::FLAG_BIT_KEYWORDS
+            .iter()
+            .any(|bit| bit.eq_ignore_ascii_case(&value));
+        if value.is_empty() || value.starts_with('\\') || colour_bit {
             continue;
         }
         out.push(crate::mutf7::decode(&value));
@@ -2002,5 +2006,17 @@ impl std::fmt::Debug for ImapBackend {
             .field("job", &self.job)
             .field("session", &self.session.is_some())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::user_labels;
+
+    /// Gmail lists a flag colour's bits beside a message's labels; they are not labels.
+    #[test]
+    fn a_flag_colours_bits_are_not_labels() {
+        let line = "* 1 FETCH (X-GM-LABELS (\\Inbox Work $MailFlagBit0 \"$mailflagbit2\" Home))";
+        assert_eq!(user_labels(line), ["Work", "Home"]);
     }
 }

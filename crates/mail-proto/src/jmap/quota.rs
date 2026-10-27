@@ -42,9 +42,17 @@ pub fn storage(args: &Value) -> Result<Option<Storage>, ProtoError> {
         if !types.is_empty() && !types.iter().any(|t| t == "Mail") {
             continue;
         }
+        // A quota with no hard limit, or a limit of nothing, limits nothing: it is not "full".
+        let Some(limit) = quota
+            .get("hardLimit")
+            .and_then(Value::as_u64)
+            .filter(|limit| *limit > 0)
+        else {
+            continue;
+        };
         found.push(Storage {
             used: unsigned(quota, "used", 0)?,
-            limit: unsigned(quota, "hardLimit", 0)?,
+            limit,
         });
     }
     Ok(tightest(found))
@@ -64,6 +72,17 @@ mod tests {
             "used": used,
             "hardLimit": limit,
         })
+    }
+
+    #[test]
+    fn a_quota_with_no_hard_limit_is_not_storage() {
+        let unlimited = json!({
+            "id": "q", "resourceType": "octets", "types": ["Mail"], "scope": "account",
+            "name": "a quota", "used": 10,
+        });
+        let zero = quota("octets", json!(["Mail"]), 10, 0);
+        let args = json!({ "list": [unlimited, zero] });
+        assert_eq!(storage(&args).unwrap(), None);
     }
 
     #[test]
@@ -112,7 +131,7 @@ mod tests {
         for args in [
             json!({ "state": "s" }),
             json!({ "list": [1] }),
-            json!({ "list": [{ "resourceType": "octets", "used": "lots" }] }),
+            json!({ "list": [{ "resourceType": "octets", "used": "lots", "hardLimit": 100 }] }),
         ] {
             assert!(storage(&args).is_err(), "{args}");
         }

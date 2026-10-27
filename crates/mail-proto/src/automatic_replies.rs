@@ -52,7 +52,7 @@ pub fn automatic_replies(vacation: Option<&Vacation>, now: DateTime<Utc>) -> Val
     };
     let message = html(&vacation.body);
     let mut setting = json!({
-        "externalAudience": "all",
+        "externalAudience": "contactsOnly",
         "internalReplyMessage": message,
         "externalReplyMessage": message,
     });
@@ -105,14 +105,14 @@ mod tests {
             (
                 Some(away(None, None)),
                 json!({
-                    "status": "alwaysEnabled", "externalAudience": "all",
+                    "status": "alwaysEnabled", "externalAudience": "contactsOnly",
                     "internalReplyMessage": words, "externalReplyMessage": words,
                 }),
             ),
             (
                 Some(away(Some(1_790_000_000), Some(1_790_086_400))),
                 json!({
-                    "status": "scheduled", "externalAudience": "all",
+                    "status": "scheduled", "externalAudience": "contactsOnly",
                     "internalReplyMessage": words, "externalReplyMessage": words,
                     "scheduledStartDateTime": utc("2026-09-21T14:13:20"),
                     "scheduledEndDateTime": utc("2026-09-22T14:13:20"),
@@ -122,7 +122,7 @@ mod tests {
             (
                 Some(away(None, Some(86_400))),
                 json!({
-                    "status": "scheduled", "externalAudience": "all",
+                    "status": "scheduled", "externalAudience": "contactsOnly",
                     "internalReplyMessage": words, "externalReplyMessage": words,
                     "scheduledStartDateTime": utc("1970-01-01T00:16:40"),
                     "scheduledEndDateTime": utc("1970-01-02T00:00:00"),

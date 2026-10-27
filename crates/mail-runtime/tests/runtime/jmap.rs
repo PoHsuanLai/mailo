@@ -706,6 +706,24 @@ async fn a_search_of_the_server_is_an_email_query_and_keeps_headers_once() {
 }
 
 #[tokio::test]
+async fn a_relative_date_is_fixed_against_the_clock_before_the_server_is_asked() {
+    let mut s = setup().await;
+    seed(&s.fake);
+    let recent = Filter::And(vec![
+        Filter::NewerThan(7),
+        Filter::Text(TextMatch::Contains("sandwiches".to_owned())),
+    ]);
+    let said = s.engine.search_jmap(&recent, &[], now()).await.unwrap();
+    assert!(matches!(said, Searched::Found(_)), "{said:?}");
+    let query = s.fake.calls("Email/query").pop().unwrap();
+    assert!(
+        query["filter"].to_string().contains("after"),
+        "no date was asked: {}",
+        query["filter"]
+    );
+}
+
+#[tokio::test]
 async fn a_search_the_server_cannot_answer_faithfully_is_not_sent() {
     let mut s = setup().await;
     let pinned = Filter::And(vec![
