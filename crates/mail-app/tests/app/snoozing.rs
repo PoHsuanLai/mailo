@@ -7,11 +7,11 @@
 use crate::store::acct_account;
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_app::cli;
-use mail_app::ui::view;
 use mail_core::snooze;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui::ui::view;
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap()

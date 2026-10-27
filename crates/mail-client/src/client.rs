@@ -162,7 +162,7 @@ impl Client {
             let shared = shared.clone();
             threads.push(spawn("mailo-act", move || {
                 // Every command given is applied, even once the client is stopping: a change the
-                // person made is not dropped because the window closed after it.
+                // person made is not dropped because the caller stopped the client after it.
                 for (command, said) in asked {
                     // Whoever asked may have stopped waiting; the change is made all the same.
                     let _ = said.send(crate::act::apply(&shared.store, command));

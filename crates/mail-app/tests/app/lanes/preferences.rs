@@ -7,10 +7,10 @@
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
-use mail_app::ui::copy;
-use mail_app::ui::keymap;
-use mail_app::ui::space;
-use mail_app::ui::view::Shortcut;
+use mail_ui::ui::copy;
+use mail_ui::ui::keymap;
+use mail_ui::ui::space;
+use mail_ui::ui::view::Shortcut;
 
 use super::drive::{Drive, Key};
 use super::hands::{centre, click, scroll_to, type_text, until};
@@ -209,7 +209,7 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
 /// `settings.toml`, and the next window opens with them.
 #[test]
 fn the_list_opens_the_way_it_was_left() {
-    use mail_app::settings::{GroupByDate, LabelChips, Snippets, load, root_for, store};
+    use mail_ui::settings::{GroupByDate, LabelChips, Snippets, load, root_for, store};
     let options = format!("[aria-label=\"{}\"]", copy::aria::MORE);
     let mut window = Window::open(|_| {});
     window.click(&options);
@@ -243,9 +243,9 @@ fn the_list_opens_the_way_it_was_left() {
 fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
     let mut window = Window::open(|_| {});
     let dirs = window.dirs();
-    let root = mail_app::settings::root_for(&dirs.config);
-    let while_quit = move || mail_app::settings::load(&root).sync.while_quit;
-    assert_eq!(while_quit(), mail_app::settings::WhileQuit::Off);
+    let root = mail_ui::settings::root_for(&dirs.config);
+    let while_quit = move || mail_ui::settings::load(&root).sync.while_quit;
+    assert_eq!(while_quit(), mail_ui::settings::WhileQuit::Off);
     let switch = "[*|aria-label=\"Check for mail when quit\"][*|aria-checked]";
     let login = window.login_item();
     window.in_settings(copy::titles::GENERAL, |settings| {
@@ -261,7 +261,7 @@ fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
             login.asked().len() == 1
         });
     });
-    assert_eq!(while_quit(), mail_app::settings::WhileQuit::On);
+    assert_eq!(while_quit(), mail_ui::settings::WhileQuit::On);
     assert_eq!(window.login_asked(), ["register"]);
     window.in_settings(copy::titles::GENERAL, |settings| {
         until(settings, "the switch is drawn, on", |h| {
@@ -275,7 +275,7 @@ fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
             login.asked().len() == 2
         });
     });
-    assert_eq!(while_quit(), mail_app::settings::WhileQuit::Off);
+    assert_eq!(while_quit(), mail_ui::settings::WhileQuit::Off);
     assert_eq!(window.login_asked(), ["register", "unregister"]);
 }
 

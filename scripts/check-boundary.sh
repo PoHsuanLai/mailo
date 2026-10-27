@@ -10,12 +10,12 @@ set -uo pipefail
 PURE=(mailo-domain mailo-mime mailo-proto mailo-pim)
 # Nor porter's client, its bus vocabulary or quire's capability probe: the sans-I/O crates know
 # nothing of the desktop's accountd. Nor anyview (the attachment peek and its card): only
-# `mail-app` draws, behind its `anyview` feature.
+# `mail-ui` draws, behind its `anyview` feature.
 FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus ds-desktop zbus anyview-core anyview-peek)
 # `mail-core` is the I/O-capable core: it may use tokio and the network, which the PURE
 # crates may not. What it may never reach is anything that draws, the window's toolkit or the
-# renderer under it, so that `mail-app`'s two front-ends (`ui`, `cli`) sit over one core that
-# knows neither.
+# renderer under it, so that the two front-ends (`mail-ui`, and `mail-app`'s `cli`) sit over one
+# core that knows neither.
 CORE=(mail-core mail-client)
 FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek)
 fail=0
@@ -58,7 +58,7 @@ fi
 fail=$((fail | core_fail))
 
 # `mail-store` and `mail-runtime` sit between the pure crates and the core, and draw nothing either:
-# anyview, which peeks at a file and draws a card, is `mail-app`'s alone (its `anyview` feature).
+# anyview, which peeks at a file and draws a card, is `mail-ui`'s alone (its `anyview` feature).
 lower_fail=0
 for crate in mail-store mail-runtime; do
   for dep in anyview-core anyview-peek; do
@@ -74,25 +74,27 @@ if [ "$lower_fail" -eq 0 ]; then
 fi
 fail=$((fail | lower_fail))
 
-# Within `mail-app`, anyview is named by the reader's attachment code only (`ui/reading`), behind
-# the `anyview` feature: the strip's thumbnail, Peek's card, and the adapter between them.
+# Within the window (`mail-ui`), anyview is named by the reader's attachment code only
+# (`ui/reading`), behind the `anyview` feature: the strip's thumbnail, Peek's card, and the adapter
+# between them.
 if grep -rnE '\banyview_(core|peek)\b' crates --include='*.rs' \
-  | grep -vE '^crates/mail-app/src/ui/reading/(anyview|thumb|peek/part)\.rs:|^crates/mail-app/tests/app/native_anyview\.rs:' \
+  | grep -vE '^crates/mail-ui/src/ui/reading/(anyview|thumb|peek/part)\.rs:|^crates/mail-app/tests/app/native_anyview\.rs:' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "anyview_core and anyview_peek belong to ui/reading's anyview.rs, thumb.rs and peek/part.rs: see scripts/check-boundary.sh"
   fail=1
 fi
 
-# The two front-ends sit side by side in `mail-app` and never name each other: what they share
-# is `mail-core`'s. A path through `crate::ui` from the terminal, or `crate::cli` from the
+# The window (`mail-ui`'s `ui`) and the terminal (`mail-app`'s `cli`) never name each other: what
+# they share is `mail-core`'s (or, for the settings files and the words of a finished import, the
+# top of `mail-ui`). A path into `mail_ui::ui` from the terminal, or through `crate::cli` from the
 # window, is a helper that belongs in `mail-core` (or, if it is truly neither's, nowhere yet).
 # `super::` and the crate's own name are caught too, as they reach the other side the same way.
-if grep -rnE "(crate|super|mail_app)::ui\b" crates/mail-app/src/cli/; then
-  echo "crates/mail-app/src/cli must not name the window (crate::ui): move the shared helper to mail-core"
+if grep -rnE "\bmail_ui::ui\b" crates/mail-app/src/cli/; then
+  echo "crates/mail-app/src/cli must not name the window (mail_ui::ui): move the shared helper to mail-core"
   fail=1
 fi
-if grep -rnE "(crate|super|mail_app)::cli\b" crates/mail-app/src/ui/; then
-  echo "crates/mail-app/src/ui must not name the command line (crate::cli): move the shared helper to mail-core"
+if grep -rnE "(crate|super|mail_app)::cli\b" crates/mail-ui/src/ui/; then
+  echo "crates/mail-ui/src/ui must not name the command line (crate::cli): move the shared helper to mail-core"
   fail=1
 fi
 
@@ -284,10 +286,19 @@ for crate in mail-domain mail-mime mail-pim mail-store mail-proto mail-runtime m
   fi
 done
 
+# The window names no store: `mail-ui`'s dependencies, dev-dependencies aside (which seed a store as
+# a fixture for its tests), hold no `mail-core`, `mail-store` or `mail-runtime`. Everything it knows
+# of mail comes from `mail-client`.
+if awk '/^\[/ { dev = ($0 ~ /dev-dependencies/) } !dev && /^(mail-core|mail-store|mail-runtime)[ .=]/' \
+  crates/mail-ui/Cargo.toml | grep -q .; then
+  echo "crates/mail-ui/Cargo.toml names mail-core, mail-store or mail-runtime outside its dev-dependencies: go through mail-client"
+  fail=1
+fi
+
 # The reader draws blocks. A raw HTML sink in the UI would put a sender's markup
 # in our document, which is what the block types exist to prevent.
-if grep -rn "dangerous_inner_html" crates/mail-app/src/ui/; then
-  echo "dangerous_inner_html is forbidden under crates/mail-app/src/ui/: the reader draws blocks, not raw markup"
+if grep -rn "dangerous_inner_html" crates/mail-ui/src/ui/; then
+  echo "dangerous_inner_html is forbidden under crates/mail-ui/src/ui/: the reader draws blocks, not raw markup"
   exit 1
 fi
 

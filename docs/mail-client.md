@@ -5,17 +5,20 @@ value that is already there, and everything it changes goes to the `Client` as a
 window never holds the store, so no frame can be stuck behind a sync, and no part of the window
 has to remember to read again after a write.
 
-## Where it stands
+## What it replaced
 
-- The UI reads the store while it renders, through `Client::stored()`: 84 calls in 46 files, among
-  them the sidebar's memos `counted` (the Favourites' counts) and `scheduled`.
-- One hand-bumped counter, `revision`, says something changed. A write that forgets to bump it,
-  or a commit no one bumps for, leaves the window stale (gone with stage 4).
-- `SqliteStore::data_version` does not count this store's own commits. On macOS the in-process
-  background watch writes through the window's own store, so mail it fetches does not move
-  `revision`.
-- About 15 `edge::block_on` calls in `ui` waited on the network on the UI thread (gone with
-  stage 4).
+- The window read the store while it rendered: 196 `consume_context::<Arc<SqliteStore>>` in 92
+  files, the sidebar's memos (`counted`, `tiled`, `scheduled`, `folders`), `PlaceRow`'s
+  `label_of`, and `App`'s seeding hook, effect and first-frame badge fallback.
+- Badges were joined to places by position (`badges().get(index)`), from two signals that moved
+  at different times.
+- One hand-bumped counter, `revision`, said something changed. A write that forgot to bump it,
+  or a commit no one bumped for, left the window stale.
+- `SqliteStore::data_version` does not count this store's own commits, and on macOS the
+  in-process background watch writes through the window's own store, so mail it fetched did not
+  move `revision`. The client hears its own process's commits by subscribing to the store and
+  other processes' by watching the file.
+- About 15 `edge::block_on` calls in `ui` waited on the network on the UI thread.
 
 ## Crates
 
@@ -23,18 +26,25 @@ has to remember to read again after a write.
 mail-domain  mime  proto  pim            (pure)
 mail-store → mail-runtime → mail-core    (I/O)
 mail-client  → mail-core, mail-store, mail-domain, tokio, notify   (no dioxus, no ds)
-mail-ui      → mail-client, the pure crates, dioxus, ds            (the last stage)
+mail-ui      → mail-client, the pure crates, dioxus, ds            (the window)
 mail-app     → mail-ui, mail-client, mail-core                     (binary, CLI, background)
 ```
 
 The fence is the compiler: `mail-ui`'s `Cargo.toml` names no `mail-core`, `mail-store` or
-`mail-runtime`, so a store is not something the window can name. `mail-core` re-exports
+`mail-runtime` among its dependencies, so a store is not something the window can name. Its tests
+have them as dev-dependencies, to seed a store as a fixture and hand the window a client over it
+(`fixtures::client`); that code is compiled for tests alone. `mail-core` re-exports
 `SqliteStore` at its root, so dropping a dependency inside `mail-app` would fence nothing, and
 module privacy cannot hide another crate's paths. There is no lint and no allowlist: until the
 split, the stages simply convert the window, and the split is what keeps it converted.
 
-`mail-client` re-exports only what is pure (`mail_domain` types, `Scope`, `undo`, `when`,
-`editor`, the pure parts of `view` and `place`). It never hands out `&SqliteStore` or `Mail`.
+`mail-client` re-exports only what reads no store (`pure.rs`): `mail-core`'s words for mail
+(`Scope`, `undo`, `when`, `editor`, the pure parts of `view` and `place`, the shapes a call takes
+and hands back) and what it does with no store at all (parsing a search, the files under the
+config directory). Each re-exported module holds only what the window uses of `mail-core`'s. It
+never hands out `&SqliteStore` or `Mail`: what the program reaches servers with is the client's
+too (`net().secrets()`, `environment()`, `oauth_clients()`, `runtime()`), and a client never
+told ([`Reach`]) has no keyring and no OAuth client, which is what a test's window has.
 
 `mail-client` is logic only. Its queries are facts about the mail — the accounts with their
 folders and labels, the saved views, how many conversations each filter matches — and it has no
@@ -126,8 +136,8 @@ Every write goes through the store, so the store says what changed.
   to readers, the store publishes `Committed { topics, generation }`. A commit that said nothing
   publishes `ALL`, so a missing declaration costs a recount, never a stale window.
   `remove_account` says `ALL`: its cascade reaches every table an account owns.
-- **Other processes.** The watch in `ui/fetching/external.rs` (the db and `-wal` files, then
-  `data_version`) moves into `mail-client` as it is, and publishes `ALL`.
+- **Other processes.** The watch in `mail-client`'s `external.rs` (the db and `-wal` files, then
+  `data_version`) publishes `ALL`.
 - **One snapshot per answer.** `read_pinned` locks one reader for the thread and opens a read
   transaction on it; `reader()` hands that thread the same reader again. A sidebar's twenty
   counts are one moment of the database, and `as_of` is the generation read before it began.
@@ -184,8 +194,9 @@ Each leaves the app working.
    No window files.
    Queries: `Accounts`, `Views`, `Counts`.
    **b.** The window's sidebar built from them; `App`'s seeding hook, badge filters and fallback
-   go. `external.rs` becomes a follower of the client's generation that still moves `revision`,
-   so memos not yet converted hear in-process and background commits too.
+   go. `external.rs` (the watch, now `mail-client`'s) follows the client's generation; until 4b
+   it also moved `revision`, so memos not yet converted heard in-process and background commits
+   too.
 2. List and reader, in three steps.
    **a.** The list: `Conversations` (a place's query, the returned and waiting lists, history, a
    search) answers `Found`, the rows with what a search found on top; the window keeps the
@@ -224,8 +235,7 @@ Each leaves the app working.
    body, a part, a drain, rules pushed, a key looked up, a server search, an unsubscribe,
    discovery, adding, signing in and removing an account, and the passes and watches the fetch
    seams lend (`net().pass()`, `net().listen()`). No `edge::block_on` or `edge::mail` is left in
-   `ui`. The root still hands the store to `launch` (the program's) and to a test's window, whose
-   `use_client()` makes an inline client over it; stage 5 takes it away.
+   `ui`.
    **b.** `revision` goes: what moved is the client's to say (`Client::moved`). The window
    follows it in one root signal (`live::moved`), which every memo and component that still reads
    the store itself reads; nobody bumps anything by hand, and a write the window makes moves it
@@ -233,5 +243,9 @@ Each leaves the app working.
    for the configuration files (`ui::configured`). A client that reads on the thread that draws
    (a test's) is told each time the store commits (`Client::committed`, from the store's
    `subscribe_waking`) and settles there.
-5. The fence: `ui`, `settings` and the platform seams move to `mail-ui`, whose `Cargo.toml` has
-   no store.
+5. The fence: `ui`, `settings` and the platform seams (the launcher's count, the mail-link
+   handler, another program's hand-off, the damaged-settings gate, the words of a finished
+   import or export) move to `mail-ui`, whose dependencies hold no store. The program makes the
+   client over the store it opened, reaching servers as `edge` says, and hands it to the window
+   with whose mail it is (`window::open`, `ui::Program`); every window, a test's included, is
+   handed a client and never a store.

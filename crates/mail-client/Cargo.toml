@@ -10,14 +10,16 @@ description = "Mail as values that are already read, and kept read as the store 
 repository = "https://github.com/PoHsuanLai/mailo"
 authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 
-# Between `mail-core` and whatever draws. A caller asks this crate for a value and is handed one
+# Between `mail-core` and its callers. A caller asks this crate for a value and is handed one
 # that is already there; the reading happens on threads of the client's own, and is done again
-# when the store says what it touched (`mail_store::changes`). Logic only: it draws nothing and
-# words nothing (no dioxus, no ds: `scripts/check-boundary.sh`).
+# when the store says what it touched (`mail_store::changes`). Logic only: it has no front end
+# and words nothing (no dioxus, no ds: `scripts/check-boundary.sh`).
 
 [features]
 # What a front end's tests build a client with (`Client::inline`): off in the program.
 testing = ["mail-store/testing"]
+# The desktop's notification service, named for a caller that shows notifications itself.
+desktop = ["mail-core/desktop"]
 
 [dependencies]
 mail-core.workspace = true

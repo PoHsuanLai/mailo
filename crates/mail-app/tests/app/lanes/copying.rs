@@ -6,7 +6,7 @@
 use ds::base::press::PointerButton;
 use ds::prelude::{Point, Px};
 use ds_harness::Harness;
-use mail_app::ui::copy;
+use mail_ui::ui::copy;
 
 use super::drive::{Drive, Key, PRIMARY};
 use super::look::row;

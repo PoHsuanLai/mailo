@@ -4,10 +4,10 @@
 //! one passed over before "after a delay" is up does.
 
 use ds_harness::Harness;
-use mail_app::settings::{MailSettings, MarkRead, MarkReadDelay, TextZoom};
-use mail_app::ui::copy;
 use mail_core::Store;
 use mail_domain::ReadState;
+use mail_ui::settings::{MailSettings, MarkRead, MarkReadDelay, TextZoom};
+use mail_ui::ui::copy;
 
 use super::drive::{Key, PRIMARY};
 use super::look::conversation;
@@ -51,15 +51,15 @@ fn letters(store: &mail_core::SqliteStore) {
 /// The window over the seeded inbox and [`letters`], its settings first changed by `edit`.
 fn open(edit: impl FnOnce(&mut MailSettings) + 'static) -> Window {
     Window::open_with(chrono::Utc::now(), letters, move |dir, contexts| {
-        let root = mail_app::settings::root_for(&dir.join("config"));
-        mail_app::settings::change(&root, edit).expect("the settings are written");
+        let root = mail_ui::settings::root_for(&dir.join("config"));
+        mail_ui::settings::change(&root, edit).expect("the settings are written");
         contexts
     })
 }
 
 /// The settings as the window's config directory holds them.
 fn stored(window: &Window) -> MailSettings {
-    mail_app::settings::load(&mail_app::settings::root_for(&window.dirs().config))
+    mail_ui::settings::load(&mail_ui::settings::root_for(&window.dirs().config))
 }
 
 /// What `read` measures the open message as, once it has stopped changing.

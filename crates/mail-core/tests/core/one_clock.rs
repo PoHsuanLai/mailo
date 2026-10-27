@@ -26,7 +26,7 @@ const ALLOWED: &[(&str, &str)] = &[
         "reads a typed vacation instant",
     ),
     (
-        "mail-app/src/ui/rules/away.rs",
+        "mail-ui/src/ui/rules/away.rs",
         "writes a kept instant back into a field that reads it again",
     ),
     (

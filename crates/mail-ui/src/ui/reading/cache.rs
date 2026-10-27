@@ -1,0 +1,156 @@
+//! What the reader does with the rendered bodies of `mail_client::message`: the cache it owns, the
+//! renderings sent off the thread that draws, and the warming that keeps the top of the list
+//! rendered before anyone opens it.
+//!
+//! The cache is one [`Frames`] for the whole app, a root context (`ui::launch::contexts`); a
+//! reader drawn with none around it (a test's) gets one of its own. So is the [`Looks`], the
+//! other thing the reader keeps per message: the checks, the invitation, the receipt, the list's
+//! way out and what OpenPGP or S/MIME opened. Opened bodies are the `Looks`', handed to the
+//! `Frames` as the one thing it asks of them.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::Arc;
+
+use dioxus::prelude::*;
+use mail_client::Client;
+use mail_client::message::{FIRST_PAGE, Frames, Key, Looks, Sent, ahead};
+use mail_client::query::Conversation;
+use mail_domain::{Message, ThreadId, ThreadSummary};
+use mail_mime::SanitizePolicy;
+
+use crate::ui::view::Shell;
+
+/// A new, empty set of the reader's per-message lookups.
+pub(in crate::ui) fn looks() -> Arc<Looks> {
+    Arc::new(Looks::new())
+}
+
+/// The app's lookups: the root context, or a set of this component's own where there is none.
+pub(in crate::ui) fn use_looks() -> Arc<Looks> {
+    use_hook(|| try_consume_context::<Arc<Looks>>().unwrap_or_else(looks))
+}
+
+/// A new cache of rendered bodies, asking `looks` which messages it has opened.
+pub(in crate::ui) fn frames(looks: Arc<Looks>) -> Arc<Frames> {
+    Arc::new(Frames::new(Arc::new(move |message: &Message| {
+        looks.opened_body(message).map(|parsed| *parsed)
+    })))
+}
+
+/// The app's cache of rendered bodies: the root context, or a cache of this component's own where
+/// there is none.
+pub(in crate::ui) fn use_frames() -> Arc<Frames> {
+    let looks = use_looks();
+    use_hook(|| try_consume_context::<Arc<Frames>>().unwrap_or_else(|| frames(looks)))
+}
+
+/// Render `later` on a blocking thread, then move `landed` so the reader draws them.
+pub(super) fn render_later(
+    frames: Arc<Frames>,
+    client: Client,
+    later: Vec<(Message, SanitizePolicy)>,
+    sent: std::rc::Rc<std::cell::RefCell<Sent>>,
+    mut landed: Signal<u64>,
+) {
+    let keys: Vec<Key> = later
+        .iter()
+        .filter_map(|(message, policy)| frames.keyed(message, *policy))
+        .collect();
+    sent.borrow_mut().start(&keys);
+    spawn(async move {
+        let _ = tokio::task::spawn_blocking(move || {
+            for (message, policy) in &later {
+                let _ = client.framing(&frames).rendered(message, *policy);
+            }
+        })
+        .await;
+        sent.borrow_mut().finish(keys);
+        landed += 1;
+    });
+}
+
+/// Keep what the person is about to open rendered: the top of the list once it is drawn, and
+/// the neighbours of the open conversation whenever it changes. Their bodies, where they are not
+/// here yet, are what the next body pass fetches first (`mail_client::wanted`).
+///
+/// Warmed under the frame's policy, which is the one a conversation opens with: showing remote
+/// images is asked for per conversation, and opening another one clears it.
+///
+/// Their conversations are kept read by the client too, so opening one draws it at once rather
+/// than a frame after.
+pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadSummary>>) {
+    let frames = use_frames();
+    let client = crate::ui::live::use_client();
+    let kept = use_hook(|| Rc::new(RefCell::new(Vec::new())));
+    // A memo, so that only a change of the open conversation counts, not every keystroke the
+    // shell sees.
+    let open = use_memo(move || shell.read().open);
+    // Warmed as the reader will look them up: with the body the settings prefer, and again when
+    // that changes.
+    let settings = use_hook(try_consume_context::<Signal<crate::settings::MailSettings>>);
+    use_effect(move || {
+        if let Some(settings) = settings {
+            frames.prefer(settings.read().reading.prefer_plain_text.into());
+        }
+        let list: Vec<ThreadId> = threads.read().iter().map(|thread| thread.id).collect();
+        let order = ahead(open(), &list, FIRST_PAGE);
+        // The same order is what a body pass fetches first, with the open conversation ahead of
+        // it: a message without its body yet cannot be rendered ahead, only fetched ahead.
+        let bodies: Vec<ThreadId> = open().into_iter().chain(order.iter().copied()).collect();
+        mail_client::wanted::ask_first(&bodies);
+        // Asked for before the last ones are let go, so a conversation in both is not read
+        // again.
+        let next = client.prime(bodies.iter().map(|thread| Conversation(*thread)));
+        *kept.borrow_mut() = next;
+        client.framing(&frames).warm(order, SanitizePolicy::FRAME);
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mail_core::Store;
+    use mail_mime::RemoteImages;
+
+    #[test]
+    fn warming_a_conversation_makes_opening_it_a_lookup() {
+        let (client, _dir) = crate::ui::fixtures::realistic();
+        let thread = crate::ui::fixtures::thread_like(&client, "rust-lang/rust");
+        let messages: Vec<Message> = client
+            .thread(thread)
+            .unwrap()
+            .messages
+            .iter()
+            .map(|id| client.message(*id).unwrap())
+            .collect();
+        let policy = SanitizePolicy::FRAME;
+        assert!(
+            messages.iter().any(|m| m.body.raw().is_some()),
+            "the fixture has bodies"
+        );
+        let frames = Frames::plain();
+        frames.warm_now(&client, &[thread], policy, || true);
+        for message in messages.iter().filter(|m| m.body.raw().is_some()) {
+            let had = frames.peek(message, policy).expect("warmed");
+            assert_eq!(*had, frames.uncached(&client, message, policy));
+        }
+    }
+
+    #[test]
+    fn warming_that_is_no_longer_wanted_stops() {
+        let (client, _dir) = crate::ui::fixtures::realistic();
+        let thread = crate::ui::fixtures::thread_like(&client, "rust-lang/rust");
+        let message = client
+            .message(client.thread(thread).unwrap().messages[0])
+            .unwrap();
+        let policy = SanitizePolicy {
+            remote_images: RemoteImages::Allowed,
+            version: u32::MAX,
+            ..SanitizePolicy::FRAME
+        };
+        let frames = Frames::plain();
+        frames.warm_now(&client, &[thread], policy, || false);
+        assert_eq!(frames.peek(&message, policy), None);
+    }
+}

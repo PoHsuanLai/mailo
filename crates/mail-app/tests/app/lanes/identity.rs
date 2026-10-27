@@ -4,9 +4,9 @@
 //! page, and the draft written as it goes back to the account's own address.
 
 use ds_harness::Harness;
-use mail_app::ui::copy;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{IdentityId, IsDefault};
+use mail_ui::ui::copy;
 use std::sync::Arc;
 
 use super::drive::{Key, PRIMARY};

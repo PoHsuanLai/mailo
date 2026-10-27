@@ -9,9 +9,9 @@
 use ds::base::press::PointerButton;
 use ds::file_drop::drag::{DropAcceptance, FileDragInput, Offer};
 use ds_harness::Harness;
-use mail_app::ui::copy;
 use mail_core::Store;
 use mail_domain::SendState;
+use mail_ui::ui::copy;
 use std::path::PathBuf;
 
 use super::drive::{Drive, Key, PRIMARY};
@@ -102,7 +102,7 @@ fn a_person_found_in_search_is_written_to_with_two_files_and_sent() {
     window.until("the picked file is attached", |h| h.count(ATTACHED) == 1);
     assert_eq!(
         window.asked(),
-        [mail_app::ui::native::DialogAsk::Attachments]
+        [mail_ui::ui::native::DialogAsk::Attachments]
     );
 
     // Files dragged over the window light the composer, over it target it, and the light goes
@@ -191,7 +191,7 @@ fn pictures_go_in_the_body_by_dialog_drop_and_paste_and_are_sent_inline() {
         chrono::Utc::now(),
         |_| {},
         |_, contexts| {
-            contexts.with(mail_app::ui::native::ClipboardImage::with_answer(|| {
+            contexts.with(mail_ui::ui::native::ClipboardImage::with_answer(|| {
                 Some(PASTED.to_vec())
             }))
         },
@@ -217,7 +217,7 @@ fn pictures_go_in_the_body_by_dialog_drop_and_paste_and_are_sent_inline() {
     window.until("/ offers Image", |h| h.count(".ds-menu .ds-menu-item") > 0);
     window.press(&[], Key::Enter, 1);
     window.until("the picked picture is drawn", |h| h.count(PICTURE) == 1);
-    assert_eq!(window.asked(), [mail_app::ui::native::DialogAsk::Images]);
+    assert_eq!(window.asked(), [mail_ui::ui::native::DialogAsk::Images]);
     assert!(
         window
             .harness
@@ -404,10 +404,10 @@ fn a_new_message_opens_here_every_way_and_a_draft_is_parked_brought_back_and_del
 #[test]
 fn a_mailto_link_opens_the_window_on_its_composer_and_sends_nothing() {
     let uri = "mailto:ada@example.test?subject=About%20the%20flight&body=Which%20gate%3F";
-    let link = mail_app::ui::mailto_of(&[uri.to_owned()]).expect("read as a mailto link");
+    let link = mail_ui::ui::mailto_of(&[uri.to_owned()]).expect("read as a mailto link");
     let dir = tempfile::tempdir().expect("a temp dir");
     let store = super::seed::seeded(dir.path());
-    let start = mail_app::ui::start_mailto(
+    let start = mail_ui::ui::start_mailto(
         &mail_client::Client::inline(
             store.clone(),
             std::sync::Arc::new(mail_core::mail::SystemClock),

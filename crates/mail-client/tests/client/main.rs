@@ -704,3 +704,20 @@ fn what_reads_the_clock_is_read_again_when_a_snooze_ends_with_nobody_asking() {
     });
     assert_eq!(client.next_clock(), None, "nothing more to wake for");
 }
+
+#[test]
+fn work_that_is_not_send_runs_on_a_thread_of_its_own_and_is_awaited_from_another_runtime() {
+    let client = Client::inline(
+        Arc::new(in_memory()),
+        Arc::new(mail_core::mail::SystemClock),
+    );
+    let local = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let got = local.block_on(client.net().on_thread("mailo-test", || {
+        // Not `Send`: the thread makes it and waits on it.
+        let held = std::rc::Rc::new(21);
+        async move { *held * 2 }
+    }));
+    assert_eq!(got, Some(42));
+}

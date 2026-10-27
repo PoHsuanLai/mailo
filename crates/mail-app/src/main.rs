@@ -50,9 +50,9 @@ fn main() {
     // separate CLI would drift from what the UI does.
     // `mailo mailto:…`, as the desktop runs the scheme's handler: the window, on a composer
     // holding what the link asks for. The draft is made once the store is open, below.
-    let mailto = mail_app::ui::mailto_of(&args);
-    let start = match mail_app::ui::start_of(&args) {
-        _ if mailto.is_some() => Some(mail_app::ui::Start::Inbox),
+    let mailto = mail_ui::ui::mailto_of(&args);
+    let start = match mail_ui::ui::start_of(&args) {
+        _ if mailto.is_some() => Some(mail_ui::ui::Start::Inbox),
         Some(Ok(start)) => Some(start),
         Some(Err(message)) => {
             eprintln!("{message}");
@@ -62,7 +62,7 @@ fn main() {
     };
     // What a second `mailo` would hand the window of its Profile that is running, once the
     // Profile is known (below).
-    let handoff = mail_app::handoff::Handoff::of(
+    let handoff = mail_ui::handoff::Handoff::of(
         start.as_ref(),
         mailto.as_ref().and(args.first()).map(String::as_str),
     );
@@ -133,7 +133,7 @@ fn main() {
     {
         return;
     }
-    mail_app::edge::install_profile(chosen, roots);
+    mail_app::edge::install_profile(chosen);
     if let Err(e) = std::fs::create_dir_all(&dirs.blobs) {
         eprintln!("cannot create {}: {e}", dirs.blobs.display());
         std::process::exit(1);
@@ -164,7 +164,7 @@ fn main() {
 
     let store = std::sync::Arc::new(store);
     let start = match &mailto {
-        Some(link) => match mail_app::ui::start_mailto(
+        Some(link) => match mail_ui::ui::start_mailto(
             &mail_client::Client::inline(
                 store.clone(),
                 std::sync::Arc::new(mail_core::mail::SystemClock),
@@ -191,9 +191,9 @@ fn main() {
     }
     {
         let config = mail_core::config::config_dir();
-        let look = mail_app::ui::view::Appearance {
-            marks: mail_app::settings::person_root()
-                .map(|root| mail_app::settings::load(&root))
+        let look = mail_ui::ui::view::Appearance {
+            marks: mail_ui::settings::person_root()
+                .map(|root| mail_ui::settings::load(&root))
                 .unwrap_or_default()
                 .window
                 .provider_marks
@@ -203,29 +203,29 @@ fn main() {
         // were theirs.
         let legacy = config
             .as_deref()
-            .map(mail_app::ui::appearance::legacy)
+            .map(mail_ui::ui::appearance::legacy)
             .unwrap_or_default();
         // The look is the desktop's (`quire/appearance.toml`), which the window follows live.
         // What mailo kept for itself is brought over once, when the desktop has none, and
         // never written again.
-        if let (Some(from), Some(to)) = (config.as_deref(), mail_app::ui::appearance::desktop_dir())
+        if let (Some(from), Some(to)) = (config.as_deref(), mail_ui::ui::appearance::desktop_dir())
         {
-            mail_app::ui::appearance::adopt(from, &to);
+            mail_ui::ui::appearance::adopt(from, &to);
         }
         let ids = account_ids(&store);
         let dirs = config.and_then(|config| {
             mail_core::config::state_dir()
-                .map(|state| mail_app::ui::appearance::WindowDirs { config, state })
+                .map(|state| mail_ui::ui::appearance::WindowDirs { config, state })
         });
         // The stored Spaces, or a first run over the accounts, written where the window
         // keeps them.
-        let spaces = mail_app::ui::space::boot(dirs.as_ref(), &ids, &legacy);
-        if let Err(why) = mail_app::ui::run(
+        let spaces = mail_ui::ui::space::boot(dirs.as_ref(), &ids, &legacy);
+        if let Err(why) = mail_app::window::open(
             store,
             look,
             spaces,
             dirs,
-            start.unwrap_or(mail_app::ui::Start::Inbox),
+            start.unwrap_or(mail_ui::ui::Start::Inbox),
         ) {
             eprintln!("mailo: the window could not open: {why}");
             std::process::exit(1);

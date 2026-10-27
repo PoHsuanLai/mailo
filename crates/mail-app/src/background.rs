@@ -29,7 +29,6 @@
 //! [`Schedule::Watch`]: mail_core::schedule::Schedule::Watch
 //! [`Daemon::Holding`]: mail_core::schedule::Daemon::Holding
 
-use ds_blitz::LastWindowClosed;
 use mail_core::SqliteStore;
 use mail_core::ipc::watching::{Refused, Watching};
 use mail_core::notify::{Notification, Notifier};
@@ -58,17 +57,6 @@ impl Os {
 /// Whether the app on `os` goes on with no window open.
 pub fn stays_open(os: Os) -> bool {
     os == Os::MacOs
-}
-
-/// What the app on `os` does when its last window closes: on macOS it stays, for as long as it
-/// runs (a linger too long to add to any instant never ends, `ds_blitz::LastWindowClosed`), and
-/// ⌘Q or the Dock's Quit ends it; elsewhere it ends.
-pub fn last_window(os: Os) -> LastWindowClosed {
-    if stays_open(os) {
-        LastWindowClosed::StayFor(Duration::MAX)
-    } else {
-        LastWindowClosed::Exit
-    }
 }
 
 /// What the app does with what the watch's lock answered.
@@ -156,12 +144,12 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
     let accounts = follow_accounts(store);
     let notifier = AsSet {
         desktop: mail_core::notify::desktop::Desktop::connect_in_window(),
-        root: crate::settings::person_root(),
+        root: mail_ui::settings::person_root(),
     };
     let tell = |watched: mail_core::sync::report::Watched| told(&watched);
     // Whose new mail is said, as the settings say as the watch starts.
-    let whom = crate::settings::person_root()
-        .map(|root| crate::settings::load(&root))
+    let whom = mail_ui::settings::person_root()
+        .map(|root| mail_ui::settings::load(&root))
         .unwrap_or_default()
         .notifications
         .notify_for
@@ -256,9 +244,9 @@ impl Notifier for AsSet {
 
 /// Whether the settings under `root` have new mail said; on, as they ship, where there are none.
 pub fn says_new_mail(root: Option<&ds_settings::ConfigRoot>) -> bool {
-    root.map_or(crate::settings::NewMail::default(), |root| {
-        crate::settings::load(root).notifications.new_mail
-    }) == crate::settings::NewMail::On
+    root.map_or(mail_ui::settings::NewMail::default(), |root| {
+        mail_ui::settings::load(root).notifications.new_mail
+    }) == mail_ui::settings::NewMail::On
 }
 
 #[cfg(test)]

@@ -11,12 +11,12 @@ use ds::base::geometry::units::Px;
 use ds::base::press::PointerButton;
 use ds::host::gesture::GesturePhase;
 use ds_harness::Input;
-use mail_app::ui::appearance::WindowDirs;
-use mail_app::ui::copy;
-use mail_app::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
-use mail_app::ui::space::{self, Mail};
 use mail_core::{SqliteStore, Store};
 use mail_domain::{AccountCaps, ArchiveMeans, Folder, Holds, ProtoOp, Subscription, presets};
+use mail_ui::ui::appearance::WindowDirs;
+use mail_ui::ui::copy;
+use mail_ui::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
+use mail_ui::ui::space::{self, Mail};
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};

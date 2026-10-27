@@ -16,8 +16,10 @@
 //! [`EVERY`]. The count is read and said again every [`REPEAT`] even when nothing was written,
 //! so a dock that started after mailo, or restarted, learns it within that time.
 
-use crate::launcher::{Badge, Unread};
+use chrono::{DateTime, Utc};
 use mail_core::Store;
+use mail_core::scope::Scope;
+use mail_ui::launcher::{Badge, Unread};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -65,7 +67,7 @@ where
     if cfg!(target_os = "macos") {
         return None;
     }
-    let launcher = crate::launcher::platform()?;
+    let launcher = mail_ui::launcher::platform()?;
     Some(keep_the_badge(store, file, launcher.0, EVERY).map(|_| ()))
 }
 
@@ -94,11 +96,11 @@ where
             });
             let mut beat = Beat::default();
             loop {
-                if let Ok(count) = crate::launcher::unread(
+                if let Ok(count) = unread(
                     store.as_ref(),
-                    &mail_core::scope::Scope::All,
+                    &Scope::All,
                     chrono::Utc::now(),
-                    crate::settings::badge_places(),
+                    mail_ui::settings::badge_places(),
                 ) && beat.due(Instant::now(), count)
                 {
                     badge.show(count);
@@ -113,6 +115,41 @@ where
                 }
             }
         })
+}
+
+/// [`keep_the_badge`] for a badge already found, over the store the app opened: what the macOS
+/// app keeps its Dock tile with.
+pub fn keep_the_badge_over(
+    store: Arc<mail_core::SqliteStore>,
+    file: Option<PathBuf>,
+    badge: Arc<dyn Badge>,
+) -> std::io::Result<()> {
+    keep_the_badge(store, file, badge, EVERY).map(|_| ())
+}
+
+/// The filter the launcher counts with: [`mail_ui::launcher::filter_over`] over the mailboxes
+/// the accounts' servers list as followed, when `places` counts them.
+pub fn filter<S: Store + ?Sized>(
+    store: &S,
+    scope: &Scope,
+    places: mail_core::notify::Places,
+) -> Result<mail_domain::Filter, mail_core::StoreError> {
+    let followed = match places {
+        mail_core::notify::Places::Inbox => Vec::new(),
+        mail_core::notify::Places::Followed => store.followed_folders()?,
+    };
+    Ok(mail_ui::launcher::filter_over(&followed, scope, places))
+}
+
+/// Count them, as `places` says. One indexed query (`Store::count`), made off the thread that
+/// draws.
+pub fn unread<S: Store + ?Sized>(
+    store: &S,
+    scope: &Scope,
+    now: DateTime<Utc>,
+    places: mail_core::notify::Places,
+) -> Result<Unread, mail_core::StoreError> {
+    store.count(&filter(store, scope, places)?, now).map(Unread)
 }
 
 #[cfg(test)]

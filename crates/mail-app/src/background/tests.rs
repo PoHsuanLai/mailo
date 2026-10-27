@@ -7,22 +7,11 @@ use ds_settings::ConfigRoot;
 #[test]
 fn macos_stays_open_with_no_window_and_never_ends_by_itself() {
     assert!(stays_open(Os::MacOs));
-    assert_eq!(
-        last_window(Os::MacOs),
-        LastWindowClosed::StayFor(Duration::MAX)
-    );
-    // The linger is too long to add to any instant, which is what makes ds-blitz run for ever.
-    assert!(
-        std::time::Instant::now()
-            .checked_add(Duration::MAX)
-            .is_none()
-    );
 }
 
 #[test]
 fn linux_and_windows_end_with_their_last_window_as_before() {
     assert!(!stays_open(Os::Other));
-    assert_eq!(last_window(Os::Other), LastWindowClosed::Exit);
 }
 
 #[test]
@@ -77,8 +66,8 @@ fn new_mail_is_said_as_the_settings_say_now() {
     let root = ConfigRoot::Scratch(dir.path().to_path_buf());
     assert!(says_new_mail(None), "on as it ships");
     assert!(says_new_mail(Some(&root)), "no file is the defaults");
-    crate::settings::change(&root, |settings| {
-        settings.notifications.new_mail = crate::settings::NewMail::Off;
+    mail_ui::settings::change(&root, |settings| {
+        settings.notifications.new_mail = mail_ui::settings::NewMail::Off;
     })
     .unwrap_or_else(|e| panic!("{e}"));
     assert!(!says_new_mail(Some(&root)));

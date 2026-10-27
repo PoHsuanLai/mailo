@@ -3,9 +3,9 @@
 //! filter that leaves nothing says so and clears from the empty list; and going to another place
 //! and back finds the filter gone.
 
-use mail_app::ui::copy;
 use mail_core::{SqliteStore, Store};
 use mail_domain::{Change, ChangeId, Patch, ReadState};
+use mail_ui::ui::copy;
 
 use super::drive::{Key, PRIMARY};
 use super::look::conversation;

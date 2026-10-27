@@ -168,6 +168,9 @@ mod conversations;
 pub use conversation::{Conversation, Messages};
 pub use conversations::{Conversations, Found, How, Search};
 
+// A search as typed, read into a filter.
+pub use mail_core::query::{Known, Token, is_either, named, parse_with, tokens, unnamed};
+
 /// The people marked as VIPs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct VipList;

@@ -3,7 +3,7 @@
 //! its list's address, and answers there; Edit as New opens a copy of the message to send again;
 //! Redirect… sends the message itself on, unchanged.
 
-use mail_app::ui::copy;
+use mail_ui::ui::copy;
 
 use super::drive::{Key, PRIMARY};
 use super::look::{chips, menu_item_of};

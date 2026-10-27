@@ -3,8 +3,8 @@
 //! this account alone, and an IMAP account has no Remove from Server: only POP3 has copies a pass
 //! removes.
 
-use mail_app::ui::copy;
 use mail_core::offline::{self, Every, Remove, Window as Reach};
+use mail_ui::ui::copy;
 
 use super::hands::{click, menu_item, until};
 use super::window::{Window, account};

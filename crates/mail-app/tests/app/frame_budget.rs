@@ -22,11 +22,11 @@
 
 use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::ui::view;
 use mail_core::query;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
 use mail_mime::{RemoteImages, SanitizePolicy};
+use mail_ui::ui::view;
 use porter_core::AccountId;
 use std::time::{Duration, Instant};
 

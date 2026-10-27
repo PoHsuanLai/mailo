@@ -24,7 +24,7 @@ use crate::drive;
 use crate::native::ms;
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
-use mail_app::ui::native::{Configured, Dictionaries};
+use mail_ui::ui::native::{Configured, Dictionaries};
 
 /// The two counters every window of the app shares: the store's, and the configuration files'.
 use mail_core::SqliteStore;
@@ -125,16 +125,16 @@ fn contexts(
     configured: &Configured,
 ) -> RootContexts {
     // Every window here has a print dialog of its own: none may open the system's.
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    mail_app::ui::native::contexts(
-        Arc::clone(store),
-        mail_app::ui::view::Appearance::default(),
+    let printer = mail_ui::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
+    mail_ui::ui::native::contexts(
+        mail_client::Client::open(Arc::clone(store), mail_client::ClientConfig::default()),
+        mail_ui::ui::view::Appearance::default(),
         None,
-        Some(mail_app::ui::appearance::WindowDirs {
+        Some(mail_ui::ui::appearance::WindowDirs {
             config: dir.join("config"),
             state: dir.join("state"),
         }),
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     )
     .with(printer)
     .with(dictionaries(dir))
@@ -158,7 +158,7 @@ fn composing_beside(view: Viewport) -> Composing {
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_clock(Clock::Virtual)
         .with_contexts(contexts(dir.path(), &store, &configured));
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".list-title") > 0);
     harness.key(Key::Char('c'));
@@ -181,7 +181,7 @@ fn settings_beside(open: &Composing) -> Harness {
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Virtual)
         .with_contexts(contexts(open.dir.path(), &open.store, &open.configured));
-    let mut harness = Harness::new(mail_app::ui::native::settings_root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::settings_root, config);
     settle_until(&mut harness, |h| h.count(".settings-page") == 1);
     harness
 }

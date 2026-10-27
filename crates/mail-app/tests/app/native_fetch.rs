@@ -65,19 +65,19 @@ fn with_account(store: &SqliteStore, id: AccountId, address: &str) {
 fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
     let dir = tempfile::tempdir().unwrap();
     let store = bare(dir.path());
-    let contexts = mail_app::ui::native::contexts(
-        store,
-        mail_app::ui::view::Appearance::default(),
+    let contexts = mail_ui::ui::native::contexts(
+        mail_client::Client::open(store, mail_client::ClientConfig::default()),
+        mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     );
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_clock(Clock::Virtual)
         .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(Duration::from_millis(300));
     settle_until(&mut harness, |h| h.count(".ds-skeleton-row") > 0);
 
@@ -108,19 +108,19 @@ fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
 fn an_account_added_while_the_window_is_open_is_said() {
     let dir = tempfile::tempdir().unwrap();
     let store = bare(dir.path());
-    let contexts = mail_app::ui::native::contexts(
-        Arc::clone(&store),
-        mail_app::ui::view::Appearance::default(),
+    let contexts = mail_ui::ui::native::contexts(
+        mail_client::Client::open(Arc::clone(&store), mail_client::ClientConfig::default()),
+        mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     );
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_focus_fallback(FocusFallback::Ancestor)
         .with_clock(Clock::Virtual)
         .with_contexts(contexts);
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(Duration::from_millis(300));
     settle_until(&mut harness, |h| h.count(".ds-skeleton-row") > 0);
     assert!(

@@ -15,8 +15,8 @@ use crate::drive;
 use crate::opening::{Open, Wait, open_window};
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
-use mail_app::ui::appearance::WindowDirs;
 use mail_core::SqliteStore;
+use mail_ui::ui::appearance::WindowDirs;
 use std::sync::Arc;
 
 /// A cell of the picker's grid.
@@ -129,7 +129,7 @@ fn a_name_after_a_colon_and_the_picker_put_emoji_in_and_a_new_window_has_the_pic
     settle_until(&mut harness, |h| body(h) == ":smile 😊!");
     assert!(
         dirs.state
-            .join(mail_app::ui::emoji::recent::FILE_NAME)
+            .join(mail_ui::ui::emoji::recent::FILE_NAME)
             .exists(),
         "the pick was kept"
     );

@@ -8,11 +8,11 @@
 //! than days of the harness's, which would stop at every timer on the way.
 
 use chrono::{TimeDelta, TimeZone};
-use mail_app::ui::copy;
 use mail_core::Store;
 use mail_core::follow_up::{CHOICES, returned_words};
 use mail_core::notify::Opens;
 use mail_domain::{FollowUp, SendState};
+use mail_ui::ui::copy;
 
 use super::drive::{Drive, Key};
 use super::look::{SUBMENU_LIST, conversation};

@@ -3,9 +3,9 @@
 //! alone. The choice is kept in `settings.toml` for the inbox and for no other place, and turning
 //! it back on lists the conversation once again.
 
-use mail_app::settings::{load, root_for};
-use mail_app::ui::copy;
 use mail_core::Store as _;
+use mail_ui::settings::{load, root_for};
+use mail_ui::ui::copy;
 
 use super::drive::Key;
 use super::window::{Window, account, deliver, hours_ago};

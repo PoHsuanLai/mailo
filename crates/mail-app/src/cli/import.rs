@@ -1,8 +1,8 @@
 //! `mailo import`: what it says as it goes and when it is done.
 
 use super::SqliteStore;
-use crate::said::import::said;
 use mail_core::import::{self, Destination, Imported};
+use mail_ui::said::import::said;
 use std::sync::Arc;
 
 /// The line printed to stderr after each batch.

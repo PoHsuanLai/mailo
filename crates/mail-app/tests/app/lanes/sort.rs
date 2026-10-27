@@ -3,9 +3,9 @@
 //! kept order lists the inbox in it from its first rows.
 
 use ds_harness::Harness;
-use mail_app::settings::ListOrder;
-use mail_app::ui::copy;
 use mail_domain::{Property, Sort, SortDir};
+use mail_ui::settings::ListOrder;
+use mail_ui::ui::copy;
 
 use super::look::row;
 use super::seed::INBOX;
@@ -57,9 +57,9 @@ fn the_list_sorts_from_its_more_menu_and_keeps_the_order() {
     let want: Vec<String> = a_to_z().into_iter().rev().collect();
     window.until("the inbox is Z to A", |h| subjects(h) == want);
 
-    let root = mail_app::settings::root_for(&window.dirs().config);
+    let root = mail_ui::settings::root_for(&window.dirs().config);
     assert_eq!(
-        mail_app::settings::load(&root).window.sorts.get(INBOX_KEY),
+        mail_ui::settings::load(&root).window.sorts.get(INBOX_KEY),
         Some(&ListOrder(Sort {
             property: Property::Subject,
             dir: SortDir::Desc,
@@ -82,8 +82,8 @@ fn a_kept_order_is_the_list_s_when_the_window_opens() {
         chrono::Utc::now(),
         |_| {},
         |dir, contexts| {
-            let root = mail_app::settings::root_for(&dir.join("config"));
-            mail_app::settings::change(&root, |settings| {
+            let root = mail_ui::settings::root_for(&dir.join("config"));
+            mail_ui::settings::change(&root, |settings| {
                 settings
                     .window
                     .sorts

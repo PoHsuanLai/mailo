@@ -7,13 +7,13 @@
 //! when that is pressed, or at once when Settings says so. A search the panel leaves behind is
 //! the list's header until it is cleared, by its × or Esc.
 
-use mail_app::ui::copy;
-use mail_app::ui::native::ServerSearcher;
 use mail_core::{Arrival, Searched, ServerHits, SqliteStore, Store, absorb};
 use mail_domain::{
     AccountPlan, AuthPlan, Change, GroupKey, Incoming, MailboxRef, MessageId, Outgoing, ReadState,
     RemoteRef, SaslMech, Tls, Username, View,
 };
+use mail_ui::ui::copy;
+use mail_ui::ui::native::ServerSearcher;
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};
@@ -117,11 +117,11 @@ fn server(asked: Arc<Mutex<Vec<String>>>) -> ServerSearcher {
 /// written first.
 fn open(
     asked: &Arc<Mutex<Vec<String>>>,
-    settings: impl FnOnce(&mut mail_app::settings::MailSettings),
+    settings: impl FnOnce(&mut mail_ui::settings::MailSettings),
 ) -> Window {
     let asked = Arc::clone(asked);
     Window::open_with(chrono::Utc::now(), on_imap, move |dir, contexts| {
-        mail_app::settings::change(&mail_app::settings::root_for(&dir.join("config")), settings)
+        mail_ui::settings::change(&mail_ui::settings::root_for(&dir.join("config")), settings)
             .expect("the settings are written");
         contexts.with(server(asked))
     })
@@ -299,7 +299,7 @@ fn the_search_panel_filters_the_list_saves_a_view_and_offers_the_server() {
 fn turned_on_in_settings_the_server_is_asked_once_as_the_search_is_shown() {
     let asked = Arc::new(Mutex::new(Vec::new()));
     let mut window = open(&asked, |settings| {
-        settings.search.server_automatically = mail_app::settings::ServerSearch::On;
+        settings.search.server_automatically = mail_ui::settings::ServerSearch::On;
     });
     search(&mut window, "spreadsheet");
     window.until("the server's hit is listed unasked", |h| {

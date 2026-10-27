@@ -17,7 +17,8 @@
 
 use crate::client::Shared;
 use chrono::{DateTime, Utc};
-use mail_core::fetch::{Event, FolderEffect, FolderEvent, FolderFetch, Link, Trigger};
+pub use mail_core::fetch::{Event, FolderFetch, Link, Trigger};
+use mail_core::fetch::{FolderEffect, FolderEvent};
 use mail_core::schedule::{
     self, Change, Daemon, End, Heard, Hold, Host, ListenCall, Local, Lost, Note, PassCall, Passed,
     Schedule, Scheduler, Stop, Stored, Timing,
@@ -48,6 +49,11 @@ pub type Listen = Arc<
 
 /// Which accounts the server can push to: the signature of `mail_core::sync::live::pushing`.
 pub type Pushers = Arc<dyn Fn(&SqliteStore) -> Vec<AccountId> + Send + Sync>;
+
+/// The accounts whose server pushes, as the store keeps them: what a program's [`Seams`] say.
+pub fn pushers() -> Pushers {
+    Arc::new(mail_core::sync::live::pushing)
+}
 
 /// Fetch one folder now: the signature of `mail_core::SyncOps::folder_now`.
 pub type FetchFolder = Arc<
@@ -566,3 +572,9 @@ async fn outbox(shared: Arc<Shared>) {
 
 #[cfg(test)]
 mod tests;
+
+// The words of `mail-core`'s fetch a caller reads: what a pass did, and what a fetch is doing.
+pub use mail_core::fetch::{
+    Body, BodyEffect, BodyEvent, Count, Download, DownloadEffect, DownloadEvent, First, Live,
+    Pause, RETRY_NOW, Step, Trouble,
+};

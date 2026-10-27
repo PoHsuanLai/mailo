@@ -6,11 +6,11 @@
 use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::compose as words;
-use mail_app::ui::view;
 use mail_core::compose;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_ui::ui::view;
 use porter_core::AccountId;
 
 const IDENTITY: IdentityId =

@@ -4,14 +4,14 @@
 //! in when that one does, else the first that does, switched to as ⌘1-9 would. Two accounts, two
 //! Spaces, and nothing reaches the desktop: the store and config are a `TempDir`'s.
 
-use mail_app::ui::appearance::WindowDirs;
-use mail_app::ui::native::{ActivationToken, Request, Requests};
-use mail_app::ui::space::{self, Mail};
 use mail_core::{Arrival, SqliteStore, Store as _, absorb};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
     Filter, MailboxRef, PageReq, Property, Query, RemoteRef, Sort, SortDir, SyncCursor, ThreadId,
 };
+use mail_ui::ui::appearance::WindowDirs;
+use mail_ui::ui::native::{ActivationToken, Request, Requests};
+use mail_ui::ui::space::{self, Mail};
 use porter_core::AccountId;
 use tokio::sync::mpsc::UnboundedSender;
 

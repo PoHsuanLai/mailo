@@ -122,7 +122,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace          # or cargo test --workspace; no network needed
 ./scripts/check-boundary.sh            # the sans-I/O boundary
-./scripts/check-copy.sh                # the window's words live in crates/mail-app/src/ui/copy
+./scripts/check-copy.sh                # the window's words live in crates/mail-ui/src/ui/copy
 cargo deny check licenses
 ```
 
@@ -186,9 +186,11 @@ Published libraries (each package is named `mailo-*`; its folder keeps the `crat
 | `mailo-pim` (`crates/mail-pim`) | vCard, iCalendar invitations and the WebDAV/CardDAV conversation, as text in and values out. |
 
 Not published, app-side: `mail-store` (SQLite, FTS5, the outbox), `mail-runtime` (tokio and
-sockets), `mail-core` (everything the application does, with no window or terminal), `mail-appkit`
+sockets), `mail-core` (everything the application does, with no window or terminal),
+`mail-client` (the one door to mail: values already read, kept read as the store changes, and the
+calls the window makes), `mail-ui` (the window, with no store in its dependencies), `mail-appkit`
 (macOS only: the one place that needs `unsafe`, for the AppKit delegate) and `mail-app` (the
-`mailo` binary: window and command line).
+`mailo` binary: it makes the client and hands it to the window, and holds the command line).
 
 ## Contributing
 
