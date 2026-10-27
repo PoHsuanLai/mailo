@@ -14,8 +14,6 @@ mod head;
 
 pub(in crate::ui) use head::{Confirm, Lookout, Phase};
 
-#[cfg(test)]
-use super::ops;
 use crate::ui::view::Shell;
 use chrono::{DateTime, Utc};
 use dioxus::prelude::*;
@@ -163,20 +161,6 @@ fn inbox_from(store: &SqliteStore, sender: &str) -> Vec<ThreadId> {
         return Vec::new();
     };
     page.items.iter().map(|thread| thread.id).collect()
-}
-
-/// Archive every conversation in the inbox from `sender`, here, as ordinary ops with their
-/// undos.
-#[cfg(test)]
-pub(in crate::ui) fn archive_from(
-    store: &SqliteStore,
-    sender: &str,
-    clock: mail_core::when::Clock,
-) -> Vec<Undo> {
-    inbox_from(store, sender)
-        .into_iter()
-        .filter_map(|thread| ops::perform(store, thread, Op::Archive, clock))
-        .collect()
 }
 
 /// The toast's "Archive all from this list": every conversation in the inbox from `sender`
