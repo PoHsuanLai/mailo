@@ -50,7 +50,7 @@ pub struct Client(Arc<Inner>);   // Clone, Send + Sync; one per process, shared 
 impl Client {
     pub fn open(store: Arc<SqliteStore>, config: ClientConfig) -> Client;
     pub fn live<Q: Query>(&self, query: Q) -> Live<Q::Output>;   // a registry lookup, never SQL
-    pub fn act(&self, command: Command) -> Ticket<Done>;         // never blocks
+    pub fn act(&self, command: Command) -> Ticket;               // never blocks
     pub fn prime<Q: Query>(&self, queries: impl IntoIterator<Item = Q>) -> Vec<Live<Q::Output>>;
     pub fn shutdown(self, within: Duration);
 }
