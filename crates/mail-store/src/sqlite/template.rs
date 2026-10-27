@@ -7,6 +7,7 @@ use super::SqliteStore;
 use super::read::Recipients;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{IdentityId, PendingAttachment, Template, TemplateId};
 use porter_core::AccountId;
@@ -25,7 +26,7 @@ impl SqliteStore {
             cc: template.cc.clone(),
             bcc: template.bcc.clone(),
         };
-        self.connection().execute(
+        self.touch(Topics::TEMPLATES).execute(
             "INSERT OR REPLACE INTO templates
                (id, account, identity, name, recipients, subject, body_text, body_html,
                 attachments, receipt, updated_at, openpgp, smime)
@@ -50,7 +51,7 @@ impl SqliteStore {
     }
 
     pub(super) fn remove_template(&self, id: TemplateId) -> Result<(), StoreError> {
-        let gone = self.connection().execute(
+        let gone = self.touch(Topics::TEMPLATES).execute(
             "DELETE FROM templates WHERE id = ?1",
             params![id.to_string()],
         )?;

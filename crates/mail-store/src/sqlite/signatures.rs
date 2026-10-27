@@ -7,6 +7,7 @@
 use super::SqliteStore;
 use super::row::uuid;
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::{IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
 use rusqlite::{Row, Transaction, params};
 
@@ -83,7 +84,7 @@ impl SqliteStore {
     /// Write a signature, a new one or over the one with its id, which keeps its place in the
     /// list. A default it is made takes that flag off the identity's other signatures.
     pub fn put_signature(&self, signature: &Signature) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::IDENTITIES);
         let tx = db.unchecked_transaction()?;
         for purpose in [SignatureUse::NewMail, SignatureUse::Replies] {
             if signature.default_for(purpose) == IsDefault::Default {
@@ -114,7 +115,7 @@ impl SqliteStore {
     /// Delete a signature. [`StoreError::NoSignature`] when there was none.
     pub fn delete_signature(&self, id: SignatureId) -> Result<(), StoreError> {
         let gone = self
-            .connection()
+            .touch(Topics::IDENTITIES)
             .execute("DELETE FROM signatures WHERE id = ?1", [id.to_string()])?;
         if gone == 0 {
             return Err(StoreError::NoSignature(id));
@@ -154,7 +155,7 @@ impl SqliteStore {
             (None, Some(had)) => self.delete_signature(had.id)?,
             (None, None) => {}
         }
-        self.connection().execute(
+        self.touch(Topics::IDENTITIES).execute(
             "UPDATE identities SET signature = NULL WHERE id = ?1",
             [identity.to_string()],
         )?;

@@ -7,6 +7,7 @@
 
 use super::SqliteStore;
 use super::row::{from_time, json, to_json};
+use crate::changes::Topics;
 use crate::dispatch::{Answered, Place};
 use crate::{Dispatch, OutboxEntry, Settle, StoreError};
 use chrono::{DateTime, TimeDelta, Utc};
@@ -195,7 +196,7 @@ impl SqliteStore {
     ) -> Result<Option<OutboxId>, StoreError> {
         // Taken before the reads that decide what is queued, so they read through it: where a
         // message is addressed and what is written about it are one answer, not two.
-        let db = self.connection();
+        let db = self.touch(Topics::OUTBOX);
         let Some(op) = self.resolve_intent(account.clone(), &intent)? else {
             return Ok(None);
         };
@@ -389,7 +390,7 @@ impl SqliteStore {
         settle: Settle,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::OUTBOX);
         let tx = db.unchecked_transaction()?;
         // Taken out of the outbox while it ran: a draft's upload that a later one replaced
         // (`queue`). Whatever it did is the later one's to correct, and there is no row to settle.

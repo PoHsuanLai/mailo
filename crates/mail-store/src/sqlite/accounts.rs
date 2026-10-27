@@ -7,6 +7,7 @@
 use super::SqliteStore;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::account::{NewAccount, StoredAccount};
+use crate::changes::Topics;
 use crate::{FollowUpHold, SenderRecord, StoreError};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
@@ -118,7 +119,7 @@ impl SqliteStore {
     /// go with the account (the address is held by an account with another id), and nothing is
     /// written.
     pub fn upsert_account(&self, new: &NewAccount<'_>) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::ACCOUNTS | Topics::IDENTITIES);
         let tx = db.unchecked_transaction()?;
         let account = new.id.to_string();
         tx.execute(
@@ -179,7 +180,7 @@ impl SqliteStore {
 
     /// Replace the account's plan. [`StoreError::NoAccount`] when there is no such account.
     pub fn set_account_plan(&self, id: AccountId, plan: &AccountPlan) -> Result<(), StoreError> {
-        let changed = self.connection().execute(
+        let changed = self.touch(Topics::ACCOUNTS).execute(
             "UPDATE accounts SET plan = ?2 WHERE id = ?1",
             params![id.to_string(), to_json("AccountPlan", plan)?],
         )?;
@@ -359,7 +360,7 @@ impl SqliteStore {
         from: &Address,
         reply_to: Option<&Address>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::IDENTITIES);
         let tx = db.unchecked_transaction()?;
         let account: Option<String> = tx
             .query_row(
@@ -454,7 +455,7 @@ impl SqliteStore {
     /// has one by that name, which is the answer a caller wants to give the user.
     pub fn create_label(&self, account: AccountId, name: &str) -> Result<LabelId, StoreError> {
         let id = LabelId::generate();
-        self.connection().execute(
+        self.touch(Topics::LABELS).execute(
             "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, ?3, ?4)",
             params![
                 id.to_string(),
@@ -557,7 +558,7 @@ impl SqliteStore {
         account: AccountId,
         now: DateTime<Utc>,
     ) -> Result<DateTime<Utc>, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::ACCOUNTS);
         db.execute(
             "INSERT OR IGNORE INTO notify_floor (account, armed_at) VALUES (?1, ?2)",
             params![account.to_string(), now.to_rfc3339()],
@@ -572,7 +573,7 @@ impl SqliteStore {
 
     /// Keep a composer's reminder until its message has left, replacing the draft's earlier one.
     pub fn hold_follow_up(&self, held: &FollowUpHold) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::FOLLOW_UPS).execute(
             "INSERT INTO follow_up_held (draft, account, message_id, thread, due_at, set_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(draft) DO UPDATE SET account = excluded.account,
@@ -592,7 +593,7 @@ impl SqliteStore {
 
     /// Let a draft's held reminder go. Nothing held is not a failure.
     pub fn release_follow_up(&self, draft: DraftId) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::FOLLOW_UPS).execute(
             "DELETE FROM follow_up_held WHERE draft = ?1",
             [draft.to_string()],
         )?;

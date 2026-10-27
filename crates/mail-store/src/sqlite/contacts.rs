@@ -3,6 +3,7 @@
 use super::SqliteStore;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use crate::contact::learn::{self, Event, NameRank, Needle, Row, Seen};
 use crate::contact::ledger::{self, Ledger};
 use crate::contact::{AddressBook, Contact, Origin, Tally};
@@ -28,7 +29,7 @@ impl SqliteStore {
         message: &Message,
         raw: Option<BlobId>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::CONTACTS);
         ledger::learn_fetched(
             &mut Rows {
                 store: self,
@@ -58,7 +59,7 @@ impl SqliteStore {
             Err(StoreError::NoDraft(_)) => None,
             Err(error) => return Err(error),
         };
-        let db = self.connection();
+        let db = self.touch(Topics::CONTACTS);
         let mut held = Rows {
             store: self,
             db: &db,
@@ -72,7 +73,7 @@ impl SqliteStore {
     /// then messages oldest first, the order they would have arrived in. A row that no longer
     /// decodes is passed over rather than stopping the database from opening.
     pub(super) fn backfill_contacts(&self) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::CONTACTS);
         let pending: i64 = db.query_row("SELECT count(*) FROM contacts_to_backfill", [], |r| {
             r.get(0)
         })?;
@@ -257,7 +258,7 @@ impl SqliteStore {
     ) -> Result<Contact, StoreError> {
         let address =
             learn::normalise(address).ok_or_else(|| StoreError::BadAddress(address.to_owned()))?;
-        let db = self.connection();
+        let db = self.touch(Topics::CONTACTS);
         let row = load(&db, &address)?.unwrap_or_else(|| Row::new(&address));
         let row = learn::given(row, name, origin);
         save(&db, &row)?;
@@ -269,7 +270,7 @@ impl SqliteStore {
             return Ok(false);
         };
         let gone = self
-            .connection()
+            .touch(Topics::CONTACTS)
             .execute("DELETE FROM contacts WHERE address = ?1", params![address])?;
         Ok(gone > 0)
     }
@@ -298,7 +299,7 @@ impl SqliteStore {
     }
 
     pub(super) fn write_book(&self, book: &AddressBook) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::CONTACTS).execute(
             "INSERT INTO address_books (url, state) VALUES (?1, ?2)
              ON CONFLICT(url) DO UPDATE SET state = excluded.state",
             params![book.url, to_json("AddressBook", book)?],

@@ -4,6 +4,7 @@
 use super::SqliteStore;
 use super::row::uuid;
 use crate::StoreError;
+use crate::changes::Topics;
 use chrono::{DateTime, Utc};
 use mail_domain::{MessageId, RemoteRef, ThreadId};
 use porter_core::AccountId;
@@ -16,7 +17,7 @@ impl SqliteStore {
         messages: &[MessageId],
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let tx = db.unchecked_transaction()?;
         for message in messages {
             let held: Option<i64> = db

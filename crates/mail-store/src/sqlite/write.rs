@@ -8,6 +8,7 @@ use super::SqliteStore;
 use super::read::Recipients;
 use super::row::{from_time, json, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::{
     AccountCaps, Body, Change, FolderRoles, Import, Ingest, LabelOrigin, MailboxRole, Membership,
     Message, MessageId, Patch, RemoteRef, ThreadId, ThreadSummary, UidValidity,
@@ -117,9 +118,34 @@ fn chunks(ingest: Ingest, size: usize) -> Vec<Ingest> {
     out
 }
 
+/// What one change touches, for whoever reads again after it.
+fn touched_by(change: &Change) -> Topics {
+    match change {
+        Change::MessageRead(..)
+        | Change::MessageStar(..)
+        | Change::MessageFlag(..)
+        | Change::MessageMailbox(..)
+        | Change::MessageUpsert(_)
+        | Change::MessageDelete(_)
+        | Change::ThreadSnooze(..)
+        | Change::ThreadPin(..)
+        | Change::ThreadMute(..) => Topics::SUMMARIES,
+        Change::ThreadFollowUp(..) => Topics::SUMMARIES | Topics::FOLLOW_UPS,
+        Change::MessageLabel(..) | Change::LabelRemove(_) => Topics::SUMMARIES | Topics::LABELS,
+        Change::LabelUpsert(_) => Topics::LABELS,
+        Change::DraftUpsert(_) | Change::DraftDelete(_) => Topics::DRAFTS | Topics::OUTBOX,
+        Change::FolderUpsert(_) | Change::FolderRemove(_) => Topics::FOLDERS,
+        // Every table that names a mailbox, and the server's labels named the same.
+        Change::FolderRename { .. } => Topics::FOLDERS | Topics::LABELS | Topics::SUMMARIES,
+    }
+}
+
 impl SqliteStore {
     /// Apply one domain change. Does not recompute summaries; the caller batches that.
     pub(super) fn write_change(&self, change: &Change) -> Result<Option<ThreadId>, StoreError> {
+        // Held for the change, so what it touches is said with the commit of the write it is
+        // part of: a patch of drafts says drafts, and one of stars says summaries.
+        let _writer = self.touch(touched_by(change));
         let thread = match change {
             Change::MessageRead(id, state) => {
                 self.connection()
@@ -491,7 +517,7 @@ impl SqliteStore {
         account: AccountId,
         ingest: Ingest,
     ) -> Result<Vec<Change>, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES | Topics::LABELS | Topics::CONTACTS);
         let tx = db.unchecked_transaction()?;
         let mut changes: Vec<Change> = Vec::new();
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
@@ -725,7 +751,7 @@ impl SqliteStore {
         account: AccountId,
         filed: &[(RemoteRef, MailboxRole)],
     ) -> Result<Patch, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let tx = db.unchecked_transaction()?;
         let mut changes: Vec<Change> = Vec::new();
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
@@ -767,7 +793,7 @@ impl SqliteStore {
         account: AccountId,
         import: Import,
     ) -> Result<Patch, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES | Topics::LABELS | Topics::CONTACTS);
         let tx = db.unchecked_transaction()?;
         let mut changes: Vec<Change> = Vec::new();
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
@@ -1016,7 +1042,7 @@ impl SqliteStore {
         let Some(message) = self.message_by_remote(account.clone(), from)? else {
             return Ok(());
         };
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let tx = db.unchecked_transaction()?;
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account.clone(), from);
         self.connection()
@@ -1061,7 +1087,7 @@ impl SqliteStore {
         let Some(message) = self.message_by_remote(account.clone(), remote)? else {
             return Ok(());
         };
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let tx = db.unchecked_transaction()?;
         let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
         self.connection()
@@ -1121,7 +1147,7 @@ impl SqliteStore {
         account: AccountId,
         synced: &[String],
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let tx = db.unchecked_transaction()?;
         let rows = {
             let mut stmt = db.prepare_cached(

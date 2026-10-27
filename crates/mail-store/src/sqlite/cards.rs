@@ -4,6 +4,7 @@
 use super::SqliteStore;
 use super::row::{json, to_json};
 use crate::StoreError;
+use crate::changes::Topics;
 use crate::contact::{CardId, PersonCard};
 use rusqlite::{OptionalExtension, params};
 
@@ -73,7 +74,7 @@ impl SqliteStore {
     }
 
     pub(super) fn write_card(&self, card: &PersonCard) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::CONTACTS);
         let tx = db.unchecked_transaction()?;
         tx.execute(
             "DELETE FROM contact_card_addresses WHERE card = ?1",
@@ -101,7 +102,7 @@ impl SqliteStore {
     }
 
     pub(super) fn drop_card(&self, id: &CardId) -> Result<bool, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::CONTACTS);
         let tx = db.unchecked_transaction()?;
         tx.execute(
             "DELETE FROM contact_card_addresses WHERE card = ?1",

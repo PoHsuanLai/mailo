@@ -4,6 +4,7 @@
 use super::SqliteStore;
 use super::row::{json, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::folder::{layered, renamed};
 use mail_domain::{
     Change, Folder, FolderContents, FolderWork, LabelId, LabelOrigin, MailboxRef, MessageId,
@@ -51,7 +52,7 @@ impl SqliteStore {
         account: AccountId,
         listed: Vec<Folder>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::FOLDERS);
         let tx = db.unchecked_transaction()?;
         let folders = layered(
             account.clone(),
@@ -84,7 +85,7 @@ impl SqliteStore {
     }
 
     pub(super) fn upsert_folder(&self, folder: &Folder) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::FOLDERS).execute(
             "INSERT INTO folders (account, path, delimiter, special, subscription, holds)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(account, path) DO UPDATE SET
@@ -106,7 +107,7 @@ impl SqliteStore {
     }
 
     pub(super) fn remove_folder(&self, mailbox: &MailboxRef) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::FOLDERS).execute(
             "DELETE FROM folders WHERE account = ?1 AND path = ?2",
             params![mailbox.account.to_string(), mailbox.path],
         )?;
@@ -179,7 +180,7 @@ impl SqliteStore {
     /// an undo that removes a label the user has since filed mail under is the case this is for.
     pub(super) fn remove_label(&self, label: LabelId) -> Result<(), StoreError> {
         let threads: BTreeSet<ThreadId> = {
-            let db = self.connection();
+            let db = self.touch(Topics::LABELS | Topics::SUMMARIES);
             let mut stmt = db.prepare_cached(
                 "SELECT DISTINCT m.thread FROM message_labels l
                  JOIN messages m ON m.id = l.message WHERE l.label = ?1",
@@ -243,7 +244,7 @@ impl SqliteStore {
             account: account.clone(),
             path: path.to_owned(),
         })?;
-        self.connection().execute(
+        self.touch(Topics::SUMMARIES).execute(
             "DELETE FROM remote_map WHERE account = ?1 AND mailbox = ?2",
             params![account.to_string(), path],
         )?;

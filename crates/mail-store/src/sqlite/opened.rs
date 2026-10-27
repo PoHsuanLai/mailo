@@ -6,6 +6,7 @@ use super::SqliteStore;
 use super::read::qualified_summary_columns;
 use super::row::from_time;
 use crate::StoreError;
+use crate::changes::Topics;
 use chrono::{DateTime, Utc};
 use mail_domain::{ThreadId, ThreadSummary};
 use rusqlite::params;
@@ -19,7 +20,7 @@ impl SqliteStore {
         thread: ThreadId,
         at: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         db.execute(
             "INSERT INTO opened (thread, opened_at)
              SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM threads WHERE id = ?1)

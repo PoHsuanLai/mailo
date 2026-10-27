@@ -12,7 +12,6 @@ use mail_domain::{
     AccountPlan, DraftId, Identity, IdentityId, IsDefault, LabelId, LabelOrigin, MessageId,
     SyncCursor,
 };
-use parking_lot::ReentrantMutexGuard;
 use porter_core::AccountId;
 use rusqlite::{Connection, params};
 
@@ -281,7 +280,7 @@ pub fn total_changes(store: &SqliteStore) -> i64 {
 
 /// The store's writer, held: nothing else writes until this is dropped. Taken on the thread
 /// that will hold it.
-pub struct WriterHeld<'a>(#[allow(dead_code)] ReentrantMutexGuard<'a, Connection>);
+pub struct WriterHeld<'a>(#[allow(dead_code)] crate::sqlite::Writer<'a>);
 
 impl std::fmt::Debug for WriterHeld<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -336,7 +335,7 @@ pub fn seed_account_from_another_connection(path: &std::path::Path, id: &str) {
 impl SqliteStore {
     /// The connection itself, for a test of the store that has to look at its tables. Not for
     /// any crate above the store: a test there asks for what it wants in this module.
-    pub fn raw_connection(&self) -> ReentrantMutexGuard<'_, Connection> {
+    pub fn raw_connection(&self) -> crate::sqlite::Writer<'_> {
         self.connection()
     }
 }

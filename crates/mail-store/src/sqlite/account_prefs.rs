@@ -14,6 +14,7 @@
 
 use super::SqliteStore;
 use super::row::{json, to_json};
+use crate::changes::Topics;
 use crate::{AccountPrefs, StoreError, Syncing};
 use mail_domain::{AccountCaps, MailboxRole};
 use porter_core::AccountId;
@@ -59,7 +60,7 @@ impl SqliteStore {
         role: MailboxRole,
         path: Option<&str>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::ACCOUNTS);
         let tx = db.unchecked_transaction()?;
         let prefs = edit_prefs(&tx, &account, |prefs| {
             prefs.folders.retain(|(had, _)| *had != role);
@@ -102,7 +103,7 @@ impl SqliteStore {
         account: AccountId,
         edit: impl FnOnce(&mut AccountPrefs),
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::ACCOUNTS);
         let tx = db.unchecked_transaction()?;
         edit_prefs(&tx, &account, edit)?;
         tx.commit()?;

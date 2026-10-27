@@ -16,7 +16,7 @@ FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus 
 # crates may not. What it may never reach is anything that draws, the window's toolkit or the
 # renderer under it, so that `mail-app`'s two front-ends (`ui`, `cli`) sit over one core that
 # knows neither.
-CORE=(mail-core)
+CORE=(mail-core mail-client)
 FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek)
 fail=0
 

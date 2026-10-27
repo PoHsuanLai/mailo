@@ -3,6 +3,7 @@
 
 use super::SqliteStore;
 use crate::StoreError;
+use crate::changes::Topics;
 use crate::contact::learn;
 use crate::contact::vip::{Vip, listed};
 use rusqlite::params;
@@ -28,7 +29,7 @@ impl SqliteStore {
         let address =
             learn::normalise(address).ok_or_else(|| StoreError::BadAddress(address.to_owned()))?;
         let name = learn::clean_name(name);
-        let db = self.connection();
+        let db = self.touch(Topics::CONTACTS | Topics::SUMMARIES);
         db.execute(
             "INSERT INTO vips (address, name) VALUES (?1, ?2)
              ON CONFLICT (address) DO UPDATE SET name = coalesce(excluded.name, vips.name)",
@@ -47,7 +48,7 @@ impl SqliteStore {
             return Ok(false);
         };
         let gone = self
-            .connection()
+            .touch(Topics::CONTACTS | Topics::SUMMARIES)
             .execute("DELETE FROM vips WHERE address = ?1", params![address])?;
         Ok(gone > 0)
     }
