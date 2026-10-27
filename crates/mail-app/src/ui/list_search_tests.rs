@@ -1,10 +1,10 @@
 //! The list box through the pipeline, typed into the real window over the reference fixture.
 //!
 //! Every test here runs on a paused clock and drives it: a keystroke is searched for only once
-//! the box has been still for [`QUIET`], and the list lands from a blocking thread. So a test
-//! types, moves the clock past the quiet period, and then waits for the very condition it goes
-//! on to assert. It never counts polls or sleeps: a fixed number of polls is a guess about how
-//! fast the blocking thread is, and under a loaded `cargo test --workspace` the guess was wrong.
+//! the box has been still for [`QUIET`], and the list lands once the client has read it. So a
+//! test types, moves the clock past the quiet period, and then waits for the very condition it
+//! goes on to assert. It never counts polls or sleeps: a fixed number of polls is a guess about
+//! how fast the window settles, and under a loaded `cargo test --workspace` the guess was wrong.
 
 use super::row_hit;
 use crate::ui::app::App;
@@ -67,9 +67,8 @@ impl Window {
 
     /// Render until `landed` holds, doing the window's pending work in between.
     ///
-    /// Bounded in the paused clock's time, not the wall's: while the list is being fetched on
-    /// its blocking thread the clock cannot move (tokio holds it for `spawn_blocking`), so the
-    /// bound is only reached if the window goes idle without ever showing the condition.
+    /// Bounded in the paused clock's time, not the wall's, so the bound is only reached if the
+    /// window goes idle without ever showing the condition.
     async fn until(&mut self, text: &str, landed: impl Fn(&str) -> bool) -> String {
         let start = tokio::time::Instant::now();
         loop {

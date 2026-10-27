@@ -7,16 +7,12 @@ has to remember to read again after a write.
 
 ## Where it stands
 
-- The UI reads the store while it renders: 196 `consume_context::<Arc<SqliteStore>>` in 92 files,
-  the sidebar's memos (`counted`, `tiled`, `scheduled`, `folders`), `PlaceRow`'s `label_of`, and
-  `App`'s seeding hook, effect and first-frame badge fallback.
-- Badges are joined to places by position (`badges().get(index)`), from two signals that move at
-  different times.
-- One hand-bumped counter, `revision`, says something changed. A write that forgets to bump it,
-  or a commit no one bumps for, leaves the window stale.
-- `SqliteStore::data_version` does not count this store's own commits. On macOS the in-process
-  background watch (`background::start`) writes through the window's own store, so mail it
-  fetches does not move `revision`.
+- The UI reads the store while it renders: 148 `consume_context::<Arc<SqliteStore>>` in 69 files,
+  among them the sidebar's memos `counted` (the Favourites' counts) and `scheduled`.
+- One hand-bumped counter, `revision`, says something changed in what the window still reads
+  itself. A write that forgets to bump it leaves that stale; the counter moves with every commit
+  the client hears, so a commit no one bumps for, the background watch's or another process's,
+  no longer does.
 - About 15 `edge::block_on` calls in `ui` wait on the network on the UI thread.
 
 ## Crates
@@ -111,9 +107,10 @@ Every write goes through the store, so the store says what changed.
   OUTBOX, VIEWS, VIPS, CONTACTS, RULES, KEYS, TEMPLATES, SIGNATURES, IDENTITIES, PREFS,
   FOLLOW_UPS, CLOCK`. Each query declares the topics it reads.
 - **In this process.** `connection()` returns a `Writer` guard that counts how deep the thread
-  holds the writer. A `commit_hook` marks the store dirty and a `rollback_hook` clears it;
-  `update_hook` cannot, because SQLite does not call it for WITHOUT ROWID tables (`folders`,
-  `vips`, `message_labels`, `sync_state`, `pending_changes`). Write methods say what they touch
+  holds the writer. A `commit_hook` marks the store dirty (a rolled-back transaction never
+  reaches it, so there is no `rollback_hook`); `update_hook` cannot say which tables, because
+  SQLite does not call it for WITHOUT ROWID tables (`folders`, `vips`, `message_labels`,
+  `sync_state`, `pending_changes`). Write methods say what they touch
   (`self.touch(Topics::FOLDERS)`). When the outermost guard drops, after the commit is visible
   to readers, the store publishes `Committed { topics, generation }`. A commit that said nothing
   publishes `ALL`, so a missing declaration costs a recount, never a stale window.

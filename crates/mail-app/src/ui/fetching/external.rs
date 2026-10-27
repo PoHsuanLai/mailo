@@ -5,10 +5,6 @@
 //! another process (`mail_client`, its `external`). What the window still reads from the store
 //! itself, rather than as a value the client keeps read, is read again when its revision moves;
 //! so the revision moves each time the client says the store changed.
-//!
-//! (Until 2026-10 the window watched the store's file itself and asked SQLite whether another
-//! connection had committed, which missed what the background watch committed through the
-//! window's own store.)
 
 use dioxus::prelude::*;
 
