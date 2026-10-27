@@ -51,49 +51,6 @@ pub fn identity_of(
     }
 }
 
-/// Create and persist a reply to `message`, returning the draft.
-///
-/// The shared half of replying: the CLI formats the result as text and the shell opens a
-/// composer on it. Both go through here, so the draft a window produces and the draft a command
-/// produces are the same draft — including the quoting, which is the part most easily done two
-/// different ways.
-pub fn draft_reply(
-    store: &SqliteStore,
-    message: MessageId,
-    scope: ReplyScope,
-    body: &str,
-    now: DateTime<Utc>,
-) -> Result<Draft, CoreError> {
-    draft_reply_in(store, message, scope, body, now, &Local)
-}
-
-/// The same, with the zone the attribution line is written in named.
-///
-/// Named rather than read from the machine, because the attribution line leaves this machine:
-/// a test that let `Local` decide would assert whatever zone the test runner happens to be in,
-/// and on a runner set to UTC that is the bug passing.
-pub fn draft_reply_in<Tz: chrono::TimeZone>(
-    store: &SqliteStore,
-    message: MessageId,
-    scope: ReplyScope,
-    body: &str,
-    now: DateTime<Utc>,
-    zone: &Tz,
-) -> Result<Draft, CoreError>
-where
-    Tz::Offset: std::fmt::Display,
-{
-    draft_answer_in(
-        store,
-        message,
-        Answer::Scope(scope),
-        Quote::Whole,
-        body,
-        now,
-        zone,
-    )
-}
-
 /// Create and persist a forward of `message`, addressed to `to`.
 ///
 /// `Draft::forward_of` in `mail-domain` gives the shape; this supplies the half
@@ -114,8 +71,9 @@ pub fn draft_forward(
 
 /// The same, with the zone the forwarded header block is written in named.
 ///
-/// Named for the reason [`draft_reply_in`] names it: the block leaves this machine, and a
-/// function that reads the machine's zone can only be tested against whatever that machine is.
+/// Named rather than read from the machine, because the block leaves this machine: a test that
+/// let `Local` decide would assert whatever zone the test runner happens to be in, and on a
+/// runner set to UTC that is the bug passing.
 pub fn draft_forward_in<Tz: chrono::TimeZone>(
     store: &SqliteStore,
     message: MessageId,
@@ -247,7 +205,7 @@ pub fn account_for(store: &SqliteStore, wanted: Option<&str>) -> Result<AccountI
 /// Mail written to someone who has not written first: a draft that is neither a reply nor a
 /// forward.
 ///
-/// Shaped like [`draft_reply`] deliberately — persisted immediately, returned whole — so the
+/// Shaped like [`draft_answer_in`] deliberately — persisted immediately, returned whole — so the
 /// composer opens on a draft that already exists and Discard has something to delete.
 pub fn draft_new(
     store: &SqliteStore,

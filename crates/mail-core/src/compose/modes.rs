@@ -48,7 +48,9 @@ pub fn draft_answer(
 /// Create and persist an answer to `message`: addressed `to`, `body` (signed) above the quote,
 /// and `quote` of the original beneath its attribution line.
 ///
-/// [`super::draft_reply_in`] is this with [`Quote::Whole`]. A reply to the list is refused, with
+/// The attribution line is written in `zone`, named rather than read from the machine because
+/// the line leaves this machine: a test that let `Local` decide would assert whatever zone the
+/// runner happens to be in. A reply to the list is refused, with
 /// [`CoreError::NoListPost`], for a message that names no list address; one whose body has not
 /// been fetched cannot say, and is refused as not fetched.
 pub fn draft_answer_in<Tz: chrono::TimeZone>(

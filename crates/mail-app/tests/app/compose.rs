@@ -30,6 +30,41 @@ fn identity() -> Identity {
     }
 }
 
+/// A whole-text reply in the machine's zone: the attribution line is not what most of these
+/// tests read.
+fn reply(
+    store: &SqliteStore,
+    message: MessageId,
+    scope: ReplyScope,
+    body: &str,
+    now: DateTime<Utc>,
+) -> Result<Draft, mail_core::CoreError> {
+    reply_in(store, message, scope, body, now, &chrono::Local)
+}
+
+/// [`reply`], with the zone the attribution line is written in named.
+fn reply_in<Tz: TimeZone>(
+    store: &SqliteStore,
+    message: MessageId,
+    scope: ReplyScope,
+    body: &str,
+    now: DateTime<Utc>,
+    zone: &Tz,
+) -> Result<Draft, mail_core::CoreError>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    compose::draft_answer_in(
+        store,
+        message,
+        compose::Answer::Scope(scope),
+        compose::Quote::Whole,
+        body,
+        now,
+        zone,
+    )
+}
+
 /// A store with one account that can actually send, and one message to reply to.
 fn seeded() -> (SqliteStore, tempfile::TempDir) {
     let dir = tempfile::tempdir().unwrap();
@@ -148,7 +183,7 @@ fn only_draft(store: &SqliteStore) -> Draft {
 fn replying_creates_a_draft_addressed_to_the_sender() {
     let (store, _dir) = seeded();
     let out = words::replied(
-        &compose::draft_reply(
+        &reply(
             &store,
             ORIGINAL,
             ReplyScope::Sender,
@@ -173,7 +208,7 @@ fn replying_creates_a_draft_addressed_to_the_sender() {
 #[test]
 fn replying_to_all_keeps_everyone_but_us() {
     let (store, _dir) = seeded();
-    compose::draft_reply(&store, ORIGINAL, ReplyScope::All, "sounds good", at(10)).unwrap();
+    reply(&store, ORIGINAL, ReplyScope::All, "sounds good", at(10)).unwrap();
 
     let draft = only_draft(&store);
     let to: Vec<&str> = draft.to.iter().map(|a| a.email.as_str()).collect();
@@ -197,7 +232,7 @@ fn replying_to_all_keeps_everyone_but_us() {
 #[test]
 fn the_reply_body_quotes_the_original_beneath_what_was_written() {
     let (store, _dir) = seeded();
-    compose::draft_reply(
+    reply(
         &store,
         ORIGINAL,
         ReplyScope::Sender,
@@ -232,9 +267,7 @@ fn a_reply_with_nobody_to_send_it_to_says_so_rather_than_offering_to_send_it() {
     let (store, _dir) = seeded();
     let own = own_message(&store);
 
-    let out = words::replied(
-        &compose::draft_reply(&store, own, ReplyScope::Sender, "to myself", at(10)).unwrap(),
-    );
+    let out = words::replied(&reply(&store, own, ReplyScope::Sender, "to myself", at(10)).unwrap());
 
     assert!(out.contains("nobody to send this to"), "{out}");
     assert!(
@@ -253,7 +286,7 @@ fn the_attribution_line_is_in_the_senders_zone_not_utc() {
     // assertion on it cannot pass by accident.
     let (store, _dir) = seeded();
     let taipei = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
-    compose::draft_reply_in(
+    reply_in(
         &store,
         ORIGINAL,
         ReplyScope::Sender,
@@ -272,7 +305,7 @@ fn the_attribution_line_is_in_the_senders_zone_not_utc() {
     // And the same reply written by someone on UTC says what UTC says, so this is a conversion
     // and not eight hours added somewhere.
     let (store, _dir) = seeded();
-    compose::draft_reply_in(
+    reply_in(
         &store,
         ORIGINAL,
         ReplyScope::Sender,
@@ -419,7 +452,7 @@ fn a_reply_to_a_message_with_no_body_quotes_nothing_rather_than_the_word_none() 
     // renders the absent body into the quote sends that text to the recipient.
     let (store, _dir) = seeded();
     let id = headers_only(&store);
-    compose::draft_reply(&store, id, ReplyScope::Sender, "later", at(10)).unwrap();
+    reply(&store, id, ReplyScope::Sender, "later", at(10)).unwrap();
 
     let text = only_draft(&store).text;
     assert!(text.contains("later"), "{text}");
@@ -434,7 +467,7 @@ fn a_reply_to_a_message_with_no_body_quotes_nothing_rather_than_the_word_none() 
 #[test]
 fn sending_queues_the_draft_without_touching_the_network() {
     let (store, _dir) = seeded();
-    compose::draft_reply(
+    reply(
         &store,
         ORIGINAL,
         ReplyScope::Sender,
@@ -472,7 +505,7 @@ fn the_queued_bytes_are_frozen_against_a_later_edit() {
     // The user pressed send on a particular version. A draft edited afterwards — by an autosave
     // that had not yet fired, or by a second window — must not change what goes out.
     let (store, _dir) = seeded();
-    compose::draft_reply(
+    reply(
         &store,
         ORIGINAL,
         ReplyScope::Sender,
@@ -511,7 +544,7 @@ fn the_queued_bytes_are_frozen_against_a_later_edit() {
 #[test]
 fn sending_the_same_draft_twice_is_refused() {
     let (store, _dir) = seeded();
-    compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
+    reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
     let draft = only_draft(&store);
     compose::send(&store, draft.id, at(20)).unwrap();
     store
@@ -539,7 +572,7 @@ fn an_account_with_no_identity_says_so_instead_of_inventing_a_sender() {
     let (store, _dir) = seeded();
     mail_store::testing::delete_identities(&store, acct_account());
 
-    let err = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
+    let err = reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10))
         .expect_err("no identity to send as")
         .to_string();
     assert!(
@@ -564,7 +597,7 @@ fn the_identity_comes_from_the_table_the_foreign_key_enforces() {
     plan.identities.clear();
     store.set_account_plan(acct_account(), &plan).unwrap();
 
-    compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10))
+    reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10))
         .expect("the identity row is still there");
     let draft = only_draft(&store);
     let (queued, post) = compose::send(&store, draft.id, at(20)).expect("and sending still works");
@@ -584,7 +617,7 @@ fn drafts_reports_what_is_waiting() {
         .contains("no drafts")
     );
 
-    compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
+    reply(&store, ORIGINAL, ReplyScope::Sender, "yes", at(10)).unwrap();
     let listed = words::drafts(
         &compose::drafts(&store).unwrap(),
         at(30),
@@ -618,7 +651,7 @@ mod composer {
     #[test]
     fn opening_a_reply_then_editing_and_saving_keeps_everything_unshown() {
         let (store, _dir) = seeded();
-        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::All, "", at(10)).unwrap();
+        let draft = reply(&store, ORIGINAL, ReplyScope::All, "", at(10)).unwrap();
 
         // What the composer shows, edited the way a user would.
         let mut editing = Composing::of(&draft);
@@ -646,7 +679,7 @@ mod composer {
     #[test]
     fn a_composed_reply_can_be_sent_and_arrives_in_the_outbox() {
         let (store, _dir) = seeded();
-        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let draft = reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
         let mut editing = Composing::of(&draft);
         editing.body = "yes".to_owned();
         // A recipient added by hand, the way the To box is actually used.
@@ -674,7 +707,7 @@ mod composer {
     #[test]
     fn a_mistyped_recipient_stops_the_save_instead_of_dropping_them() {
         let (store, _dir) = seeded();
-        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let draft = reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
         let mut editing = Composing::of(&draft);
         editing.to = "ada@example.test, bea".to_owned();
 
@@ -706,7 +739,7 @@ mod closing {
         // The bug: Close called close_composer directly and threw away everything since the
         // last Save, behind a comment saying that could not happen.
         let (store, _dir) = seeded();
-        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let draft = reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
         let mut editing = Composing::of(&draft);
         editing.body = "a paragraph nobody clicked Save on".to_owned();
 
@@ -725,7 +758,7 @@ mod closing {
     fn a_recipient_that_does_not_parse_refuses_the_close_rather_than_the_text() {
         // Staying open is the point: a typo in the To box must not cost the paragraph.
         let (store, _dir) = seeded();
-        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let draft = reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
         let mut editing = Composing::of(&draft);
         editing.body = "worth keeping".to_owned();
         editing.to = "nonsense".to_owned();
@@ -749,7 +782,7 @@ mod discarding {
     use super::*;
 
     fn a_draft(store: &SqliteStore) -> DraftId {
-        compose::draft_reply(store, ORIGINAL, ReplyScope::Sender, "never mind", at(10))
+        reply(store, ORIGINAL, ReplyScope::Sender, "never mind", at(10))
             .unwrap()
             .id
     }
@@ -1212,7 +1245,7 @@ mod signatures {
         let (store, _dir) = seeded();
         set(&store, Some("Ada Lovelace\nAnalytical Engines Ltd"));
 
-        compose::draft_reply(
+        reply(
             &store,
             ORIGINAL,
             ReplyScope::Sender,
@@ -1283,7 +1316,7 @@ mod signatures {
             if let Some(said) = says {
                 assert!(out.contains(said), "{name}: {out}");
             }
-            compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
+            reply(&store, ORIGINAL, ReplyScope::Sender, "hi", at(10)).unwrap();
             let text = only_draft(&store).text;
             assert!(!text.contains("-- "), "{name}: {text:?}");
         }

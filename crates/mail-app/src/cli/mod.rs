@@ -1601,9 +1601,17 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             message,
             scope,
             body,
-        } => mail_core::compose::draft_reply(store, *message, *scope, body, now)
-            .map(|draft| compose::replied(&draft))
-            .map_err(remedy::error),
+        } => mail_core::compose::draft_answer_in(
+            store,
+            *message,
+            mail_core::compose::Answer::Scope(*scope),
+            mail_core::compose::Quote::Whole,
+            body,
+            now,
+            &Local,
+        )
+        .map(|draft| compose::replied(&draft))
+        .map_err(remedy::error),
         // The terminal is asked for a passphrase only if the draft is signed or encrypted with a
         // protected key.
         Command::Send { draft, at: None } => mail_core::compose::send_with(
