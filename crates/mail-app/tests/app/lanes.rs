@@ -53,6 +53,7 @@ mod find;
 mod preferences;
 mod search;
 mod sidebar;
+mod sidebar_scope;
 
 // 15: who a message is from: the name, the aliases, the From.
 mod identity;

@@ -76,6 +76,29 @@ pub(super) fn count_badges(store: &SqliteStore, filters: &[Option<Filter>]) -> V
         .collect()
 }
 
+/// The sidebar's counts, beside the filters they were counted for.
+pub(super) type Counted = (Vec<Option<Filter>>, Vec<Option<u64>>);
+
+/// The badges for `filters` out of an answer counted for another list of them: each filter's
+/// count where the answer counted it too, and no badge where it did not.
+///
+/// The badges go by position, so an answer read for a list it was not counted for puts every
+/// count after a label that came or went on the row beside its own.
+pub(super) fn matched(
+    filters: &[Option<Filter>],
+    counted_for: &[Option<Filter>],
+    counts: &[Option<u64>],
+) -> Vec<Option<u64>> {
+    filters
+        .iter()
+        .map(|filter| {
+            filter.as_ref()?;
+            let at = counted_for.iter().position(|was| was == filter)?;
+            counts.get(at).copied().flatten()
+        })
+        .collect()
+}
+
 /// One account as the sidebar draws it: the id, the address, and the plan the provider comes from.
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct AccountRow {
@@ -234,6 +257,21 @@ mod badge_tests {
             }
             _ => None,
         }
+    }
+
+    /// An answer counted before a label came in front of the folders keeps each count on its own
+    /// place, not on the row that moved into its index.
+    #[test]
+    fn an_answer_for_another_list_puts_each_count_on_its_own_place() {
+        let [one, two, new] = [(); 3].map(|()| Some(Filter::HasLabel(LabelId::generate())));
+        let counted_for = vec![None, one.clone(), two.clone()];
+        let counts = vec![None, Some(3), Some(5)];
+        let now = vec![None, new, one.clone(), two];
+        assert_eq!(
+            matched(&now, &counted_for, &counts),
+            [None, None, Some(3), Some(5)]
+        );
+        assert_eq!(matched(&[one], &[], &[]), [None]);
     }
 
     /// One source of truth: in every scope the window can show (every account, or a Space of
