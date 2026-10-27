@@ -4,6 +4,17 @@ use mail_domain::*;
 use porter_core::AccountId;
 use std::sync::Arc;
 
+/// `account` sending as `email` under `identity`: the default identity a fixture's account is
+/// stored without.
+pub(in crate::ui) fn identify(
+    store: &SqliteStore,
+    identity: IdentityId,
+    account: AccountId,
+    email: &str,
+) {
+    mail_store::testing::seed_identity_for(store, identity, account, email, None);
+}
+
 pub(in crate::ui) fn acct_account() -> AccountId {
     account_id_from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000a1"))
 }
@@ -33,13 +44,7 @@ pub(in crate::ui) fn seeded() -> (Arc<SqliteStore>, tempfile::TempDir) {
     let identity = IdentityId::generate();
     {
         mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
-        mail_store::testing::seed_identity_for(
-            &store,
-            identity,
-            acct_account(),
-            "me@example.test",
-            None,
-        );
+        identify(&store, identity, acct_account(), "me@example.test");
         // Capabilities, because `account add` always writes them and a fixture without them is a
         // state the application cannot reach. Gmail's own: archiving means dropping the inbox
         // label, and labels are the server's. This is what decides whether an operation performed

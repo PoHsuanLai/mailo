@@ -5,11 +5,11 @@
 use super::super::tests::opened_on;
 use super::row_id;
 use crate::ui::copy;
-use crate::ui::fixtures::{Seen, Work, click, drain_seen, settle_quiet, type_into, work};
+use crate::ui::fixtures::{Seen, Work, click, drain_seen, identify, settle_quiet, type_into, work};
 use crate::ui::view::SettingsPage;
 use dioxus::dioxus_core::VirtualDom;
 use mail_core::signature;
-use mail_domain::Signature;
+use mail_domain::{IdentityId, Signature};
 
 /// A signature called "Work" on the fixture's first address that sends, made before the window
 /// opens.
@@ -19,7 +19,7 @@ fn work_signature(built: &Work) -> Signature {
         .into_iter()
         .next()
         .expect("the fixture has an account that sends");
-    mail_store::testing::seed_default_identity(&built.store, account, &address, None);
+    identify(&built.store, IdentityId::generate(), account, &address);
     let (identity, _) = signature::every(&built.store)
         .unwrap()
         .into_iter()
