@@ -6,13 +6,11 @@
 //! POP3 and local folders have nothing to say: for those, and for a server that keeps no quota,
 //! there is none.
 
-use super::{AccountSecrets, ClientRegistry, configured, signed_in_imap};
+use super::{configured, signed_in_imap};
 use crate::error::CoreError;
 use mail_domain::Incoming;
 use mail_proto::Storage;
-use mail_store::SqliteStore;
 use porter_core::AccountId;
-use std::sync::Arc;
 use tokio::sync::watch;
 
 impl crate::mail::SyncOps<'_> {
@@ -20,42 +18,32 @@ impl crate::mail::SyncOps<'_> {
     /// there is no server to ask.
     pub async fn quota(&self, account: AccountId) -> Result<Option<Storage>, CoreError> {
         let mail = self.0;
+        let (store, secrets, now) = (mail.store(), mail.secrets(), mail.now());
         let registry = mail.clients()?;
-        quota_with(mail.store(), mail.secrets(), &registry, account, mail.now()).await
-    }
-}
-
-/// [`SyncOps::quota`](crate::SyncOps), with the secret store named, so a test can run it.
-pub async fn quota_with(
-    store: &Arc<SqliteStore>,
-    secrets: Arc<dyn AccountSecrets>,
-    registry: &ClientRegistry,
-    account: AccountId,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<Option<Storage>, CoreError> {
-    let account = configured(store)?
-        .into_iter()
-        .find(|a| a.id == account)
-        .ok_or(CoreError::AccountGone)?;
-    let failed = |e: mail_runtime::RuntimeError| {
-        CoreError::context("the server did not say how much storage is used", e)
-    };
-    match &account.plan.incoming {
-        Incoming::Imap { .. } => {
-            let (_tx, mut cancel) = watch::channel(false);
-            let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
-            engine.quota_imap(&mut cancel).await.map_err(failed)
+        let account = configured(store)?
+            .into_iter()
+            .find(|a| a.id == account)
+            .ok_or(CoreError::AccountGone)?;
+        let failed = |e: mail_runtime::RuntimeError| {
+            CoreError::context("the server did not say how much storage is used", e)
+        };
+        match &account.plan.incoming {
+            Incoming::Imap { .. } => {
+                let (_tx, mut cancel) = watch::channel(false);
+                let mut engine = signed_in_imap(store, &account, secrets, &registry, now).await?;
+                engine.quota_imap(&mut cancel).await.map_err(failed)
+            }
+            Incoming::Jmap { .. } => {
+                let mut engine = mail_runtime::JmapEngine::new(
+                    account.id,
+                    account.plan.clone(),
+                    store.clone(),
+                    secrets,
+                )?;
+                engine.quota_jmap().await.map_err(failed)
+            }
+            Incoming::Graph | Incoming::Pop3 { .. } | Incoming::Local => Ok(None),
         }
-        Incoming::Jmap { .. } => {
-            let mut engine = mail_runtime::JmapEngine::new(
-                account.id,
-                account.plan.clone(),
-                store.clone(),
-                secrets,
-            )?;
-            engine.quota_jmap().await.map_err(failed)
-        }
-        Incoming::Graph | Incoming::Pop3 { .. } | Incoming::Local => Ok(None),
     }
 }
 

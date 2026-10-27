@@ -30,7 +30,7 @@ use mail_runtime::{
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
-pub use quota::{has_quota, quota_with};
+pub use quota::has_quota;
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
 pub use search::search_server_with;
 use std::sync::Arc;
