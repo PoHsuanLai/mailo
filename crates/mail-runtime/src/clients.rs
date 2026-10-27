@@ -27,10 +27,11 @@ use std::path::{Path, PathBuf};
 pub const CHANNEL: ClientChannel = ClientChannel::Stable;
 
 /// Where porter ships its clients, on a system that has porter installed.
-#[cfg(not(any(target_os = "macos", windows)))]
-const SHIPPED: Option<&str> = Some("/usr/share/porter/clients.toml");
-#[cfg(any(target_os = "macos", windows))]
-const SHIPPED: Option<&str> = None;
+const SHIPPED: Option<&str> = if cfg!(any(target_os = "macos", windows)) {
+    None
+} else {
+    Some("/usr/share/porter/clients.toml")
+};
 
 /// The clients file this repository ships (`packaging/oauth/clients.toml`), on every OS so a test
 /// can read it; only macOS and Windows build it into the program, where there is no
@@ -44,11 +45,11 @@ const BUILT_IN: Option<&str> = if cfg!(any(target_os = "macos", windows)) {
     None
 };
 
-/// What the start of a client id says it stands in for one not yet registered.
+/// The start of a client id that stands in for one not yet registered.
 const PLACEHOLDER: &str = "REPLACE-ME";
 
-/// Whether `entry` is a placeholder from the packaged file, not a registered client. Such a row
-/// is never used to sign in: it is read as no client at all.
+/// Whether `entry` is a placeholder from the packaged file, not a registered client. `load`
+/// drops such a row, so it is never used to sign in: it is read as no client at all.
 fn is_placeholder(entry: &ClientEntry) -> bool {
     entry.client_id.0.starts_with(PLACEHOLDER)
 }
@@ -89,8 +90,9 @@ pub fn load_default() -> Result<ClientRegistry, RuntimeError> {
 }
 
 /// The registry from `files`: the built-in clients, porter's over them, then mailo's earlier file
-/// for each issuer they do not cover. A file that does not exist is empty; one that is damaged is an error, never read
-/// as empty (that would report a configured client as missing). Nothing is written.
+/// for each issuer they do not cover. A file that does not exist is empty; one that is damaged
+/// is an error, never read as empty (that would report a configured client as missing). Nothing
+/// is written.
 pub fn load(files: &Files) -> Result<ClientRegistry, RuntimeError> {
     let mut shipped = read(files.shipped.as_deref())?;
     if let Some(text) = files.built_in {
@@ -139,9 +141,7 @@ pub fn registry_of(clients: Vec<ClientEntry>) -> ClientRegistry {
 
 /// The client for `issuer`, if this installation has one.
 pub fn client(registry: &ClientRegistry, issuer: Issuer) -> Option<&ClientEntry> {
-    registry
-        .lookup(issuer, CHANNEL)
-        .filter(|found| !is_placeholder(found))
+    registry.lookup(issuer, CHANNEL)
 }
 
 /// Whether this installation can sign a personal Microsoft account (Outlook.com, Hotmail) in:
@@ -175,12 +175,10 @@ pub fn entry(issuer: Issuer, client_id: &str, client_secret: Option<&str>) -> Cl
 /// issuer's.
 ///
 /// mailo's one departure from the issuer's published ones is Microsoft's: `organizations`, not
-/// `common`. `common` also accepts personal Outlook.com accounts, and those are a worse case this
-/// does not support: basic authentication was retired there on 2024-09-16 and recently created
-/// personal mailboxes are reported to have SMTP client authentication permanently off, so a
-/// `common` endpoint would hand back a perfectly good token that then fails at submission with
-/// nothing to explain it. Refusing at sign-in, where the user can read the reason, is the better
-/// failure. An error for an issuer mailo has no mail sign-in for.
+/// `common`. `common` also accepts personal Outlook.com accounts, which recently created
+/// mailboxes are reported to refuse SMTP client authentication for, so a client signs personal
+/// accounts in only when its own endpoints say so ([`personal_microsoft_ready`]). An error for an
+/// issuer mailo has no mail sign-in for.
 pub fn endpoints(client: &ClientEntry) -> Result<IssuerEndpoints, RuntimeError> {
     if let Some(own) = &client.endpoints {
         return Ok(own.clone());
@@ -409,9 +407,6 @@ mod tests {
             assert_eq!(id(&registry, issuer), None);
         }
         assert!(!personal_microsoft_ready(&registry));
-        // A registry that holds one anyway still does not offer it.
-        let held = registry_of(vec![entry(Issuer::Google, "REPLACE-ME-x", None)]);
-        assert_eq!(id(&held, Issuer::Google), None);
         // And it does not cover for the client mailo's earlier file has for that issuer.
         let registry = load(&Files {
             built_in: Some(PACKAGED),

@@ -142,8 +142,8 @@ fn gmail(address: &str, now: DateTime<Utc>) -> Preset {
 /// than mailo's: Dropbox is not a mail provider).
 ///
 /// Microsoft's is a work or school account's, which reads and sends through Graph
-/// ([`microsoft_for`]): discovery refuses a personal Microsoft address before it gets here, so
-/// every address that does is an organisation's. A caller that may hold a personal one, such as
+/// ([`microsoft_for`]): discovery sets a personal Microsoft address up itself, or refuses it, before
+/// it gets here, so every address that does is an organisation's. A caller that may hold a personal one, such as
 /// a sign-in that learns the address only afterwards, asks [`microsoft_for`] with what it knows.
 pub fn preset_for_issuer(issuer: Issuer, address: &str, now: DateTime<Utc>) -> Option<Preset> {
     match issuer {

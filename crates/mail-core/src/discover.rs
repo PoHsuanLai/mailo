@@ -140,7 +140,7 @@ static CLIENTS: RwLock<Option<crate::OAuthClients>> = RwLock::new(None);
 /// `hotmail.com`) can be signed in: it can when they hold a Microsoft client registered for
 /// personal accounts (`mail_runtime::clients::personal_microsoft_ready`). They are asked at each
 /// address, so a client set up while the program runs counts. Until one does, a personal address
-/// is told why it is refused, as it always was.
+/// is told why it is refused.
 pub fn judge_personal_microsoft_by(clients: Option<crate::OAuthClients>) {
     *CLIENTS.write().unwrap_or_else(|e| e.into_inner()) = clients;
 }
@@ -183,9 +183,9 @@ fn domain_of(address: &str) -> Option<DomainName> {
 ///
 /// Basic authentication was retired on personal Outlook.com on 2024-09-16, and recently created
 /// personal mailboxes are reported to have SMTP client authentication permanently off, failing
-/// even under OAuth. porter's `microsoft.toml` claims both through one multi-tenant client;
-/// mailo's preset signs in with the work and school scopes, so it says why it will not, rather
-/// than configure an account that cannot send.
+/// even under OAuth. porter's `microsoft.toml` claims both through one multi-tenant client; such
+/// an address is set up only where an installed client signs personal accounts in
+/// ([`personal_preset`]), and otherwise told why not, rather than configured to fail at sending.
 fn personal_microsoft(spec: &ProviderSpec, domain: &DomainName) -> bool {
     spec.auth.issuer == Some(Issuer::Microsoft)
         && !spec
@@ -253,17 +253,8 @@ fn from_provider(lead: &ProviderLead, address: &str, now: DateTime<Utc>) -> Resu
     };
     let personal = lead.via == DomainMatch::Domain
         && domain_of(address).is_some_and(|domain| personal_microsoft(spec, &domain));
-    if personal && !personal_microsoft_open() {
-        return Err(no_servers(
-            address,
-            Gap::PersonalMicrosoft,
-            PERSONAL_MICROSOFT,
-        ));
-    }
     let preset = match spec.auth.issuer {
-        Some(_) if personal => {
-            presets::microsoft_for(presets::MicrosoftAccount::Personal, address, now)
-        }
+        _ if personal => personal_preset(address, now)?,
         Some(issuer) => presets::preset_for_issuer(issuer, address, now)
             .ok_or_else(|| no_servers(address, Gap::Nothing, "its mail is not read here"))?,
         None => from_file(spec, address, now)?,
@@ -358,7 +349,7 @@ fn from_servers(servers: &Servers, address: &str, now: DateTime<Utc>) -> Result<
     {
         return Ok(Found {
             source,
-            preset: guard(address, preset)?,
+            preset: guard(address, preset, now)?,
         });
     }
     let by = |family: Family| servers.endpoints.iter().find(|e| e.family == family);
@@ -458,7 +449,7 @@ fn oauth_issuer(servers: &Servers) -> Option<Issuer> {
 
 /// Refuse the managed-tenant preset for a personal Microsoft address, however it was reached,
 /// unless a client signs personal accounts in: then the personal preset takes its place.
-fn guard(address: &str, preset: Preset) -> Result<Preset, Failed> {
+fn guard(address: &str, preset: Preset, now: DateTime<Utc>) -> Result<Preset, Failed> {
     let tenant = matches!(
         preset.plan.auth,
         AuthPlan::OAuth {
@@ -467,19 +458,29 @@ fn guard(address: &str, preset: Preset) -> Result<Preset, Failed> {
         }
     );
     let personal = microsoft_domain(address) == presets::MicrosoftAccount::Personal;
-    match (tenant && personal, personal_microsoft_open()) {
-        (true, false) => Err(no_servers(
-            address,
-            Gap::PersonalMicrosoft,
-            PERSONAL_MICROSOFT,
-        )),
-        (true, true) => Ok(presets::microsoft_for(
+    if tenant && personal {
+        personal_preset(address, now)
+    } else {
+        Ok(preset)
+    }
+}
+
+/// The personal Microsoft preset for `address`, or why there is none: no installed client signs
+/// personal accounts in.
+fn personal_preset(address: &str, now: DateTime<Utc>) -> Result<Preset, Failed> {
+    if personal_microsoft_open() {
+        Ok(presets::microsoft_for(
             presets::MicrosoftAccount::Personal,
             address,
-            Utc::now(),
-        )),
-        (false, _) => Ok(preset),
+            now,
+        ))
+    } else {
+        Err(personal_refusal(address))
     }
+}
+
+fn personal_refusal(address: &str) -> Failed {
+    no_servers(address, Gap::PersonalMicrosoft, PERSONAL_MICROSOFT)
 }
 
 /// A server declined, as the user is shown it: `IMAP host:port (STARTTLS)`.
@@ -1141,20 +1142,16 @@ mod tests {
         let found = found.expect("a personal mailbox");
         assert_eq!(
             found.preset.plan.auth,
-            presets::microsoft_for(
-                presets::MicrosoftAccount::Personal,
-                "me@outlook.com",
-                Utc::now()
-            )
-            .plan
-            .auth
+            presets::microsoft_for(presets::MicrosoftAccount::Personal, "me@outlook.com", now())
+                .plan
+                .auth
         );
         assert_ne!(
             found.preset.plan.incoming,
             presets::microsoft_for(
                 presets::MicrosoftAccount::Organisation,
                 "me@outlook.com",
-                Utc::now()
+                now()
             )
             .plan
             .incoming

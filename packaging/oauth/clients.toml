@@ -2,9 +2,8 @@
 # (`crates/mail-runtime/src/clients.rs`). An installed app's client id is not a secret.
 #
 # Every id below is a PLACEHOLDER: the apps are not registered yet. An id that starts with
-# `REPLACE-ME` is never used to sign in; the app treats it as having no client, exactly as it
-# does today, until a real id is pasted over it. To register the apps and fill this in, follow
-# the owner's steps in the pull request that added this file:
+# `REPLACE-ME` is never used to sign in; the app treats it as having no client until a real id
+# is pasted over it. To register the apps and fill this in:
 #
 # - Google: an OAuth client of type "Desktop app" with the Gmail mail scope
 #   (https://mail.google.com/). That scope is restricted, so it needs Google's verification.
