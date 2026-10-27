@@ -244,8 +244,11 @@ where
         secrets,
         &mail_core::pgp::no_passphrase,
         page.draft,
-        (leaves, PictureSize::Actual),
-        remind,
+        Going {
+            leaves,
+            pictures: PictureSize::Actual,
+            remind,
+        },
         now,
     )
     .map_err(crate::ui::remedy::told)?;
@@ -267,10 +270,24 @@ pub(in crate::ui) fn queue(
         secrets,
         ask,
         draft,
-        (leaves, PictureSize::Actual),
-        None,
+        Going {
+            leaves,
+            pictures: PictureSize::Actual,
+            remind: None,
+        },
         now,
     )
+}
+
+/// What a send is told besides the draft: when it leaves, at what size its pictures go, and the
+/// reminder held for it. These travel together from the press that sends to the queue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) struct Going {
+    pub leaves: Leaves,
+    pub pictures: PictureSize,
+    /// Held as the message's follow-up reminder until it has left; with none, one an earlier
+    /// send of the draft held goes.
+    pub remind: Option<DateTime<Utc>>,
 }
 
 /// Queue the saved draft to leave as `leaves` says, signed and encrypted as it asks, with `ask`
@@ -278,18 +295,23 @@ pub(in crate::ui) fn queue(
 /// stayed locked is [`mail_core::compose::SendError::locked`]. For a draft to be sealed this reads
 /// the keyring, and the window calls it on a blocking thread.
 ///
-/// `remind` is held as the message's follow-up reminder until it has left (`mail_core::follow_up`);
-/// with none, a reminder an earlier send of the draft held goes. Its pictures go at `pictures`,
-/// made smaller as the bytes are frozen unless that is [`PictureSize::Actual`].
+/// `going.remind` is held as the message's follow-up reminder until it has left
+/// (`mail_core::follow_up`); with none, a reminder an earlier send of the draft held goes. Its
+/// pictures go at `going.pictures`, made smaller as the bytes are frozen unless that is
+/// [`PictureSize::Actual`].
 pub(in crate::ui) fn queue_reminding(
     store: &SqliteStore,
     secrets: &dyn SigningStore,
     ask: mail_core::pgp::Ask<'_>,
     draft: DraftId,
-    (leaves, pictures): (Leaves, PictureSize),
-    remind: Option<DateTime<Utc>>,
+    going: Going,
     now: DateTime<Utc>,
 ) -> Result<DateTime<Utc>, mail_core::compose::SendError> {
+    let Going {
+        leaves,
+        pictures,
+        remind,
+    } = going;
     let queue = |leaves, now| {
         mail_core::compose::queue_sized(store, secrets, ask, draft, leaves, pictures, now)
     };

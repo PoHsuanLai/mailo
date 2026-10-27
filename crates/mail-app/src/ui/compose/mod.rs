@@ -424,7 +424,18 @@ fn send_page(
             let (draft, pictures) = (page.peek().draft, page.peek().pictures);
             // Spawned from a press, which is where a task is polled.
             spawn(async move {
-                match seal_and_queue(store, draft, (leaves, pictures), remind, passphrase).await {
+                match seal_and_queue(
+                    store,
+                    draft,
+                    life::Going {
+                        leaves,
+                        pictures,
+                        remind,
+                    },
+                    passphrase,
+                )
+                .await
+                {
                     Ok(due) => {
                         let sent = life::folded(&mut page.write(), due);
                         queued(page, desk, revision, folding, sent);

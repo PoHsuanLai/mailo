@@ -467,3 +467,43 @@ async fn send_then_undo_withdraws_the_submission_and_restores_the_draft() {
         "the page is not back:\n{markup}"
     );
 }
+
+/// What travels with a send decides when it leaves: right away is the grace period from now, a
+/// time is that time, and the same draft queued either way reaches the outbox once.
+#[test]
+fn a_send_leaves_when_its_going_says() {
+    use super::super::life::{self, Going};
+    use mail_core::compose::{Leaves, PictureSize};
+    let to = [Address {
+        name: None,
+        email: "dana@example.test".to_owned(),
+    }];
+    let now = Utc::now();
+    let later = now + chrono::TimeDelta::hours(3);
+    // (case, leaves, when it is due)
+    let cases = [
+        ("now", Leaves::Now, now + life::GRACE),
+        ("at a time", Leaves::At(later), later),
+    ];
+    for (case, leaves, due) in cases {
+        let (store, _dir) = seeded();
+        let draft = mail_core::compose::draft_new(&store, acct_account(), &to, "Plans", "hi", now)
+            .unwrap_or_else(|why| panic!("{case}: a draft: {why}"));
+        let secrets = mail_core::testing::MapSigningStore::default();
+        let got = life::queue_reminding(
+            &store,
+            &secrets,
+            &mail_core::pgp::no_passphrase,
+            draft.id,
+            Going {
+                leaves,
+                pictures: PictureSize::Actual,
+                remind: None,
+            },
+            now,
+        )
+        .unwrap_or_else(|why| panic!("{case}: {why}"));
+        assert_eq!(got, due, "{case}");
+        assert_eq!(queued(&store), 1, "{case}");
+    }
+}
