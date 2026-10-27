@@ -356,7 +356,7 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>, revision: Signal<u64>) -
                     | SettingsPage::Composing
                     | SettingsPage::Viewing
                     | SettingsPage::Notifications
-                    | SettingsPage::Privacy => rsx! { pages::Page { page } },
+                    | SettingsPage::Privacy => rsx! { pages::Page { key: "{page.name()}", page } },
                     SettingsPage::Accounts => rsx! { accounts::Accounts { shell, revision } },
                     SettingsPage::Spaces => match try_consume_context::<crate::ui::space::Handle>() {
                         Some(handle) => rsx! { spaces::Spaces { shell, handle } },
