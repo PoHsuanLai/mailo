@@ -158,7 +158,10 @@ pub enum Tls {
     Plaintext,
 }
 
-/// Whether POP3 deletes what it has downloaded.
+/// Whether POP3 deletes what it has downloaded, as the plan was made.
+///
+/// Nothing reads it: when a POP3 pass removes the server's copy is the account page's Remove from
+/// Server (`mail_core::offline::Remove`). It stays because every stored plan carries it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LeaveOnServer {

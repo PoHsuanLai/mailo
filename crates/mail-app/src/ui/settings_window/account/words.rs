@@ -7,7 +7,8 @@ use crate::ui::copy::fields::account as row;
 use crate::ui::copy::status::account as said;
 use crate::ui::files::work::messages;
 use mail_core::account::RemoveError;
-use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
+use mail_core::offline::Remove;
+use mail_domain::{AccountPlan, AuthPlan, HttpAuth, Incoming, Outgoing, Tls};
 use porter_provider::Issuer;
 
 /// What the Status row says while an account waits for the person.
@@ -123,16 +124,13 @@ pub(super) struct Asking {
 // names the account, and the alert's two buttons share a 260px sheet, where "Remove Account" does
 // not fit its button.
 
-/// The confirmation for removing `address`, which holds `held` messages here. A POP3 server that
-/// deletes what it hands over has no copy left, and the alert says so rather than "on the
-/// server".
-pub(super) fn asking(address: &str, held: usize, incoming: &Incoming) -> Asking {
+/// The confirmation for removing `address`, which holds `held` messages here. A POP3 account set
+/// to remove mail from the server as it ages (`remove`) may hold the only copy of what is old
+/// enough, and the alert says so rather than "on the server".
+pub(super) fn asking(address: &str, held: usize, incoming: &Incoming, remove: Remove) -> Asking {
     let mail = messages(held);
-    let server = match incoming {
-        Incoming::Pop3 {
-            leave: LeaveOnServer::DeleteAfterFetch,
-            ..
-        } => copy::confirm::only_copy(&mail),
+    let server = match (incoming, remove) {
+        (Incoming::Pop3 { .. }, Remove::AfterDays(_)) => copy::confirm::only_copy(&mail),
         _ => copy::confirm::MAIL_STAYS_ON_SERVER.to_owned(),
     };
     Asking {

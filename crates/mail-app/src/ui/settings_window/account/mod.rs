@@ -1,7 +1,7 @@
 //! An account's own page in Settings' Accounts pane, pushed over the list as System Settings
 //! pushes an Internet Account: whether all its mail is downloaded ([`super::offline`]), how often
-//! it is checked and how far back ([`super::syncing`]), its servers and sign-in, its own keys and certificates (`pgp::keys`), and, last and alone,
-//! Remove Account….
+//! it is checked and how far back ([`super::syncing`]), its servers and sign-in, its own keys and
+//! certificates (`pgp::keys`), and, last and alone, Remove Account….
 //!
 //! The servers are read, not edited: changing them is the Add account sheet's. Remove asks first
 //! in quire's alert, naming how much mail goes and whether the server still has it. Only the
@@ -202,7 +202,10 @@ pub(super) fn AccountPage(
             .map_or(0, |offline| {
                 usize::try_from(offline.messages).unwrap_or(usize::MAX)
             });
-        words::asking(&row.address, held, &row.plan.incoming)
+        let remove = try_consume_context::<WindowDirs>()
+            .map(|dirs| mail_core::offline::load(&dirs.config).remove_of(&row.id))
+            .unwrap_or_default();
+        words::asking(&row.address, held, &row.plan.incoming, remove)
     });
     let removing = if step == AccountStep::Removing {
         Availability::Busy

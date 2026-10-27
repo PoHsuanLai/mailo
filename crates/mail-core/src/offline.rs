@@ -68,7 +68,7 @@ impl Every {
     ];
 }
 
-/// How far back a pass downloads an account's mail: the account page's Keep Mail From.
+/// How far back a pass downloads an account's mail: the account page's Download Mail From.
 ///
 /// A message older than the window is still listed, from the headers every pass fetches, but its
 /// body is not fetched until it is opened, or shown on the screen ([`mail_runtime::wanted`]).

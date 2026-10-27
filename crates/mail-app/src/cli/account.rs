@@ -10,7 +10,7 @@ use mail_core::account::{
 };
 use mail_core::{Mail, SqliteStore, Store};
 use mail_domain::presets::PasswordWarning;
-use mail_domain::{AccountPlan, Incoming, LeaveOnServer, SaslMech};
+use mail_domain::{AccountPlan, Incoming, SaslMech};
 use porter_provider::Issuer;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -27,9 +27,14 @@ pub(super) fn remove(
     let id = account_named(store, address)?;
     match consent {
         Consent::Ask => {
-            let held = store.offline(id).map_or(0, |offline| offline.messages);
+            let held = store
+                .offline(id.clone())
+                .map_or(0, |offline| offline.messages);
             let incoming = plan_of(store, address).map(|plan| plan.incoming);
-            Err(asking(address, held, incoming.as_ref()))
+            let remove = config
+                .map(|config| mail_core::offline::load(config).remove_of(&id))
+                .unwrap_or_default();
+            Err(asking(address, held, incoming.as_ref(), remove))
         }
         Consent::Given => {
             let removed = crate::edge::block_on(mail.accounts().remove(id.clone()))
@@ -56,18 +61,20 @@ fn plan_of(store: &SqliteStore, address: &str) -> Option<AccountPlan> {
 }
 
 /// What removing `address`, which holds `held` messages here, would take, and how to go on.
-fn asking(address: &str, held: u64, incoming: Option<&Incoming>) -> String {
+fn asking(
+    address: &str,
+    held: u64,
+    incoming: Option<&Incoming>,
+    remove: mail_core::offline::Remove,
+) -> String {
     let mail = match held {
         1 => "1 message".to_owned(),
         n => format!("{n} messages"),
     };
-    let server = match incoming {
-        Some(Incoming::Pop3 {
-            leave: LeaveOnServer::DeleteAfterFetch,
-            ..
-        }) => format!(
-            "This server deletes mail once it is downloaded, so these {mail} are the only copy \
-             and will be gone for good."
+    let server = match (incoming, remove) {
+        (Some(Incoming::Pop3 { .. }), mail_core::offline::Remove::AfterDays(_)) => format!(
+            "Mail is removed from the server as it ages, so some of these {mail} may be the only \
+             copy and will be gone for good."
         ),
         _ => "Mail on the server isn't deleted.".to_owned(),
     };
@@ -313,6 +320,7 @@ mod tests {
     use super::{asking, remove};
     use crate::cli::Consent;
     use mail_core::SqliteStore;
+    use mail_core::offline::Remove;
     use mail_domain::{Incoming, LeaveOnServer, Tls, presets};
     use porter_secrets::MemorySecrets;
 
@@ -366,24 +374,33 @@ mod tests {
             tls: Tls::Implicit,
             leave,
         };
-        // (held, incoming, words it has, words it lacks)
+        // (held, incoming, what it removes from the server, words it has, words it lacks). The
+        // plan's `leave` decides nothing: Remove from Server does.
         let cases = [
-            (1, None, "its 1 message on this computer", "only copy"),
             (
-                12,
-                Some(pop3(LeaveOnServer::Keep)),
-                "isn't deleted",
+                1,
+                None,
+                Remove::Never,
+                "its 1 message on this computer",
                 "only copy",
             ),
             (
                 12,
                 Some(pop3(LeaveOnServer::DeleteAfterFetch)),
-                "these 12 messages are the only copy",
+                Remove::Never,
+                "isn't deleted",
+                "only copy",
+            ),
+            (
+                12,
+                Some(pop3(LeaveOnServer::Keep)),
+                Remove::AfterDays(30),
+                "some of these 12 messages may be the only copy",
                 "isn't deleted",
             ),
         ];
-        for (held, incoming, has, lacks) in cases {
-            let said = asking("me@example.test", held, incoming.as_ref());
+        for (held, incoming, remove, has, lacks) in cases {
+            let said = asking("me@example.test", held, incoming.as_ref(), remove);
             assert!(said.contains(has), "{said}");
             assert!(!said.contains(lacks), "{said}");
             assert!(said.contains("Nothing was removed"), "{said}");

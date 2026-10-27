@@ -13,7 +13,7 @@ the least exercised.
 
 **Accounts and protocols**
 
-- IMAP, POP3 (with a leave-on-server choice), JMAP, Microsoft Graph, and local-only accounts that
+- IMAP, POP3 (with a Remove from Server choice), JMAP, Microsoft Graph, and local-only accounts that
   have no server.
 - Sending over SMTP, JMAP `EmailSubmission` or Graph `sendMail`.
 - OAuth sign-in for Google and Microsoft accounts, with an OAuth client id of your own: no

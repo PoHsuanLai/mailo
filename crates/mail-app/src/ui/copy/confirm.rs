@@ -61,7 +61,9 @@ pub fn remove_account_body(mail: &str, server: &str) -> String {
     )
 }
 pub const MAIL_STAYS_ON_SERVER: &str = "Mail on the server isn’t deleted.";
-/// A POP3 server that deletes what it hands over has no copy left.
+/// A POP3 account that removes mail from the server as it ages may have no copy left of the old.
 pub fn only_copy(mail: &str) -> String {
-    format!("This server deletes mail once downloaded, so these {mail} are the only copy.")
+    format!(
+        "Mail is removed from the server as it ages, so some of these {mail} may be the only copy."
+    )
 }

@@ -1,5 +1,6 @@
 use super::{asking, refused, settings};
 use mail_core::account::RemoveError;
+use mail_core::offline::Remove;
 use mail_domain::{
     AccountPlan, Address, AuthPlan, HttpAuth, Identity, Incoming, LeaveOnServer, Outgoing,
     SaslMech, Tls, Username,
@@ -147,7 +148,8 @@ fn the_addresses_it_sends_as_follow_with_their_names() {
 
 #[test]
 fn the_confirmation_counts_the_mail_and_says_when_it_is_the_only_copy() {
-    // (incoming, held, words the body must have, words it must not)
+    // (incoming, what it removes from the server, held, words the body must have, words it must
+    // not). The plan's `leave` decides nothing: Remove from Server does.
     let imap = Incoming::Imap {
         host: "imap.example.com".to_owned(),
         port: 993,
@@ -156,21 +158,42 @@ fn the_confirmation_counts_the_mail_and_says_when_it_is_the_only_copy() {
     let cases = [
         (
             imap.clone(),
+            Remove::Never,
             1,
             "Its 1 message on this computer",
             "only copy",
         ),
-        (imap, 1204, "Its 1\u{a0}204 messages", "only copy"),
-        (pop3(LeaveOnServer::Keep), 3, "isn’t deleted", "only copy"),
+        (
+            imap,
+            Remove::Never,
+            1204,
+            "Its 1\u{a0}204 messages",
+            "only copy",
+        ),
         (
             pop3(LeaveOnServer::DeleteAfterFetch),
+            Remove::Never,
             3,
-            "these 3 messages are the only copy",
+            "isn’t deleted",
+            "only copy",
+        ),
+        (
+            pop3(LeaveOnServer::Keep),
+            Remove::WhenDeleted,
+            3,
+            "isn’t deleted",
+            "only copy",
+        ),
+        (
+            pop3(LeaveOnServer::Keep),
+            Remove::AfterDays(7),
+            3,
+            "some of these 3 messages may be the only copy",
             "isn’t deleted",
         ),
     ];
-    for (incoming, held, has, lacks) in cases {
-        let asked = asking(ADDRESS, held, &incoming);
+    for (incoming, remove, held, has, lacks) in cases {
+        let asked = asking(ADDRESS, held, &incoming, remove);
         assert_eq!(asked.title, "Remove ada@example.com?");
         assert_eq!(asked.confirm, crate::ui::copy::controls::REMOVE);
         assert!(asked.body.contains(has), "{incoming:?}: {}", asked.body);
