@@ -264,6 +264,17 @@ fn html_round_trip_examples_and_what_is_dropped() {
     );
 }
 
+/// A reply quoted twice with a space between the marks is quoted to depth two, not one with a
+/// `>` in its words.
+#[test]
+fn quote_marks_with_spaces_between_them_are_run_together() {
+    use crate::editor::plain_to_flowed;
+    assert_eq!(
+        plain_to_flowed("> > text  \n> >\n>> kept\n> plain"),
+        ">> text\n>>\n>> kept\n> plain"
+    );
+}
+
 /// Text not written by the editor is flowed text that reads back exactly as it was written.
 #[test]
 fn plain_text_reads_back_as_itself_through_flowed() {

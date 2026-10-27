@@ -234,7 +234,8 @@ fn cut_long(line: &str) -> Vec<String> {
 /// Plain text, written by a person or a program rather than the editor, as `format=flowed`
 /// that reads back exactly as it was: every line hard (trailing spaces gone, so none is taken
 /// for a soft break, the `-- ` signature separator kept), and a line that starts with a space
-/// or `From ` space-stuffed. A line starting `>` is left a quote, which is what it was written as.
+/// or `From ` space-stuffed. A line starting `>` is left a quote, which is what it was written
+/// as, its marks run together (`> > a` is `>> a`).
 ///
 /// So every `Draft.text` is flowed text, whichever way it was written, and the message is
 /// labelled `format=flowed` without a reader joining lines the writer kept apart.
@@ -247,13 +248,35 @@ pub fn plain_to_flowed(text: &str) -> String {
                 .map_or((line, ""), |line| (line, "\r"));
             let line = match line {
                 SEPARATOR => SEPARATOR.to_owned(),
-                line if line.starts_with('>') => hard(line),
+                line if line.starts_with('>') => hard(&joined_quote(line)),
                 line => stuff(&hard(line)),
             };
             line + end
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// A quoted line with the spaces between its `>` marks taken out (`> > text` is `>> text`): flowed
+/// text counts quote depth from the unbroken run of `>`, so `> > text` would be depth one with a
+/// `>` in its words.
+fn joined_quote(line: &str) -> String {
+    let mut depth = 0;
+    let mut rest = line;
+    loop {
+        if let Some(after) = rest.strip_prefix('>') {
+            depth += 1;
+            rest = after;
+        } else if let Some(after) = rest
+            .strip_prefix(' ')
+            .filter(|after| after.starts_with('>'))
+        {
+            rest = after;
+        } else {
+            break;
+        }
+    }
+    format!("{}{rest}", ">".repeat(depth))
 }
 
 fn hard(line: &str) -> String {

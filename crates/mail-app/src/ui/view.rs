@@ -734,7 +734,8 @@ impl Composing {
             to,
             cc,
             subject: self.subject.clone(),
-            text: self.body.clone(),
+            // Flowed text, as every draft's text is.
+            text: mail_core::editor::plain_to_flowed(&self.body),
             updated: now,
             ..base.clone()
         })
