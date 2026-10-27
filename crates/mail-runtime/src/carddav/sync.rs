@@ -41,8 +41,8 @@ pub struct Synced {
     pub how: How,
     /// Groups and people's cards edited here that the server now has.
     pub written: usize,
-    /// Groups and people's cards edited here that were not written, and why. Each stays edited, and the next sync
-    /// tries again.
+    /// Groups and people's cards edited here that were not written, and why. Each stays edited,
+    /// and the next sync tries again.
     pub unwritten: Vec<Unwritten>,
 }
 

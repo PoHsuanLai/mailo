@@ -3,7 +3,8 @@
 //! already open. Laid out as detent lays out a program's page: a sidebar of pages, each a column
 //! of titled groups of rows.
 //!
-//! Seven pages: General, Accounts, Contacts, Spaces, Rules, Vacation Reply and Keyboard. General draws mailo's settings schema
+//! Seven pages: General, Accounts, Contacts, Spaces, Rules, Vacation Reply and Keyboard. General
+//! draws mailo's settings schema
 //! (`crate::settings`) as two groups of rows ([`general`], each row a key's, drawn by [`keys`]),
 //! the same keys detent draws on mailo's page and writes to the same `mailo/settings.toml`.
 //! Accounts lists each account, whose row pushes its own page into the pane ([`account`]): its
