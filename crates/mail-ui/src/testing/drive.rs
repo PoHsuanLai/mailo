@@ -1,14 +1,9 @@
 //! The words the window's tests drive quire's `Harness` with.
 //!
-//! `ds_harness` has one way in, `Harness::send(Input::..)`, and reads through `Harness`'s query methods. The tests
-//! here click, press and chord hundreds of times, so this names each of those once and leaves
-//! every call a line that reads as what a person did. Nothing here reaches past the harness's
-//! own inputs: each method is one `Input` sent, and the reads are `Harness`'s.
-//!
-//! Included by the integration tests as `mod support` and by the unit tests through `#[path]`,
-//! so there is one copy.
-
-#![allow(dead_code)]
+//! `ds_harness` has one way in, `Harness::send(Input::..)`, and reads through `Harness`'s query
+//! methods. The tests here click, press and chord hundreds of times, so this names each of those
+//! once and leaves every call a line that reads as what a person did. Nothing here reaches past
+//! the harness's own inputs: each method is one `Input` sent, and the reads are `Harness`'s.
 
 use dioxus::html::Modifiers;
 use ds::base::press::PointerButton;

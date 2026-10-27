@@ -135,8 +135,8 @@ Every write goes through the store, so the store says what changed.
   to readers, the store publishes `Committed { topics, generation }`. A commit that said nothing
   publishes `ALL`, so a missing declaration costs a recount, never a stale window.
   `remove_account` says `ALL`: its cascade reaches every table an account owns.
-- **Other processes.** The watch in `ui/fetching/external.rs` (the db and `-wal` files, then
-  `data_version`) moves into `mail-client` as it is, and publishes `ALL`.
+- **Other processes.** The watch in `mail-client`'s `external.rs` (the db and `-wal` files, then
+  `data_version`) publishes `ALL`.
 - **One snapshot per answer.** `read_pinned` locks one reader for the thread and opens a read
   transaction on it; `reader()` hands that thread the same reader again. A sidebar's twenty
   counts are one moment of the database, and `as_of` is the generation read before it began.
@@ -191,8 +191,9 @@ Each leaves the app working.
    No window files.
    Queries: `Accounts`, `Views`, `Counts`.
    **b.** The window's sidebar built from them; `App`'s seeding hook, badge filters and fallback
-   go. `external.rs` becomes a follower of the client's generation that still moves `revision`,
-   so memos not yet converted hear in-process and background commits too.
+   go. `external.rs` (the watch, now `mail-client`'s) follows the client's generation; until 4b
+   it also moved `revision`, so memos not yet converted heard in-process and background commits
+   too.
 2. List and reader, in three steps.
    **a.** The list: `Conversations` (a place's query, the returned and waiting lists, history, a
    search) answers `Found`, the rows with what a search found on top; the window keeps the

@@ -149,6 +149,8 @@ zbus = "5.19"
 rpassword = "7"
 
 [dev-dependencies]
+# The words the tests drive the harness with (`mail_ui::testing::drive`).
+mail-ui = { workspace = true, features = ["testing"] }
 # The window's integration tests drive it as the launched program does (`tests/app`).
 dioxus = { version = "0.7" }
 ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "d17e19da64c8845d8eb413784b2d84f177a86767" }  # d17e19da (v0.3.49; forks blitz 41134ff3, blitz-kit 80938e37)

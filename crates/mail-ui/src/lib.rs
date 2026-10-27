@@ -17,6 +17,8 @@ pub mod launcher;
 pub mod mail_handler;
 pub mod said;
 pub mod settings;
+#[cfg(feature = "testing")]
+pub mod testing;
 pub mod ui;
 
 /// The desktop entry's name (`packaging/org.quire.Mail.desktop`), which notifications name too:

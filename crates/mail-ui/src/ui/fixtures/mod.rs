@@ -13,10 +13,9 @@ mod row_menu;
 mod settle;
 mod store;
 
-/// The words the tests drive quire's `Harness` with (`Drive`, `Key`): the one file
-/// `mail-app`'s `tests/support/drive.rs`, which its integration tests include too.
-#[path = "../../../../mail-app/tests/support/drive.rs"]
-pub(in crate::ui) mod drive;
+/// The words the tests drive quire's `Harness` with (`Drive`, `Key`), shared with `mail-app`'s
+/// integration tests (`crate::testing`).
+pub(in crate::ui) use crate::testing::drive;
 
 /// The throwaway certificate authority S/MIME tests make their certificates with: the one
 /// `mail-mime`'s tests and `tests/app/smime.rs` use, so all three build fixtures the same way.

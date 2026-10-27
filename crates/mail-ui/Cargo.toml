@@ -20,6 +20,8 @@ quire-desktop = []
 # (`ui/reading/anyview.rs`). Off, the strip shows a picture's or a PDF's thumbnail and Peek those,
 # the calendars, contacts and messages mailo reads itself, and "no preview" for the rest.
 anyview = ["dep:anyview-peek", "dep:anyview-core"]
+# What the window's tests and `mail-app`'s share (`testing`): off in the program.
+testing = ["dep:ds-harness"]
 
 [dependencies]
 # The folder Open writes a part into before the system opens it (`reading/peek/part.rs`): made
@@ -74,6 +76,9 @@ anyview-core = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "d0a5c
 anyview-peek = { git = "https://github.com/PoHsuanLai/anyview.git", rev = "d0a5c0ba2bedd4b9eac9a656324904574dd8ad54", default-features = false, features = ["pane"], optional = true }
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
+# The test driver (`Harness`, `Driver`, `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print
+# tests), named by `testing` and by the window's own tests.
+ds-harness = { optional = true, git = "https://github.com/PoHsuanLai/quire.git", rev = "d17e19da64c8845d8eb413784b2d84f177a86767", features = ["pdf"] }  # d17e19da (v0.3.49; forks blitz 41134ff3, blitz-kit 80938e37)
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
@@ -118,6 +123,8 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 rfd = { version = "=0.17.2", default-features = false }
 
 [dev-dependencies]
+# The shared test support (`testing`), on for the window's own tests.
+mail-ui = { path = ".", features = ["testing"] }
 # The values a test starts from (`mail_domain::testing`): the program never has them.
 mail-domain = { workspace = true, features = ["testing"] }
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
@@ -148,11 +155,8 @@ pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"] }
 tokio = { version = "1", features = ["test-util"] }
 dioxus-ssr = "0.7"
 uuid = { workspace = true }
-# The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
-# `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
-# same tag.
+# The linter (`lint::assert_clean`, the markup lint): quire's own crate, at the same tag.
 ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "d17e19da64c8845d8eb413784b2d84f177a86767" }  # d17e19da (v0.3.49; forks blitz 41134ff3, blitz-kit 80938e37)
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "d17e19da64c8845d8eb413784b2d84f177a86767", features = ["pdf"] }  # d17e19da (v0.3.49; forks blitz 41134ff3, blitz-kit 80938e37)
 # The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with
 # (`mail-mime/tests/smime_support`). All already in the tree through `mail-mime`.
 x509-cert = { version = "0.2", features = ["builder"] }
