@@ -78,7 +78,8 @@ pub fn migrate(db: &Connection) -> Result<(), StoreError> {
     db.execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(StoreError::db)?;
 
-    let current = current_version(db)?;
+    let applied = applied_versions(db)?;
+    let current = applied.last().copied().unwrap_or(0);
     if current > EXPECTED_VERSION {
         return Err(StoreError::SchemaTooNew {
             found: current,
@@ -86,8 +87,11 @@ pub fn migrate(db: &Connection) -> Result<(), StoreError> {
         });
     }
 
+    // Every version not yet recorded runs, not only those above the highest: a build that
+    // applied a later migration first (two branches numbering past each other) still gets the
+    // earlier one rather than skipping it forever.
     for (version, sql) in MIGRATIONS {
-        if *version <= current {
+        if applied.binary_search(version).is_ok() {
             continue;
         }
         // One transaction per migration: a failure half way leaves the database at the last
@@ -112,8 +116,8 @@ pub fn migrate(db: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// The highest version applied, or 0 for an empty database.
-fn current_version(db: &Connection) -> Result<u32, StoreError> {
+/// The versions applied, in rising order; none for an empty database.
+fn applied_versions(db: &Connection) -> Result<Vec<u32>, StoreError> {
     let exists: bool = db
         .query_row(
             "SELECT count(*) > 0 FROM sqlite_master WHERE type='table' AND name='schema_version'",
@@ -122,14 +126,17 @@ fn current_version(db: &Connection) -> Result<u32, StoreError> {
         )
         .map_err(StoreError::db)?;
     if !exists {
-        return Ok(0);
+        return Ok(Vec::new());
     }
-    db.query_row(
-        "SELECT coalesce(max(version), 0) FROM schema_version",
-        [],
-        |r| r.get(0),
-    )
-    .map_err(StoreError::db)
+    let mut query = db
+        .prepare("SELECT DISTINCT version FROM schema_version ORDER BY version")
+        .map_err(StoreError::db)?;
+    let versions = query
+        .query_map([], |r| r.get(0))
+        .map_err(StoreError::db)?
+        .collect::<Result<Vec<u32>, _>>()
+        .map_err(StoreError::db)?;
+    Ok(versions)
 }
 
 #[cfg(test)]
@@ -151,6 +158,30 @@ mod tests {
             }
             other => panic!("expected SchemaTooNew, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_missing_version_below_the_highest_still_runs() {
+        // A database that took the last migration before the one under it (two branches that
+        // numbered past each other) has a gap below its highest version; the gap is applied,
+        // not skipped for good.
+        let db = Connection::open_in_memory().unwrap();
+        let gap = MIGRATIONS.len() - 2;
+        for (version, sql) in MIGRATIONS.iter().take(gap).chain(&MIGRATIONS[gap + 1..]) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        migrate(&db).unwrap();
+        assert_eq!(
+            applied_versions(&db).unwrap(),
+            (1..=EXPECTED_VERSION).collect::<Vec<_>>()
+        );
     }
 
     #[test]
