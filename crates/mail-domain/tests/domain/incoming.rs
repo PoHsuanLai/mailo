@@ -1,11 +1,10 @@
-//! What an account's incoming protocol can do, written down as a table before anything derives it.
+//! What an account's incoming protocol can do, as a table of what the old matches said.
 //!
 //! The stored forms are the persisted `kind`/`v` shapes, as an earlier build wrote them. The
 //! answers are what each place that used to match on the protocol said, transcribed once per
-//! protocol: the predicates themselves are restated here as they stood, and the table is checked
-//! against them, so the table is the old behaviour and not a guess at it.
+//! protocol before `Incoming::caps` existed, and `Incoming::caps` is checked against them.
 
-use mail_domain::Incoming;
+use mail_domain::{Incoming, Tls};
 
 /// One stored form and what the old matches said of it.
 struct Row {
@@ -129,71 +128,49 @@ fn every_stored_incoming_form_round_trips_unchanged() {
     }
 }
 
-/// The ladders as they stood in the places that asked, one per question.
-mod old {
-    use mail_domain::Incoming;
-
-    pub fn has_server(i: &Incoming) -> bool {
-        !matches!(i, Incoming::Local)
-    }
-    pub fn lists_folders(i: &Incoming) -> bool {
-        !matches!(i, Incoming::Pop3 { .. } | Incoming::Local)
-    }
-    pub fn searchable(i: &Incoming) -> bool {
-        matches!(
-            i,
-            Incoming::Imap { .. } | Incoming::Jmap { .. } | Incoming::Graph
-        )
-    }
-    pub fn has_quota(i: &Incoming) -> bool {
-        matches!(i, Incoming::Imap { .. } | Incoming::Jmap { .. })
-    }
-    pub fn pushes(i: &Incoming) -> bool {
-        matches!(i, Incoming::Imap { .. } | Incoming::Jmap { .. })
-    }
-    pub fn fetches_one(i: &Incoming) -> bool {
-        matches!(i, Incoming::Imap { .. } | Incoming::Graph)
-    }
-    pub fn folder_tree(i: &Incoming) -> bool {
-        matches!(i, Incoming::Imap { .. } | Incoming::Graph)
-    }
-    pub fn writes_mailboxes(i: &Incoming) -> bool {
-        matches!(i, Incoming::Imap { .. })
-    }
-    pub fn server_drafts(i: &Incoming) -> bool {
-        matches!(i, Incoming::Imap { .. } | Incoming::Jmap { .. })
-    }
-    pub fn socket(i: &Incoming) -> Option<(&str, u16)> {
-        match i {
-            Incoming::Imap { host, port, .. } | Incoming::Pop3 { host, port, .. } => {
-                Some((host, *port))
-            }
-            Incoming::Local | Incoming::Graph | Incoming::Jmap { .. } => None,
-        }
-    }
-}
-
-/// The table says what the old ladders said.
+/// `Incoming::caps` gives the answers the table holds, which are what the old ladders said.
 #[test]
-fn the_table_is_what_the_old_ladders_said() {
+fn caps_are_what_the_old_ladders_said() {
     for row in rows() {
         let i: Incoming = serde_json::from_str(row.json).unwrap();
-        let said = |what: &str, table: bool, old: bool| {
-            assert_eq!(table, old, "{what} of {}", row.json);
+        let caps = i.caps();
+        let said = |what: &str, table: bool, got: bool| {
+            assert_eq!(table, got, "{what} of {}", row.json);
         };
-        said("has_server", row.has_server, old::has_server(&i));
-        said("lists_folders", row.lists_folders, old::lists_folders(&i));
-        said("searchable", row.searchable, old::searchable(&i));
-        said("has_quota", row.has_quota, old::has_quota(&i));
-        said("pushes", row.pushes, old::pushes(&i));
-        said("fetches_one", row.fetches_one, old::fetches_one(&i));
-        said("folder_tree", row.folder_tree, old::folder_tree(&i));
+        said("has_server", row.has_server, caps.has_server);
+        said("lists_folders", row.lists_folders, caps.lists_folders);
+        said("searchable", row.searchable, caps.searchable);
+        said("has_quota", row.has_quota, caps.has_quota);
+        said("pushes", row.pushes, caps.pushes);
+        said("fetches_one", row.fetches_one, caps.fetches_one);
+        said("folder_tree", row.folder_tree, caps.folder_tree);
         said(
             "writes_mailboxes",
             row.writes_mailboxes,
-            old::writes_mailboxes(&i),
+            caps.writes_mailboxes,
         );
-        said("server_drafts", row.server_drafts, old::server_drafts(&i));
-        assert_eq!(row.socket, old::socket(&i), "socket of {}", row.json);
+        said("server_drafts", row.server_drafts, caps.server_drafts);
+        assert_eq!(
+            row.socket,
+            i.server().map(|server| (server.host, server.port)),
+            "server of {}",
+            row.json
+        );
+        assert_eq!(row.socket.map(|(host, _)| host), i.host());
     }
+}
+
+/// The tls mode of the socket is the plan's own.
+#[test]
+fn a_socket_server_carries_its_transport_security() {
+    let read = |json| serde_json::from_str::<Incoming>(json).unwrap();
+    assert_eq!(read(IMAP).server().unwrap().tls, Tls::Implicit);
+    assert_eq!(
+        read(IMAP_STARTTLS).server().unwrap().tls,
+        Tls::StartTlsRequired
+    );
+    assert_eq!(
+        read(POP3_DELETING).server().unwrap().tls,
+        Tls::StartTlsRequired
+    );
 }

@@ -14,7 +14,7 @@ use super::{Added, Credentials, Receive, Requested, add_receiving, microsoft_acc
 use crate::error::CoreError;
 use crate::sync::report::Offer;
 use mail_domain::presets::MicrosoftAccount;
-use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing};
+use mail_domain::{AccountPlan, AuthPlan, Outgoing};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, SecretKey, SecretPurpose};
 use porter_provider::Issuer;
@@ -32,7 +32,7 @@ pub fn graph_offer(plan: &AccountPlan) -> Option<Offer> {
             ..
         }
     );
-    let imap = matches!(plan.incoming, Incoming::Imap { .. });
+    let imap = plan.incoming.caps().writes_mailboxes;
     let organisation = microsoft_account_of(&plan.address, None) == MicrosoftAccount::Organisation;
     (microsoft && imap && organisation).then_some(Offer::UseGraph)
 }
@@ -95,7 +95,7 @@ mod tests {
     use crate::account::Outcome;
     use crate::environment::Environment;
     use crate::support_tests::now;
-    use mail_domain::{MailboxRef, RemoteRef, SyncCursor};
+    use mail_domain::{Incoming, MailboxRef, RemoteRef, SyncCursor};
     use mail_runtime::{AccountSecrets, Arrival, ClientRegistry};
     use mail_store::Store;
     use porter_core::{Credential, SecretText};

@@ -263,7 +263,7 @@ pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
     // always was, and only a plan that says Local is left out.
     let keeps_locally = |plan: &Result<AccountPlan, mail_store::StoreError>| {
         plan.as_ref()
-            .is_ok_and(|plan| matches!(plan.incoming, Incoming::Local))
+            .is_ok_and(|plan| !plan.incoming.caps().has_server)
     };
     accounts
         .into_iter()
@@ -1101,7 +1101,7 @@ fn drafts_on_server(store: &SqliteStore, account: &AccountId) -> Option<MailboxR
     let plan = stored
         .plan
         .or_log("the plan of the account a draft is on could not be read")?;
-    if !matches!(plan.incoming, Incoming::Imap { .. } | Incoming::Jmap { .. }) {
+    if !plan.incoming.caps().server_drafts {
         return None;
     }
     let caps = stored

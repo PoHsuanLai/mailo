@@ -576,15 +576,12 @@ impl<B: Backend> AccountEngine<B> {
 
     /// Where the incoming server lives. `None` for an account that keeps its mail here.
     fn incoming(&self) -> Option<(&str, u16, Tls)> {
-        match &self.plan.incoming {
-            Incoming::Imap { host, port, tls } => Some((host, *port, *tls)),
-            Incoming::Pop3 {
-                host, port, tls, ..
-            } => Some((host, *port, *tls)),
-            // No socket to open for Graph or JMAP: both are HTTPS. JMAP has an engine of its
-            // own (`crate::jmap::JmapEngine`); an `AccountEngine` built for one connects nowhere.
-            Incoming::Local | Incoming::Graph | Incoming::Jmap { .. } => None,
-        }
+        // No socket to open for Graph or JMAP: both are HTTPS. JMAP has an engine of its own
+        // (`crate::jmap::JmapEngine`); an `AccountEngine` built for one connects nowhere.
+        self.plan
+            .incoming
+            .server()
+            .map(|server| (server.host, server.port, server.tls))
     }
 
     /// Open a connection to the incoming server.
@@ -1620,7 +1617,7 @@ impl<B: Backend> AccountEngine<B> {
     /// an account with no folders that nothing complained about. Said once, plainly, and
     /// nothing stored: the folders and roles already held stay.
     fn listed_inbox(&self, listed: &[mail_domain::Folder]) -> Result<(), RuntimeError> {
-        let has_one = matches!(self.plan.incoming, Incoming::Imap { .. } | Incoming::Graph);
+        let has_one = self.plan.incoming.caps().folder_tree;
         let inbox = listed
             .iter()
             .any(|f| f.special == Some(mail_domain::SpecialUse::Inbox));
@@ -1636,7 +1633,7 @@ impl<B: Backend> AccountEngine<B> {
     /// morning would otherwise show no folders until tomorrow, and refuse to rename or delete
     /// any, so a sync pass asks as soon as it finds the list empty.
     pub fn folders_unlisted(&self) -> bool {
-        matches!(self.plan.incoming, Incoming::Imap { .. } | Incoming::Graph)
+        self.plan.incoming.caps().folder_tree
             && self
                 .store
                 .folders(self.account.clone())
@@ -1653,7 +1650,7 @@ impl<B: Backend> AccountEngine<B> {
         now: DateTime<Utc>,
     ) -> Result<bool, RuntimeError> {
         // A Graph account reads through `self.graph`, and keeps no copy there.
-        if !matches!(self.plan.incoming, Incoming::Imap { .. }) || self.graph.is_some() {
+        if !self.plan.incoming.caps().writes_mailboxes || self.graph.is_some() {
             return Ok(false);
         }
         // Nor does Gmail ([`crate::server_drafts::keeps_copies`]), whose EXPUNGE may archive.

@@ -105,10 +105,8 @@ pub use mail_runtime::schedule::Hold;
 /// A Graph account is not here: whether it is pushed to is a setting the store holds, which
 /// [`pushing_with`] reads ([`super::graph_push::relayed`]).
 pub fn pushes(account: &Configured) -> bool {
-    matches!(
-        account.plan.incoming,
-        Incoming::Imap { .. } | Incoming::Jmap { .. }
-    ) && matches!(account.caps.watch, WatchMode::Idle)
+    account.plan.incoming.caps().pushes
+        && matches!(account.caps.watch, WatchMode::Idle)
         && account.every == crate::offline::Every::Automatic
 }
 

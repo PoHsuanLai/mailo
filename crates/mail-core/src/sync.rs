@@ -31,7 +31,6 @@ use mail_runtime::{
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
-pub use quota::has_quota;
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
 pub use search::search_server_with;
 use std::sync::Arc;
@@ -179,7 +178,7 @@ pub fn local_accounts(store: &SqliteStore) -> Vec<AccountId> {
     configured(store)
         .or_log_default("the accounts could not be read")
         .into_iter()
-        .filter(|account| matches!(account.plan.incoming, Incoming::Local))
+        .filter(|account| !account.plan.incoming.caps().has_server)
         .map(|account| account.id)
         .collect()
 }
@@ -351,7 +350,7 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, CoreE
     // saying so on every pass would be noise about something that is working as intended.
     Ok(configured(store)?
         .into_iter()
-        .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
+        .filter(|account| account.plan.incoming.caps().has_server)
         .filter(|account| !paused(store, account.id.clone()))
         .filter(|a| (scope.due)(a.id.clone()))
         .map(|a| Configured {
@@ -798,10 +797,8 @@ pub async fn check_sign_in(
         .into_iter()
         .find(|account| account.address == address)
         .ok_or_else(|| CoreError::UnknownAccount(address.clone()))?;
-    let (host, login) = match (&account.plan.incoming, &account.plan.auth) {
-        (Incoming::Pop3 { host, .. } | Incoming::Imap { host, .. }, AuthPlan::Password { .. }) => {
-            (host.clone(), username_for(&account.plan))
-        }
+    let (host, login) = match (account.plan.incoming.host(), &account.plan.auth) {
+        (Some(host), AuthPlan::Password { .. }) => (host.to_owned(), username_for(&account.plan)),
         _ => return Ok(()),
     };
     let held = Held::new(
@@ -845,20 +842,10 @@ pub async fn check_sign_in(
 /// The incoming server's name and port when its connections are to be upgraded with STARTTLS
 /// (STLS for POP3) before anything is signed in; `None` for implicit TLS or no server.
 fn starttls_for(plan: &AccountPlan) -> Option<(String, u16)> {
-    match &plan.incoming {
-        Incoming::Imap {
-            host,
-            port,
-            tls: Tls::StartTlsRequired,
-        }
-        | Incoming::Pop3 {
-            host,
-            port,
-            tls: Tls::StartTlsRequired,
-            ..
-        } => Some((host.clone(), *port)),
-        _ => None,
-    }
+    plan.incoming
+        .server()
+        .filter(|server| server.tls == Tls::StartTlsRequired)
+        .map(|server| (server.host.to_owned(), server.port))
 }
 
 /// An engine for a POP3 account, signed in with the password `held` holds.
@@ -998,7 +985,7 @@ pub async fn fetch_part_with(
         .into_iter()
         .find(|a| a.id == owner)
         .ok_or(CoreError::MessageAccountGone)?;
-    if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
+    if !account.plan.incoming.caps().writes_mailboxes {
         return Err(CoreError::OnlyImapLeavesAttachments);
     }
     let (_tx, mut cancel) = watch::channel(false);
@@ -1049,7 +1036,7 @@ pub async fn drain_with(
         .into_iter()
         .find(|a| a.id == account)
         .ok_or(CoreError::AccountGone)?;
-    if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
+    if !account.plan.incoming.caps().writes_mailboxes {
         return Err(CoreError::OnlyImapUploads);
     }
     let (_tx, mut cancel) = watch::channel(false);
@@ -1537,10 +1524,8 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
             path: path.to_owned(),
         });
     }
-    let folders_are_folders = matches!(
-        account.plan.incoming,
-        Incoming::Imap { .. } | Incoming::Graph
-    ) && account.caps.labels != ServerLabels::Supported;
+    let folders_are_folders =
+        account.plan.incoming.caps().folder_tree && account.caps.labels != ServerLabels::Supported;
     if folders_are_folders {
         for folder in folders
             .iter()

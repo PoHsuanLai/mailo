@@ -21,7 +21,7 @@ use ds::components::menus::pop_up_button::PopUpButton;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::Syncing;
-use mail_domain::{Incoming, MailboxRole};
+use mail_domain::MailboxRole;
 
 /// Write one preference with `write`, then move the revision so everything that names the
 /// account reads it again; a client that refuses is said in `failed`.
@@ -117,7 +117,7 @@ fn keeping_labels(row: &AccountRow) -> (bool, bool) {
     let Some(client) = crate::ui::live::try_client() else {
         return (false, false);
     };
-    let offered = matches!(row.plan.incoming, Incoming::Imap { .. })
+    let offered = row.plan.incoming.caps().writes_mailboxes
         && client
             .sync()
             .caps_of(row.id.clone())
@@ -146,10 +146,7 @@ pub(super) fn FolderRoles(row: AccountRow) -> Element {
     let Some(client) = crate::ui::live::try_client() else {
         return rsx! {};
     };
-    if !matches!(
-        row.plan.incoming,
-        Incoming::Imap { .. } | Incoming::Jmap { .. } | Incoming::Graph
-    ) {
+    if !row.plan.incoming.caps().lists_folders {
         return rsx! {};
     }
     // What cannot be read is said, once, and the group is not drawn: a menu drawn from nothing

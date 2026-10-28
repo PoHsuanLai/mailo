@@ -16,6 +16,7 @@ pub mod folder;
 pub mod hex;
 pub mod hue;
 pub mod id;
+pub mod incoming;
 pub mod ingest;
 pub mod invite;
 pub mod jmap_id;
@@ -61,6 +62,7 @@ pub use id::{
     BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, SignatureId,
     TemplateId, ThreadId, ViewId,
 };
+pub use incoming::{Caps, Server};
 pub use ingest::{Fetched, Import, Ingest, Kept};
 pub use invite::{Attendance, InviteAnswer};
 pub use jmap_id::{

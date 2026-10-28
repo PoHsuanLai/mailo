@@ -222,7 +222,7 @@ pub(super) fn ThreadList(
         accounts
             .iter()
             .filter(|row| shell.read().scope.shows(row.id.clone()))
-            .filter(|row| mail_client::server_search::searchable(&row.plan))
+            .filter(|row| row.plan.incoming.caps().searchable)
             .map(|row| (row.id.clone(), row.shown()))
             .collect()
     };

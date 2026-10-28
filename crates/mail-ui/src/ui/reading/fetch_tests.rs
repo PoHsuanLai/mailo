@@ -97,18 +97,6 @@ fn the_raw_reason_is_one_short_line() {
 }
 
 #[test]
-fn only_imap_and_graph_fetch_when_opened() {
-    let imap = Incoming::Imap {
-        host: "h".into(),
-        port: 993,
-        tls: Tls::Implicit,
-    };
-    assert!(opens_with_fetch(&imap));
-    assert!(opens_with_fetch(&Incoming::Graph));
-    assert!(!opens_with_fetch(&Incoming::Local));
-}
-
-#[test]
 fn a_failed_download_names_the_file_and_keeps_the_raw_error_secondary() {
     let said = download_failure(
         "report.pdf",

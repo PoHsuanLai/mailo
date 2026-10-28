@@ -11,7 +11,6 @@ use crate::error::Logged;
 use crate::export::{self, Target};
 use crate::import::{self, Destination, Imported, Source};
 use chrono::{DateTime, Utc};
-use mail_domain::Incoming;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::ffi::OsStr;
@@ -138,7 +137,7 @@ pub fn upload_folders(store: &SqliteStore) -> Vec<Upload> {
         .or_log_default("the accounts could not be read")
     {
         let imap = match &account.plan {
-            Ok(plan) => matches!(plan.incoming, Incoming::Imap { .. }),
+            Ok(plan) => plan.incoming.caps().writes_mailboxes,
             Err(_) => true,
         };
         if !imap {

@@ -10,7 +10,7 @@ use super::{AccountEngine, Notify};
 use crate::error::Logged;
 use crate::{Cancel, RuntimeError};
 use chrono::{DateTime, Utc};
-use mail_domain::{Incoming, MailboxRef, WatchMode};
+use mail_domain::{MailboxRef, WatchMode};
 use mail_proto::Backend;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
@@ -77,7 +77,7 @@ impl<B: Backend> AccountEngine<B> {
 
         // An account that keeps its mail here has no server to park in IDLE on, whatever its
         // stored capabilities say: it only ever sleeps.
-        let server = !matches!(self.plan.incoming, Incoming::Local);
+        let server = self.plan.incoming.caps().has_server;
         if server && matches!(self.caps().watch, WatchMode::Idle) {
             let alarm = alarm();
             // IDLE is not held for ever: past `IDLE_REARM` it is ended in protocol and the wait

@@ -17,7 +17,7 @@
 
 use crate::error::CoreError;
 use chrono::{DateTime, TimeDelta, Utc};
-use mail_domain::{ChangeId, Incoming, MailboxRef, Patch, ProtoOp, RemoteIntent};
+use mail_domain::{ChangeId, MailboxRef, Patch, ProtoOp, RemoteIntent};
 use mail_mime::archive::{self, Placement, Sniffed, emlx, maildir, mbox, thunderbird};
 use mail_runtime::assemble::{self, Keep};
 use mail_store::{SqliteStore, Store};
@@ -662,7 +662,7 @@ pub fn queue_uploads(
         .ok_or_else(|| CoreError::NoAccountFor {
             address: address.clone(),
         })?;
-    if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
+    if !account.plan.incoming.caps().writes_mailboxes {
         return Err(CoreError::NotImap { address });
     }
     let listed = store.folders(account.id.clone())?;

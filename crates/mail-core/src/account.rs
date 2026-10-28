@@ -672,7 +672,7 @@ fn kept_on_imap(
     found: mail_domain::presets::Preset,
     receive: crate::account::Receive,
 ) -> mail_domain::presets::Preset {
-    let microsoft_imap = matches!(stored.incoming, Incoming::Imap { .. })
+    let microsoft_imap = stored.incoming.caps().writes_mailboxes
         && matches!(
             stored.auth,
             AuthPlan::OAuth {
@@ -900,12 +900,9 @@ fn default_identity(
 
 /// The host mail arrives from, whichever protocol that is.
 fn incoming_host(plan: &AccountPlan) -> Option<&str> {
-    match &plan.incoming {
-        Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => Some(host.as_str()),
-        // A URL, not a host; and a JMAP sign-in is HTTP authentication, which none of the
-        // password warnings (all about IMAP app passwords) are about.
-        Incoming::Local | Incoming::Graph | Incoming::Jmap { .. } => None,
-    }
+    // A JMAP session is a URL, not a host; and a JMAP sign-in is HTTP authentication, which none
+    // of the password warnings (all about IMAP app passwords) are about.
+    plan.incoming.host()
 }
 
 #[cfg(test)]

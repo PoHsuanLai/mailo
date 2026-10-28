@@ -46,8 +46,3 @@ impl crate::mail::SyncOps<'_> {
         }
     }
 }
-
-/// Whether an account's server can say how much storage is used: IMAP and JMAP.
-pub fn has_quota(incoming: &Incoming) -> bool {
-    matches!(incoming, Incoming::Imap { .. } | Incoming::Jmap { .. })
-}

@@ -192,7 +192,7 @@ pub mod search {
     };
 }
 pub mod server_search {
-    pub use mail_core::server_search::{Automatic, load, needs_server, searchable};
+    pub use mail_core::server_search::{Automatic, load, needs_server};
 }
 pub mod smime {
     pub use mail_core::smime::{Protected, SmimeError};
@@ -204,7 +204,7 @@ pub mod snooze {
     pub use mail_core::snooze::snooze_until;
 }
 pub mod sync {
-    pub use mail_core::sync::{Configured, has_quota};
+    pub use mail_core::sync::Configured;
     pub mod due {
         pub use mail_core::sync::due::IDLE;
     }
