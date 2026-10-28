@@ -9,6 +9,10 @@
 //! after the pass: the pass applies the server's flags and fetches bodies after it stores a
 //! header, so "is this still unread, is it still in the inbox" is the store's current answer and
 //! not the one the header fetch built.
+//!
+//! A notification is the ordinary new-mail banner, the sender and the subject, as every mail
+//! app's is. A one-time code in the message is never read into it, never offered on it and never
+//! copied on arrival: it shows in a message's open reader, and nowhere a locked screen can read.
 
 #[cfg(all(unix, not(target_os = "macos"), feature = "desktop"))]
 pub mod click;
@@ -18,11 +22,13 @@ pub mod floor;
 
 use crate::error::CoreError;
 use crate::error::Logged;
+use crate::vip::Vips;
 use chrono::{DateTime, Utc};
 use mail_domain::ThreadId;
 use mail_domain::{MailboxRole, Message, MessageId, ReadState, Snooze};
 use mail_store::{SqliteStore, Store as _};
 use porter_core::AccountId;
+use std::collections::HashSet;
 use std::path::Path;
 
 /// Whether `mailo watch` raises notifications. On unless someone turned it off.
@@ -38,6 +44,45 @@ pub enum Setting {
     Off,
 }
 
+/// Whose new mail is announced: everyone's, or only the VIPs' ([`crate::vip`]).
+///
+/// mail-app keeps the choice (`notifications.notify_for`) and hands it to whatever announces, as
+/// it hands [`Setting`] to the watch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Whom {
+    #[default]
+    Everyone,
+    Vips,
+}
+
+/// The senders whose mail may be announced, as [`verdict`] weighs them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum Heard {
+    /// Anyone's.
+    #[default]
+    Everyone,
+    /// These people's alone.
+    Only(Vips),
+}
+
+impl Heard {
+    /// Who [`Whom`] means in `store` now: everyone, or the VIPs it holds.
+    pub fn of(whom: Whom, store: &dyn mail_store::Store) -> Self {
+        match whom {
+            Whom::Everyone => Heard::Everyone,
+            Whom::Vips => Heard::Only(crate::vip::read(store)),
+        }
+    }
+
+    fn hears(&self, email: &str) -> bool {
+        match self {
+            Heard::Everyone => true,
+            Heard::Only(vips) => vips.includes(email),
+        }
+    }
+}
+
 const FILE_NAME: &str = "notify.json";
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -49,6 +94,52 @@ struct Stored {
 /// What `notify.json` said, or on when there is none or it cannot be read. Never written.
 pub fn load(dir: &Path) -> Setting {
     crate::config::read_json::<Stored>(dir, FILE_NAME).notifications
+}
+
+/// Which mailboxes' new mail is announced.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Places {
+    /// The Inbox, and nothing else.
+    #[default]
+    Inbox,
+    /// The Inbox and every other mailbox the account's server lists as followed: a folder the
+    /// person made, or the server's own without a special use. The ones nobody is waiting on are
+    /// never followed (Archive, All Mail, Starred and Important have a special use), and mail
+    /// filed as Junk, Trash, Sent or Drafts is not announced wherever it is held. Mail filed as
+    /// Archive is announced only from a followed folder, which is how a folder the person made
+    /// is filed.
+    Followed,
+}
+
+/// The sound a banner plays.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Sound {
+    /// The system's own sound for a message.
+    #[default]
+    Default,
+    Ping,
+    Glass,
+    Pop,
+    Submarine,
+    /// A banner that makes no sound.
+    Silent,
+}
+
+/// What the person has asked to hear about, beside what is never worth a word ([`verdict`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Interest {
+    pub places: Places,
+    /// Addresses of the accounts that are never announced, in lowercase.
+    pub muted: Vec<String>,
+    pub sound: Sound,
+}
+
+impl Interest {
+    /// Whether the account signed in as `address` is one to hear about.
+    pub fn hears(&self, address: &str) -> bool {
+        let address = address.trim().to_ascii_lowercase();
+        !self.muted.contains(&address)
+    }
 }
 
 /// Why an arrival is not announced.
@@ -65,6 +156,8 @@ pub enum Quiet {
     Snoozed,
     /// Dated before the account was first watched: backfill, not news.
     BeforeFloor,
+    /// Not from a VIP, while only the VIPs' mail is announced.
+    NotVip,
 }
 
 /// Whether one arrival is announced.
@@ -99,22 +192,34 @@ impl Own {
 
 /// Whether `message`, just stored, is worth interrupting someone for.
 ///
-/// `snooze` is its conversation's, and `floor` is when its account was first watched
-/// ([`floor::armed`]). Checked in the order a reader would explain it: where it is, whether it
-/// has been read, who sent it, then when.
+/// `snooze` is its conversation's, `floor` is when its account was first watched
+/// ([`floor::armed`]), and `heard` whose mail is announced at all. `followed` is whether it is held
+/// in a mailbox the person follows beside the Inbox, which only [`Places::Followed`] asks. Checked
+/// in the order a reader would explain it: where it is, whether it has been read, who sent it,
+/// then when.
 pub fn verdict(
     message: &Message,
     snooze: Snooze,
     own: &Own,
+    heard: &Heard,
     floor: DateTime<Utc>,
     now: DateTime<Utc>,
+    followed: bool,
 ) -> Verdict {
-    let quiet = if message.mailbox != MailboxRole::Inbox {
+    let waited_on = message.mailbox == MailboxRole::Inbox
+        || (followed
+            && !matches!(
+                message.mailbox,
+                MailboxRole::Spam | MailboxRole::Trash | MailboxRole::Sent | MailboxRole::Drafts
+            ));
+    let quiet = if !waited_on {
         Some(Quiet::Elsewhere(message.mailbox))
     } else if message.read == ReadState::Read {
         Some(Quiet::Read)
     } else if own.includes(&message.from.email) {
         Some(Quiet::FromSelf)
+    } else if !heard.hears(&message.from.email) {
+        Some(Quiet::NotVip)
     } else if matches!(snooze, Snooze::Until(at) if at > now) {
         Some(Quiet::Snoozed)
     } else if message.date < floor {
@@ -125,12 +230,24 @@ pub fn verdict(
     quiet.map_or(Verdict::Announce, Verdict::Quiet)
 }
 
+/// The verdict on an arrival a rule asked to be told of: said even when read, filed away or
+/// snoozed (and, under "VIPs only", when the sender is not one: [`announce`] asks it as if
+/// everyone were heard), which is what asking was for, and still not the user's own mail or mail from before
+/// the account was watched, which no rule meant.
+pub fn heard(verdict: Verdict) -> Verdict {
+    match verdict {
+        Verdict::Quiet(Quiet::Read | Quiet::Elsewhere(_) | Quiet::Snoozed) => Verdict::Announce,
+        other => other,
+    }
+}
+
 /// What a click on a notification should open.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Opens {
     Thread(ThreadId),
-    /// A summary of several: there is no one conversation to open, so the inbox.
-    Inbox,
+    /// A summary of several: there is no one conversation to open, so the inbox, with the
+    /// account the summary was about, so the window can show it where that account's mail is.
+    Inbox(AccountId),
 }
 
 /// One desktop notification, before any transport has touched it.
@@ -142,6 +259,37 @@ pub struct Notification {
     /// Plain text. A transport that speaks markup escapes it.
     pub body: String,
     pub opens: Opens,
+    /// Whether the banner offers Reply: only a banner about one message does, and the reply is
+    /// to its conversation ([`Opens::Thread`]), in the account the message is in.
+    pub reply: bool,
+}
+
+/// What a button on a banner, or a click on the banner, does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Act {
+    /// Show what the notification was about.
+    Open,
+    /// Archive the conversation, in the window, which offers the Undo.
+    Archive,
+    /// Open the composer on a reply to the conversation.
+    Reply,
+}
+
+/// The action key of a banner's click, which every server invokes for the banner itself.
+pub const DEFAULT_ACTION: &str = "default";
+/// The action keys of its two buttons.
+pub const ARCHIVE_ACTION: &str = "archive";
+pub const REPLY_ACTION: &str = "reply";
+
+/// What follows from the action a server or the system reports for a notification that opens
+/// `opens` and offers Reply when `reply`: nothing for an action that was not offered.
+pub fn act_for(action: &str, opens: &Opens, reply: bool) -> Option<Act> {
+    match (action, opens, reply) {
+        (DEFAULT_ACTION, _, _) => Some(Act::Open),
+        (ARCHIVE_ACTION, Opens::Thread(_), _) => Some(Act::Archive),
+        (REPLY_ACTION, Opens::Thread(_), true) => Some(Act::Reply),
+        _ => None,
+    }
 }
 
 /// At most this many arrivals are announced one by one; more become one summary.
@@ -163,6 +311,7 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
                 summary: sender(message),
                 body: mail_domain::subject_or_none(&message.subject).into_owned(),
                 opens: Opens::Thread(message.thread),
+                reply: true,
             })
             .collect();
     }
@@ -188,10 +337,11 @@ pub fn batch(account: AccountId, announced: &[&Message]) -> Vec<Notification> {
         n => format!("From {} and {n} others", named.join(", ")),
     };
     vec![Notification {
+        opens: Opens::Inbox(account.clone()),
         account,
         summary: format!("{} new messages", announced.len()),
         body,
-        opens: Opens::Inbox,
+        reply: false,
     }]
 }
 
@@ -207,6 +357,12 @@ fn sender(message: &Message) -> String {
 /// fetching mail, and there is nobody to tell except the terminal the watch already prints to.
 pub trait Notifier: Send + Sync {
     fn show(&self, notification: &Notification);
+
+    /// What the person has asked to hear about. Everything in the Inbox unless the notifier knows
+    /// better.
+    fn interest(&self) -> Interest {
+        Interest::default()
+    }
 }
 
 /// Whether a watch announces what it fetches.
@@ -217,6 +373,9 @@ pub enum Announce<'a> {
     To {
         store: &'a SqliteStore,
         notifier: &'a dyn Notifier,
+        /// Whose mail is said, asked as each pass ends: the person's setting changed meanwhile
+        /// is followed from the next pass.
+        whom: &'a dyn Fn() -> Whom,
     },
 }
 
@@ -231,20 +390,39 @@ impl std::fmt::Debug for Announce<'_> {
 
 /// Announce what one account's pass stored, returning how many notifications were raised.
 ///
+/// `noted` are the arrivals a rule asked to be told of ([`RuleAction::Notify`]): those are said
+/// wherever the rules filed them and whether or not they are read ([`heard`]).
+///
 /// Arms the account's floor on its first watched pass, whether or not anything arrived — the
 /// pass that arms it is the start of "new", and everything dated before it is backfill.
+///
+/// `whom` is the person's "Notify for": under [`Whom::Vips`] only mail from a VIP is said, the
+/// VIPs read from the store as the pass ends, so one marked a moment ago is heard at once.
+///
+/// [`RuleAction::Notify`]: mail_domain::RuleAction::Notify
 pub fn announce(
     store: &SqliteStore,
     account: AccountId,
     arrived: &[MessageId],
+    noted: &[MessageId],
     notifier: &dyn Notifier,
+    whom: Whom,
     now: DateTime<Utc>,
 ) -> Result<usize, CoreError> {
     let floor = floor::armed(store, account.clone(), now)?;
     if arrived.is_empty() {
         return Ok(0);
     }
+    let interest = notifier.interest();
+    if !account_heard(store, &account, &interest)? {
+        return Ok(0);
+    }
     let own = own_addresses(store)?;
+    let heard = Heard::of(whom, store);
+    let followed = match interest.places {
+        Places::Inbox => HashSet::new(),
+        Places::Followed => followed_messages(store, &account, arrived)?,
+    };
     let mut held = Vec::with_capacity(arrived.len());
     for id in arrived {
         // Gone again already — expunged by the sweep of the same pass. Nothing to announce.
@@ -260,7 +438,24 @@ pub fn announce(
     let announced: Vec<&Message> = held
         .iter()
         .filter(|(message, snooze)| {
-            verdict(message, *snooze, &own, floor, now) == Verdict::Announce
+            let followed = followed.contains(&message.id);
+            // A rule's Notify is the person's own ask for this message, so whose mail is heard
+            // does not apply to it; the floor and the user's own mail still do.
+            let said = if noted.contains(&message.id) {
+                let asked = verdict(
+                    message,
+                    *snooze,
+                    &own,
+                    &Heard::Everyone,
+                    floor,
+                    now,
+                    followed,
+                );
+                self::heard(asked)
+            } else {
+                verdict(message, *snooze, &own, &heard, floor, now, followed)
+            };
+            said == Verdict::Announce
         })
         .map(|(message, _)| message)
         .collect();
@@ -269,6 +464,40 @@ pub fn announce(
         notifier.show(notification);
     }
     Ok(notifications.len())
+}
+
+/// Whether `interest` wants to hear about `account`'s mail.
+fn account_heard(
+    store: &SqliteStore,
+    account: &AccountId,
+    interest: &Interest,
+) -> Result<bool, CoreError> {
+    if interest.muted.is_empty() {
+        return Ok(true);
+    }
+    Ok(store
+        .list_accounts()?
+        .iter()
+        .find(|stored| stored.id == *account)
+        .is_none_or(|stored| interest.hears(&stored.address)))
+}
+
+/// Which of `arrived`, a pass's new messages, are held in a mailbox of `account` that its server
+/// lists as followed and that is not the Inbox or a place nobody is waiting on: a folder the
+/// person made, or the server's own without a special use. Asked of the arrivals alone, so a
+/// pass costs what it brought and not what the followed folders hold.
+fn followed_messages(
+    store: &SqliteStore,
+    account: &AccountId,
+    arrived: &[MessageId],
+) -> Result<HashSet<MessageId>, CoreError> {
+    let mut held = HashSet::new();
+    for mailbox in store.followed_folders()? {
+        if mailbox.account == *account {
+            held.extend(store.addressed_in(&mailbox, arrived)?);
+        }
+    }
+    Ok(held)
 }
 
 /// Every address the user sends from: each account's own, and each identity's.
@@ -318,6 +547,7 @@ mod tests {
             rfc_message_id: None,
             read: ReadState::Unread,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: Vec::new(),
             body: Body::Absent,
@@ -408,11 +638,63 @@ mod tests {
         ];
         for (name, message, snooze, expect) in cases {
             assert_eq!(
-                verdict(&message, snooze, &own, floor, now),
+                verdict(&message, snooze, &own, &Heard::Everyone, floor, now, false),
                 expect,
                 "{name}"
             );
         }
+    }
+
+    #[test]
+    fn vips_only_lets_a_vip_s_mail_through_and_holds_back_everyone_else_s() {
+        let own = Own::new(["me@example.test"]);
+        let vips = Heard::Only(Vips::new(["Dana@Example.test"]));
+        let dana = message(1, ("Dana", "dana@example.test"), "plans");
+        let ada = message(2, ("Ada", "ada@example.test"), "lunch");
+        let read = Message {
+            read: ReadState::Read,
+            ..dana.clone()
+        };
+        // (case, message, whose mail is heard, verdict)
+        let cases: [(&str, &Message, &Heard, Verdict); 5] = [
+            (
+                "a VIP, everyone heard",
+                &dana,
+                &Heard::Everyone,
+                Verdict::Announce,
+            ),
+            (
+                "someone else, everyone heard",
+                &ada,
+                &Heard::Everyone,
+                Verdict::Announce,
+            ),
+            ("a VIP, VIPs only", &dana, &vips, Verdict::Announce),
+            (
+                "someone else, VIPs only",
+                &ada,
+                &vips,
+                Verdict::Quiet(Quiet::NotVip),
+            ),
+            (
+                "a VIP's mail already read",
+                &read,
+                &vips,
+                Verdict::Quiet(Quiet::Read),
+            ),
+        ];
+        for (case, message, heard, want) in cases {
+            assert_eq!(
+                verdict(message, Snooze::Inactive, &own, heard, at(9), at(13), false),
+                want,
+                "{case}"
+            );
+        }
+        assert_eq!(
+            Heard::of(Whom::Vips, &mail_store::MemoryStore::new()),
+            Heard::Only(Vips::default()),
+            "VIPs only with nobody marked hears nobody"
+        );
     }
 
     #[test]
@@ -427,12 +709,14 @@ mod tests {
                     summary: "Ada Lovelace".to_owned(),
                     body: "lunch on friday".to_owned(),
                     opens: Opens::Thread(a.thread),
+                    reply: true,
                 },
                 Notification {
                     account: account(),
                     summary: "bob@example.test".to_owned(),
                     body: "(no subject)".to_owned(),
                     opens: Opens::Thread(b.thread),
+                    reply: true,
                 },
             ]
         );
@@ -468,7 +752,8 @@ mod tests {
                 summary: "7 new messages".to_owned(),
                 // Ada sent three; the rest one each, in the order they came.
                 body: "From Ada, Newsletter, Bob and 2 others".to_owned(),
-                opens: Opens::Inbox,
+                opens: Opens::Inbox(account()),
+                reply: false,
             }]
         );
         assert_eq!(
@@ -490,5 +775,151 @@ mod tests {
         assert_eq!(load(dir.path()), Setting::Off);
         std::fs::write(dir.path().join(FILE_NAME), b"not json").unwrap();
         assert_eq!(load(dir.path()), Setting::On, "an unreadable file is on");
+    }
+
+    #[test]
+    fn mail_a_rule_asked_about_is_said_wherever_it_went() {
+        let cases = [
+            (Verdict::Announce, Verdict::Announce),
+            (Verdict::Quiet(Quiet::Read), Verdict::Announce),
+            (
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Archive)),
+                Verdict::Announce,
+            ),
+            (Verdict::Quiet(Quiet::Snoozed), Verdict::Announce),
+            (
+                Verdict::Quiet(Quiet::FromSelf),
+                Verdict::Quiet(Quiet::FromSelf),
+            ),
+            (
+                Verdict::Quiet(Quiet::BeforeFloor),
+                Verdict::Quiet(Quiet::BeforeFloor),
+            ),
+        ];
+        for (said, want) in cases {
+            assert_eq!(heard(said), want, "{said:?}");
+        }
+    }
+
+    #[test]
+    fn mail_in_a_followed_mailbox_is_announced_only_when_followed_mailboxes_are_asked_for() {
+        let own = Own::default();
+        let with = |role: MailboxRole| {
+            let mut m = message(1, ("Ada", "ada@example.test"), "lunch");
+            m.mailbox = role;
+            m
+        };
+        let ask = |role: MailboxRole, followed: bool| {
+            verdict(
+                &with(role),
+                Snooze::Inactive,
+                &own,
+                &Heard::Everyone,
+                at(9),
+                at(13),
+                followed,
+            )
+        };
+        let cases = [
+            (
+                "a followed folder, asked",
+                MailboxRole::Archive,
+                true,
+                Verdict::Announce,
+            ),
+            (
+                "a followed folder, not asked",
+                MailboxRole::Archive,
+                false,
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Archive)),
+            ),
+            (
+                "the inbox either way",
+                MailboxRole::Inbox,
+                false,
+                Verdict::Announce,
+            ),
+            (
+                "junk is never waited on",
+                MailboxRole::Spam,
+                true,
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Spam)),
+            ),
+            (
+                "nor trash",
+                MailboxRole::Trash,
+                true,
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Trash)),
+            ),
+            (
+                "nor sent",
+                MailboxRole::Sent,
+                true,
+                Verdict::Quiet(Quiet::Elsewhere(MailboxRole::Sent)),
+            ),
+        ];
+        for (name, role, followed, expect) in cases {
+            assert_eq!(ask(role, followed), expect, "{name}");
+        }
+    }
+
+    #[test]
+    fn an_account_is_heard_unless_its_address_is_muted_whatever_the_case() {
+        let interest = Interest {
+            muted: vec!["work@example.test".to_owned()],
+            ..Interest::default()
+        };
+        assert!(!interest.hears("Work@Example.test"));
+        assert!(interest.hears("home@example.test"));
+        assert!(Interest::default().hears("work@example.test"));
+    }
+
+    #[test]
+    fn a_banner_offers_archive_and_reply_for_a_conversation_and_only_when_it_offers_them() {
+        let thread = || Opens::Thread(ThreadId::from_uuid(uuid::Uuid::from_u128(1)));
+        let link = true;
+        let cases = [
+            (
+                "the banner",
+                DEFAULT_ACTION,
+                thread(),
+                link,
+                Some(Act::Open),
+            ),
+            (
+                "the banner of a summary",
+                DEFAULT_ACTION,
+                Opens::Inbox(account()),
+                false,
+                Some(Act::Open),
+            ),
+            (
+                "archive",
+                ARCHIVE_ACTION,
+                thread(),
+                link,
+                Some(Act::Archive),
+            ),
+            (
+                "archive of a summary",
+                ARCHIVE_ACTION,
+                Opens::Inbox(account()),
+                false,
+                None,
+            ),
+            ("reply", REPLY_ACTION, thread(), link, Some(Act::Reply)),
+            ("reply not offered", REPLY_ACTION, thread(), false, None),
+            (
+                "reply of a summary",
+                REPLY_ACTION,
+                Opens::Inbox(account()),
+                true,
+                None,
+            ),
+            ("an action never offered", "delete", thread(), link, None),
+        ];
+        for (name, action, opens, reply, expect) in cases {
+            assert_eq!(act_for(action, &opens, reply), expect, "{name}");
+        }
     }
 }

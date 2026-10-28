@@ -8,7 +8,8 @@
 
 use super::{CardDavFailure, Dav, same};
 use crate::RuntimeError;
-use mail_pim::dav::{self, Prop};
+use dav_proto::carddav::Props;
+use dav_proto::names::{ADDRESSBOOK_HOME_SET, CURRENT_USER_PRINCIPAL, DISPLAYNAME, RESOURCETYPE};
 use url::Url;
 
 /// One address book found.
@@ -30,11 +31,11 @@ pub async fn discover(dav: &Dav, start: &Url) -> Result<Vec<Collection>, Runtime
     let mut homes: Vec<Url> = Vec::new();
     let mut principal: Option<Url> = None;
     for candidate in &candidates {
-        let asked = dav::propfind(&[
-            Prop::ResourceType,
-            Prop::DisplayName,
-            Prop::CurrentUserPrincipal,
-            Prop::AddressbookHomeSet,
+        let asked = dav_proto::propfind(&[
+            RESOURCETYPE,
+            DISPLAYNAME,
+            CURRENT_USER_PRINCIPAL,
+            ADDRESSBOOK_HOME_SET,
         ]);
         let (url, reply) = match dav
             .multistatus("PROPFIND", candidate, "0", asked, "PROPFIND")
@@ -49,16 +50,17 @@ pub async fn discover(dav: &Dav, start: &Url) -> Result<Vec<Collection>, Runtime
         let Some(first) = reply.responses.first() else {
             continue;
         };
-        if first.props.is_address_book() {
+        let props = Props::of(first);
+        if props.is_address_book() {
             return Ok(vec![Collection {
                 url,
-                name: first.props.display_name.clone(),
+                name: props.display_name,
             }]);
         }
-        for home in &first.props.addressbook_home_set {
+        for home in &props.addressbook_home_set {
             homes.push(dav.resolve(&url, home)?);
         }
-        if let Some(href) = &first.props.current_user_principal {
+        if let Some(href) = &props.current_user_principal {
             principal = Some(dav.resolve(&url, href)?);
         }
         if !homes.is_empty() || principal.is_some() {
@@ -70,12 +72,12 @@ pub async fn discover(dav: &Dav, start: &Url) -> Result<Vec<Collection>, Runtime
         let Some(principal) = principal else {
             return Err(CardDavFailure::NotFound(start.to_string()).into());
         };
-        let asked = dav::propfind(&[Prop::AddressbookHomeSet]);
+        let asked = dav_proto::propfind(&[ADDRESSBOOK_HOME_SET]);
         let (url, reply) = dav
             .multistatus("PROPFIND", &principal, "0", asked, "the principal PROPFIND")
             .await?;
         for response in &reply.responses {
-            for home in &response.props.addressbook_home_set {
+            for home in &Props::of(response).addressbook_home_set {
                 homes.push(dav.resolve(&url, home)?);
             }
         }
@@ -83,7 +85,7 @@ pub async fn discover(dav: &Dav, start: &Url) -> Result<Vec<Collection>, Runtime
 
     let mut found = Vec::new();
     for home in &homes {
-        let asked = dav::propfind(&[Prop::ResourceType, Prop::DisplayName]);
+        let asked = dav_proto::propfind(&[RESOURCETYPE, DISPLAYNAME]);
         let (url, reply) = dav
             .multistatus(
                 "PROPFIND",
@@ -94,14 +96,15 @@ pub async fn discover(dav: &Dav, start: &Url) -> Result<Vec<Collection>, Runtime
             )
             .await?;
         for response in &reply.responses {
-            if !response.props.is_address_book() {
+            let props = Props::of(response);
+            if !props.is_address_book() {
                 continue;
             }
             let collection = dav.resolve(&url, &response.href)?;
             if !found.iter().any(|c: &Collection| same(&c.url, &collection)) {
                 found.push(Collection {
                     url: collection,
-                    name: response.props.display_name.clone(),
+                    name: props.display_name,
                 });
             }
         }

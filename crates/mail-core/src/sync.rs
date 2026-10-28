@@ -8,6 +8,7 @@
 pub use crate::notify::Announce;
 pub mod due;
 pub mod fresh;
+pub mod graph_push;
 pub mod live;
 pub mod report;
 pub mod watcher;
@@ -15,6 +16,7 @@ pub mod watcher;
 mod body;
 pub use body::fetch_body_with;
 mod jmap;
+mod quota;
 mod search;
 
 use crate::error::{CoreError, Logged};
@@ -29,6 +31,7 @@ use mail_runtime::{
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+pub use quota::has_quota;
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
 pub use search::search_server_with;
 use std::sync::Arc;
@@ -46,6 +49,18 @@ pub struct Configured {
     ///
     /// [`Keep::Bodies`]: crate::offline::Keep::Bodies
     pub keep: crate::offline::Keep,
+    /// How often a timed pass checks it, from the same setting: [`Every::Automatic`] until
+    /// something reads it.
+    ///
+    /// [`Every::Automatic`]: crate::offline::Every::Automatic
+    pub every: crate::offline::Every,
+    /// How far back a pass downloads its bodies, from the same setting.
+    pub window: crate::offline::Window,
+    /// When a POP3 pass removes the server's copies, from the same setting.
+    pub remove: crate::offline::Remove,
+    /// How the junk filter judges what a pass brings ([`crate::junk`]): the window's setting,
+    /// as `keep` is.
+    pub junk: crate::junk::Policy,
 }
 
 /// What the server was last observed to support, for one account.
@@ -58,6 +73,17 @@ pub fn caps_of(store: &SqliteStore, account: AccountId) -> Option<AccountCaps> {
         .account_caps(account)
         .or_log("the account's capabilities could not be read")
         .flatten()
+}
+
+/// Whether the person paused `account`'s syncing in Settings. A paused account is in every list
+/// of accounts but none of the lists of what to sync: no timed pass, no pass asked for, no
+/// connection held open for it. One whose preferences cannot be read syncs, as it did before
+/// there were any.
+pub fn paused(store: &SqliteStore, account: AccountId) -> bool {
+    store
+        .account_prefs(account)
+        .or_log("the account's preferences could not be read")
+        .is_some_and(|prefs| prefs.syncing == mail_store::Syncing::Paused)
 }
 
 /// Read the accounts back out of the store.
@@ -84,6 +110,10 @@ pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, CoreErr
             plan,
             caps,
             keep: crate::offline::Keep::default(),
+            every: crate::offline::Every::default(),
+            window: crate::offline::Window::default(),
+            remove: crate::offline::Remove::default(),
+            junk: crate::junk::Policy::default(),
         });
     }
     Ok(out)
@@ -166,6 +196,7 @@ pub fn poll_interval(store: &SqliteStore) -> std::time::Duration {
         .into_iter()
         // IDLE is a long-lived connection this loop does not hold. Until it does, an account that
         // supports it is polled like any other, at `due::IDLE`.
+        .filter(|account| !paused(store, account.id.clone()))
         .map(|a| due::every(&a.caps.watch))
         .min()
         .unwrap_or(default)
@@ -193,6 +224,7 @@ impl crate::mail::SyncOps<'_> {
             &Scope {
                 due: &|_| true,
                 kept: &crate::offline::load_default(),
+                junk: mail.junk(),
             },
             hooks,
         )
@@ -281,6 +313,7 @@ pub async fn run_with(
         &Scope {
             due: &|_| true,
             kept: &crate::offline::Kept::default(),
+            junk: crate::junk::Policy::default(),
         },
         hooks,
     )
@@ -291,12 +324,13 @@ pub async fn run_with(
 struct Scope<'a> {
     /// Whether an account is due a pass ([`due`]).
     due: &'a dyn Fn(AccountId) -> bool,
-    /// Which accounts keep everything offline ([`crate::offline`]).
+    /// How each account is synced ([`crate::offline`]).
     kept: &'a crate::offline::Kept,
+    /// How the junk filter judges new mail ([`crate::junk`]).
+    junk: crate::junk::Policy,
 }
 
 /// A run over the accounts in `scope`, told whether to stop after one pass.
-#[allow(clippy::too_many_arguments)]
 async fn run_all(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
@@ -318,16 +352,27 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, CoreE
     Ok(configured(store)?
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
+        .filter(|account| !paused(store, account.id.clone()))
         .filter(|a| (scope.due)(a.id.clone()))
         .map(|a| Configured {
-            keep: scope.kept.of(a.id.clone()),
-            ..a
+            junk: scope.junk,
+            ..kept_as(a, scope.kept)
         })
         .collect())
 }
 
+/// `account`, synced as `kept` says.
+pub(crate) fn kept_as(account: Configured, kept: &crate::offline::Kept) -> Configured {
+    Configured {
+        keep: kept.of(account.id.clone()),
+        every: kept.every_of(&account.id),
+        window: kept.window_of(&account.id),
+        remove: kept.remove_of(&account.id),
+        ..account
+    }
+}
+
 /// One pass over `accounts`, concurrently, each ended as a [`PassEnd`].
-#[allow(clippy::too_many_arguments)]
 async fn pass_over(
     store: &Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
@@ -359,25 +404,8 @@ async fn pass_over(
     // between runs for no reason the user could see.
     Ok(
         futures_util::future::join_all(accounts.iter().map(|account| async {
-            let cancel = hooks.cancel.get(&account.id).cloned();
-            let emit = |progress| {
-                if let Some(sink) = hooks.progress {
-                    sink(account.id.clone(), progress);
-                }
-            };
-            let cancelled = cancel.clone();
-            let result = one(
-                store,
-                account,
-                secrets.clone(),
-                registry,
-                now,
-                mode,
-                cancel,
-                Some(&emit),
-            )
-            .await;
-            let end = ended(account, result, cancelled);
+            let result = one(store, account, secrets.clone(), registry, now, mode, &hooks).await;
+            let end = ended(account, result, hooks.cancel.get(&account.id).cloned());
             remember(store, &end, now);
             end
         }))
@@ -541,7 +569,6 @@ fn clock_for(mode: Mode, now: chrono::DateTime<chrono::Utc>) -> Now {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn one(
     store: &Arc<SqliteStore>,
     account: &Configured,
@@ -549,9 +576,15 @@ async fn one(
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
     mode: Mode,
-    cancel: Option<watch::Receiver<bool>>,
-    emit: Emit<'_>,
+    hooks: &Hooks<'_>,
 ) -> Result<Done, Failure> {
+    let cancel = hooks.cancel.get(&account.id).cloned();
+    let emitting = |progress| {
+        if let Some(sink) = hooks.progress {
+            sink(account.id.clone(), progress);
+        }
+    };
+    let emit: Emit<'_> = Some(&emitting);
     say(emit, Progress::Connecting);
     let stored = stored_credential(account, secrets.as_ref()).await?;
     let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;
@@ -591,50 +624,41 @@ async fn one(
         // arrives here anyway.
         Incoming::Local => Ok(Done::default()),
         Incoming::Pop3 { .. } => {
-            let mut engine = pop3_engine(store, account, &held, secrets)?;
+            let mut engine = pop3_engine(store, account, &held, secrets)?
+                .downloading_since(account.window.since(now));
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            pass(
-                &mut engine,
-                &mailboxes,
-                account.keep,
-                &mut cancel,
-                now,
-                emit,
-            )
-            .await
+            let passed = pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await;
+            match passed {
+                Ok(mut done) => {
+                    let removing = Removing {
+                        store,
+                        account,
+                        now,
+                    };
+                    remove_copies(&mut engine, &removing, &mut cancel, &mut done).await;
+                    Ok(done)
+                }
+                failed => failed,
+            }
         }
         Incoming::Imap { .. } => {
-            let mut engine = imap_engine(store, account, held, secrets);
+            let mut engine = imap_engine(store, account, held, secrets)
+                .downloading_since(account.window.since(now));
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            pass(
-                &mut engine,
-                &mailboxes,
-                account.keep,
-                &mut cancel,
-                now,
-                emit,
-            )
-            .await
+            pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await
         }
         Incoming::Graph => {
-            let mut engine =
-                graph_engine(store, account, secrets).map_err(|e| Failure::fatal(e.to_string()))?;
+            let mut engine = graph_engine(store, account, secrets)
+                .map_err(|e| Failure::fatal(e.to_string()))?
+                .downloading_since(account.window.since(now));
             if let Some(source) = renewal {
                 engine = engine.with_tokens(source);
             }
-            pass(
-                &mut engine,
-                &mailboxes,
-                account.keep,
-                &mut cancel,
-                now,
-                emit,
-            )
-            .await
+            pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await
         }
         // HTTPS rather than a socket, so an engine of its own; the same pass, the same wait.
         Incoming::Jmap { .. } => {
@@ -645,7 +669,7 @@ async fn one(
                 secrets,
             )
             .map_err(|e| Failure::of("", &e))?;
-            jmap::drive(&mut engine, &mut cancel, now, emit).await
+            jmap::drive(&mut engine, account, &mut cancel, now, emit).await
         }
     };
     report.map(|mut done| {
@@ -654,6 +678,59 @@ async fn one(
         }
         done
     })
+}
+
+/// Most server copies one POP3 pass removes. The rest wait for the next pass.
+const REMOVED_PER_PASS: u32 = 100;
+
+/// Whose copies [`remove_copies`] removes, from what store, and when.
+#[derive(Clone, Copy)]
+struct Removing<'a> {
+    store: &'a SqliteStore,
+    account: &'a Configured,
+    now: chrono::DateTime<chrono::Utc>,
+}
+
+/// After a POP3 pass, remove the server's copies the account no longer wants there
+/// ([`crate::offline::Remove`]): those held here in full and old enough, or those deleted here.
+/// A failure is the pass's to say, beside what it fetched; the copies stay on the server, and the
+/// next pass asks again.
+async fn remove_copies(
+    engine: &mut AccountEngine<Pop3Backend>,
+    removing: &Removing<'_>,
+    cancel: &mut mail_runtime::Cancel,
+    done: &mut Done,
+) {
+    use crate::offline::Remove;
+    let Removing {
+        store,
+        account,
+        now,
+    } = *removing;
+    let inbox = MailboxRef {
+        account: account.id.clone(),
+        path: "INBOX".to_owned(),
+    };
+    let chosen = match account.remove {
+        Remove::Never => return,
+        Remove::AfterDays(days) => store.copies_held_before(
+            &inbox,
+            now - chrono::TimeDelta::days(i64::from(days.max(1))),
+            REMOVED_PER_PASS,
+        ),
+        Remove::WhenDeleted => store.copies_deleted_here(&inbox, REMOVED_PER_PASS),
+    };
+    let removed = match chosen {
+        Ok(remotes) => engine.remove_copies(remotes, cancel).await,
+        Err(e) => Err(e.into()),
+    };
+    if let Err(e) = removed {
+        done.trouble(
+            Some("INBOX"),
+            e.retry(),
+            format!("removing mail from the server: {e}"),
+        );
+    }
 }
 
 /// Tell the sink, if there is one, where the pass has got to.
@@ -765,6 +842,25 @@ pub async fn check_sign_in(
     }
 }
 
+/// The incoming server's name and port when its connections are to be upgraded with STARTTLS
+/// (STLS for POP3) before anything is signed in; `None` for implicit TLS or no server.
+fn starttls_for(plan: &AccountPlan) -> Option<(String, u16)> {
+    match &plan.incoming {
+        Incoming::Imap {
+            host,
+            port,
+            tls: Tls::StartTlsRequired,
+        }
+        | Incoming::Pop3 {
+            host,
+            port,
+            tls: Tls::StartTlsRequired,
+            ..
+        } => Some((host.clone(), *port)),
+        _ => None,
+    }
+}
+
 /// An engine for a POP3 account, signed in with the password `held` holds.
 fn pop3_engine(
     store: &Arc<SqliteStore>,
@@ -777,6 +873,13 @@ fn pop3_engine(
         return Err(Failure::fatal("POP3 needs a password credential"));
     };
     let sasl = sasl_for(&account.plan);
+    let starttls = starttls_for(&account.plan);
+    let copies = match account.remove {
+        crate::offline::Remove::Never => mail_proto::backend::ServerCopies::Kept,
+        crate::offline::Remove::AfterDays(_) | crate::offline::Remove::WhenDeleted => {
+            mail_proto::backend::ServerCopies::Removable
+        }
+    };
     let backend = Pop3Backend::new(
         account.id.clone(),
         account.caps.clone(),
@@ -788,9 +891,14 @@ fn pop3_engine(
                 all.extend(auth_prelude(&sasl));
             }
             all.extend(commands);
-            Pop3Session::new(username.clone(), password.expose().to_owned(), all)
+            let session = Pop3Session::new(username.clone(), password.expose().to_owned(), all)?;
+            Ok(match &starttls {
+                Some((host, port)) => session.with_starttls(host.clone(), *port),
+                None => session,
+            })
         }),
-    );
+    )
+    .with_copies(copies);
     Ok(AccountEngine::new(
         account.id.clone(),
         account.plan.clone(),
@@ -812,14 +920,13 @@ fn imap_engine(
     // used at all without registering an OAuth client.
     let mechanism = match held.current() {
         Credential::OAuth { .. } => ImapCommand::AuthenticateXoauth2,
-        // A bearer token (JMAP's) has no IMAP mechanism: `LOGIN` is named, and the session
-        // refuses the credential before anything is sent (`credential_forbidden`).
-        Credential::Password(_)
-        | Credential::ApiKey(_)
-        | Credential::Bearer(_)
-        | Credential::KeyPair { .. } => ImapCommand::Login,
+        // A password, and a credential IMAP has no mechanism for (a bearer token, JMAP's; an API
+        // key; a kind this build does not know): `LOGIN` is named, and the session refuses the
+        // credential before anything is sent (`credential_forbidden`).
+        _ => ImapCommand::Login,
     };
     let (username, sasl) = (username_for(&account.plan), sasl_for(&account.plan));
+    let starttls = starttls_for(&account.plan);
     let backend = ImapBackend::new(
         account.id.clone(),
         account.caps.clone(),
@@ -838,7 +945,13 @@ fn imap_engine(
                 credential: held.current(),
                 sasl: sasl.clone(),
             };
-            ImapSession::new(auth, all)
+            // A session resumed on a connection already open drops this
+            // (`ImapSession::resuming`): that connection was upgraded when it was opened.
+            let session = ImapSession::new(auth, all)?;
+            Ok(match &starttls {
+                Some((host, port)) => session.with_starttls(host.clone(), *port),
+                None => session,
+            })
         }),
     );
     AccountEngine::new(
@@ -966,7 +1079,7 @@ pub async fn drive<B: mail_proto::Backend>(
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
 ) -> PassEnd {
-    let result = pass(engine, mailboxes, account.keep, cancel, now, None).await;
+    let result = pass(engine, mailboxes, account, cancel, now, None).await;
     ended(account, result, None)
 }
 
@@ -992,12 +1105,12 @@ fn poll_floor(watch: &WatchMode) -> std::time::Duration {
 async fn pass<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailboxes: &[MailboxRef],
-    keep: crate::offline::Keep,
+    account: &Configured,
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
     emit: Emit<'_>,
 ) -> Result<Done, Failure> {
-    let passed = pass_on(engine, mailboxes, keep, cancel, now, emit).await;
+    let passed = pass_on(engine, mailboxes, account, cancel, now, emit).await;
     engine.let_go().await;
     passed
 }
@@ -1006,7 +1119,7 @@ async fn pass<B: mail_proto::Backend>(
 async fn pass_on<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
     mailboxes: &[MailboxRef],
-    keep: crate::offline::Keep,
+    account: &Configured,
     cancel: &mut mail_runtime::Cancel,
     now: chrono::DateTime<chrono::Utc>,
     emit: Emit<'_>,
@@ -1046,15 +1159,33 @@ async fn pass_on<B: mail_proto::Backend>(
     // sync, each pass brings the inbox up to date before it moves on.
     let mut done = Done::default();
     for mailbox in mailboxes {
-        one_mailbox(engine, mailbox, keep, cancel, now, &mut done, emit).await?;
+        one_mailbox(engine, mailbox, account.keep, cancel, now, &mut done, emit).await?;
     }
 
     // Rules, over what arrived in any folder this pass, before the drain so that what they
     // queue leaves in the same pass. After the bodies, so a rule about words in the body finds
-    // them for every message the pass had room to fetch.
+    // them for every message the pass had room to fetch. The junk filter before them or after,
+    // as the person chose: whichever goes second sees only what the first left in the inbox.
+    let junk = account.junk;
+    if junk.order == crate::junk::Order::BeforeRules {
+        sift(engine, account.id.clone(), &junk, &mut done, now);
+    }
     match engine.run_rules(&done.counts.arrived, now) {
-        Ok(ran) => done.counts.ruled.extend(ran.acted),
+        Ok(ran) => {
+            done.counts.ruled.extend(ran.acted);
+            // Forwards and replies are queued before the drain, so they leave in this pass.
+            let noted = crate::rules::speak::carry_out(
+                engine.store(),
+                &ran.left,
+                crate::rules::guard::Occasion::Arrival,
+                now,
+            );
+            done.counts.noted.extend(noted);
+        }
         Err(e) => done.trouble(None, e.retry(), format!("rules: {e}")),
+    }
+    if junk.order == crate::junk::Order::AfterRules {
+        sift(engine, account.id.clone(), &junk, &mut done, now);
     }
 
     say(emit, Progress::Sending);
@@ -1087,6 +1218,32 @@ async fn pass_on<B: mail_proto::Backend>(
         }
     }
     Ok(done)
+}
+
+/// Run the junk filter over what the pass brought. A filter that cannot read its counts says
+/// so and the pass goes on: unjudged mail in the inbox is what there was before the filter.
+fn sift<B: mail_proto::Backend>(
+    engine: &AccountEngine<B>,
+    account: AccountId,
+    policy: &crate::junk::Policy,
+    done: &mut Done,
+    now: chrono::DateTime<chrono::Utc>,
+) {
+    if let Err(e) = crate::junk::sift(
+        engine.store(),
+        account,
+        engine.caps(),
+        &done.counts.arrived,
+        policy,
+        now,
+    ) {
+        junk_failed(done, e);
+    }
+}
+
+/// Say that the junk filter failed, without failing the pass.
+fn junk_failed(done: &mut Done, why: CoreError) {
+    done.trouble(None, mail_domain::Retry::Now, format!("junk filter: {why}"));
 }
 
 /// Most headers one mailbox takes in one pass. The rest wait for the next pass, behind the
@@ -1399,6 +1556,22 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
     }
     out
 }
+
+/// The mailboxes besides the inbox a push would hear of: the ones a pass fetches that mail
+/// arrives in, so not Sent, which only this client fills.
+fn pushed_folders(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
+    let sent = account.caps.folders.path(MailboxRole::Sent);
+    to_sync(account, folders)
+        .into_iter()
+        .skip(1)
+        .filter(|m| sent != Some(m.path.as_str()))
+        .take(PUSHED_FOLDERS)
+        .collect()
+}
+
+/// At most this many folders beside the inbox are named to a server's `NOTIFY`: a server that
+/// lists hundreds would be sent a command it may refuse for its length.
+const PUSHED_FOLDERS: usize = 50;
 
 /// Whether a pass fetches this folder, beside the inbox and Sent.
 ///

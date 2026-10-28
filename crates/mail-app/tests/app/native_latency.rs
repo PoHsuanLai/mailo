@@ -152,7 +152,7 @@ fn moving(harness: &mut Harness, key: Key) -> Took {
 fn from_a_key_to_its_frame() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let mut harness = Harness::new(mail_app::ui::native::root, config(&store, dir.path()));
+    let mut harness = Harness::new(mail_ui::ui::native::root, config(&store, dir.path()));
     settle_until(&mut harness, listed);
     println!(
         "{THREADS} conversations of a few kilobytes of HTML each, {}x{}",
@@ -247,7 +247,7 @@ fn from_launch_to_the_first_painted_list() {
     let starts: Vec<Took> = (0..5)
         .map(|_| {
             let start = Instant::now();
-            let mut harness = Harness::new(mail_app::ui::native::root, config(&store, dir.path()));
+            let mut harness = Harness::new(mail_ui::ui::native::root, config(&store, dir.path()));
             while !listed(&harness) {
                 assert!(start.elapsed() < WAIT_BOUND, "the list never came");
                 harness.advance(Duration::from_millis(1));
@@ -272,7 +272,7 @@ fn set_size(harness: &Harness) -> Option<usize> {
 fn a_long_inbox_mounts_the_rows_near_the_viewport_and_pages_as_its_end_comes_near() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let mut harness = Harness::new(mail_app::ui::native::root, config(&store, dir.path()));
+    let mut harness = Harness::new(mail_ui::ui::native::root, config(&store, dir.path()));
     settle_until(&mut harness, listed);
     // A page of a hundred is listed; only a window of it is drawn: what an 800 px window shows of
     // 66 px rows, and a few more on each side.
@@ -307,7 +307,7 @@ fn a_long_inbox_mounts_the_rows_near_the_viewport_and_pages_as_its_end_comes_nea
 /// The window over the inbox, with a new message open and six paragraphs in its body.
 fn new_message(dir: &std::path::Path) -> Harness {
     let store = seeded(dir);
-    let mut harness = Harness::new(mail_app::ui::native::root, config(&store, dir));
+    let mut harness = Harness::new(mail_ui::ui::native::root, config(&store, dir));
     settle_until(&mut harness, listed);
     harness.key(Key::Char('c'));
     settle_until(&mut harness, |h| h.count(".cpage .c-body") == 1);

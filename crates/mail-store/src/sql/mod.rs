@@ -83,11 +83,38 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
         // `(account, mailbox)` columns, then each message by primary key — and tests each
         // thread against the result, rather than probing `remote_map` once per thread.
         Filter::InFolder(mailbox) => {
-            params.push(SqlValue::Text(mailbox.account.to_string()));
-            params.push(SqlValue::Text(mailbox.path.clone()));
-            format!("(ts.thread IN ({IN_FOLDER}))")
+            for _ in 0..2 {
+                params.push(SqlValue::Text(mailbox.account.to_string()));
+                params.push(SqlValue::Text(mailbox.path.clone()));
+            }
+            format!("(ts.thread IN ({IN_FOLDER} UNION {COPYING_IN}))")
         }
         Filter::From(m) => like_either("ts.from_email", "ts.from_name", m, params),
+        // The address alone, exactly: `lower` is ASCII-only as `eq_ignore_ascii_case` is. Against
+        // the newest sender and every sender the thread has had (`ts.participants`).
+        Filter::FromAddress(email) => {
+            params.push(SqlValue::Text(email.trim().to_owned()));
+            params.push(SqlValue::Text(email.trim().to_owned()));
+            format!("({SENT_BY})")
+        }
+        // The VIP list as the `vips` table holds it when the query runs (addresses lower-cased
+        // as the book keeps them), so a saved view and a rule follow the list as it changes.
+        Filter::Vip => "(EXISTS (SELECT 1 FROM vips v WHERE lower(ts.from_email) = v.address \
+             OR EXISTS (SELECT 1 FROM json_each(ts.participants) p \
+                 WHERE lower(json_extract(p.value, '$.email')) = v.address)))"
+            .to_owned(),
+        Filter::Cc(m) => {
+            let pattern = like_pattern(m);
+            params.push(SqlValue::Text(pattern.clone()));
+            params.push(SqlValue::Text(pattern));
+            // Uncorrelated with `ts`, as the size clauses are: the threads with a message
+            // copied to an address that fits, found once.
+            format!(
+                "(ts.thread IN (SELECT m.thread FROM messages m, \
+                 json_each(m.recipients, '$.cc') c WHERE \
+                 json_extract(c.value, '$.email') {LIKE} OR json_extract(c.value, '$.name') {LIKE}))"
+            )
+        }
         Filter::To(m) => {
             let pattern = like_pattern(m);
             params.push(SqlValue::Text(pattern.clone()));
@@ -103,6 +130,7 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
         }
         Filter::Text(m) => fts::predicate(m, params),
         Filter::Date(range) => date_predicate(range, params),
+        Filter::NewerThan(_) | Filter::OlderThan(_) => predicate(&filter.at(now), now, params),
         // `Attachments::None` is `{"kind":"none"}`; `Present` carries a count under `v`.
         Filter::HasAttachment => {
             params.push(SqlValue::Text("none".to_owned()));
@@ -113,13 +141,34 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
             params.push(SqlValue::Text("until".to_owned()));
             "(json_extract(ts.snooze, '$.kind') = ?)".to_owned()
         }
+        // Held nowhere, as `Filter::fit` says: false.
+        Filter::Category(_) => "(1=0)".to_owned(),
         Filter::SnoozeDue => snooze_due(now, params),
         // `Pin::Rank` is the pinned form; `Unpinned` has no rank.
         Filter::Pinned => {
             params.push(SqlValue::Text("rank".to_owned()));
             "(json_extract(ts.pin, '$.kind') = ?)".to_owned()
         }
+        Filter::Larger(bytes) => {
+            params.push(SqlValue::Int(clamped(*bytes)));
+            "(ts.thread IN (SELECT m.thread FROM messages m WHERE m.size > ?))".to_owned()
+        }
+        Filter::Smaller(bytes) => {
+            params.push(SqlValue::Int(clamped(*bytes)));
+            "(ts.thread IN (SELECT m.thread FROM messages m WHERE m.size < ?))".to_owned()
+        }
     }
+}
+
+/// Whether the address bound twice is the thread's newest sender or one of its senders, for
+/// [`Filter::FromAddress`].
+const SENT_BY: &str = "lower(ts.from_email) = lower(?) OR EXISTS (SELECT 1 \
+     FROM json_each(ts.participants) p WHERE lower(json_extract(p.value, '$.email')) = lower(?))";
+
+/// A size as SQLite's integers hold it: nothing anyone types is past `i64::MAX`, and one that
+/// were would compare as the largest there is.
+fn clamped(bytes: u64) -> i64 {
+    i64::try_from(bytes).unwrap_or(i64::MAX)
 }
 
 /// The threads with a message held in one mailbox and still filed there, for
@@ -154,6 +203,29 @@ const IN_FOLDER: &str = "SELECT m.thread FROM remote_map r \
      AND NOT EXISTS (SELECT 1 FROM pending_changes p JOIN outbox o ON o.id = p.outbox \
          WHERE p.message = m.id AND json_extract(o.op, '$.kind') = 'file' \
          AND json_extract(o.op, '$.v.folder') <> r.mailbox)";
+
+/// The threads with a message a queued copy is putting in one mailbox, for [`Filter::InFolder`]
+/// beside [`IN_FOLDER`]: the copy stands for an address there until the server answers
+/// (`Placed::of_message_copied`). Binds the account, then the path, as `IN_FOLDER` does.
+///
+/// The other two conditions are `IN_FOLDER`'s, with the copy's folder where the address's
+/// mailbox was: filed as one of the addresses the message has, and no move of it elsewhere
+/// queued.
+const COPYING_IN: &str = "SELECT m.thread FROM outbox k \
+     JOIN pending_changes q ON q.outbox = k.id \
+     JOIN messages m ON m.id = q.message \
+     WHERE k.account = ? AND json_extract(k.op, '$.kind') = 'copy' \
+     AND json_extract(k.op, '$.v.folder') = ? \
+     AND EXISTS (SELECT 1 FROM remote_map h WHERE h.message = m.id \
+         AND json_extract(m.mailbox, '$') = CASE \
+             WHEN upper(h.mailbox) = 'INBOX' THEN 'inbox' \
+             ELSE COALESCE((SELECT json_extract(f.value, '$[1]') \
+                 FROM account_caps c, json_each(c.caps, '$.folders') f \
+                 WHERE c.account = h.account AND json_extract(f.value, '$[0]') = h.mailbox \
+                 ORDER BY f.key LIMIT 1), 'archive') END) \
+     AND NOT EXISTS (SELECT 1 FROM pending_changes p JOIN outbox o ON o.id = p.outbox \
+         WHERE p.message = m.id AND json_extract(o.op, '$.kind') = 'file' \
+         AND json_extract(o.op, '$.v.folder') <> json_extract(k.op, '$.v.folder'))";
 
 fn combine(
     children: &[Filter],

@@ -181,21 +181,13 @@ impl crate::mail::AccountOps<'_> {
     /// See [`add`].
     pub async fn add(
         &self,
-        address: &str,
-        manual: Option<&crate::account::Setup>,
-        microsoft: bool,
-        graph: bool,
-        receive: crate::account::Receive,
+        account: Requested<'_>,
         on_url: &dyn Fn(&str),
     ) -> Result<Added, CoreError> {
         let mail = self.0;
         add(
             mail.store(),
-            address,
-            manual,
-            microsoft,
-            graph,
-            receive,
+            account,
             mail.environment(),
             mail.secrets().as_ref(),
             &mail.saved_clients(),
@@ -221,20 +213,28 @@ impl crate::mail::AccountOps<'_> {
     }
 }
 
+/// Which account to add, as the command line or the window named it: the address, and the answers
+/// that decide which preset it is set up from.
+#[derive(Debug, Clone, Copy)]
+pub struct Requested<'a> {
+    pub address: &'a str,
+    /// Servers named by hand, for an address the preset table does not cover.
+    pub manual: Option<&'a Setup>,
+    /// `--microsoft`: a work or school account.
+    pub microsoft: bool,
+    /// `--send graph`: sent through Microsoft Graph.
+    pub graph: bool,
+    pub receive: Receive,
+}
+
 /// Configure an account from its address.
 ///
 /// The preset supplies hosts, ports and expected capabilities; the credential comes from the
 /// environment (`env`) and goes straight to `secrets`, the keyring. Nothing about a password is
 /// persisted in SQLite, which is the whole reason `Credential` exists as a separate type.
-// Each argument is one of the command line's independent answers, passed through as it came.
-#[allow(clippy::too_many_arguments)]
 pub async fn add(
     store: &SqliteStore,
-    address: &str,
-    manual: Option<&crate::account::Setup>,
-    microsoft: bool,
-    graph: bool,
-    receive: crate::account::Receive,
+    account: Requested<'_>,
     env: &Environment,
     secrets: &dyn AccountSecrets,
     saved: &ClientRegistry,
@@ -246,7 +246,7 @@ pub async fn add(
     // by naming `HttpAuth::Bearer` itself.
     let token = env.jmap_token.clone();
     let bearer;
-    let (manual, secret) = match (manual, token) {
+    let (manual, secret) = match (account.manual, token) {
         (Some(crate::account::Setup::Jmap { session, login, .. }), Some(token)) => {
             bearer = crate::account::Setup::Jmap {
                 session: session.clone(),
@@ -260,11 +260,7 @@ pub async fn add(
     let password = secret.map(crate::password::Password::new);
     add_receiving(
         store,
-        address,
-        manual,
-        microsoft,
-        graph,
-        receive,
+        Requested { manual, ..account },
         now,
         Credentials {
             password: password.as_ref(),
@@ -326,11 +322,13 @@ pub async fn add_with_password(
 ) -> Result<Added, CoreError> {
     add_receiving(
         store,
-        address,
-        manual,
-        microsoft,
-        graph,
-        crate::account::Receive::Imap,
+        Requested {
+            address,
+            manual,
+            microsoft,
+            graph,
+            receive: crate::account::Receive::Imap,
+        },
         now,
         credentials,
     )
@@ -339,14 +337,9 @@ pub async fn add_with_password(
 
 /// [`add_with_password`], with how mail is read named: `--receive graph` for a Microsoft tenant
 /// that has switched IMAP off.
-#[allow(clippy::too_many_arguments)]
 pub async fn add_receiving(
     store: &SqliteStore,
-    address: &str,
-    manual: Option<&crate::account::Setup>,
-    microsoft: bool,
-    graph: bool,
-    receive: crate::account::Receive,
+    account: Requested<'_>,
     now: chrono::DateTime<chrono::Utc>,
     credentials: Credentials<'_>,
 ) -> Result<Added, CoreError> {
@@ -358,6 +351,13 @@ pub async fn add_receiving(
         on_url,
         signed,
     } = credentials;
+    let Requested {
+        address,
+        manual,
+        microsoft,
+        graph,
+        receive,
+    } = account;
     // Normalised once, here, and used for the preset, the stored plan and the stored column
     // alike. `known` deliberately keeps the address exactly as typed, and the accounts
     // table deliberately lowercases it — so without this the plan and the column disagree in
@@ -820,7 +820,7 @@ pub async fn authorize(
         client,
         scopes,
         on_url,
-        porter_core::UnixSeconds(now.timestamp()),
+        porter_ids::UnixSeconds(now.timestamp()),
     )
     .await
     .map_err(CoreError::from)
@@ -918,7 +918,6 @@ mod tests {
     }
 
     /// [`super::add`] with nothing in the environment and a store of secrets that is a test's.
-    #[allow(clippy::too_many_arguments)]
     fn add(
         store: &SqliteStore,
         address: &str,
@@ -926,21 +925,21 @@ mod tests {
         microsoft: bool,
         graph: bool,
         receive: crate::account::Receive,
-        saved: &ClientRegistry,
-        now: chrono::DateTime<chrono::Utc>,
     ) -> Result<Added, CoreError> {
         mail_runtime::block_on(super::add(
             store,
-            address,
-            manual,
-            microsoft,
-            graph,
-            receive,
+            Requested {
+                address,
+                manual,
+                microsoft,
+                graph,
+                receive,
+            },
             &Environment::default(),
             &porter_secrets::MemorySecrets::default(),
-            saved,
+            &ClientRegistry::default(),
             &|url| panic!("a sign-in asked for a browser: {url}"),
-            now,
+            now(),
         ))
     }
 
@@ -953,8 +952,6 @@ mod tests {
             false,
             false,
             crate::account::Receive::Imap,
-            &ClientRegistry::default(),
-            now(),
         )
     }
 
@@ -1106,8 +1103,6 @@ mod tests {
             false,
             false,
             crate::account::Receive::Imap,
-            &ClientRegistry::default(),
-            now(),
         )
         .unwrap();
         assert!(
@@ -1129,8 +1124,6 @@ mod tests {
             false,
             false,
             crate::account::Receive::Imap,
-            &ClientRegistry::default(),
-            now(),
         )
         .unwrap();
         let accounts: i64 = mail_store::testing::count(&store, "accounts");
@@ -1189,14 +1182,18 @@ mod tests {
         assert_eq!(*issuer, Issuer::Microsoft);
         let mut scopes: Vec<&str> = scopes.iter().map(String::as_str).collect();
         scopes.sort_unstable();
-        let mut five = mail_domain::presets::GRAPH_SCOPES.to_vec();
-        five.sort_unstable();
-        assert_eq!(scopes, five);
-        // No client id here, so it waits for one, asking for those same five.
+        let mut graph = mail_domain::presets::GRAPH_SCOPES.to_vec();
+        graph.sort_unstable();
+        assert_eq!(scopes, graph);
+        // No client id here, so it waits for one, asking for those same scopes.
         let Outcome::NeedsClientId { scopes: asked, .. } = added.outcome else {
             panic!("{:?}", added.outcome)
         };
-        assert_eq!(asked.len(), 5, "{asked:?}");
+        assert_eq!(
+            asked.len(),
+            mail_domain::presets::GRAPH_SCOPES.len(),
+            "{asked:?}"
+        );
     }
 
     /// An account already reading a Microsoft mailbox over IMAP keeps doing so when it is added
@@ -1214,19 +1211,7 @@ mod tests {
                 .unwrap()
                 .incoming
         };
-        let again = |receive| {
-            add(
-                &store,
-                address,
-                None,
-                false,
-                false,
-                receive,
-                &ClientRegistry::default(),
-                now(),
-            )
-            .unwrap()
-        };
+        let again = |receive| add(&store, address, None, false, false, receive).unwrap();
         add(
             &store,
             address,
@@ -1234,8 +1219,6 @@ mod tests {
             true,
             false,
             crate::account::Receive::Imap,
-            &ClientRegistry::default(),
-            now(),
         )
         .unwrap();
         assert!(matches!(incoming(&store), Incoming::Imap { .. }));
@@ -1258,8 +1241,6 @@ mod tests {
             true,
             false,
             crate::account::Receive::Graph,
-            &ClientRegistry::default(),
-            now(),
         )
         .unwrap();
         assert_eq!(incoming(&store), Incoming::Graph, "asked for by name");
@@ -1280,7 +1261,7 @@ mod tests {
                     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims)
                 )),
                 refresh: SecretText::new("r".to_owned()),
-                expires_at: porter_core::UnixSeconds(0),
+                expires_at: porter_ids::UnixSeconds(0),
                 granted: Default::default(),
             }
         };

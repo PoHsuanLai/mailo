@@ -15,7 +15,7 @@ use super::seed::account;
 pub fn send() -> String {
     format!(
         ".c-send [*|aria-label=\"{}\"]",
-        mail_app::ui::copy::controls::SEND
+        mail_ui::ui::copy::controls::SEND
     )
 }
 
@@ -152,7 +152,7 @@ pub fn conversation(store: &SqliteStore, subject: &str) -> ThreadSummary {
 pub fn inbox_at(store: &SqliteStore, at: DateTime<Utc>) -> Vec<String> {
     listed(
         store,
-        mail_core::place::place_filter(MailboxRole::Inbox),
+        mail_core::mailbox_filter::for_role(MailboxRole::Inbox),
         at,
     )
     .into_iter()

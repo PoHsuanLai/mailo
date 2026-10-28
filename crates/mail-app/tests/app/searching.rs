@@ -6,18 +6,18 @@
 
 use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::ui::view;
 use mail_core::query;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui::ui::view;
 
 fn taipei() -> chrono::FixedOffset {
     chrono::FixedOffset::east_opt(8 * 3600).unwrap()
 }
 
 fn parse(input: &str) -> Filter {
-    query::parse_with(input, &taipei(), &|_| Vec::new())
+    query::parse_with(input, &taipei(), &mail_core::query::unnamed)
 }
 
 mod what_it_builds {
@@ -452,6 +452,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
                     cursor: None,
                     messages: vec![],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: vec![(
                         RemoteRef::Pop {
@@ -459,6 +460,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
                         },
                         vec!["travel".to_owned()],
                     )],
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -482,7 +484,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
     }
 
     /// The index has to survive the sync that creates it, which is the whole point of rebuilding
-    /// it on each revision rather than once at startup.
+    /// it each time the store moves rather than once at startup.
     #[test]
     fn a_label_that_did_not_exist_at_startup_is_found_once_it_does() {
         let (store, _dir) = seeded();
@@ -501,6 +503,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
                     cursor: None,
                     messages: vec![],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: vec![(
                         RemoteRef::Pop {
@@ -508,6 +511,7 @@ mod a_label_typed_into_the_window_finds_the_mail {
                         },
                         vec!["receipts".to_owned()],
                     )],
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )

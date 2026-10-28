@@ -69,9 +69,7 @@ pub fn composing() -> Window {
     window.press(&[], Key::Char('c'), 1);
     window.until("c opens a composer", |h| h.count(".cpage .c-body") == 1);
     window.click(".c-body");
-    window.until("the body has the keyboard", |h| {
-        h.focus_of(".c-body") == ds_harness::FocusState::Focused
-    });
+    window.until("the body has the keyboard", |h| h.focus_of(".c-body"));
     window
 }
 

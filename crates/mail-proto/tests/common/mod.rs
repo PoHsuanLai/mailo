@@ -8,8 +8,6 @@
 //! The harness is the only thing that knows how to drive a [`Machine`]. A test supplies a
 //! machine and a trace and asserts on what comes back; it never writes a pump loop.
 
-#![allow(dead_code)] // each test file uses a different subset
-
 use mail_domain::testing::{account, now};
 use mail_domain::{
     AccountCaps, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, FolderRoles, MoveExt,

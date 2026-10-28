@@ -3,13 +3,36 @@
 use super::SqliteStore;
 use super::row::{from_time, json, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Rule, RuleId, Vacation};
 use porter_core::AccountId;
 use rusqlite::{OptionalExtension, params};
 
-const RULE_COLUMNS: &str = "id, account, name, position, state, filter, actions, after";
+const RULE_COLUMNS: &str =
+    "id, account, name, position, state, filter, actions, after, made_at, reply_days";
+
+/// A rule's actions column. An action this build does not know — a rule written by a newer one —
+/// is skipped with a log, so that the rule and every other rule still load; the rest of the rule
+/// runs, and saving it again drops the action.
+fn actions_of(text: &str) -> Result<Vec<mail_domain::RuleAction>, StoreError> {
+    let stored: Vec<serde_json::Value> = json("Rule.actions", text)?;
+    Ok(stored
+        .into_iter()
+        .filter_map(
+            |action| match serde_json::from_value::<mail_domain::RuleAction>(action) {
+                Ok(action) => Some(action),
+                Err(why) => {
+                    log::warn!(
+                        "a rule's action was skipped, as this version does not know it: {why}"
+                    );
+                    None
+                }
+            },
+        )
+        .collect())
+}
 
 impl SqliteStore {
     pub(super) fn load_rules(&self, account: AccountId) -> Result<Vec<Rule>, StoreError> {
@@ -28,15 +51,17 @@ impl SqliteStore {
                 position: row.get(3)?,
                 state: json("RuleState", &row.get::<_, String>(4)?)?,
                 filter: json("Rule.filter", &row.get::<_, String>(5)?)?,
-                actions: json("Rule.actions", &row.get::<_, String>(6)?)?,
+                actions: actions_of(&row.get::<_, String>(6)?)?,
                 after: json("AfterMatch", &row.get::<_, String>(7)?)?,
+                made: super::row::time("Rule.made_at", &row.get::<_, String>(8)?)?,
+                reply_days: row.get(9)?,
             });
         }
         Ok(out)
     }
 
     pub(super) fn write_rule(&self, rule: &Rule) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::RULES);
         // Asked rather than left to the UNIQUE constraint, so the refusal names the rule instead
         // of quoting SQLite.
         let taken: Option<String> = db
@@ -50,12 +75,14 @@ impl SqliteStore {
             return Err(StoreError::RuleNameTaken(rule.name.clone()));
         }
         db.execute(
-            "INSERT INTO rules (id, account, name, position, state, filter, actions, after)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO rules (id, account, name, position, state, filter, actions, after,
+                                made_at, reply_days)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT (id) DO UPDATE SET
                  account = excluded.account, name = excluded.name,
                  position = excluded.position, state = excluded.state,
-                 filter = excluded.filter, actions = excluded.actions, after = excluded.after",
+                 filter = excluded.filter, actions = excluded.actions, after = excluded.after,
+                 made_at = excluded.made_at, reply_days = excluded.reply_days",
             params![
                 rule.id.to_string(),
                 rule.account.to_string(),
@@ -65,14 +92,46 @@ impl SqliteStore {
                 to_json("Rule.filter", &rule.filter)?,
                 to_json("Rule.actions", &rule.actions)?,
                 to_json("AfterMatch", &rule.after)?,
+                from_time(rule.made),
+                rule.reply_days,
             ],
         )?;
         Ok(())
     }
 
+    /// Whether `rule` may answer `sender` now, and if so, that it has: one answer to a sender
+    /// at most once in `within`. Checked and written together, so two passes cannot both answer.
+    pub fn claim_reply(
+        &self,
+        rule: RuleId,
+        sender: &str,
+        now: DateTime<Utc>,
+        within: chrono::TimeDelta,
+    ) -> Result<bool, StoreError> {
+        let db = self.touch(Topics::RULES);
+        let sender = sender.trim().to_ascii_lowercase();
+        let last: Option<String> = db
+            .query_row(
+                "SELECT replied_at FROM rule_replied WHERE rule = ?1 AND sender = ?2",
+                params![rule.to_string(), sender],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(last) = last
+            && now < super::row::time("rule_replied.replied_at", &last)? + within
+        {
+            return Ok(false);
+        }
+        db.execute(
+            "INSERT OR REPLACE INTO rule_replied (rule, sender, replied_at) VALUES (?1, ?2, ?3)",
+            params![rule.to_string(), sender, from_time(now)],
+        )?;
+        Ok(true)
+    }
+
     pub(super) fn remove_rule(&self, id: RuleId) -> Result<(), StoreError> {
         let gone = self
-            .connection()
+            .touch(Topics::RULES)
             .execute("DELETE FROM rules WHERE id = ?1", params![id.to_string()])?;
         if gone == 0 {
             return Err(StoreError::NoRule(id));
@@ -98,7 +157,7 @@ impl SqliteStore {
         vacation: Option<&Vacation>,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::RULES);
         match vacation {
             None => {
                 db.execute(

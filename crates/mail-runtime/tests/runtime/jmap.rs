@@ -75,7 +75,30 @@ async fn setup() -> Setup {
 
 async fn pass(setup: &mut Setup) -> SyncReport {
     let (_tx, mut cancel) = watch::channel(false);
-    let report = setup.engine.pass(&mut cancel, now()).await.unwrap();
+    let report = setup
+        .engine
+        .pass(&mut cancel, now(), &mut |_, _, _| {})
+        .await
+        .unwrap();
+    assert!(report.needs_attention.is_empty(), "{report:?}");
+    report
+}
+
+/// A pass whose arrivals are all called junk, as the junk filter would: each is sent to Spam
+/// before the outbox drains.
+async fn pass_calling_arrivals_junk(setup: &mut Setup) -> SyncReport {
+    let (_tx, mut cancel) = watch::channel(false);
+    let mut call_junk = |store: &SqliteStore, caps: &AccountCaps, arrived: &[MessageId]| {
+        for id in arrived {
+            let message = store.message(*id).unwrap();
+            mail_store::rules::perform(store, caps, &Op::Spam, &message, now()).unwrap();
+        }
+    };
+    let report = setup
+        .engine
+        .pass(&mut cancel, now(), &mut call_junk)
+        .await
+        .unwrap();
     assert!(report.needs_attention.is_empty(), "{report:?}");
     report
 }
@@ -184,6 +207,32 @@ async fn a_first_sync_fetches_headers_then_bodies_and_files_by_mailbox() {
 }
 
 #[tokio::test]
+async fn what_the_pass_is_told_arrived_can_be_acted_on_before_the_outbox_drains() {
+    let mut s = setup().await;
+    let ids = seed(&s.fake);
+    let report = pass_calling_arrivals_junk(&mut s).await;
+    assert_eq!(
+        report.arrived.len(),
+        3,
+        "told of every email the pass stored"
+    );
+    assert_eq!(report.outbox_settled, 3, "the moves left in the same pass");
+    for (n, id) in [(1, &ids[0]), (2, &ids[1])] {
+        assert_eq!(held(&s.store, n).unwrap().mailbox, MailboxRole::Spam);
+        let in_boxes = s
+            .fake
+            .state
+            .lock()
+            .unwrap()
+            .email(id)
+            .unwrap()
+            .mailboxes
+            .clone();
+        assert_eq!(in_boxes, ["mbJ".to_owned()], "message {n} on the server");
+    }
+}
+
+#[tokio::test]
 async fn a_later_sync_asks_what_changed_and_lists_nothing() {
     let mut s = setup().await;
     let ids = seed(&s.fake);
@@ -279,6 +328,75 @@ async fn a_flag_changed_here_reaches_the_server_as_a_patch() {
     assert_eq!(held(&s.store, 1).unwrap().star, Star::Starred);
 }
 
+/// A copy within one account is the same email in one more mailbox: the target added to its
+/// `mailboxIds` by a patch, the inbox left, and still one message here after the next sync.
+#[tokio::test]
+async fn a_copy_to_a_folder_adds_the_mailbox_and_keeps_the_rest() {
+    let mut s = setup().await;
+    let ids = seed(&s.fake);
+    pass(&mut s).await;
+    let hello = held(&s.store, 1).unwrap();
+    let work = s
+        .store
+        .labels(acct_account())
+        .unwrap()
+        .into_iter()
+        .find(|l| l.name == "Work")
+        .expect("the Work mailbox, as a label")
+        .id;
+    let thread = s.store.thread(hello.thread).unwrap();
+    let caps = AccountCaps {
+        archive: ArchiveMeans::DropInbox,
+        ..presets::jmap(USER, "https://unused.example", HttpAuth::Basic).expected_caps
+    };
+    let applied = Op::Copy(work).apply(
+        &Target::Threads(vec![hello.thread]),
+        &thread,
+        std::slice::from_ref(&hello),
+        &caps,
+        now(),
+    );
+    s.store.apply(acct_account(), &applied.forward).unwrap();
+    s.store
+        .enqueue(
+            acct_account(),
+            applied.remote.expect("a copy the server is told of"),
+            &applied.inverse,
+            now(),
+        )
+        .unwrap();
+    let held_before = s.store.count(&Filter::All, now()).unwrap();
+
+    let report = pass(&mut s).await;
+    assert_eq!(report.outbox_settled, 1);
+    let mut want = serde_json::Map::new();
+    want.insert(
+        ids[0].clone(),
+        serde_json::json!({ "mailboxIds/mbW": true }),
+    );
+    assert_eq!(
+        s.fake.calls("Email/set").last().unwrap()["update"],
+        serde_json::Value::Object(want)
+    );
+    let mut on_server = s
+        .fake
+        .state
+        .lock()
+        .unwrap()
+        .email(&ids[0])
+        .unwrap()
+        .mailboxes
+        .clone();
+    on_server.sort();
+    assert_eq!(on_server, ["mbI", "mbW"]);
+    // The sync after it reads both mailboxes back and holds one message, in the inbox and Work.
+    pass(&mut s).await;
+    assert_eq!(s.store.count(&Filter::All, now()).unwrap(), held_before);
+    let hello = held(&s.store, 1).unwrap();
+    assert_eq!(hello.mailbox, MailboxRole::Inbox);
+    assert_eq!(label_names(&s.store, &hello), ["Work"]);
+}
+
 #[tokio::test]
 async fn a_send_is_imported_submitted_with_every_recipient_and_filed_in_sent() {
     let mut s = setup().await;
@@ -300,6 +418,7 @@ async fn a_send_is_imported_submitted_with_every_recipient_and_filed_in_sent() {
                     "ada@example.test".to_owned(),
                     "blind@example.test".to_owned(),
                 ],
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &Patch {
                 id: ChangeId::generate(),
@@ -400,7 +519,11 @@ async fn a_refused_password_stops_the_pass_and_says_so() {
     let plan = presets::jmap(USER, &s.fake.session_url(), HttpAuth::Basic).plan;
     s.engine = JmapEngine::new(acct_account(), plan, s.store.clone(), secrets).unwrap();
     let (_tx, mut cancel) = watch::channel(false);
-    let report = s.engine.pass(&mut cancel, now()).await.unwrap();
+    let report = s
+        .engine
+        .pass(&mut cancel, now(), &mut |_, _, _| {})
+        .await
+        .unwrap();
     assert!(report.needs_reauth, "{report:?}");
 }
 
@@ -499,7 +622,11 @@ async fn an_email_filed_elsewhere_meanwhile_is_not_destroyed_and_comes_back() {
         .touch(&trashed, |email| email.mailboxes = vec!["mbI".to_owned()]);
 
     let (_tx, mut cancel) = watch::channel(false);
-    let report = s.engine.pass(&mut cancel, now()).await.unwrap();
+    let report = s
+        .engine
+        .pass(&mut cancel, now(), &mut |_, _, _| {})
+        .await
+        .unwrap();
     assert!(
         report
             .needs_attention
@@ -579,6 +706,24 @@ async fn a_search_of_the_server_is_an_email_query_and_keeps_headers_once() {
 }
 
 #[tokio::test]
+async fn a_relative_date_is_fixed_against_the_clock_before_the_server_is_asked() {
+    let mut s = setup().await;
+    seed(&s.fake);
+    let recent = Filter::And(vec![
+        Filter::NewerThan(7),
+        Filter::Text(TextMatch::Contains("sandwiches".to_owned())),
+    ]);
+    let said = s.engine.search_jmap(&recent, &[], now()).await.unwrap();
+    assert!(matches!(said, Searched::Found(_)), "{said:?}");
+    let query = s.fake.calls("Email/query").pop().unwrap();
+    assert!(
+        query["filter"].to_string().contains("after"),
+        "no date was asked: {}",
+        query["filter"]
+    );
+}
+
+#[tokio::test]
 async fn a_search_the_server_cannot_answer_faithfully_is_not_sent() {
     let mut s = setup().await;
     let pinned = Filter::And(vec![
@@ -588,4 +733,383 @@ async fn a_search_the_server_cannot_answer_faithfully_is_not_sent() {
     let said = s.engine.search_jmap(&pinned, &[], now()).await.unwrap();
     assert!(matches!(said, Searched::Unsaid(_)), "{said:?}");
     assert!(s.fake.calls("Email/query").is_empty());
+}
+
+/// A draft's copy kept in Drafts as it changes, one at a time, and gone once it is dropped: the
+/// copies found by their Message-ID, and only those, in Drafts and nowhere else.
+#[tokio::test]
+async fn a_draft_kept_twice_leaves_one_copy_in_drafts_and_dropping_it_leaves_none() {
+    let mut s = setup().await;
+    let seeded = seed(&s.fake);
+    pass(&mut s).await;
+    let draft = DraftId::generate();
+    let message_id = format!("{draft}@example.test");
+    let drafts = MailboxRef {
+        account: acct_account(),
+        path: "Drafts".to_owned(),
+    };
+    // The draft being written, whose copy is made from it when the upload runs.
+    let identity = IdentityId::generate();
+    mail_store::testing::seed_identity_for(
+        &s.store,
+        identity,
+        acct_account(),
+        "me@example.test",
+        None,
+    );
+    let write = |store: &SqliteStore, body: &str| {
+        let draft = Draft {
+            id: draft,
+            account: acct_account(),
+            identity,
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: "Unfinished".to_owned(),
+            in_reply_to: None,
+            forward_of: None,
+            text: format!("{body}\r\n"),
+            html: None,
+            attachments: vec![],
+            receipt: ReceiptRequest::Unrequested,
+            openpgp: OpenPgp::None,
+            smime: Smime::None,
+            priority: Priority::Normal,
+            delivery: DeliveryReport::Unrequested,
+            automatic: false,
+            state: SendState::Editing,
+            updated: now(),
+        };
+        store
+            .apply(
+                acct_account(),
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::DraftUpsert(Box::new(draft))],
+                },
+            )
+            .unwrap();
+    };
+    let nothing = || Patch {
+        id: ChangeId::generate(),
+        changes: vec![],
+    };
+    // The copies of this draft the server holds, as (mailboxes, keywords, bytes).
+    let copies = |fake: &Fake| {
+        let state = fake.state.lock().unwrap();
+        state
+            .emails
+            .iter()
+            .filter_map(|e| {
+                let raw = state.blobs.iter().find(|(b, _)| *b == e.blob)?.1.clone();
+                // A copy that is not UTF-8 is not one this test uploaded.
+                let raw = String::from_utf8(raw).ok()?;
+                raw.contains(&message_id)
+                    .then(|| (e.mailboxes.clone(), e.keywords.clone(), raw))
+            })
+            .collect::<Vec<_>>()
+    };
+
+    for body in ["first thoughts", "second thoughts"] {
+        write(&s.store, body);
+        s.store
+            .enqueue(
+                acct_account(),
+                RemoteIntent::KeepDraft {
+                    draft,
+                    mailbox: drafts.clone(),
+                    message_id: message_id.clone(),
+                },
+                &nothing(),
+                now(),
+            )
+            .unwrap();
+        pass(&mut s).await;
+    }
+    let kept = copies(&s.fake);
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    let (mailboxes, keywords, raw) = &kept[0];
+    assert_eq!(mailboxes, &vec!["mbD".to_owned()]);
+    assert!(keywords.contains(&"$draft".to_owned()), "{keywords:?}");
+    assert!(raw.contains("second thoughts"), "{raw}");
+    // Nothing of it is kept here as a message: the draft is the document.
+    assert!(by_message_id(&s.store, &message_id).is_none());
+
+    // The sent message itself, kept in Drafts by a server with no Sent mailbox, carries the same
+    // Message-ID and no `$draft`: it is the only copy of what was sent, and is never destroyed.
+    let sent = s.fake.state.lock().unwrap().deliver(
+        format!(
+            "From: {USER}\r\nSubject: Unfinished\r\nMessage-ID: <{message_id}>\r\n\
+             Date: Mon, 01 Sep 2026 10:00:00 +0000\r\n\r\nsent\r\n"
+        )
+        .as_bytes(),
+        &["mbD"],
+        &["$seen"],
+        "2026-09-01T10:00:00Z",
+    );
+    s.store
+        .enqueue(
+            acct_account(),
+            RemoteIntent::DropDraft {
+                draft,
+                mailbox: drafts,
+                message_id: message_id.clone(),
+            },
+            &nothing(),
+            now(),
+        )
+        .unwrap();
+    pass(&mut s).await;
+    let left = copies(&s.fake);
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert!(left[0].2.contains("\r\n\r\nsent"), "{left:?}");
+    assert!(s.fake.state.lock().unwrap().email(&sent).is_some());
+    // Another client's draft in the same folder is not this one's to remove.
+    assert!(s.fake.state.lock().unwrap().email(&seeded[3]).is_some());
+}
+
+/// "Move to…" as the window does it: `Op::File` under the capabilities the last sync saw, queued
+/// while the store still knows where the message is, then applied here.
+fn move_to(store: &SqliteStore, message: &Message, folder: &str) {
+    let thread = store.thread(message.thread).unwrap();
+    let messages: Vec<Message> = thread
+        .messages
+        .iter()
+        .map(|id| store.message(*id).unwrap())
+        .collect();
+    let caps = store.account_caps(acct_account()).unwrap().expect("synced");
+    // The folder's label, made the first time it is filed into, as the window's Move to… does.
+    let label = match store
+        .labels(acct_account())
+        .unwrap()
+        .into_iter()
+        .find(|l| l.origin == LabelOrigin::Provider && l.name == folder)
+    {
+        Some(label) => label.id,
+        None => {
+            let label = Label {
+                id: LabelId::generate(),
+                account: acct_account(),
+                name: folder.to_owned(),
+                color: None,
+                origin: LabelOrigin::Provider,
+            };
+            store
+                .apply(
+                    acct_account(),
+                    &Patch {
+                        id: ChangeId::generate(),
+                        changes: vec![Change::LabelUpsert(label.clone())],
+                    },
+                )
+                .unwrap();
+            label.id
+        }
+    };
+    let applied = Op::File(label).apply(
+        &Target::Messages(vec![message.id]),
+        &thread,
+        &messages,
+        &caps,
+        now(),
+    );
+    store
+        .enqueue(
+            acct_account(),
+            applied.remote.expect("filing is said to the server"),
+            &applied.inverse,
+            now(),
+        )
+        .unwrap()
+        .expect("queued");
+    store.apply(acct_account(), &applied.forward).unwrap();
+}
+
+/// A mailbox with no role, added to the fake's list.
+fn add_mailbox(fake: &Fake, id: &str, name: &str) {
+    fake.state
+        .lock()
+        .unwrap()
+        .mailboxes
+        .push((id.to_owned(), name.to_owned(), None, None));
+}
+
+#[tokio::test]
+async fn moving_to_a_folder_takes_the_email_out_of_the_inbox_and_into_it() {
+    let mut s = setup().await;
+    add_mailbox(&s.fake, "mbP", "Projects");
+    let ids = seed(&s.fake);
+    pass(&mut s).await;
+    let hello = held(&s.store, 1).unwrap();
+    move_to(&s.store, &hello, "Projects");
+
+    let report = pass(&mut s).await;
+    assert_eq!(report.outbox_settled, 1);
+    // Out of every mailbox an email is moved between, into the folder; labels are not touched.
+    let mut want = serde_json::Map::new();
+    want.insert(
+        ids[0].clone(),
+        serde_json::json!({
+            "mailboxIds/mbI": null,
+            "mailboxIds/mbA": null,
+            "mailboxIds/mbT": null,
+            "mailboxIds/mbJ": null,
+            "mailboxIds/mbP": true,
+        }),
+    );
+    assert_eq!(
+        s.fake.calls("Email/set").last().unwrap()["update"],
+        serde_json::Value::Object(want)
+    );
+    assert_eq!(
+        s.fake
+            .state
+            .lock()
+            .unwrap()
+            .email(&ids[0])
+            .unwrap()
+            .mailboxes,
+        vec!["mbP".to_owned()]
+    );
+    // And the next sync keeps it where it was put: filed, under Projects alone.
+    pass(&mut s).await;
+    let hello = held(&s.store, 1).unwrap();
+    assert_eq!(hello.mailbox, MailboxRole::Archive);
+    assert_eq!(label_names(&s.store, &hello), vec!["Projects".to_owned()]);
+}
+
+#[tokio::test]
+async fn moving_keeps_the_labels_an_email_already_had() {
+    let mut s = setup().await;
+    let both = s.fake.state.lock().unwrap().deliver(
+        &raw(5, "Both", "inbox and work"),
+        &["mbI", "mbW"],
+        &[],
+        "2026-09-01T09:05:00Z",
+    );
+    pass(&mut s).await;
+    // Made since the list this engine holds, which is looked at again rather than refused.
+    add_mailbox(&s.fake, "mbP", "Projects");
+    let message = held(&s.store, 5).unwrap();
+    move_to(&s.store, &message, "Projects");
+
+    pass(&mut s).await;
+    let mut mailboxes = s
+        .fake
+        .state
+        .lock()
+        .unwrap()
+        .email(&both)
+        .unwrap()
+        .mailboxes
+        .clone();
+    mailboxes.sort();
+    assert_eq!(mailboxes, vec!["mbP".to_owned(), "mbW".to_owned()]);
+    pass(&mut s).await;
+    let mut labels = label_names(&s.store, &held(&s.store, 5).unwrap());
+    labels.sort();
+    assert_eq!(labels, vec!["Projects".to_owned(), "Work".to_owned()]);
+}
+
+#[tokio::test]
+async fn moving_to_a_folder_the_server_does_not_have_is_refused_for_good() {
+    let mut s = setup().await;
+    let ids = seed(&s.fake);
+    pass(&mut s).await;
+    let hello = held(&s.store, 1).unwrap();
+    // A folder this client has a label for and the server has no mailbox for: listed again
+    // before refusing, in case it was made a moment ago, and still not there.
+    move_to(&s.store, &hello, "Elsewhere");
+    let lists = s.fake.calls("Mailbox/get").len();
+
+    let (_tx, mut cancel) = watch::channel(false);
+    let report = s
+        .engine
+        .pass(&mut cancel, now(), &mut |_, _, _| {})
+        .await
+        .unwrap();
+    assert!(
+        report
+            .needs_attention
+            .iter()
+            .any(|why| why.contains("no mailbox called \"Elsewhere\"")),
+        "{report:?}"
+    );
+    assert_eq!(report.still_queued, 0, "permanent: not kept to retry");
+    assert!(s.fake.calls("Mailbox/get").len() > lists, "looked again");
+    assert!(
+        s.fake
+            .calls("Email/set")
+            .iter()
+            .all(|set| set["update"].as_object().is_none_or(|u| u.is_empty())),
+        "nothing was changed"
+    );
+    assert_eq!(
+        s.fake
+            .state
+            .lock()
+            .unwrap()
+            .email(&ids[0])
+            .unwrap()
+            .mailboxes,
+        vec!["mbI".to_owned()]
+    );
+    // Refused, the move is undone here: back in the inbox.
+    assert_eq!(
+        held(&s.store, 1).map(|m| m.mailbox),
+        Some(MailboxRole::Inbox)
+    );
+}
+
+#[tokio::test]
+async fn the_account_s_storage_is_the_tightest_mail_quota_the_server_lists() {
+    let mut s = setup().await;
+    // None listed: the server keeps no quota, which is no failure.
+    assert_eq!(s.engine.quota_jmap().await.unwrap(), None);
+    s.fake.state.lock().unwrap().quotas = vec![
+        serde_json::json!({
+            "id": "q1", "resourceType": "octets", "scope": "account", "name": "mail",
+            "types": ["Mail"], "used": 3_000, "hardLimit": 10_000,
+        }),
+        serde_json::json!({
+            "id": "q2", "resourceType": "count", "scope": "account", "name": "messages",
+            "types": ["Mail"], "used": 9, "hardLimit": 10,
+        }),
+    ];
+    assert_eq!(
+        s.engine.quota_jmap().await.unwrap(),
+        Some(mail_proto::Storage {
+            used: 3_000,
+            limit: 10_000,
+        })
+    );
+    let asked = s.fake.calls("Quota/get").pop().unwrap();
+    assert_eq!(asked["ids"], serde_json::Value::Null);
+}
+
+#[tokio::test]
+async fn a_vacation_reply_is_the_account_s_vacation_response_switched_on_and_off() {
+    let mut s = setup().await;
+    let away = Vacation {
+        account: acct_account(),
+        subject: "Away".to_owned(),
+        body: "Back on Monday.".to_owned(),
+        days: 7,
+        addresses: vec![USER.to_owned()],
+        from: None,
+        during: DateRange {
+            from: Some(now()),
+            to: None,
+        },
+    };
+    s.engine.set_vacation(Some(&away)).await.unwrap();
+    let set = s.fake.state.lock().unwrap().vacation.clone().unwrap();
+    assert_eq!(set["isEnabled"], true);
+    assert_eq!(set["subject"], "Away");
+    assert_eq!(set["textBody"], "Back on Monday.");
+    assert_eq!(set["toDate"], serde_json::Value::Null);
+    s.engine.set_vacation(None).await.unwrap();
+    let set = s.fake.state.lock().unwrap().vacation.clone().unwrap();
+    assert_eq!(set["isEnabled"], false);
+    assert_eq!(s.fake.calls("VacationResponse/set").len(), 2);
 }

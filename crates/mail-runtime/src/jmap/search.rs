@@ -44,7 +44,9 @@ impl JmapEngine {
             mailboxes: &mailboxes,
             labels_named: labels,
         };
-        let condition = match translate(filter, &ctx) {
+        // A relative date (`newer:7d`) is fixed against the clock first: a server has no clause that
+        // counts back from its own.
+        let condition = match translate(&filter.at(now), &ctx) {
             Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
             Ok(Asked::Nothing) => return Ok(Searched::Found(ServerHits::default())),
             Ok(Asked::Ask(condition)) => condition,
@@ -53,7 +55,7 @@ impl JmapEngine {
         let call = query(
             &client.session.account,
             condition,
-            &mailboxes.unfollowed(),
+            &mailboxes.unsearched(),
             SERVER_HITS as u64,
             "q",
         );

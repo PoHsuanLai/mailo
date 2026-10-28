@@ -4,6 +4,7 @@
 use super::SqliteStore;
 use super::row::{json, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::folder::{layered, renamed};
 use mail_domain::{
     Change, Folder, FolderContents, FolderWork, LabelId, LabelOrigin, MailboxRef, MessageId,
@@ -16,7 +17,7 @@ use std::collections::BTreeSet;
 impl SqliteStore {
     /// Every folder held for `account`, by path.
     pub(super) fn read_folders(&self, account: AccountId) -> Result<Vec<Folder>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT path, delimiter, special, subscription, holds FROM folders
              WHERE account = ?1 ORDER BY path",
@@ -51,7 +52,7 @@ impl SqliteStore {
         account: AccountId,
         listed: Vec<Folder>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::FOLDERS);
         let tx = db.unchecked_transaction()?;
         let folders = layered(
             account.clone(),
@@ -71,7 +72,7 @@ impl SqliteStore {
 
     /// Folder work still in the outbox, in the order it will be sent.
     fn queued_folder_work(&self, account: AccountId) -> Result<Vec<FolderWork>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached("SELECT op FROM outbox WHERE account = ?1 ORDER BY id")?;
         let rows = stmt.query_map(params![account.to_string()], |r| r.get::<_, String>(0))?;
         let mut out = Vec::new();
@@ -84,7 +85,7 @@ impl SqliteStore {
     }
 
     pub(super) fn upsert_folder(&self, folder: &Folder) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::FOLDERS).execute(
             "INSERT INTO folders (account, path, delimiter, special, subscription, holds)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(account, path) DO UPDATE SET
@@ -106,7 +107,7 @@ impl SqliteStore {
     }
 
     pub(super) fn remove_folder(&self, mailbox: &MailboxRef) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::FOLDERS).execute(
             "DELETE FROM folders WHERE account = ?1 AND path = ?2",
             params![mailbox.account.to_string(), mailbox.path],
         )?;
@@ -179,7 +180,7 @@ impl SqliteStore {
     /// an undo that removes a label the user has since filed mail under is the case this is for.
     pub(super) fn remove_label(&self, label: LabelId) -> Result<(), StoreError> {
         let threads: BTreeSet<ThreadId> = {
-            let db = self.connection();
+            let db = self.touch(Topics::LABELS | Topics::SUMMARIES);
             let mut stmt = db.prepare_cached(
                 "SELECT DISTINCT m.thread FROM message_labels l
                  JOIN messages m ON m.id = l.message WHERE l.label = ?1",
@@ -207,7 +208,7 @@ impl SqliteStore {
     pub(super) fn contents(&self, mailbox: &MailboxRef) -> Result<FolderContents, StoreError> {
         let account = mailbox.account.to_string();
         let provider = to_json("LabelOrigin", &LabelOrigin::Provider)?;
-        let db = self.connection();
+        let db = self.reader();
         let mut mapped = db.prepare_cached(
             "SELECT DISTINCT message FROM remote_map WHERE account = ?1 AND mailbox = ?2",
         )?;
@@ -229,6 +230,27 @@ impl SqliteStore {
         })
     }
 
+    /// Which of `messages` are addressed in `mailbox`, by one lookup each.
+    pub(super) fn addressed(
+        &self,
+        mailbox: &MailboxRef,
+        messages: &[MessageId],
+    ) -> Result<Vec<MessageId>, StoreError> {
+        let account = mailbox.account.to_string();
+        let db = self.reader();
+        let mut asked = db.prepare_cached(
+            "SELECT 1 FROM remote_map WHERE account = ?1 AND mailbox = ?2 AND message = ?3
+             LIMIT 1",
+        )?;
+        let mut held = Vec::new();
+        for message in messages {
+            if asked.exists(params![account, mailbox.path, message.to_string()])? {
+                held.push(*message);
+            }
+        }
+        Ok(held)
+    }
+
     /// The server has confirmed a mailbox is gone: let go of its addresses and cursor, and of
     /// any message that was nowhere else.
     ///
@@ -243,7 +265,7 @@ impl SqliteStore {
             account: account.clone(),
             path: path.to_owned(),
         })?;
-        self.connection().execute(
+        self.touch(Topics::SUMMARIES).execute(
             "DELETE FROM remote_map WHERE account = ?1 AND mailbox = ?2",
             params![account.to_string(), path],
         )?;

@@ -391,3 +391,19 @@ proptest! {
         vcard::parse_bytes(&bytes);
     }
 }
+
+#[test]
+fn a_card_is_keyed_by_its_addresses_as_a_book_keys_them_and_listed_by_name_else_address() {
+    let card = &vcard::parse(
+        "BEGIN:VCARD\r\nVERSION:4.0\r\n\
+         EMAIL:Late@Example.test\r\nEMAIL;PREF=1:<First@example.test>\r\n\
+         EMAIL:late@example.test\r\nEMAIL:not an address\r\nEND:VCARD\r\n",
+    )[0];
+    assert_eq!(
+        card.addresses(),
+        ["first@example.test", "late@example.test"],
+        "most preferred first, normalised, each once, the non-address left out"
+    );
+    assert_eq!(card.list_name(), "first@example.test");
+    assert_eq!(Card::new().list_name(), "");
+}

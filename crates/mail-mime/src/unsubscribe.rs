@@ -1,5 +1,6 @@
 //! What a list message says about leaving the list: `List-Unsubscribe` (RFC 2369),
-//! `List-Unsubscribe-Post` (RFC 8058) and `List-Id` (RFC 2919).
+//! `List-Unsubscribe-Post` (RFC 8058) and `List-Id` (RFC 2919); and about writing to it,
+//! `List-Post` (RFC 2369), which Reply to List addresses.
 //!
 //! Pure: this reads headers and says what could be done. Doing it — an HTTPS `POST`, or a
 //! message queued for sending — belongs to the runtime and the app. A link that is only a web
@@ -19,6 +20,9 @@ pub struct ListHeaders {
     /// The ways out this message offers, in the order its `List-Unsubscribe` gave them.
     /// Empty when it offers none that this client can use.
     pub unsubscribe: Vec<Unsubscribe>,
+    /// Where a message to the whole list goes: the addresses of `List-Post`'s first usable
+    /// `mailto:`. Empty when the message has none, or says `NO` (RFC 2369 §3.4, a list nobody posts to).
+    pub post: Vec<Address>,
 }
 
 /// `List-Id: Description <list.example.test>`.
@@ -124,6 +128,7 @@ pub fn list_headers(raw: &[u8]) -> ListHeaders {
         .header_text(HeaderName::ListUnsubscribe)
         .header_text(HeaderName::ListUnsubscribePost)
         .header_text(HeaderName::ListId)
+        .header_text(HeaderName::ListPost)
         .default_header_ignore();
     let Some(message) = parser.parse_headers(raw) else {
         return ListHeaders::default();
@@ -146,7 +151,38 @@ pub fn list_headers(raw: &[u8]) -> ListHeaders {
             .first()
             .and_then(|value| list_id(value)),
         unsubscribe: methods(&uris, one_click),
+        post: values(HeaderName::ListPost)
+            .iter()
+            .flat_map(|value| posts_to(value))
+            .collect(),
     }
+}
+
+/// The addresses one `List-Post` value posts to: those of the first `mailto:` among its URIs that
+/// names any, since the URIs are alternatives (RFC 2369 §3.4), its `cc` and `bcc` dropped for the
+/// reason [`Mailto`] drops them. `NO` has no URI and so none.
+fn posts_to(value: &str) -> Vec<Address> {
+    let mut out: Vec<Address> = Vec::new();
+    for uri in uris_of(value) {
+        let Some((scheme, rest)) = uri.split_once(':') else {
+            continue;
+        };
+        if !scheme.eq_ignore_ascii_case("mailto") {
+            continue;
+        }
+        for to in MailtoUri::after_scheme(rest).to {
+            if !out
+                .iter()
+                .any(|kept| kept.email.eq_ignore_ascii_case(&to.email))
+            {
+                out.push(to);
+            }
+        }
+        if !out.is_empty() {
+            break;
+        }
+    }
+    out
 }
 
 /// The methods `uris` offer, in order, duplicates removed.

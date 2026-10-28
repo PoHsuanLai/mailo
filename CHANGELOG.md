@@ -19,6 +19,10 @@ First public release.
 - Profiles, each with its own store, accounts, keys and agent, and Spaces over them in the sidebar.
 - Offline use through an outbox that replays queued actions.
 - `mailo watch` for continuous fetching without a window.
+- Push for Microsoft 365 accounts that read through Graph, through a relay you deploy on a
+  Cloudflare account of your own (`relay/`): set its address as the account's Push relay in
+  Settings, and new mail arrives at once. Without one, or with it unreachable, the account polls
+  as before.
 
 ### Reading
 
@@ -44,12 +48,19 @@ First public release.
 ### Writing and scheduling
 
 - Composer with signatures, templates, spell check, attachments, reply and forward.
+- Several signatures to an address, written and chosen in Settings. A reply is signed with the
+  default for replies under the quoted original, as Apple Mail does, unless
+  `compose.signature_above_quote` is on; `mailo reply`, which used to sign above the quote, now
+  signs under it too.
 - `mailto:` links open a composer (to, cc, bcc, subject, body).
 - Send later (`mailo send --at`) and unsend before the time, snooze, and follow-up reminders.
 
 ### Search and rules
 
-- Full-text search over the local store, with server-side search where the protocol has it.
+- Full-text search over the local store, with server-side search where the protocol has it,
+  on ⌘K.
+- Find in the open conversation on ⌘F: matches marked in each message, plain or HTML, counted,
+  and stepped through with Enter and ⌘G.
 - Rules run in mailo; where the server has ManageSieve, rules and an away reply can be pushed to it.
 - Tidy Up for the inbox.
 

@@ -76,6 +76,9 @@ pub enum CoreError {
     UnknownAccount(String),
     #[error("no accounts")]
     NoAccounts,
+    /// A push relay's address that cannot be one (`sync::graph_push::set_relay`).
+    #[error(transparent)]
+    Relay(#[from] mail_runtime::graph::push::RelayRefused),
     #[error("no config directory (neither XDG_CONFIG_HOME nor HOME is set)")]
     NoConfigDir,
     /// A setting's file that is there and cannot be read, left as it is rather than written over.
@@ -176,8 +179,14 @@ pub enum CoreError {
         #[source]
         source: std::io::Error,
     },
-    #[error("{} is a directory but not a Maildir: it has no cur, new or tmp inside", .0.display())]
-    NotAMaildir(PathBuf),
+    #[error(
+        "{} is a directory but not a Maildir (it has no cur, new or tmp inside), Apple Mail's \
+         mailboxes or a Thunderbird profile",
+        .0.display()
+    )]
+    NotMailFolder(PathBuf),
+    #[error("{} is not an Apple Mail message: it does not begin with its length", .0.display())]
+    NotEmlx(PathBuf),
     #[error("no account for {address:?}")]
     NoAccountFor { address: String },
     #[error(
@@ -201,6 +210,21 @@ pub enum CoreError {
     ThreadNotFetchedInFull,
     #[error("that message offers no way to unsubscribe (it has no usable List-Unsubscribe header)")]
     NothingOffered,
+    #[error("that message names no address to write to its list (it has no List-Post header)")]
+    NoListPost,
+    #[error("that message has not been downloaded yet, so there is nothing to redirect")]
+    NothingToRedirect,
+    #[error(
+        "that message is large, so it was downloaded in parts and its attachments were left on \
+         the server. What is here is rebuilt from those parts, and redirecting it would send that \
+         rather than the message as it came. Forward it instead"
+    )]
+    RebuiltNotRedirected,
+    #[error(
+        "{address} sends through Microsoft Graph, which delivers a message to the people its own \
+         headers name, so a redirect would go back to whoever it first went to. Forward it instead"
+    )]
+    RedirectThroughGraph { address: String },
 
     // ---- the daemon
     #[error("the daemon closed the connection without answering")]
@@ -276,6 +300,8 @@ pub enum CoreError {
          at setup, so it has to be added again"
     )]
     NoIdentityToSendAs,
+    #[error("the account's own address stays: remove the account to stop sending as it")]
+    OwnAddressStays,
     #[error("no account {address}. This one has: {}", .known.join(", "))]
     NoSuchSender { address: String, known: Vec<String> },
     #[error(
@@ -290,6 +316,12 @@ pub enum CoreError {
          link instead, or split the message"
     )]
     AttachmentsTooBig { total: String, limit: String },
+    #[error(
+        "{name} is not a picture the body can show. PNG, JPEG, GIF and WebP can; attach it instead"
+    )]
+    NotAnInlineImage { name: String },
+    #[error("the pictures in the body would come to more than {limit}. Attach this one instead")]
+    InlineImagesTooBig { limit: String },
     #[error("{} is {size}, and most servers refuse above {limit}", .path.display())]
     FileTooBig {
         path: PathBuf,
@@ -380,7 +412,8 @@ impl CoreError {
             CoreError::HeadersOnly
             | CoreError::NotFetchedInFull
             | CoreError::ThreadNotFetchedInFull
-            | CoreError::NotDownloaded => Remedy::Sync,
+            | CoreError::NotDownloaded
+            | CoreError::NothingToRedirect => Remedy::Sync,
             CoreError::PublishedEvent => Remedy::SaveInvitation,
             CoreError::NoAccountFor { .. } => Remedy::ListAccounts,
             CoreError::NoFolder { address, folder } => Remedy::Folders {

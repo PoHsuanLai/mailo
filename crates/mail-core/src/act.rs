@@ -2,7 +2,7 @@
 //! how that is taken back.
 //!
 //! One operation is applied locally and, when the account has a server, queued for it; what it
-//! returns is the [`Undo`] that reverses both. The window (`mail_app::ui`) and the intents
+//! returns is the [`Undo`] that reverses both. The window (`mail_ui::ui`) and the intents
 //! provider (`mail_app::intents`) are two front-ends over this, so a conversation archived by
 //! either is archived the same way: the same patch, the same queued work for the server, the
 //! same undo.
@@ -22,6 +22,15 @@ use porter_core::AccountId;
 pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
     // A send to queue again is the window's to undo (`Undo::resend`).
     if entry.resend.is_some() {
+        return false;
+    }
+    // A copy the server has made stays made (`undo::reverse_intent`): taking the copy out of its
+    // folder here would put it back at the next sync, so once it has left the outbox there is
+    // nothing to take back.
+    if matches!(entry.remote, Some(RemoteIntent::Copy { .. }))
+        && has_server(store, entry.account.clone())
+        && queued_filing(store, entry).is_none()
+    {
         return false;
     }
     let reverse = entry
@@ -55,10 +64,80 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
             .or_log("an undo could not be put back after its reverse failed to queue");
         return false;
     }
+    unteach(store, entry);
     true
 }
 
-/// A move to a folder taken back before the server heard of it is taken out of the outbox too.
+/// What a gesture taught the junk filter, from the patch it applied: Spam taught that the
+/// messages it moved into Spam are junk, and Not Spam, or taking the Junk label off, that the
+/// messages it moved out of Spam or off that label are not.
+fn taught_by(store: &SqliteStore, entry: &Undo) -> Vec<(mail_store::junk::Judged, MessageId)> {
+    use mail_store::junk::Judged;
+    let was_spam: Vec<MessageId> = entry
+        .inverse
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::MessageMailbox(m, MailboxRole::Spam) => Some(*m),
+            _ => None,
+        })
+        .collect();
+    let junk_label = store
+        .labels(entry.account.clone())
+        .or_log("the labels could not be read to take back what a gesture taught")
+        .and_then(|labels| {
+            labels
+                .into_iter()
+                .find(|l| l.name.eq_ignore_ascii_case(crate::junk::JUNK_LABEL))
+                .map(|l| l.id)
+        });
+    entry
+        .forward
+        .changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::MessageMailbox(m, MailboxRole::Spam) => Some((Judged::Spam, *m)),
+            Change::MessageMailbox(m, _) if was_spam.contains(m) => Some((Judged::Ham, *m)),
+            Change::MessageLabel(m, label, Membership::Out) if Some(*label) == junk_label => {
+                Some((Judged::Ham, *m))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Take back from the junk filter what the operation `entry` undoes taught it, so an undone
+/// Spam or Not Spam leaves its counts as they were.
+fn unteach(store: &SqliteStore, entry: &Undo) {
+    for (judged, message) in taught_by(store, entry) {
+        store
+            .junk_forget(entry.account.clone(), message, judged)
+            .or_log("the junk filter could not forget what an undone gesture taught");
+    }
+}
+
+/// The queued move or copy `entry` made, while the server has not been tried with it. `None` once
+/// it has been sent, has been tried and is waiting to retry, or was settled; and when the outbox
+/// cannot be read, which then counts as sent.
+fn queued_filing(store: &SqliteStore, entry: &Undo) -> Option<mail_store::OutboxEntry> {
+    let queued_as: fn(&ProtoOp) -> bool = match &entry.remote {
+        Some(RemoteIntent::File { .. }) => |op| matches!(op, ProtoOp::File { .. }),
+        Some(RemoteIntent::Copy { .. }) => |op| matches!(op, ProtoOp::Copy { .. }),
+        _ => return None,
+    };
+    // The whole queue, not only what is due: a later operation waiting out a retry or a
+    // credential is later all the same.
+    store
+        .outbox_due(entry.account.clone(), queue_horizon())
+        .or_log("the outbox could not be read to find a taken-back move")?
+        .into_iter()
+        .find(|waiting| {
+            queued_as(&waiting.op) && waiting.attempts == 0 && waiting.undo == entry.inverse
+        })
+}
+
+/// A move or a copy to a folder taken back before the server heard of it is taken out of the
+/// outbox too.
 ///
 /// A filing has no reverse the server can be sent (`undo::reverse_intent`), so once it has gone
 /// the server keeps it filed. Until it has been tried, though, it is only a queued intention, and
@@ -78,8 +157,15 @@ pub fn take_back(store: &SqliteStore, entry: &Undo) -> bool {
 /// reaches the server, and its confirmation then settles an entry that is no longer here. The
 /// message is back here and filed there, and the next sync shows it filed.
 fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
-    let Some(RemoteIntent::File { messages, .. }) = &entry.remote else {
-        return;
+    let (messages, queued_as): (_, fn(&ProtoOp) -> bool) = match &entry.remote {
+        Some(RemoteIntent::File { messages, .. }) => {
+            (messages, |op| matches!(op, ProtoOp::File { .. }))
+        }
+        // Left queued, a copy would put the message back in the folder at the next sync.
+        Some(RemoteIntent::Copy { messages, .. }) => {
+            (messages, |op| matches!(op, ProtoOp::Copy { .. }))
+        }
+        _ => return,
     };
     // The whole queue, not only what is due: a later operation waiting out a retry or a
     // credential is later all the same.
@@ -90,9 +176,7 @@ fn withdraw_filing(store: &SqliteStore, entry: &Undo) {
         return;
     };
     let Some(filing) = queued.iter().find(|waiting| {
-        matches!(waiting.op, ProtoOp::File { .. })
-            && waiting.attempts == 0
-            && waiting.undo == entry.inverse
+        queued_as(&waiting.op) && waiting.attempts == 0 && waiting.undo == entry.inverse
     }) else {
         return;
     };
@@ -154,7 +238,7 @@ fn touches(later: &mail_store::OutboxEntry, messages: &[MessageId], filing: &Pro
     {
         return true;
     }
-    let ProtoOp::File { remotes: ours, .. } = filing else {
+    let (ProtoOp::File { remotes: ours, .. } | ProtoOp::Copy { remotes: ours, .. }) = filing else {
         return true;
     };
     match &later.op {
@@ -162,11 +246,17 @@ fn touches(later: &mail_store::OutboxEntry, messages: &[MessageId], filing: &Pro
         | ProtoOp::SetMailbox { remotes, .. }
         | ProtoOp::SetLabels { remotes, .. }
         | ProtoOp::File { remotes, .. }
+        | ProtoOp::Copy { remotes, .. }
         | ProtoOp::AddKeyword { remotes, .. }
         | ProtoOp::Expunge { remotes }
         | ProtoOp::Destroy { remotes } => remotes.iter().any(|r| ours.contains(r)),
-        // A new message, a sent one, or a mailbox: none of them is a message already held.
-        ProtoOp::Append { .. } | ProtoOp::Submit { .. } | ProtoOp::Folder(_) => false,
+        // A new message, a sent one, a mailbox or a draft's copy on the server: none of them is
+        // a message already held.
+        ProtoOp::Append { .. }
+        | ProtoOp::Submit { .. }
+        | ProtoOp::Folder(_)
+        | ProtoOp::KeepDraft { .. }
+        | ProtoOp::DropDraft { .. } => false,
         _ => true,
     }
 }
@@ -211,6 +301,18 @@ pub fn perform(
     op: Op,
     clock: crate::when::Clock,
 ) -> Option<Undo> {
+    perform_on(store, thread, Target::Threads(vec![thread]), op, clock)
+}
+
+/// [`perform`], on `target` within `thread`: the conversation whole, or some of its messages,
+/// as opening one message of a list of single messages reads that message and not the rest.
+pub fn perform_on(
+    store: &SqliteStore,
+    thread: ThreadId,
+    target: Target,
+    op: Op,
+    clock: crate::when::Clock,
+) -> Option<Undo> {
     let loaded = store
         .thread(thread)
         .or_log("the conversation to act on could not be read")?;
@@ -222,13 +324,7 @@ pub fn perform(
     // Defaults in place of the stored capabilities would change nothing on the server, and the
     // conversation would come back on the next full sync.
     let caps = caps_here(store, account.clone(), chrono::Utc::now());
-    let applied = op.apply(
-        &Target::Threads(vec![thread]),
-        &loaded,
-        &messages,
-        &caps,
-        chrono::Utc::now(),
-    );
+    let applied = op.apply(&target, &loaded, &messages, &caps, chrono::Utc::now());
     store
         .apply(account.clone(), &applied.forward)
         .or_log("an operation could not be applied")?;
@@ -262,6 +358,33 @@ pub fn perform(
             .or_log("an operation could not be undone after its server half failed to queue");
         return None;
     }
+    // Spam and Not Spam teach the junk filter, as Mail's Junk and Not Junk do: the messages as
+    // they were, since what is learned is what they said and not where they went.
+    let taught = match op {
+        Op::Spam => Some((mail_store::junk::Judged::Spam, messages.clone())),
+        Op::Restore => {
+            let from_spam: Vec<_> = messages
+                .iter()
+                .filter(|m| m.mailbox == MailboxRole::Spam)
+                .cloned()
+                .collect();
+            (!from_spam.is_empty()).then_some((mail_store::junk::Judged::Ham, from_spam))
+        }
+        // Taking the Junk label off is the way to say Not Spam for mail that was marked and not
+        // moved ([`crate::junk::Treat::Mark`]).
+        Op::Label(label, Membership::Out) if is_junk_label(store, account.clone(), label) => {
+            let marked: Vec<_> = messages
+                .iter()
+                .filter(|m| m.labels.contains(&label))
+                .cloned()
+                .collect();
+            (!marked.is_empty()).then_some((mail_store::junk::Judged::Ham, marked))
+        }
+        _ => None,
+    };
+    if let Some((judged, taught)) = taught {
+        crate::junk::learn(store, &taught, judged).or_log("the junk filter could not learn");
+    }
     Some(Undo {
         said: crate::undo::said(&op, &chrono::Local, clock),
         thread: Some(thread),
@@ -273,6 +396,18 @@ pub fn perform(
     })
 }
 
+/// Whether `label` is the one a marked junk message carries.
+fn is_junk_label(store: &SqliteStore, account: AccountId, label: LabelId) -> bool {
+    store
+        .labels(account)
+        .or_log("the labels could not be read to see whether one marks junk")
+        .is_some_and(|labels| {
+            labels
+                .iter()
+                .any(|l| l.id == label && l.name.eq_ignore_ascii_case(crate::junk::JUNK_LABEL))
+        })
+}
+
 /// Delete forever what `thread` holds in Trash or Spam, here and on the server. Returns the
 /// messages it removed; `None` when there were none.
 ///
@@ -280,6 +415,22 @@ pub fn perform(
 /// its server addresses with it. The deletion is queued first, while the store still knows where
 /// each message is (`Store::enqueue`), and nothing is returned to undo it.
 pub fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> {
+    destroy_target(store, thread, Target::Threads(vec![thread]))
+}
+
+/// [`destroy`], for `messages` of `thread` alone: those of them in Trash or Spam are deleted
+/// forever, and the rest of the conversation stays. What erasing Trash and Spam by themselves
+/// uses ([`crate::erase`]), which picks messages by how long each has been there.
+pub fn destroy_messages(
+    store: &SqliteStore,
+    thread: ThreadId,
+    messages: Vec<MessageId>,
+) -> Option<Vec<MessageId>> {
+    destroy_target(store, thread, Target::Messages(messages))
+}
+
+/// [`destroy`] and [`destroy_messages`]: Delete forever on `target` within `thread`.
+fn destroy_target(store: &SqliteStore, thread: ThreadId, target: Target) -> Option<Vec<MessageId>> {
     let loaded = store
         .thread(thread)
         .or_log("the conversation to delete could not be read")?;
@@ -287,7 +438,7 @@ pub fn destroy(store: &SqliteStore, thread: ThreadId) -> Option<Vec<MessageId>> 
     let account = messages.first().map(|m| m.account.clone())?;
     let now = chrono::Utc::now();
     let applied = Op::Destroy.apply(
-        &Target::Threads(vec![thread]),
+        &target,
         &loaded,
         &messages,
         &caps_here(store, account.clone(), now),
@@ -336,3 +487,6 @@ fn messages_of(store: &SqliteStore, loaded: &Thread) -> Vec<Message> {
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

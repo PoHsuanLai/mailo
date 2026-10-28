@@ -254,6 +254,48 @@ fn list_id_is_read_for_display() {
     }
 }
 
+/// `List-Post` (RFC 2369 §3.4): the `mailto:` addresses a message to the list goes to, and none
+/// for a list that says `NO` or names only a page.
+#[test]
+fn list_post_names_where_a_message_to_the_list_goes() {
+    // Headers, then the addresses Reply to List writes to.
+    type Case<'a> = (&'a str, &'a [&'a str]);
+    let cases: &[Case] = &[
+        (
+            "List-Post: <mailto:rust@lists.example.test>\r\n",
+            &["rust@lists.example.test"],
+        ),
+        (
+            "List-Post: <mailto:rust@lists.example.test?subject=post> (Postings are moderated)\r\n",
+            &["rust@lists.example.test"],
+        ),
+        (
+            "List-Post: <https://forum.example.test/new>,\r\n <mailto:forum@example.test>\r\n",
+            &["forum@example.test"],
+        ),
+        (
+            "List-Post: <mailto:list@example.test?cc=stranger@example.test>\r\n",
+            &["list@example.test"],
+        ),
+        // The URIs are alternatives: the first that names an address is the one, not all of them.
+        (
+            "List-Post: <mailto:first@example.test>, <mailto:second@example.test>\r\n",
+            &["first@example.test"],
+        ),
+        ("List-Post: NO (posting not allowed on this list)\r\n", &[]),
+        ("List-Post: <https://forum.example.test/new>\r\n", &[]),
+        ("", &[]),
+    ];
+    for (headers, want) in cases {
+        let post: Vec<String> = list_headers(&message(headers))
+            .post
+            .into_iter()
+            .map(|to| to.email)
+            .collect();
+        assert_eq!(post, *want, "case: {headers:?}");
+    }
+}
+
 #[test]
 fn bytes_that_are_not_a_message_offer_nothing_and_do_not_panic() {
     for raw in [

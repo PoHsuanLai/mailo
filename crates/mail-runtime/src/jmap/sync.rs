@@ -34,6 +34,8 @@ const PAGE: u64 = 1024;
 #[derive(Debug, Default)]
 struct Truth {
     flags: Vec<(RemoteRef, ReadState, Star)>,
+    /// Each email's flag colour, from Apple Mail's keywords.
+    flag_colors: Vec<(RemoteRef, mail_domain::Hue)>,
     labels: Vec<(RemoteRef, Vec<String>)>,
     filed: Vec<(RemoteRef, MailboxRole)>,
     gone: Vec<RemoteRef>,
@@ -54,6 +56,7 @@ impl Truth {
             Filing::Filed { role, labels } => {
                 self.flags
                     .push((remote.clone(), email.read(), email.star()));
+                self.flag_colors.push((remote.clone(), email.hue()));
                 self.labels.push((remote.clone(), labels));
                 self.filed.push((remote, role));
                 Some(role)
@@ -94,6 +97,8 @@ impl JmapEngine {
         )?;
         self.store
             .put_caps(self.account.clone(), &self.caps(&mailboxes, now), now)?;
+        self.store
+            .put_send_limit(self.account.clone(), send_limit(&client.session.limits))?;
         self.mailboxes = Some(mailboxes.clone());
         Ok(mailboxes)
     }
@@ -169,8 +174,10 @@ impl JmapEngine {
                     }),
                     messages: Vec::new(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 },
             )?;
@@ -360,7 +367,10 @@ impl JmapEngine {
                     arrivals,
                     headers_only,
                     now,
-                )?;
+                )
+                .inspect_err(|e| {
+                    report.stopped_by(e);
+                })?;
                 report.unreadable(&self.mailbox(), stored.unreadable);
                 report
                     .arrived
@@ -380,9 +390,10 @@ impl JmapEngine {
         budget: usize,
         report: &mut SyncReport,
     ) -> Result<(), RuntimeError> {
-        // What the window is showing first, and nothing it is fetching for itself.
+        // What the window is showing first, and nothing it is fetching for itself. However old:
+        // a JMAP pass is not cut by the account's window, which only the other protocols read.
         let (backlog, _) =
-            crate::wanted::backlog(self.store.as_ref(), &self.mailbox(), budget as u32)?;
+            crate::wanted::backlog(self.store.as_ref(), &self.mailbox(), None, budget as u32)?;
         let wanted = email_ids(&backlog);
         if wanted.is_empty() {
             return Ok(());
@@ -430,6 +441,7 @@ impl JmapEngine {
     fn write(&self, truth: Truth) -> Result<(), RuntimeError> {
         let Truth {
             flags,
+            flag_colors,
             labels,
             filed,
             gone,
@@ -445,12 +457,54 @@ impl JmapEngine {
                 cursor: None,
                 messages: Vec::new(),
                 flags,
+                flag_colors,
                 labels: Vec::new(),
                 label_names: labels,
+                provider_threads: Vec::new(),
                 gone,
             },
         )?;
         self.store.refile(self.account.clone(), &filed)?;
         Ok(())
+    }
+}
+
+/// The largest message a JMAP server takes, in octets on the wire: the message is uploaded whole,
+/// so no more than `maxSizeUpload`, and its attachments, base64 as they go, no more than
+/// `maxSizeAttachmentsPerEmail`. `None` when the server states neither.
+pub(crate) fn send_limit(limits: &mail_proto::jmap::Limits) -> Option<u64> {
+    let upload = (limits.max_size_upload > 0).then_some(limits.max_size_upload);
+    let attachments = (limits.max_size_attachments > 0)
+        .then(|| mail_mime::base64_len(limits.max_size_attachments));
+    upload.into_iter().chain(attachments).min()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::send_limit;
+    use mail_proto::jmap::Limits;
+
+    #[test]
+    fn the_send_limit_is_the_lower_of_what_the_session_states() {
+        let limits = |upload, attachments| Limits {
+            max_objects_in_get: 256,
+            max_calls_in_request: 16,
+            max_size_upload: upload,
+            max_size_attachments: attachments,
+        };
+        let cases = [
+            ("neither stated", limits(0, 0), None),
+            ("upload alone", limits(50_000_000, 0), Some(50_000_000)),
+            (
+                "attachments alone, as they go in base64",
+                limits(0, 57_000),
+                Some(78_000),
+            ),
+            ("the upload is lower", limits(10_000, 57_000), Some(10_000)),
+            ("the attachments are lower", limits(1_000_000, 57), Some(78)),
+        ];
+        for (case, limits, expected) in cases {
+            assert_eq!(send_limit(&limits), expected, "{case}");
+        }
     }
 }

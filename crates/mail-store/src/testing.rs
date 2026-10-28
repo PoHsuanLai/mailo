@@ -9,9 +9,9 @@ use crate::SqliteStore;
 use chrono::{DateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
-    AccountPlan, Identity, IdentityId, IsDefault, LabelId, LabelOrigin, MessageId, SyncCursor,
+    AccountPlan, DraftId, Identity, IdentityId, IsDefault, LabelId, LabelOrigin, MessageId,
+    SyncCursor,
 };
-use parking_lot::ReentrantMutexGuard;
 use porter_core::AccountId;
 use rusqlite::{Connection, params};
 
@@ -112,6 +112,22 @@ pub fn seed_default_identity(
     id
 }
 
+/// A plain draft's text set as an older build kept it, before every draft's text was flowed
+/// text, and queued to be rewritten as migration 0038 queues it.
+pub fn keep_unflowed_plain_draft(store: &SqliteStore, draft: DraftId, text: &str) {
+    let db = store.connection();
+    db.execute(
+        "UPDATE drafts SET body_text = ?2, body_html = NULL WHERE id = ?1",
+        [draft.to_string(), text.to_owned()],
+    )
+    .expect("keep the draft's text");
+    db.execute(
+        "INSERT INTO drafts_to_reflow (draft) VALUES (?1)",
+        [draft.to_string()],
+    )
+    .expect("queue the draft");
+}
+
 /// The default identity `id` of `account`, for a test that names it.
 pub fn seed_identity_for(
     store: &SqliteStore,
@@ -210,6 +226,19 @@ pub fn count(store: &SqliteStore, table: &str) -> i64 {
         .unwrap_or_else(|why| panic!("count the rows of {table}: {why}"))
 }
 
+/// Say every stored message was stored when it is dated, or, with `Some(at)`, at `at`: a test's
+/// messages are all stored now, and it asks about ages in the past.
+pub fn set_stored_at(store: &SqliteStore, at: Option<chrono::DateTime<chrono::Utc>>) {
+    let at = at.map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true));
+    store
+        .connection()
+        .execute(
+            "UPDATE messages SET stored_at = coalesce(?1, date)",
+            rusqlite::params![at],
+        )
+        .unwrap_or_else(|why| panic!("set when messages were stored: {why}"));
+}
+
 /// The id of every stored message, oldest first.
 pub fn message_ids(store: &SqliteStore) -> Vec<MessageId> {
     let db = store.connection();
@@ -251,7 +280,9 @@ pub fn total_changes(store: &SqliteStore) -> i64 {
 
 /// The store's writer, held: nothing else writes until this is dropped. Taken on the thread
 /// that will hold it.
-pub struct WriterHeld<'a>(#[allow(dead_code)] ReentrantMutexGuard<'a, Connection>);
+pub struct WriterHeld<'a> {
+    _guard: crate::sqlite::Writer<'a>,
+}
 
 impl std::fmt::Debug for WriterHeld<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -261,7 +292,35 @@ impl std::fmt::Debug for WriterHeld<'_> {
 
 /// Hold the store's writer, as a long write in the same process does.
 pub fn hold_writer(store: &SqliteStore) -> WriterHeld<'_> {
-    WriterHeld(store.connection())
+    WriterHeld {
+        _guard: store.connection(),
+    }
+}
+
+/// How many entries one transaction of an ingest writes, for a test that has to cross it.
+pub const INGEST_CHUNK: usize = crate::sqlite::INGEST_CHUNK;
+
+/// What [`on_ingest_chunk`] runs.
+pub(crate) struct ChunkHook(Box<dyn Fn(&SqliteStore) + Send + Sync>);
+
+impl std::fmt::Debug for ChunkHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ChunkHook")
+    }
+}
+
+/// Run `hook` each time one chunk of an ingest has committed, on the ingesting thread with the
+/// writer let go of: what a reader beside the ingest could see at that moment, it sees.
+pub fn on_ingest_chunk(store: &SqliteStore, hook: impl Fn(&SqliteStore) + Send + Sync + 'static) {
+    *store.on_chunk.lock() = Some(ChunkHook(Box::new(hook)));
+}
+
+impl SqliteStore {
+    pub(crate) fn chunk_committed(&self) {
+        if let Some(hook) = self.on_chunk.lock().as_ref() {
+            (hook.0)(self);
+        }
+    }
 }
 
 /// Write a row the way another process does: through its own connection to the database at
@@ -280,7 +339,7 @@ pub fn seed_account_from_another_connection(path: &std::path::Path, id: &str) {
 impl SqliteStore {
     /// The connection itself, for a test of the store that has to look at its tables. Not for
     /// any crate above the store: a test there asks for what it wants in this module.
-    pub fn raw_connection(&self) -> ReentrantMutexGuard<'_, Connection> {
+    pub fn raw_connection(&self) -> crate::sqlite::Writer<'_> {
         self.connection()
     }
 }
@@ -463,7 +522,19 @@ fn table_names(db: &Connection) -> Vec<String> {
 pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
     let db = Connection::open(db_path).expect("open the database");
     db.execute_batch(
-        "DROP TABLE messages_to_reparse;
+        "DROP TABLE rule_replied;
+             ALTER TABLE rules DROP COLUMN made_at;
+             ALTER TABLE rules DROP COLUMN reply_days;
+             ALTER TABLE drafts DROP COLUMN automatic;
+             DROP INDEX thread_summary_sort_subject; DROP INDEX thread_summary_sort_sender;
+             DROP INDEX thread_summary_sort_size; DROP INDEX thread_summary_sort_unread;
+             DROP INDEX thread_summary_sort_starred; DROP INDEX thread_summary_sort_pin;
+             ALTER TABLE thread_summary DROP COLUMN sort_subject;
+             ALTER TABLE thread_summary DROP COLUMN sort_sender;
+             ALTER TABLE thread_summary DROP COLUMN size;
+             ALTER TABLE thread_summary DROP COLUMN unread;
+             ALTER TABLE thread_summary DROP COLUMN starred;
+             DROP TABLE messages_to_reparse;
              DROP TABLE contacts; DROP TABLE contacts_counted; DROP TABLE contacts_sent;
              DROP TABLE address_books; DROP TABLE contacts_to_backfill;
              DROP TABLE templates;
@@ -480,6 +551,7 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE threads DROP COLUMN mute;
              ALTER TABLE thread_summary DROP COLUMN mute;
              DROP TABLE contact_groups;
+             DROP TABLE contact_card_addresses; DROP TABLE contact_cards;
              DROP TABLE views;
              DROP TABLE destroyed;
              DROP INDEX thread_summary_follow_up;
@@ -490,16 +562,38 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              DROP TABLE secrets_adopted;
              DROP TABLE opened;
              DROP TABLE account_passes;
+             DROP TABLE graph_push;
+             DROP TABLE signatures;
+             DROP TABLE account_prefs;
+             ALTER TABLE account_caps DROP COLUMN send_limit;
+             ALTER TABLE account_caps DROP COLUMN observed;
+             ALTER TABLE messages DROP COLUMN stored_at;
+             DROP TABLE vips;
+             DROP TABLE provider_thread;
+             DROP TRIGGER binned_leaves;
+             DROP TABLE binned;
              DROP INDEX messages_thread_order;
              CREATE INDEX messages_thread ON messages(thread);
-             DROP INDEX thread_summary_subject;
-             DROP INDEX thread_summary_from;
-             DROP INDEX thread_summary_pin;
+             DROP INDEX IF EXISTS thread_summary_subject;
+             DROP INDEX IF EXISTS thread_summary_from;
+             DROP INDEX IF EXISTS thread_summary_pin;
+             DROP TABLE junk_learned;
+             DROP TABLE junk_totals;
+             DROP TABLE junk_words;
              CREATE TABLE views (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL,
                  filter TEXT NOT NULL, sort TEXT NOT NULL, group_by TEXT,
                  threading TEXT NOT NULL, shown TEXT NOT NULL, hover TEXT NOT NULL,
                  position INTEGER NOT NULL);
              CREATE INDEX views_position ON views(position);
+             ALTER TABLE drafts DROP COLUMN priority;
+             ALTER TABLE drafts DROP COLUMN delivery;
+             DROP TABLE drafts_to_reflow;
+             DROP TABLE templates_to_reflow;
+             DROP INDEX messages_size;
+             ALTER TABLE messages DROP COLUMN server_size;
+             ALTER TABLE messages DROP COLUMN size;
+             ALTER TABLE messages DROP COLUMN flag;
+             ALTER TABLE thread_summary DROP COLUMN flag;
              DELETE FROM schema_version WHERE version >= 12;",
     )
     .expect("un-apply the migrations");

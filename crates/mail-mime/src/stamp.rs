@@ -19,7 +19,15 @@ use chrono::{DateTime, Utc};
 /// A folded `Date` is replaced whole, continuation lines included. The field name is compared as
 /// a token, so `X-Date` and `Date-Sent` are other fields and stay; the body is never read, so a
 /// line in it that happens to begin `Date:` is text.
+///
+/// A redirected message ([`crate::build::resent`]) is the exception: its `Date` is its author's
+/// and goes out unchanged, and the moment it leaves is its newest `Resent-Date`, the one at the
+/// top of the block the redirect put first (RFC 5322 §3.6.6). That one is replaced in place, and
+/// an older block's, from an earlier redirect, is history and stays.
 pub fn restamp(message: &[u8], at: DateTime<Utc>) -> Vec<u8> {
+    if is_resent(message) {
+        return restamp_resent(message, at);
+    }
     let stamped = format!("Date: {}\r\n", at.to_rfc2822());
     let (head, body) = split_head(message);
 
@@ -49,7 +57,14 @@ pub fn restamp(message: &[u8], at: DateTime<Utc>) -> Vec<u8> {
 /// come apart (`Posting::rcpt_to`). Compared case-insensitively, so an address spelled two ways
 /// is not counted blind. A message with none, or one that is not a message, comes back as it
 /// was; every other byte always does.
+///
+/// A redirected message ([`is_resent`]) comes back as it was: its `To` and `Cc` are its author's,
+/// so every address it was redirected to would read as blind, and its `Resent-To` already names
+/// them all.
 pub fn with_blind(message: &[u8], rcpt_to: &[String]) -> Vec<u8> {
+    if is_resent(message) {
+        return message.to_vec();
+    }
     let Ok(parsed) = crate::parse::parse(message) else {
         return message.to_vec();
     };
@@ -149,12 +164,47 @@ pub(crate) fn fields(head: &[u8]) -> Vec<&[u8]> {
 
 /// Whether this field is `Date`, by its name and nothing else.
 fn is_date(field: &[u8]) -> bool {
-    let Some(colon) = field.iter().position(|&b| b == b':') else {
-        return false;
-    };
-    field[..colon]
-        .trim_ascii_end()
-        .eq_ignore_ascii_case(b"Date")
+    named(field).is_some_and(|name| name.eq_ignore_ascii_case(b"Date"))
+}
+
+/// A field's name, without the space some senders put before the colon.
+fn named(field: &[u8]) -> Option<&[u8]> {
+    let colon = field.iter().position(|&b| b == b':')?;
+    Some(field[..colon].trim_ascii_end())
+}
+
+/// Whether `message` is one this client redirects: its first field opens a `Resent-` block,
+/// which is where a redirect puts it and where nothing this client composes ever has one.
+pub fn is_resent(message: &[u8]) -> bool {
+    let (head, _) = split_head(message);
+    fields(head)
+        .first()
+        .and_then(|field| named(field))
+        .is_some_and(|name| name.len() > 7 && name[..7].eq_ignore_ascii_case(b"Resent-"))
+}
+
+/// [`restamp`] for a redirected message: its first `Resent-Date` says `at`, or one is put at the
+/// top of its block when the block has none.
+fn restamp_resent(message: &[u8], at: DateTime<Utc>) -> Vec<u8> {
+    let stamped = format!("Resent-Date: {}\r\n", at.to_rfc2822());
+    let (head, body) = split_head(message);
+    let mut out = Vec::with_capacity(message.len() + stamped.len());
+    let mut placed = false;
+    for field in fields(head) {
+        let resent_date =
+            named(field).is_some_and(|name| name.eq_ignore_ascii_case(b"Resent-Date"));
+        if resent_date && !placed {
+            out.extend_from_slice(stamped.as_bytes());
+            placed = true;
+        } else {
+            out.extend_from_slice(field);
+        }
+    }
+    if !placed {
+        out.splice(0..0, stamped.bytes());
+    }
+    out.extend_from_slice(body);
+    out
 }
 
 #[cfg(test)]
@@ -232,6 +282,33 @@ mod tests {
         let parsed = crate::parse(&restamp(built.as_bytes(), leaving())).unwrap();
         assert_eq!(parsed.date, Some(leaving()));
         assert_eq!(parsed.subject, "hi");
+    }
+
+    /// A redirect keeps its author's `Date`: the moment it leaves is its own `Resent-Date`, and an
+    /// earlier redirect's stays as it was.
+    #[test]
+    fn a_redirect_is_stamped_on_its_resent_date_and_its_date_is_left() {
+        const CASES: &[(&str, &str, &str)] = &[
+            (
+                "one redirect",
+                "Resent-Date: old\r\nResent-From: me@example.test\r\nDate: theirs\r\n\r\nbody\r\n",
+                "Resent-Date: Fri, 25 Sep 2026 09:00:00 +0000\r\nResent-From: me@example.test\r\nDate: theirs\r\n\r\nbody\r\n",
+            ),
+            (
+                "over an earlier one",
+                "Resent-From: me@example.test\r\nResent-Date: new\r\nResent-Date: earlier\r\nDate: theirs\r\n\r\nbody\r\n",
+                "Resent-From: me@example.test\r\nResent-Date: Fri, 25 Sep 2026 09:00:00 +0000\r\nResent-Date: earlier\r\nDate: theirs\r\n\r\nbody\r\n",
+            ),
+        ];
+        for (case, input, expected) in CASES {
+            assert_eq!(stamped(input), *expected, "{case}");
+        }
+        let resent = b"Resent-To: b@example.test\r\nTo: a@example.test\r\n\r\nbody\r\n";
+        assert_eq!(
+            with_blind(resent, &["b@example.test".to_owned()]),
+            resent.to_vec(),
+            "a redirect's recipients are its Resent-To, none of them blind"
+        );
     }
 
     #[test]

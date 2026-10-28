@@ -21,6 +21,7 @@
 
 use super::SqliteStore;
 use crate::StoreError;
+use crate::changes::Topics;
 use porter_core::AccountId;
 use rusqlite::types::ValueRef;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
@@ -39,7 +40,7 @@ impl SqliteStore {
     /// Delete `account` and everything that names it, and the blobs only it used. `None` when no
     /// account has that id, and then nothing changed.
     pub fn remove_account(&self, account: AccountId) -> Result<Option<Freed>, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::ALL);
         let tx = rusqlite::Transaction::new_unchecked(&db, TransactionBehavior::Immediate)?;
         let id = account.to_string();
         let mut candidates = BTreeSet::new();
@@ -130,7 +131,7 @@ impl SqliteStore {
     /// one again by its key (`Message-ID`) and gives it its new address, and an operation
     /// queued on one waits for that, as it does for any message a server moved.
     pub fn forget_addresses(&self, account: AccountId) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let tx = db.unchecked_transaction()?;
         let id = account.to_string();
         db.execute("DELETE FROM remote_map WHERE account = ?1", params![id])?;

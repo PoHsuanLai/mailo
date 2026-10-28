@@ -47,8 +47,10 @@ fn deliver(store: &dyn Store, m: &Message, remote: RemoteRef) {
                     message: m.clone(),
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -71,7 +73,7 @@ fn a_jmap_address_reads_back_as_one_and_the_cursor_with_it() {
             store
                 .remotes_of(MessageId::from_uuid(uuid::Uuid::from_u128(1)))
                 .unwrap(),
-            store.unfetched_in(&all(), 10).unwrap(),
+            store.unfetched_in(&all(), None, 10).unwrap(),
             store.cursor(&all()).unwrap(),
         )
     });
@@ -179,8 +181,10 @@ fn an_email_gone_from_the_account_is_gone_from_here() {
                     cursor: None,
                     messages: vec![],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
-                    label_names: vec![],
+                    label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![jmap("M1")],
                 },
             )

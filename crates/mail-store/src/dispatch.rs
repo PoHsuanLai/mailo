@@ -114,12 +114,88 @@ pub(crate) fn same_folder(a: &str, b: &str) -> bool {
 fn messages_of(intent: &RemoteIntent) -> &[MessageId] {
     match intent {
         RemoteIntent::SetFlags { messages, .. }
+        | RemoteIntent::SetFlag { messages, .. }
         | RemoteIntent::SetMailbox { messages, .. }
         | RemoteIntent::SetLabels { messages, .. }
         | RemoteIntent::File { messages, .. }
+        | RemoteIntent::Copy { messages, .. }
         | RemoteIntent::AddKeyword { messages, .. }
         | RemoteIntent::Destroy { messages } => messages,
-        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => &[],
+        RemoteIntent::Send { .. }
+        | RemoteIntent::Folder(_)
+        | RemoteIntent::Append { .. }
+        | RemoteIntent::KeepDraft { .. }
+        | RemoteIntent::DropDraft { .. } => &[],
+    }
+}
+
+/// The wire operation of an intent that addresses no message this client holds, as it is: a
+/// submission, folder work, an upload, or a draft's copy on the server. `None` for one that
+/// names messages, which only `remote_map` can address.
+pub(crate) fn unaddressed(intent: &RemoteIntent) -> Option<ProtoOp> {
+    Some(match intent {
+        RemoteIntent::Send {
+            draft,
+            raw,
+            mail_from,
+            rcpt_to,
+            delivery,
+        } => ProtoOp::Submit {
+            draft: *draft,
+            raw: *raw,
+            mail_from: mail_from.clone(),
+            rcpt_to: rcpt_to.clone(),
+            delivery: *delivery,
+        },
+        RemoteIntent::Folder(work) => ProtoOp::Folder(work.clone()),
+        RemoteIntent::Append {
+            mailbox,
+            flags,
+            date,
+            raw,
+        } => ProtoOp::Append {
+            mailbox: mailbox.clone(),
+            flags: flags.clone(),
+            date: *date,
+            raw: *raw,
+        },
+        RemoteIntent::KeepDraft {
+            draft,
+            mailbox,
+            message_id,
+        } => ProtoOp::KeepDraft {
+            draft: *draft,
+            mailbox: mailbox.clone(),
+            message_id: message_id.clone(),
+        },
+        RemoteIntent::DropDraft {
+            draft,
+            mailbox,
+            message_id,
+        } => ProtoOp::DropDraft {
+            draft: *draft,
+            mailbox: mailbox.clone(),
+            message_id: message_id.clone(),
+        },
+        RemoteIntent::SetFlags { .. }
+        | RemoteIntent::SetMailbox { .. }
+        | RemoteIntent::SetLabels { .. }
+        | RemoteIntent::SetFlag { .. }
+        | RemoteIntent::File { .. }
+        | RemoteIntent::Copy { .. }
+        | RemoteIntent::AddKeyword { .. }
+        | RemoteIntent::Destroy { .. } => return None,
+    })
+}
+
+/// The draft whose server copy an intent replaces or removes: what an upload of it still queued
+/// is taken out of the outbox for, since the bytes it would put there are already stale.
+pub(crate) fn draft_copy_of(intent: &RemoteIntent) -> Option<mail_domain::DraftId> {
+    match intent {
+        RemoteIntent::KeepDraft { draft, .. } | RemoteIntent::DropDraft { draft, .. } => {
+            Some(*draft)
+        }
+        _ => None,
     }
 }
 
@@ -148,6 +224,7 @@ pub(crate) fn readdress(op: ProtoOp, remotes: Vec<RemoteRef>) -> ProtoOp {
             read,
             star,
         },
+        ProtoOp::SetFlag { hue, .. } => ProtoOp::SetFlag { remotes, hue },
         ProtoOp::SetMailbox { role, .. } => ProtoOp::SetMailbox { remotes, role },
         ProtoOp::SetLabels { add, remove, .. } => ProtoOp::SetLabels {
             remotes,
@@ -155,6 +232,7 @@ pub(crate) fn readdress(op: ProtoOp, remotes: Vec<RemoteRef>) -> ProtoOp {
             remove,
         },
         ProtoOp::File { folder, .. } => ProtoOp::File { remotes, folder },
+        ProtoOp::Copy { folder, .. } => ProtoOp::Copy { remotes, folder },
         ProtoOp::AddKeyword { keyword, .. } => ProtoOp::AddKeyword { remotes, keyword },
         ProtoOp::Destroy { .. } => ProtoOp::Destroy { remotes },
         other => other,
@@ -190,7 +268,7 @@ pub(crate) fn own(
             Place::At(found) if found.is_empty() => waits = true,
             Place::At(found) => {
                 held = true;
-                for remote in found {
+                for remote in copied_from(&op, found) {
                     if !remotes.contains(&remote) {
                         remotes.push(remote);
                     }
@@ -205,6 +283,24 @@ pub(crate) fn own(
         return Ok(Dispatch::Moot);
     }
     Ok(Dispatch::Send(readdress(op, remotes)))
+}
+
+/// The addresses of one message `op` is sent to: every one, except for a copy.
+///
+/// A copy names one address of each message, the first, since copying from each would put as
+/// many copies in the folder as the message has places; and none of a message the folder holds
+/// already, which needs no copy there.
+fn copied_from(op: &ProtoOp, found: Vec<RemoteRef>) -> Vec<RemoteRef> {
+    let ProtoOp::Copy { folder, .. } = op else {
+        return found;
+    };
+    if found
+        .iter()
+        .any(|remote| same_folder(&crate::remote_row::columns(remote).0, folder))
+    {
+        return Vec::new();
+    }
+    found.into_iter().take(1).collect()
 }
 
 /// What an entry asks of the server now, given the messages of every entry queued before it on

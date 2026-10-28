@@ -1,0 +1,483 @@
+//! Invitations in the window. Opening shows the card and answers nothing; only Send does.
+
+use crate::ui::files::SaveDir;
+use crate::ui::fixtures::settle_for;
+use crate::ui::fixtures::{
+    Seen, acct_account, chord, click, dispatching, rebuild_into, seeded, type_into,
+};
+use crate::ui::reading::Reader;
+use crate::ui::view::Shell;
+use dioxus::html::input_data::keyboard_types::Modifiers;
+use dioxus::prelude::*;
+use dioxus_core::VirtualDom;
+use mail_core::message::{Looks, Read};
+use mail_core::{SqliteStore, Store};
+use mail_domain::*;
+use std::sync::Arc;
+use std::time::Duration;
+
+/// The address the fixture's account sends from.
+pub(super) const ME: &str = "me@example.test";
+
+/// A calendar object: `method`, `sequence`, `status`, organised by `organiser`, asking
+/// `attendees` as `(name, address, PARTSTAT)`, with `extra` lines inside the event.
+pub(super) fn ics(
+    method: &str,
+    sequence: u32,
+    status: &str,
+    organiser: &str,
+    attendees: &[(&str, &str, &str)],
+    extra: &str,
+) -> String {
+    let mut people = String::new();
+    for (name, address, answer) in attendees {
+        people.push_str(&format!(
+            "ATTENDEE;CN={name};PARTSTAT={answer};RSVP=TRUE:mailto:{address}\r\n"
+        ));
+    }
+    format!(
+        "BEGIN:VCALENDAR\r\n\
+         PRODID:-//Example//Calendar//EN\r\n\
+         VERSION:2.0\r\n\
+         METHOD:{method}\r\n\
+         BEGIN:VEVENT\r\n\
+         UID:review-7@example.test\r\n\
+         SEQUENCE:{sequence}\r\n\
+         DTSTAMP:20260920T101500Z\r\n\
+         DTSTART;TZID=Europe/Berlin:20261005T140000\r\n\
+         DTEND;TZID=Europe/Berlin:20261005T150000\r\n\
+         SUMMARY:Design review\r\n\
+         LOCATION:Room 2\r\n\
+         STATUS:{status}\r\n\
+         ORGANIZER;CN=Ada Lovelace:mailto:{organiser}\r\n\
+         {people}{extra}\
+         END:VEVENT\r\n\
+         END:VCALENDAR\r\n"
+    )
+}
+
+/// The usual invitation to [`ME`], from Ada, with Charles declined.
+pub(super) fn request(sequence: u32) -> String {
+    ics(
+        "REQUEST",
+        sequence,
+        "CONFIRMED",
+        "ada@example.test",
+        &[
+            ("Ada Lovelace", "ada@example.test", "ACCEPTED"),
+            ("Me", ME, "NEEDS-ACTION"),
+            ("Charles", "charles@example.test", "DECLINED"),
+        ],
+        "",
+    )
+}
+
+/// A message from Ada carrying `calendar` as the alternative calendar servers send, in its own
+/// thread. Returns the thread and the message.
+fn put(store: &SqliteStore, calendar: &str, method: &str) -> (ThreadId, MessageId) {
+    let rfc = format!("{}@example.test", uuid::Uuid::new_v4());
+    let bytes = format!(
+        "From: Ada Lovelace <ada@example.test>\r\nTo: {ME}\r\n\
+         Subject: Invitation: Design review\r\nMessage-ID: <{rfc}>\r\nMIME-Version: 1.0\r\n\
+         Content-Type: multipart/alternative; boundary=\"alt\"\r\n\r\n\
+         --alt\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n\
+         You are invited to Design review.\r\n\
+         --alt\r\nContent-Type: text/calendar; charset=UTF-8; method={method}\r\n\r\n\
+         {calendar}--alt--\r\n"
+    );
+    let raw = store.blobs().put(bytes.as_bytes()).unwrap();
+    let id = MessageId::generate();
+    let message = Message {
+        id,
+        thread: ThreadId::generate(),
+        account: acct_account(),
+        key: MessageKey::Rfc(rfc.clone()),
+        date: chrono::Utc::now(),
+        from: Address {
+            name: Some("Ada Lovelace".to_owned()),
+            email: "ada@example.test".to_owned(),
+        },
+        reply_to: vec![],
+        to: vec![Address {
+            name: None,
+            email: ME.to_owned(),
+        }],
+        cc: vec![],
+        bcc: vec![],
+        subject: "Invitation: Design review".to_owned(),
+        in_reply_to: None,
+        references: vec![],
+        rfc_message_id: Some(rfc.clone()),
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
+        mailbox: MailboxRole::Inbox,
+        labels: vec![],
+        body: Body::Present {
+            text: Some("You are invited to Design review.".to_owned()),
+            raw,
+        },
+        attachments: vec![],
+    };
+    store
+        .ingest(
+            acct_account(),
+            Ingest {
+                mailbox: MailboxRef {
+                    account: acct_account(),
+                    path: "INBOX".to_owned(),
+                },
+                validity: UidValidity::Same,
+                cursor: Some(SyncCursor::Pop),
+                messages: vec![Fetched {
+                    remote: RemoteRef::Pop { uidl: rfc },
+                    key: message.key.clone(),
+                    raw,
+                    message,
+                }],
+                flags: vec![],
+                flag_colors: Vec::new(),
+                labels: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
+                gone: vec![],
+            },
+        )
+        .unwrap();
+    (store.message(id).unwrap().thread, id)
+}
+
+fn far() -> chrono::DateTime<chrono::Utc> {
+    chrono::Utc::now() + chrono::TimeDelta::days(365)
+}
+
+/// Every submission waiting in the outbox, as its frozen bytes.
+fn submissions(store: &SqliteStore) -> Vec<String> {
+    store
+        .outbox_due(acct_account(), far())
+        .unwrap()
+        .into_iter()
+        .filter_map(|entry| match entry.op {
+            ProtoOp::Submit { raw, .. } => {
+                Some(String::from_utf8(store.blobs().get(raw).unwrap()).unwrap())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// What is queued for the server beyond flags: opening a conversation marks it read, which is
+/// not an answer.
+fn outbox(store: &SqliteStore) -> usize {
+    store
+        .outbox_due(acct_account(), far())
+        .unwrap()
+        .iter()
+        .filter(|entry| !matches!(entry.op, ProtoOp::SetFlags { .. }))
+        .count()
+}
+
+#[derive(Clone)]
+struct Saves(std::path::PathBuf);
+
+/// The `n`th segment of the card's Accept / Maybe / Decline control: quire's segments carry no
+/// label of their own, so each is found as the nth after the group's.
+fn answer(seen: &Seen, n: usize) -> dioxus_core::ElementId {
+    seen.after("aria-label", "Answer", "aria-pressed")[n]
+}
+
+#[component]
+fn Open(thread: ThreadId) -> Element {
+    let shell = use_signal(Shell::default);
+    let saves = use_context::<Saves>();
+    use_context_provider(|| SaveDir(saves.0.clone()));
+    rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
+}
+
+fn markup(dom: &VirtualDom) -> String {
+    dioxus_ssr::render(dom).replace("&#39;", "'")
+}
+
+/// The reader on `thread`, saving into `saves`, once its lookups have landed, and the lookups it
+/// used.
+async fn reader_looking(
+    store: Arc<SqliteStore>,
+    thread: ThreadId,
+    saves: &std::path::Path,
+) -> (VirtualDom, Seen, String, Arc<Looks>) {
+    dispatching();
+    let looks = Arc::new(Looks::new());
+    let mut dom = VirtualDom::new_with_props(Open, OpenProps { thread })
+        .with_root_context(crate::ui::fixtures::client(&store))
+        .with_root_context(looks.clone())
+        .with_root_context(Saves(saves.to_owned()));
+    let mut seen = rebuild_into(&mut dom);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    let page = markup(&dom);
+    (dom, seen, page, looks)
+}
+
+/// [`reader_looking`], without the lookups.
+async fn reader_on(
+    store: Arc<SqliteStore>,
+    thread: ThreadId,
+    saves: &std::path::Path,
+) -> (VirtualDom, Seen, String) {
+    let (dom, seen, page, _) = reader_looking(store, thread, saves).await;
+    (dom, seen, page)
+}
+
+#[tokio::test]
+async fn opening_an_invitation_shows_the_card_and_answers_nothing() {
+    let (store, dir) = seeded();
+    let (thread, message) = put(&store, &request(0), "REQUEST");
+    let queued = outbox(&store);
+    let (_, _, page, looks) = reader_looking(store.clone(), thread, dir.path()).await;
+    // It was looked at and shown: the assertions below are about a reader that did its work.
+    assert!(looks.reads(Read::Invite) > 0, "the card never looked");
+    assert!(page.contains("class=\"invite\""), "{page}");
+    assert!(page.contains("Design review") && page.contains(">Accept<"));
+    // At the top of the message, above its body, and not inside the sender's HTML.
+    let card = page.find("class=\"invite\"").unwrap();
+    assert!(card < page.find("You are invited to Design review.").unwrap());
+    assert!(card > page.find("class=\"reader-body\"").unwrap());
+    assert_eq!(store.invite_answer(message).unwrap(), None);
+    assert_eq!(outbox(&store), queued, "opening queued something");
+}
+
+#[tokio::test]
+async fn the_invitation_is_one_row_of_three_answers_and_details() {
+    let (store, dir) = seeded();
+    let (thread, _) = put(&store, &request(0), "REQUEST");
+    let (mut dom, seen, page) = reader_on(store.clone(), thread, dir.path()).await;
+    // At rest: the answers and the disclosure, and none of what the disclosure holds.
+    let row = page
+        .split("class=\"inv-row\"")
+        .nth(1)
+        .and_then(|rest| rest.split("class=\"inv-details\"").next())
+        .unwrap_or_default();
+    for answer in [
+        "Accept",
+        "Maybe",
+        "Decline",
+        crate::ui::copy::controls::DETAILS,
+    ] {
+        assert_eq!(
+            row.matches(&format!(">{answer}<")).count(),
+            1,
+            "{answer}: {page}"
+        );
+    }
+    assert_eq!(
+        seen.after("aria-label", "Answer", "aria-pressed").len(),
+        3,
+        "{page}"
+    );
+    assert!(
+        !page.contains("class=\"inv-details\"") && !page.contains("Save .ics"),
+        "{page}"
+    );
+
+    // Details opens the rest, and closes it again.
+    let details = seen.one("aria-label", crate::ui::copy::aria::SHOW_DETAILS);
+    let mut seen = click(&mut dom, details);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
+    let open = markup(&dom);
+    assert!(
+        open.contains("class=\"inv-details\"") && open.contains("Save .ics"),
+        "{open}"
+    );
+    let mut seen = click(&mut dom, details);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
+    assert!(!markup(&dom).contains("class=\"inv-details\""));
+}
+
+#[tokio::test]
+async fn accept_with_a_note_queues_one_reply_and_change_answer_queues_another() {
+    let (store, dir) = seeded();
+    let (thread, message) = put(&store, &request(0), "REQUEST");
+    let before = submissions(&store).len();
+    let (mut dom, seen, _) = reader_on(store.clone(), thread, dir.path()).await;
+
+    // Choosing an answer opens its note, and sends nothing yet.
+    let mut seen = click(&mut dom, answer(&seen, 0));
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
+    assert_eq!(submissions(&store).len(), before, "choosing sent");
+    let field = seen.one("aria-placeholder", "Add a note (optional)");
+    type_into(&mut dom, field, "See you there");
+    let mut seen = chord(&mut dom, "Enter", Modifiers::empty(), field);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+
+    let sent = submissions(&store);
+    assert_eq!(
+        sent.len(),
+        before + 1,
+        "one answer, queued: {}",
+        markup(&dom)
+    );
+    let reply = sent.last().unwrap();
+    assert!(reply.contains("METHOD:REPLY"), "{reply}");
+    assert!(reply.contains("PARTSTAT=ACCEPTED"), "{reply}");
+    let kept = store.invite_answer(message).unwrap().unwrap();
+    assert_eq!(kept.attendance, Attendance::Accepted);
+    assert_eq!(kept.comment.as_deref(), Some("See you there"));
+    let page = markup(&dom);
+    assert!(page.contains(">You accepted</span>"), "{page}");
+    assert!(!page.contains(">Accept<"), "{page}");
+
+    // Change answer offers the three again; Decline and Send queue one more.
+    let mut seen = click(&mut dom, seen.one("aria-label", "Change answer"));
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
+    let mut seen = click(&mut dom, answer(&seen, 2));
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
+    let mut seen = click(&mut dom, seen.one("aria-label", "Send answer"));
+    settle_for(&mut dom, &mut seen, Duration::from_millis(400)).await;
+    let _ = seen;
+
+    let sent = submissions(&store);
+    assert_eq!(sent.len(), before + 2, "a second answer, queued");
+    assert!(sent.iter().any(|raw| raw.contains("PARTSTAT=DECLINED")));
+    assert_eq!(
+        store.invite_answer(message).unwrap().unwrap().attendance,
+        Attendance::Declined
+    );
+    assert!(markup(&dom).contains(">You declined</span>"));
+}
+
+#[tokio::test]
+async fn escape_takes_the_note_back_and_sends_nothing() {
+    let (store, dir) = seeded();
+    let (thread, message) = put(&store, &request(0), "REQUEST");
+    let before = submissions(&store).len();
+    let (mut dom, seen, _) = reader_on(store.clone(), thread, dir.path()).await;
+    let mut seen = click(&mut dom, answer(&seen, 1));
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
+    let field = seen.one("aria-placeholder", "Add a note (optional)");
+    let mut seen = chord(&mut dom, "Escape", Modifiers::empty(), field);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(100)).await;
+    assert!(!markup(&dom).contains("Add a note"), "the note stayed open");
+    assert_eq!(submissions(&store).len(), before);
+    assert_eq!(store.invite_answer(message).unwrap(), None);
+}
+
+#[tokio::test]
+async fn a_cancellation_and_an_organisers_own_invitation_offer_nothing_to_press() {
+    let (store, dir) = seeded();
+    let cancelled = ics(
+        "CANCEL",
+        1,
+        "CANCELLED",
+        "ada@example.test",
+        &[("Me", ME, "NEEDS-ACTION")],
+        "",
+    );
+    let mine = ics(
+        "REQUEST",
+        0,
+        "CONFIRMED",
+        ME,
+        &[("Ada Lovelace", "ada@example.test", "NEEDS-ACTION")],
+        "",
+    );
+    for (case, calendar, method, says) in [
+        ("cancelled", cancelled, "CANCEL", "Cancelled"),
+        ("organiser", mine, "REQUEST", "You organised this event."),
+    ] {
+        let (thread, _) = put(&store, &calendar, method);
+        let queued = outbox(&store);
+        let (_, seen, page) = reader_on(store.clone(), thread, dir.path()).await;
+        assert!(page.contains(says), "{case}: {page}");
+        for label in ["Accept", "Maybe", "Decline", "Send answer", "Change answer"] {
+            assert!(seen.get("aria-label", label).is_none(), "{case}: {label}");
+            assert!(
+                !page.contains(&format!("aria-label=\"{label}\""))
+                    && !page.contains(&format!(">{label}<")),
+                "{case}: {label}"
+            );
+        }
+        assert_eq!(outbox(&store), queued, "{case}");
+    }
+}
+
+#[tokio::test]
+async fn save_ics_writes_the_event_beside_what_is_there_and_never_over_it() {
+    let (store, _dir) = seeded();
+    let saves = tempfile::tempdir().unwrap();
+    let (thread, _) = put(&store, &request(0), "REQUEST");
+    let (mut dom, seen, _) = reader_on(store.clone(), thread, saves.path()).await;
+    // The file is one of the Details, which open on a press.
+    let mut seen = click(
+        &mut dom,
+        seen.one("aria-label", crate::ui::copy::aria::SHOW_DETAILS),
+    );
+    settle_for(&mut dom, &mut seen, Duration::from_millis(50)).await;
+    let save = seen.one("aria-label", "Save .ics");
+    std::fs::write(saves.path().join("Design review.ics"), b"already here").unwrap();
+
+    let mut seen = click(&mut dom, save);
+    settle_for(&mut dom, &mut seen, Duration::from_millis(300)).await;
+
+    let mut names: Vec<String> = std::fs::read_dir(saves.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names.len(), 2, "{names:?}");
+    assert_eq!(
+        std::fs::read(saves.path().join("Design review.ics")).unwrap(),
+        b"already here",
+        "the file that was there was overwritten"
+    );
+    let written = names
+        .iter()
+        .find(|name| *name != "Design review.ics")
+        .unwrap();
+    assert!(written.ends_with(".ics"), "{written}");
+    let body = std::fs::read_to_string(saves.path().join(written)).unwrap();
+    assert!(body.starts_with("BEGIN:VCALENDAR"), "{body}");
+    assert!(body.contains("METHOD:REQUEST"), "{body}");
+}
+
+#[test]
+fn saving_names_the_file_for_the_event() {
+    let (store, _dir) = seeded();
+    let saves = tempfile::tempdir().unwrap();
+    let (_, message) = put(&store, &request(0), "REQUEST");
+    let saved = super::save_ics(
+        &crate::ui::fixtures::client(&store),
+        message,
+        "Design review",
+        saves.path(),
+    )
+    .unwrap();
+    assert_eq!(saved, saves.path().join("Design review.ics"));
+    let unnamed = super::save_ics(
+        &crate::ui::fixtures::client(&store),
+        message,
+        "(no title)",
+        saves.path(),
+    )
+    .unwrap();
+    assert!(unnamed.ends_with("invitation.ics"), "{unnamed:?}");
+}
+
+#[test]
+fn the_answer_says_who_it_goes_to() {
+    let (store, _dir) = seeded();
+    let (_, message) = put(&store, &request(0), "REQUEST");
+    let (said, card) = super::answer(
+        &Looks::new(),
+        &crate::ui::fixtures::client(&store),
+        message,
+        Attendance::Tentative,
+        None,
+        chrono::Utc::now(),
+        mail_core::when::Clock::H24,
+    )
+    .unwrap();
+    assert_eq!(said, "Queued your answer (tentative) to ada@example.test");
+    assert!(matches!(
+        card.map(|card| card.stand),
+        Some(super::Stand::Answered { said, note: None }) if said == "You said maybe"
+    ));
+}

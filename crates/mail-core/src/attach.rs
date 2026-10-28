@@ -412,3 +412,78 @@ pub fn free_path(dir: &Path, name: &str) -> PathBuf {
 }
 
 pub use mail_domain::human_size;
+
+#[cfg(test)]
+mod tests {
+    use super::{candidates, write_new};
+
+    /// The number goes before the extension, and a name with none, or only a leading dot, takes
+    /// it at the end.
+    #[test]
+    fn a_taken_name_is_numbered_before_its_extension() {
+        // (name, the first three tried)
+        const CASES: &[(&str, [&str; 3])] = &[
+            (
+                "report.pdf",
+                ["report.pdf", "report (2).pdf", "report (3).pdf"],
+            ),
+            (
+                "photos.tar.gz",
+                ["photos.tar.gz", "photos.tar (2).gz", "photos.tar (3).gz"],
+            ),
+            ("README", ["README", "README (2)", "README (3)"]),
+            (".profile", [".profile", ".profile (2)", ".profile (3)"]),
+            (
+                "Q3 (final).xlsx",
+                [
+                    "Q3 (final).xlsx",
+                    "Q3 (final) (2).xlsx",
+                    "Q3 (final) (3).xlsx",
+                ],
+            ),
+        ];
+        for (name, want) in CASES {
+            let tried: Vec<String> = candidates(name).take(3).collect();
+            assert_eq!(tried, want, "{name:?}");
+        }
+    }
+
+    /// Several attachments written into one folder, as Save All writes a message's: each claimed
+    /// name made safe, each clash numbered, nothing written over or outside the folder.
+    #[test]
+    fn a_message_s_attachments_written_into_one_folder_keep_each_other() {
+        let dir = tempfile::tempdir().unwrap_or_else(|e| panic!("{e}"));
+        std::fs::write(dir.path().join("minutes.txt"), b"already here")
+            .unwrap_or_else(|e| panic!("{e}"));
+        // (claimed name, what it holds, the name written)
+        const CASES: &[(&str, &str, &str)] = &[
+            ("minutes.txt", "one", "minutes (2).txt"),
+            ("minutes.txt", "two", "minutes (3).txt"),
+            ("../../minutes.txt", "three", "minutes (4).txt"),
+            ("..\\evil.exe", "four", "evil.exe"),
+            ("CON.txt", "five", "_CON.txt"),
+            ("a\u{0}b\u{202E}.txt", "six", "ab.txt"),
+            ("", "seven", "attachment"),
+        ];
+        for (claimed, holds, want) in CASES {
+            let path =
+                write_new(dir.path(), claimed, holds.as_bytes()).unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(path, dir.path().join(want), "{claimed:?}");
+            assert_eq!(
+                std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{e}")),
+                *holds,
+                "{claimed:?}"
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(dir.path().join("minutes.txt"))
+                .unwrap_or_else(|e| panic!("{e}")),
+            "already here",
+            "a file already there was written over"
+        );
+        let count = std::fs::read_dir(dir.path())
+            .unwrap_or_else(|e| panic!("{e}"))
+            .count();
+        assert_eq!(count, CASES.len() + 1);
+    }
+}

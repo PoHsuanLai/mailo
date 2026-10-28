@@ -29,9 +29,11 @@ pub fn secret_key(
 ) -> Result<SecretCert, RuntimeError> {
     match secrets.get(&entry(account, fingerprint))? {
         SigningSecret::OpenPgp(armored) => Ok(SecretCert::from_armored(&armored)?),
-        SigningSecret::SmimeKey(_) => Err(RuntimeError::Secrets(Failure::said(format!(
-            "the keyring entry for OpenPGP key {fingerprint} holds something else"
-        )))),
+        SigningSecret::SmimeKey(_) | SigningSecret::Relay(_) => {
+            Err(RuntimeError::Secrets(Failure::said(format!(
+                "the keyring entry for OpenPGP key {fingerprint} holds something else"
+            ))))
+        }
     }
 }
 

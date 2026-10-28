@@ -6,6 +6,7 @@
 use super::SqliteStore;
 use super::row::{from_time, json, to_json};
 use crate::StoreError;
+use crate::changes::Topics;
 use chrono::{DateTime, Utc};
 use mail_domain::{MessageId, ReceiptAnswer};
 use rusqlite::{OptionalExtension, params};
@@ -32,7 +33,7 @@ impl SqliteStore {
         answer: ReceiptAnswer,
         now: DateTime<Utc>,
     ) -> Result<ReceiptAnswer, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let known: Option<i64> = db
             .query_row(
                 "SELECT 1 FROM messages WHERE id = ?1",

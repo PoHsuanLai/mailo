@@ -1,6 +1,7 @@
 //! Messages, threads, and the derivation between them.
 
 use crate::content::{Address, Attachment, Body};
+use crate::hue::Hue;
 use crate::id::{LabelId, MessageId, ThreadId};
 use crate::state::{
     Attachments, FollowUp, MailboxRole, MailboxSet, Mute, Pin, ReadState, Snooze, Star,
@@ -92,6 +93,11 @@ pub struct Message {
     pub rfc_message_id: Option<String>,
     pub read: ReadState,
     pub star: Star,
+    /// The flag's colour, which means something only while the message is starred. Added
+    /// after the first release, so a message written before it reads back red, which is what a
+    /// flag with no colour is.
+    #[serde(default)]
+    pub flag: Hue,
     /// A single role: an individual message really is in one place.
     pub mailbox: MailboxRole,
     pub labels: Vec<LabelId>,
@@ -127,6 +133,10 @@ pub struct ThreadSummary {
     pub read: ReadState,
     /// Derived: `Starred` if *any* message is starred.
     pub star: Star,
+    /// Derived: the flag colour of the newest starred message, red when none is. Added after
+    /// the first release, so a summary written before it reads back red.
+    #[serde(default)]
+    pub flag: Hue,
     /// Derived: the union over messages. A thread is not in one place.
     pub mailboxes: MailboxSet,
     /// Derived: the union over messages, deduplicated.
@@ -191,6 +201,7 @@ impl ThreadSummary {
         let mut labels: Vec<LabelId> = Vec::new();
         let mut read = ReadState::Read;
         let mut star = Star::Unstarred;
+        let mut flag = Hue::Red;
         let mut attachments: usize = 0;
 
         for m in &order {
@@ -218,8 +229,10 @@ impl ThreadSummary {
             if m.read == ReadState::Unread {
                 read = ReadState::Unread;
             }
+            // Oldest first, so the newest starred message's colour is the one left standing.
             if m.star == Star::Starred {
                 star = Star::Starred;
+                flag = m.flag;
             }
             // Files, not the images an HTML body embeds: a paperclip on every newsletter would be
             // a paperclip nobody could find a file behind.
@@ -245,6 +258,7 @@ impl ThreadSummary {
             message_count: u32::try_from(messages.len()).unwrap_or(u32::MAX),
             read,
             star,
+            flag,
             mailboxes: order.iter().map(|m| m.mailbox).collect(),
             labels,
             attachments: Attachments::of(u32::try_from(attachments).unwrap_or(u32::MAX)),
@@ -253,6 +267,46 @@ impl ThreadSummary {
             mute,
             follow_up,
         }
+    }
+}
+
+/// What the list sorts a conversation by beyond its summary, every one decided by the newest
+/// message, as the summary's sender and date are: a conversation is where its latest mail left
+/// it, so its row sorts by what that mail says, how it names its sender and how large it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SortFacts {
+    /// The newest message's subject as threading compares subjects
+    /// ([`crate::threading::sort_subject`]).
+    pub subject: String,
+    /// The newest message's sender as a row names it, lowercased.
+    pub sender: String,
+    /// The newest message's bytes: its text and every part it carries ([`Message::size`]).
+    pub size: u64,
+}
+
+impl SortFacts {
+    /// The facts of a thread of `messages`, or `None` for no messages. The newest is the one
+    /// [`ThreadSummary::derive`] takes: the latest date, and of two at that date the later in
+    /// `messages`.
+    pub fn of(messages: &[Message]) -> Option<SortFacts> {
+        let newest = messages.iter().max_by_key(|m| m.date)?;
+        Some(SortFacts {
+            subject: crate::threading::sort_subject(&newest.subject),
+            sender: newest.from.shown().to_lowercase(),
+            size: newest.size(),
+        })
+    }
+}
+
+impl Message {
+    /// How large the message is, as the list sorts by it: the bytes of its text, and each part
+    /// it carries at the size the part says, whether held or still on the server.
+    ///
+    /// Not the raw message's bytes. Those are a blob only the SQLite store holds, absent for a
+    /// header fetch, and short by every attachment a large IMAP message left on the server; this
+    /// is the same in both stores and in SQL (migration 0041).
+    pub fn size(&self) -> u64 {
+        crate::filter::message_size(self)
     }
 }
 

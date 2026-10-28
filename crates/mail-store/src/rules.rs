@@ -29,6 +29,22 @@ pub struct Ran {
     pub examined: usize,
     /// Messages that arrived in a muted conversation and were kept out of the inbox.
     pub muted: Vec<MessageId>,
+    /// What rules asked of a message that a store cannot do: send mail about it, or raise a
+    /// notification ([`RuleAction::speaks`]). The caller carries them out, in order.
+    pub left: Vec<Left>,
+}
+
+/// One thing a rule asked of a message that only a running client can do, with what the rule
+/// says about doing it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Left {
+    pub message: MessageId,
+    pub action: RuleAction,
+    pub rule: mail_domain::RuleId,
+    /// When the rule was made: it sends only for mail dated after.
+    pub made: DateTime<Utc>,
+    /// For a Reply, the days it leaves between two answers to one sender.
+    pub reply_days: u32,
 }
 
 impl Ran {
@@ -37,6 +53,7 @@ impl Ran {
         self.queued += other.queued;
         self.examined += other.examined;
         self.muted.extend(other.muted);
+        self.left.extend(other.left);
     }
 }
 
@@ -75,7 +92,7 @@ pub fn at_arrival<S: Store + ?Sized>(
         }
         let id = message.id;
         if !ordered.is_empty() {
-            ran.absorb(act(store, caps, &ordered, message, now)?);
+            ran.absorb(act(store, caps, &ordered, message, Speaking::Yes, now)?);
         }
         ran.absorb(muted(store, caps, id, now)?);
     }
@@ -118,16 +135,29 @@ pub fn muted<S: Store + ?Sized>(
     Ok(ran)
 }
 
-/// Run one rule over the mail already on an account, `batch` conversations at a time, calling
+/// Whether a run carries out the actions that send mail or raise a notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Speaking {
+    /// Mail arriving, or messages the user picked: what such an action is for.
+    Yes,
+    /// The mail already here, in bulk: a forward of every old invoice, or a notification for
+    /// each, is never what "apply it to what's here" meant.
+    No,
+}
+
+/// Run one rule over the mail already on an account and within `within` (everything is
+/// [`Filter::All`], a folder is [`Filter::InFolder`]), `batch` conversations at a time, calling
 /// `progress` after each batch with what it did.
 ///
 /// The rule runs whether or not it is enabled: being asked to is the point. Mail in Sent,
 /// Drafts, Trash and Spam is left alone — the user's own mail, and mail already thrown away, is
 /// not what "file what matches" means, and running a rule over Trash would bring it back out.
+/// Its actions that send or notify are left out ([`RuleAction::speaks`]).
 pub fn run_now<S: Store + ?Sized>(
     store: &S,
     caps: &AccountCaps,
     chosen: &Rule,
+    within: &Filter,
     batch: u32,
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Ran),
@@ -143,7 +173,10 @@ pub fn run_now<S: Store + ?Sized>(
     loop {
         let page = store.threads(
             &Query {
-                filter: Filter::Account(chosen.account.clone()),
+                filter: Filter::And(vec![
+                    Filter::Account(chosen.account.clone()),
+                    within.clone(),
+                ]),
                 sort: Sort {
                     property: Property::Date,
                     dir: SortDir::Desc,
@@ -169,7 +202,7 @@ pub fn run_now<S: Store + ?Sized>(
                 ) {
                     continue;
                 }
-                ran.absorb(act(store, caps, &only, message, now)?);
+                ran.absorb(act(store, caps, &only, message, Speaking::No, now)?);
             }
         }
         progress(&ran);
@@ -181,6 +214,37 @@ pub fn run_now<S: Store + ?Sized>(
     }
 }
 
+/// Run the account's enabled rules, in order, over messages the user picked: Mail's Apply
+/// Rules. Every action is carried out, those that send or notify included unless `speaking` is
+/// [`Speaking::No`], as they would be had the messages just arrived. Messages on another account, or gone, are skipped.
+pub fn apply_to<S: Store + ?Sized>(
+    store: &S,
+    account: AccountId,
+    caps: &AccountCaps,
+    picked: &[MessageId],
+    speaking: Speaking,
+    now: DateTime<Utc>,
+) -> Result<Ran, StoreError> {
+    let rules = store.rules(account.clone())?;
+    let ordered = rule::ordered(&rules);
+    let mut ran = Ran::default();
+    if ordered.is_empty() {
+        return Ok(ran);
+    }
+    for id in picked {
+        let message = match store.message(*id) {
+            Ok(message) => message,
+            Err(StoreError::NoMessage(_)) => continue,
+            Err(e) => return Err(e),
+        };
+        if message.account != account {
+            continue;
+        }
+        ran.absorb(act(store, caps, &ordered, message, speaking, now)?);
+    }
+    Ok(ran)
+}
+
 /// Run `rules`, already in order, over one message.
 ///
 /// Each rule is tested against the message as the rules before it left it, as a Sieve script
@@ -190,6 +254,7 @@ fn act<S: Store + ?Sized>(
     caps: &AccountCaps,
     rules: &[&Rule],
     mut message: Message,
+    speaking: Speaking,
     now: DateTime<Utc>,
 ) -> Result<Ran, StoreError> {
     let mut ran = Ran {
@@ -197,6 +262,8 @@ fn act<S: Store + ?Sized>(
         ..Ran::default()
     };
     let mut fired = Vec::new();
+    // As the list is now, for `is:vip`: a rule follows it, and keeps nobody it was saved with.
+    let vips: Vec<String> = store.vips()?.into_iter().map(|vip| vip.address).collect();
     for rule in rules {
         let summary = one_message(&message);
         let corpus = match &message.body {
@@ -206,10 +273,14 @@ fn act<S: Store + ?Sized>(
         // Its own addresses, re-read after each rule: a rule that files it elsewhere takes it
         // out of `InFolder` for the rules after, as it takes it out of a folder view.
         let folders = store.placed(message.id)?;
+        let sizes = [mail_domain::filter::message_size(&message)];
         let ctx = MatchCtx {
             summary: &summary,
             corpus,
             folders: &folders,
+            sizes: &sizes,
+            cc: &message.cc,
+            vips: &vips,
             now,
         };
         if !rule.fits(&ctx) {
@@ -217,7 +288,21 @@ fn act<S: Store + ?Sized>(
         }
         fired.push(rule.name.clone());
         for action in &rule.actions {
-            let op = op_for(store, message.account.clone(), action)?;
+            if action.speaks() {
+                if speaking == Speaking::Yes {
+                    ran.left.push(Left {
+                        message: message.id,
+                        action: action.clone(),
+                        rule: rule.id,
+                        made: rule.made,
+                        reply_days: rule.reply_days,
+                    });
+                }
+                continue;
+            }
+            let Some(op) = op_for(store, message.account.clone(), action)? else {
+                continue;
+            };
             ran.queued += perform(store, caps, &op, &message, now)?;
             message = store.message(message.id)?;
         }
@@ -231,13 +316,14 @@ fn act<S: Store + ?Sized>(
     Ok(ran)
 }
 
-/// The operation an action means, with any label it names found or made.
+/// The operation an action means, with any label it names found or made; `None` for one that
+/// is not an operation on the message ([`RuleAction::speaks`]).
 fn op_for<S: Store + ?Sized>(
     store: &S,
     account: AccountId,
     action: &RuleAction,
-) -> Result<Op, StoreError> {
-    Ok(match action {
+) -> Result<Option<Op>, StoreError> {
+    Ok(Some(match action {
         RuleAction::Label(name) => Op::Label(
             label_named(store, account, name, LabelOrigin::User)?,
             Membership::In,
@@ -251,14 +337,16 @@ fn op_for<S: Store + ?Sized>(
         RuleAction::Spam => Op::Spam,
         RuleAction::MarkRead => Op::SetRead(ReadState::Read),
         RuleAction::Star => Op::SetStar(Star::Starred),
-    })
+        RuleAction::MarkUnread => Op::SetRead(ReadState::Unread),
+        RuleAction::Notify | RuleAction::Forward(_) | RuleAction::Reply(_) => return Ok(None),
+    }))
 }
 
 /// The label called `name` on the account, created with `origin` if there is none.
 ///
 /// The exact name first, then the same name in another case — a rule written `bills` should
 /// find the `Bills` label rather than make a second one beside it.
-fn label_named<S: Store + ?Sized>(
+pub fn label_named<S: Store + ?Sized>(
     store: &S,
     account: AccountId,
     name: &str,
@@ -290,8 +378,9 @@ fn label_named<S: Store + ?Sized>(
 }
 
 /// Apply `op` to one message and queue what the server must hear. Returns how many operations
-/// were queued: none when the op changed nothing, or the server has nothing to be told.
-fn perform<S: Store + ?Sized>(
+/// were queued: none when the op changed nothing, or the server has nothing to be told. Public
+/// for a caller that decides about a message the way a rule does, such as the junk filter.
+pub fn perform<S: Store + ?Sized>(
     store: &S,
     caps: &AccountCaps,
     op: &Op,

@@ -110,8 +110,8 @@ impl Opener {
 fn handed_to_window(shown: &Shown, token: Option<&str>) -> bool {
     let profile = crate::edge::profile();
     mail_core::off_runtime(|| match shown {
-        Shown::Thread(thread) => crate::handoff::deliver(profile.id(), *thread, token),
-        Shown::Mailto(link) => crate::handoff::deliver_mailto(profile.id(), link, token),
+        Shown::Thread(thread) => mail_ui::handoff::deliver(profile.id(), *thread, token),
+        Shown::Mailto(link) => mail_ui::handoff::deliver_mailto(profile.id(), link, token),
     })
 }
 

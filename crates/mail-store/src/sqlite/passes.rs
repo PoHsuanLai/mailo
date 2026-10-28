@@ -3,6 +3,7 @@
 use super::SqliteStore;
 use super::row::{from_time, time};
 use crate::StoreError;
+use crate::changes::Topics;
 use crate::passes::{PassFailed, Passes};
 use chrono::{DateTime, Utc};
 use porter_core::AccountId;
@@ -13,7 +14,7 @@ impl SqliteStore {
     /// that, and any failure recorded before it is over. An account the store does not hold is
     /// not recorded.
     pub fn pass_finished(&self, account: AccountId, at: DateTime<Utc>) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::ACCOUNTS).execute(
             "INSERT INTO account_passes (account, finished_at)
              SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM accounts WHERE id = ?1)
              ON CONFLICT (account) DO UPDATE
@@ -31,7 +32,7 @@ impl SqliteStore {
         at: DateTime<Utc>,
         why: &str,
     ) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::ACCOUNTS).execute(
             "INSERT INTO account_passes (account, failed_at, failed_why)
              SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM accounts WHERE id = ?1)
              ON CONFLICT (account) DO UPDATE

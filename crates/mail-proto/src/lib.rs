@@ -6,6 +6,7 @@
 //! returns what it needs next; `mail-runtime` owns the loop that satisfies those needs. Tests
 //! are byte transcripts — see `tests/traces/FORMAT.md`.
 
+pub mod automatic_replies;
 pub mod backend;
 pub mod diagnose;
 pub mod error;
@@ -14,6 +15,7 @@ pub mod jmap;
 pub mod machine;
 pub mod mutf7;
 pub mod pop3;
+pub mod quota;
 pub mod search;
 pub mod sieve;
 pub mod smtp;
@@ -22,10 +24,11 @@ pub use diagnose::{Diagnosis, diagnose, diagnose_text};
 pub use error::{ProtoError, Refusal};
 pub use imap::{
     Access, Completed, ImapAuth, ImapCommand, ImapSession, ImapTranscript, Resume, Untagged,
-    has_capability,
+    has_capability, lacks_capability,
 };
 pub use machine::{Backend, IoNeed, IoReady, Machine, Moved, Progress, ProtoOutcome};
 pub use pop3::{ListEntry, Pop3Command, Pop3Reply, Pop3Session, UidlEntry};
+pub use quota::Storage;
 pub use smtp::{
     Advertised, Authentication, EhloExtensions, Open, ReplyText, SignIn, SizeLimit, SmtpReply,
     SmtpSession, Submission,

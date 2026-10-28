@@ -2,8 +2,6 @@
 //! OpenPGP and S/MIME make of it. The two files differ in the account, the clock, and the one
 //! field of the draft that asks for sealing; the rest is written here once.
 
-#![allow(dead_code)]
-
 use chrono::{DateTime, Utc};
 use mail_app::cli;
 use mail_core::compose;

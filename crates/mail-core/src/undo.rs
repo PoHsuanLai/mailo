@@ -10,7 +10,7 @@
 use crate::when::Clock;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
-    Change, DraftId, FolderWork, FollowUp, LabelId, MailboxRole, Membership, MessageId, Mute,
+    Change, DraftId, FolderWork, FollowUp, Hue, LabelId, MailboxRole, Membership, MessageId, Mute,
     NonEmpty, Op, Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
 };
 use porter_core::AccountId;
@@ -42,11 +42,13 @@ pub struct Undo {
     pub resend: Option<Resend>,
 }
 
-/// A send held for a time, taken back: the draft, and when it was to leave.
+/// A send held for a time, taken back: the draft, when it was to leave, and how large its pictures
+/// were to be sent, which the draft itself does not keep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Resend {
     pub draft: DraftId,
     pub at: DateTime<Utc>,
+    pub pictures: crate::compose::PictureSize,
 }
 
 /// Which entry of the stack an undo means: what the toast carries back when it is pulled, so
@@ -107,6 +109,7 @@ impl UndoStack {
             patch.changes.iter().any(|change| match change {
                 Change::MessageRead(m, _)
                 | Change::MessageStar(m, _)
+                | Change::MessageFlag(m, _)
                 | Change::MessageMailbox(m, _)
                 | Change::MessageLabel(m, _, _)
                 | Change::MessageDelete(m) => messages.contains(m),
@@ -165,7 +168,11 @@ pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<R
                 .max_by_key(|(_, ids)| ids.len())
                 .map(|(role, messages)| RemoteIntent::SetMailbox { messages, role })
         }
+        RemoteIntent::SetFlag { messages, hue } => reverse_flag(messages, *hue, inverse),
         RemoteIntent::SetFlags { .. } => {
+            if let Some(coloured) = recolour(inverse) {
+                return Some(coloured);
+            }
             let mut messages = Vec::new();
             let mut read: Option<ReadState> = None;
             let mut star: Option<Star> = None;
@@ -221,14 +228,90 @@ pub(crate) fn reverse_intent(remote: &RemoteIntent, inverse: &Patch) -> Option<R
         // The undo puts it back here; a filing the server has been sent stays filed there, and
         // one still waiting is taken out of the outbox by the window's undo (`ui::ops`).
         //
+        // Nor a copy, for the same reason: the copy's address arrives with that folder's next
+        // sync, or with the server's answer. The undo takes it out of the folder here, and one
+        // still waiting is taken out of the outbox as a filing is; a copy the server has made
+        // is not taken back at all (`crate::act::take_back` refuses it), or the next sync would
+        // put it back in the folder.
+        //
         // Nor, above all, a deletion forever: the server's copy is gone once it is sent, and
         // the window never offers one an undo (`crate::destroy`).
+        //
+        // A draft's copy on the server follows the draft, which has undo of its own: a discard
+        // taken back puts the draft here, and its next save puts a copy there again.
         RemoteIntent::Send { .. }
         | RemoteIntent::AddKeyword { .. }
         | RemoteIntent::Append { .. }
         | RemoteIntent::File { .. }
-        | RemoteIntent::Destroy { .. } => None,
+        | RemoteIntent::Copy { .. }
+        | RemoteIntent::Destroy { .. }
+        | RemoteIntent::KeepDraft { .. }
+        | RemoteIntent::DropDraft { .. } => None,
     }
+}
+
+/// What a flag in `hue` on `messages` was before, said to the server: each message as its own
+/// star and colour in `inverse` say, or as flagged in `hue` where they say nothing.
+///
+/// One intent carries one state. An undo that leaves messages in several (a thread with one red
+/// flag flagged orange) goes back by the largest, as an undone archive does.
+fn reverse_flag(messages: &[MessageId], hue: Hue, inverse: &Patch) -> Option<RemoteIntent> {
+    let mut by_state: BTreeMap<Option<Hue>, Vec<MessageId>> = BTreeMap::new();
+    for message in messages {
+        let unflagged = inverse.changes.iter().any(
+            |change| matches!(change, Change::MessageStar(id, Star::Unstarred) if id == message),
+        );
+        let was = inverse.changes.iter().find_map(|change| match change {
+            Change::MessageFlag(id, before) if id == message => Some(*before),
+            _ => None,
+        });
+        let state = (!unflagged).then_some(was.unwrap_or(hue));
+        by_state.entry(state).or_default().push(*message);
+    }
+    let (state, messages) = by_state.into_iter().max_by_key(|(_, ids)| ids.len())?;
+    Some(match state {
+        Some(hue) => RemoteIntent::SetFlag { messages, hue },
+        None => RemoteIntent::SetFlags {
+            messages,
+            read: None,
+            star: Some(Star::Unstarred),
+        },
+    })
+}
+
+/// An unflagging undone, where a flag had a colour: the server took the colour away with the
+/// flag, so the flag goes back in its colour rather than plain. One intent carries one colour,
+/// so a mixed set goes back by the colour most of them wore; red is plain `\Flagged` and wins a
+/// tie. `None` where red is the most: the plain star restores those, and the colour of the few
+/// that wore another is the one thing the undo cannot give back in the same breath.
+fn recolour(inverse: &Patch) -> Option<RemoteIntent> {
+    let mut wore: BTreeMap<MessageId, Hue> = BTreeMap::new();
+    let mut starred: Vec<MessageId> = Vec::new();
+    for change in &inverse.changes {
+        match change {
+            Change::MessageFlag(id, hue) => {
+                wore.insert(*id, *hue);
+            }
+            Change::MessageStar(id, Star::Starred) => starred.push(*id),
+            _ => {}
+        }
+    }
+    for id in wore.keys() {
+        if !starred.contains(id) {
+            starred.push(*id);
+        }
+    }
+    let mut by_hue: BTreeMap<Hue, Vec<MessageId>> = BTreeMap::new();
+    for id in starred {
+        by_hue
+            .entry(wore.get(&id).copied().unwrap_or(Hue::Red))
+            .or_default()
+            .push(id);
+    }
+    let (hue, messages) = by_hue
+        .into_iter()
+        .max_by_key(|(hue, ids)| (ids.len(), *hue == Hue::Red))?;
+    (hue != Hue::Red).then_some(RemoteIntent::SetFlag { messages, hue })
 }
 
 /// The folder work that takes `work` back on the server.
@@ -280,6 +363,7 @@ where
         Op::SetRead(ReadState::Unread) => "Marked unread".to_owned(),
         Op::SetStar(Star::Starred) => "Starred".to_owned(),
         Op::SetStar(Star::Unstarred) => "Unstarred".to_owned(),
+        Op::Flag(hue) => format!("Flagged {hue}"),
         Op::Label(_, Membership::In) => "Labelled".to_owned(),
         Op::Label(_, Membership::Out) => "Label removed".to_owned(),
         Op::SetSnooze(Snooze::Until(at)) => format!("Snoozed until {}", when(*at, zone, clock)),
@@ -294,6 +378,7 @@ where
         Op::SetFollowUp(FollowUp::Returned { .. }) => "No reply yet".to_owned(),
         Op::SetFollowUp(FollowUp::Inactive) => "Reminder cleared".to_owned(),
         Op::File(_) => "Moved to folder".to_owned(),
+        Op::Copy(_) => "Copied to folder".to_owned(),
         Op::Destroy => "Deleted forever".to_owned(),
     }
 }

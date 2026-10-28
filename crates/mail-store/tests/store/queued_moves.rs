@@ -299,6 +299,7 @@ fn a_send_is_dispatched_exactly_as_it_was_queued() {
             raw: BlobId::generate(),
             mail_from: "me@example.test".to_owned(),
             rcpt_to: vec!["ada@example.test".to_owned()],
+            delivery: mail_domain::DeliveryReport::Unrequested,
         };
         let id = queue(store, intent);
         let queued = store
@@ -624,4 +625,60 @@ fn where_a_move_filed_a_message_it_did_not_place_is_told() {
     });
     assert_eq!(sqlite, memory);
     assert_eq!(sqlite, (None, Some("Archive".to_owned())));
+}
+
+/// The thread id a server gave a message is held against its address, so it follows the message
+/// when the address changes and goes when the address means nothing any more.
+#[test]
+fn a_held_thread_id_follows_its_message_and_goes_with_its_address() {
+    let store = sqlite();
+    let m = message(1);
+    let mut batch = ingest("INBOX");
+    batch.messages.push(Fetched {
+        remote: imap("INBOX", 5),
+        key: m.key.clone(),
+        raw: BlobId::generate(),
+        message: m.clone(),
+    });
+    batch
+        .provider_threads
+        .push((imap("INBOX", 5), "thr-1".to_owned()));
+    store.ingest(acct_account(), batch).unwrap();
+    let joined = |store: &SqliteStore| {
+        store
+            .thread_by_provider_thread(acct_account(), "thr-1")
+            .unwrap()
+    };
+    assert_eq!(joined(&store), Some(m.thread));
+
+    // Moved: a message that names the thread id still joins the conversation.
+    store
+        .remap(acct_account(), &imap("INBOX", 5), &imap("Archive", 9))
+        .unwrap();
+    assert_eq!(joined(&store), Some(m.thread), "after a remap");
+    assert_eq!(
+        store
+            .provider_thread_of(acct_account(), &imap("Archive", 9))
+            .unwrap()
+            .as_deref(),
+        Some("thr-1")
+    );
+    assert_eq!(
+        store
+            .provider_thread_of(acct_account(), &imap("INBOX", 5))
+            .unwrap(),
+        None
+    );
+
+    // The mailbox is renumbered: nothing held for it names anything.
+    let mut reset = ingest("Archive");
+    reset.validity = UidValidity::Reset;
+    store.ingest(acct_account(), reset).unwrap();
+    assert_eq!(
+        store
+            .provider_thread_of(acct_account(), &imap("Archive", 9))
+            .unwrap(),
+        None,
+        "after a reset"
+    );
 }

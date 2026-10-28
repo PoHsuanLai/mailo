@@ -2,21 +2,27 @@
 //! around it; a Space's name opens the Space's menu only on a right click, where Edit Space… asks
 //! for its page in Settings and Delete Space… asks first, Escape keeping the Space; a folder's
 //! rename ends with Escape, or by going to another folder, writing nothing; a hidden sidebar
-//! comes back from the head of the list.
+//! comes back from the head of the list. Two fingers moving sideways over the sidebar go to the
+//! Space beside this one, one a gesture; moving down they scroll its lists, as before. Copy to…
+//! puts a conversation in a folder of its account and leaves it where it was, so both list it,
+//! and Ctrl-Z takes the copy back.
 
+use ds::base::geometry::units::Px;
 use ds::base::press::PointerButton;
-use mail_app::ui::appearance::WindowDirs;
-use mail_app::ui::copy;
-use mail_app::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
-use mail_app::ui::space::{self, Mail};
+use ds::host::gesture::GesturePhase;
+use ds_harness::Input;
 use mail_core::{SqliteStore, Store};
-use mail_domain::{Folder, Holds, Subscription, presets};
+use mail_domain::{AccountCaps, ArchiveMeans, Folder, Holds, ProtoOp, Subscription, presets};
+use mail_ui::ui::appearance::WindowDirs;
+use mail_ui::ui::copy;
+use mail_ui::ui::native::{OpenSettings, SettingsAt, SettingsWindows};
+use mail_ui::ui::space::{self, Mail};
 use std::sync::{Arc, Mutex};
 
-use super::drive::{Drive, Key};
-use super::hands::menu_item;
-use super::row_menu::menu_names;
-use super::window::{Window, account, ms};
+use super::drive::{Drive, Key, PRIMARY};
+use super::hands::{menu_item, ms, text};
+use super::row_menu::{menu_names, row_action};
+use super::window::{INBOX, Window, account, row_of};
 use crate::lanes::seed::ME;
 
 /// A folder of the account's, and another beside it.
@@ -175,18 +181,14 @@ fn the_sidebar_s_tiles_spaces_and_folders_answer_their_menus() {
     window.press(&[], Key::Escape, 1);
     window.until("the menu goes", |h| h.count(".ds-menu") == 0);
 
-    // A folder's rename, begun from its ⋯: Escape ends it, and so does going to another folder,
-    // and neither writes the name.
+    // A folder's rename, begun from its menu: Escape ends it, and so does going to another
+    // folder, and neither writes the name.
     let renaming = format!(
         ".ds-row input[*|aria-label=\"{}\"]",
         copy::fields::FOLDER_NAME
     );
     let begin = |window: &mut Window| {
-        let more = format!("[*|aria-label=\"{}\"]", copy::aria::actions_for(PROJECTS));
-        let at = window.centre(&more);
-        window.harness.pointer_move(at);
-        window.harness.advance(ms(300));
-        window.click(&more);
+        right_click(window, &format!(".ds-row[*|data-place=\"{PROJECTS}\"]"));
         menu_item(&mut window.harness, copy::menus::RENAME);
         window.until("the rename field has its name selected", |h| {
             h.count(".ds-menu") == 0
@@ -230,4 +232,235 @@ fn the_sidebar_s_tiles_spaces_and_folders_answer_their_menus() {
     window.until("the sidebar comes back", |h| {
         h.count(&show) == 0 && h.rect(".side").is_some_and(|r| r.size.width.0 > 100.0)
     });
+}
+
+/// The sidebar's head, which names the Space on screen.
+const SPACE_HEAD: &str = ".side .ds-space-head";
+
+/// The name of the Space on screen, as the sidebar's head says it.
+fn space_on_screen(window: &Window) -> String {
+    window.text(SPACE_HEAD)
+}
+
+/// Two fingers moving `dx`, `dy` a frame over the sidebar's lists, `frames` times, then the hand
+/// still for long enough that the next gesture is a new one.
+fn swipe(window: &mut Window, dx: f32, dy: f32, frames: usize) {
+    let at = window.centre(".side .slide");
+    for _ in 0..frames {
+        window.harness.wheel(at, Px(dx), Px(dy));
+        window.harness.advance(ms(16));
+    }
+    window.harness.advance(ms(400));
+}
+
+#[test]
+fn a_sideways_swipe_over_the_sidebar_moves_one_space_and_a_scroll_down_does_not() {
+    let ids = Arc::new(Mutex::new(Vec::new()));
+    let mut window = Window::open_with(chrono::Utc::now(), with_folders, {
+        let ids = Arc::clone(&ids);
+        move |dir, contexts| {
+            let two = space::built(
+                (1..=2)
+                    .map(|n| {
+                        let look = ds::prelude::SpaceLook::default();
+                        (format!("Space {n}"), look, Mail::of(vec![account()]))
+                    })
+                    .collect(),
+                0,
+            );
+            *ids.lock().unwrap_or_else(|e| e.into_inner()) =
+                two.list().iter().map(|space| space.id).collect();
+            let dirs = WindowDirs {
+                config: dir.join("config"),
+                state: dir.join("state"),
+            };
+            space::save(Some(&dirs), &two).expect("the Spaces are written");
+            contexts
+        }
+    });
+    let ids = ids.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let stored = |window: &Window| space::stored(&window.dirs()).map(|spaces| spaces.current().id);
+    assert_eq!(space_on_screen(&window), "Space 1");
+
+    // Down, and down with a drift sideways: the lists', never a switch.
+    swipe(&mut window, 0.0, -30.0, 12);
+    swipe(&mut window, -4.0, -30.0, 12);
+    assert_eq!(
+        space_on_screen(&window),
+        "Space 1",
+        "a scroll down switched"
+    );
+
+    // Towards the left, before the first Space: it stretches and stays.
+    swipe(&mut window, 30.0, 0.0, 12);
+    assert_eq!(
+        space_on_screen(&window),
+        "Space 1",
+        "a Space before the first"
+    );
+
+    // The content carried to the left, a long swipe with its momentum after: the next Space,
+    // and only that one, as a click on its dot would.
+    swipe(&mut window, -30.0, 0.0, 40);
+    window.until("the swipe switches", |h| text(h, SPACE_HEAD) == "Space 2");
+    assert_eq!(
+        stored(&window),
+        ids.get(1).copied(),
+        "the switch was not kept"
+    );
+    assert_eq!(
+        window.harness.count(".side .slide.a-slide-r"),
+        1,
+        "it slides in from the right"
+    );
+
+    // And back again, the other way.
+    swipe(&mut window, 30.0, 0.0, 12);
+    window.until("the swipe back switches", |h| {
+        text(h, SPACE_HEAD) == "Space 1"
+    });
+    assert_eq!(stored(&window), ids.first().copied());
+    assert_eq!(window.harness.count(".side .slide.a-slide-l"), 1);
+    // At rest, nothing is carried.
+    assert_eq!(window.harness.count(".side [*|data-swipe]"), 0);
+}
+
+/// Fingers touching down outside the sidebar while a swipe's momentum is still running end that
+/// swipe: what follows is the list's own scroll, which never switches a Space.
+#[test]
+fn fingers_down_elsewhere_end_a_swipe_the_momentum_would_have_switched() {
+    let mut window = Window::open_with(chrono::Utc::now(), with_folders, |dir, contexts| {
+        let two = space::built(
+            (1..=2)
+                .map(|n| {
+                    let look = ds::prelude::SpaceLook::default();
+                    (format!("Space {n}"), look, Mail::of(vec![account()]))
+                })
+                .collect(),
+            0,
+        );
+        let dirs = WindowDirs {
+            config: dir.join("config"),
+            state: dir.join("state"),
+        };
+        space::save(Some(&dirs), &two).expect("the Spaces are written");
+        contexts
+    });
+    assert_eq!(space_on_screen(&window), "Space 1");
+    let side = window.centre(".side .slide");
+    let elsewhere = window.centre(".list");
+    // A short swipe over the sidebar, not yet far enough to switch.
+    for phase in [
+        GesturePhase::Began,
+        GesturePhase::Changed,
+        GesturePhase::Changed,
+    ] {
+        window
+            .harness
+            .send(Input::fingers(side, Px(-6.0), Px(0.0), phase));
+        window.harness.advance(ms(16));
+    }
+    // New fingers elsewhere, and the sideways run that would have carried the old swipe over.
+    window.harness.send(Input::fingers(
+        elsewhere,
+        Px(0.0),
+        Px(0.0),
+        GesturePhase::Began,
+    ));
+    for _ in 0..30 {
+        window.harness.send(Input::fingers(
+            elsewhere,
+            Px(-30.0),
+            Px(0.0),
+            GesturePhase::Changed,
+        ));
+        window.harness.advance(ms(16));
+    }
+    window.harness.advance(ms(400));
+    assert_eq!(
+        space_on_screen(&window),
+        "Space 1",
+        "fingers down elsewhere did not end the swipe"
+    );
+}
+
+/// [`with_folders`], once a sync has found the account's server files into folders: a copy into
+/// one is something the server is told.
+fn filing_into_folders(store: &SqliteStore) {
+    with_folders(store);
+    let caps = AccountCaps {
+        archive: ArchiveMeans::MoveToFolder("Archive".to_owned()),
+        ..mail_core::sync::caps_of(store, account()).expect("the capabilities")
+    };
+    store
+        .put_caps(account(), &caps, chrono::Utc::now())
+        .expect("the capabilities");
+}
+
+/// The copies waiting for the server, by folder.
+fn copies(window: &Window) -> Vec<String> {
+    let far = chrono::Utc::now() + chrono::Duration::days(3650);
+    window
+        .store
+        .outbox_due(account(), far)
+        .expect("the outbox reads")
+        .into_iter()
+        .filter_map(|entry| match entry.op {
+            ProtoOp::Copy { folder, .. } => Some(folder),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn copy_to_lists_a_conversation_in_the_folder_and_where_it_was_and_undo_takes_the_copy_back() {
+    let mut window = Window::open(filing_into_folders);
+    let subject = INBOX[1].1;
+    window.until("the inbox lists it", |h| row_of(h, subject).is_some());
+    let inbox = window.subjects();
+
+    // Copy to…, from the row's menu: the account's own folders, under its address.
+    let row = format!(
+        ".list .ds-list-item[*|aria-posinset=\"{}\"]",
+        row_of(&window.harness, subject).unwrap_or_default()
+    );
+    row_action(&mut window.harness, &row, copy::menus::COPY_TO);
+    window.until("Copy to offers the account's folders", |h| {
+        h.count(".ds-pick-list") == 1 && h.count(".ds-pick-list-rows .ds-row") == 2
+    });
+    let offered = window.text(".ds-pick-list");
+    assert!(
+        offered.contains(&copy::menus::copy_within(ME)),
+        "it does not say whose folders these are: {offered}"
+    );
+    window.type_text(&format!("{PROJECTS}\n"));
+    window.until("the copy is queued and the picker gone", |h| {
+        h.count(".ds-pick-list") == 0
+    });
+    assert_eq!(
+        copies(&window),
+        [PROJECTS],
+        "the server was not asked to copy it"
+    );
+    assert_eq!(
+        window.subjects(),
+        inbox,
+        "the copy took it out of the inbox"
+    );
+
+    // Projects lists it now, beside the inbox.
+    window.click(&format!(".ds-row[*|data-place=\"{PROJECTS}\"]"));
+    window.until("Projects lists the copy", |h| {
+        row_of(h, subject).is_some() && h.count(".list .ds-list-item") == 1
+    });
+
+    // Ctrl-Z: out of Projects, and the server never hears of it.
+    window.press(&[PRIMARY], Key::Char('z'), 1);
+    window.until("the undo takes it out of Projects", |h| {
+        row_of(h, subject).is_none()
+    });
+    assert!(
+        copies(&window).is_empty(),
+        "the copy is still queued after its undo"
+    );
 }

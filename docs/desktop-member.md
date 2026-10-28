@@ -21,7 +21,7 @@ hand must not restart in a loop.
 | To | How | Where |
 | --- | --- | --- |
 | The notification server | `org.freedesktop.Notifications.Notify`: app name `mailo`, icon `mailo`, summary the sender, body the subject, action `default`, hints `category=email.arrived`, `desktop-entry=org.quire.Mail`, `x-mailo-thread`, `x-mailo-account` | `mail-core/src/notify/desktop.rs` |
-| The dock | `com.canonical.Unity.LauncherEntry.Update("application://org.quire.Mail.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-app/src/session.rs`, `ui/launcher/` |
+| The dock | `com.canonical.Unity.LauncherEntry.Update("application://org.quire.Mail.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-app/src/session.rs`, `mail-ui/src/launcher/` |
 
 With a watch running, the window leaves the launcher count to it (`mail_core::ipc::watching::running`):
 a dock forgets a count when its sender leaves the bus, so a count sent by a window would vanish when
@@ -172,7 +172,7 @@ The window and the watch would be two writers on one SQLite file, and two writer
 pass with `database is locked` (`busy_timeout` is five seconds). So where a watch runs
 (`mail_core::ipc::watching::running`, asked each time, since a watch may start or stop while a window
 is open) the window leaves scheduled fetching to it and keeps only what a person asks for
-(`ui/fetching/delegate.rs`):
+(`mail-ui/src/ui/fetching/delegate.rs`):
 
 | Event | With a watch | Without |
 | --- | --- | --- |
@@ -185,8 +185,8 @@ The last row is the watch's blind spot: it reads its accounts when it starts, so
 since is the window's to fetch the first time. A watch that stops hands fetching back within one
 interval, because the deferred poll is asked again and then runs.
 
-The mail the watch stores is not the window's doing. The window looks every two seconds at whether
+The mail the watch stores is not the window's doing. The client looks every two seconds at whether
 another connection has committed to the store (`SqliteStore::data_version`, SQLite's
-`PRAGMA data_version`, which its own writes do not move) and moves its revision when one has, so a
-list redraws when the watchwrote.
+`PRAGMA data_version`, which its own writes do not move) and says the store moved when one has, so
+a list redraws when the watch wrote.
 

@@ -5,7 +5,8 @@
 
 use crate::RuntimeError;
 use crate::error::Failure;
-use porter_core::{Credential, UnixSeconds};
+use porter_core::Credential;
+use porter_ids::UnixSeconds;
 use porter_oauth::{
     ExchangeFailure, ExchangeFault, LoopbackFault, LoopbackServer, Pkce, RedirectPath,
     authorize_url, exchange_code_scoped_detailed, redeem_scope,
@@ -27,7 +28,8 @@ pub(crate) fn exchange_fault(what: &str, fault: ExchangeFault) -> RuntimeError {
         ExchangeFault::Unreachable => {
             RuntimeError::Connect(Failure::said(format!("{what}: token endpoint unreachable")))
         }
-        ExchangeFault::Unreadable => RuntimeError::Connect(Failure::said(format!(
+        // Unreadable, and a fault this build does not know, which is read as the same.
+        _ => RuntimeError::Connect(Failure::said(format!(
             "{what}: the token endpoint answered unreadably"
         ))),
     }
@@ -138,7 +140,7 @@ pub async fn sign_in_told(
             LoopbackFault::TimedOut => SignInFault::TimedOut,
             other => SignInFault::Unfinished(other),
         })?;
-    let http = crate::http::oauth_http().map_err(SignInFault::Failed)?;
+    let http = crate::http::oauth_http();
     let tokens = exchange_code_scoped_detailed(
         &http,
         &endpoints,

@@ -183,6 +183,7 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
         rfc_message_id: Some(key.clone()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -213,8 +214,10 @@ fn held(store: &SqliteStore, uid: u32, from: &str) -> MessageId {
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -468,6 +471,10 @@ async fn one_pass(port: u16, store: &Arc<SqliteStore>) -> AccountReport {
         plan: plan(port),
         caps: caps(),
         keep: mail_core::offline::Keep::Bodies,
+        every: mail_core::offline::Every::default(),
+        window: mail_core::offline::Window::default(),
+        remove: mail_core::offline::Remove::default(),
+        junk: mail_core::junk::Policy::default(),
     };
     let inbox = vec![MailboxRef {
         account: acct_account(),

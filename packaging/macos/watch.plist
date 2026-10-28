@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The launch agent behind Settings' "Check for mail when quit": `mailo watch` at each login.
+     `packaging/macos/bundle.sh` puts it in mailo.app as
+     Contents/Library/LaunchAgents/io.github.PoHsuanLai.mailo.watch.plist, where SMAppService finds
+     it (crates/mail-app/src/login_item.rs). It is started again after it fails, as the systemd unit
+     is. It is told to wait: one that finds another watch running (mailo.app's, until ⌘Q) waits to
+     take over rather than ending, since launchd would not start it again after a clean exit. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>io.github.PoHsuanLai.mailo.watch</string>
+	<key>BundleProgram</key>
+	<string>Contents/MacOS/mailo</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>mailo</string>
+		<string>watch</string>
+		<string>--wait</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>10</integer>
+	<key>Nice</key>
+	<integer>5</integer>
+</dict>
+</plist>

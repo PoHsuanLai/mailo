@@ -11,6 +11,7 @@
 //! the original's name.
 
 use crate::error::CoreError;
+use crate::rich_text::plain_to_flowed;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -57,15 +58,22 @@ pub fn draft_forward_attached(
 ) -> Result<Draft, CoreError> {
     let original = store.message(message)?;
     let raw = sent_bytes(store, &original)?;
-    let identity = identity_of(store, original.account.clone(), None)?;
+    let identity = identity_of(
+        store,
+        original.account.clone(),
+        super::answering(store, &original),
+    )?;
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
-    draft.text = signed(body, &identity);
+    let signature =
+        crate::signature::default_for(store, identity.id, mail_domain::SignatureUse::Replies)?;
+    draft.text = plain_to_flowed(&signed(body, signature.as_ref()));
     draft.attachments.push(PendingAttachment {
         name: eml_name(&original.subject),
         mime: ENCLOSED.to_owned(),
         blob: raw,
+        cid: None,
     });
     save(store, &draft)?;
     Ok(draft)
@@ -76,10 +84,7 @@ fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, CoreErro
     let Body::Present { raw, .. } = message.body else {
         return Err(CoreError::NotDownloaded);
     };
-    let bytes = store.blobs().get(raw)?;
-    if rebuilt(message, &bytes) {
-        return Err(CoreError::RebuiltFromParts);
-    }
+    let bytes = sent_bytes_of(store, message)?;
     let size = bytes.len() as u64;
     if size > ATTACHMENT_BUDGET {
         return Err(CoreError::MessageTooBig {
@@ -88,6 +93,19 @@ fn sent_bytes(store: &SqliteStore, message: &Message) -> Result<BlobId, CoreErro
         });
     }
     Ok(raw)
+}
+
+/// `message` as it was sent, byte for byte: refused as [`CoreError::NotDownloaded`] when only
+/// its headers are here, and as [`CoreError::RebuiltFromParts`] when what is here was rebuilt.
+pub(super) fn sent_bytes_of(store: &SqliteStore, message: &Message) -> Result<Vec<u8>, CoreError> {
+    let Body::Present { raw, .. } = message.body else {
+        return Err(CoreError::NotDownloaded);
+    };
+    let bytes = store.blobs().get(raw)?;
+    if rebuilt(message, &bytes) {
+        return Err(CoreError::RebuiltFromParts);
+    }
+    Ok(bytes)
 }
 
 /// A message's file name: its subject, with `.eml`. An attached one goes by it, and so does one

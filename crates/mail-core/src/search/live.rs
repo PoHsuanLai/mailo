@@ -11,8 +11,8 @@ fn subjects(input: &str, store: &mail_store::SqliteStore) -> Vec<String> {
         store,
         &Affinity::default(),
         &Utc,
-        &|_| Vec::new(),
-        MENU,
+        &crate::query::unnamed,
+        QUICK_LIMIT,
         at(900),
     )
     .unwrap_or_else(|why| panic!("{input:?} is not a regex: {why}"));

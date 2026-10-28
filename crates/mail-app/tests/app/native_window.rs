@@ -5,8 +5,8 @@
 //!
 //! quire's harness has no event loop to open a second window on (`open_window` answers
 //! `NoHost` there), so the main window is handed a recorder as its `Windows` and the asks are
-//! read from it; the second window is its root in a harness of its own, over the same store and
-//! the same `Revisions`, as quire hands a real second window the first one's root contexts.
+//! read from it; the second window is its root in a harness of its own, over the same store, as
+//! quire hands a real second window the first one's root contexts.
 //!
 //! Every store is seeded in a `TempDir`, and no window is handed directories, so nothing here
 //! writes a file anywhere else.
@@ -24,9 +24,9 @@ use crate::native::ms;
 use crate::store::acct_account;
 use crate::store::{Seed, seeded_with};
 use drive::{Drive, PRIMARY};
-use mail_app::ui::native::{Ask, MessageOpen, OpenWindow, Revisions, Windows};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui::ui::native::{Ask, MessageOpen, OpenWindow, Windows};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -100,72 +100,61 @@ fn thread(store: &SqliteStore, subject: &str) -> ThreadSummary {
         .unwrap_or_else(|| panic!("no conversation {subject:?}"))
 }
 
-/// What every window of the app is handed: the store, no directories, a printer that never
-/// opens a dialog, and the app's one `Revisions`.
-fn window_contexts(store: &Arc<SqliteStore>, revisions: &Revisions) -> RootContexts {
-    let printer = mail_app::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
-    window_contexts_printing(store, revisions, printer)
+/// What every window of the app is handed: the store, no directories, and a printer that never
+/// opens a dialog.
+fn window_contexts(store: &Arc<SqliteStore>) -> RootContexts {
+    let printer = mail_ui::ui::native::Printer::with_dialog(|_, _| Ok(PrintOutcome::Cancelled));
+    window_contexts_printing(store, printer)
 }
 
 /// [`window_contexts`] with `printer`, for a test that reads what the window prints.
 fn window_contexts_printing(
     store: &Arc<SqliteStore>,
-    revisions: &Revisions,
-    printer: mail_app::ui::native::Printer,
+    printer: mail_ui::ui::native::Printer,
 ) -> RootContexts {
-    mail_app::ui::native::contexts(
-        Arc::clone(store),
-        mail_app::ui::view::Appearance::default(),
+    mail_ui::ui::native::contexts(
+        mail_client::Client::open(Arc::clone(store), mail_client::ClientConfig::default()),
+        mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     )
     .with(printer)
-    .with(revisions.clone())
 }
 
 /// The main window over `store`, first frame drawn, its "Open in new window" going to the
 /// recorder it returns.
-fn main_window(store: &Arc<SqliteStore>, revisions: &Revisions) -> (Harness, Arc<Recorder>) {
-    main_window_on(Clock::Virtual, store, revisions)
+fn main_window(store: &Arc<SqliteStore>) -> (Harness, Arc<Recorder>) {
+    main_window_on(Clock::Virtual, store)
 }
 
 /// [`main_window`] on `clock`. Two windows in one test share the thread's one installed clock, so
 /// a test that drives both runs them on the wall clock; a test with one window runs it virtually.
-fn main_window_on(
-    clock: Clock,
-    store: &Arc<SqliteStore>,
-    revisions: &Revisions,
-) -> (Harness, Arc<Recorder>) {
+fn main_window_on(clock: Clock, store: &Arc<SqliteStore>) -> (Harness, Arc<Recorder>) {
     let recorder = Arc::new(Recorder::default());
     let windows: Arc<dyn OpenWindow> = recorder.clone();
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_clock(clock)
-        .with_contexts(window_contexts(store, revisions).with(Windows(windows)));
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+        .with_contexts(window_contexts(store).with(Windows(windows)));
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".list .ds-thread") == INBOX.len());
     (harness, recorder)
 }
 
 /// `thread`'s own window over `store`, as quire opens it, first frame drawn.
-fn message_window(store: &Arc<SqliteStore>, revisions: &Revisions, thread: ThreadId) -> Harness {
-    message_window_on(Clock::Virtual, store, revisions, thread)
+fn message_window(store: &Arc<SqliteStore>, thread: ThreadId) -> Harness {
+    message_window_on(Clock::Virtual, store, thread)
 }
 
 /// [`message_window`] on `clock`; see [`main_window_on`].
-fn message_window_on(
-    clock: Clock,
-    store: &Arc<SqliteStore>,
-    revisions: &Revisions,
-    thread: ThreadId,
-) -> Harness {
+fn message_window_on(clock: Clock, store: &Arc<SqliteStore>, thread: ThreadId) -> Harness {
     let config = HarnessConfig::new(WINDOW)
         .with_net(NetPolicy::Local)
         .with_clock(clock)
-        .with_contexts(window_contexts(store, revisions).with(MessageOpen(thread)));
-    let mut harness = Harness::new(mail_app::ui::native::message_root, config);
+        .with_contexts(window_contexts(store).with(MessageOpen(thread)));
+    let mut harness = Harness::new(mail_ui::ui::native::message_root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".reader-head h2") == 1);
     harness
@@ -230,7 +219,7 @@ fn asked_for(store: &SqliteStore, subject: &str) -> Vec<Ask> {
 fn the_reader_s_menu_and_shift_enter_ask_for_a_window_of_its_own() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let (mut harness, recorder) = main_window(&store, &Revisions::new());
+    let (mut harness, recorder) = main_window(&store);
     let mut want = Vec::<Ask>::new();
 
     // The reader's ⋯, View, its window row.
@@ -260,7 +249,7 @@ fn the_window_s_root_draws_the_reader_for_its_conversation_and_nothing_else() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
     let lunch = thread(&store, INBOX[2].1).id;
-    let harness = message_window(&store, &Revisions::new(), lunch);
+    let harness = message_window(&store, lunch);
 
     assert_eq!(
         harness.text_of(".reader-head h2").as_deref(),
@@ -301,10 +290,9 @@ fn the_window_s_root_draws_the_reader_for_its_conversation_and_nothing_else() {
 fn the_window_follows_what_the_main_window_does_to_its_conversation() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let revisions = Revisions::new();
     let invoice = thread(&store, INBOX[1].1).id;
-    let (mut main, _) = main_window_on(Clock::Wall, &store, &revisions);
-    let mut window = message_window_on(Clock::Wall, &store, &revisions, invoice);
+    let (mut main, _) = main_window_on(Clock::Wall, &store);
+    let mut window = message_window_on(Clock::Wall, &store, invoice);
 
     click_row(&mut main, 2);
 
@@ -334,10 +322,9 @@ fn the_window_follows_what_the_main_window_does_to_its_conversation() {
 fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_back() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let revisions = Revisions::new();
     let lunch = thread(&store, INBOX[2].1).id;
-    let (mut main, _) = main_window_on(Clock::Wall, &store, &revisions);
-    let mut window = message_window_on(Clock::Wall, &store, &revisions, lunch);
+    let (mut main, _) = main_window_on(Clock::Wall, &store);
+    let mut window = message_window_on(Clock::Wall, &store, lunch);
 
     window.key(Key::Char('e'));
     settle_until(&mut window, |_| {
@@ -381,10 +368,9 @@ fn an_archive_in_the_window_reaches_the_main_list_and_its_own_ctrl_z_takes_it_ba
 fn command_p_prints_the_conversation_in_a_window_of_its_own() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let revisions = Revisions::new();
     let lunch = thread(&store, INBOX[2].1).id;
     let dialogs = Arc::new(AtomicUsize::new(0));
-    let printer = mail_app::ui::native::Printer::with_dialog({
+    let printer = mail_ui::ui::native::Printer::with_dialog({
         let dialogs = Arc::clone(&dialogs);
         move |_, _| {
             dialogs.fetch_add(1, Ordering::SeqCst);
@@ -394,10 +380,8 @@ fn command_p_prints_the_conversation_in_a_window_of_its_own() {
     let config = HarnessConfig::new(WINDOW)
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Wall)
-        .with_contexts(
-            window_contexts_printing(&store, &revisions, printer).with(MessageOpen(lunch)),
-        );
-    let mut window = Harness::new(mail_app::ui::native::message_root, config);
+        .with_contexts(window_contexts_printing(&store, printer).with(MessageOpen(lunch)));
+    let mut window = Harness::new(mail_ui::ui::native::message_root, config);
     window.advance(ms(300));
     settle_until(&mut window, |h| h.count(".reader-head h2") == 1);
 
@@ -410,6 +394,54 @@ fn command_p_prints_the_conversation_in_a_window_of_its_own() {
     settle_until(&mut window, |_| dialogs.load(Ordering::SeqCst) == 1);
 }
 
+/// ⌘F in a conversation's window of its own brings up the find bar over it, as it does in the
+/// main window, and Escape takes it away again.
+#[test]
+fn command_f_finds_in_a_window_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let lunch = thread(&store, INBOX[2].1).id;
+    let mut window = message_window(&store, lunch);
+    assert_eq!(
+        window.count(".find-bar"),
+        0,
+        "the bar was open at the start"
+    );
+
+    window.chord(&[PRIMARY], Key::Char('f'));
+    settle_until(&mut window, |h| h.count(".find-bar") == 1);
+
+    window.key(Key::Escape);
+    settle_until(&mut window, |h| h.count(".find-bar") == 0);
+}
+
+/// ⇧⌘H in a conversation's window of its own shows the headers in a sheet over it, read off the
+/// thread that draws, and Escape closes the sheet.
+#[test]
+fn show_all_headers_opens_a_sheet_in_a_window_of_its_own() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = seeded(dir.path());
+    let lunch = thread(&store, INBOX[2].1).id;
+    let mut window = message_window(&store, lunch);
+    assert_eq!(
+        window.count(".raw-sheet"),
+        0,
+        "the sheet was open at the start"
+    );
+
+    window.chord(&[PRIMARY, Key::Shift], Key::Char('h'));
+    settle_until(&mut window, |h| h.count(".raw-sheet") == 1);
+    // Read in a task: the sheet says so, then shows the text or why there is none.
+    settle_until(&mut window, |h| {
+        h.count(".raw-text") == 1
+            || h.text_of(".raw-sheet")
+                .is_some_and(|text| text.contains("downloaded"))
+    });
+
+    window.key(Key::Escape);
+    settle_until(&mut window, |h| h.count(".raw-sheet") == 0);
+}
+
 /// A banner's click, or `mailo open` from a terminal, reaches the running window over the session
 /// bus as a request (`ui/handoff`); here the bus is left out and the request is pushed straight
 /// into the window's queue, and the window opens that conversation itself, where the person is
@@ -420,18 +452,18 @@ fn command_p_prints_the_conversation_in_a_window_of_its_own() {
 fn a_request_from_outside_opens_the_conversation_in_the_running_window() {
     let dir = tempfile::tempdir().unwrap();
     let store = seeded(dir.path());
-    let (requests, queue) = mail_app::ui::native::Requests::local();
+    let (requests, queue) = mail_ui::ui::native::Requests::local();
     let recorder = Arc::new(Recorder::default());
     let windows: Arc<dyn OpenWindow> = recorder.clone();
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Virtual)
         .with_contexts(
-            window_contexts(&store, &Revisions::new())
+            window_contexts(&store)
                 .with(Windows(windows))
                 .with(requests),
         );
-    let mut harness = Harness::new(mail_app::ui::native::root, config);
+    let mut harness = Harness::new(mail_ui::ui::native::root, config);
     harness.advance(ms(300));
     settle_until(&mut harness, |h| h.count(".list .ds-thread") == INBOX.len());
     assert_eq!(
@@ -442,9 +474,9 @@ fn a_request_from_outside_opens_the_conversation_in_the_running_window() {
 
     let invoice = thread(&store, INBOX[1].1).id;
     queue
-        .send(mail_app::ui::native::Request::Thread {
+        .send(mail_ui::ui::native::Request::Thread {
             thread: invoice,
-            token: mail_app::ui::native::ActivationToken::new("xdg-activation-1"),
+            token: mail_ui::ui::native::ActivationToken::new("xdg-activation-1"),
         })
         .unwrap();
     settle_until(&mut harness, |h| h.count(".reader-head h2") == 1);
@@ -458,7 +490,7 @@ fn a_request_from_outside_opens_the_conversation_in_the_running_window() {
 
     // A request to raise the window itself changes nothing.
     queue
-        .send(mail_app::ui::native::Request::Activate { token: None })
+        .send(mail_ui::ui::native::Request::Activate { token: None })
         .unwrap();
     harness.advance(ms(300));
     assert_eq!(

@@ -6,6 +6,7 @@
 use super::SqliteStore;
 use super::row::{from_time, json, time, to_json};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::{AutocryptPeer, Fingerprint, KeyId, KeyTrust, PgpKey};
 use rusqlite::{OptionalExtension, params};
 
@@ -61,7 +62,7 @@ impl SqliteStore {
     }
 
     pub(super) fn write_pgp_key(&self, key: PgpKey) -> Result<PgpKey, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::KEYS);
         let tx = db.unchecked_transaction()?;
         let held = tx
             .query_row(
@@ -104,7 +105,7 @@ impl SqliteStore {
         fp: Fingerprint,
         trust: KeyTrust,
     ) -> Result<(), StoreError> {
-        let changed = self.connection().execute(
+        let changed = self.touch(Topics::KEYS).execute(
             "UPDATE pgp_keys SET trust = ?2 WHERE fingerprint = ?1",
             params![fp.to_string(), to_json("KeyTrust", &trust)?],
         )?;
@@ -115,7 +116,7 @@ impl SqliteStore {
     }
 
     pub(super) fn remove_pgp_key(&self, fp: Fingerprint) -> Result<bool, StoreError> {
-        let changed = self.connection().execute(
+        let changed = self.touch(Topics::KEYS).execute(
             "DELETE FROM pgp_keys WHERE fingerprint = ?1",
             params![fp.to_string()],
         )?;
@@ -180,7 +181,7 @@ impl SqliteStore {
     }
 
     pub(super) fn write_autocrypt_peer(&self, peer: &AutocryptPeer) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::KEYS).execute(
             "INSERT OR REPLACE INTO autocrypt_peers
                  (address, last_seen, autocrypt_timestamp, key, prefer_encrypt,
                   gossip_timestamp, gossip_key)

@@ -14,20 +14,24 @@ pub mod error;
 pub mod filter;
 pub mod folder;
 pub mod hex;
+pub mod hue;
 pub mod id;
 pub mod ingest;
 pub mod invite;
 pub mod jmap_id;
+pub mod keyword;
 pub mod message;
 pub mod op;
 pub mod parts;
 pub mod pgp;
 pub mod presets;
+pub mod priority;
 pub mod receipt;
 pub mod remote;
 pub mod retry;
 pub mod rule;
 pub mod section;
+pub mod signature;
 pub mod signing;
 pub mod smime;
 pub mod state;
@@ -48,27 +52,30 @@ pub use autocrypt::{AutocryptPeer, PreferEncrypt, Sighting};
 pub use content::{Attachment, Body, Inline, Label, PartContent};
 pub use draft::{Draft, PendingAttachment, ReplyScope, SendState};
 pub use error::{FolderError, ParseAddressError, ParseFingerprintError, ParseSectionError};
-pub use filter::{DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch, Words};
+pub use filter::{Category, DateRange, Filed, Filter, Leaving, MatchCtx, Placed, TextMatch, Words};
 pub use folder::{
     Folder, FolderContents, FolderCtx, FolderWork, Holds, NonEmpty, SpecialUse, Subscription,
 };
+pub use hue::{FLAG_BIT_KEYWORDS, Hue};
 pub use id::{
-    BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, TemplateId,
-    ThreadId, ViewId,
+    BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, SignatureId,
+    TemplateId, ThreadId, ViewId,
 };
 pub use ingest::{Fetched, Import, Ingest, Kept};
 pub use invite::{Attendance, InviteAnswer};
 pub use jmap_id::{
     JmapAccountId, JmapBlobId, JmapEmailId, JmapIdentityId, JmapMailboxId, JmapThreadId,
 };
-pub use message::{Message, MessageKey, Thread, ThreadSummary};
+pub use keyword::{THUNDERBIRD_TAGS, keyword_label, label_keyword};
+pub use message::{Message, MessageKey, SortFacts, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;
 pub use pgp::{
     Coverage, Encryption, Fingerprint, KeyId, KeySource, KeyTrust, OpenPgp, PgpKey, SecretHeld,
     Verification,
 };
-pub use receipt::{Keyword, ReceiptAnswer, ReceiptRequest};
+pub use priority::Priority;
+pub use receipt::{DeliveryReport, Keyword, ReceiptAnswer, ReceiptRequest};
 pub use remote::{
     FetchSince, JMAP_ALL, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag,
     UidValidity,
@@ -76,6 +83,7 @@ pub use remote::{
 pub use retry::{Retry, Retryable};
 pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
 pub use section::Section;
+pub use signature::{Signature, SignatureUse, UNNAMED_SIGNATURE};
 pub use smime::{
     BadSignature, CertFingerprint, CertProblem, CertSource, Smime, SmimeCert, SmimeEncryption,
     SmimeVerification,
@@ -85,7 +93,7 @@ pub use state::{
     ReadState, Snooze, Star, Threading,
 };
 pub use template::Template;
-pub use threading::{ThreadInput, normalize_id, thread};
+pub use threading::{ThreadInput, normalize_id, sort_subject, thread};
 pub use view::{Cursor, GroupKey, Page, PageReq, Property, Query, Sort, SortDir, View, ViewKind};
 pub use words::{NO_SUBJECT, human_size, subject_or_none};
 

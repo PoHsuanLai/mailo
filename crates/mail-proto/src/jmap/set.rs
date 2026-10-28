@@ -4,12 +4,19 @@
 //! `keywords` or `mailboxIds` value. A patch names only what the user changed, so a keyword or a
 //! mailbox another client added a second ago is left alone rather than overwritten by what this
 //! client last saw.
+//!
+//! A keyword's name is lower case here (RFC 8621 §4.1.1): a server stores it so, and a patch that
+//! names `$MailFlagBit0` would set a keyword no other client reads back. Reading is case
+//! blind, as [`mail_domain::Hue::from_keywords`] is.
 
 use super::Mailboxes;
 use super::field::{malformed, object};
 use super::mailbox::DELIMITER;
 use crate::{ProtoError, Refusal};
-use mail_domain::{FolderWork, Keyword, MailboxRole, ReadState, Star, Subscription};
+use mail_domain::{
+    FLAG_BIT_KEYWORDS, FolderWork, Hue, JmapMailboxId, Keyword, MailboxRole, ReadState, Star,
+    Subscription,
+};
 use serde_json::{Map, Value, json};
 use std::time::Duration;
 
@@ -21,6 +28,32 @@ pub fn flags_patch(read: Option<ReadState>, star: Option<Star>) -> Map<String, V
     }
     if let Some(star) = star {
         patch.insert("keywords/$flagged".to_owned(), on(star == Star::Starred));
+        // The colour goes with the flag, as Apple Mail clears it.
+        if star == Star::Unstarred {
+            for bit in FLAG_BIT_KEYWORDS {
+                patch.insert(keyword_path(bit), Value::Null);
+            }
+        }
+    }
+    patch
+}
+
+/// The patch path of the keyword `name`, in lower case.
+fn keyword_path(name: &str) -> String {
+    format!("keywords/{}", name.to_ascii_lowercase())
+}
+
+/// The patch that flags an email in `hue`: `$flagged`, with Apple Mail's colour keywords set
+/// and cleared ([`Hue::flag_keywords`]).
+pub fn flag_patch(hue: Hue) -> Map<String, Value> {
+    let mut patch = Map::new();
+    patch.insert("keywords/$flagged".to_owned(), json!(true));
+    let (set, clear) = hue.flag_keywords();
+    for bit in set {
+        patch.insert(keyword_path(bit), json!(true));
+    }
+    for bit in clear {
+        patch.insert(keyword_path(bit), Value::Null);
     }
     patch
 }
@@ -31,7 +64,7 @@ pub fn keyword_patch(keyword: Keyword) -> Map<String, Value> {
         Keyword::MdnSent => "$MDNSent",
     };
     let mut patch = Map::new();
-    patch.insert(format!("keywords/{name}"), json!(true));
+    patch.insert(keyword_path(name), json!(true));
     patch
 }
 
@@ -60,6 +93,45 @@ pub fn filing_patch(
             "the server lists no mailbox for {role:?}"
         )));
     }
+    let mut patch = moved_into(target, mailboxes);
+    // What the move says to the server's filter (RFC 8621 §4.1.1): `$junk` going into Junk, and
+    // `$notjunk` coming back to the inbox, since a message the person wants there is not junk
+    // whichever mailbox it comes from. Archiving or trashing one says nothing either way.
+    match role {
+        MailboxRole::Spam => {
+            patch.insert("keywords/$junk".to_owned(), json!(true));
+            patch.insert("keywords/$notjunk".to_owned(), Value::Null);
+        }
+        MailboxRole::Inbox => {
+            patch.insert("keywords/$junk".to_owned(), Value::Null);
+            patch.insert("keywords/$notjunk".to_owned(), json!(true));
+        }
+        _ => {}
+    }
+    Ok(patch)
+}
+
+/// The patch that files an email into the folder spelled `path` here, as "Move to…" does: into
+/// that mailbox, and out of Inbox, Archive, Trash and Junk, as [`filing_patch`] moves it.
+///
+/// Labels and Sent stay, for the reasons they stay on archiving, and because that is the move
+/// as it is made locally: the message is filed out of the inbox and gains the folder's label,
+/// keeping every label it had.
+///
+/// A folder no mailbox answers to is refused, permanently: filing into a mailbox that does not
+/// exist is not something to retry, and the local move is undone instead.
+pub fn file_patch(path: &str, mailboxes: &Mailboxes) -> Result<Map<String, Value>, ProtoError> {
+    let target = mailboxes
+        .id_for_path(path)
+        .ok_or_else(|| ProtoError::Refused {
+            kind: Refusal::Permanent,
+            text: format!("the server has no mailbox called {path:?}"),
+        })?;
+    Ok(moved_into(Some(target), mailboxes))
+}
+
+/// Into `target`, when there is one, and out of every other mailbox an email is moved between.
+fn moved_into(target: Option<&JmapMailboxId>, mailboxes: &Mailboxes) -> Map<String, Value> {
     let mut patch = Map::new();
     for moving in [
         MailboxRole::Inbox,
@@ -77,7 +149,7 @@ pub fn filing_patch(
     if let Some(id) = target {
         patch.insert(format!("mailboxIds/{id}"), json!(true));
     }
-    Ok(patch)
+    patch
 }
 
 /// The patch that adds and removes labels, by the path each mailbox is spelled with here.

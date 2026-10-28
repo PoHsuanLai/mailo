@@ -59,23 +59,33 @@ pub struct Pushed {
     pub outcome: SieveOutcome,
 }
 
+/// What an account is to run: its rules, its vacation reply, and where its folders are.
+#[derive(Debug, Clone, Copy)]
+pub struct Wanted<'a> {
+    pub rules: &'a [Rule],
+    pub vacation: Option<&'a Vacation>,
+    pub places: &'a Places,
+}
+
 /// Compile `rules` and `vacation` for this server and make the result its active script — or,
 /// when nothing in them can run there, take this client's script down.
 ///
 /// Two connections: the first reads the server's Sieve extensions, so the script is written for
 /// what it runs rather than for what a server usually runs. `now` places a dated vacation reply
 /// on a server that cannot test dates itself.
-#[allow(clippy::too_many_arguments)]
 pub async fn push(
     endpoint: &Endpoint,
     auth: &SieveAuth,
-    rules: &[Rule],
-    vacation: Option<&Vacation>,
-    places: &Places,
+    wanted: Wanted<'_>,
     takeover: Takeover,
     now: DateTime<Utc>,
     cancel: &mut Cancel,
 ) -> Result<Pushed, RuntimeError> {
+    let Wanted {
+        rules,
+        vacation,
+        places,
+    } = wanted;
     let caps = match manage(endpoint, auth, SieveJob::Status, cancel).await? {
         SieveOutcome::Status { caps, .. } => caps,
         other => {

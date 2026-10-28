@@ -23,9 +23,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# A pull request runs `check`, `live` and `licences`: the gates, real sockets and licences, all on
-# Linux. The other distributions and macOS and Windows run on master (and by hand), where a
-# failure is fixed forward, so a pull request does not wait on the slowest runner in the file.
+# A pull request runs `check`, `live`, `relay` and `licences`: the gates, real sockets, the push
+# relay and licences, all on Linux. The other distributions and macOS and Windows run on master
+# (and by hand), where a failure is fixed forward, so a pull request does not wait on the slowest
+# runner in the file.
 jobs:
   # The gates that need no servers and no window. Everything here must pass for every push.
   check:
@@ -99,7 +100,7 @@ jobs:
       - name: No silent discards
         run: ./scripts/check-discards.sh
 
-      # Every word the window shows lives in crates/mail-app/src/ui/copy/, by kind: held by a
+      # Every word the window shows lives in crates/mail-ui/src/ui/copy/, by kind: held by a
       # ratchet on the visible string literals still written elsewhere under ui/
       # (scripts/copy-literals.txt).
       - name: The window's words are in ui/copy
@@ -328,6 +329,34 @@ jobs:
           name: mailo-windows
           path: target/wix/*.msi
           if-no-files-found: error
+
+  # The push relay (relay/, a Cloudflare Worker in TypeScript): its types, its tests inside workerd
+  # through Miniflare (nothing deployed, no Cloudflare account), and its npm licences against the
+  # allow-list in relay/scripts/licences.mjs, which is deny.toml's for the npm tree.
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install, exactly as locked
+        run: npm ci
+      - name: Licences
+        run: npm run licences
+      - name: TypeScript
+        run: npm run check
+      - name: Tests
+        run: npm test
+      # The image relay (relay/image) is its own package with no dependencies: its rules run
+      # under Node, nothing deployed.
+      - name: Image relay tests
+        working-directory: relay/image
+        run: npm test
 
   # Dependency licences: a dependency whose licence is not on deny.toml's allow-list fails here
   # rather than being noticed later by somebody reading Cargo.lock.

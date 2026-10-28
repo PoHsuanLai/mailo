@@ -7,18 +7,25 @@
 use super::SqliteStore;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::account::{NewAccount, StoredAccount};
+use crate::changes::Topics;
 use crate::{FollowUpHold, SenderRecord, StoreError};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{
     AccountCaps, AccountPlan, Address, DraftId, Identity, IdentityId, IsDefault, LabelId,
-    LabelOrigin, MessageId, ThreadId,
+    LabelOrigin, MessageId, RemoteRef, ThreadId,
 };
 use porter_core::AccountId;
 use rusqlite::{OptionalExtension, Row, params};
 
 /// The columns of an identity, in the order [`identity_of`] reads them.
-const IDENTITY: &str = "id, account, from_name, from_email, reply_to, signature, is_default";
+///
+/// Its signature is the text of its default for new mail (`signatures`), else what the column on
+/// `identities` held, which only a row written without going through `set_signature` still has.
+const IDENTITY: &str = "id, account, from_name, from_email, reply_to,
+    coalesce((SELECT s.body_text FROM signatures s
+              WHERE s.identity = identities.id AND s.for_new = 1), signature),
+    is_default";
 
 /// An identity out of a row selected with [`IDENTITY`].
 fn identity_of(row: &Row<'_>) -> Result<Identity, StoreError> {
@@ -91,10 +98,13 @@ impl SqliteStore {
             let Ok(id) = uuid("AccountId", &id) else {
                 continue;
             };
+            let id = account_id_from_uuid(id);
+            let caps =
+                caps.map(|text| json("AccountCaps", &text).and_then(|caps| self.picked(&id, caps)));
             out.push(StoredAccount {
-                id: account_id_from_uuid(id),
+                id,
                 plan: json("AccountPlan", &plan),
-                caps: caps.map(|text| json("AccountCaps", &text)),
+                caps,
                 address,
             });
         }
@@ -109,7 +119,7 @@ impl SqliteStore {
     /// go with the account (the address is held by an account with another id), and nothing is
     /// written.
     pub fn upsert_account(&self, new: &NewAccount<'_>) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::ACCOUNTS | Topics::IDENTITIES);
         let tx = db.unchecked_transaction()?;
         let account = new.id.to_string();
         tx.execute(
@@ -125,10 +135,12 @@ impl SqliteStore {
             ],
         )?;
         for identity in new.identities {
-            tx.execute(
+            // The signature an identity arrives with is its first in `signatures`, the default
+            // for both; the column it would once have gone in is left empty.
+            let added = tx.execute(
                 "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
                      is_default)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)
                  ON CONFLICT(id) DO NOTHING",
                 params![
                     identity.id.to_string(),
@@ -140,19 +152,35 @@ impl SqliteStore {
                         .as_ref()
                         .map(|reply_to| to_json("Identity.reply_to", &Some(reply_to)))
                         .transpose()?,
-                    identity.signature,
                     to_json("Identity.is_default", &identity.default)?,
                 ],
             )?;
+            let signed = identity
+                .signature
+                .as_deref()
+                .filter(|text| !text.trim().is_empty());
+            if let (1, Some(text)) = (added, signed) {
+                tx.execute(
+                    "INSERT INTO signatures
+                         (id, identity, name, body_html, body_text, for_new, for_replies)
+                     VALUES (?1, ?2, ?3, NULL, ?4, 1, 1)",
+                    params![
+                        mail_domain::SignatureId::generate().to_string(),
+                        identity.id.to_string(),
+                        mail_domain::UNNAMED_SIGNATURE,
+                        text
+                    ],
+                )?;
+            }
         }
-        write_caps(&tx, &account, new.caps, new.at)?;
+        super::account_prefs::write_caps(&tx, new.id, new.caps, &new.at.to_rfc3339())?;
         tx.commit()?;
         Ok(())
     }
 
     /// Replace the account's plan. [`StoreError::NoAccount`] when there is no such account.
     pub fn set_account_plan(&self, id: AccountId, plan: &AccountPlan) -> Result<(), StoreError> {
-        let changed = self.connection().execute(
+        let changed = self.touch(Topics::ACCOUNTS).execute(
             "UPDATE accounts SET plan = ?2 WHERE id = ?1",
             params![id.to_string(), to_json("AccountPlan", plan)?],
         )?;
@@ -173,7 +201,40 @@ impl SqliteStore {
                 |r| r.get(0),
             )
             .optional()?;
-        stored.map(|text| json("AccountCaps", &text)).transpose()
+        stored
+            .map(|text| json("AccountCaps", &text).and_then(|caps| self.picked(&id, caps)))
+            .transpose()
+    }
+
+    /// The largest message, in octets on the wire, that `id`'s sending server said it takes.
+    /// `None` when it stated none, or nothing has asked it yet.
+    pub fn send_limit(&self, id: AccountId) -> Result<Option<u64>, StoreError> {
+        let stored: Option<Option<i64>> = self
+            .reader()
+            .query_row(
+                "SELECT send_limit FROM account_caps WHERE account = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(stored
+            .flatten()
+            // `put_send_limit` writes no negative number; one is read as no limit stated.
+            .and_then(|octets| u64::try_from(octets).ok()))
+    }
+
+    /// Write down what `id`'s sending server said of its largest message: `None` when it stated
+    /// none. Kept beside the capabilities, which a sync replaces without touching this.
+    ///
+    /// An account whose capabilities were never written has nowhere to keep it, and nothing is
+    /// written: the next submission hears it again.
+    pub fn put_send_limit(&self, id: AccountId, octets: Option<u64>) -> Result<(), StoreError> {
+        let octets = octets.map(|octets| i64::try_from(octets).unwrap_or(i64::MAX));
+        self.connection().execute(
+            "UPDATE account_caps SET send_limit = ?2 WHERE account = ?1",
+            params![id.to_string(), octets],
+        )?;
+        Ok(())
     }
 
     /// When the last pass of `account` finished, as the store recorded it: the newest of its
@@ -234,16 +295,144 @@ impl SqliteStore {
         Ok(rows.collect::<Result<Vec<String>, _>>()?)
     }
 
-    /// Set the signature of an identity, or clear it with `None`.
-    pub fn set_signature(
-        &self,
-        identity: IdentityId,
-        signature: Option<&str>,
-    ) -> Result<(), StoreError> {
-        self.connection().execute(
-            "UPDATE identities SET signature = ?2 WHERE id = ?1",
-            params![identity.to_string(), signature],
+    /// Add an identity to its account: an alias the account also sends as.
+    ///
+    /// [`StoreError::NoAccount`] when the account is not here, and [`StoreError::AddressTaken`]
+    /// when one of its identities already has the address, whatever its case; nothing is written
+    /// for either.
+    pub fn add_identity(&self, identity: &Identity) -> Result<(), StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let account = identity.account.to_string();
+        let known: Option<String> = tx
+            .query_row("SELECT id FROM accounts WHERE id = ?1", [&account], |r| {
+                r.get(0)
+            })
+            .optional()?;
+        if known.is_none() {
+            return Err(StoreError::NoAccount(identity.account.clone()));
+        }
+        refuse_taken(&tx, &account, &identity.from.email, None)?;
+        // As in `put_account`: the signature it arrives with is its first in `signatures`, the
+        // default for both, and the column it would once have gone in is left empty.
+        tx.execute(
+            "INSERT INTO identities (id, account, from_name, from_email, reply_to, signature,
+                 is_default)
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL, ?6)",
+            params![
+                identity.id.to_string(),
+                account,
+                identity.from.name,
+                identity.from.email,
+                reply_to_column(identity.reply_to.as_ref())?,
+                to_json("Identity.is_default", &identity.default)?,
+            ],
         )?;
+        if let Some(text) = identity
+            .signature
+            .as_deref()
+            .filter(|text| !text.trim().is_empty())
+        {
+            tx.execute(
+                "INSERT INTO signatures
+                     (id, identity, name, body_html, body_text, for_new, for_replies)
+                 VALUES (?1, ?2, ?3, NULL, ?4, 1, 1)",
+                params![
+                    mail_domain::SignatureId::generate().to_string(),
+                    identity.id.to_string(),
+                    mail_domain::UNNAMED_SIGNATURE,
+                    text
+                ],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Change who an identity says it is: its name and address, and where replies to it go.
+    ///
+    /// Its signature, its account and whether it is the default are not this call's.
+    /// [`StoreError::NoIdentity`] when there is no such identity, and
+    /// [`StoreError::AddressTaken`] when another identity of its account has the address.
+    pub fn edit_identity(
+        &self,
+        id: IdentityId,
+        from: &Address,
+        reply_to: Option<&Address>,
+    ) -> Result<(), StoreError> {
+        let db = self.touch(Topics::IDENTITIES);
+        let tx = db.unchecked_transaction()?;
+        let account: Option<String> = tx
+            .query_row(
+                "SELECT account FROM identities WHERE id = ?1",
+                [id.to_string()],
+                |r| r.get(0),
+            )
+            .optional()?;
+        let Some(account) = account else {
+            return Err(StoreError::NoIdentity(id));
+        };
+        refuse_taken(&tx, &account, &from.email, Some(id))?;
+        tx.execute(
+            "UPDATE identities SET from_name = ?2, from_email = ?3, reply_to = ?4 WHERE id = ?1",
+            params![
+                id.to_string(),
+                from.name,
+                from.email,
+                reply_to_column(reply_to)?
+            ],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Remove an identity, handing what was written as it to its account's default.
+    ///
+    /// A draft or a template names the identity it is from, and that name is a foreign key: left
+    /// as it is, it would keep the row from going, and a draft whose identity is gone cannot be
+    /// sent. So they are moved to the default in the same transaction, which is the address a
+    /// person who removed an alias would expect them to leave from. The default itself is not
+    /// removed ([`StoreError::Conflict`]): an account without one has nothing to send as.
+    /// [`StoreError::NoIdentity`] when there is no such identity.
+    pub fn remove_identity(&self, id: IdentityId) -> Result<(), StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        let gone = id.to_string();
+        let row: Option<(String, String)> = tx
+            .query_row(
+                "SELECT account, is_default FROM identities WHERE id = ?1",
+                [&gone],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let Some((account, default)) = row else {
+            return Err(StoreError::NoIdentity(id));
+        };
+        if json::<IsDefault>("Identity.is_default", &default)? == IsDefault::Default {
+            return Err(StoreError::Conflict(
+                format!("identity {id} is its account's default").into(),
+            ));
+        }
+        let heir: Option<String> = tx
+            .query_row(
+                "SELECT id FROM identities WHERE account = ?1 AND id != ?2
+                 ORDER BY is_default DESC, id LIMIT 1",
+                params![account, gone],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(heir) = heir {
+            tx.execute(
+                "UPDATE drafts SET identity = ?2 WHERE identity = ?1",
+                params![gone, heir],
+            )?;
+            tx.execute(
+                "UPDATE templates SET identity = ?2 WHERE identity = ?1",
+                params![gone, heir],
+            )?;
+        }
+        tx.execute("DELETE FROM identities WHERE id = ?1", [&gone])?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -263,10 +452,23 @@ impl SqliteStore {
     }
 
     /// A label the user named, on `account`. [`StoreError::Conflict`] when the account already
-    /// has one by that name, which is the answer a caller wants to give the user.
+    /// has one by that name, which is the answer a caller wants to give the user; and, on an
+    /// account that keeps its labels on the server as keywords, when another label's name makes
+    /// the same keyword (`Project X` and `Project_X`), which the server would take for one.
     pub fn create_label(&self, account: AccountId, name: &str) -> Result<LabelId, StoreError> {
+        if self.labels_as_keywords(account.clone())?
+            && let Some(keyword) = mail_domain::label_keyword(name)
+            && self
+                .keyed_labels(account.clone())?
+                .iter()
+                .any(|(_, held)| held.eq_ignore_ascii_case(&keyword))
+        {
+            return Err(StoreError::Conflict(
+                format!("{name:?} makes the same keyword as another label").into(),
+            ));
+        }
         let id = LabelId::generate();
-        self.connection().execute(
+        self.touch(Topics::LABELS).execute(
             "INSERT INTO labels (id, account, name, origin) VALUES (?1, ?2, ?3, ?4)",
             params![
                 id.to_string(),
@@ -300,6 +502,48 @@ impl SqliteStore {
             .transpose()
     }
 
+    /// The thread id the server gave the message at `remote`, if it gave one.
+    pub fn provider_thread_of(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+    ) -> Result<Option<String>, StoreError> {
+        let (mailbox, uidvalidity, uid, _) = crate::remote_row::columns(remote);
+        let (Some(uidvalidity), Some(uid)) = (uidvalidity, uid) else {
+            return Ok(None);
+        };
+        Ok(self
+            .reader()
+            .query_row(
+                "SELECT thrid FROM provider_thread
+                 WHERE account = ?1 AND mailbox = ?2 AND uidvalidity = ?3 AND uid = ?4",
+                params![account.to_string(), mailbox, uidvalidity, uid],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// The conversation a stored message of `account` is in that the server gave this thread id.
+    pub fn thread_by_provider_thread(
+        &self,
+        account: AccountId,
+        thrid: &str,
+    ) -> Result<Option<ThreadId>, StoreError> {
+        self.reader()
+            .query_row(
+                "SELECT m.thread FROM provider_thread p
+                 JOIN remote_map r ON r.account = p.account AND r.mailbox = p.mailbox
+                  AND r.uidvalidity = p.uidvalidity AND r.uid = p.uid
+                 JOIN messages m ON m.id = r.message
+                 WHERE p.account = ?1 AND p.thrid = ?2 LIMIT 1",
+                params![account.to_string(), thrid],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?
+            .map(|id| uuid("ThreadId", &id).map(ThreadId::from_uuid))
+            .transpose()
+    }
+
     fn rfc_lookup(
         &self,
         column: &str,
@@ -307,7 +551,7 @@ impl SqliteStore {
         rfc_id: &str,
     ) -> Result<Option<String>, StoreError> {
         Ok(self
-            .connection()
+            .reader()
             .query_row(
                 &format!(
                     "SELECT {column} FROM messages WHERE account = ?1 AND rfc_message_id = ?2
@@ -327,7 +571,7 @@ impl SqliteStore {
         account: AccountId,
         now: DateTime<Utc>,
     ) -> Result<DateTime<Utc>, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::ACCOUNTS);
         db.execute(
             "INSERT OR IGNORE INTO notify_floor (account, armed_at) VALUES (?1, ?2)",
             params![account.to_string(), now.to_rfc3339()],
@@ -342,7 +586,7 @@ impl SqliteStore {
 
     /// Keep a composer's reminder until its message has left, replacing the draft's earlier one.
     pub fn hold_follow_up(&self, held: &FollowUpHold) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::FOLLOW_UPS).execute(
             "INSERT INTO follow_up_held (draft, account, message_id, thread, due_at, set_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(draft) DO UPDATE SET account = excluded.account,
@@ -362,7 +606,7 @@ impl SqliteStore {
 
     /// Let a draft's held reminder go. Nothing held is not a failure.
     pub fn release_follow_up(&self, draft: DraftId) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::FOLLOW_UPS).execute(
             "DELETE FROM follow_up_held WHERE draft = ?1",
             [draft.to_string()],
         )?;
@@ -460,19 +704,34 @@ impl SqliteStore {
     }
 }
 
-/// Write the capabilities of an account, replacing what was observed before. The same row
-/// [`crate::Store::put_caps`] writes, inside the caller's transaction.
-fn write_caps(
+/// [`StoreError::AddressTaken`] when an identity of `account` other than `except` already sends
+/// as `email`, compared as the lookups compare it: without case.
+fn refuse_taken(
     db: &rusqlite::Connection,
     account: &str,
-    caps: &AccountCaps,
-    at: DateTime<Utc>,
+    email: &str,
+    except: Option<IdentityId>,
 ) -> Result<(), StoreError> {
-    db.execute(
-        "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
-         ON CONFLICT(account) DO UPDATE
-             SET caps = excluded.caps, observed_at = excluded.observed_at",
-        params![account, to_json("AccountCaps", caps)?, at.to_rfc3339()],
-    )?;
-    Ok(())
+    // No identity is the empty id, so with none to except every row is compared.
+    let except = except.map(|id| id.to_string()).unwrap_or_default();
+    let taken: Option<String> = db
+        .query_row(
+            "SELECT id FROM identities
+             WHERE account = ?1 AND lower(from_email) = lower(?2) AND id != ?3 LIMIT 1",
+            params![account, email.trim(), except],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match taken {
+        Some(_) => Err(StoreError::AddressTaken(email.trim().to_owned())),
+        None => Ok(()),
+    }
+}
+
+/// An identity's `reply_to` column: `NULL` for none, else the address as JSON, as
+/// [`SqliteStore::upsert_account`] writes it.
+fn reply_to_column(reply_to: Option<&Address>) -> Result<Option<String>, StoreError> {
+    reply_to
+        .map(|reply_to| to_json("Identity.reply_to", &Some(reply_to)))
+        .transpose()
 }

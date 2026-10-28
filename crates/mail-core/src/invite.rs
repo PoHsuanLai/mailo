@@ -19,7 +19,7 @@ use porter_core::AccountId;
 
 mod when;
 
-pub use when::{REPEATS_OTHERWISE, WhenShown, repeats_words, show_when};
+pub use when::{REPEATS_OTHERWISE, WhenSaid, repeats_words, say_when};
 
 /// An answer that is queued: what was answered, and who it goes to.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -160,6 +160,7 @@ pub fn answer(
             raw: frozen,
             mail_from: post.mail_from.clone(),
             rcpt_to: post.rcpt_to.clone(),
+            delivery: post.delivery,
         },
         // A reply that left cannot be taken back by a patch; answering again is how.
         &Patch {
@@ -234,7 +235,7 @@ fn human_text(
     let title = invite.title.as_deref().unwrap_or("(no title)");
     // Written for the organiser, in their zone or in UTC: their clock is not known here, and
     // twenty-four hours is the reading no one takes for the other half of the day.
-    let when = show_when(&invite.when, &Utc, crate::when::Clock::H24);
+    let when = say_when(&invite.when, &Utc, crate::when::Clock::H24);
     let mut out = format!(
         "{who} has {} the invitation to \"{}\".\r\n",
         match attendance {

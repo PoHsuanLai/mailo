@@ -133,6 +133,7 @@ pub struct Mail {
     clients: OAuthClients,
     clock: Arc<dyn Clock>,
     runtime: Handle,
+    junk: crate::junk::Policy,
 }
 
 impl std::fmt::Debug for Mail {
@@ -144,7 +145,8 @@ impl std::fmt::Debug for Mail {
 impl Mail {
     /// A handle over `store`, with `runtime` as the one the application owns. The secrets are the
     /// platform's, the environment is empty, no OAuth client is at hand and the clock is the
-    /// wall's; change any with the `with_` methods.
+    /// wall's; change any with the `with_` methods. The junk filter judges nothing until
+    /// [`Mail::with_junk`] gives it the person's settings.
     pub fn new(store: Arc<SqliteStore>, runtime: Handle) -> Self {
         let secrets = platform_secrets(&runtime);
         Self {
@@ -155,7 +157,20 @@ impl Mail {
             clients: OAuthClients::default(),
             clock: Arc::new(SystemClock),
             runtime,
+            junk: crate::junk::Policy::default(),
         }
+    }
+
+    /// With the junk filter behaving as `junk` says: the window's setting.
+    #[must_use]
+    pub fn with_junk(mut self, junk: crate::junk::Policy) -> Self {
+        self.junk = junk;
+        self
+    }
+
+    /// How the junk filter behaves on what a sync brings.
+    pub fn junk(&self) -> crate::junk::Policy {
+        self.junk
     }
 
     /// With the environment the program was started with.
@@ -243,6 +258,11 @@ impl Mail {
     /// logged and empty.
     pub fn saved_clients(&self) -> ClientRegistry {
         self.clients.saved()
+    }
+
+    /// The OAuth clients this handle was given, as they were given: read again each time asked.
+    pub fn oauth_clients(&self) -> &OAuthClients {
+        &self.clients
     }
 
     /// Adding, listing and removing accounts.

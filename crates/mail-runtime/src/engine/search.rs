@@ -11,9 +11,7 @@ use crate::search::{SERVER_HITS, Searched, ServerHits};
 use crate::tokens::{AfterRefusal, Token, refused_fresh};
 use crate::{Cancel, RuntimeError, drive};
 use chrono::{DateTime, Utc};
-use mail_domain::{
-    Filter, LabelId, MailboxRef, ProtoOp, ReadState, RemoteRef, Retry, Retryable, Star,
-};
+use mail_domain::{Filter, LabelId, MailboxRef, ProtoOp, RemoteRef, Retry, Retryable};
 use mail_proto::backend::{Found, ImapBackend};
 use mail_proto::search::imap::{ImapCtx, ImapPlan};
 use mail_proto::search::{Asked, graph, imap};
@@ -41,7 +39,7 @@ impl AccountEngine<ImapBackend> {
             labels: caps.labels,
             labels_named: labels,
         };
-        let plan = match imap::translate(filter, &ctx) {
+        let plan = match imap::translate(&filter.at(now), &ctx) {
             Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
             Ok(Asked::Nothing) => return Ok(Searched::Found(ServerHits::default())),
             Ok(Asked::Ask(plan)) => plan,
@@ -78,8 +76,19 @@ impl AccountEngine<ImapBackend> {
                 let outcome = self
                     .run(ProtoOp::FetchHeaders { remotes: wanted }, cancel)
                     .await?;
-                if let ProtoOutcome::Fetched { items, flags } = outcome {
-                    self.keep_found(&mailbox, items, flags, now, &mut hits)?;
+                if let ProtoOutcome::Fetched {
+                    items,
+                    flags,
+                    flag_colors,
+                    label_names,
+                } = outcome
+                {
+                    let said = super::Said {
+                        flags,
+                        flag_colors,
+                        label_names,
+                    };
+                    self.keep_found(&mailbox, items, said, now, &mut hits)?;
                 }
             }
             hits.hold(self.held(&remotes)?);
@@ -134,7 +143,7 @@ impl<B: Backend> AccountEngine<B> {
         filter: &Filter,
         now: DateTime<Utc>,
     ) -> Result<Searched, RuntimeError> {
-        let plan = match graph::translate(filter, self.account.clone()) {
+        let plan = match graph::translate(&filter.at(now), self.account.clone()) {
             Err(unsaid) => return Ok(Searched::Unsaid(unsaid)),
             Ok(Asked::Nothing) => return Ok(Searched::Found(ServerHits::default())),
             Ok(Asked::Ask(plan)) => plan,
@@ -194,8 +203,14 @@ impl<B: Backend> AccountEngine<B> {
                 .filter(|h| wanted.contains(&h.remote))
                 .map(|h| (h.remote.clone(), h.read, h.star))
                 .collect();
+            // Graph keeps no colours and no keywords: what is held here stands.
+            let said = super::Said {
+                flags,
+                flag_colors: Vec::new(),
+                label_names: Vec::new(),
+            };
             if !items.is_empty() {
-                self.keep_found(&mailbox, items, flags, now, &mut hits)?;
+                self.keep_found(&mailbox, items, said, now, &mut hits)?;
             }
         }
         let every: Vec<RemoteRef> = found.hits.iter().map(|h| h.remote.clone()).collect();
@@ -228,13 +243,13 @@ impl<B: Backend> AccountEngine<B> {
         &self,
         mailbox: &MailboxRef,
         items: Vec<(RemoteRef, Vec<u8>)>,
-        flags: Vec<(RemoteRef, ReadState, Star)>,
+        said: super::Said,
         now: DateTime<Utc>,
         hits: &mut ServerHits,
     ) -> Result<(), RuntimeError> {
         // What a search could not read is logged where it was skipped; a search has no pass to
         // report it to.
-        let stored = self.absorb_headers(mailbox, items, flags, now)?;
+        let stored = self.absorb_headers(mailbox, items, said, now)?;
         let new: Vec<_> = first_stored(&stored.patch).collect();
         self.store.mark_found(self.account.clone(), &new, now)?;
         hits.fetched += new.len();

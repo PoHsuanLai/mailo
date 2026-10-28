@@ -7,7 +7,7 @@
 
 use crate::error::CoreError;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{Filter, LabelId, PageReq, ThreadId, ThreadSummary};
+use mail_domain::{Filter, PageReq, ThreadId, ThreadSummary};
 
 use super::RankedMail;
 use super::expanding::{Expansion, expand};
@@ -17,14 +17,14 @@ use super::regex::{extract, hits as regex_hits};
 use super::source::Source;
 
 /// Top results the list and `mailo search` show above the date-ordered rows.
-pub const STRIP: usize = 5;
+pub const TOP_LIMIT: usize = 5;
 
 /// Mail ⌘K asks for: the top hit, and six rows under it.
-pub const MENU: usize = 7;
+pub const QUICK_LIMIT: usize = 7;
 
 /// How many of the newest matches top results are chosen from. A strong match older than this
 /// is not a top result; the date-ordered list below still finds it.
-pub const WINDOW: usize = 200;
+pub const NEWEST_POOL: usize = 200;
 
 /// A line parsed and expanded, ready to ask the store for.
 #[derive(Debug, Clone)]
@@ -42,7 +42,7 @@ pub fn prepare<Tz: TimeZone>(
     input: &str,
     source: &dyn Source,
     zone: &Tz,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn crate::query::Names,
 ) -> Result<Prepared, CoreError> {
     let extracted = extract(input)?;
     // Trailing whitespace is significant: it means the last word is finished and must not be
@@ -81,7 +81,7 @@ impl Prepared {
     /// The best `k` of `window`, re-scored by [`rank`], best first. Empty without free text.
     ///
     /// `window` is threads [`Prepared::listed`] already returned for this query, newest first:
-    /// the page in hand, or the newest [`WINDOW`]. Ranking them is one bounded pass over their
+    /// the page in hand, or the newest [`NEWEST_POOL`]. Ranking them is one bounded pass over their
     /// messages; asking the store to choose them again would be the whole search a second time.
     pub fn top(
         &self,
@@ -140,7 +140,7 @@ impl Prepared {
 #[derive(Debug, Clone)]
 pub struct Searched {
     pub prepared: Prepared,
-    /// Up to [`STRIP`] top results, best first.
+    /// Up to [`TOP_LIMIT`] top results, best first.
     pub top: Vec<(ThreadSummary, f64)>,
     /// The page of matches, newest first. A top result is in here too, where its date puts it.
     pub rows: Vec<ThreadSummary>,
@@ -151,7 +151,7 @@ impl Searched {
     ///
     /// None when nothing free was typed (operators only), and none when the strip would repeat
     /// the first rows of the list in the same order: then it tells the reader nothing.
-    pub fn strip(&self) -> Vec<ThreadSummary> {
+    pub fn top_results(&self) -> Vec<ThreadSummary> {
         if !self.prepared.has_text() || self.top.is_empty() {
             return Vec::new();
         }
@@ -171,7 +171,7 @@ impl Searched {
     }
 }
 
-/// Parse and expand `input`, then ask for one `page` of its matches and its [`STRIP`] top hits.
+/// Parse and expand `input`, then ask for one `page` of its matches and its [`TOP_LIMIT`] top hits.
 ///
 /// An invalid `re:/pattern/` is `Err` of the `regex` crate's message.
 pub fn search_list<Tz: TimeZone>(
@@ -179,7 +179,7 @@ pub fn search_list<Tz: TimeZone>(
     source: &dyn Source,
     affinity: &Affinity,
     zone: &Tz,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn crate::query::Names,
     page: PageReq,
     now: DateTime<Utc>,
 ) -> Result<Searched, CoreError> {
@@ -187,7 +187,7 @@ pub fn search_list<Tz: TimeZone>(
     let rows = prepared.listed(source, page, now);
     // The strip ranks the page it sits above: those threads are already in hand.
     let window: Vec<ThreadId> = rows.iter().map(|summary| summary.id).collect();
-    let top = prepared.top(source, affinity, STRIP, &window, now);
+    let top = prepared.top(source, affinity, TOP_LIMIT, &window, now);
     Ok(Searched {
         prepared,
         top,

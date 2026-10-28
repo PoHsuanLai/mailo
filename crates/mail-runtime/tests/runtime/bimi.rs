@@ -4,12 +4,11 @@
 //! `TcpListener` behind TLS with the certificate `tls_fixture` serves (it names `wkd.test`),
 //! and the client is told to trust it and to resolve `wkd.test` to the listener. The
 //! records point at `https://wkd.test:<port>/…`. The mark certificates come from a throwaway
-//! authority (`mail-mime/tests/bimi_support`).
+//! authority (`mail_mime::testing::bimi`).
 
-use crate::bimi_support;
 use crate::tls_fixture::{NOT_FOUND, ok, read_request, reply, root, serve_tls};
 
-use bimi_support::{LOGO, Mark, authority, now, pem};
+use mail_mime::testing::bimi::{LOGO, Mark, authority, now, pem};
 use mail_runtime::bimi::{Cached, Lookup, NoLogo, Txt, cached, find, logo};
 use mail_runtime::lookup::Miss;
 use std::collections::HashMap;

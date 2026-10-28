@@ -59,7 +59,7 @@ pub enum GroupHome {
     },
 }
 
-/// Whether a synced group holds a change the server has not been sent.
+/// Whether a synced group or card holds a change the server has not been sent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Edit {
@@ -68,6 +68,42 @@ pub enum Edit {
     /// Edited here: the next sync of its book writes it back, and until then a newer card from
     /// the server does not overwrite the edit.
     Edited,
+    /// Edited here and refused for good: the server answered that this card, or the whole book,
+    /// takes no such write. It is not sent again; it is kept as the edit left it until the
+    /// server's card changes, which then replaces it, or until it is edited again.
+    Refused,
+}
+
+impl GroupHome {
+    /// Whether this is a synced card holding a change the server has not been sent.
+    pub fn is_edited(&self) -> bool {
+        matches!(
+            self,
+            GroupHome::Book {
+                edit: Edit::Edited,
+                ..
+            }
+        )
+    }
+
+    /// This home with its change marked as not yet sent; a local one is left as it is.
+    #[must_use]
+    pub fn edited(mut self) -> Self {
+        if let GroupHome::Book { edit, .. } = &mut self {
+            *edit = Edit::Edited;
+        }
+        self
+    }
+
+    /// This home with its change marked as refused for good ([`Edit::Refused`]); a local one is
+    /// left as it is.
+    #[must_use]
+    pub fn refused(mut self) -> Self {
+        if let GroupHome::Book { edit, .. } = &mut self {
+            *edit = Edit::Refused;
+        }
+        self
+    }
 }
 
 impl Group {

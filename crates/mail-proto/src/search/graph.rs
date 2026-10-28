@@ -108,10 +108,12 @@ fn kql(filter: &Filter) -> Result<String, Unsaid> {
         Filter::Or(parts) => joined(each(parts, kql)?, "OR"),
         Filter::Not(inner) => format!("NOT {}", kql(inner)?),
         Filter::From(m) => format!("from:{}", whole(m)?),
+        Filter::FromAddress(email) => format!("from:{}", value(email)?),
         Filter::To(m) => {
             let who = whole(m)?;
             format!("(to:{who} OR cc:{who})")
         }
+        Filter::Cc(m) => format!("cc:{}", whole(m)?),
         Filter::Subject(m) => format!("subject:{}", whole(m)?),
         Filter::Text(TextMatch::Contains(needle)) => joined(
             words(needle)
@@ -143,9 +145,25 @@ fn kql(filter: &Filter) -> Result<String, Unsaid> {
                 "label: (labels stay on this computer for Microsoft accounts)".to_owned(),
             ));
         }
+        Filter::Category(_) => {
+            return Err(Unsaid::one(format!(
+                "{} (only Gmail has categories)",
+                describe(filter)
+            )));
+        }
         Filter::InMailbox(_) | Filter::InFolder(_) => {
             return Err(Unsaid::one(format!(
                 "{} inside another clause",
+                describe(filter)
+            )));
+        }
+        // KQL's `size` is the message's bytes (`size:>N` is more than N), whole message.
+        Filter::Larger(bytes) => format!("size:>{bytes}"),
+        Filter::Smaller(bytes) => format!("size:<{bytes}"),
+        // Fixed against a clock before a server is asked (`Filter::at`).
+        Filter::NewerThan(_) | Filter::OlderThan(_) => {
+            return Err(Unsaid::one(format!(
+                "{} (not fixed to a date)",
                 describe(filter)
             )));
         }
@@ -153,7 +171,8 @@ fn kql(filter: &Filter) -> Result<String, Unsaid> {
         | Filter::Account(_)
         | Filter::Snoozed
         | Filter::SnoozeDue
-        | Filter::Pinned => return Err(kept_here(filter)),
+        | Filter::Pinned
+        | Filter::Vip => return Err(kept_here(filter)),
     })
 }
 

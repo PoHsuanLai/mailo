@@ -11,7 +11,7 @@
 //! (a future spawned from a render is never polled). The cache is a value the front-end owns
 //! and hands to whoever renders, not a process global: two of them share nothing.
 
-use super::frame::{FrameBody, Source, render};
+use super::frame::{FrameBody, Prefer, Source, render};
 use crate::error::Logged;
 use mail_domain::{BlobId, Message, ThreadId};
 use mail_mime::{Parsed, SanitizePolicy};
@@ -23,8 +23,8 @@ use std::sync::{Arc, Mutex};
 /// How much rendered html to keep, in bytes. A long newsletter is a few hundred kilobytes.
 const BUDGET: usize = 32 * 1024 * 1024;
 
-/// What a rendering is cached under.
-pub type Key = (BlobId, SanitizePolicy);
+/// What a rendering is cached under: the bytes, the policy, and which body was preferred.
+pub type Key = (BlobId, SanitizePolicy, Prefer);
 
 /// The body OpenPGP or S/MIME opened a message to, when it has been opened. Such a message is
 /// not cached: its rendering is a function of more than the blob, and of a key that may be
@@ -111,10 +111,10 @@ fn size(body: &FrameBody) -> usize {
 /// rendered ahead (one opened from a search, far down the list) would otherwise hold that frame
 /// for every parse and sanitize in it; what is past this renders on a blocking thread instead,
 /// and is drawn when it lands. A plain reply is a few kilobytes, a newsletter a few hundred.
-pub const ON_THE_FRAME: u64 = 128 * 1024;
+pub const INLINE_BYTES: u64 = 128 * 1024;
 
 /// How many conversations from the top of the list are rendered before anyone opens one.
-pub const FIRST_SCREEN: usize = 20;
+pub const FIRST_PAGE: usize = 20;
 
 /// Where each rendering one reader sent off the thread has got to.
 #[derive(Debug, Default)]
@@ -145,6 +145,9 @@ pub struct Frames {
     cache: Mutex<Cache>,
     /// Bumped by every [`Frames::warm`], so that only the newest one keeps going.
     warming: AtomicU64,
+    /// Which body a message with both is shown as: the reader's setting, set by the front-end
+    /// ([`Frames::prefer`]) and part of every key.
+    prefer: Mutex<Prefer>,
 }
 
 impl std::fmt::Debug for Frames {
@@ -171,7 +174,19 @@ impl Frames {
             unsealed,
             cache: Mutex::new(Cache::new(budget)),
             warming: AtomicU64::new(0),
+            prefer: Mutex::new(Prefer::default()),
         }
+    }
+
+    /// Show a message that has both bodies as `prefer` from now on. What was rendered under
+    /// the other choice stays cached under it, so switching back is a lookup.
+    pub fn prefer(&self, prefer: Prefer) {
+        *self.prefer.lock().unwrap_or_else(|held| held.into_inner()) = prefer;
+    }
+
+    /// Which body a message that has both is shown as now.
+    pub fn preferred(&self) -> Prefer {
+        *self.prefer.lock().unwrap_or_else(|held| held.into_inner())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Cache> {
@@ -186,7 +201,7 @@ impl Frames {
         message: &Message,
         policy: SanitizePolicy,
     ) -> FrameBody {
-        render(store, message, policy, &*self.unsealed).0
+        render(store, message, policy, self.preferred(), &*self.unsealed).0
     }
 
     /// What `message` renders to under `policy`, from the cache when it has been rendered before.
@@ -209,7 +224,7 @@ impl Frames {
         // Rendered outside the lock: a parse and a sanitize must not hold up a lookup. Kept only
         // when it was rendered from the blob: a seal opened since `keyed` looked would otherwise
         // leave plaintext under the blob's key, served once the key is locked again.
-        let (body, source) = render(store, message, policy, &*self.unsealed);
+        let (body, source) = render(store, message, policy, key.2, &*self.unsealed);
         let body = Arc::new(body);
         if source == Source::Stored {
             self.lock().put(key, Arc::clone(&body));
@@ -227,13 +242,13 @@ impl Frames {
         if (self.unsealed)(message).is_some() {
             return None;
         }
-        Some((message.body.raw()?, policy))
+        Some((message.body.raw()?, policy, self.preferred()))
     }
 
     /// What `message` renders to under `policy`, if it can be had on this frame: from the cache,
     /// or rendered here while `room` still holds its raw size. `None` when it is to be rendered
     /// off the thread; it is then in `later`, unless it is already being rendered.
-    pub fn on_the_frame(
+    pub fn render_inline(
         &self,
         store: &SqliteStore,
         message: &Message,
@@ -331,7 +346,7 @@ impl Frames {
 /// Which conversations to render ahead, most wanted first: the two after the open one and the
 /// one before it — where `j` and `k` go next — then the top of the list. Never the open one,
 /// which the reader is rendering already, and never one twice.
-pub fn ahead(open: Option<ThreadId>, list: &[ThreadId], screen: usize) -> Vec<ThreadId> {
+pub fn ahead(open: Option<ThreadId>, list: &[ThreadId], page: usize) -> Vec<ThreadId> {
     let mut order = Vec::new();
     if let Some(here) = open.and_then(|id| list.iter().position(|it| *it == id)) {
         let neighbours = [
@@ -341,7 +356,7 @@ pub fn ahead(open: Option<ThreadId>, list: &[ThreadId], screen: usize) -> Vec<Th
         ];
         order.extend(neighbours.into_iter().flatten().filter_map(|i| list.get(i)));
     }
-    for id in list.iter().take(screen) {
+    for id in list.iter().take(page) {
         if !order.contains(id) {
             order.push(*id);
         }
@@ -373,6 +388,7 @@ mod tests {
                 version,
                 ..SanitizePolicy::FRAME
             },
+            Prefer::Html,
         )
     }
 
@@ -391,6 +407,18 @@ mod tests {
         // The same bytes under another policy, or the same policy at another version, is a miss.
         assert_eq!(cache.get(key(1, RemoteImages::Allowed, 1)), None);
         assert_eq!(cache.get(key(1, RemoteImages::Blocked, 2)), None);
+        // And so is which body was preferred.
+        let (blob, policy, _) = key(1, RemoteImages::Blocked, 1);
+        assert_eq!(cache.get((blob, policy, Prefer::Plain)), None);
+    }
+
+    /// The preference the front-end sets is the one every key is made with.
+    #[test]
+    fn the_preferred_body_keys_what_is_cached() {
+        let frames = Frames::plain();
+        assert_eq!(frames.preferred(), Prefer::Html);
+        frames.prefer(Prefer::Plain);
+        assert_eq!(frames.preferred(), Prefer::Plain);
     }
 
     #[test]
@@ -458,11 +486,11 @@ mod tests {
             ("open at the last row", 3, Some(2), 0, &[1]),
             ("open at the first row", 3, Some(0), 0, &[1, 2]),
         ];
-        for (name, rows, open, screen, want) in CASES {
+        for (name, rows, open, page, want) in CASES {
             let list = ids(*rows);
             let want: Vec<ThreadId> = want.iter().map(|row| list[*row]).collect();
             assert_eq!(
-                ahead(open.map(|row| list[row]), &list, *screen),
+                ahead(open.map(|row| list[row]), &list, *page),
                 want,
                 "{name}"
             );

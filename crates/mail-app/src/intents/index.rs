@@ -8,7 +8,7 @@
 //!
 //! - **At the start**, and whenever the router comes onto the bus (`NameOwnerChanged`): `Reset`
 //!   with a fresh epoch, then everything, in batches of at most [`BATCH`].
-//! - **When the store is written to** (`ui::on_write`, what the window hears any commit by, its
+//! - **When the store is written to** (`mail_client::on_write`, what the client hears any commit by, its
 //!   own and a watch's): what moved since the last push, upserts and removals, at most one push
 //!   every [`EVERY`], so a sync's burst of commits is one push.
 //! - **When the router refuses a push as `Malformed`**: it has a new epoch or none (it restarted,
@@ -95,7 +95,7 @@ pub fn start(store: Arc<SqliteStore>) {
             // Held for as long as this thread lives, which is as long as the process.
             let _written = store
                 .file()
-                .and_then(|file| crate::ui::on_write(file, move || changed.said()));
+                .and_then(|file| mail_client::on_write(file, move || changed.said()));
             loop {
                 std::thread::park();
             }

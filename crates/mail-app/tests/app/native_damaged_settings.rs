@@ -8,9 +8,9 @@ use ds::prelude::{ShortcutKey as Key, SystemPrefs};
 use ds_blitz::NetPolicy;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use ds_settings::{ConfigRoot, SystemPrefsSource};
-use mail_app::ui::appearance::WindowDirs;
-use mail_app::ui::native::{DesktopSettings, Found, damaged_files};
 use mail_core::SqliteStore;
+use mail_ui::ui::appearance::WindowDirs;
+use mail_ui::ui::native::{DesktopSettings, Found, damaged_files};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -53,12 +53,12 @@ fn a_damaged_settings_file_is_asked_about_and_kept_aside_before_the_window_opens
 
     let found = damaged_files(&dirs);
     assert_eq!(found.len(), 2, "{found:?}");
-    let contexts = mail_app::ui::native::contexts(
-        Arc::new(mail),
-        mail_app::ui::view::Appearance::default(),
+    let contexts = mail_ui::ui::native::contexts(
+        mail_client::Client::open(Arc::new(mail), mail_client::ClientConfig::default()),
+        mail_ui::ui::view::Appearance::default(),
         None,
         Some(dirs.clone()),
-        mail_app::ui::Start::Inbox,
+        mail_ui::ui::Start::Inbox,
     )
     .with(Found(found))
     .with(DesktopSettings {
@@ -69,7 +69,7 @@ fn a_damaged_settings_file_is_asked_about_and_kept_aside_before_the_window_opens
         .with_net(NetPolicy::Local)
         .with_clock(Clock::Virtual)
         .with_contexts(contexts);
-    let mut window = Harness::new(mail_app::ui::native::live_root, config);
+    let mut window = Harness::new(mail_ui::ui::native::live_root, config);
 
     until(&mut window, "the question", |h| h.count(ASKED) == 1);
     let said = window.text_of(ASKED).unwrap_or_default();

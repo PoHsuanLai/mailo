@@ -1,23 +1,25 @@
 //! What `mailo watch` does as the session's member, beyond fetching: it keeps the unread count on
 //! the launcher, with the window open or closed.
 //!
-//! The count is every account's unread inbox conversations (`launcher::unread` over no
-//! scope), the same question the window asks for the Space it shows. The window, where there is
-//! a watch running, leaves the launcher to this thread (`ui::launch::native`), because a dock
-//! forgets a count when its sender leaves the bus: a window that closed would take the badge with
-//! it while the mail stayed unread.
+//! The count is every account's unread conversations (`launcher::unread` over no scope, in the
+//! places `notifications.badge` says), the same question the window asks for the Space it shows.
+//! The window, where there is a watch running, leaves the launcher to this thread
+//! (`ui::launch::native`), because a dock forgets a count when its sender leaves the bus: a
+//! window that closed would take the badge with it while the mail stayed unread.
 //!
 //! Read when the store is written to. The store is shared by the watch, the window and the command
 //! line, and what changes the count is any of them reading or archiving a message, each of which
 //! is a commit to the database's file or the `-wal` beside it; the system says when one is
-//! written to (`ui::on_write`, what the window hears another process's commits by), so the count
+//! written to (`mail_client::on_write`, what the client hears another process's commits by), so the count
 //! is read then, at most once every [`EVERY`], and not at all while nothing is written. Without
 //! that word (a store in memory, or a system that will not watch the file) it is read every
 //! [`EVERY`]. The count is read and said again every [`REPEAT`] even when nothing was written,
 //! so a dock that started after mailo, or restarted, learns it within that time.
 
-use crate::launcher::{Badge, Unread, unread};
+use chrono::{DateTime, Utc};
 use mail_core::Store;
+use mail_core::scope::Scope;
+use mail_ui::launcher::{Badge, Unread};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -52,6 +54,9 @@ impl Beat {
 /// Keep this platform's launcher showing the unread count, for as long as the process runs. `None`
 /// when the platform has no launcher to tell. For `mailo watch`, which has no window of its own.
 /// `file` is the database the store is in, when it is in one.
+///
+/// `None` on macOS too: the Dock tile is mailo.app's own, which no other process can badge, and
+/// the app keeps its count itself while it runs, with a window open or not (`ui::launch::native`).
 pub fn keep_the_launchers_badge<S>(
     store: Arc<S>,
     file: Option<PathBuf>,
@@ -59,7 +64,10 @@ pub fn keep_the_launchers_badge<S>(
 where
     S: Store + Send + Sync + ?Sized + 'static,
 {
-    let launcher = crate::launcher::platform()?;
+    if cfg!(target_os = "macos") {
+        return None;
+    }
+    let launcher = mail_ui::launcher::platform()?;
     Some(keep_the_badge(store, file, launcher.0, EVERY).map(|_| ()))
 }
 
@@ -82,7 +90,7 @@ where
             let (tx, written) = std::sync::mpsc::channel();
             // Gone only with this thread, which is not a write to say anything about.
             let watching = file.as_deref().and_then(|file| {
-                crate::ui::on_write(file, move || {
+                mail_client::on_write(file, move || {
                     let _ = tx.send(());
                 })
             });
@@ -90,8 +98,9 @@ where
             loop {
                 if let Ok(count) = unread(
                     store.as_ref(),
-                    &mail_core::scope::Scope::All,
+                    &Scope::All,
                     chrono::Utc::now(),
+                    mail_ui::settings::badge_places(),
                 ) && beat.due(Instant::now(), count)
                 {
                     badge.show(count);
@@ -106,6 +115,41 @@ where
                 }
             }
         })
+}
+
+/// [`keep_the_badge`] for a badge already found, over the store the app opened: what the macOS
+/// app keeps its Dock tile with.
+pub fn keep_the_badge_over(
+    store: Arc<mail_core::SqliteStore>,
+    file: Option<PathBuf>,
+    badge: Arc<dyn Badge>,
+) -> std::io::Result<()> {
+    keep_the_badge(store, file, badge, EVERY).map(|_| ())
+}
+
+/// The filter the launcher counts with: [`mail_ui::launcher::filter_over`] over the mailboxes
+/// the accounts' servers list as followed, when `places` counts them.
+pub fn filter<S: Store + ?Sized>(
+    store: &S,
+    scope: &Scope,
+    places: mail_core::notify::Places,
+) -> Result<mail_domain::Filter, mail_core::StoreError> {
+    let followed = match places {
+        mail_core::notify::Places::Inbox => Vec::new(),
+        mail_core::notify::Places::Followed => store.followed_folders()?,
+    };
+    Ok(mail_ui::launcher::filter_over(&followed, scope, places))
+}
+
+/// Count them, as `places` says. One indexed query (`Store::count`), made off the thread that
+/// draws.
+pub fn unread<S: Store + ?Sized>(
+    store: &S,
+    scope: &Scope,
+    now: DateTime<Utc>,
+    places: mail_core::notify::Places,
+) -> Result<Unread, mail_core::StoreError> {
+    store.count(&filter(store, scope, places)?, now).map(Unread)
 }
 
 #[cfg(test)]

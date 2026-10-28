@@ -1,11 +1,11 @@
 //! The Original view's guarantees on Blitz, against the reader's real frame
-//! (`mail_app::ui::native::OriginalFrame`, the `Sandbox` iframe in mailo's stylesheet) in a
+//! (`mail_ui::ui::native::OriginalFrame`, the `Sandbox` iframe in mailo's stylesheet) in a
 //! headless Blitz document (`ds_blitz::Harness`).
 //!
-//! The webview's frame was held by its markup, and `src/ui/reading/tests.rs` asserts that markup
+//! The webview's frame was held by its markup, and `crates/mail-ui/src/ui/reading/tests.rs` asserts that markup
 //! (`sandbox=""`, no parent between the article and the iframe, the "sandboxed frame" note).
 //! Blitz ignores `sandbox`; what holds the frame there is that it is a separate document, and
-//! what it may reach is mailo's to say (`ui/original`). So these assert the behaviour itself.
+//! what it may reach is mailo's to say (`mail-ui`'s `ui/original`). So these assert the behaviour itself.
 //! Each body here is fed *around* the sanitizer, as a parser differential or an ammonia miss
 //! would deliver it: the guarantee must hold for markup the sanitizer should never have let
 //! through. The same guarantees in the real window, through the sanitizer, are
@@ -23,7 +23,7 @@ use crate::drive;
 use dioxus::prelude::*;
 use drive::Drive;
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_app::ui::native::{Browse, Fetch, Original, OriginalFrame};
+use mail_ui::ui::native::{Browse, Fetch, Original, OriginalFrame};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -41,7 +41,7 @@ struct Page {
 }
 
 /// A window with one element of its own beside the reader's Original frame.
-#[allow(non_snake_case)]
+#[component]
 fn Window() -> Element {
     let page = use_context::<Page>();
     rsx! {
@@ -242,7 +242,7 @@ fn the_frame_and_the_window_share_no_nodes_styles_or_scripts() {
 /// Zero requests without consent: remote images in the frame's markup (which the sanitizer
 /// would have stripped) are neither fetched nor shown, and the frame is never served `file:`.
 /// (Nor with consent: a consented list is read through a web-only filter,
-/// `ui/original/consent_tests.rs`.)
+/// `mail-ui`'s `ui/original/consent_tests.rs`.)
 #[test]
 fn a_frame_fetches_nothing_without_consent_and_is_never_served_a_file() {
     let held = Held::new();
@@ -292,5 +292,46 @@ fn a_link_click_never_navigates_the_frame() {
     assert_eq!(
         held.2.urls(),
         vec!["https://shop.example.test/offer".to_owned()]
+    );
+}
+
+/// A newsletter's mobile sheet sets its content cells to `display: block` under a narrow
+/// viewport (the Beefree/MoEngage builders' `.stack .column`): the cell and what it holds still
+/// lay out, as a browser's anonymous cell does, rather than at nothing.
+#[test]
+fn a_block_table_cell_in_a_narrow_frame_still_lays_out_its_text() {
+    let held = Held::new();
+    let body = "<style>@media (max-width: 590px) { .stack .column { width: 100% !important; \
+        display: block } }</style>\
+        <table width='100%'><tr><td><table class='row-content stack' width='570' \
+        style='width: 570px; margin: 0 auto'><tr><td class='column' width='100%'>\
+        <p class='copy'>Last chance to shop selected styles</p>\
+        <span class='cta'>Shop Now</span></td></tr></table></td></tr></table>";
+    let page = Page {
+        body: body.to_owned(),
+        css: String::new(),
+    };
+    let narrow = Viewport {
+        width: 500,
+        height: 600,
+        scale_percent: 100,
+    };
+    let mut harness = Harness::new(
+        Window,
+        HarnessConfig::new(narrow)
+            .with_clock(Clock::Virtual)
+            .with_context(page)
+            .with_net(held.0.net())
+            .with_frame_links(held.0.links())
+            .with_contexts(held.0.contexts()),
+    );
+    harness.advance(Duration::from_millis(50));
+    assert!(
+        frame_width(&harness, ".copy") > 0.0,
+        "the text has no width"
+    );
+    assert!(
+        frame_width(&harness, ".cta") > 0.0,
+        "the button has no width"
     );
 }

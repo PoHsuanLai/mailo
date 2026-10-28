@@ -202,3 +202,178 @@ fn hebrew_and_english_take_their_own_directions() {
         .collect();
     assert_eq!(dirs, vec![Dir::Rtl, Dir::Ltr], "{}", sketch(&doc));
 }
+
+/// Each link in `blocks`, as the text it shows and the URL it opens.
+fn links(blocks: &[Block]) -> Vec<(String, String)> {
+    fn spans_links(spans: &[mail_mime::Span], out: &mut Vec<(String, String)>) {
+        for span in spans {
+            if let mail_mime::Span::Link { url, spans } = span {
+                let shown = spans
+                    .iter()
+                    .map(|span| match span {
+                        mail_mime::Span::Text(text) => text.as_str(),
+                        _ => "",
+                    })
+                    .collect();
+                out.push((shown, url.as_str().to_owned()));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for block in blocks {
+        match block {
+            Block::Paragraph { spans, .. } => spans_links(spans, &mut out),
+            Block::Quote { blocks, .. } | Block::Signature(blocks) => out.extend(links(blocks)),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A linkify case: what it is, the text, and each link's words and where it goes.
+type Linked = (
+    &'static str,
+    &'static str,
+    &'static [(&'static str, &'static str)],
+);
+
+#[test]
+fn addresses_in_plain_text_are_links() {
+    let fixed = Flowed::Fixed;
+    let cases: &[Linked] = &[
+        (
+            "a bare https",
+            "See https://a.test/x now",
+            &[("https://a.test/x", "https://a.test/x")],
+        ),
+        (
+            "www gets https",
+            "at www.a.test.",
+            &[("www.a.test", "https://www.a.test/")],
+        ),
+        (
+            "a sentence's full stop",
+            "Go to http://a.test/p.",
+            &[("http://a.test/p", "http://a.test/p")],
+        ),
+        (
+            "brackets around it",
+            "(see https://a.test/x)",
+            &[("https://a.test/x", "https://a.test/x")],
+        ),
+        (
+            "its own brackets",
+            "https://a.test/wiki/A_(b)",
+            &[("https://a.test/wiki/A_(b)", "https://a.test/wiki/A_(b)")],
+        ),
+        (
+            "angle brackets",
+            "<https://a.test/y>",
+            &[("https://a.test/y", "https://a.test/y")],
+        ),
+        (
+            "ends at CJK text",
+            "網址https://a.test/z。謝謝",
+            &[("https://a.test/z", "https://a.test/z")],
+        ),
+        (
+            "an email",
+            "write ada@example.test, please",
+            &[("ada@example.test", "mailto:ada@example.test")],
+        ),
+        (
+            "tracking comes off",
+            "https://a.test/?utm_source=x&id=1",
+            &[("https://a.test/?utm_source=x&id=1", "https://a.test/?id=1")],
+        ),
+        (
+            "two",
+            "https://a.test and b@c.test",
+            &[
+                ("https://a.test", "https://a.test/"),
+                ("b@c.test", "mailto:b@c.test"),
+            ],
+        ),
+        (
+            "no scheme to trust",
+            "javascript:alert(1) ftp://a.test",
+            &[],
+        ),
+        ("not a domain", "user@localhost and 3@4", &[]),
+        ("a bare prefix", "https:// and www.", &[]),
+        ("inside a word", "xhttps://a.test", &[]),
+    ];
+    for (name, raw, expected) in cases {
+        let got = links(&text(raw, fixed).blocks);
+        let expected: Vec<(String, String)> = expected
+            .iter()
+            .map(|(shown, url)| ((*shown).to_owned(), (*url).to_owned()))
+            .collect();
+        assert_eq!(got, expected, "{name}");
+    }
+}
+
+#[test]
+fn a_quoted_link_and_its_line_breaks_stay() {
+    let doc = text(
+        "On Monday, Ada wrote:\n> see\n> https://a.test/q\n",
+        Flowed::Fixed,
+    );
+    assert_eq!(
+        links(&doc.blocks),
+        vec![("https://a.test/q".to_owned(), "https://a.test/q".to_owned())]
+    );
+}
+
+#[test]
+fn unflow_gives_back_the_lines_the_writer_meant() {
+    let no = Delsp::No;
+    let yes = Delsp::Yes;
+    let cases: &[(&str, &str, Delsp, &str)] = &[
+        (
+            "soft lines join",
+            "one \ntwo \nthree\nfour",
+            no,
+            "one two three\nfour",
+        ),
+        ("delsp=yes drops the marker", "日本 \n語", yes, "日本語"),
+        (
+            "stuffing comes off",
+            " From here\n  two",
+            no,
+            "From here\n two",
+        ),
+        ("the separator is hard", "Hi\n-- \nAda", no, "Hi\n-- \nAda"),
+        (
+            "quotes join at their depth",
+            "> a \n> b\n>> c \n>> d",
+            no,
+            "> a b\n>> c d",
+        ),
+        ("a change of depth ends a join", "> a \nb", no, "> a \nb"),
+        ("spaced markers", "> > a \n> > b", no, ">> a b"),
+        ("an empty quoted line", "> a\n>\n> b", no, "> a\n>\n> b"),
+        ("crlf", "a \r\nb\r\n", no, "a b\n"),
+    ];
+    for (name, text, delsp, expected) in cases {
+        assert_eq!(mail_mime::unflow(text, *delsp), *expected, "{name}");
+    }
+}
+
+/// A sender's run of closing brackets is trimmed in one pass: counting them again for each one
+/// trimmed took minutes for a message this size.
+#[test]
+fn a_long_run_of_closing_brackets_is_trimmed_at_once() {
+    let raw = format!("http://a.test/{}", ")".repeat(200_000));
+    let began = std::time::Instant::now();
+    let got = links(&text(&raw, Flowed::Fixed).blocks);
+    assert_eq!(
+        got,
+        vec![("http://a.test/".to_owned(), "http://a.test/".to_owned())]
+    );
+    assert!(
+        began.elapsed() < std::time::Duration::from_secs(10),
+        "{:?}",
+        began.elapsed()
+    );
+}

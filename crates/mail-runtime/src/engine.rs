@@ -5,7 +5,7 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait (`CONTRIBUTING.md`, "Time").
 
-use crate::error::Failure;
+use crate::error::{Failure, Logged};
 use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
 use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive, drive_within};
 use chrono::{DateTime, Utc};
@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 mod partial;
+mod quota;
 mod search;
 mod split;
 pub(crate) mod wait;
@@ -191,6 +192,22 @@ pub(crate) fn first_stored(patch: &mail_domain::Patch) -> impl Iterator<Item = M
 }
 
 impl SyncReport {
+    /// Keep what a write that stopped part-way had already committed, and say the rest did not
+    /// follow. True when `error` was such a stop: the pass then ends with what it has, so the
+    /// messages that did arrive still meet the rules and the notifications, and the next pass
+    /// writes the rest.
+    pub(crate) fn stopped_by(&mut self, error: &RuntimeError) -> bool {
+        let RuntimeError::Store(error) = error else {
+            return false;
+        };
+        let Some(written) = error.written() else {
+            return false;
+        };
+        self.arrived.extend(first_stored(written));
+        self.needs_attention.push(error.to_string());
+        true
+    }
+
     /// Say that `count` messages of `mailbox` arrived and could not be read as messages. They
     /// were skipped, and the pass's cursor has moved past them, so nothing will fetch them
     /// again: the person is told rather than left with mail that silently never came.
@@ -324,6 +341,32 @@ pub struct AccountEngine<B: Backend> {
     /// The connection to the submission server the last submission was accepted on, signed in
     /// and open for the next, until the drain it is part of ends.
     sending: Option<(Kept, mail_proto::Open)>,
+    /// The oldest a message may be dated and still have its body fetched by a body pass
+    /// ([`AccountEngine::downloading_since`]). `None`, every message, unless the account was set
+    /// to be downloaded only so far back.
+    since: Option<DateTime<Utc>>,
+    /// What the server was last observed to support with what the person chose laid over it
+    /// ([`mail_store::AccountPrefs::over`]): folders picked for roles, and labels kept on the
+    /// server or not. Read back from the store after each refresh. `None` while they chose
+    /// nothing that changes it, and the backend's own belief stands.
+    picked: Option<AccountCaps>,
+    /// The mailboxes besides the one watched that a watch also hears of through `NOTIFY`
+    /// ([`AccountEngine::with_also`]).
+    also: Vec<MailboxRef>,
+    /// Whether the server answers `NOTIFY`, as far as a watch has found out.
+    notify: Notify,
+}
+
+/// Whether the server has `NOTIFY` (RFC 5465), as far as a watch with other mailboxes to hear of
+/// has found out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Notify {
+    /// No watch has asked, or none with another mailbox to name.
+    Unasked,
+    /// A watch named other mailboxes and the server took them.
+    Works,
+    /// The server has no `NOTIFY`: those mailboxes are for the caller to watch another way.
+    Absent,
 }
 
 /// How long a kept connection waits for the next operation before a new one is opened instead.
@@ -361,6 +404,26 @@ impl Kept {
     /// Whether it has waited no longer than [`KEPT_FOR`].
     fn fresh(&self) -> bool {
         self.at.elapsed() < KEPT_FOR
+    }
+}
+
+/// The RFC 3461 parameters a draft's request for delivery reports puts on the envelope: a report
+/// when the message is delivered and when it fails, never one for a delay, which says only that a
+/// server is still trying. Headers rather than the whole message come back, as a report needs
+/// only enough to say which message it is about. `mail_proto::smtp` leaves them off, and still
+/// submits, when the server does not offer `DSN`.
+fn delivery_receipt(delivery: mail_domain::DeliveryReport) -> Option<mail_proto::smtp::Receipt> {
+    match delivery {
+        mail_domain::DeliveryReport::Unrequested => None,
+        mail_domain::DeliveryReport::Requested => Some(mail_proto::smtp::Receipt {
+            notify: mail_proto::smtp::Notify::On {
+                success: true,
+                failure: true,
+                delay: false,
+            },
+            ret: mail_proto::smtp::Return::Headers,
+            envid: None,
+        }),
     }
 }
 
@@ -406,6 +469,10 @@ impl<B: Backend> AccountEngine<B> {
             dial: None,
             kept: None,
             sending: None,
+            since: None,
+            picked: None,
+            also: Vec::new(),
+            notify: Notify::Unasked,
         }
     }
 
@@ -416,8 +483,16 @@ impl<B: Backend> AccountEngine<B> {
         self
     }
 
+    /// The store this engine keeps the account in.
+    pub fn store(&self) -> &SqliteStore {
+        &self.store
+    }
+
     /// What the server is believed to support: the Graph reader's, where there is one.
-    fn caps(&self) -> &AccountCaps {
+    pub fn caps(&self) -> &AccountCaps {
+        if let Some(picked) = &self.picked {
+            return picked;
+        }
         match &self.graph {
             Some(reader) => reader.caps(),
             None => self.backend.caps(),
@@ -457,9 +532,31 @@ impl<B: Backend> AccountEngine<B> {
         self
     }
 
+    /// Hear of these mailboxes on the watch's own connection too, where the server has `NOTIFY`.
+    ///
+    /// Where it has not, the first watch finds out ([`AccountEngine::notifies`]) and these are
+    /// for the caller to watch on connections of their own.
+    #[must_use]
+    pub fn with_also(mut self, also: Vec<MailboxRef>) -> Self {
+        self.also = also;
+        self
+    }
+
+    /// Whether the server has `NOTIFY`, as far as a watch has found out.
+    pub fn notifies(&self) -> Notify {
+        self.notify
+    }
+
     /// Send [`Outgoing::Graph`] mail somewhere other than Graph: a test's own listener.
     pub fn with_graph_url(mut self, url: impl Into<String>) -> Self {
         self.graph_url = url.into();
+        self
+    }
+
+    /// Fetch bodies in a body pass only for messages dated at `since` or later: an account
+    /// downloaded only so far back. What the window shows or opens is fetched whatever its age.
+    pub fn downloading_since(mut self, since: Option<DateTime<Utc>>) -> Self {
+        self.since = since;
         self
     }
 
@@ -547,8 +644,10 @@ impl<B: Backend> AccountEngine<B> {
                 Ok(outcome) => {
                     // Answered, whatever recording where it went says next.
                     progress.answered.push(part);
-                    if let ProtoOutcome::Moved(moved) = outcome {
-                        self.moved(&moved, into.as_deref())?;
+                    match outcome {
+                        ProtoOutcome::Moved(moved) => self.moved(&moved, into.as_deref())?,
+                        ProtoOutcome::Copied(copied) => self.copied(&copied)?,
+                        _ => {}
                     }
                 }
                 Err(e) => {
@@ -639,6 +738,14 @@ impl<B: Backend> AccountEngine<B> {
             let bytes = self.store.blobs().get(*raw)?;
             self.backend.stage_append(bytes);
         }
+        // A draft's copy is made from the draft as it stands now, so what waited sends the
+        // latest; one with nothing to put there any more is done with.
+        if let ProtoOp::KeepDraft { draft, .. } = &op {
+            match crate::server_drafts::copy(&self.store, *draft)? {
+                Some(bytes) => self.backend.stage_append(bytes),
+                None => return Ok(ProtoOutcome::Applied),
+            }
+        }
         // A watch is quiet by design, parked in IDLE until there is news, and `wait` ends it at
         // `IDLE_REARM`; this is only the floor under that. Anything else that goes this quiet
         // is a connection that is gone.
@@ -705,6 +812,9 @@ impl<B: Backend> AccountEngine<B> {
         for (from, to) in moves {
             self.store.remap(self.account.clone(), &from, &to)?;
         }
+        for (from, to) in reader.take_copies() {
+            self.store.copied(self.account.clone(), &from, &to)?;
+        }
         outcome
     }
 
@@ -760,7 +870,7 @@ impl<B: Backend> AccountEngine<B> {
                     // would lose the `Bcc` recipients, which its headers deliberately omit.
                     mail_from: posting.mail_from,
                     recipients: posting.rcpt_to,
-                    receipt: None,
+                    receipt: delivery_receipt(posting.delivery),
                     message: posting.message,
                 })
             }),
@@ -808,6 +918,7 @@ impl<B: Backend> AccountEngine<B> {
             raw,
             ref mail_from,
             ref rcpt_to,
+            delivery,
             ..
         } = op
         else {
@@ -826,6 +937,7 @@ impl<B: Backend> AccountEngine<B> {
             ));
         }
         let message = self.leaving_bytes(raw, leaving)?;
+        let resent = mail_mime::is_resent(&message);
         let Some((host, port, tls)) = self.outgoing() else {
             return self.submit_to_graph(&message, rcpt_to).await;
         };
@@ -834,13 +946,14 @@ impl<B: Backend> AccountEngine<B> {
             mail_from: mail_from.clone(),
             rcpt_to: rcpt_to.clone(),
             message,
+            delivery,
         };
         let kept = self.sending.take().filter(|(kept, _)| kept.fresh());
         // Once more on a new connection, where the kept one was let go: by the server, or with
         // a 421 that closes it. Every message before this one was accepted at its dot and is
         // settled, so only this one goes again, and it had not been.
         let again = kept.as_ref().map(|_| (posting.clone(), op.clone()));
-        match (
+        let sent = match (
             self.submit_on(&outgoing, posting, op, kept, cancel).await,
             again,
         ) {
@@ -848,7 +961,8 @@ impl<B: Backend> AccountEngine<B> {
                 self.submit_on(&outgoing, posting, op, None, cancel).await
             }
             (done, _) => done,
-        }
+        };
+        sent.map_err(|e| crate::sending::redirect_refused(e, resent))
     }
 
     /// Submit `posting` on `kept`, or on a new connection to `outgoing`, and keep the
@@ -875,11 +989,30 @@ impl<B: Backend> AccountEngine<B> {
             backend: &mut backend,
             op: Some(op),
         };
-        let outcome = drive(&mut step, &mut transport, cancel).await?;
+        let outcome = drive(&mut step, &mut transport, cancel).await;
+        // Before the outcome is looked at, so a message the server refused for its size still
+        // leaves the size it takes written down for the next one composed.
+        self.heard_size(backend.size_limit());
+        let outcome = outcome?;
         if let Some(on) = backend.left_open().filter(|_| !*cancel.borrow()) {
             self.sending = Some((Kept::now(transport, true), on));
         }
         Ok(outcome)
+    }
+
+    /// Write down the largest message the submission server said it takes, for the composer to
+    /// measure the next message against. `SIZE` with no number, or zero, states no limit (RFC
+    /// 1870 §4); a server that said nothing of it, or was never heard, leaves what was known.
+    fn heard_size(&self, size: &mail_proto::SizeLimit) {
+        let octets = match size {
+            mail_proto::SizeLimit::Absent => return,
+            mail_proto::SizeLimit::Limited(octets) if *octets > 0 => Some(*octets),
+            mail_proto::SizeLimit::Limited(_) | mail_proto::SizeLimit::Unlimited => None,
+        };
+        // Only a measure for the composer: a store that cannot keep it costs the send nothing.
+        self.store
+            .put_send_limit(self.account.clone(), octets)
+            .or_log("the submission server's size limit could not be kept");
     }
 
     /// Say `QUIT` on the submission connection a drain kept, and close it.
@@ -946,8 +1079,10 @@ impl<B: Backend> AccountEngine<B> {
     ///   message twice.
     /// - An IMAP account on any other SMTP server has a Sent mailbox and nobody filing into it,
     ///   so the client uploads the copy there (`APPEND`, RFC 3501 §6.3.11) when the server's
-    ///   `SPECIAL-USE` listing names one (RFC 6154). With none named, uploading to a guessed
-    ///   path is how a message lands somewhere nobody looks, so the copy is kept here.
+    ///   `SPECIAL-USE` listing names one (RFC 6154), or, with none, a folder at the top has a
+    ///   name every client takes for Sent (`Sent`, `Sent Items`: `mail_proto`'s folder roles).
+    ///   With neither, uploading to a guessed path is how a message lands somewhere nobody
+    ///   looks, so the copy is kept here.
     /// - A POP3 or local account has no Sent mailbox at all, whichever server sends for it, so
     ///   the copy is kept here: Graph's lands in a Sent Items a POP3 sync never reads.
     fn sent_copy(&self) -> SentCopy {
@@ -1070,7 +1205,7 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<SyncReport, RuntimeError> {
         let (mut report, mut again) = self.drain_pass(cancel, now).await?;
         // A copy queued by a submission goes in the same call, unless something failed: the Sent
-        // copy of a message is not left waiting for the next pass.
+        // copy of a message is not left waiting for the next pass, nor its draft in Drafts.
         while again {
             let (later, more) = self.drain_pass(cancel, now).await?;
             report.absorb(later);
@@ -1080,7 +1215,8 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// One walk through what is due. The flag says a submission in it queued an upload of its
-    /// sent copy and nothing stopped the walk, so another is worth making at once.
+    /// sent copy, or the removal of its draft's copy, and nothing stopped the walk, so another is
+    /// worth making at once.
     async fn drain_pass(
         &mut self,
         cancel: &mut Cancel,
@@ -1148,8 +1284,12 @@ impl<B: Backend> AccountEngine<B> {
                 Ok(outcome) => {
                     // Before the settle, so the next entry, addressed as it is reached, finds
                     // the message where the move put it.
-                    if let ProtoOutcome::Moved(moved) = &outcome {
-                        self.moved(moved, into.as_deref())?;
+                    match &outcome {
+                        ProtoOutcome::Moved(moved) => self.moved(moved, into.as_deref())?,
+                        // Before the settle too: the copy stops being listed by the queued entry
+                        // as it settles, and from then on by the address the server gave it.
+                        ProtoOutcome::Copied(copied) => self.copied(copied)?,
+                        _ => {}
                     }
                     self.store.outbox_settle(id, Settle::Ok, now)?;
                     if let (Some(upload), ProtoOutcome::Appended { remote }) = (upload, outcome) {
@@ -1186,6 +1326,14 @@ impl<B: Backend> AccountEngine<B> {
                         copy_queued |= matches!(copy, SentCopy::Upload(_));
                         self.mark_draft(draft, SendState::Sent { at: now, message }, now);
                         report.submitted += 1;
+                        // Sent, so its copy in Drafts on the server goes, in this drain as the
+                        // Sent copy does. Sent whatever becomes of that, as above.
+                        match self.drop_draft_copies(draft, now) {
+                            Ok(queued) => copy_queued |= queued,
+                            Err(e) => report.needs_attention.push(format!(
+                                "sent, but its draft may still be in Drafts on the server: {e}"
+                            )),
+                        }
                     }
                     report.outbox_settled += 1;
                 }
@@ -1319,6 +1467,17 @@ impl<B: Backend> AccountEngine<B> {
         Ok(())
     }
 
+    /// Keep the address each copy was given, beside the message it is a copy of. A copy whose
+    /// address the server did not say is found by the next sync of its folder, by identity.
+    fn copied(&self, copied: &[Moved]) -> Result<(), RuntimeError> {
+        for one in copied {
+            if let Some(to) = &one.to {
+                self.store.copied(self.account.clone(), &one.from, to)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Keep a message this client just uploaded, so it is here before any sync fetches it.
     ///
     /// At the address the server gave it where it gave one (`APPENDUID`); the next sync then
@@ -1406,11 +1565,25 @@ impl<B: Backend> AccountEngine<B> {
             _ => self.caps().clone(),
         };
         let caps = match self.graph.as_mut() {
-            Some(reader) => reader.observed(now),
+            Some(reader) => reader.observed(now, self.store.folders(self.account.clone())?.len()),
             None => caps,
         };
         self.store.put_caps(self.account.clone(), &caps, now)?;
-        Ok(caps)
+        self.repick()?;
+        Ok(self.caps().clone())
+    }
+
+    /// Read back what was just written, with the person's picked folders over it, for the
+    /// rest of this engine's life to file by.
+    fn repick(&mut self) -> Result<(), RuntimeError> {
+        let prefs = self.store.account_prefs(self.account.clone())?;
+        // Nothing the person said changes what the backend believes only when they picked no
+        // folder and chose to keep their labels on the server.
+        self.picked = match prefs.folders.is_empty() && prefs.keep_labels {
+            true => None,
+            false => self.store.account_caps(self.account.clone())?,
+        };
+        Ok(())
     }
 
     /// Ask the server for its folders, and write down the answer.
@@ -1429,10 +1602,13 @@ impl<B: Backend> AccountEngine<B> {
             self.listed_inbox(&listed)?;
             self.store.put_folders(self.account.clone(), listed)?;
             let caps = match self.graph.as_mut() {
-                Some(reader) => reader.observed(now),
+                Some(reader) => {
+                    reader.observed(now, self.store.folders(self.account.clone())?.len())
+                }
                 None => *caps,
             };
             self.store.put_caps(self.account.clone(), &caps, now)?;
+            self.repick()?;
         }
         Ok(self.store.folders(self.account.clone())?)
     }
@@ -1468,40 +1644,36 @@ impl<B: Backend> AccountEngine<B> {
                 .unwrap_or(false)
     }
 
-    /// Upload a draft into the server's Drafts folder.
-    ///
-    /// Without this a draft exists on one machine. That is the difference between a mail client
-    /// and a mail client you can start a reply on and finish from a phone, and it is what
-    /// `ProtoOp::Append` is for.
-    ///
-    /// The folder comes from the server's own `SPECIAL-USE` reply where there is one. An account
-    /// whose capabilities name no Drafts folder is not an error and not a guess: uploading into
-    /// a path nobody confirmed is how a message lands somewhere the user will never look, so
-    /// this reports that there was nowhere to put it and leaves the draft local.
-    pub async fn upload_draft(
-        &mut self,
-        draft: &mail_domain::Draft,
-        raw: Vec<u8>,
-        cancel: &mut Cancel,
+    /// Queue the removal of a sent draft's copies from the server's Drafts folder
+    /// ([`crate::server_drafts`]), where this account keeps them: an IMAP account whose server
+    /// names a Drafts folder. Whether anything was queued.
+    fn drop_draft_copies(
+        &self,
+        draft: mail_domain::DraftId,
+        now: DateTime<Utc>,
     ) -> Result<bool, RuntimeError> {
+        // A Graph account reads through `self.graph`, and keeps no copy there.
+        if !matches!(self.plan.incoming, Incoming::Imap { .. }) || self.graph.is_some() {
+            return Ok(false);
+        }
+        // Nor does Gmail ([`crate::server_drafts::keeps_copies`]), whose EXPUNGE may archive.
+        if !crate::server_drafts::keeps_copies(self.caps()) {
+            return Ok(false);
+        }
         let Some(path) = self.folder_for(MailboxRole::Drafts) else {
             return Ok(false);
         };
-        // Not a result: the draft itself is not read here, only the bytes made from it.
-        let _ = draft;
-        // Stored, so the op names bytes that exist: `run_once` reads them back to stage them.
-        let raw = self.store.blobs().put(&raw)?;
-        let op = ProtoOp::Append {
-            mailbox: MailboxRef {
-                account: self.account.clone(),
-                path,
-            },
-            flags: vec![SystemFlag::Draft, SystemFlag::Seen],
-            date: None,
-            raw,
+        let draft = match self.store.draft(draft) {
+            Ok(draft) => draft,
+            // Deleted while it was on its way: nothing here names its copies any more.
+            Err(mail_store::StoreError::NoDraft(_)) => return Ok(false),
+            Err(e) => return Err(e.into()),
         };
-        self.run(op, cancel).await?;
-        Ok(true)
+        let mailbox = MailboxRef {
+            account: self.account.clone(),
+            path,
+        };
+        crate::server_drafts::queue_drop(&self.store, &draft, mailbox, now)
     }
 
     /// The server's path for a role, where it told us one.
@@ -1543,17 +1715,36 @@ impl<B: Backend> AccountEngine<B> {
             Ok(Some(SyncCursor::Imap { uidnext, .. })) => Some(uidnext),
             _ => None,
         };
+        let also: Vec<String> = match self.notify {
+            Notify::Absent => Vec::new(),
+            Notify::Unasked | Notify::Works => self.also.iter().map(|m| m.path.clone()).collect(),
+        };
+        let asking = !also.is_empty();
         match self
             .run(
                 ProtoOp::Watch {
                     mailbox: mailbox.clone(),
                     uidnext,
+                    also,
                 },
                 cancel,
             )
             .await
         {
+            // The server took the other mailboxes, or was never asked to.
+            Ok(ProtoOutcome::Woken) if asking => {
+                self.notify = Notify::Works;
+                Ok(true)
+            }
             Ok(ProtoOutcome::Woken) => Ok(true),
+            // No `NOTIFY`: nothing was sent past the capability check, and the other mailboxes
+            // are the caller's to watch.
+            Err(RuntimeError::Proto(ref e))
+                if asking && mail_proto::lacks_capability(e, "NOTIFY") =>
+            {
+                self.notify = Notify::Absent;
+                Ok(false)
+            }
             // Any other completion is a server that answered something unexpected rather than
             // an error worth stopping for; the caller's interval still applies.
             Ok(_) => Ok(false),
@@ -1566,9 +1757,22 @@ impl<B: Backend> AccountEngine<B> {
     /// A server gains and loses extensions across upgrades, and an account moved between
     /// providers keeps its row. Daily is often enough to notice, and rare enough to cost
     /// nothing; re-reading on every pass would be a wasted round trip every few minutes.
+    ///
+    /// A Graph account whose stored interval is slower than its folders now allow is stale at
+    /// once ([`Reader::polls_behind`](crate::graph::read::Reader::polls_behind)): it was written
+    /// when Graph was polled every minute, and would otherwise keep that for up to a day. The
+    /// folders are counted as the store holds them, as [`AccountEngine::refresh_caps`] counts
+    /// them, so a refresh settles it and the next pass does not ask again.
     pub fn caps_are_stale(&self, now: DateTime<Utc>) -> bool {
-        now.signed_duration_since(self.caps().observed_at)
-            > chrono::TimeDelta::try_hours(24).expect("24h is in range")
+        let dated = now.signed_duration_since(self.caps().observed_at)
+            > chrono::TimeDelta::try_hours(24).expect("24h is in range");
+        dated
+            || self.graph.as_ref().is_some_and(|reader| {
+                self.store
+                    .folders(self.account.clone())
+                    .or_log("the folders could not be counted")
+                    .is_some_and(|folders| reader.polls_behind(folders.len()))
+            })
     }
 
     /// Run the account's rules over what a pass stored for the first time.
@@ -1679,11 +1883,32 @@ impl<B: Backend> AccountEngine<B> {
                 )
                 .await
             {
-                Ok(ProtoOutcome::Fetched { items, flags }) => {
+                Ok(ProtoOutcome::Fetched {
+                    items,
+                    flags,
+                    flag_colors,
+                    label_names,
+                }) => {
                     report.headers_fetched += items.len();
-                    let stored = self.absorb_headers(mailbox, items, flags, now)?;
+                    // What the survey said each weighs, before the headers say nothing of it.
+                    let sizes: Vec<(RemoteRef, u64)> = wanted
+                        .iter()
+                        .filter(|(remote, _)| batch.contains(remote))
+                        .cloned()
+                        .collect();
+                    let said = Said {
+                        flags,
+                        flag_colors,
+                        label_names,
+                    };
+                    let stored = match self.absorb_headers(mailbox, items, said, now) {
+                        Ok(stored) => stored,
+                        Err(e) if report.stopped_by(&e) => return Ok(report),
+                        Err(e) => return Err(e),
+                    };
                     report.unreadable(mailbox, stored.unreadable);
                     report.arrived.extend(first_stored(&stored.patch));
+                    self.keep_server_sizes(sizes)?;
                 }
                 Ok(_) => {}
                 Err(RuntimeError::Cancelled) => return Ok(report),
@@ -1704,8 +1929,30 @@ impl<B: Backend> AccountEngine<B> {
         Ok(report)
     }
 
-    /// Keep the headers a `FetchHeaders` brought from `mailbox`, and the flags the server sent
-    /// with them. The patch's upserts are the messages new to the account ([`first_stored`]);
+    /// Keep the sizes a survey gave for messages whose headers are now held, so `larger:` and
+    /// `smaller:` find a message by the size the server says before its body is fetched. A size
+    /// of 0 is the survey not knowing (POP3 without `LIST`, a server that left it out), not an
+    /// empty message, and is not kept.
+    fn keep_server_sizes(&self, sizes: Vec<(RemoteRef, u64)>) -> Result<(), RuntimeError> {
+        let known: std::collections::HashMap<RemoteRef, u64> = sizes
+            .into_iter()
+            .filter(|(_, size)| *size > 0 && *size != u64::MAX)
+            .collect();
+        if known.is_empty() {
+            return Ok(());
+        }
+        let remotes: Vec<RemoteRef> = known.keys().cloned().collect();
+        let held = self.store.held_at(self.account.clone(), &remotes)?;
+        let sized: Vec<(mail_domain::MessageId, u64)> = held
+            .into_iter()
+            .filter_map(|(remote, message)| known.get(&remote).map(|size| (message, *size)))
+            .collect();
+        self.store.hold_server_sizes(&sized)?;
+        Ok(())
+    }
+
+    /// Keep the headers a `FetchHeaders` brought from `mailbox`, and what the server said of
+    /// each message's state with them. The patch's upserts are the messages new to the account ([`first_stored`]);
     /// beside it, how many of the headers were not a message at all.
     ///
     /// The one way headers are kept, whether a sync or a search of the server fetched them.
@@ -1713,7 +1960,7 @@ impl<B: Backend> AccountEngine<B> {
         &self,
         mailbox: &MailboxRef,
         items: Vec<(RemoteRef, Vec<u8>)>,
-        flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
+        said: Said,
         now: DateTime<Utc>,
     ) -> Result<crate::assemble::Absorbed, RuntimeError> {
         let arrivals = items
@@ -1741,20 +1988,36 @@ impl<B: Backend> AccountEngine<B> {
         // because that is the path the sweep already uses. Without it every message is built
         // unread and only a later sweep can correct it — which on a CONDSTORE server never
         // revisits old mail, so anything found by backfill stayed unread for ever.
-        if !flags.is_empty() {
-            self.store.ingest(
+        //
+        // The colours and the keyword labels came on the same FETCH, for the same reason.
+        if !said.flags.is_empty() || !said.flag_colors.is_empty() || !said.label_names.is_empty() {
+            let flags = self.store.ingest(
                 self.account.clone(),
                 mail_domain::Ingest {
                     mailbox: mailbox.clone(),
                     validity: mail_domain::UidValidity::Same,
                     cursor: None,
                     messages: Vec::new(),
-                    flags,
+                    flags: said.flags,
+                    flag_colors: said.flag_colors,
                     labels: Vec::new(),
-                    label_names: Vec::new(),
+                    label_names: said.label_names,
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 },
-            )?;
+            );
+            if let Err(cause) = flags {
+                // The messages are stored; only their flags are not. Say so, so they are
+                // not lost to the pass that reports what arrived.
+                let cause = match cause {
+                    mail_store::StoreError::Partial { cause, .. } => *cause,
+                    other => other,
+                };
+                return Err(RuntimeError::Store(mail_store::StoreError::Partial {
+                    written: Box::new(stored.patch),
+                    cause: Box::new(cause),
+                }));
+            }
         }
         Ok(stored)
     }
@@ -1809,8 +2072,10 @@ impl<B: Backend> AccountEngine<B> {
                     cursor: None,
                     messages: Vec::new(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 },
             )?;
@@ -1828,7 +2093,7 @@ impl<B: Backend> AccountEngine<B> {
             .collect();
         if !new.is_empty() {
             report.headers_fetched += new.len();
-            let stored = crate::assemble::absorb_counted(
+            let stored = match crate::assemble::absorb_counted(
                 &self.store,
                 self.account.clone(),
                 crate::assemble::Destination {
@@ -1839,7 +2104,11 @@ impl<B: Backend> AccountEngine<B> {
                 new,
                 true,
                 now,
-            )?;
+            ) {
+                Ok(stored) => stored,
+                Err(e) if report.stopped_by(&e) => return Ok(report),
+                Err(e) => return Err(e),
+            };
             report.unreadable(mailbox, stored.unreadable);
             report.arrived.extend(first_stored(&stored.patch));
         }
@@ -2424,7 +2693,8 @@ impl<B: Backend> AccountEngine<B> {
         // protocol that cannot take one — is "size unknown" and sorts into the last band.
         let sizes: std::collections::HashMap<RemoteRef, u64> =
             self.surveyed().into_iter().collect();
-        let (order, first) = crate::wanted::backlog(self.store.as_ref(), mailbox, limit)?;
+        let (order, first) =
+            crate::wanted::backlog(self.store.as_ref(), mailbox, self.since, limit)?;
         let order = order
             .into_iter()
             .map(|remote| {
@@ -2446,6 +2716,40 @@ impl<B: Backend> AccountEngine<B> {
                 purpose,
             })
             .await
+    }
+}
+
+impl AccountEngine<mail_proto::backend::Pop3Backend> {
+    /// Remove the server's copies of `remotes` from a POP3 maildrop, for an account that removes
+    /// them (`mail_core::offline::Remove`), whose backend was built to
+    /// ([`mail_proto::backend::ServerCopies::Removable`]). How many went.
+    ///
+    /// Only what the last survey listed: a copy it did not list is gone already. Each is let go
+    /// of here first ([`SqliteStore::let_go_of`]), so the message stays held here alone, and the
+    /// next survey, which will not list it, does not read it as deleted elsewhere. Should the
+    /// server refuse, the next sync lists it again and finds the message it is by its identity.
+    pub async fn remove_copies(
+        &mut self,
+        remotes: Vec<RemoteRef>,
+        cancel: &mut Cancel,
+    ) -> Result<usize, RuntimeError> {
+        let listed: std::collections::HashSet<RemoteRef> = self
+            .surveyed()
+            .into_iter()
+            .map(|(remote, _)| remote)
+            .collect();
+        let going: Vec<RemoteRef> = remotes
+            .into_iter()
+            .filter(|remote| listed.contains(remote))
+            .collect();
+        if going.is_empty() {
+            return Ok(0);
+        }
+        self.store.let_go_of(self.account.clone(), &going)?;
+        let count = going.len();
+        self.run(ProtoOp::Destroy { remotes: going }, cancel)
+            .await?;
+        Ok(count)
     }
 }
 
@@ -2511,6 +2815,14 @@ impl<B: Backend> mail_proto::Machine for BackendMachine<'_, B> {
     }
 }
 
+/// What a header fetch heard the server say about each message beside its headers: the parts
+/// of [`ProtoOutcome::Fetched`] that are state rather than bytes.
+pub(crate) struct Said {
+    pub flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
+    pub flag_colors: Vec<(RemoteRef, mail_domain::Hue)>,
+    pub label_names: Vec<(RemoteRef, Vec<String>)>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2539,6 +2851,22 @@ mod tests {
                 }
             })
             .collect()
+    }
+
+    #[test]
+    fn a_pass_stopped_part_way_ends_with_what_it_had_and_says_so() {
+        let mut report = SyncReport::default();
+        assert!(!report.stopped_by(&RuntimeError::Store(mail_store::StoreError::BadCursor)));
+        assert!(report.needs_attention.is_empty());
+        let partial = RuntimeError::Store(mail_store::StoreError::Partial {
+            written: Box::new(mail_domain::Patch {
+                id: mail_domain::ChangeId::generate(),
+                changes: Vec::new(),
+            }),
+            cause: Box::new(mail_store::StoreError::BadCursor),
+        });
+        assert!(report.stopped_by(&partial));
+        assert_eq!(report.needs_attention.len(), 1);
     }
 
     #[test]

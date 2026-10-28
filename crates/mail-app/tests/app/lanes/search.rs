@@ -1,17 +1,19 @@
 //! Lane 15: searching. ⌘K puts the keyboard in the search panel, where typed letters are its
 //! query and not shortcuts, the first Escape empties it and the second gives the keyboard back;
-//! the toolbar's magnifier brings it up too, what is typed filters the rows, and Ctrl-F brings
-//! it up over an open conversation. A search kept with Save as View is a place in the sidebar,
-//! grouped as it was saved, and is deleted from its editor. A search that finds nothing here
-//! offers the server, which is asked only when that is pressed, or at once when Settings says so.
+//! the toolbar's magnifier brings it up too, what is typed filters the rows, and ⌘K brings it
+//! up over an open conversation, where ⌘F finds in the conversation instead (`find`). A search
+//! kept with Save as View is a place in the sidebar, grouped as it was saved, and is deleted
+//! from its editor. A search that finds nothing here offers the server, which is asked only
+//! when that is pressed, or at once when Settings says so. A search the panel leaves behind is
+//! the list's header until it is cleared, by its × or Esc.
 
-use mail_app::ui::copy;
-use mail_app::ui::native::ServerSearcher;
 use mail_core::{Arrival, Searched, ServerHits, SqliteStore, Store, absorb};
 use mail_domain::{
     AccountPlan, AuthPlan, Change, GroupKey, Incoming, MailboxRef, MessageId, Outgoing, ReadState,
     RemoteRef, SaslMech, Tls, Username, View,
 };
+use mail_ui::ui::copy;
+use mail_ui::ui::native::ServerSearcher;
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};
@@ -53,7 +55,8 @@ fn on_imap(store: &SqliteStore) {
 /// A server that holds [`HIT`] in its All Mail: asked, it is kept here as headers and marked
 /// found, as `mail_runtime`'s search keeps what it finds. Records each line it was asked.
 fn server(asked: Arc<Mutex<Vec<String>>>) -> ServerSearcher {
-    ServerSearcher(Arc::new(move |store, account, input, now| {
+    ServerSearcher(Arc::new(move |client, account, input, now| {
+        let store = client.store_for_test();
         asked
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -114,11 +117,11 @@ fn server(asked: Arc<Mutex<Vec<String>>>) -> ServerSearcher {
 /// written first.
 fn open(
     asked: &Arc<Mutex<Vec<String>>>,
-    settings: impl FnOnce(&mut mail_app::settings::MailSettings),
+    settings: impl FnOnce(&mut mail_ui::settings::MailSettings),
 ) -> Window {
     let asked = Arc::clone(asked);
     Window::open_with(chrono::Utc::now(), on_imap, move |dir, contexts| {
-        mail_app::settings::change(&mail_app::settings::root_for(&dir.join("config")), settings)
+        mail_ui::settings::change(&mail_ui::settings::root_for(&dir.join("config")), settings)
             .expect("the settings are written");
         contexts.with(server(asked))
     })
@@ -207,10 +210,10 @@ fn the_search_panel_filters_the_list_saves_a_view_and_offers_the_server() {
         h.count(".list .ds-thread") == INBOX.len() && h.count(".ds-search-card") == 0
     });
 
-    // Ctrl-F over an open conversation.
+    // ⌘K over an open conversation.
     window.open_subject(INBOX[0].1);
-    window.press(&[PRIMARY], Key::Char('f'), 1);
-    window.until("Ctrl-F brings it up", |h| h.is_focused(FIELD));
+    window.press(&[PRIMARY], Key::Char('k'), 1);
+    window.until("⌘K brings it up", |h| h.is_focused(FIELD));
     window.press(&[], Key::Escape, 2);
 
     // Two read, two not; then in:inbox kept as a view, grouped unread first.
@@ -238,7 +241,7 @@ fn the_search_panel_filters_the_list_saves_a_view_and_offers_the_server() {
     assert_eq!(views[0].name, "Mine");
     assert_eq!(views[0].group_by, Some(GroupKey::Read));
     window.until("the view is a place, and shown", |h| {
-        h.count(&place("Mine")) == 1 && h.count(".list-head .search-shown") == 0
+        h.count(&place("Mine")) == 1 && h.count(".list-head .search-face") == 0
     });
     assert_eq!(
         lines(&window),
@@ -296,7 +299,7 @@ fn the_search_panel_filters_the_list_saves_a_view_and_offers_the_server() {
 fn turned_on_in_settings_the_server_is_asked_once_as_the_search_is_shown() {
     let asked = Arc::new(Mutex::new(Vec::new()));
     let mut window = open(&asked, |settings| {
-        settings.search.server_automatically = mail_app::settings::ServerSearch::On;
+        settings.search.server_automatically = mail_ui::settings::ServerSearch::On;
     });
     search(&mut window, "spreadsheet");
     window.until("the server's hit is listed unasked", |h| {
@@ -316,4 +319,101 @@ fn turned_on_in_settings_the_server_is_asked_once_as_the_search_is_shown() {
     let mut once = asked.clone();
     once.dedup();
     assert_eq!(once, asked, "a line asked twice: {asked:?}");
+}
+
+/// While a search narrows the list and the panel is down, the search is the list's header: the
+/// search as the panel's field shows it, its operators as chips, where it looked at its end,
+/// Save as View and the ×, and none of the place's own tools. A press on it brings the panel back
+/// over it; the ×, or Esc in the list, lets go of it and the place's header comes back.
+#[test]
+fn a_search_shown_is_the_lists_header_until_it_is_cleared() {
+    let mut window = Window::open(|store| {
+        let raw = format!(
+            "From: Ada Lovelace <ada@example.test>\r\nTo: {ME}\r\nSubject: Lunch on Friday?\r\n\
+             Date: {}\r\nMessage-ID: <lunch@example.test>\r\n\r\nShall we?\r\n",
+            super::window::hours_ago(1)
+        );
+        super::window::deliver(store, "lunch", &raw);
+    });
+    let all = INBOX.len() + 1;
+    let named = |name: &str| format!(".list-head [*|aria-label=\"{name}\"]");
+    let face = ".list-head .search-face";
+    let applied = |window: &mut Window| {
+        search(window, "from:ada lunch");
+        window.harness.advance(ms(800));
+        window.press(&[], Key::Enter, 1);
+        window.until("Return leaves the search in the list", |h| {
+            h.count(".ds-search-card") == 0 && h.count(face) == 1
+        });
+        window.until("only Ada's lunch is listed", |h| {
+            h.count(".list .ds-thread") == 1
+        });
+    };
+
+    applied(&mut window);
+    let h = &window.harness;
+    assert_eq!(
+        h.attr(face, "aria-label").as_deref(),
+        Some(copy::aria::EDIT_SEARCH)
+    );
+    assert_eq!(
+        h.text_of(&format!("{face} .ds-chip"))
+            .as_deref()
+            .map(str::trim),
+        Some("from:ada")
+    );
+    assert_eq!(
+        h.text_of(&format!("{face} .search-words"))
+            .as_deref()
+            .map(str::trim),
+        Some("lunch")
+    );
+    assert_eq!(
+        h.text_of(&format!("{face} .search-scope"))
+            .as_deref()
+            .map(str::trim),
+        Some(copy::status::SEARCHED_ALL_MAIL)
+    );
+    assert_eq!(h.count(&named(copy::aria::SAVE_AS_VIEW)), 1);
+    assert_eq!(h.count(&named(copy::aria::CLEAR_SEARCH)), 1);
+    assert_eq!(h.count(&named(copy::aria::NEW_MESSAGE)), 0, "New Message");
+    assert_eq!(h.count(&named(copy::aria::MORE)), 0, "the ⋯");
+    assert_eq!(h.count(".list-head .list-title"), 0, "the place's title");
+    // The search takes the header's width but for Save as View and the ×.
+    let head = h.rect(".list-head").expect("the header");
+    let shown = h.rect(face).expect("the search");
+    assert!(
+        shown.size.width.0 > head.size.width.0 * 0.6,
+        "{shown:?} in {head:?}"
+    );
+
+    // A press on it brings the panel back over the search.
+    window.click(face);
+    window.until("the panel comes back over it", |h| {
+        h.is_focused(FIELD) && h.attr(FIELD, "value").as_deref() == Some("from:ada lunch")
+    });
+    put_away(&mut window);
+    assert_eq!(
+        window.harness.count(face),
+        1,
+        "the search went with the panel"
+    );
+
+    // The × lets go of it: the place's header and its rows come back.
+    window.click(&named(copy::aria::CLEAR_SEARCH));
+    window.until("the × gives the place back", |h| {
+        h.count(face) == 0
+            && h.count(&named(copy::aria::NEW_MESSAGE)) == 1
+            && h.count(&named(copy::aria::MORE)) == 1
+            && h.count(".list .ds-thread") == all
+    });
+
+    // So does Esc in the list, with nothing open.
+    applied(&mut window);
+    window.press(&[], Key::Escape, 1);
+    window.until("Esc gives the place back", |h| {
+        h.count(face) == 0
+            && h.count(&named(copy::aria::NEW_MESSAGE)) == 1
+            && h.count(".list .ds-thread") == all
+    });
 }

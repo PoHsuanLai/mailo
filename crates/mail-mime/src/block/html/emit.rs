@@ -25,7 +25,14 @@ impl<'a> Builder<'a> {
                     Kind::Inline => spans,
                     _ => spans,
                 };
-                Produced::Spans(wrapped)
+                if frame.run.is_plain() {
+                    Produced::Spans(wrapped)
+                } else {
+                    Produced::Spans(vec![Span::Styled {
+                        style: frame.run,
+                        spans: wrapped,
+                    }])
+                }
             }
             Kind::Paragraph => self.paragraph(frame, true),
             Kind::Heading(level) => {
@@ -41,6 +48,7 @@ impl<'a> Builder<'a> {
                     blocks: vec![Block::Heading {
                         level,
                         spans: frame.spans,
+                        style: frame.para,
                     }],
                     from_p: false,
                 }
@@ -129,6 +137,7 @@ impl<'a> Builder<'a> {
             blocks: vec![Block::Paragraph {
                 spans: frame.spans,
                 dir,
+                style: frame.para,
             }],
             from_p,
         }
@@ -146,6 +155,7 @@ impl<'a> Builder<'a> {
         frame.blocks.push(Block::Paragraph {
             spans: std::mem::take(&mut frame.spans),
             dir,
+            style: frame.para,
         });
     }
 

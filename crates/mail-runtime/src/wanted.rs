@@ -84,14 +84,19 @@ impl Drop for Claim {
 /// backlog, less what the window is fetching for itself. Beside it, how many at the front are
 /// the wanted conversations', which the caller keeps in front. Every protocol's body pass asks
 /// this, so none of them fetches a claimed body a second time.
+///
+/// The backlog holds only messages dated at `since` or later, where it is given: an account
+/// downloaded only so far back. The conversations on the screen are wanted whatever their age,
+/// as one opened is: the window is how far back a pass reaches by itself, not what may be read.
 pub fn backlog(
     store: &dyn Store,
     mailbox: &MailboxRef,
+    since: Option<chrono::DateTime<chrono::Utc>>,
     limit: u32,
 ) -> Result<(Vec<RemoteRef>, usize), StoreError> {
     let asked = first();
     let hinted = store.unfetched_in_threads(mailbox, &asked, limit)?;
-    let rest = store.unfetched_in(mailbox, limit)?;
+    let rest = store.unfetched_in(mailbox, since, limit)?;
     let (mut order, mut first) = ahead(&asked, hinted, rest, limit as usize);
     let claimed = claimed();
     if !claimed.is_empty() {

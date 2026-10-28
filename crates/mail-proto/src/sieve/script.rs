@@ -63,6 +63,10 @@ pub enum Unmappable {
     NoFolder(MailboxRole),
     /// The server's Sieve lacks this extension.
     Missing(&'static str),
+    /// It sends mail or raises a notification ([`RuleAction::speaks`]). Only this client does
+    /// those, and it sees only mail left in the inbox, so the whole rule stays here: a server
+    /// that filed the message first would leave the client nothing to forward.
+    Speaks,
 }
 
 impl fmt::Display for Unmappable {
@@ -72,6 +76,9 @@ impl fmt::Display for Unmappable {
             Unmappable::Label => f.write_str("a label exists only in this client"),
             Unmappable::NoFolder(role) => write!(f, "the server named no {role:?} folder"),
             Unmappable::Missing(ext) => write!(f, "the server's Sieve has no \"{ext}\""),
+            Unmappable::Speaks => {
+                f.write_str("it sends mail or notifies, which only this client does")
+            }
         }
     }
 }
@@ -198,15 +205,21 @@ fn block(
 ) -> Result<(String, Vec<&'static str>), Unmappable> {
     let condition = test(&rule.filter, rule.account.clone())?;
     let mut needs = Vec::new();
-    let mut flags = Vec::new();
+    // `addflag` and `removeflag`, in the order the actions ask, so the last one wins as it does
+    // when this client runs the rule.
+    let mut flags: Vec<(&str, &str)> = Vec::new();
     // Sieve files a message once per `fileinto`, so several would leave copies in several
     // folders. The last one wins, as it does when this client runs the rule.
     let mut destination: Option<String> = None;
     for action in &rule.actions {
         match action {
             RuleAction::Label(_) => return Err(Unmappable::Label),
-            RuleAction::MarkRead => flags.push("\\Seen"),
-            RuleAction::Star => flags.push("\\Flagged"),
+            RuleAction::MarkRead => flags.push(("addflag", "\\Seen")),
+            RuleAction::MarkUnread => flags.push(("removeflag", "\\Seen")),
+            RuleAction::Star => flags.push(("addflag", "\\Flagged")),
+            RuleAction::Notify | RuleAction::Forward(_) | RuleAction::Reply(_) => {
+                return Err(Unmappable::Speaks);
+            }
             RuleAction::Archive => destination = Some(place(places, MailboxRole::Archive)?),
             RuleAction::Trash => destination = Some(place(places, MailboxRole::Trash)?),
             RuleAction::Spam => destination = Some(place(places, MailboxRole::Spam)?),
@@ -228,8 +241,8 @@ fn block(
 
     let mut out = format!("\r\n# {}\r\nif {condition} {{\r\n", comment(&rule.name));
     // Flags first: `fileinto` stores the message with the flags set so far (RFC 5232 §3).
-    for flag in flags {
-        out.push_str(&format!("    addflag {};\r\n", quoted(flag)));
+    for (command, flag) in flags {
+        out.push_str(&format!("    {command} {};\r\n", quoted(flag)));
     }
     if let Some(path) = destination {
         out.push_str(&format!("    fileinto {};\r\n", quoted(&path)));
@@ -263,7 +276,13 @@ fn test(filter: &Filter, account: AccountId) -> Result<String, Unmappable> {
         // The script is the account's own, so the clause is settled before it is written.
         Filter::Account(id) => if *id == account { "true" } else { "false" }.to_owned(),
         Filter::From(m) => address_test(&["from"], m, "from:")?,
+        Filter::FromAddress(email) => {
+            address_test(&["from"], &TextMatch::Exact(email.clone()), "from:")?
+        }
+        // The VIP list is this client's, and a script on the server cannot read it.
+        Filter::Vip => return Err(Unmappable::Clause("is:vip")),
         Filter::To(m) => address_test(&["to", "cc"], m, "to:")?,
+        Filter::Cc(m) => address_test(&["cc"], m, "cc:")?,
         Filter::Subject(TextMatch::Contains(s)) => {
             format!("header :contains \"subject\" {}", quoted(s))
         }
@@ -274,9 +293,16 @@ fn test(filter: &Filter, account: AccountId) -> Result<String, Unmappable> {
         Filter::Starred(_) => return Err(Unmappable::Clause("is:starred")),
         Filter::HasLabel(_) => return Err(Unmappable::Clause("label:")),
         Filter::Date(_) => return Err(Unmappable::Clause("before: / after:")),
+        Filter::NewerThan(_) | Filter::OlderThan(_) => {
+            return Err(Unmappable::Clause("newer_than: / older_than:"));
+        }
         Filter::HasAttachment => return Err(Unmappable::Clause("has:attachment")),
         Filter::Snoozed | Filter::SnoozeDue => return Err(Unmappable::Clause("is:snoozed")),
         Filter::Pinned => return Err(Unmappable::Clause("is:pinned")),
+        // Sieve's size is the whole message's (RFC 5228 §5.9), headers included.
+        Filter::Larger(bytes) => format!("size :over {bytes}"),
+        Filter::Smaller(bytes) => format!("size :under {bytes}"),
+        Filter::Category(_) => return Err(Unmappable::Clause("category:")),
     })
 }
 

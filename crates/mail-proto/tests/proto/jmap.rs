@@ -3,8 +3,8 @@
 
 use mail_domain::id::new_account_id;
 use mail_domain::{
-    FolderWork, JmapEmailId, JmapMailboxId, MailboxRole, NonEmpty, ReadState, SpecialUse, Star,
-    Subscription,
+    FolderWork, Hue, JmapEmailId, JmapMailboxId, MailboxRole, NonEmpty, ReadState, SpecialUse,
+    Star, Subscription,
 };
 use mail_proto::jmap::{self, *};
 use mail_proto::{ProtoError, Refusal};
@@ -87,10 +87,59 @@ fn the_rfc_session_names_the_mail_account_and_every_url() {
     assert_eq!(session.limits.max_objects_in_get, 256);
     assert_eq!(session.limits.max_calls_in_request, 32);
     assert_eq!(session.limits.max_size_upload, 50_000_000);
+    // The example's mail capability does not say how large a message's attachments may be.
+    assert_eq!(session.limits.max_size_attachments, 0);
     assert_eq!(session.username, "john@example.com");
     assert_eq!(session.state, "75128aab4b1b");
     // The example's mail account lists no submission capability: it cannot send.
     assert_eq!(session.submission, Submission::Absent);
+    // Nor any quota.
+    assert_eq!(session.quotas, Quotas::Absent);
+    // Nor any vacation reply.
+    assert_eq!(session.vacation, Vacations::Absent);
+}
+
+#[test]
+fn a_mail_account_listing_the_quota_capability_has_quotas_to_read() {
+    let with_quota = RFC_SESSION.replace(
+        r#""urn:ietf:params:jmap:contacts": {}"#,
+        r#""urn:ietf:params:jmap:contacts": {}, "urn:ietf:params:jmap:quota": {}"#,
+    );
+    let session = Session::parse(with_quota.as_bytes()).unwrap();
+    assert_eq!(session.quotas, Quotas::Offered);
+}
+
+#[test]
+fn the_mail_accounts_attachment_limit_is_read_and_one_that_does_not_read_is_unstated() {
+    let stated = r#""maxMailboxDepth": 10
+        },
+        "urn:ietf:params:jmap:contacts""#;
+    let cases = [
+        ("stated", "20000000", 20_000_000),
+        ("not a number", "\"lots\"", 0),
+        ("null", "null", 0),
+    ];
+    for (case, value, expected) in cases {
+        let with = stated.replacen(
+            "10\n",
+            &format!("10, \"maxSizeAttachmentsPerEmail\": {value}\n"),
+            1,
+        );
+        let session = RFC_SESSION.replacen(stated, &with, 1);
+        assert_ne!(session, RFC_SESSION, "{case}: the field was not put in");
+        let parsed = Session::parse(session.as_bytes()).unwrap();
+        assert_eq!(parsed.limits.max_size_attachments, expected, "{case}");
+    }
+}
+
+#[test]
+fn a_mail_account_listing_vacation_responses_has_a_reply_to_set() {
+    let with_vacation = RFC_SESSION.replace(
+        r#""urn:ietf:params:jmap:contacts": {}"#,
+        r#""urn:ietf:params:jmap:contacts": {}, "urn:ietf:params:jmap:vacationresponse": {}"#,
+    );
+    let session = Session::parse(with_vacation.as_bytes()).unwrap();
+    assert_eq!(session.vacation, Vacations::Offered);
 }
 
 #[test]
@@ -215,8 +264,9 @@ fn mailboxes_become_folders_with_paths_and_roles() {
         m.id_for_role(MailboxRole::Spam).map(|i| i.as_str()),
         Some("mbJ")
     );
+    assert_eq!(m.unfollowed(), vec![JmapMailboxId::from("mbD")]);
     assert_eq!(
-        m.unfollowed(),
+        m.unsearched(),
         vec![JmapMailboxId::from("mbD"), JmapMailboxId::from("mbJ")]
     );
     let roles = m.roles();
@@ -306,7 +356,21 @@ fn an_email_is_filed_by_the_mailboxes_it_is_in() {
             },
         ),
         (&["mbD"], Filing::Unfollowed),
-        (&["mbJ"], Filing::Unfollowed),
+        // Caught by the server's filter: Spam, and Spam over the inbox it may also be in.
+        (
+            &["mbJ"],
+            Filing::Filed {
+                role: MailboxRole::Spam,
+                labels: vec![],
+            },
+        ),
+        (
+            &["mbJ", "mbI"],
+            Filing::Filed {
+                role: MailboxRole::Spam,
+                labels: vec![],
+            },
+        ),
         (&["unknown"], Filing::Unfollowed),
     ];
     for (mailbox_ids, want) in cases {
@@ -429,7 +493,24 @@ fn patches_name_only_what_changed() {
     let m = mailboxes();
     assert_eq!(
         Value::Object(flags_patch(Some(ReadState::Read), Some(Star::Unstarred))),
-        json!({ "keywords/$seen": true, "keywords/$flagged": null })
+        // Unflagged, the colour goes too, as Apple Mail clears it.
+        json!({
+            "keywords/$seen": true,
+            "keywords/$flagged": null,
+            "keywords/$mailflagbit0": null,
+            "keywords/$mailflagbit1": null,
+            "keywords/$mailflagbit2": null,
+        })
+    );
+    // An orange flag: bit 0 set, the other two cleared, so a purple flag before it is gone.
+    assert_eq!(
+        Value::Object(flag_patch(Hue::Orange)),
+        json!({
+            "keywords/$flagged": true,
+            "keywords/$mailflagbit0": true,
+            "keywords/$mailflagbit1": null,
+            "keywords/$mailflagbit2": null,
+        })
     );
     assert_eq!(
         Value::Object(flags_patch(Some(ReadState::Unread), None)),
@@ -445,13 +526,52 @@ fn patches_name_only_what_changed() {
             "mailboxIds/mbJ": null
         })
     );
+    // Spam: into Junk, and the filter told; back to the inbox, told the other way.
+    assert_eq!(
+        Value::Object(filing_patch(MailboxRole::Spam, &m).unwrap()),
+        json!({
+            "mailboxIds/mbJ": true,
+            "mailboxIds/mbI": null,
+            "mailboxIds/mbA": null,
+            "mailboxIds/mbT": null,
+            "keywords/$junk": true,
+            "keywords/$notjunk": null
+        })
+    );
+    assert_eq!(
+        Value::Object(filing_patch(MailboxRole::Inbox, &m).unwrap()),
+        json!({
+            "mailboxIds/mbI": true,
+            "mailboxIds/mbA": null,
+            "mailboxIds/mbT": null,
+            "mailboxIds/mbJ": null,
+            "keywords/$junk": null,
+            "keywords/$notjunk": true
+        })
+    );
     assert_eq!(
         Value::Object(labels_patch(&["Work/2026".to_owned()], &["Work".to_owned()], &m).unwrap()),
         json!({ "mailboxIds/mbP": true, "mailboxIds/mbW": null })
     );
+    // Move to a folder: into it, out of Inbox, Archive, Trash and Junk; Sent and labels untouched.
+    assert_eq!(
+        Value::Object(file_patch("Work/2026", &m).unwrap()),
+        json!({
+            "mailboxIds/mbP": true,
+            "mailboxIds/mbI": null,
+            "mailboxIds/mbA": null,
+            "mailboxIds/mbT": null,
+            "mailboxIds/mbJ": null
+        })
+    );
+    // Into a folder that has a role, it is not taken out of that one.
+    assert_eq!(
+        Value::Object(file_patch("Archive", &m).unwrap()),
+        Value::Object(filing_patch(MailboxRole::Archive, &m).unwrap())
+    );
     assert_eq!(
         Value::Object(keyword_patch(mail_domain::Keyword::MdnSent)),
-        json!({ "keywords/$MDNSent": true })
+        json!({ "keywords/$mdnsent": true })
     );
 }
 
@@ -470,6 +590,14 @@ fn archiving_with_no_archive_mailbox_only_leaves_the_inbox() {
     assert!(filing_patch(MailboxRole::Trash, &m).is_err());
     // So is adding a label no mailbox answers to.
     assert!(labels_patch(&["Nowhere".to_owned()], &[], &m).is_err());
+    // And moving into a folder no mailbox answers to, for good.
+    assert!(matches!(
+        file_patch("Nowhere", &m),
+        Err(ProtoError::Refused {
+            kind: Refusal::Permanent,
+            ..
+        })
+    ));
 }
 
 #[test]
@@ -531,6 +659,7 @@ fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
             drafts: Some("mbD".into()),
             sent: Some("mbS".into()),
         },
+        mail_domain::DeliveryReport::Unrequested,
     )
     .unwrap();
     assert_eq!(
@@ -576,10 +705,66 @@ fn a_send_is_an_import_and_a_submission_with_the_envelope_named() {
             &Filed {
                 drafts: None,
                 sent: None
-            }
+            },
+            mail_domain::DeliveryReport::Unrequested,
         )
         .is_err()
     );
+}
+
+/// A requested delivery report is RFC 3461's `NOTIFY` on each recipient and `RET` on the sender.
+#[test]
+fn a_requested_delivery_report_names_notify_on_each_recipient() {
+    let identity = Identity {
+        id: "I1".into(),
+        address: mail_domain::Address::new("john@example.com"),
+    };
+    let calls = submission(
+        &"A1".into(),
+        &"Gblob".into(),
+        &identity,
+        "john@example.com",
+        &[
+            "ada@example.test".to_owned(),
+            "blind@example.test".to_owned(),
+        ],
+        &Filed {
+            drafts: Some("mbD".into()),
+            sent: Some("mbS".into()),
+        },
+        mail_domain::DeliveryReport::Requested,
+    )
+    .unwrap();
+    let body = request(&[CORE, MAIL, SUBMISSION], &calls);
+    let envelope = &body["methodCalls"][1][1]["create"]["send"]["envelope"];
+    assert_eq!(envelope["mailFrom"]["parameters"], json!({ "RET": "HDRS" }));
+    for rcpt in envelope["rcptTo"].as_array().unwrap() {
+        assert_eq!(rcpt["parameters"], json!({ "NOTIFY": "SUCCESS,FAILURE" }));
+    }
+    assert_eq!(envelope["rcptTo"].as_array().unwrap().len(), 2);
+}
+
+/// A session says whether its submissions take delivery reports from the capability's
+/// `submissionExtensions`; one that lists none, or none that reads, is taken as not offering.
+#[test]
+fn a_session_offers_delivery_reports_when_its_submission_extensions_list_dsn() {
+    let with = |extensions: &str| {
+        let session = RFC_SESSION.replace(
+            r#""urn:ietf:params:jmap:contacts": {}
+      }"#,
+            &format!(
+                r#""urn:ietf:params:jmap:contacts": {{}},
+        "urn:ietf:params:jmap:submission": {{ "maxDelayedSend": 0, "submissionExtensions": {extensions} }}
+      }}"#
+            ),
+        );
+        Session::parse(session.as_bytes()).unwrap().dsn
+    };
+    assert_eq!(with(r#"{ "DSN": [], "SIZE": [] }"#), Dsn::Offered);
+    assert_eq!(with(r#"{ "SIZE": [] }"#), Dsn::Absent);
+    assert_eq!(with(r#"[]"#), Dsn::Absent);
+    let none = Session::parse(RFC_SESSION.as_bytes()).unwrap();
+    assert_eq!(none.dsn, Dsn::Absent);
 }
 
 #[test]

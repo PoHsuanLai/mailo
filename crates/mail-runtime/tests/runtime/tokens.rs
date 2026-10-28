@@ -23,7 +23,8 @@ use mail_runtime::{
 };
 use mail_store::{SqliteStore, Store};
 use porter_core::EndpointUrl;
-use porter_core::{Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
+use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
+use porter_ids::UnixSeconds;
 use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use porter_secrets::MemorySecrets;
 use std::collections::BTreeSet;
@@ -188,7 +189,6 @@ async fn token_endpoint(script: Vec<(&'static str, String)>) -> (ClientEntry, Se
             authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/authorize")).unwrap(),
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
             revoke: None,
-            device: None,
         }),
         ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
     };
@@ -618,7 +618,6 @@ async fn an_unreachable_issuer_is_waited_out_rather_than_called_a_refusal() {
             authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{closed}/authorize")).unwrap(),
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{closed}/token")).unwrap(),
             revoke: None,
-            device: None,
         }),
         ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
     };
@@ -762,6 +761,9 @@ fn queued(graph_port: u16, registration: ClientEntry, graph: Credential) -> Send
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: t0(),
     };
@@ -784,6 +786,7 @@ fn queued(graph_port: u16, registration: ClientEntry, graph: Credential) -> Send
                 raw,
                 mail_from: post.mail_from.clone(),
                 rcpt_to: post.rcpt_to.clone(),
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &Patch {
                 id: ChangeId::generate(),

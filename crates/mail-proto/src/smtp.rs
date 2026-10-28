@@ -1448,6 +1448,9 @@ fn password(cred: &Credential) -> Result<&str, ProtoError> {
         Credential::Bearer(_) => Err(ProtoError::Unsupported(
             "a bearer token signs in to JMAP only, not SMTP".into(),
         )),
+        _ => Err(ProtoError::Unsupported(
+            "a credential of a kind this build does not know".into(),
+        )),
     }
 }
 
@@ -1462,6 +1465,9 @@ fn access_token(cred: &Credential) -> Result<&str, ProtoError> {
         )),
         Credential::Bearer(_) => Err(ProtoError::Unsupported(
             "a bearer token signs in to JMAP only, not SMTP".into(),
+        )),
+        _ => Err(ProtoError::Unsupported(
+            "a credential of a kind this build does not know".into(),
         )),
     }
 }
@@ -1746,6 +1752,8 @@ fn secret_strings(sub: &Submission) -> Vec<String> {
         // Never sent here (SMTP refuses it), but redacted all the same should one reach a log.
         Credential::Bearer(token) => push_secret(&mut out, token.expose()),
         Credential::KeyPair { secret, .. } => push_secret(&mut out, secret.expose()),
+        // A kind this build does not know has no field it could redact.
+        _ => {}
     }
     out
 }
@@ -1762,7 +1770,8 @@ fn push_secret(out: &mut Vec<String>, secret: &str) {
 mod tests {
     use super::*;
     use porter_core::Credential;
-    use porter_core::{SecretText, UnixSeconds};
+    use porter_core::SecretText;
+    use porter_ids::UnixSeconds;
 
     const PASSWORD: &str = "s3cr3t-password";
 

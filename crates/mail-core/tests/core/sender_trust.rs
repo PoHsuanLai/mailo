@@ -177,6 +177,8 @@ fn a_block_runs_before_the_rules_already_there() {
         filter: Filter::From(TextMatch::Contains("spam.example".to_owned())),
         actions: vec![RuleAction::Archive],
         after: AfterMatch::Stop,
+        made: Default::default(),
+        reply_days: 4,
     };
     store.put_rule(&archive).unwrap();
     let Blocked::Made(rule) = block(&store, account(), "pest@spam.example").unwrap() else {

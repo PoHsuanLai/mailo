@@ -11,7 +11,7 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::{AfterMatch, Filter, Rule, RuleAction, RuleId, RuleState, TextMatch, Tls};
 use mail_proto::sieve::{Deleted, Endpoint, Places, SieveOutcome, Takeover, Unmappable};
 use mail_runtime::RuntimeError;
-use mail_runtime::sieve::{SieveAuth, push};
+use mail_runtime::sieve::{SieveAuth, Wanted, push};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential};
 use std::sync::{Arc, Mutex};
@@ -150,6 +150,8 @@ fn auth() -> SieveAuth {
 
 fn rule(position: u32, name: &str, filter: Filter, actions: Vec<RuleAction>) -> Rule {
     Rule {
+        made: Default::default(),
+        reply_days: 4,
         id: RuleId::generate(),
         account: acct_account(),
         name: name.to_owned(),
@@ -193,9 +195,11 @@ async fn a_push_installs_what_the_server_can_run_and_makes_it_active() {
     let pushed = push(
         &endpoint,
         &auth(),
-        &rules(),
-        None,
-        &Places::default(),
+        Wanted {
+            rules: &rules(),
+            vacation: None,
+            places: &Places::default(),
+        },
         Takeover::Refuse,
         now(),
         &mut cancel,
@@ -246,9 +250,11 @@ async fn another_active_script_is_left_alone_and_named() {
     let pushed = push(
         &endpoint,
         &auth(),
-        &rules(),
-        None,
-        &Places::default(),
+        Wanted {
+            rules: &rules(),
+            vacation: None,
+            places: &Places::default(),
+        },
         Takeover::Refuse,
         now(),
         &mut cancel,
@@ -280,9 +286,11 @@ async fn with_nothing_left_to_run_our_script_is_taken_down() {
     let pushed = push(
         &endpoint,
         &auth(),
-        &only_local,
-        None,
-        &Places::default(),
+        Wanted {
+            rules: &only_local,
+            vacation: None,
+            places: &Places::default(),
+        },
         Takeover::Refuse,
         now(),
         &mut cancel,
@@ -311,9 +319,11 @@ async fn a_server_without_starttls_never_hears_a_credential() {
     let err = push(
         &endpoint,
         &auth(),
-        &rules(),
-        None,
-        &Places::default(),
+        Wanted {
+            rules: &rules(),
+            vacation: None,
+            places: &Places::default(),
+        },
         Takeover::Refuse,
         now(),
         &mut cancel,

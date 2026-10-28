@@ -12,7 +12,6 @@
 mod read;
 mod reply;
 mod rrule;
-mod windows;
 mod zone;
 
 pub use read::{MAX_CALENDAR_BYTES, parse};

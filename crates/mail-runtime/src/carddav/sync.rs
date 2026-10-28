@@ -15,14 +15,19 @@
 //! the user added by hand keeps their entry; an address a card no longer lists is handed back to
 //! the mail history that knew it, or forgotten if that history is empty.
 //!
-//! A `KIND:group` card also becomes a [`Group`], known by the card's URL, and goes when the card
-//! does. Last, every group of the book edited here is written back (`group::write_back`).
+//! A `KIND:group` card also becomes a [`Group`], and any other card a person's card kept whole,
+//! each known by the card's URL and gone when the card goes. Last, every group and every
+//! person's card of the book edited here is written back (`group::write_back`,
+//! `person::write_back`).
 
-use super::group::{Unwritten, put_group, write_back};
+use super::group::{self, Unwritten, put_group};
+use super::person::{self, put_person};
 use super::{CardDavFailure, Dav, same};
 use crate::RuntimeError;
-use mail_pim::dav::{self, Prop};
-use mail_store::{AddressBook, BookCard, GroupId, Origin, Store};
+use dav_proto::carddav::{Props, Resource};
+use dav_proto::names::{GETETAG, RESOURCETYPE};
+use dav_proto::{Multiget, SyncLevel};
+use mail_store::{AddressBook, BookCard, CardId, GroupId, Origin, Store};
 use url::Url;
 
 /// How many cards one `addressbook-multiget` asks for.
@@ -36,10 +41,10 @@ pub struct Synced {
     /// Cards that went.
     pub removed: usize,
     pub how: How,
-    /// Groups edited here that the server now has.
+    /// Groups and people's cards edited here that the server now has.
     pub written: usize,
-    /// Groups edited here that were not written, and why. Each stays edited, and the next sync
-    /// tries again.
+    /// Groups and people's cards edited here that were not written, and why. Each stays edited,
+    /// and the next sync tries again.
     pub unwritten: Vec<Unwritten>,
 }
 
@@ -112,6 +117,7 @@ pub async fn sync<S: Store + ?Sized>(
                 release(store, &book, &source, address)?;
             }
             store.delete_group(&GroupId(href.clone()))?;
+            store.delete_card(&CardId(href.clone()))?;
             gone += 1;
         }
     }
@@ -131,6 +137,7 @@ pub async fn sync<S: Store + ?Sized>(
                             release(store, &book, &source, address)?;
                         }
                         store.delete_group(&GroupId(href.as_str().to_owned()))?;
+                        store.delete_card(&CardId(href.as_str().to_owned()))?;
                         gone += 1;
                     }
                 }
@@ -138,9 +145,27 @@ pub async fn sync<S: Store + ?Sized>(
         }
     }
 
+    // A book synced before cards were kept whole lists its cards and the store has none of them:
+    // each is read from the text the book holds, once, rather than waiting for the server to
+    // change it.
+    let kept: std::collections::HashSet<String> = store
+        .cards()?
+        .into_iter()
+        .map(|person| person.id.0)
+        .collect();
+    for (href, held) in &book.cards {
+        if !kept.contains(href) {
+            let card = mail_pim::vcard::parse(&held.vcard).into_iter().next();
+            put_person(store, &book.url, href, card.as_ref(), &held.vcard)?;
+        }
+    }
+
     book.token = listing.token;
     store.put_address_book(&book)?;
-    let (written, unwritten) = write_back(dav, store, &mut book).await?;
+    let (mut written, mut unwritten) = group::write_back(dav, store, &mut book).await?;
+    let (people, unsent) = person::write_back(dav, store, &mut book).await?;
+    written += people;
+    unwritten.extend(unsent);
     store.put_address_book(&book)?;
     Ok(Synced {
         changed: fetched,
@@ -173,38 +198,67 @@ async fn listing(
 }
 
 /// A `sync-collection` report from `token`, or from nothing.
+///
+/// A server may answer only a first part of the changes and say so with a `507` for the
+/// collection itself (RFC 6578 §3.6), along with a token to go on from. The report is asked
+/// again from each such token until a reply is whole; a listing that is cut short and offers no
+/// way on is refused, so that the caller asks another way rather than treating a part as all.
 async fn report_changes(
     dav: &Dav,
     collection: &Url,
     token: Option<&str>,
 ) -> Result<Listing, CardDavFailure> {
-    let (url, reply) = dav
-        .multistatus(
-            "REPORT",
-            collection,
-            "0",
-            dav::sync_collection(token),
-            "sync-collection",
-        )
-        .await?;
-    let mut members = Vec::new();
-    let mut removed = Vec::new();
-    for response in &reply.responses {
-        let href = dav.resolve(&url, &response.href)?;
-        if same(&href, collection) {
-            continue;
+    let mut members: Vec<(Url, Option<String>)> = Vec::new();
+    let mut removed: Vec<Url> = Vec::new();
+    let mut from = token.map(str::to_owned);
+    let next = loop {
+        let (url, reply) = dav
+            .multistatus(
+                "REPORT",
+                collection,
+                "0",
+                dav_proto::sync_collection(
+                    from.as_deref().unwrap_or(""),
+                    SyncLevel::One,
+                    &[GETETAG],
+                ),
+                "sync-collection",
+            )
+            .await?;
+        let mut truncated = false;
+        for response in &reply.responses {
+            let href = dav.resolve(&url, &response.href)?;
+            if same(&href, collection) {
+                truncated |= response.status == Some(507);
+                continue;
+            }
+            // A later part is newer than an earlier one: what it says replaces what was said.
+            members.retain(|(held, _)| held != &href);
+            removed.retain(|held| held != &href);
+            if response.gone() {
+                removed.push(href);
+            } else {
+                members.push((href, Props::of(response).etag));
+            }
         }
-        if response.gone() {
-            removed.push(href);
-        } else {
-            members.push((href, response.props.etag.clone()));
+        if !truncated {
+            break reply.sync_token;
         }
-    }
+        match reply.sync_token {
+            Some(next) if from.as_deref() != Some(next.as_str()) => from = Some(next),
+            _ => {
+                return Err(CardDavFailure::Refused {
+                    status: 507,
+                    what: "sync-collection",
+                });
+            }
+        }
+    };
     Ok(Listing {
         members,
         removed,
         complete: token.is_none(),
-        token: reply.sync_token,
+        token: next,
         how: if token.is_some() {
             How::Incremental
         } else {
@@ -220,22 +274,18 @@ async fn etags(dav: &Dav, collection: &Url) -> Result<Listing, CardDavFailure> {
             "PROPFIND",
             collection,
             "1",
-            dav::propfind(&[Prop::GetEtag, Prop::ResourceType]),
+            dav_proto::propfind(&[GETETAG, RESOURCETYPE]),
             "the etag PROPFIND",
         )
         .await?;
     let mut members = Vec::new();
     for response in &reply.responses {
         let href = dav.resolve(&url, &response.href)?;
-        if same(&href, collection)
-            || response
-                .props
-                .resource
-                .contains(&mail_pim::Resource::Collection)
-        {
+        let props = Props::of(response);
+        if same(&href, collection) || props.resource.contains(&Resource::Collection) {
             continue;
         }
-        members.push((href, response.props.etag.clone()));
+        members.push((href, props.etag));
     }
     Ok(Listing {
         members,
@@ -259,7 +309,7 @@ async fn multiget(
             "REPORT",
             collection,
             "1",
-            dav::multiget(&paths),
+            dav_proto::multiget(Multiget::Addressbook, &paths),
             "addressbook-multiget",
         )
         .await?;
@@ -270,8 +320,9 @@ async fn multiget(
             out.push((href, String::new(), None));
             continue;
         }
-        if let Some(data) = response.props.address_data {
-            out.push((href, response.props.etag.unwrap_or_default(), Some(data)));
+        let props = Props::of(&response);
+        if let Some(data) = props.address_data {
+            out.push((href, props.etag.unwrap_or_default(), Some(data)));
         }
     }
     Ok(out)
@@ -290,16 +341,11 @@ fn put_card<S: Store + ?Sized>(
     let card = mail_pim::vcard::parse(&data).into_iter().next();
     let name = card.as_ref().and_then(|c| c.display_name());
     put_group(store, &book.url, href, card.as_ref(), name.as_deref())?;
-    let mut addresses: Vec<String> = Vec::new();
-    for address in card
-        .iter()
-        .flat_map(|c| c.addresses_by_preference())
-        .filter_map(mail_store::contact::normalise)
-    {
-        if !addresses.contains(&address) {
-            addresses.push(address);
-        }
-    }
+    put_person(store, &book.url, href, card.as_ref(), &data)?;
+    // A card that does not parse lists nobody.
+    let addresses = card
+        .as_ref()
+        .map_or_else(Default::default, mail_pim::Card::addresses);
     let before = book.cards.remove(href);
     for address in before.iter().flat_map(|c| &c.addresses) {
         if !addresses.contains(address) {

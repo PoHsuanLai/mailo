@@ -1,7 +1,8 @@
 //! Read receipts from the command line: `show` says a message asks, `receipt` answers it.
 //!
 //! Every answer here is one the user typed. The window answers by itself only under the
-//! `reading.read_receipts = "always"` setting (`ui::receipt`), never by default.
+//! `reading.read_receipts = "always"` setting (`ui::receipt`), never by default; under `"ask"` it
+//! puts the question and answers as the person does.
 
 use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
@@ -79,6 +80,7 @@ fn seeded(raw: Option<Vec<u8>>) -> (Arc<SqliteStore>, tempfile::TempDir, ThreadI
         rfc_message_id: Some("figures@example.test".to_owned()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: match raw {
@@ -111,8 +113,10 @@ fn seeded(raw: Option<Vec<u8>>) -> (Arc<SqliteStore>, tempfile::TempDir, ThreadI
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

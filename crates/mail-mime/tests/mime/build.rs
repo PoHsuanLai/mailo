@@ -2,9 +2,12 @@
 
 use crate::support::{self, addr, at, emails, sender};
 use mail_domain::{
-    BlobId, Draft, Identity, Inline, Message, MessageId, PendingAttachment, ReceiptRequest,
+    BlobId, DeliveryReport, Draft, Identity, Inline, Message, MessageId, PendingAttachment,
+    Priority, ReceiptRequest,
 };
-use mail_mime::{Disclosure, MimeError, ReturnPath, build, parse, posting, receipt_asked};
+use mail_mime::{
+    Disclosure, MimeError, ReturnPath, base64_len, build, parse, posting, receipt_asked,
+};
 
 struct ThreadCase {
     name: &'static str,
@@ -83,6 +86,7 @@ fn draft(replying_to: Option<MessageId>, blob: Option<BlobId>) -> Draft {
                 name: "notes.bin".to_owned(),
                 mime: "application/octet-stream".to_owned(),
                 blob,
+                cid: None,
             })
             .into_iter()
             .collect(),
@@ -364,6 +368,116 @@ fn a_draft_that_asks_for_a_receipt_says_so_and_one_that_does_not_does_not() {
     assert_eq!(receipt_asked(&plain.message), None);
 }
 
+/// One priority's headers: what `X-Priority` and `Importance` say, or `None` for neither.
+struct PriorityCase {
+    priority: Priority,
+    expect: Option<(&'static str, &'static str)>,
+}
+
+const PRIORITIES: &[PriorityCase] = &[
+    PriorityCase {
+        priority: Priority::High,
+        expect: Some(("1", "high")),
+    },
+    PriorityCase {
+        priority: Priority::Normal,
+        expect: None,
+    },
+    PriorityCase {
+        priority: Priority::Low,
+        expect: Some(("5", "low")),
+    },
+];
+
+#[test]
+fn a_priority_is_written_both_ways_and_normal_writes_neither() {
+    let me = identity();
+    for case in PRIORITIES {
+        let mut draft = draft(None, None);
+        draft.priority = case.priority;
+        let sent = posting(&draft, &me, None, &[]).unwrap();
+        let text = String::from_utf8_lossy(&sent.message);
+        let header = |name: &str| {
+            text.split("\r\n\r\n")
+                .next()
+                .unwrap_or("")
+                .split("\r\n")
+                .filter_map(|line| line.split_once(": "))
+                .filter(|(field, _)| field.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.to_owned())
+                .collect::<Vec<_>>()
+        };
+        match case.expect {
+            Some((x_priority, importance)) => {
+                assert_eq!(
+                    header("X-Priority"),
+                    [x_priority],
+                    "{:?}: {text}",
+                    case.priority
+                );
+                assert_eq!(
+                    header("Importance"),
+                    [importance],
+                    "{:?}: {text}",
+                    case.priority
+                );
+            }
+            None => {
+                assert!(
+                    header("X-Priority").is_empty(),
+                    "{:?}: {text}",
+                    case.priority
+                );
+                assert!(
+                    header("Importance").is_empty(),
+                    "{:?}: {text}",
+                    case.priority
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_draft_with_no_html_goes_as_plain_text_alone() {
+    let me = identity();
+    let mut plain = draft(None, None);
+    plain.html = None;
+    let sent = posting(&plain, &me, None, &[]).unwrap();
+    let text = String::from_utf8_lossy(&sent.message).to_ascii_lowercase();
+    assert!(text.contains("content-type: text/plain"), "{text}");
+    assert!(!text.contains("text/html"), "{text}");
+    assert!(!text.contains("multipart/alternative"), "{text}");
+    let parsed = parse(&sent.message).unwrap();
+    assert_eq!(parsed.text.as_deref().map(str::trim_end), Some("thanks"));
+    assert_eq!(parsed.html, None);
+
+    // The same draft with its HTML is both, as the composer's rich text sends.
+    let rich = posting(&draft(None, None), &me, None, &[]).unwrap();
+    let text = String::from_utf8_lossy(&rich.message).to_ascii_lowercase();
+    assert!(text.contains("multipart/alternative"), "{text}");
+}
+
+#[test]
+fn a_delivery_report_is_asked_of_the_envelope_and_never_of_the_bytes() {
+    let me = identity();
+    // One part, so no boundary is drawn that could differ between the two builds.
+    let mut asking = draft(None, None);
+    asking.html = None;
+    asking.delivery = DeliveryReport::Requested;
+    let asked = posting(&asking, &me, None, &[]).unwrap();
+    assert_eq!(asked.delivery, DeliveryReport::Requested);
+    let unasked = Draft {
+        delivery: DeliveryReport::Unrequested,
+        automatic: false,
+        ..asking.clone()
+    };
+    let plain = posting(&unasked, &me, None, &[]).unwrap();
+    assert_eq!(plain.delivery, DeliveryReport::Unrequested);
+    // Only the request differs: the message itself is byte for byte the same.
+    assert_eq!(asked.message, plain.message);
+}
+
 /// A message carried whole, as forwarding one as an attachment does. RFC 2046 §5.2.1 allows a
 /// `message/rfc822` part only `7bit`, `8bit` or `binary`; mail-builder gives every part that is
 /// not text base64, which a reader that honours the RFC shows as an opaque file.
@@ -509,5 +623,154 @@ mod enclosed_message {
                 assert!(line.len() <= 999, "a line of {} octets", line.len());
             }
         }
+    }
+}
+
+/// The text part says it is flowed, so its soft breaks at 72 are not read as the sender's.
+#[test]
+fn the_text_part_is_labelled_flowed() {
+    let mut plain = draft(None, None);
+    plain.html = None;
+    let sent = posting(&plain, &identity(), None, &[]).unwrap();
+    let parsed = parse(&sent.message).unwrap();
+    assert_eq!(
+        parsed.flowed,
+        mail_mime::Flowed::Flowed {
+            delsp: mail_mime::Delsp::No
+        }
+    );
+}
+
+/// A redirect is the original, every byte as it came, beneath a `Resent-` block; its envelope is
+/// the new recipients alone, and what the original's journey left on it (`Return-Path`, a sent
+/// copy's `Bcc`) stays behind.
+#[test]
+fn a_redirect_is_the_original_beneath_its_resent_block() {
+    let original = b"Return-Path: <ada@example.test>\r\n\
+                     From: Ada <ada@example.test>\r\n\
+                     To: me@example.test\r\n\
+                     Bcc: secret@example.test\r\n\
+                     Date: Sat, 14 Mar 2026 09:00:00 +0000\r\n\
+                     Message-ID: <first@example.test>\r\n\
+                     Subject: Plans\r\n\
+                     \r\n\
+                     The plan is on.\r\n";
+    let me = addr(Some("Zoë Me"), "me@example.test");
+    let id = mail_domain::DraftId::generate();
+    let to = [
+        addr(Some("Bea"), "bea@example.test"),
+        addr(None, "BEA@example.test"),
+        addr(None, "cy@example.test"),
+    ];
+    let post = mail_mime::resent(
+        original,
+        &mail_mime::Resending {
+            from: &me,
+            to: &to,
+            at: at(),
+            id,
+        },
+    )
+    .expect("a redirect");
+    assert_eq!(post.mail_from, "me@example.test");
+    assert_eq!(post.rcpt_to, ["bea@example.test", "cy@example.test"]);
+
+    let text = String::from_utf8(post.message.clone()).unwrap();
+    let head: Vec<&str> = text.lines().take(4).collect();
+    assert!(
+        head[0].starts_with("Resent-Date: Sun, 15 Mar 2026 12:00:00"),
+        "{text}"
+    );
+    assert!(head[1].starts_with("Resent-From: ") && head[1].contains("<me@example.test>"));
+    assert!(
+        head[1].contains("=?utf-8?"),
+        "a name outside ASCII is encoded: {}",
+        head[1]
+    );
+    assert!(
+        head[2].starts_with("Resent-To: \"Bea\" <bea@example.test>"),
+        "{}",
+        head[2]
+    );
+    assert_eq!(head[3], format!("Resent-Message-ID: <{id}@example.test>"));
+    assert!(mail_mime::is_resent(&post.message));
+    for gone in ["Return-Path", "Bcc", "secret@example.test"] {
+        assert!(!text.contains(gone), "{gone} left behind: {text}");
+    }
+    // The rest is the original's own: its author, date, id and body read back unchanged.
+    assert!(text.ends_with(
+        "From: Ada <ada@example.test>\r\nTo: me@example.test\r\n\
+         Date: Sat, 14 Mar 2026 09:00:00 +0000\r\nMessage-ID: <first@example.test>\r\n\
+         Subject: Plans\r\n\r\nThe plan is on.\r\n"
+    ));
+    let parsed = parse(&post.message).expect("still a message");
+    assert_eq!(parsed.from, Some(addr(Some("Ada"), "ada@example.test")));
+    assert_eq!(parsed.rfc_message_id.as_deref(), Some("first@example.test"));
+
+    // Leaving later moves the redirect's own date and never its author's.
+    let left = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 3, 16, 8, 0, 0).unwrap();
+    let stamped = String::from_utf8(mail_mime::restamp(&post.message, left)).unwrap();
+    assert!(stamped.starts_with("Resent-Date: Mon, 16 Mar 2026 08:00:00 +0000\r\n"));
+    assert!(stamped.contains("Date: Sat, 14 Mar 2026 09:00:00 +0000\r\n"));
+
+    let nobody = mail_mime::resent(
+        original,
+        &mail_mime::Resending {
+            from: &me,
+            to: &[addr(None, " ")],
+            at: at(),
+            id,
+        },
+    );
+    assert!(matches!(nobody, Err(MimeError::NoRecipients)));
+}
+
+/// What [`base64_len`] says an attachment costs is what it adds to the built message: measured
+/// against an empty one, at a line's edge and either side of it.
+#[test]
+fn an_attachment_costs_what_base64_len_says() {
+    let me = identity();
+    let blob = BlobId::generate();
+    let built = |len: usize| {
+        // High bytes, so the part is base64 and not text.
+        let bytes = vec![0xFF_u8; len];
+        build(
+            &draft(None, Some(blob)),
+            &me,
+            None,
+            &[(blob, bytes)],
+            Disclosure::Full,
+        )
+        .unwrap_or_else(|err| panic!("{len}: {err}"))
+    };
+    // Boundaries are drawn at random and are not all one length, so they are taken out of what is
+    // measured: two builds of one shape draw each as often.
+    let measured = |len: usize| {
+        let bytes = built(len);
+        let text = String::from_utf8_lossy(&bytes);
+        let mut boundaries: Vec<&str> = text
+            .split("boundary=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        boundaries.sort_unstable();
+        boundaries.dedup();
+        let drawn: usize = boundaries
+            .iter()
+            .map(|boundary| text.matches(boundary).count() * boundary.len())
+            .sum();
+        (bytes.len() - drawn) as u64
+    };
+    let empty = measured(0);
+    for len in [1_usize, 2, 3, 56, 57, 58, 114, 1000, 70_000] {
+        assert_eq!(
+            measured(len) - empty,
+            base64_len(len as u64),
+            "an attachment of {len} octets"
+        );
+    }
+    let table: &[(u64, u64)] = &[(0, 0), (1, 6), (57, 78), (58, 84), (114, 156)];
+    for (octets, expected) in table {
+        assert_eq!(base64_len(*octets), *expected, "{octets} octets");
     }
 }

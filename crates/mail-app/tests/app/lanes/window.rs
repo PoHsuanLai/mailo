@@ -1,4 +1,4 @@
-//! The window every lane drives: the real `mail_app::ui::native::root` over a store seeded in a
+//! The window every lane drives: the real `mail_ui::ui::native::root` over a store seeded in a
 //! `TempDir`, on the harness's virtual clock, with every seam that would reach the desktop
 //! replaced by a recorder.
 //!
@@ -14,11 +14,11 @@
 use ds::prelude::*;
 use ds_blitz::{FocusFallback, PrintOutcome, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
-use mail_app::ui::appearance::WindowDirs;
-use mail_app::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
-use mail_app::ui::native::{Configured, Revisions};
 use mail_core::SqliteStore;
 use mail_core::notify::{Notification, Notifier};
+use mail_ui::ui::appearance::WindowDirs;
+use mail_ui::ui::native::Configured;
+use mail_ui::ui::native::{Browse, DialogAsk, Dialogs, Fetch, Original, SaveDir, WallClock};
 use std::path::PathBuf;
 
 pub use super::look::{panel_row, panel_settled, parsed, queued, row_of};
@@ -79,10 +79,10 @@ impl Browse for Opened {
 /// the file.
 pub type Launched = Arc<Mutex<Vec<(&'static str, PathBuf)>>>;
 
-fn file_opener(launched: &Launched) -> mail_app::ui::native::FileOpener {
+fn file_opener(launched: &Launched) -> mail_ui::ui::native::FileOpener {
     let opened = Arc::clone(launched);
     let revealed = Arc::clone(launched);
-    mail_app::ui::native::FileOpener::new(
+    mail_ui::ui::native::FileOpener::new(
         move |path| {
             held(&opened).push(("open", path.to_owned()));
             Ok(())
@@ -111,30 +111,57 @@ impl Notifier for Notices {
     }
 }
 
+/// What the login item was asked: `"register"` or `"unregister"`, in order. Never the system's.
+#[derive(Default)]
+pub struct LoginItem(Mutex<Vec<&'static str>>);
+
+impl LoginItem {
+    /// What it was asked, in order.
+    pub fn asked(&self) -> Vec<&'static str> {
+        held(&self.0).clone()
+    }
+}
+
+impl mail_ui::login_item::LoginItem for LoginItem {
+    fn register(&self) -> Result<mail_ui::login_item::Registered, String> {
+        held(&self.0).push("register");
+        Ok(mail_ui::login_item::Registered::Done)
+    }
+
+    fn unregister(&self) -> Result<(), String> {
+        held(&self.0).push("unregister");
+        Ok(())
+    }
+}
+
 /// What every window of the lane's app is handed alike: the store, its directories, the
-/// revision they share, the file dialog and where files are saved.
+/// configuration count they share, the file dialog, where files are saved and the login item.
 #[derive(Clone)]
 struct Shared {
     store: Arc<SqliteStore>,
     dirs: WindowDirs,
-    revisions: (Revisions, Configured),
+    configured: Configured,
     dialogs: Dialogs,
     saves: SaveDir,
+    login: Arc<LoginItem>,
 }
 
 impl Shared {
     fn contexts(&self) -> RootContexts {
-        mail_app::ui::native::contexts(
-            Arc::clone(&self.store),
-            mail_app::ui::view::Appearance::default(),
+        mail_ui::ui::native::contexts(
+            mail_client::Client::open(
+                Arc::clone(&self.store),
+                mail_client::ClientConfig::default(),
+            ),
+            mail_ui::ui::view::Appearance::default(),
             None,
             Some(self.dirs.clone()),
-            mail_app::ui::Start::Inbox,
+            mail_ui::ui::Start::Inbox,
         )
-        .with(self.revisions.0.clone())
-        .with(self.revisions.1.clone())
+        .with(self.configured.clone())
         .with(self.dialogs.clone())
         .with(self.saves.clone())
+        .with(mail_ui::login_item::LoginItems(self.login.clone()))
     }
 }
 
@@ -195,7 +222,7 @@ impl Window {
                     + chrono::TimeDelta::seconds(jumped.load(Ordering::Relaxed))
             }
         });
-        let printer = mail_app::ui::native::Printer::with_dialog({
+        let printer = mail_ui::ui::native::Printer::with_dialog({
             let printed = Arc::clone(&printed);
             move |pdf, title| {
                 held(&printed).push((pdf.to_vec(), title.to_owned()));
@@ -210,16 +237,17 @@ impl Window {
         let shared = Shared {
             store: Arc::clone(&store),
             dirs,
-            revisions: (Revisions::new(), Configured::default()),
+            configured: Configured::default(),
             dialogs: picker.dialogs(),
             saves: SaveDir(dir.path().join("saves")),
+            login: Arc::default(),
         };
         let contexts = shared
             .contexts()
             .with(printer)
             .with(clock.clone())
             .with(file_opener(&launched))
-            .with(mail_app::ui::native::Notices(notices.clone()));
+            .with(mail_ui::ui::native::Notices(notices.clone()));
         let contexts = with(dir.path(), contexts);
         let config = HarnessConfig::new(VIEW)
             .with_focus_fallback(FocusFallback::Ancestor)
@@ -228,7 +256,7 @@ impl Window {
             .with_net(original.net())
             .with_frame_links(original.links())
             .with_contexts(original.contexts());
-        let mut harness = Harness::new(mail_app::ui::native::root, config);
+        let mut harness = Harness::new(mail_ui::ui::native::root, config);
         harness.advance(ms(300));
         let mut window = Window {
             harness,
@@ -293,6 +321,16 @@ impl Window {
         held(&self.picker.asked).clone()
     }
 
+    /// What the login item was asked, in order.
+    pub fn login_asked(&self) -> Vec<&'static str> {
+        self.shared.login.asked()
+    }
+
+    /// The login item every window of the lane is handed, to wait on from a Settings window.
+    pub fn login_item(&self) -> Arc<LoginItem> {
+        Arc::clone(&self.shared.login)
+    }
+
     /// Every link opened in the browser.
     pub fn opened(&self) -> Vec<String> {
         held(&self.opened.0).clone()
@@ -330,6 +368,14 @@ impl Window {
         let watch = SqliteStore::open(dir.join("mail.db"), dir.join("blobs"))
             .expect("a second connection to the store");
         deliver(&watch, uidl, raw);
+    }
+
+    /// Another connection to the store, as `mailo` in a terminal opens: the window hears of
+    /// what it writes by the store's data version.
+    pub fn second_connection(&self) -> SqliteStore {
+        let dir = self.dir.path();
+        SqliteStore::open(dir.join("mail.db"), dir.join("blobs"))
+            .expect("a second connection to the store")
     }
 
     /// Write `bytes` as `name` in a scratch directory a dialog can answer with.

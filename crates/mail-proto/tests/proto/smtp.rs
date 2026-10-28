@@ -11,7 +11,7 @@ use mail_proto::{
 };
 use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::UnixSeconds;
+use porter_ids::UnixSeconds;
 
 const USER: &str = "ada@example.com";
 const PASSWORD: &str = "s3cr3t-password";
@@ -169,6 +169,39 @@ fn a_relayed_session_goes_from_ehlo_to_mail_from_without_auth_or_starttls() {
     assert_eq!(reply.extensions.auth, vec![]);
     assert_eq!(reply.accepted.code, 250);
     assert_secrets_absent(&format!("{session:?} {reply:?}"));
+}
+
+/// The request a draft's "Request Delivery Receipt" makes (`mail_runtime`'s engine): delivery and
+/// failure, headers only, no envelope id.
+fn delivery_receipt() -> Receipt {
+    Receipt {
+        notify: Notify::On {
+            success: true,
+            failure: true,
+            delay: false,
+        },
+        ret: Return::Headers,
+        envid: None,
+    }
+}
+
+#[test]
+fn a_delivery_receipt_asks_notify_where_dsn_is_offered_and_is_left_off_where_not() {
+    let recipients = ["bob@example.com", "cara@example.com"];
+    let offered = replay(
+        &mut envelope(USER, &recipients, SHORT, Some(delivery_receipt())),
+        include_str!("../traces/smtp/dsn.trace"),
+    )
+    .unwrap();
+    assert_eq!(offered.extensions.dsn, Advertised::Offered);
+    // Skipped silently: no error, and the message is accepted all the same.
+    let absent = replay(
+        &mut envelope(USER, &recipients, SHORT, Some(delivery_receipt())),
+        include_str!("../traces/smtp/dsn_absent.trace"),
+    )
+    .unwrap();
+    assert_eq!(absent.extensions.dsn, Advertised::Absent);
+    assert_eq!(absent.accepted.code, 250);
 }
 
 #[test]

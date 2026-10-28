@@ -24,6 +24,9 @@ pub enum SigningKeyId {
     OpenPgp(Fingerprint),
     /// The S/MIME certificate with this fingerprint.
     Smime(CertFingerprint),
+    /// The key or token the privacy relay for remote images was set up with: one for the
+    /// Profile. A secret like the others, and so kept where they are, never in the settings file.
+    PrivacyRelay,
 }
 
 /// One signing key: the account it was kept for and which key it is.
@@ -44,15 +47,28 @@ pub enum SigningSecret {
     /// An S/MIME private key, PKCS#8 PEM, unencrypted: the keyring is its protection. Taken out
     /// of the PKCS#12 file it was imported from, whose password is not kept.
     SmimeKey(String),
+    /// The privacy relay's key or token, as it was typed.
+    Relay(String),
 }
 
 // Written by hand, not derived: a derived Debug puts the key in every log line, panic message
 // and error chain that ever touches this value.
+impl SigningKeyRef {
+    /// The privacy relay's key. It belongs to no account: the reference names the nil one.
+    pub fn privacy_relay() -> Self {
+        SigningKeyRef {
+            account: crate::id::account_id_from_uuid(uuid::Uuid::nil()),
+            key: SigningKeyId::PrivacyRelay,
+        }
+    }
+}
+
 impl fmt::Debug for SigningSecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             SigningSecret::OpenPgp(_) => f.write_str("SigningSecret::OpenPgp(<redacted>)"),
             SigningSecret::SmimeKey(_) => f.write_str("SigningSecret::SmimeKey(<redacted>)"),
+            SigningSecret::Relay(_) => f.write_str("SigningSecret::Relay(<redacted>)"),
         }
     }
 }
@@ -68,6 +84,7 @@ mod tests {
         for secret in [
             SigningSecret::OpenPgp("-----BEGIN PGP PRIVATE KEY BLOCK-----".to_owned()),
             SigningSecret::SmimeKey("PRIVATE-KEY-MATERIAL".to_owned()),
+            SigningSecret::Relay("PRIVATE-RELAY-KEY".to_owned()),
         ] {
             let alone = format!("{secret:?}");
             let nested = format!("{:?}", vec![Some(&secret)]);

@@ -84,6 +84,9 @@ pub enum Filter {
     ///   out of every folder at once (see [`Filed`]);
     /// - no move of it into another folder ([`crate::Op::File`]) is still queued.
     ///
+    /// A copy of it into the mailbox that is still queued ([`crate::Op::Copy`]) stands for an
+    /// address there until the server answers, weighed by the other two the same way.
+    ///
     /// The address is server truth and is never changed optimistically — it is what the
     /// outbox addresses the message by. The other two are the local intent laid over it, the
     /// way [`Filter::InMailbox`] carries it: a message moved out of a folder view leaves the
@@ -94,7 +97,25 @@ pub enum Filter {
     /// is listed: only `INBOX` and `Sent` are fetched there, so no other path has addresses.
     InFolder(MailboxRef),
     From(TextMatch),
+    /// Written by someone at exactly this address (the email alone, never a display name,
+    /// compared ASCII-case-insensitively): the thread's newest sender or any of its
+    /// [participants](ThreadSummary::participants), so a conversation stays found after
+    /// someone else has answered last.
+    ///
+    /// Not [`Filter::From`], whose needle is also read against the display name: anyone can
+    /// write `"ada@example.test" <someone@else.test>` and be found as that address.
+    FromAddress(String),
+    /// True when one of the thread's senders is a VIP: the addresses the store holds in its
+    /// VIP list **when the filter is asked**, handed in as [`MatchCtx::vips`]. A saved view or a
+    /// rule that says `is:vip` therefore follows the list as it changes, and never keeps the
+    /// people who were on it when it was saved. Answered like [`Filter::FromAddress`] for each
+    /// of them.
+    Vip,
     To(TextMatch),
+    /// Copied on one of the thread's messages: a `Cc` address or name fits. Unlike
+    /// [`Filter::To`], which reads the thread's merged recipients, this reads the `Cc` line
+    /// alone, handed in as [`MatchCtx::cc`].
+    Cc(TextMatch),
     Subject(TextMatch),
     /// Full text: subject, participants, snippet, and the plain-text body.
     ///
@@ -127,6 +148,107 @@ pub enum Filter {
     /// Snoozed, and the instant has passed — the thread is due back in the inbox.
     SnoozeDue,
     Pinned,
+    /// One of the thread's messages is larger than this many bytes ([`message_size`]).
+    Larger(u64),
+    /// One of the thread's messages is smaller than this many bytes ([`message_size`]).
+    Smaller(u64),
+    /// The thread's newest message came within this many days of now: [`Filter::Date`] counted
+    /// back from whenever the filter is asked, so a saved view or a rule keeps meaning "the last
+    /// week" rather than the week it was written in.
+    NewerThan(u32),
+    /// The thread's newest message is older than this many days: the other side of
+    /// [`Filter::NewerThan`].
+    OlderThan(u32),
+    /// In one of Gmail's inbox categories.
+    ///
+    /// Only Gmail's server knows: a category is neither a label nor a flag on any message this
+    /// client holds, so locally the clause matches nothing, and a server search is what answers
+    /// it ([`crate::Category`]).
+    Category(Category),
+}
+
+impl Filter {
+    /// This filter with each relative date fixed against `now`, as a [`Filter::Date`]: what a
+    /// server is asked, which has no clause that counts back from its own clock.
+    pub fn at(&self, now: chrono::DateTime<chrono::Utc>) -> Filter {
+        let each = |fs: &[Filter]| fs.iter().map(|f| f.at(now)).collect();
+        match self {
+            Filter::And(fs) => Filter::And(each(fs)),
+            Filter::Or(fs) => Filter::Or(each(fs)),
+            Filter::Not(f) => Filter::Not(Box::new(f.at(now))),
+            Filter::NewerThan(days) => Filter::Date(DateRange {
+                from: Some(days_before(now, *days)),
+                to: None,
+            }),
+            Filter::OlderThan(days) => Filter::Date(DateRange {
+                from: None,
+                to: Some(days_before(now, *days)),
+            }),
+            other => other.clone(),
+        }
+    }
+}
+
+/// `days` whole days before `now`.
+fn days_before(now: chrono::DateTime<chrono::Utc>, days: u32) -> chrono::DateTime<chrono::Utc> {
+    now - chrono::TimeDelta::days(i64::from(days))
+}
+
+/// How large a message is, as `larger:` and `smaller:` measure it: the bytes of its text, and
+/// each part it carries at the size the part says, whether held or still on the server.
+///
+/// Not the raw message's bytes: those are a blob only the SQLite store holds, absent while only
+/// the headers are here, and short by every attachment a large IMAP message left on the server.
+/// This is the same in both stores and in SQL, which is what the parity test holds them to.
+///
+/// The one definition: [`crate::Message::size`] is this, and the store's `messages.size` column
+/// and its SQL ([`Filter::Larger`]) hold what this gives.
+pub fn message_size(message: &crate::Message) -> u64 {
+    let text = message.body.text().map_or(0, |text| text.len() as u64);
+    message
+        .attachments
+        .iter()
+        .fold(text, |sum, part| sum.saturating_add(part.size))
+}
+
+/// One of the tabs Gmail sorts its inbox into.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Category {
+    Primary,
+    Social,
+    Promotions,
+    Updates,
+    Forums,
+}
+
+impl Category {
+    /// Every category, in the order Gmail shows its tabs.
+    pub const ALL: [Category; 5] = [
+        Category::Primary,
+        Category::Social,
+        Category::Promotions,
+        Category::Updates,
+        Category::Forums,
+    ];
+
+    /// The name Gmail's search takes after `category:`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Category::Primary => "primary",
+            Category::Social => "social",
+            Category::Promotions => "promotions",
+            Category::Updates => "updates",
+            Category::Forums => "forums",
+        }
+    }
+
+    /// The category a typed name means, in any case.
+    pub fn named(name: &str) -> Option<Category> {
+        Category::ALL
+            .into_iter()
+            .find(|c| c.name().eq_ignore_ascii_case(name))
+    }
 }
 
 /// Everything [`Filter::fit`] needs in order to decide.
@@ -145,11 +267,22 @@ pub enum Filter {
 /// [`Filter::InFolder`] weighs beside it. A summary does not carry it — it is `remote_map` and
 /// the outbox, not message state — so it is handed in beside the summary, like the corpus. A
 /// caller that does not have it passes `&[]`, and then no `InFolder` clause matches.
+///
+/// `sizes` is each of the thread's messages' [`message_size`], for [`Filter::Larger`] and
+/// [`Filter::Smaller`]; a caller without them passes `&[]`, and then neither matches.
+///
+/// `cc` is every address on the `Cc` line of any of the thread's messages, for [`Filter::Cc`];
+/// a caller without them passes `&[]`, and then it does not match. `vips` is the VIP list's
+/// addresses, for [`Filter::Vip`], handed in by whoever holds the list; with none, it does not
+/// match.
 #[derive(Debug, Clone, Copy)]
 pub struct MatchCtx<'a> {
     pub summary: &'a ThreadSummary,
     pub corpus: Option<&'a str>,
     pub folders: &'a [Placed],
+    pub sizes: &'a [u64],
+    pub cc: &'a [Address],
+    pub vips: &'a [String],
     pub now: DateTime<Utc>,
 }
 
@@ -194,13 +327,36 @@ impl Placed {
         roles: &crate::FolderRoles,
         moving: &[String],
     ) -> Vec<Placed> {
+        Placed::of_message_copied(role, addresses, roles, moving, Vec::new())
+    }
+
+    /// [`Placed::of_message`], and a place in each of `copying`, the folders a copy still
+    /// queued for the message is putting it in ([`crate::Op::Copy`]).
+    ///
+    /// Listed there from the moment it is copied, as a move takes it out of the folder it leaves
+    /// at once, and until the server has answered: then by the address the server gave the
+    /// copy, or, where it gave none, from the sync of that folder that finds it. Whether it is
+    /// filed as held is the message's, weighed against the addresses it has; a place it is only
+    /// being copied to is not one of them.
+    pub fn of_message_copied(
+        role: MailboxRole,
+        addresses: Vec<MailboxRef>,
+        roles: &crate::FolderRoles,
+        moving: &[String],
+        copying: Vec<MailboxRef>,
+    ) -> Vec<Placed> {
         let filed = if addresses.iter().any(|m| roles.filed_as(&m.path) == role) {
             Filed::AsHeld
         } else {
             Filed::Away
         };
+        let arriving: Vec<MailboxRef> = copying
+            .into_iter()
+            .filter(|to| !addresses.contains(to))
+            .collect();
         addresses
             .into_iter()
+            .chain(arriving)
             .map(|mailbox| {
                 let leaving = if moving.iter().any(|to| *to != mailbox.path) {
                     Leaving::Elsewhere
@@ -253,7 +409,10 @@ impl Filter {
                 .iter()
                 .any(|placed| placed.mailbox == *mailbox && placed.filed_here()),
             Filter::From(m) => address_fits(m, &s.from),
+            Filter::FromAddress(email) => sent_by(email, s),
+            Filter::Vip => ctx.vips.iter().any(|vip| sent_by(vip, s)),
             Filter::To(m) => to_fits(m, s),
+            Filter::Cc(m) => ctx.cc.iter().any(|a| address_fits(m, a)),
             Filter::Subject(m) => text_fits(m, &s.subject),
             Filter::Text(m) => text_search_fits(m, ctx),
             Filter::Date(range) => {
@@ -265,6 +424,12 @@ impl Filter {
             // Implies `Snoozed`: a due thread is still a snoozed thread.
             Filter::SnoozeDue => matches!(s.snooze, Snooze::Until(at) if at <= ctx.now),
             Filter::Pinned => matches!(s.pin, Pin::Rank(_)),
+            Filter::Larger(bytes) => ctx.sizes.iter().any(|size| size > bytes),
+            Filter::Smaller(bytes) => ctx.sizes.iter().any(|size| size < bytes),
+            Filter::NewerThan(days) => s.last_date >= days_before(ctx.now, *days),
+            Filter::OlderThan(days) => s.last_date < days_before(ctx.now, *days),
+            // Nothing held says which tab Gmail put a message in.
+            Filter::Category(_) => false,
         }
     }
 }
@@ -358,6 +523,16 @@ fn push_address<'a>(fields: &mut Vec<&'a str>, addr: &'a Address) {
     if let Some(name) = addr.name.as_deref() {
         fields.push(name);
     }
+}
+
+/// Whether `email` wrote in the thread: its newest sender, or any sender it has had.
+fn sent_by(email: &str, summary: &ThreadSummary) -> bool {
+    let email = email.trim();
+    summary.from.email.eq_ignore_ascii_case(email)
+        || summary
+            .participants
+            .iter()
+            .any(|p| p.email.eq_ignore_ascii_case(email))
 }
 
 /// Whether a [`Filter::To`] clause matches: whether anyone the thread was addressed to fits.

@@ -133,6 +133,12 @@ impl EmailSummary {
         }
     }
 
+    /// The flag's colour, from Apple Mail's keywords, which JMAP carries as it carries any
+    /// other ([`mail_domain::Hue::from_keywords`]).
+    pub fn hue(&self) -> mail_domain::Hue {
+        mail_domain::Hue::from_keywords(&self.keywords)
+    }
+
     fn has_keyword(&self, keyword: &str) -> bool {
         self.keywords
             .iter()
@@ -205,19 +211,20 @@ pub enum Filing {
 
 /// File an email in `ids` against the account's `mailboxes`.
 ///
-/// One role, because a message here has one: the first of Trash, Inbox, Archive and Sent that
-/// it is in, in that order. Trash first because a client that trashes keeps the other mailboxes
-/// on some servers, and a trashed email listed in the inbox would come back from the bin. Then
-/// Inbox, for mail sent to oneself. Archive over Sent because archiving a sent message leaves it
+/// One role, because a message here has one: the first of Trash, Junk, Inbox, Archive and Sent
+/// that it is in, in that order. Trash first because a client that trashes keeps the other
+/// mailboxes on some servers, and a trashed email listed in the inbox would come back from the
+/// bin; Junk next for the same reason, as Spam. Then Inbox, for mail sent to oneself. Archive over Sent because archiving a sent message leaves it
 /// in Sent too ([`super::filing_patch`]), and the archive is what the user asked for. An email
 /// only in mailboxes without a role is filed as Archive — kept, and out of the inbox — which is
 /// what an IMAP folder files as.
 ///
-/// Drafts and Junk file nothing: an email only there is [`Filing::Unfollowed`].
+/// Drafts files nothing: an email only there is [`Filing::Unfollowed`].
 pub fn filing(ids: &[JmapMailboxId], mailboxes: &Mailboxes) -> Filing {
     let roles = mailboxes.filing_roles(ids);
     let role = [
         MailboxRole::Trash,
+        MailboxRole::Spam,
         MailboxRole::Inbox,
         MailboxRole::Archive,
         MailboxRole::Sent,

@@ -1,0 +1,316 @@
+//! The configuration files every window of the app reads: when one window writes
+//! `settings.toml`, `keyboard.json` or `spaces.json`, the others read theirs again.
+//!
+//! A `Signal` belongs to one VirtualDom, so a window cannot read another's. [`Counter`] is the
+//! count every window gets as a root context (quire hands each window the same `AppConfig`
+//! contexts). Each window publishes its own moves to it and follows everyone else's: a move it
+//! hears from another window moves its own count by one. [`Bridge`] is that bookkeeping, pure,
+//! so a window never re-publishes what it only followed (two windows would otherwise wake each
+//! other forever).
+//!
+//! The store needs none of this: every window reads it through the one client, which says when
+//! it moved (`live::moved`).
+
+use dioxus::prelude::*;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tokio::sync::watch;
+
+/// A count shared by every window, as a root context. Cloning shares it.
+#[derive(Clone)]
+pub struct Counter(Arc<Shared>);
+
+struct Shared {
+    stamp: watch::Sender<Stamp>,
+    /// Hands each window that joins a name of its own.
+    windows: AtomicU64,
+}
+
+impl std::fmt::Debug for Counter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Counter")
+            .field(&*self.0.stamp.borrow())
+            .finish()
+    }
+}
+
+impl Default for Counter {
+    fn default() -> Self {
+        Counter::new()
+    }
+}
+
+/// Which window a move came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Origin(u64);
+
+/// The newest move: how many there have been, and whose it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stamp {
+    pub generation: u64,
+    pub by: Option<Origin>,
+}
+
+impl Counter {
+    /// No move yet.
+    pub fn new() -> Self {
+        let (stamp, _) = watch::channel(Stamp {
+            generation: 0,
+            by: None,
+        });
+        Counter(Arc::new(Shared {
+            stamp,
+            windows: AtomicU64::new(0),
+        }))
+    }
+
+    /// A window joins, its own count at `local`: its bridge, and what it hears moves on.
+    pub(crate) fn join(&self, local: u64) -> (Bridge, watch::Receiver<Stamp>) {
+        let me = Origin(self.0.windows.fetch_add(1, Ordering::Relaxed));
+        let heard = self.0.stamp.subscribe();
+        let seen = heard.borrow().generation;
+        (Bridge::new(me, seen, local), heard)
+    }
+
+    /// Tell every other window that `bridge`'s window moved.
+    pub(crate) fn publish(&self, bridge: &mut Bridge) {
+        self.0.stamp.send_modify(|stamp| bridge.publish(stamp));
+    }
+
+    /// Something that is no window's changed the store (an account a sign-in in the browser added):
+    /// every window reads it again. Nobody's own move, so every window follows it.
+    pub fn bump(&self) {
+        self.0.stamp.send_modify(|stamp| {
+            stamp.generation = stamp.generation.wrapping_add(1);
+            stamp.by = None;
+        });
+    }
+
+    /// How many moves there have been, from any window.
+    pub fn generation(&self) -> u64 {
+        self.0.stamp.borrow().generation
+    }
+}
+
+/// One window's side of the shared count: what it has published, heard and followed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Bridge {
+    me: Origin,
+    /// The newest generation this window has accounted for.
+    seen: u64,
+    /// The last value of the window's own count that is already accounted for: published,
+    /// or moved by following another window.
+    settled: u64,
+}
+
+impl Bridge {
+    fn new(me: Origin, seen: u64, local: u64) -> Self {
+        Bridge {
+            me,
+            seen,
+            settled: local,
+        }
+    }
+
+    /// The window's own count is now `local`: whether that is a move of its own, to
+    /// publish. A value it reached by following is not.
+    pub(crate) fn moved(&mut self, local: u64) -> bool {
+        let moved = local != self.settled;
+        self.settled = local;
+        moved
+    }
+
+    /// `stamp` is the newest move: whether the window must follow it. Its own move comes back
+    /// too and is not followed; a move already accounted for is not followed twice.
+    pub(crate) fn heard(&mut self, stamp: Stamp) -> bool {
+        if stamp.generation == self.seen {
+            return false;
+        }
+        self.seen = stamp.generation;
+        stamp.by != Some(self.me)
+    }
+
+    /// The window followed a move by setting its own count to `local`.
+    pub(crate) fn followed(&mut self, local: u64) {
+        self.settled = local;
+    }
+
+    /// Write this window's move into `stamp`. A window that moves has re-run its queries
+    /// against the store as it is now, which includes every move published before this one, so
+    /// those count as heard.
+    fn publish(&mut self, stamp: &mut Stamp) {
+        stamp.generation = stamp.generation.wrapping_add(1);
+        stamp.by = Some(self.me);
+        self.seen = stamp.generation;
+    }
+}
+
+/// The app's shared count of configuration moves, as a root context of every window: moved when a
+/// window writes `settings.toml`, `keyboard.json` or `spaces.json`, which the others then read
+/// again. It is not the store's moves, so a window's mail queries do not run again for a setting
+/// or a key binding, and a sync does not make every window read its configuration files. Every
+/// window also watches `settings.toml` (`prefs::use_window_settings`), for edits made outside
+/// the app.
+#[derive(Clone, Debug, Default)]
+pub struct Configured(pub Counter);
+
+/// This window's own count of [`Configured`] moves, as a context, for [`told_configuration`].
+#[derive(Clone, Copy)]
+struct ConfiguredHere(Signal<u64>);
+
+/// Follow and publish [`Configured`] through `configured`, this window's own count: it moves by
+/// one when another window wrote a configuration file. Provides it for [`told_configuration`].
+pub(in crate::ui) fn use_shared_configuration(configured: Signal<u64>) {
+    use_context_provider(|| ConfiguredHere(configured));
+    use_shared(
+        || try_consume_context::<Configured>().map(|configured| configured.0),
+        configured,
+    );
+}
+
+/// This window wrote `settings.toml`, `keyboard.json` or `spaces.json`: the other windows read
+/// theirs again. A window drawn without [`use_shared_configuration`] tells no one.
+pub(in crate::ui) fn told_configuration() {
+    if let Some(ConfiguredHere(mut here)) = try_consume_context::<ConfiguredHere>() {
+        here += 1;
+    }
+}
+
+/// Join the counter `shared` finds, publishing `count`'s moves and following everyone else's.
+fn use_shared(shared: impl FnOnce() -> Option<Counter>, mut count: Signal<u64>) {
+    let joined = use_hook(|| {
+        shared().map(|shared| {
+            let (bridge, heard) = shared.join(*count.peek());
+            (shared, CopyValue::new(bridge), heard)
+        })
+    });
+    let publishing = joined.clone();
+    use_effect(move || {
+        let local = count();
+        if let Some((shared, mut bridge, _)) = publishing.clone()
+            && bridge.write().moved(local)
+        {
+            shared.publish(&mut bridge.write());
+        }
+    });
+    use_future(move || {
+        let joined = joined.clone();
+        async move {
+            let Some((shared, mut bridge, mut heard)) = joined else {
+                return;
+            };
+            while heard.changed().await.is_ok() {
+                let stamp = *heard.borrow_and_update();
+                if !bridge.write().heard(stamp) {
+                    continue;
+                }
+                // A move of this window's own that its effect has not published yet goes first,
+                // so following cannot swallow it.
+                let local = *count.peek();
+                if bridge.write().moved(local) {
+                    shared.publish(&mut bridge.write());
+                }
+                let next = local.wrapping_add(1);
+                bridge.write().followed(next);
+                count.set(next);
+            }
+        }
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_move_in_one_window_is_followed_by_the_other_and_not_sent_back() {
+        let shared = Counter::new();
+        let (mut main, mut main_hears) = shared.join(0);
+        let (mut message, mut message_hears) = shared.join(0);
+
+        // The main window archives: its count moves to 1, and it publishes.
+        assert!(main.moved(1), "a move of the window's own is published");
+        shared.publish(&mut main);
+
+        // The message window hears it and follows, moving its own count to 1.
+        assert!(message_hears.has_changed().unwrap());
+        let stamp = *message_hears.borrow_and_update();
+        assert!(
+            message.heard(stamp),
+            "the other window's move was not followed"
+        );
+        message.followed(1);
+        // Its effect then sees 1, which it reached by following: nothing to publish.
+        assert!(
+            !message.moved(1),
+            "a followed move was published back, and the windows would wake each other forever"
+        );
+
+        // The main window hears its own move come back, and does not follow it.
+        let stamp = *main_hears.borrow_and_update();
+        assert!(!main.heard(stamp), "a window followed its own move");
+        assert_eq!(shared.generation(), 1, "one gesture, one move");
+    }
+
+    #[test]
+    fn each_window_s_moves_reach_every_other_window() {
+        let shared = Counter::new();
+        let (mut a, mut a_hears) = shared.join(0);
+        let (mut b, mut b_hears) = shared.join(5);
+        let (mut c, mut c_hears) = shared.join(0);
+
+        assert!(b.moved(6));
+        shared.publish(&mut b);
+        let stamp = *a_hears.borrow_and_update();
+        assert!(a.heard(stamp));
+        let stamp = *c_hears.borrow_and_update();
+        assert!(c.heard(stamp));
+        let stamp = *b_hears.borrow_and_update();
+        assert!(!b.heard(stamp));
+    }
+
+    #[test]
+    fn a_stamp_already_accounted_for_is_not_followed_twice() {
+        let shared = Counter::new();
+        let (mut a, _) = shared.join(0);
+        let (mut b, mut b_hears) = shared.join(0);
+        assert!(a.moved(1));
+        shared.publish(&mut a);
+        let stamp = *b_hears.borrow_and_update();
+        assert!(b.heard(stamp));
+        assert!(!b.heard(stamp), "the same move was followed twice");
+    }
+
+    #[test]
+    fn a_window_that_moves_has_heard_everything_before_its_move() {
+        // B moves, then A moves before A's follower has run: A's queries re-ran after B's write,
+        // so A does not follow B's move as well, and B follows A's.
+        let shared = Counter::new();
+        let (mut a, mut a_hears) = shared.join(0);
+        let (mut b, mut b_hears) = shared.join(0);
+        assert!(b.moved(1));
+        shared.publish(&mut b);
+        assert!(a.moved(1));
+        shared.publish(&mut a);
+
+        let stamp = *a_hears.borrow_and_update();
+        assert!(!a.heard(stamp));
+        let stamp = *b_hears.borrow_and_update();
+        assert!(b.heard(stamp), "B missed A's move");
+        assert_eq!(shared.generation(), 2);
+    }
+
+    #[test]
+    fn a_window_that_joins_late_does_not_follow_what_came_before_it() {
+        let shared = Counter::new();
+        let (mut a, _) = shared.join(0);
+        assert!(a.moved(1));
+        shared.publish(&mut a);
+        let (mut late, late_hears) = shared.join(0);
+        let stamp = *late_hears.borrow();
+        assert!(
+            !late.heard(stamp),
+            "a new window refreshed for a move it never missed"
+        );
+    }
+}

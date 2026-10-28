@@ -2,17 +2,18 @@
 //! another action holds, and the main window, open all along, archives on the new key at once
 //! and on the shipped one again after Reset; Accounts pushes an account's page, which Escape and
 //! ⌘[ come back from and whose Remove question Escape answers; Spaces are put in order by
-//! dragging a row's grip; and every page keeps the button size rule.
+//! dragging a row's grip; an account's page names it, pauses it and shows its servers without
+//! editing them; and every page keeps the button size rule.
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
-use mail_app::ui::copy;
-use mail_app::ui::keymap;
-use mail_app::ui::space;
-use mail_app::ui::view::Shortcut;
+use mail_ui::ui::copy;
+use mail_ui::ui::keymap;
+use mail_ui::ui::space;
+use mail_ui::ui::view::Shortcut;
 
 use super::drive::{Drive, Key};
-use super::hands::{centre, click, until};
+use super::hands::{centre, click, scroll_to, type_text, until};
 use super::look::{inbox_at, sizes_hold};
 use super::window::{INBOX, Window, account, ms, row_of};
 
@@ -145,6 +146,8 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
         until(settings, "⌘[ comes back", at_accounts);
         click(settings, &row);
         until(settings, "its page is pushed a third time", at_account);
+        // Remove Account… is the page's last part, below the servers and the folders.
+        scroll_to(settings, ".settings-scroll", ".acct-actions button");
         click(settings, ".acct-actions button");
         until(settings, "Remove asks", |h| h.count(".ds-alert") == 1);
         settings.advance(ms(400));
@@ -200,4 +203,171 @@ fn settings_rebinds_a_key_for_the_open_window_pushes_an_account_and_orders_the_s
             sizes_hold(settings, page);
         });
     }
+}
+
+/// The list's ⋯ menu is kept: snippets hidden and grouping by date are written to
+/// `settings.toml`, and the next window opens with them.
+#[test]
+fn the_list_opens_the_way_it_was_left() {
+    use mail_ui::settings::{GroupByDate, LabelChips, Snippets, load, root_for, store};
+    let options = format!("[aria-label=\"{}\"]", copy::aria::MORE);
+    let mut window = Window::open(|_| {});
+    window.click(&options);
+    super::hands::menu_item(&mut window.harness, copy::menus::HIDE_SNIPPETS);
+    super::hands::menu_item(&mut window.harness, copy::menus::GROUP_BY_DATE);
+    let kept = load(&root_for(&window.dirs().config));
+    assert_eq!(kept.window.snippets, Snippets::Off);
+    assert_eq!(kept.window.label_chips, LabelChips::On);
+    assert_eq!(kept.window.group_by_date, GroupByDate::On);
+
+    let mut next = Window::open_with(
+        chrono::Utc::now(),
+        |_| {},
+        |dir, contexts| {
+            store(root_for(&dir.join("config")))
+                .save(&kept)
+                .expect("settings written");
+            contexts
+        },
+    );
+    next.click(&options);
+    until(&mut next.harness, "the menu offers snippets back", |h| {
+        super::look::menu_item_of(h, copy::menus::SHOW_SNIPPETS).is_some()
+            && super::look::menu_item_of(h, copy::menus::HIDE_LABELS).is_some()
+    });
+}
+
+/// "Check for mail when quit" on General: off as mailo ships, and each turn of its switch is
+/// handed to the login item (a recorder here, never the system's) and kept in `settings.toml`.
+#[test]
+fn check_for_mail_when_quit_starts_and_stops_the_login_item() {
+    let mut window = Window::open(|_| {});
+    let dirs = window.dirs();
+    let root = mail_ui::settings::root_for(&dirs.config);
+    let while_quit = move || mail_ui::settings::load(&root).sync.while_quit;
+    assert_eq!(while_quit(), mail_ui::settings::WhileQuit::Off);
+    let switch = "[*|aria-label=\"Check for mail when quit\"][*|aria-checked]";
+    let login = window.login_item();
+    window.in_settings(copy::titles::GENERAL, |settings| {
+        until(settings, "the switch is drawn, off", |h| {
+            h.count(&format!("{switch}[*|aria-checked=\"false\"]")) == 1
+        });
+        click(settings, switch);
+        until(settings, "the switch is on", |h| {
+            h.count(&format!("{switch}[*|aria-checked=\"true\"]")) == 1
+        });
+        // The login item is asked off the thread that draws.
+        until(settings, "the login item is asked", |_| {
+            login.asked().len() == 1
+        });
+    });
+    assert_eq!(while_quit(), mail_ui::settings::WhileQuit::On);
+    assert_eq!(window.login_asked(), ["register"]);
+    window.in_settings(copy::titles::GENERAL, |settings| {
+        until(settings, "the switch is drawn, on", |h| {
+            h.count(&format!("{switch}[*|aria-checked=\"true\"]")) == 1
+        });
+        click(settings, switch);
+        until(settings, "the switch is off", |h| {
+            h.count(&format!("{switch}[*|aria-checked=\"false\"]")) == 1
+        });
+        until(settings, "the login item is asked", |_| {
+            login.asked().len() == 2
+        });
+    });
+    assert_eq!(while_quit(), mail_ui::settings::WhileQuit::Off);
+    assert_eq!(window.login_asked(), ["register", "unregister"]);
+}
+
+/// The lane's account as Add Account would have kept one typed by hand: IMAP and SMTP, a
+/// password.
+fn typed_by_hand() -> mail_domain::AccountPlan {
+    use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, SaslMech, Tls, Username};
+    AccountPlan {
+        address: super::seed::ME.to_owned(),
+        incoming: Incoming::Imap {
+            host: "imap.example.test".to_owned(),
+            port: 993,
+            tls: Tls::Implicit,
+        },
+        outgoing: Outgoing::Smtp {
+            host: "smtp.example.test".to_owned(),
+            port: 465,
+            tls: Tls::Implicit,
+        },
+        auth: AuthPlan::Password {
+            username: Username::SameAsAddress,
+            sasl: vec![SaslMech::Plain],
+        },
+        identities: Vec::new(),
+    }
+}
+
+/// Lane 14, the account's page: a description typed there names the account in the main
+/// window, the Sync switch pauses it, and its servers are shown as they are, with nothing to
+/// type into: editing them is porter's server editor's.
+#[test]
+fn an_account_s_page_names_pauses_and_shows_its_servers() {
+    let plan = typed_by_hand();
+    let mut window = Window::open(|store| {
+        store
+            .set_account_plan(account(), &plan)
+            .expect("the plan is written");
+    });
+    let store = std::sync::Arc::clone(&window.store);
+    window.in_settings(copy::titles::ACCOUNTS, |settings| {
+        let row = account_row();
+        click(settings, &row);
+        until(settings, "its page is pushed", at_account);
+        sizes_hold(settings, copy::titles::ACCOUNTS);
+
+        click(settings, "#acct-description");
+        type_text(settings, "Work mail");
+        settings.key(Key::Tab);
+        settings.advance(ms(100));
+        until(settings, "the description is kept", |_| {
+            store
+                .account_prefs(account())
+                .ok()
+                .and_then(|prefs| prefs.description)
+                == Some("Work mail".to_owned())
+        });
+
+        let switch = format!(
+            ".ds-toggle[*|aria-label=\"{}\"]",
+            copy::fields::account::SYNC_THIS_ACCOUNT
+        );
+        click(settings, &switch);
+        until(settings, "the account is paused", |h| {
+            h.attr(&switch, "aria-checked").as_deref() == Some("false")
+                && store
+                    .account_prefs(account())
+                    .is_ok_and(|prefs| prefs.syncing == mail_core::Syncing::Paused)
+        });
+        until(settings, "the page says what paused means", |h| {
+            h.html().contains(copy::status::account::PAUSED_HELP)
+        });
+
+        let page = settings.html();
+        assert!(
+            page.contains("imap.example.test"),
+            "the incoming server is shown: {page}"
+        );
+        for field in ["#acct-in-host", "#acct-in-port", "#acct-save-servers"] {
+            assert_eq!(
+                settings.count(field),
+                0,
+                "{field}: the servers are edited here"
+            );
+        }
+    });
+    window.until("the sidebar names the account by its description", |h| {
+        h.html().contains("Work mail")
+    });
+    let kept = window
+        .store
+        .account(account())
+        .expect("the account is read")
+        .and_then(|kept| kept.plan.ok());
+    assert_eq!(kept, Some(plan), "the page changed the servers");
 }

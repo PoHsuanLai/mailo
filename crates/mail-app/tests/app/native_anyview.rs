@@ -3,7 +3,7 @@
 //! file has no picture, so it keeps the paperclip, and Peek shows it as anyview's card; an SVG is
 //! no one's to draw and stays unpreviewed, in the strip and in Peek, as without the feature.
 //!
-//! The window is `mail_app::ui::native::root` over a store seeded in a `TempDir`. The harness has
+//! The window is `mail_ui::ui::native::root` over a store seeded in a `TempDir`. The harness has
 //! no GPU, so a picture's pixels are not drawn; the card's own markup says what it was given.
 
 use ds::prelude::ShortcutKey as Key;
@@ -18,7 +18,7 @@ use mail_core::{Arrival, SqliteStore, absorb};
 use mail_domain::*;
 use std::sync::Arc;
 
-/// A 24-bit bitmap of one colour: a kind `mail_core::preview` does not decode.
+/// A 24-bit bitmap of one colour: a kind `mail_core::attachment_image` does not decode.
 fn bmp(width: u32, height: u32) -> Vec<u8> {
     let row = (width * 3).div_ceil(4) * 4;
     let image = row * height;
@@ -146,7 +146,7 @@ fn a_part_mailo_does_not_draw_gets_anyviews_card_and_an_svg_stays_unpreviewed() 
     settle_until(harness, |h| {
         h.attr(PEEK, "aria-label").as_deref() == Some("logo.svg")
             && h.text_of(".ds-peek .ds-empty-state-title").as_deref()
-                == Some(mail_app::ui::copy::status::NO_PREVIEW)
+                == Some(mail_ui::ui::copy::status::NO_PREVIEW)
     });
     assert_eq!(
         harness.count(".ds-peek .anyview-pane"),

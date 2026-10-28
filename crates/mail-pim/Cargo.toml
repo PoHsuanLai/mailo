@@ -7,7 +7,7 @@ rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "vCard, iCalendar invitations and CardDAV requests and replies, as pure text-in, values-out code."
+description = "vCard and iCalendar invitations, as pure text-in, values-out code."
 readme = "README.md"
 keywords = ["vcard", "icalendar", "carddav", "itip"]
 categories = ["email", "parser-implementations"]
@@ -26,9 +26,8 @@ chrono.workspace = true
 chrono-tz = "0.10"
 # Charsets named by vCard 2.1's `CHARSET` parameter. Already in the tree through reqwest.
 encoding_rs = "0.8"
-# The WebDAV multistatus replies CardDAV answers in. A read-only tree with namespaces, which is
-# all a `PROPFIND` or `REPORT` answer needs; its one dependency, memchr, is already here.
-roxmltree = "0.21"
+# The Windows zone names Outlook and Exchange write in `TZID`, as IANA ones (CLDR's table).
+windows-zones.workspace = true
 
 [dev-dependencies]
 proptest = "1"

@@ -39,6 +39,7 @@ serde_json = "1"
 workspace = true
 
 [dev-dependencies]
+porter-ids.workspace = true
 # The values a test starts from (`mail_domain::testing`): the program never has them.
 mail-domain = { workspace = true, features = ["testing"] }
 proptest = "1"

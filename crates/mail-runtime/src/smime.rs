@@ -34,9 +34,11 @@ pub fn private_key(
             let pem = zeroize::Zeroizing::new(pem);
             Ok(PrivateKey::from_pkcs8_pem(&pem)?)
         }
-        SigningSecret::OpenPgp(_) => Err(RuntimeError::Secrets(Failure::said(format!(
-            "the keyring entry for S/MIME certificate {fingerprint} holds something else"
-        )))),
+        SigningSecret::OpenPgp(_) | SigningSecret::Relay(_) => {
+            Err(RuntimeError::Secrets(Failure::said(format!(
+                "the keyring entry for S/MIME certificate {fingerprint} holds something else"
+            ))))
+        }
     }
 }
 
@@ -73,8 +75,7 @@ pub fn forget_private_key(
 pub fn system_anchors() -> &'static [Cert] {
     static ANCHORS: OnceLock<Vec<Cert>> = OnceLock::new();
     ANCHORS.get_or_init(|| {
-        rustls_native_certs::load_native_certs()
-            .certs
+        crate::roots::system()
             .iter()
             .filter_map(|der| Cert::from_der(der.as_ref()).ok())
             .collect()

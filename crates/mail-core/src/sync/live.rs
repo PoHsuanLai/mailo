@@ -1,7 +1,8 @@
 //! Waiting for the server to say something, as data.
 //!
 //! The scheduler (`mail_runtime::schedule`) runs the passes, and wants only the waiting from
-//! here: one connection kept open, and a typed [`Heard`] each time the server, the outbox or the
+//! here: one connection kept open (and, for an IMAP server with no `NOTIFY`, a few more for the
+//! folders besides the inbox), and a typed [`Heard`] each time the server, the outbox or the
 //! interval has something to say. [`SyncOps::listen`](crate::SyncOps) is that, built from the
 //! engine calls a pass makes (`AccountEngine::wait`, `JmapEngine::wait`) and the floor under
 //! them ([`super::poll_floor`]), so the window and `mailo watch` cannot disagree about how a
@@ -17,16 +18,27 @@
 //! | IMAP     | the stored capabilities say `IDLE`          |
 //! | JMAP     | the session names an event source           |
 //! | POP3     | never: no server push exists                |
-//! | Graph    | never: polled                               |
+//! | Graph    | a push relay is set ([`super::graph_push`]) |
 //! | Local    | never: nothing to fetch                     |
+//!
+//! A Graph account with no relay is polled, as it always was; with one, it is waited on through
+//! the relay's WebSocket (`mail_runtime::graph::push`) at the floor of its poll interval, so the
+//! relay only brings new mail sooner, and a relay that cannot be reached leaves it polling.
+//!
+//! And only an account checked automatically ([`crate::offline::Every::Automatic`]): one the
+//! person set to an interval is polled at it, and one set to manually holds no connection at all.
 
 use super::report::Failure;
-use super::{Configured, Mode, clock_for, configured, imap_engine, poll_floor, renewal_for};
+use super::{
+    Configured, Mode, clock_for, configured, imap_engine, poll_floor, pushed_folders, renewal_for,
+};
 use super::{signed_in_typed, to_sync};
 use crate::error::Logged;
 use mail_domain::*;
+use mail_runtime::graph::push::{Listener, SUBSCRIPTIONS};
 use mail_runtime::{
-    AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, RuntimeError, Woke,
+    AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, Notify, RuntimeError,
+    Woke,
 };
 use mail_store::SqliteStore;
 use porter_core::AccountId;
@@ -44,6 +56,25 @@ pub const GRACE: Duration = Duration::from_secs(2);
 ///
 /// See [`Hold`]. A caller that never answers must not stop the watch for ever.
 pub const ACT_CEILING: Duration = Duration::from_secs(10 * 60);
+
+/// The most connections of their own a watch opens to hear of folders besides the inbox, for a
+/// server with no `NOTIFY`. Fixed and small: every one is a connection the server counts
+/// against the account ([`ConnectionBudget`]).
+pub const EXTRA_IDLE: usize = 2;
+
+/// How many folders besides the inbox this account may be watched on connections of their own.
+///
+/// What the server's budget leaves after the two a client always needs — one to watch, one to
+/// work — and never more than [`EXTRA_IDLE`]. A server that allows no more than that watches
+/// the inbox alone and the rest wait for the interval.
+pub fn extra_idle(caps: &AccountCaps) -> usize {
+    usize::from(caps.connections.max)
+        .saturating_sub(2)
+        .min(EXTRA_IDLE)
+}
+
+/// How long extra connections have to end their IDLE in protocol once the wait is over.
+const WIND_DOWN: Duration = Duration::from_secs(3);
 
 pub use mail_runtime::schedule::{Heard, Lost};
 
@@ -68,21 +99,38 @@ fn unsupported(why: &str) -> Lost {
 
 pub use mail_runtime::schedule::Hold;
 
-/// Whether the account's stored plan and capabilities can be waited on: see the table above.
+/// Whether the account's stored plan and capabilities can be waited on, and the person left it to
+/// be: see the table above.
+///
+/// A Graph account is not here: whether it is pushed to is a setting the store holds, which
+/// [`pushing_with`] reads ([`super::graph_push::relayed`]).
 pub fn pushes(account: &Configured) -> bool {
     matches!(
         account.plan.incoming,
         Incoming::Imap { .. } | Incoming::Jmap { .. }
     ) && matches!(account.caps.watch, WatchMode::Idle)
+        && account.every == crate::offline::Every::Automatic
 }
 
-/// Every account that can be waited on, as the store describes them now.
+/// Every account that can be waited on, as the store describes them now and the setting in the
+/// user's config directory chooses ([`pushing_with`]).
 pub fn pushing(store: &SqliteStore) -> Vec<AccountId> {
+    pushing_with(store, &crate::offline::load_default())
+}
+
+/// Every account that can be waited on, as the store describes them now and `kept` chooses.
+pub fn pushing_with(store: &SqliteStore, kept: &crate::offline::Kept) -> Vec<AccountId> {
     configured(store)
         .or_log_default("the accounts could not be read")
-        .iter()
-        .filter(|account| pushes(account))
-        .map(|account| account.id.clone())
+        .into_iter()
+        .map(|account| super::kept_as(account, kept))
+        .filter(|account| {
+            pushes(account)
+                || (account.every == crate::offline::Every::Automatic
+                    && super::graph_push::relayed(store, account))
+        })
+        .filter(|account| !super::paused(store, account.id.clone()))
+        .map(|account| account.id)
         .collect()
 }
 
@@ -106,25 +154,61 @@ impl crate::mail::SyncOps<'_> {
             mail.secrets(),
             &registry,
             account,
-            cancel,
-            hold,
-            grace,
+            Watch {
+                cancel,
+                hold,
+                grace,
+            },
             heard,
         )
         .await
     }
 }
 
+/// How long a watch lasts and how it is paced: the signal that ends it, the hold on its
+/// reconnects ([`Hold`]), and the grace after which a wait that has not failed counts as
+/// established.
+#[derive(Debug)]
+pub struct Watch {
+    pub cancel: watch::Receiver<bool>,
+    pub hold: Option<Hold>,
+    pub grace: Duration,
+}
+
 /// [`SyncOps::listen`](crate::SyncOps), with the secret store named, so a test can run it.
-#[allow(clippy::too_many_arguments)]
 pub async fn listen_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     account: AccountId,
-    cancel: watch::Receiver<bool>,
-    hold: Option<Hold>,
-    grace: Duration,
+    watch: Watch,
+    heard: &dyn Fn(Heard),
+) -> Result<(), Lost> {
+    listen_at(
+        store,
+        secrets,
+        registry,
+        SUBSCRIPTIONS,
+        account,
+        watch,
+        heard,
+    )
+    .await
+}
+
+/// [`listen_with`], with Graph's subscriptions at `subscriptions` rather than Microsoft's: a
+/// test's own listener.
+pub async fn listen_at(
+    store: Arc<SqliteStore>,
+    secrets: Arc<dyn AccountSecrets>,
+    registry: &ClientRegistry,
+    subscriptions: &str,
+    account: AccountId,
+    Watch {
+        cancel,
+        hold,
+        grace,
+    }: Watch,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
     let account = configured(&store)
@@ -132,7 +216,7 @@ pub async fn listen_with(
         .into_iter()
         .find(|one| one.id == account)
         .ok_or_else(|| unsupported("that account is no longer configured"))?;
-    let mut waiting = Waiter::open(&store, &account, secrets, registry).await?;
+    let mut waiting = Waiter::open(&store, &account, secrets, registry, subscriptions).await?;
     let mut cancel = cancel;
     hearing(&mut waiting, &mut cancel, hold, grace, heard).await
 }
@@ -143,9 +227,18 @@ enum Waiter {
         engine: Box<AccountEngine<mail_proto::backend::ImapBackend>>,
         inbox: MailboxRef,
         floor: Duration,
+        /// Engines for folders besides the inbox, used only where the server has no `NOTIFY`
+        /// for the main one to hear of them through. Opened lazily: building one connects to
+        /// nothing.
+        extras: Vec<(MailboxRef, AccountEngine<mail_proto::backend::ImapBackend>)>,
     },
     Jmap {
         engine: Box<JmapEngine>,
+        floor: Duration,
+    },
+    /// A Graph account, through its relay.
+    Graph {
+        listener: Box<Listener>,
         floor: Duration,
     },
 }
@@ -157,7 +250,11 @@ impl Waiter {
         account: &Configured,
         secrets: Arc<dyn AccountSecrets>,
         registry: &ClientRegistry,
+        subscriptions: &str,
     ) -> Result<Self, Lost> {
+        if super::graph_push::relayed(store, account) {
+            return Self::relayed(store, account, secrets, registry, subscriptions).await;
+        }
         if !pushes(account) {
             return Err(unsupported("this account has no push to wait on"));
         }
@@ -176,10 +273,26 @@ impl Waiter {
                     registry,
                     clock_for(Mode::Watch, now),
                 );
-                let mut engine = imap_engine(store, account, held, secrets);
-                if let Some(renewal) = renewal {
-                    engine = engine.with_tokens(renewal);
-                }
+                let folders = {
+                    use mail_store::Store as _;
+                    store
+                        .folders(account.id.clone())
+                        .or_log_default("the folders could not be read to watch them")
+                };
+                let others = pushed_folders(account, &folders);
+                let build = |held: Held| {
+                    let engine = imap_engine(store, account, held, secrets.clone());
+                    match &renewal {
+                        Some(renewal) => engine.with_tokens(renewal.clone()),
+                        None => engine,
+                    }
+                };
+                let extras = others
+                    .iter()
+                    .take(extra_idle(&account.caps))
+                    .map(|m| (m.clone(), build(held.clone())))
+                    .collect();
+                let engine = build(held).with_also(others);
                 let inbox = to_sync(account, &[])
                     .into_iter()
                     .next()
@@ -188,6 +301,7 @@ impl Waiter {
                     engine: Box::new(engine),
                     inbox,
                     floor,
+                    extras,
                 })
             }
             Incoming::Jmap { .. } => {
@@ -214,16 +328,101 @@ impl Waiter {
         }
     }
 
+    /// A Graph account's relay, set up as far as it is not already: see `mail_runtime::graph::push`.
+    async fn relayed(
+        store: &Arc<SqliteStore>,
+        account: &Configured,
+        secrets: Arc<dyn AccountSecrets>,
+        registry: &ClientRegistry,
+        subscriptions: &str,
+    ) -> Result<Self, Lost> {
+        let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
+            return Err(unsupported("a Graph account signs in with Microsoft"));
+        };
+        let client = mail_runtime::clients::client(registry, *issuer)
+            .ok_or_else(|| Lost::from(Failure::reauth(crate::account::no_client_id(*issuer))))?
+            .clone();
+        let listener = Listener::open(
+            account.id.clone(),
+            &account.plan,
+            store.clone(),
+            secrets,
+            client,
+            subscriptions,
+        )
+        .await
+        .map_err(|e| lost(&e))?;
+        Ok(Waiter::Graph {
+            listener: Box::new(listener),
+            floor: poll_floor(&account.caps.watch),
+        })
+    }
+
     async fn wait(&mut self, cancel: &mut Cancel) -> Result<Woke, RuntimeError> {
         match self {
             Waiter::Imap {
                 engine,
                 inbox,
                 floor,
-            } => engine.wait(inbox, cancel, *floor).await,
+                extras,
+            } => {
+                // Through `NOTIFY` where the server has it, the one connection hears of every
+                // folder. Without it, one connection each, up to the limit.
+                if extras.is_empty() || engine.notifies() != Notify::Absent {
+                    return engine.wait(inbox, cancel, *floor).await;
+                }
+                wait_on_each(engine, inbox, *floor, extras, cancel).await
+            }
             Waiter::Jmap { engine, floor } => engine.wait(cancel, *floor).await,
+            Waiter::Graph { listener, floor } => listener.wait(cancel, *floor).await,
         }
     }
+}
+
+/// [`AccountEngine::wait`] on the inbox, with every extra folder idled on a connection of its
+/// own meanwhile: whichever has news ends the wait as mail.
+///
+/// An extra that fails, or whose server ends its IDLE without news, drops out of this wait and
+/// is tried again on the next: a folder another client deleted must not end the account's push.
+async fn wait_on_each(
+    engine: &mut AccountEngine<mail_proto::backend::ImapBackend>,
+    inbox: &MailboxRef,
+    floor: Duration,
+    extras: &mut [(MailboxRef, AccountEngine<mail_proto::backend::ImapBackend>)],
+    cancel: &mut Cancel,
+) -> Result<Woke, RuntimeError> {
+    use futures_util::StreamExt;
+    use futures_util::stream::FuturesUnordered;
+
+    let (stop, stopped) = watch::channel(false);
+    let mut others: FuturesUnordered<_> = extras
+        .iter_mut()
+        .map(|(mailbox, engine)| {
+            let mut stopped = stopped.clone();
+            async move { engine.watch(mailbox, &mut stopped).await }
+        })
+        .collect();
+    let primary = engine.wait(inbox, cancel, floor);
+    tokio::pin!(primary);
+
+    let woke = loop {
+        tokio::select! {
+            woke = &mut primary => break woke,
+            Some(heard) = others.next() => match heard {
+                Ok(true) => break Ok(Woke::Mail),
+                Ok(false) => {}
+                Err(e) => log::warn!("a folder could not be watched: {e}"),
+            },
+        }
+    };
+    // Ended in protocol, so each connection stays usable; bounded, so a dead one cannot hold
+    // the wait.
+    let _ = stop.send(true);
+    let drained = async { while others.next().await.is_some() {} };
+    if tokio::time::timeout(WIND_DOWN, drained).await.is_err() {
+        log::debug!("an extra connection did not end its IDLE in time");
+    }
+    woke
 }
 
 /// Wait, say what was heard, and wait again, until cancelled or lost.

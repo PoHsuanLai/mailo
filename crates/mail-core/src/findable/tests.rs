@@ -41,6 +41,7 @@ fn message(n: u128, thread: u128, subject: &str, from: Address, mailbox: Mailbox
         rfc_message_id: Some(format!("m{n}@example.test")),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox,
         labels: vec![],
         body: Body::Absent,

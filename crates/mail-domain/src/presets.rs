@@ -149,9 +149,12 @@ pub fn preset_for_issuer(issuer: Issuer, address: &str, now: DateTime<Utc>) -> O
     match issuer {
         Issuer::Google => Some(gmail(address, now)),
         Issuer::Microsoft => Some(microsoft_for(MicrosoftAccount::Organisation, address, now)),
-        Issuer::Dropbox | Issuer::Box | Issuer::Fastmail | Issuer::OpenRouter | Issuer::OpenAi => {
-            None
-        }
+        Issuer::Dropbox
+        | Issuer::Box
+        | Issuer::Fastmail
+        | Issuer::OpenRouter
+        | Issuer::OpenAi
+        | Issuer::Yahoo => None,
     }
 }
 
@@ -466,17 +469,24 @@ pub const GRAPH_SEND_SCOPE: &str = "https://graph.microsoft.com/Mail.Send";
 /// the draft, and the draft sent.
 pub const GRAPH_WRITE_SCOPE: &str = "https://graph.microsoft.com/Mail.ReadWrite";
 
-/// What an account that reads and sends through Graph signs in for: Thunderbird's set.
+/// The delegated permission setting the mailbox's automatic replies needs: the vacation reply of
+/// an account that reads through Graph.
+pub const GRAPH_SETTINGS_SCOPE: &str = "https://graph.microsoft.com/MailboxSettings.ReadWrite";
+
+/// What an account that reads and sends through Graph signs in for: Thunderbird's set, and the
+/// mailbox's settings.
 ///
 /// `Mail.ReadWrite` to read, flag and move, `MailboxFolder.ReadWrite` for the folders,
-/// `Mail.Send` to send, `User.Read` for whose account it is, and `offline_access` for a refresh
-/// token, without which the account stops an hour after it is added. All Graph's, so one token
-/// serves both directions. `Mail.ReadWrite` first: nothing depends on it, but it is the one
-/// every other permission here would be useless without.
-pub const GRAPH_SCOPES: [&str; 5] = [
+/// `Mail.Send` to send, `MailboxSettings.ReadWrite` for the vacation reply (Exchange's automatic
+/// replies), `User.Read` for whose account it is, and `offline_access` for a refresh token,
+/// without which the account stops an hour after it is added. All Graph's, so one token serves
+/// both directions. `Mail.ReadWrite` first: nothing depends on it, but it is the one every other
+/// permission here would be useless without.
+pub const GRAPH_SCOPES: [&str; 6] = [
     GRAPH_WRITE_SCOPE,
     "https://graph.microsoft.com/MailboxFolder.ReadWrite",
     GRAPH_SEND_SCOPE,
+    GRAPH_SETTINGS_SCOPE,
     "https://graph.microsoft.com/User.Read",
     "offline_access",
 ];
@@ -500,12 +510,33 @@ pub fn send_through_graph(mut preset: Preset) -> Preset {
     preset
 }
 
-/// How often an account that reads through Graph looks for new mail.
+/// How often an account that reads through Graph looks for new mail, at most.
 ///
 /// Graph pushes change notifications only to a public HTTPS webhook, which a desktop client does
-/// not have, so this polls. A minute is cheap here and would not be over IMAP: a delta query
-/// that has nothing to report is one small request per folder, answered with no messages.
-pub const GRAPH_POLL_EVERY: Duration = Duration::from_secs(60);
+/// not have, so this polls. Fifteen seconds is cheap here and would not be over IMAP: a pass
+/// that resumes is one request per followed folder, the delta link it stored last time, and one
+/// with nothing to report is answered with no messages. A mailbox with many folders polls
+/// slower than this ([`graph_poll_every`]).
+pub const GRAPH_POLL_EVERY: Duration = Duration::from_secs(15);
+
+/// The share of a Graph poll each folder of the mailbox takes.
+///
+/// Graph throttles a mailbox at about 10,000 requests in ten minutes from one application. A
+/// pass asks one delta per folder, so at a quarter second a folder the polling alone stays
+/// under 2,400 requests in ten minutes, a quarter of that, and the rest is left for bodies,
+/// changes and searches. Sixty folders still poll every fifteen seconds; two hundred and forty
+/// poll every minute, as every Graph account used to.
+pub const GRAPH_POLL_PER_FOLDER: Duration = Duration::from_millis(250);
+
+/// How often an account that reads through Graph and lists `folders` folders looks for new mail:
+/// [`GRAPH_POLL_EVERY`], or slower where the folders would make that many requests too many
+/// ([`GRAPH_POLL_PER_FOLDER`]).
+pub fn graph_poll_every(folders: usize) -> Duration {
+    let folders = u32::try_from(folders).unwrap_or(u32::MAX);
+    GRAPH_POLL_PER_FOLDER
+        .saturating_mul(folders)
+        .max(GRAPH_POLL_EVERY)
+}
 
 /// `preset`, receiving and sending through Microsoft Graph instead of IMAP and SMTP.
 ///
@@ -765,13 +796,33 @@ mod tests {
         assert_eq!(
             caps.watch,
             WatchMode::Poll {
-                every: GRAPH_POLL_EVERY
-            }
+                every: Duration::from_secs(15)
+            },
+            "every fifteen seconds until the folders are listed"
         );
         assert!(
             (at() - caps.observed_at) > chrono::TimeDelta::try_days(1).unwrap(),
             "stale, so the folders are listed before the first sync"
         );
+    }
+
+    /// A Graph mailbox polls every fifteen seconds until its folders would make that too many
+    /// requests, and then a quarter second a folder: never faster, and slower only for size.
+    #[test]
+    fn a_graph_mailbox_polls_slower_only_for_its_folders() {
+        let secs = Duration::from_secs;
+        let table = [
+            (0, secs(15)),
+            (1, secs(15)),
+            (60, secs(15)),
+            (61, Duration::from_millis(15_250)),
+            (120, secs(30)),
+            (240, secs(60)),
+            (2000, secs(500)),
+        ];
+        for (folders, every) in table {
+            assert_eq!(graph_poll_every(folders), every, "{folders} folders");
+        }
     }
 
     /// The server names a mail host signs in with an issuer by, and no lookalike does.
@@ -867,6 +918,7 @@ mod tests {
                 "https://graph.microsoft.com/Mail.ReadWrite",
                 "https://graph.microsoft.com/Mail.Send",
                 "https://graph.microsoft.com/MailboxFolder.ReadWrite",
+                "https://graph.microsoft.com/MailboxSettings.ReadWrite",
                 "https://graph.microsoft.com/User.Read",
                 "offline_access",
             ]

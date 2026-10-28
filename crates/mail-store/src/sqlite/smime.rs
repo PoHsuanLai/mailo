@@ -6,6 +6,7 @@
 use super::SqliteStore;
 use super::row::{from_time, json, time, to_json};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::{CertFingerprint, KeyTrust, SmimeCert};
 use rusqlite::{OptionalExtension, params};
 
@@ -56,7 +57,7 @@ impl SqliteStore {
     }
 
     pub(super) fn write_smime_cert(&self, cert: SmimeCert) -> Result<SmimeCert, StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::KEYS);
         let tx = db.unchecked_transaction()?;
         let held = tx
             .query_row(
@@ -101,7 +102,7 @@ impl SqliteStore {
         fp: CertFingerprint,
         trust: KeyTrust,
     ) -> Result<(), StoreError> {
-        let changed = self.connection().execute(
+        let changed = self.touch(Topics::KEYS).execute(
             "UPDATE smime_certs SET trust = ?2 WHERE fingerprint = ?1",
             params![fp.to_string(), to_json("KeyTrust", &trust)?],
         )?;
@@ -112,7 +113,7 @@ impl SqliteStore {
     }
 
     pub(super) fn remove_smime_cert(&self, fp: CertFingerprint) -> Result<bool, StoreError> {
-        let changed = self.connection().execute(
+        let changed = self.touch(Topics::KEYS).execute(
             "DELETE FROM smime_certs WHERE fingerprint = ?1",
             params![fp.to_string()],
         )?;

@@ -136,8 +136,10 @@ impl Backend for Scripted {
                 cursor: None,
                 messages: Vec::new(),
                 flags: Vec::new(),
+                flag_colors: Vec::new(),
                 labels: Vec::new(),
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: Vec::new(),
             })),
             ProtoOp::FetchHeaders { remotes } => ProtoOutcome::Fetched {
@@ -149,6 +151,8 @@ impl Backend for Scripted {
                     })
                     .collect(),
                 flags: Vec::new(),
+                flag_colors: Vec::new(),
+                label_names: Vec::new(),
             },
             ProtoOp::FetchStructure { remotes } => ProtoOutcome::Structures(
                 remotes
@@ -250,6 +254,10 @@ async fn one_pass(keep: Keep) -> Passed {
         plan,
         caps: caps(),
         keep,
+        every: mail_core::offline::Every::default(),
+        window: mail_core::offline::Window::default(),
+        remove: mail_core::offline::Remove::default(),
+        junk: mail_core::junk::Policy::default(),
     };
     let (_tx, mut cancel) = tokio::sync::watch::channel(false);
     let report = match sync::drive(&mut engine, &account, &[inbox()], &mut cancel, now()).await {

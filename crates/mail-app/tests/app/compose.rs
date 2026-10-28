@@ -6,11 +6,11 @@
 use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli::compose as words;
-use mail_app::ui::view;
 use mail_core::compose;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_ui::ui::view;
 use porter_core::AccountId;
 
 const IDENTITY: IdentityId =
@@ -101,6 +101,7 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
         rfc_message_id: Some("original@example.test".to_owned()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -128,8 +129,10 @@ fn seeded() -> (SqliteStore, tempfile::TempDir) {
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -320,6 +323,7 @@ fn own_message(store: &SqliteStore) -> MessageId {
         rfc_message_id: Some("mine@example.test".to_owned()),
         read: ReadState::Read,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -347,8 +351,10 @@ fn own_message(store: &SqliteStore) -> MessageId {
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -380,6 +386,7 @@ fn headers_only(store: &SqliteStore) -> MessageId {
         rfc_message_id: Some("second@example.test".to_owned()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Absent,
@@ -404,8 +411,10 @@ fn headers_only(store: &SqliteStore) -> MessageId {
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -1039,6 +1048,7 @@ mod forwarding_as_an_attachment {
             rfc_message_id: None,
             read: ReadState::Unread,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: vec![],
             body: Body::Present {
@@ -1066,8 +1076,10 @@ mod forwarding_as_an_attachment {
                         message,
                     }],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -1207,6 +1219,9 @@ mod signatures {
     /// The delimiter is `-- ` with its trailing space: RFC 3676 §4.3 names that string, and
     /// every client that trims a signature when quoting looks for it. `--` without the space is
     /// a different line and gets quoted back at people for the rest of the thread.
+    ///
+    /// The signature is the identity's default for replies, at the end under the quoted
+    /// original, as Apple Mail puts it unless asked to put it above.
     #[test]
     fn a_reply_carries_the_signature_beneath_what_was_written() {
         let (store, _dir) = seeded();
@@ -1226,8 +1241,11 @@ mod signatures {
         let delimiter = text.find("\r\n-- \r\n").expect("the signature delimiter");
         let sig = text.find("Analytical Engines").expect("the signature");
         let quote = text.find("Ada Lovelace wrote:").expect("the attribution");
-        assert!(written < delimiter, "the signature came first:\n{text}");
-        assert!(delimiter < sig && sig < quote, "out of order:\n{text}");
+        assert!(written < quote, "the quote came first:\n{text}");
+        assert!(
+            quote < delimiter && delimiter < sig,
+            "out of order:\n{text}"
+        );
     }
 
     #[test]
@@ -1830,5 +1848,157 @@ mod carrying_a_file {
         // The same list the composer shows, from the same place.
         let shown = compose::attached_to(&store, &store.draft(draft).unwrap());
         assert_eq!(shown, vec![("report.txt".to_owned(), "10 B".to_owned())]);
+    }
+
+    /// A photo of soft gradients, `width` × `height`, as a JPEG.
+    fn photo(width: u32, height: u32) -> Vec<u8> {
+        let picture = image::RgbImage::from_fn(width, height, |x, y| {
+            image::Rgb([(x * 255 / width) as u8, (y * 255 / height) as u8, 90])
+        });
+        let mut out = Vec::new();
+        image::DynamicImage::ImageRgb8(picture)
+            .write_to(
+                &mut std::io::Cursor::new(&mut out),
+                image::ImageFormat::Jpeg,
+            )
+            .unwrap();
+        out
+    }
+
+    #[test]
+    fn pictures_sent_smaller_go_smaller_and_the_draft_keeps_the_originals() {
+        let (store, _dir) = seeded();
+        let draft = a_draft(&store);
+        let original = photo(1600, 1200);
+        compose::attach_bytes(&store, draft, "beach.jpg", &original, at(20)).unwrap();
+        compose::attach_bytes(&store, draft, "notes.bin", &[0xff; 300], at(21)).unwrap();
+
+        // Weighed before it goes: smaller at Small than as it is, and one picture to change.
+        let weight = compose::weigh(&store, &store.draft(draft).unwrap());
+        let limit = compose::SendLimit::USUAL;
+        assert_eq!(weight.pictures(), 1);
+        assert!(
+            weight.against(compose::PictureSize::Small, limit)
+                < weight.against(compose::PictureSize::Actual, limit)
+        );
+
+        compose::queue_sized(
+            &store,
+            &mail_core::testing::MapSigningStore::default(),
+            &mail_core::pgp::no_passphrase,
+            draft,
+            compose::Leaves::Now,
+            compose::PictureSize::Small,
+            at(30),
+        )
+        .expect("send queues");
+
+        let due = store.outbox_due(acct_account(), at(40)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let sent = mail_mime::parse(&store.blobs().get(*raw).unwrap()).unwrap();
+        let names: Vec<&str> = sent.attachments.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["beach.jpg", "notes.bin"]);
+        let beach = image::load_from_memory(&sent.attachments[0].bytes).unwrap();
+        assert_eq!((beach.width(), beach.height()), (640, 480), "sent at Small");
+        assert_eq!(
+            sent.attachments[1].bytes, [0xff; 300],
+            "a file that is not a picture"
+        );
+
+        // The draft still holds the photo as it was attached.
+        let kept = store.draft(draft).unwrap();
+        assert_eq!(
+            store.blobs().get(kept.attachments[0].blob).unwrap(),
+            original
+        );
+    }
+}
+
+/// An image put in the body: stored on the draft as one of its parts, kept out of the list of
+/// files, read back when the draft reopens, and sent inside the HTML's `multipart/related`.
+mod inline_images {
+    use super::*;
+    use mail_core::CoreError;
+
+    /// A PNG's signature and a little more: stored and sent, never drawn.
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot really a picture";
+
+    #[test]
+    fn only_a_picture_a_reader_draws_inline_goes_in_the_body() {
+        let cases: [(&str, Option<&str>); 6] = [
+            ("photo.png", Some("image/png")),
+            ("Cat.JPG", Some("image/jpeg")),
+            ("loop.gif", Some("image/gif")),
+            ("small.webp", Some("image/webp")),
+            // An SVG is a document that can carry script.
+            ("drawing.svg", None),
+            ("notes.txt", None),
+        ];
+        for (name, expect) in cases {
+            let (store, _dir) = seeded();
+            let draft =
+                compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+            let put = compose::attach_inline(&store, draft.id, name, PNG, at(11));
+            match (put, expect) {
+                (Ok((stored, cid)), Some(mime)) => {
+                    let part = stored.attachments.last().expect("a part");
+                    assert_eq!(part.mime, mime, "{name}");
+                    assert_eq!(part.cid.as_deref(), Some(cid.as_str()), "{name}");
+                    assert!(compose::attached_to(&store, &stored).is_empty(), "{name}");
+                }
+                (Err(CoreError::NotAnInlineImage { .. }), None) => {}
+                (other, _) => panic!("{name}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn two_pictures_get_two_names() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let (_, first) = compose::attach_inline(&store, draft.id, "a.png", PNG, at(11)).unwrap();
+        let (_, second) = compose::attach_inline(&store, draft.id, "a.png", PNG, at(12)).unwrap();
+        assert_ne!(first, second);
+    }
+
+    #[test]
+    fn an_image_in_the_body_reopens_and_is_sent_inline() {
+        let (store, _dir) = seeded();
+        let draft = compose::draft_reply(&store, ORIGINAL, ReplyScope::Sender, "", at(10)).unwrap();
+        let (mut stored, cid) =
+            compose::attach_inline(&store, draft.id, "photo.png", PNG, at(11)).unwrap();
+        stored.text = "Look\r\n[image]\r\n".to_owned();
+        stored.html = Some(format!("<p>Look</p><img alt=\"\" src=\"cid:{cid}\">"));
+        compose::save(&store, &stored).unwrap();
+
+        // Reopened, the part is there for the body to draw.
+        let reopened = store.draft(draft.id).unwrap();
+        let parts = compose::inline_parts(&store, &reopened);
+        assert_eq!(parts.len(), 1);
+        assert_eq!(parts[0].bytes, PNG);
+        assert_eq!(parts[0].inline, Inline::Embedded { cid: cid.clone() });
+
+        compose::send(&store, draft.id, at(20)).expect("send queues");
+        let due = store.outbox_due(acct_account(), at(30)).unwrap();
+        let ProtoOp::Submit { raw, .. } = &due[0].op else {
+            panic!("expected a submission");
+        };
+        let bytes = store.blobs().get(*raw).unwrap();
+        let text = String::from_utf8_lossy(&bytes).to_ascii_lowercase();
+        assert!(text.contains("multipart/related"), "{text}");
+        assert!(
+            text.contains(&format!("content-id: <{}>", cid.to_ascii_lowercase())),
+            "{text}"
+        );
+        let sent = mail_mime::parse(&bytes).unwrap();
+        assert!(
+            sent.attachments
+                .iter()
+                .any(|part| part.inline == Inline::Embedded { cid: cid.clone() }
+                    && part.bytes == PNG),
+            "the image went out as the message's own part"
+        );
     }
 }

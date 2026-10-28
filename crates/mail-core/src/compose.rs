@@ -6,6 +6,7 @@
 //! the moment the user pressed the key would lose the message on a train.
 
 use crate::error::{CoreError, Logged, TimeError};
+use crate::rich_text::plain_to_flowed;
 use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
@@ -15,8 +16,26 @@ use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
 pub mod addresses;
+mod doc;
 mod enclosed;
+mod format;
+mod modes;
+mod pictures;
+mod weight;
+pub use doc::{doc_from_text, doc_of};
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
+pub use format::{Written, written_as};
+pub use modes::{
+    Answer, Quote, Redirected, Saying, draft_again, draft_answer, draft_answer_in, list_post,
+    redirect, withdraw_redirect,
+};
+pub use pictures::{PictureSize, sized};
+pub use weight::{
+    Fit, Measure, Picture, Said, SendLimit, USUAL_LIMIT, Weight, can_ask_delivery_report, fit,
+    send_limit, weigh,
+};
+
+use crate::signature::{self, Placement};
 
 /// Read one identity, or the account's default, out of the `identities` table.
 ///
@@ -65,6 +84,19 @@ pub fn draft_reply(
     draft_reply_in(store, message, scope, body, now, &Local)
 }
 
+/// [`draft_reply`], its signature where `placement` puts it: the window's, which follows the
+/// setting that moves it above the quoted original.
+pub fn draft_reply_placed(
+    store: &SqliteStore,
+    message: MessageId,
+    scope: ReplyScope,
+    body: &str,
+    now: DateTime<Utc>,
+    placement: Placement,
+) -> Result<Draft, CoreError> {
+    reply_in(store, message, scope, body, now, &Local, placement)
+}
+
 /// The same, with the zone the attribution line is written in named.
 ///
 /// Named rather than read from the machine, because the attribution line leaves this machine:
@@ -81,15 +113,37 @@ pub fn draft_reply_in<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
-    let original = store.message(message)?;
-    let identity = identity_of(store, original.account.clone(), None)?;
+    reply_in(store, message, scope, body, now, zone, Placement::default())
+}
 
-    let mut draft = Draft::reply_to(&original, &identity, scope, now);
-    // `Draft::reply_to` leaves the text empty on purpose — quoting is a rendering decision, not
-    // a property of the draft — so the quoting happens here, where the renderer is.
-    draft.text = quoted(&signed(body, &identity), &original, zone);
-    save(store, &draft)?;
-    Ok(draft)
+/// A reply, its attribution written in `zone` and its signature where `placement` puts it.
+///
+/// The signature is the identity's default for replies, as text: the composer that opens the
+/// draft puts the signature's own formatting back (`crate::signature::recognise`).
+fn reply_in<Tz: chrono::TimeZone>(
+    store: &SqliteStore,
+    message: MessageId,
+    scope: ReplyScope,
+    body: &str,
+    now: DateTime<Utc>,
+    zone: &Tz,
+    placement: Placement,
+) -> Result<Draft, CoreError>
+where
+    Tz::Offset: std::fmt::Display,
+{
+    draft_answer_in(
+        store,
+        message,
+        Saying {
+            to: Answer::Scope(scope),
+            quote: Quote::Whole,
+            body,
+        },
+        now,
+        zone,
+        placement,
+    )
 }
 
 /// Create and persist a forward of `message`, addressed to `to`.
@@ -144,11 +198,18 @@ where
     Tz::Offset: std::fmt::Display,
 {
     let original = store.message(message)?;
-    let identity = identity_of(store, original.account.clone(), None)?;
+    let identity = identity_of(store, original.account.clone(), answering(store, &original))?;
+    // A forward is signed as a reply is, and above the forwarded block whatever a reply does:
+    // the block is the message passed on, not a quotation under it.
+    let signature = signature::default_for(store, identity.id, SignatureUse::Replies)?;
 
     let mut draft = Draft::forward_of(&original, &identity, now);
     draft.to = to.to_vec();
-    draft.text = forwarded(&signed(body, &identity), &original, zone);
+    draft.text = plain_to_flowed(&forwarded(
+        &signed(body, signature.as_ref()),
+        &original,
+        zone,
+    ));
     draft.attachments = carried(&original.attachments);
     Ok(draft)
 }
@@ -176,6 +237,7 @@ fn carried(attachments: &[Attachment]) -> Vec<PendingAttachment> {
                     name: a.name.clone(),
                     mime: a.mime.clone(),
                     blob,
+                    cid: None,
                 }
             })
         })
@@ -261,7 +323,9 @@ pub fn draft_new(
     draft.subject = subject.to_owned();
     // The signature, and nothing else. There is no original to quote and no header block to
     // write, which is the whole difference between this and the other two.
-    draft.text = signed(body, &identity);
+    let (text, html) = signed_new(store, &identity, body)?;
+    draft.text = plain_to_flowed(&text);
+    draft.html = html;
     save(store, &draft)?;
     Ok(draft)
 }
@@ -284,7 +348,9 @@ pub fn draft_mailto(
     draft.cc = link.cc.clone();
     draft.bcc = link.bcc.clone();
     draft.subject = link.subject.clone();
-    draft.text = signed(&link.body, &identity);
+    let (text, html) = signed_new(store, &identity, &link.body)?;
+    draft.text = plain_to_flowed(&text);
+    draft.html = html;
     save(store, &draft)?;
     Ok(draft)
 }
@@ -308,7 +374,7 @@ pub fn draft_exact(
     let mut draft = Draft::blank(&identity, now);
     draft.to = to.to_vec();
     draft.subject = subject.to_owned();
-    draft.text = body.to_owned();
+    draft.text = plain_to_flowed(body);
     save(store, &draft)?;
     Ok(draft)
 }
@@ -349,6 +415,111 @@ pub fn identity_addressed(
                 .any(|a| a.email.eq_ignore_ascii_case(&identity.from.email))
         })
         .map(|identity| identity.id)
+}
+
+/// The identity of `original`'s account that a reply to it, or a forward of it, leaves from:
+/// the one that sent it, when it is the person's own, else the one it was addressed to; `None`,
+/// the account's default, when it reached none of them by name (a list, a Bcc).
+///
+/// Mail that came to an alias is answered from the alias, as Apple Mail and Thunderbird answer
+/// it: the person gave that address out, and an answer from another tells the correspondent an
+/// address they were not given and puts the next message in a folder the alias's rules do not
+/// see. The sender is asked first so that answering one's own sent message keeps its address.
+pub(crate) fn answering(store: &SqliteStore, original: &Message) -> Option<IdentityId> {
+    let own = store
+        .identities(original.account.clone())
+        .or_log("the account's identities could not be read")?;
+    // In the order the original names them, so mail To an alias and Cc the account's own
+    // address is answered from the alias it was written to.
+    std::iter::once(&original.from)
+        .chain(&original.to)
+        .chain(&original.cc)
+        .chain(&original.bcc)
+        .find_map(|addressed| {
+            own.iter()
+                .find(|identity| identity.from.email.eq_ignore_ascii_case(&addressed.email))
+        })
+        .map(|identity| identity.id)
+}
+
+/// Every identity a message can leave from, by account oldest first and within an account its
+/// own address first: what the composer's From offers.
+///
+/// Accounts as [`sending_accounts`] has them, so local folders are never one. An account whose
+/// identities cannot be read offers none rather than hiding every other account's.
+pub fn sending_identities(store: &SqliteStore) -> Vec<Identity> {
+    sending_accounts(store)
+        .into_iter()
+        .flat_map(|(_, account)| {
+            store
+                .identities(account)
+                .or_log_default("an account's identities could not be read")
+        })
+        .collect()
+}
+
+/// Move a draft to `identity`, and to its account: what picking an address in From does.
+///
+/// [`move_draft_to`]'s rule holds: the identity is read before anything is written, so one that
+/// is gone leaves the draft where it was. A draft already from it is returned as it is.
+pub fn move_draft_to_identity(
+    store: &SqliteStore,
+    draft: DraftId,
+    identity: IdentityId,
+    now: DateTime<Utc>,
+) -> Result<Draft, CoreError> {
+    let mut draft = store.draft(draft)?;
+    if draft.identity == identity {
+        return Ok(draft);
+    }
+    let Some(chosen) = store.identity(identity)? else {
+        return Err(CoreError::DraftIdentityGone { id: identity });
+    };
+    // A copy to the address it was from ([`copy_myself`]) follows it to the new one: the person
+    // wanted a copy, not a copy at the address they moved away from.
+    if let Some(was) = store.identity(draft.identity)? {
+        for list in [&mut draft.cc, &mut draft.bcc] {
+            for address in list.iter_mut() {
+                if address.email.eq_ignore_ascii_case(&was.from.email) {
+                    *address = chosen.from.clone();
+                }
+            }
+        }
+    }
+    draft.account = chosen.account;
+    draft.identity = chosen.id;
+    draft.updated = now;
+    save(store, &draft)?;
+    Ok(draft)
+}
+
+/// Where [`copy_myself`] puts the sender's own address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Myself {
+    Cc,
+    Bcc,
+}
+
+/// Put the address `draft` leaves from on its Cc or Bcc, so a copy of the message comes back to
+/// the person who sent it, and save it. Nothing changes when the address is already on it.
+pub fn copy_myself(store: &SqliteStore, draft: DraftId, to: Myself) -> Result<Draft, CoreError> {
+    let mut draft = store.draft(draft)?;
+    let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
+    let already = draft
+        .to
+        .iter()
+        .chain(&draft.cc)
+        .chain(&draft.bcc)
+        .any(|a| a.email.eq_ignore_ascii_case(&identity.from.email));
+    if already {
+        return Ok(draft);
+    }
+    match to {
+        Myself::Cc => draft.cc.push(identity.from),
+        Myself::Bcc => draft.bcc.push(identity.from),
+    }
+    save(store, &draft)?;
+    Ok(draft)
 }
 
 /// The most a single message may carry, before base64 expands it.
@@ -430,10 +601,116 @@ pub fn attach_bytes(
         mime: media_type_of(&name).to_owned(),
         name,
         blob,
+        cid: None,
     });
     draft.updated = now;
     save(store, &draft)?;
     Ok(draft)
+}
+
+/// Whether a file named `name` is a picture the body can show (`attach_inline` takes it): by
+/// its name, as everything here that types a file does.
+pub fn shows_inline(name: &str) -> bool {
+    mail_mime::embeddable(media_type_of(name)).is_some()
+}
+
+/// Put the image `bytes`, named `name`, on a draft to be shown in its body, and say the
+/// `Content-ID` the body refers to it by (`ImageRef::of_cid`).
+///
+/// It is stored as any attachment is, under the same budget, and marked with its `Content-ID`
+/// so `mail_mime::build` sends it inside the HTML's `multipart/related` rather than as a file.
+/// Only the types a reader draws inline are taken (`mail_mime::embeddable`: PNG, JPEG, GIF and
+/// WebP, never SVG), and the pictures in one body together stay within what a draft reopens with
+/// (`mail_mime::INLINE_BUDGET`), so one put in is never missing when the draft comes back.
+pub fn attach_inline(
+    store: &SqliteStore,
+    draft: DraftId,
+    name: &str,
+    bytes: &[u8],
+    now: DateTime<Utc>,
+) -> Result<(Draft, String), CoreError> {
+    let mut draft = store.draft(draft)?;
+    if on_its_way(&draft.state) {
+        return Err(CoreError::DraftOnItsWay);
+    }
+    let name = crate::attach::safe_name(name);
+    let Some(mime) = mail_mime::embeddable(media_type_of(&name)) else {
+        return Err(CoreError::NotAnInlineImage { name });
+    };
+
+    let carried: u64 = attached_size(store, &draft);
+    let total = carried.saturating_add(bytes.len() as u64);
+    if total > ATTACHMENT_BUDGET {
+        return Err(CoreError::AttachmentsTooBig {
+            total: crate::attach::human_size(total),
+            limit: crate::attach::human_size(ATTACHMENT_BUDGET),
+        });
+    }
+    // Measured as the reopened draft spends it: as base64.
+    let shown: u64 = draft
+        .attachments
+        .iter()
+        .filter(|a| a.cid.is_some())
+        .filter_map(|a| {
+            store
+                .blobs()
+                .size(a.blob)
+                .or_log("an inline image's size could not be read")
+        })
+        .chain([bytes.len() as u64])
+        .map(|size| size.div_ceil(3) * 4)
+        .sum();
+    if shown > mail_mime::INLINE_BUDGET as u64 {
+        return Err(CoreError::InlineImagesTooBig {
+            limit: crate::attach::human_size(mail_mime::INLINE_BUDGET as u64 / 4 * 3),
+        });
+    }
+
+    let blob = store
+        .blobs()
+        .put(bytes)
+        .map_err(|e| CoreError::cannot(format!("store {name}"), e))?;
+    let cid = (1..)
+        .map(|n| format!("img{n}.{}@mailo", draft.id))
+        .find(|cid| {
+            !draft
+                .attachments
+                .iter()
+                .any(|a| a.cid.as_ref() == Some(cid))
+        })
+        .unwrap_or_else(|| format!("img.{}@mailo", draft.id));
+    draft.attachments.push(PendingAttachment {
+        mime: mime.to_owned(),
+        name,
+        blob,
+        cid: Some(cid.clone()),
+    });
+    draft.updated = now;
+    save(store, &draft)?;
+    Ok((draft, cid))
+}
+
+/// The images `draft` shows in its body, as the parts its stored HTML names them by: what the
+/// composer reopens the body with. One the store no longer has is left out, and the body drops it.
+pub fn inline_parts(store: &SqliteStore, draft: &Draft) -> Vec<mail_mime::ParsedPart> {
+    draft
+        .attachments
+        .iter()
+        .filter_map(|a| {
+            let cid = a.cid.clone()?;
+            let bytes = store
+                .blobs()
+                .get(a.blob)
+                .or_log("an inline image could not be read")?;
+            Some(mail_mime::ParsedPart {
+                name: a.name.clone(),
+                mime: a.mime.clone(),
+                bytes,
+                inline: mail_domain::Inline::Embedded { cid },
+                remote: None,
+            })
+        })
+        .collect()
 }
 
 /// Read `path` and attach it.
@@ -509,9 +786,11 @@ fn attached_size(store: &SqliteStore, draft: &Draft) -> u64 {
 /// The sizes come from the store rather than from whatever was just handed over, so a file that
 /// failed to store cannot appear in the list as though it had.
 pub fn attached_to(store: &SqliteStore, draft: &Draft) -> Vec<(String, String)> {
+    // An image shown in the body is in the body, not in the list of files.
     draft
         .attachments
         .iter()
+        .filter(|a| a.cid.is_none())
         .map(|a| {
             let size = store
                 .blobs()
@@ -555,23 +834,19 @@ pub fn attachments_of(store: &SqliteStore, draft: DraftId) -> Result<Vec<Attache
 /// so writing one without the other leaves a draft that `identity_of` cannot resolve and nothing
 /// can send — and the failure would arrive at Send, long after the choice was made. The identity
 /// is therefore looked up before anything is written, so an account that has none leaves the
-/// draft exactly where it was.
+/// draft exactly where it was. It goes as the account's default identity, signed with that
+/// identity's default in place of the signature it had ([`crate::signature::send_as`]).
 pub fn move_draft_to(
     store: &SqliteStore,
     draft: DraftId,
     account: AccountId,
     now: DateTime<Utc>,
 ) -> Result<Draft, CoreError> {
-    let mut draft = store.draft(draft)?;
+    let draft = store.draft(draft)?;
     if draft.account == account {
         return Ok(draft);
     }
-    let identity = identity_of(store, account.clone(), None)?;
-    draft.account = account;
-    draft.identity = identity.id;
-    draft.updated = now;
-    save(store, &draft)?;
-    Ok(draft)
+    crate::signature::send_as(store, draft.id, account, None, now)
 }
 
 /// A message just started with [`new_sealed_message`]: the draft, and what would stop it going.
@@ -733,6 +1008,18 @@ pub fn save(store: &SqliteStore, draft: &Draft) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// The plain drafts and templates an older build stored, their text written as flowed text with
+/// every line hard, so a line ending in a space is not joined to the next once it goes out
+/// labelled `format=flowed`. Migration 0038 queues them; each is rewritten once. Returns how
+/// many.
+pub fn reflow_stored(store: &SqliteStore) -> Result<usize, CoreError> {
+    let queued = store.reflow_queue()?;
+    for (kept, text) in &queued {
+        store.reflowed(*kept, &plain_to_flowed(text))?;
+    }
+    Ok(queued.len())
+}
+
 /// Delete a draft.
 ///
 /// There was no way to do this anywhere in the application. The composer's "Discard" only closed
@@ -751,16 +1038,119 @@ pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError>
         return Err(CoreError::DraftQueued);
     }
     store.apply(
-        draft.account,
+        draft.account.clone(),
         &Patch {
             id: ChangeId::generate(),
             changes: vec![Change::DraftDelete(draft.id)],
         },
     )?;
+    // And off the server, where its copy was kept ([`keep_on_server`]). Discarded whatever
+    // becomes of that: the draft is gone here, and a copy left there is only a copy.
+    if let Some(mailbox) = drafts_on_server(store, &draft.account) {
+        mail_runtime::server_drafts::queue_drop(store, &draft, mailbox, Utc::now())
+            .or_log("the discarded draft's copy on the server was not queued to go");
+    }
     Ok(draft.subject)
 }
 
-/// Put the identity's signature beneath what was written.
+/// Keep the draft's latest in the server's Drafts mailbox, in place of the copy kept there
+/// before, as Apple Mail and Thunderbird do: so a draft begun here can be finished on another
+/// device. Queued, like everything sent to a server ([`mail_runtime::server_drafts`]); an upload
+/// of it still waiting is replaced. Whether anything was queued.
+///
+/// Nothing, and no error, for a draft with nowhere to go: a POP3 or local account, or a server
+/// that named no Drafts folder, where uploading to a guessed path is how a copy lands somewhere
+/// nobody looks. Nothing for a Microsoft Graph account either, which makes a message from MIME
+/// only as a new draft with an id of its own, so there is no copy to replace; such a draft is
+/// this client's alone, as every draft was. Nothing for a draft on its way out, whose copy goes
+/// when it is sent. And nothing for a draft that asks to be encrypted, which is not put on a
+/// server in the clear; a copy kept before it asked goes when it is sent or discarded.
+///
+/// The copy names every addressee, `Bcc` included, as only the sender reads it, and carries the
+/// draft's own `Message-ID`, which is how the next upload finds it.
+pub fn keep_on_server(
+    store: &SqliteStore,
+    draft: DraftId,
+    now: DateTime<Utc>,
+) -> Result<bool, CoreError> {
+    let draft = store.draft(draft)?;
+    if draft.state != SendState::Editing {
+        return Ok(false);
+    }
+    let Some(mailbox) = drafts_on_server(store, &draft.account) else {
+        return Ok(false);
+    };
+    if draft.openpgp.encrypts() || draft.smime.encrypts() {
+        // Asked to be encrypted after a copy was kept: the copy in the clear goes, and the
+        // upload still waiting with it, which would have put the plaintext there.
+        mail_runtime::server_drafts::queue_drop(store, &draft, mailbox, now)?;
+        return Ok(false);
+    }
+    Ok(mail_runtime::server_drafts::queue_keep(
+        store, &draft, mailbox, now,
+    )?)
+}
+
+/// The Drafts mailbox `account` keeps copies of drafts in on its server: the one its server
+/// named, on an IMAP or JMAP account that is not Gmail's
+/// ([`mail_runtime::server_drafts::keeps_copies`]). See [`keep_on_server`] for why no other.
+fn drafts_on_server(store: &SqliteStore, account: &AccountId) -> Option<MailboxRef> {
+    let stored = store
+        .account(account.clone())
+        .or_log("the account a draft is on could not be read")??;
+    let plan = stored
+        .plan
+        .or_log("the plan of the account a draft is on could not be read")?;
+    if !matches!(plan.incoming, Incoming::Imap { .. } | Incoming::Jmap { .. }) {
+        return None;
+    }
+    let caps = stored
+        .caps?
+        .or_log("the capabilities of the account a draft is on could not be read")?;
+    if !mail_runtime::server_drafts::keeps_copies(&caps) {
+        return None;
+    }
+    let path = caps.folders.path(MailboxRole::Drafts)?;
+    Some(MailboxRef {
+        account: account.clone(),
+        path: path.to_owned(),
+    })
+}
+
+/// A new message's text and HTML: `body`, then the identity's default signature for new mail.
+///
+/// HTML only when the signature was written in the composer and so has some: the document is
+/// the body's paragraphs, the separator and the signature's own, as the composer would write it,
+/// so the formatting goes out in the HTML part. A signature that is only text leaves the draft
+/// text only, as it always was.
+fn signed_new(
+    store: &SqliteStore,
+    identity: &Identity,
+    body: &str,
+) -> Result<(String, Option<String>), CoreError> {
+    let signature = signature::default_for(store, identity.id, SignatureUse::NewMail)?;
+    let text = signed(body, signature.as_ref());
+    let html = signature
+        .as_ref()
+        .filter(|signature| signature.html.is_some())
+        .map(|signature| {
+            let mut nodes = crate::rich_text::nodes_from_plain(body.trim());
+            if nodes.is_empty() {
+                nodes.push(crate::rich_text::Node::plain(
+                    crate::rich_text::ParaKind::Paragraph,
+                    "",
+                ));
+            }
+            nodes.push(crate::rich_text::Node::Object(
+                crate::rich_text::Object::Signature,
+            ));
+            nodes.extend(signature::nodes_of(signature));
+            crate::rich_text::to_html(&crate::rich_text::Doc { nodes })
+        });
+    Ok((text, html))
+}
+
+/// Put a signature beneath what was written.
 ///
 /// Appended at compose time rather than at send, like the quoted material beside it, so the user
 /// can see it, edit it, or take it off for one message. A signature the user cannot delete from
@@ -770,8 +1160,8 @@ pub fn discard(store: &SqliteStore, draft: DraftId) -> Result<String, CoreError>
 /// §4.3 names that exact string, and every client that trims a signature when quoting looks for
 /// it; `--` without the trailing space is a different line and gets quoted back at people for
 /// the rest of the thread.
-fn signed(body: &str, identity: &Identity) -> String {
-    let Some(signature) = identity.signature.as_deref().map(str::trim_end) else {
+fn signed(body: &str, signature: Option<&Signature>) -> String {
+    let Some(signature) = signature.map(|signature| signature.text.trim_end()) else {
         return body.to_owned();
     };
     if signature.is_empty() {
@@ -824,6 +1214,28 @@ fn quoted<Tz: chrono::TimeZone>(body: &str, original: &Message, zone: &Tz) -> St
 where
     Tz::Offset: std::fmt::Display,
 {
+    // The text part, when there is one. A message whose body was never fetched quotes nothing
+    // rather than quoting the word "None".
+    let text = match &original.body {
+        Body::Present {
+            text: Some(text), ..
+        } => Some(text.as_str()),
+        _ => None,
+    };
+    quoting(body, original, text, zone)
+}
+
+/// [`quoted`], quoting `text` beneath the attribution line rather than the whole of the
+/// original's: what a reply to a selection quotes.
+fn quoting<Tz: chrono::TimeZone>(
+    body: &str,
+    original: &Message,
+    text: Option<&str>,
+    zone: &Tz,
+) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
     let who = original
         .from
         .name
@@ -848,15 +1260,8 @@ where
     }
     out.push_str("\r\n");
     out.push_str(&format!("On {when}, {who} wrote:\r\n"));
-    // The text part, when there is one. A message whose body was never fetched quotes nothing
-    // rather than quoting the word "None".
-    if let Body::Present {
-        text: Some(text), ..
-    } = &original.body
-    {
-        for line in text.lines() {
-            out.push_str(&format!("> {line}\r\n"));
-        }
+    for line in text.into_iter().flat_map(str::lines) {
+        out.push_str(&format!("> {line}\r\n"));
     }
     out
 }
@@ -1063,7 +1468,7 @@ pub fn queue(
         store,
         &NoKeys,
         &crate::pgp::no_passphrase,
-        draft,
+        (draft, PictureSize::Actual),
         leaves,
         now,
     )
@@ -1082,14 +1487,30 @@ pub fn queue_with(
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<(Draft, mail_mime::Posting), SendError> {
-    queue_inner(store, secrets, ask, draft, leaves, now).map_err(SendError::from)
+    queue_sized(store, secrets, ask, draft, leaves, PictureSize::Actual, now)
+}
+
+/// [`queue_with`], its pictures sent at `pictures`: each JPEG or PNG it carries made smaller as
+/// the bytes are frozen (`pictures::sized`). The draft keeps the originals, so the choice can be
+/// made again; only what goes is smaller. Decodes every picture, so it is for a thread that does
+/// not draw, unless `pictures` is [`PictureSize::Actual`].
+pub fn queue_sized(
+    store: &SqliteStore,
+    secrets: &dyn mail_runtime::SigningStore,
+    ask: crate::pgp::Ask<'_>,
+    draft: DraftId,
+    leaves: Leaves,
+    pictures: PictureSize,
+    now: DateTime<Utc>,
+) -> Result<(Draft, mail_mime::Posting), SendError> {
+    queue_inner(store, secrets, ask, (draft, pictures), leaves, now).map_err(SendError::from)
 }
 
 fn queue_inner(
     store: &SqliteStore,
     secrets: &dyn mail_runtime::SigningStore,
     ask: crate::pgp::Ask<'_>,
-    draft: DraftId,
+    (draft, pictures): (DraftId, PictureSize),
     leaves: Leaves,
     now: DateTime<Utc>,
 ) -> Result<(Draft, mail_mime::Posting), CoreError> {
@@ -1137,6 +1558,10 @@ fn queue_inner(
             .blobs()
             .get(attachment.blob)
             .map_err(|e| CoreError::context(format!("attachment {}", attachment.name), e))?;
+        let bytes = match pictures::sized(&bytes, pictures) {
+            std::borrow::Cow::Owned(smaller) => smaller,
+            std::borrow::Cow::Borrowed(_) => bytes,
+        };
         parts.push((attachment.blob, bytes));
     }
 
@@ -1156,6 +1581,7 @@ fn queue_inner(
             raw,
             mail_from: post.mail_from.clone(),
             rcpt_to: post.rcpt_to.clone(),
+            delivery: post.delivery,
         },
         // No undo. Unsending is not something the outbox can offer once the bytes are on
         // the wire, and a patch that pretended otherwise would revert something real.
@@ -1261,5 +1687,258 @@ mod carried_tests {
         ];
         let kept: Vec<String> = carried(&parts).into_iter().map(|p| p.name).collect();
         assert_eq!(kept, ["small.bin", "last.bin"]);
+    }
+}
+
+#[cfg(test)]
+mod server_copy_tests {
+    use super::*;
+    use crate::support_tests::{account, at, caps};
+
+    /// An account on `incoming` whose server lists the folders `roles`, with a draft begun on it.
+    fn writing(incoming: Incoming, roles: Vec<(String, MailboxRole)>) -> (SqliteStore, Draft) {
+        let store = mail_store::testing::in_memory();
+        let plan = AccountPlan {
+            address: "me@example.test".to_owned(),
+            incoming,
+            outgoing: Outgoing::Smtp {
+                host: "smtp.example.test".to_owned(),
+                port: 465,
+                tls: Tls::Implicit,
+            },
+            auth: AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        };
+        mail_store::testing::seed_account_plan(&store, account(), "me@example.test", &plan, None);
+        mail_store::testing::seed_identity_for(
+            &store,
+            IdentityId::generate(),
+            account(),
+            "me@example.test",
+            None,
+        );
+        let caps = AccountCaps {
+            folders: FolderRoles(roles),
+            ..caps()
+        };
+        mail_store::testing::seed_caps(&store, account(), &caps, at(0)).unwrap();
+        let to = [Address {
+            name: None,
+            email: "bea@example.test".to_owned(),
+        }];
+        let draft = draft_new(&store, account(), &to, "half a thought", "", at(1)).unwrap();
+        (store, draft)
+    }
+
+    fn imap() -> Incoming {
+        Incoming::Imap {
+            host: "imap.example.test".to_owned(),
+            port: 993,
+            tls: Tls::Implicit,
+        }
+    }
+
+    fn with_drafts() -> Vec<(String, MailboxRole)> {
+        vec![("Drafts".to_owned(), MailboxRole::Drafts)]
+    }
+
+    /// Everything queued, whenever it is due: a discard queues at the clock's now.
+    fn queued(store: &SqliteStore) -> Vec<ProtoOp> {
+        store
+            .outbox_due(account(), Utc::now() + chrono::TimeDelta::days(1))
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.op)
+            .collect()
+    }
+
+    #[test]
+    fn a_draft_on_an_imap_account_with_a_drafts_folder_is_queued_for_it_by_its_message_id() {
+        let (store, draft) = writing(imap(), with_drafts());
+        assert!(keep_on_server(&store, draft.id, at(2)).unwrap());
+        let ops = queued(&store);
+        let [
+            ProtoOp::KeepDraft {
+                draft: kept,
+                mailbox,
+                message_id,
+            },
+        ] = &ops[..]
+        else {
+            panic!("{ops:?}");
+        };
+        assert_eq!(*kept, draft.id);
+        assert_eq!(mailbox.path, "Drafts");
+        assert_eq!(*message_id, format!("{}@example.test", draft.id));
+        // Nothing is stored for the upload: its bytes are made from the draft when it runs.
+        let bytes = String::from_utf8(
+            mail_runtime::server_drafts::copy(&store, draft.id)
+                .unwrap()
+                .expect("a draft being written has a copy"),
+        )
+        .unwrap();
+        assert!(
+            bytes.contains(&format!("Message-ID: <{message_id}>\r\n")),
+            "{bytes}"
+        );
+
+        // A second copy takes the first one's place in the outbox.
+        assert!(keep_on_server(&store, draft.id, at(3)).unwrap());
+        assert_eq!(queued(&store).len(), 1, "{:?}", queued(&store));
+    }
+
+    #[test]
+    fn discarding_the_draft_queues_its_copy_s_removal_in_place_of_the_upload() {
+        let (store, draft) = writing(imap(), with_drafts());
+        keep_on_server(&store, draft.id, at(2)).unwrap();
+        discard(&store, draft.id).unwrap();
+        let ops = queued(&store);
+        assert!(
+            matches!(&ops[..], [ProtoOp::DropDraft { draft: gone, .. }] if *gone == draft.id),
+            "{ops:?}"
+        );
+    }
+
+    #[test]
+    fn nothing_is_queued_where_there_is_no_drafts_folder_to_keep_a_copy_in() {
+        let pop3 = Incoming::Pop3 {
+            host: "pop.example.test".to_owned(),
+            port: 995,
+            tls: Tls::Implicit,
+            leave: LeaveOnServer::Keep,
+        };
+        // (incoming, the folders its server lists, why nothing goes)
+        let cases = [
+            (imap(), Vec::new(), "the server named no Drafts folder"),
+            (pop3, with_drafts(), "a maildrop has no folders"),
+            (
+                Incoming::Graph,
+                with_drafts(),
+                "Graph keeps no copy to replace",
+            ),
+        ];
+        for (incoming, roles, why) in cases {
+            let (store, draft) = writing(incoming, roles);
+            assert!(!keep_on_server(&store, draft.id, at(2)).unwrap(), "{why}");
+            discard(&store, draft.id).unwrap();
+            assert!(queued(&store).is_empty(), "{why}: {:?}", queued(&store));
+        }
+    }
+
+    #[test]
+    fn a_draft_that_asks_to_be_encrypted_is_not_put_on_the_server_in_the_clear() {
+        let (store, draft) = writing(imap(), with_drafts());
+        for (openpgp, smime) in [
+            (OpenPgp::Encrypt, Smime::None),
+            (OpenPgp::None, Smime::SignAndEncrypt),
+        ] {
+            save(
+                &store,
+                &Draft {
+                    openpgp,
+                    smime,
+                    ..draft.clone()
+                },
+            )
+            .unwrap();
+            assert!(!keep_on_server(&store, draft.id, at(2)).unwrap());
+            // Only a removal may be queued, for a copy an earlier session may have kept in the
+            // clear; never an upload.
+            let ops = queued(&store);
+            assert!(
+                ops.iter().all(
+                    |op| matches!(op, ProtoOp::DropDraft { draft: gone, .. } if *gone == draft.id)
+                ),
+                "{ops:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_draft_that_asks_to_be_encrypted_takes_the_copy_kept_before_and_its_waiting_upload_away() {
+        let (store, draft) = writing(imap(), with_drafts());
+        assert!(keep_on_server(&store, draft.id, at(2)).unwrap());
+        save(
+            &store,
+            &Draft {
+                openpgp: OpenPgp::Encrypt,
+                ..draft.clone()
+            },
+        )
+        .unwrap();
+        assert!(!keep_on_server(&store, draft.id, at(3)).unwrap());
+        let ops = queued(&store);
+        assert!(
+            matches!(&ops[..], [ProtoOp::DropDraft { draft: gone, .. }] if *gone == draft.id),
+            "{ops:?}"
+        );
+    }
+
+    #[test]
+    fn gmail_keeps_no_copy_of_a_draft_on_its_server() {
+        let (store, draft) = writing(imap(), with_drafts());
+        let gmail = AccountCaps {
+            archive: mail_domain::ArchiveMeans::DropInbox,
+            folders: FolderRoles(with_drafts()),
+            ..caps()
+        };
+        mail_store::testing::seed_caps(&store, account(), &gmail, at(0)).unwrap();
+        assert!(!keep_on_server(&store, draft.id, at(2)).unwrap());
+        assert!(queued(&store).is_empty(), "{:?}", queued(&store));
+    }
+}
+
+#[cfg(test)]
+mod reflow_tests {
+    use super::*;
+    use crate::support_tests::{account, at};
+
+    /// A plain draft an older build kept, with its text as it was written, and queued as
+    /// migration 0038 queues it.
+    fn kept_plain(store: &SqliteStore, text: &str) -> DraftId {
+        let identity = Identity {
+            id: IdentityId::generate(),
+            account: account(),
+            from: Address {
+                name: None,
+                email: "me@example.test".to_owned(),
+            },
+            reply_to: None,
+            signature: None,
+            default: IsDefault::Default,
+        };
+        mail_store::testing::seed_account(store, account(), "me@example.test");
+        mail_store::testing::seed_identity(store, &identity);
+        let draft = Draft::blank(&identity, at(1));
+        save(store, &draft).unwrap();
+        mail_store::testing::keep_unflowed_plain_draft(store, draft.id, text);
+        draft.id
+    }
+
+    /// Sent as `format=flowed` as it was kept, a line ending in a space would join the next
+    /// and a leading space would be taken for stuffing.
+    #[test]
+    fn a_plain_draft_kept_before_flowed_text_is_rewritten_once() {
+        let store = mail_store::testing::in_memory();
+        let id = kept_plain(
+            &store,
+            "Dear Ada, \nthe numbers:\n  12\nFrom here on\n> quoted \n-- \nBea",
+        );
+        assert_eq!(reflow_stored(&store).unwrap(), 1);
+        let text = store.draft(id).unwrap().text;
+        assert_eq!(
+            text,
+            "Dear Ada,\nthe numbers:\n   12\n From here on\n> quoted\n-- \nBea"
+        );
+        assert_eq!(
+            mail_mime::unflow(&text, mail_mime::Delsp::No),
+            "Dear Ada,\nthe numbers:\n  12\nFrom here on\n> quoted\n-- \nBea",
+            "and reads back as it was written"
+        );
+        assert_eq!(reflow_stored(&store).unwrap(), 0, "once");
+        assert_eq!(store.draft(id).unwrap().text, text);
     }
 }

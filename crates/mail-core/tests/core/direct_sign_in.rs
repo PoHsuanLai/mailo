@@ -86,7 +86,6 @@ fn client(issuer: Issuer, port: u16) -> ClientEntry {
             authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/authorize")).unwrap(),
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
             revoke: None,
-            device: None,
         }),
         ..mail_runtime::clients::entry(issuer, "client-id", None)
     }

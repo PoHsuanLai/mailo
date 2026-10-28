@@ -7,7 +7,7 @@ use mail_domain::SaslMech;
 use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession, ProtoError, Refusal};
 use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::UnixSeconds;
+use porter_ids::UnixSeconds;
 
 fn oauth() -> ImapAuth {
     ImapAuth {
@@ -553,4 +553,432 @@ mod a_refused_login {
             "a missing mailbox was blamed on the password: {err:?}"
         );
     }
+}
+
+/// A session told to upgrade with STARTTLS does so before it signs in, asks for the capabilities
+/// again under TLS, and writes no credential to a server that will not upgrade.
+#[test]
+fn starttls_comes_before_the_password_or_nothing_does() {
+    let password = || ImapAuth {
+        username: "ada@example.test".to_owned(),
+        credential: Credential::Password(SecretText::new("hunter2".to_owned())),
+        sasl: vec![SaslMech::Plain],
+    };
+    let cases: &[(&str, &str)] = &[
+        (
+            "upgraded, then signed in",
+            "S: * OK [CAPABILITY IMAP4rev1 STARTTLS LOGINDISABLED] ready\n\
+             C: a001 STARTTLS\n\
+             S: a001 OK Begin TLS negotiation now\n\
+             TLS\n\
+             C: a002 CAPABILITY\n\
+             S: * CAPABILITY IMAP4rev1 AUTH=PLAIN\n\
+             S: a002 OK done\n\
+             C: a003 LOGIN \"ada@example.test\" \"hunter2\"\n\
+             S: a003 OK signed in\n\
+             DONE\n",
+        ),
+        (
+            "refused",
+            "S: * OK ready\n\
+             C: a001 STARTTLS\n\
+             S: a001 BAD unknown command\n\
+             FAIL Unsupported\n",
+        ),
+        (
+            "greeted signed in already",
+            "S: * PREAUTH ready\n\
+             FAIL Unsupported\n",
+        ),
+        (
+            "more said after the go-ahead",
+            "S: * OK ready\n\
+             C: a001 STARTTLS\n\
+             S64: YTAwMSBPSyBnbw0KKiBPSyBpbmplY3RlZA0K\n\
+             FAIL Malformed\n",
+        ),
+    ];
+    for (case, trace) in cases {
+        let mut s = ImapSession::new(password(), vec![ImapCommand::Login])
+            .unwrap()
+            .with_starttls("imap.example.test", 143);
+        let ended = replay(&mut s, trace);
+        assert_eq!(
+            matches!(ended, common::Ended::Done(_)),
+            *case == "upgraded, then signed in",
+            "{case}"
+        );
+    }
+}
+
+/// The capabilities heard before TLS are forgotten: a man in the middle could have written them.
+#[test]
+fn the_capabilities_said_before_starttls_are_forgotten() {
+    let mut s = session(vec![]).with_starttls("imap.example.test", 143);
+    let out = replay(
+        &mut s,
+        "S: * OK [CAPABILITY IMAP4rev1 STARTTLS AUTH=XOAUTH2 IDLE] ready\n\
+         C: a001 STARTTLS\n\
+         S: a001 OK go ahead\n\
+         TLS\n\
+         C: a002 CAPABILITY\n\
+         S: * CAPABILITY IMAP4rev1 AUTH=XOAUTH2\n\
+         S: a002 OK done\n\
+         DONE\n",
+    )
+    .unwrap();
+    assert!(!mail_proto::has_capability(&out.capabilities, "IDLE"));
+    assert!(!mail_proto::has_capability(&out.capabilities, "STARTTLS"));
+}
+
+/// A session resumed on a connection already open goes straight to its command: that connection
+/// was upgraded when it was opened, and a second `STARTTLS` on it is refused.
+#[test]
+fn a_resumed_session_does_not_upgrade_again() {
+    let mut s = session(vec![ImapCommand::Noop])
+        .with_starttls("imap.example.test", 143)
+        .resuming(mail_proto::Resume {
+            tags: 3,
+            ..mail_proto::Resume::default()
+        });
+    replay(&mut s, "C: a004 NOOP\nS: a004 OK done\nDONE\n").unwrap();
+}
+
+/// A server offering SASL PLAIN with an initial response is signed in to with it, and the
+/// password, accents and all, goes base64-encoded; one that does not is sent `LOGIN`.
+#[test]
+fn a_password_goes_by_sasl_plain_where_the_server_offers_it() {
+    let with = |password: &str| ImapAuth {
+        username: "ada@example.test".to_owned(),
+        credential: Credential::Password(SecretText::new(password.to_owned())),
+        sasl: vec![SaslMech::Plain],
+    };
+    let cases: &[(&str, &str)] = &[
+        (
+            "héllo",
+            "S: * OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=PLAIN] ready\n\
+             C: a001 AUTHENTICATE PLAIN AGFkYUBleGFtcGxlLnRlc3QAaMOpbGxv\n\
+             S: a001 OK signed in\n\
+             DONE\n",
+        ),
+        // IMAP4rev2 implies SASL-IR.
+        (
+            "hunter2",
+            "S: * OK [CAPABILITY IMAP4rev2 AUTH=PLAIN] ready\n\
+             C: a001 AUTHENTICATE PLAIN AGFkYUBleGFtcGxlLnRlc3QAaHVudGVyMg==\n\
+             S: a001 OK signed in\n\
+             DONE\n",
+        ),
+        (
+            "hunter2",
+            "S: * OK [CAPABILITY IMAP4rev1 AUTH=PLAIN] ready\n\
+             C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+             S: a001 OK signed in\n\
+             DONE\n",
+        ),
+    ];
+    for (password, trace) in cases {
+        let mut s = ImapSession::new(with(password), vec![ImapCommand::Login]).unwrap();
+        replay(&mut s, trace).unwrap();
+    }
+}
+
+/// A `NO` to `AUTHENTICATE PLAIN` is a refused password, as one to `LOGIN` is, whatever words
+/// the server gives it.
+#[test]
+fn a_refused_sasl_plain_is_a_refused_password() {
+    let auth = ImapAuth {
+        username: "ada@example.test".to_owned(),
+        credential: Credential::Password(SecretText::new("hunter2".to_owned())),
+        sasl: vec![SaslMech::Plain],
+    };
+    let mut s = ImapSession::new(auth, vec![ImapCommand::Login]).unwrap();
+    match replay(
+        &mut s,
+        "S: * OK [CAPABILITY IMAP4rev1 SASL-IR AUTH=PLAIN] ready\n\
+         C: a001 AUTHENTICATE PLAIN AGFkYUBleGFtcGxlLnRlc3QAaHVudGVyMg==\n\
+         S: a001 NO Login failed\n\
+         FAIL\n",
+    ) {
+        common::Ended::Failed(ProtoError::AuthRejected(_)) => {}
+        other => panic!("should be a refused password: {other:?}"),
+    }
+}
+
+/// The writes in a list of needs, as text.
+fn written(needs: &[mail_proto::IoNeed]) -> Vec<String> {
+    needs
+        .iter()
+        .filter_map(|need| match need {
+            mail_proto::IoNeed::Write(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Feed `bytes`, expecting the session to want more.
+fn fed(session: &mut ImapSession, bytes: &str) -> Vec<mail_proto::IoNeed> {
+    use mail_proto::machine::{IoReady, Machine, Progress};
+    match session.feed(IoReady::Bytes(bytes.as_bytes().to_vec())) {
+        Progress::Need(needs) => needs,
+        other => panic!("{other:?}"),
+    }
+}
+
+/// With `NOTIFY` (RFC 5465) a watch hears of other mailboxes on its own connection: they are
+/// named once, after the inbox is selected, and a `STATUS` the server sends while idling ends
+/// the idle like mail in the inbox does.
+#[test]
+fn notify_names_the_other_mailboxes_and_their_news_ends_the_idle() {
+    let mut session = session(vec![
+        ImapCommand::RequireCapability(vec!["NOTIFY".to_owned()]),
+        ImapCommand::Select {
+            mailbox: "INBOX".to_owned(),
+            access: Access::ReadOnly,
+            qresync: None,
+        },
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned(), "Archiv/Ärzte".to_owned()],
+        },
+        ImapCommand::Idle,
+    ]);
+    use mail_proto::machine::{Machine, Progress};
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(
+        &mut session,
+        "* OK [CAPABILITY IMAP4rev1 IDLE NOTIFY] ready\r\n",
+    );
+    assert_eq!(written(&needs), ["a001 EXAMINE \"INBOX\"\r\n"]);
+    let needs = fed(&mut session, "a001 OK [READ-ONLY] done\r\n");
+    assert_eq!(
+        written(&needs),
+        [
+            "a002 NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
+             (mailboxes (\"Lists\" \"Archiv/&AMQ-rzte\") (MessageNew MessageExpunge))\r\n"
+        ]
+    );
+    let needs = fed(&mut session, "a002 OK done\r\n");
+    assert_eq!(written(&needs), ["a003 IDLE\r\n"]);
+    let needs = fed(
+        &mut session,
+        "+ idling\r\n* STATUS \"Lists\" (UIDNEXT 9)\r\n",
+    );
+    assert_eq!(written(&needs), ["DONE\r\n"]);
+}
+
+/// One mailbox is named bare and several as a list (RFC 5465 `mailboxes`), which is the grammar.
+#[test]
+fn notify_names_one_mailbox_bare() {
+    let mut session = session(vec![
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned()],
+        },
+        ImapCommand::Noop,
+    ]);
+    use mail_proto::machine::{Machine, Progress};
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(&mut session, "* OK ready\r\n");
+    assert_eq!(
+        written(&needs),
+        [
+            "a001 NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
+          (mailboxes \"Lists\" (MessageNew MessageExpunge))\r\n"
+        ]
+    );
+}
+
+/// A server that refuses `COMPRESS` with NO goes on uncompressed instead of failing the session.
+#[test]
+fn a_refused_compress_is_skipped() {
+    let mut session = session(vec![ImapCommand::Compress, ImapCommand::Noop]);
+    use mail_proto::machine::{Machine, Progress};
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(
+        &mut session,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    assert_eq!(written(&needs), ["a001 COMPRESS DEFLATE\r\n"]);
+    let needs = fed(&mut session, "a001 NO [COMPRESSIONACTIVE] already\r\n");
+    assert_eq!(written(&needs), ["a002 NOOP\r\n"]);
+}
+
+/// A server without `NOTIFY` is refused before anything is sent, which is how a watch learns to
+/// hear of the other mailboxes another way.
+#[test]
+fn notify_is_not_sent_to_a_server_without_it() {
+    use mail_proto::machine::{IoReady, Machine, Progress};
+    let mut session = session(vec![
+        ImapCommand::RequireCapability(vec!["NOTIFY".to_owned()]),
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned()],
+        },
+    ]);
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    let progress = session.feed(IoReady::Bytes(
+        b"* OK [CAPABILITY IMAP4rev1 IDLE] ready\r\n".to_vec(),
+    ));
+    assert!(
+        matches!(progress, Progress::Failed(ProtoError::Unsupported(_))),
+        "{progress:?}"
+    );
+    let Progress::Failed(error) = progress else {
+        unreachable!()
+    };
+    assert!(mail_proto::lacks_capability(&error, "NOTIFY"));
+    // Some other thing missing is not a server without NOTIFY.
+    assert!(!mail_proto::lacks_capability(
+        &ProtoError::Unsupported("STARTTLS".to_owned()),
+        "NOTIFY"
+    ));
+}
+
+/// `COMPRESS DEFLATE` (RFC 4978) goes only to a server that offers it, and once it is accepted
+/// the session asks for the connection to be compressed before it sends anything else.
+#[test]
+fn compress_is_asked_for_when_offered_and_the_connection_follows() {
+    use mail_proto::machine::{IoNeed, Machine, Progress};
+
+    let commands = || vec![ImapCommand::Compress, ImapCommand::Noop];
+    let mut offered = session(commands());
+    let Progress::Need(_) = offered.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(
+        &mut offered,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    assert_eq!(written(&needs), ["a001 COMPRESS DEFLATE\r\n"]);
+    let needs = fed(&mut offered, "a001 OK DEFLATE active\r\n");
+    assert_eq!(
+        needs.first(),
+        Some(&IoNeed::Deflate {
+            leftover: Vec::new()
+        }),
+        "{needs:?}"
+    );
+    assert_eq!(written(&needs), ["a002 NOOP\r\n"]);
+
+    let mut absent = session(commands());
+    let Progress::Need(_) = absent.start() else {
+        panic!("the greeting is read first");
+    };
+    let needs = fed(&mut absent, "* OK [CAPABILITY IMAP4rev1] ready\r\n");
+    assert_eq!(written(&needs), ["a001 NOOP\r\n"]);
+    assert!(
+        !needs
+            .iter()
+            .any(|need| matches!(need, IoNeed::Deflate { .. }))
+    );
+
+    // Bytes read in the same chunk as the `OK` are the inflater's, and the session keeps none.
+    let mut early = session(commands());
+    let Progress::Need(_) = early.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(
+        &mut early,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    let needs = fed(&mut early, "a001 OK DEFLATE active\r\n\x01\x02\x03");
+    assert_eq!(
+        needs.first(),
+        Some(&IoNeed::Deflate {
+            leftover: vec![1, 2, 3]
+        }),
+        "{needs:?}"
+    );
+}
+
+/// A session whose last command is `COMPRESS` still switches the connection: the next session on
+/// it would otherwise write plain bytes to a server that now reads compressed ones.
+#[test]
+fn a_compress_that_ends_the_session_still_switches_the_connection() {
+    use mail_proto::IoNeed;
+    use mail_proto::machine::{IoReady, Machine, Progress};
+
+    let mut session = session(vec![ImapCommand::Compress]);
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(
+        &mut session,
+        "* OK [CAPABILITY IMAP4rev1 COMPRESS=DEFLATE] ready\r\n",
+    );
+    let needs = fed(&mut session, "a001 OK DEFLATE active\r\n\x01\x02");
+    assert_eq!(
+        needs,
+        [IoNeed::Deflate {
+            leftover: vec![1, 2]
+        }]
+    );
+    let Progress::Done(transcript) = session.feed(IoReady::Woke) else {
+        panic!("the session ends once the connection is switched");
+    };
+    assert_eq!(transcript.completed.len(), 1);
+}
+
+/// The idle that `NOTIFY` set up is followed by `NOTIFY NONE`, so a connection the next operation
+/// goes on with hears of nothing it will not read; a server that refuses it does not fail the
+/// session.
+#[test]
+fn notify_is_taken_down_when_the_idle_is_over() {
+    use mail_proto::machine::{IoReady, Machine, Progress};
+    let mut session = session(vec![
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned()],
+        },
+        ImapCommand::Idle,
+        ImapCommand::NotifyNone,
+    ]);
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(&mut session, "* OK ready\r\n");
+    let needs = fed(&mut session, "a001 OK done\r\n");
+    assert_eq!(written(&needs), ["a002 IDLE\r\n"]);
+    let needs = fed(
+        &mut session,
+        "+ idling\r\n* STATUS \"Lists\" (UIDNEXT 9)\r\n",
+    );
+    assert_eq!(written(&needs), ["DONE\r\n"]);
+    let needs = fed(&mut session, "a002 OK idle ended\r\n");
+    assert_eq!(written(&needs), ["a003 NOTIFY NONE\r\n"]);
+    let progress = session.feed(IoReady::Bytes(b"a003 NO not now\r\n".to_vec()));
+    assert!(matches!(progress, Progress::Done(_)), "{progress:?}");
+}
+
+/// An idle skipped because mail has already come still takes down what was set up for it.
+#[test]
+fn an_idle_skipped_for_news_still_takes_notify_down() {
+    use mail_proto::machine::{Machine, Progress};
+    let mut session = session(vec![
+        ImapCommand::Select {
+            mailbox: "INBOX".to_owned(),
+            access: Access::ReadOnly,
+            qresync: None,
+        },
+        ImapCommand::Notify {
+            mailboxes: vec!["Lists".to_owned()],
+        },
+        ImapCommand::IdleAfter { uidnext: 5 },
+        ImapCommand::NotifyNone,
+    ]);
+    let Progress::Need(_) = session.start() else {
+        panic!("the greeting is read first");
+    };
+    fed(&mut session, "* OK ready\r\n");
+    fed(
+        &mut session,
+        "* OK [UIDNEXT 9] next\r\na001 OK [READ-ONLY] done\r\n",
+    );
+    let needs = fed(&mut session, "a002 OK done\r\n");
+    assert_eq!(written(&needs), ["a003 NOTIFY NONE\r\n"]);
 }

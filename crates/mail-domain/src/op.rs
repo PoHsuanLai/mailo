@@ -25,9 +25,10 @@ use crate::account::{AccountCaps, ArchiveMeans, ServerLabels};
 use crate::content::Label;
 use crate::draft::Draft;
 use crate::folder::{Folder, FolderWork};
+use crate::hue::Hue;
 use crate::id::{BlobId, ChangeId, DraftId, LabelId, MessageId, ThreadId};
 use crate::message::{Message, Thread};
-use crate::receipt::Keyword;
+use crate::receipt::{DeliveryReport, Keyword};
 use crate::remote::MailboxRef;
 use crate::state::{FollowUp, MailboxRole, Membership, Mute, Pin, ReadState, Snooze, Star};
 use chrono::{DateTime, Utc};
@@ -85,6 +86,18 @@ pub enum Op {
     /// archive. It has no undo: the server's copy is gone once it is sent, and its inverse is
     /// empty.
     Destroy,
+    /// Into the folder this label names as well, leaving it where it is: the label added and
+    /// nothing else, which is a copy where mailboxes are labels, and what a `COPY` into that
+    /// folder leaves behind locally everywhere else.
+    ///
+    /// A copy of a message is not a second message here. The server's copy has the same
+    /// identity ([`crate::MessageKey`]) as the original, so the sync that finds it maps its
+    /// address to the message this client already holds, as a message in two IMAP folders is
+    /// one message with two addresses.
+    Copy(LabelId),
+    /// Flag in a colour: starred, as [`Op::SetStar`] stars, with the flag drawn in `Hue`.
+    /// Clearing a flag is `SetStar(Star::Unstarred)`, which also puts the colour back to red.
+    Flag(Hue),
 }
 
 /// An operation with its payload stripped: "which action", without "that action's arguments".
@@ -157,6 +170,8 @@ pub enum Change {
         to: String,
         delimiter: Option<char>,
     },
+    /// A message's flag colour. Means something only while the message is starred.
+    MessageFlag(MessageId, Hue),
 }
 
 /// A set of mutations applied as one unit.
@@ -222,6 +237,9 @@ pub enum RemoteIntent {
         raw: BlobId,
         mail_from: String,
         rcpt_to: Vec<String>,
+        /// Whether the envelope asks for delivery reports, as the draft did when it was sent.
+        #[serde(default)]
+        delivery: DeliveryReport,
     },
     /// Create, rename, delete or follow a mailbox.
     ///
@@ -250,6 +268,45 @@ pub enum RemoteIntent {
         date: Option<DateTime<Utc>>,
         raw: BlobId,
     },
+    /// Keep a copy of a draft in the server's Drafts mailbox, in place of any copy put there
+    /// before, so the draft can be finished on another device.
+    ///
+    /// Addresses no message this client holds: the copy is never brought in as one, and the
+    /// copies it replaces are found on the server by `message_id`, which a draft keeps however
+    /// often it is rebuilt. Carries no bytes: the copy is made from the draft as it stands when
+    /// the upload runs, so nothing is stored for it and a queued one is never stale. Resolves to
+    /// the identical [`crate::ProtoOp::KeepDraft`]; a second upload of the same draft queued
+    /// while one waits takes its place in the outbox.
+    KeepDraft {
+        draft: DraftId,
+        mailbox: MailboxRef,
+        /// The draft's `Message-ID`, without angle brackets.
+        message_id: String,
+    },
+    /// Remove a draft's copies from the server's Drafts mailbox, once it is sent or discarded.
+    /// Resolves to the identical [`crate::ProtoOp::DropDraft`], and takes the place of any upload
+    /// of the draft still waiting.
+    DropDraft {
+        draft: DraftId,
+        mailbox: MailboxRef,
+        /// The draft's `Message-ID`, without angle brackets.
+        message_id: String,
+    },
+    /// Copy messages into the folder a label names, leaving them where they are.
+    ///
+    /// Resolved by the store to [`crate::ProtoOp::Copy`] with the label's name, which is the
+    /// folder's path, as [`RemoteIntent::File`] is.
+    ///
+    /// Where the server does not say the copy's address (IMAP without `UIDPLUS`), nothing here
+    /// can name the copy on the server, so it is not listed in the folder as a message there
+    /// until that folder's next sync finds it by its identity.
+    Copy {
+        messages: Vec<MessageId>,
+        label: LabelId,
+    },
+    /// Flag messages in a colour: starred, with the colour where the server can keep one.
+    /// Resolved by the store to [`crate::ProtoOp::SetFlag`].
+    SetFlag { messages: Vec<MessageId>, hue: Hue },
 }
 
 /// The result of applying an [`Op`], or of planning a folder change with [`crate::folder::plan`].
@@ -319,8 +376,10 @@ impl Op {
             Op::Restore => restore(&selected),
             Op::SetRead(state) => set_read(&selected, *state),
             Op::SetStar(star) => set_star(&selected, *star),
+            Op::Flag(hue) => set_flag(&selected, *hue),
             Op::Label(label, membership) => set_label(&selected, *label, *membership),
             Op::File(label) => file_into(&selected, *label),
+            Op::Copy(label) => set_label(&selected, *label, Membership::In),
             Op::Destroy => destroy(&selected),
             Op::SetSnooze(snooze) => {
                 let prior = thread.summary.snooze;
@@ -377,6 +436,7 @@ impl Op {
         for change in &forward {
             if let Change::MessageRead(m, _)
             | Change::MessageStar(m, _)
+            | Change::MessageFlag(m, _)
             | Change::MessageMailbox(m, _)
             | Change::MessageLabel(m, _, _)
             | Change::MessageDelete(m) = change
@@ -435,9 +495,13 @@ impl Op {
                 read: None,
                 star: Some(*star),
             }),
+            Op::Flag(hue) => Some(RemoteIntent::SetFlag {
+                messages,
+                hue: *hue,
+            }),
             Op::Label(label, membership) => match caps.labels {
                 ServerLabels::LocalOnly => None,
-                ServerLabels::Supported => {
+                ServerLabels::Supported | ServerLabels::Keywords => {
                     let (add, remove) = match membership {
                         Membership::In => (vec![*label], Vec::new()),
                         Membership::Out => (Vec::new(), vec![*label]),
@@ -455,6 +519,16 @@ impl Op {
                 ArchiveMeans::LocalOnly => None,
                 ArchiveMeans::DropInbox | ArchiveMeans::MoveToFolder(_) => {
                     Some(RemoteIntent::File {
+                        messages,
+                        label: *label,
+                    })
+                }
+            },
+            // As filing: a server with no notion of where a message is has nowhere to copy it.
+            Op::Copy(label) => match caps.archive {
+                ArchiveMeans::LocalOnly => None,
+                ArchiveMeans::DropInbox | ArchiveMeans::MoveToFolder(_) => {
+                    Some(RemoteIntent::Copy {
                         messages,
                         label: *label,
                     })
@@ -479,6 +553,8 @@ impl Op {
             Op::SetRead(ReadState::Unread) => OpKind::MarkUnread,
             Op::SetStar(Star::Starred) => OpKind::Star,
             Op::SetStar(Star::Unstarred) => OpKind::Unstar,
+            // A flag in a colour is a star, said in more detail.
+            Op::Flag(_) => OpKind::Star,
             Op::Label(_, Membership::In) => OpKind::AddLabel,
             Op::Label(_, Membership::Out) => OpKind::RemoveLabel,
             Op::SetSnooze(_) => OpKind::Snooze,
@@ -488,6 +564,8 @@ impl Op {
             Op::Destroy => OpKind::Destroy,
             // Filing is archiving into a named place: the row leaves the inbox the same way.
             Op::File(_) => OpKind::Archive,
+            // Copying is labelling with a folder: the row stays, and gains a place.
+            Op::Copy(_) => OpKind::AddLabel,
         }
     }
 }
@@ -589,6 +667,9 @@ fn set_read(selected: &[&Message], state: ReadState) -> (Vec<Change>, Vec<Change
 }
 
 /// As [`set_read`], for the star flag.
+///
+/// Unstarring also puts a coloured flag's colour back to red, as the server's colour keywords
+/// are cleared with `\Flagged`: a star set again later, from anywhere, is a red one.
 fn set_star(selected: &[&Message], star: Star) -> (Vec<Change>, Vec<Change>) {
     let mut forward = Vec::new();
     let mut inverse = Vec::new();
@@ -596,6 +677,28 @@ fn set_star(selected: &[&Message], star: Star) -> (Vec<Change>, Vec<Change>) {
         if m.star != star {
             forward.push(Change::MessageStar(m.id, star));
             inverse.push(Change::MessageStar(m.id, m.star));
+        }
+        if star == Star::Unstarred && m.flag != Hue::Red {
+            forward.push(Change::MessageFlag(m.id, Hue::Red));
+            inverse.push(Change::MessageFlag(m.id, m.flag));
+        }
+    }
+    (forward, inverse)
+}
+
+/// Star every selected message and give its flag `hue`, remembering each one's own star and
+/// colour, so undoing an orange flag over a thread with one red flag leaves that one red.
+fn set_flag(selected: &[&Message], hue: Hue) -> (Vec<Change>, Vec<Change>) {
+    let mut forward = Vec::new();
+    let mut inverse = Vec::new();
+    for m in selected {
+        if m.star != Star::Starred {
+            forward.push(Change::MessageStar(m.id, Star::Starred));
+            inverse.push(Change::MessageStar(m.id, m.star));
+        }
+        if m.flag != hue {
+            forward.push(Change::MessageFlag(m.id, hue));
+            inverse.push(Change::MessageFlag(m.id, m.flag));
         }
     }
     (forward, inverse)

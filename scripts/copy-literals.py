@@ -1,7 +1,7 @@
 """Count the visible string literals in the window's code outside ui/copy/.
 
-All the words the window shows live in crates/mail-app/src/ui/copy/, by kind. This finds the
-string literals that still say something to a person elsewhere under crates/mail-app/src/ui, so
+All the words the window shows live in crates/mail-ui/src/ui/copy/, by kind. This finds the
+string literals that still say something to a person elsewhere under crates/mail-ui/src/ui, so
 scripts/check-copy.sh can hold their number to a ratchet (scripts/copy-literals.txt).
 
 What is a visible literal is a heuristic, kept simple and deterministic:
@@ -20,7 +20,7 @@ What is a visible literal is a heuristic, kept simple and deterministic:
   an event name, a search operator); lowercase words joined by `-` or `_` (a class list); one
   token in capitals or in camelCase (an environment variable, a region code, a command name); a
   CSS selector or CSS (`px`, `var(`, `:` with `;`); a URL; a locale code; a DOM key name; a font;
-  a key chord as the keymap spells it (`Primary+Shift+F`, `Alt+Primary+C`).
+  a key chord as the keymap spells it (`Primary+Shift+F`, `Alt+Primary+C`, `Primary+]`).
 
 Everything else is counted: a capitalised word ("Inbox"), any words with a space between them
 ("no mail from them"), anything with typographic marks ("Settings…").
@@ -35,7 +35,7 @@ import re
 import sys
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-UI = os.path.join("crates", "mail-app", "src", "ui")
+UI = os.path.join("crates", "mail-ui", "src", "ui")
 COPY = os.path.join(UI, "copy")
 
 # Calls whose string arguments are not shown in the window.
@@ -47,6 +47,7 @@ QUIET_CALLS = {
     "starts_with", "ends_with", "contains", "strip_prefix", "strip_suffix", "split",
     "split_once", "rsplit_once", "find", "rfind", "trim_start_matches", "trim_end_matches",
     "matches", "eq_ignore_ascii_case", "classed", "tagged", "get_attribute", "set_attribute", "var", "var_os",
+    "or_log", "or_log_default",
 }
 
 # Markup and model properties whose value is never read out.
@@ -73,7 +74,9 @@ FONT = re.compile(
     r"P?MingLiU|Batang|Malgun|Apple ?(?:SD|Myungjo)|Georgia$|Times New Roman|Helvetica|Arial|"
     r"Segoe|Menlo|Consolas|Courier|DejaVu|Liberation|Cantarell|Inter$)"
 )
-CHORD = re.compile(r"^(?:(?:Primary|Shift|Alt|Ctrl|Control|Super|Meta|Cmd|Option)\+)+[A-Za-z0-9]+$")
+CHORD = re.compile(
+    r"^(?:(?:Primary|Shift|Alt|Ctrl|Control|Super|Meta|Cmd|Option)\+)+(?:[A-Za-z0-9]+|[^\sA-Za-z0-9])$"
+)
 # The head of an `impl Debug for T` block, up to its `{`: what it writes is for a developer.
 DEBUG_IMPL = re.compile(r"\bimpl\b[^{};]*\bDebug\s+for\b[^{};]*$")
 PLACEHOLDER = re.compile(r"\{[^{}]*\}")

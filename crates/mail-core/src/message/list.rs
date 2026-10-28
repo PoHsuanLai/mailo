@@ -102,6 +102,7 @@ mod tests {
                     unsubscribe: vec![mail_mime::Unsubscribe::Web {
                         url: "https://example.test/".to_owned(),
                     }],
+                    post: vec![],
                 },
             };
             let sender = Address {

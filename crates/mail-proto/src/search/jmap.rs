@@ -62,6 +62,8 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
         Filter::Starred(Star::Starred) => json!({ "hasKeyword": "$flagged" }),
         Filter::Starred(Star::Unstarred) => json!({ "notKeyword": "$flagged" }),
         Filter::From(m) => json!({ "from": whole(m)? }),
+        Filter::FromAddress(email) => json!({ "from": email }),
+        Filter::Cc(m) => json!({ "cc": whole(m)? }),
         Filter::To(m) => {
             let who = whole(m)?;
             operator("OR", vec![json!({ "to": who }), json!({ "cc": who })])
@@ -76,6 +78,16 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
         ),
         Filter::Text(TextMatch::Exact(phrase)) => json!({ "text": phrase }),
         Filter::HasAttachment => json!({ "hasAttachment": true }),
+        // `minSize` is at least, `maxSize` under (RFC 8621 §4.4.1); the server's size is the
+        // whole message's.
+        Filter::Larger(bytes) => json!({ "minSize": bytes.saturating_add(1) }),
+        Filter::Smaller(bytes) => json!({ "maxSize": bytes }),
+        // Fixed against a clock before a server is asked (`Filter::at`).
+        Filter::NewerThan(_) | Filter::OlderThan(_) => {
+            return Err(Unsaid::one(
+                "newer_than: / older_than: (not fixed to a date)".to_owned(),
+            ));
+        }
         Filter::Date(range) => {
             let mut out = serde_json::Map::new();
             let utc = |at: &chrono::DateTime<chrono::Utc>| {
@@ -101,8 +113,14 @@ fn condition(filter: &Filter, ctx: &JmapCtx<'_>) -> Result<Value, Unsaid> {
             super::named(ctx.labels_named, *label).and_then(|n| ctx.mailboxes.id_for_path(n)),
             "label: (the server lists no mailbox of that name)".to_owned(),
         )?,
-        Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned => {
+        Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned | Filter::Vip => {
             return Err(kept_here(filter));
+        }
+        Filter::Category(_) => {
+            return Err(Unsaid::one(format!(
+                "{} (only Gmail has categories)",
+                describe(filter)
+            )));
         }
     })
 }

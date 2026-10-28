@@ -44,8 +44,22 @@ impl Filter {
             Filter::All => "everything".to_owned(),
             Filter::Nothing => "nothing".to_owned(),
             Filter::And(fs) => each(fs).join(" "),
-            Filter::Or(fs) => format!("({})", each(fs).join(" or ")),
-            Filter::Not(f) => format!("-{}", f.spelled(words)),
+            // `a OR b` is read back as the either-or it is, when each side is one term. A side
+            // of several terms has no spelling the line reads back, and keeps its brackets.
+            Filter::Or(fs) => {
+                let sides = each(fs);
+                if fs.len() > 1 && sides.iter().all(|side| one_term(side)) {
+                    sides.join(" OR ")
+                } else {
+                    format!("({})", sides.join(" or "))
+                }
+            }
+            // A group kept out keeps its brackets: `-a OR b` would read as `(-a) OR b`.
+            Filter::Not(f) => match &**f {
+                Filter::Or(fs) => format!("-({})", each(fs).join(" or ")),
+                Filter::And(fs) if fs.len() > 1 => format!("-({})", each(fs).join(" ")),
+                f => format!("-{}", f.spelled(words)),
+            },
             Filter::Account(_) => words.account.to_owned(),
             Filter::InMailbox(role) => format!("in:{role}"),
             Filter::InFolder(mailbox) => (words.folder)(&mailbox.path),
@@ -55,7 +69,10 @@ impl Filter {
             Filter::Starred(Star::Unstarred) => "is:unstarred".to_owned(),
             Filter::HasLabel(id) => format!("label:{}", (words.label)(*id)),
             Filter::From(m) => format!("from:{}", text(m)),
+            Filter::FromAddress(email) => format!("from:\"{email}\""),
+            Filter::Vip => "is:vip".to_owned(),
             Filter::To(m) => format!("to:{}", text(m)),
+            Filter::Cc(m) => format!("cc:{}", text(m)),
             Filter::Subject(m) => format!("subject:{}", text(m)),
             Filter::Text(m) => text(m),
             Filter::Date(range) => dates(range, words.any_date),
@@ -63,8 +80,41 @@ impl Filter {
             Filter::Snoozed => "is:snoozed".to_owned(),
             Filter::SnoozeDue => words.snooze_due.to_owned(),
             Filter::Pinned => "is:pinned".to_owned(),
+            Filter::Larger(bytes) => format!("larger:{}", size(*bytes)),
+            Filter::Smaller(bytes) => format!("smaller:{}", size(*bytes)),
+            Filter::NewerThan(days) => format!("newer_than:{days}d"),
+            Filter::OlderThan(days) => format!("older_than:{days}d"),
+            Filter::Category(category) => format!("category:{}", category.name()),
         }
     }
+}
+
+/// A size as the line writes it: whole mebibytes as `M`, whole kibibytes as `K`, else bytes,
+/// the units [`crate::human_size`] shows.
+fn size(bytes: u64) -> String {
+    const K: u64 = 1024;
+    const M: u64 = K * K;
+    match bytes {
+        0 => "0".to_owned(),
+        b if b % M == 0 => format!("{}M", b / M),
+        b if b % K == 0 => format!("{}K", b / K),
+        b => b.to_string(),
+    }
+}
+
+/// Whether `spelled` is one term of the line: no space outside its quotes, and not itself an
+/// either-or or a group.
+fn one_term(spelled: &str) -> bool {
+    let mut quoted = false;
+    !spelled.is_empty()
+        && !spelled.starts_with('(')
+        && !spelled.starts_with("-(")
+        && spelled.chars().all(|c| {
+            if c == '"' {
+                quoted = !quoted;
+            }
+            quoted || !c.is_whitespace()
+        })
 }
 
 fn dates(range: &DateRange, any: &str) -> String {

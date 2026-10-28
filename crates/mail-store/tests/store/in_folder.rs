@@ -173,10 +173,10 @@ fn a_body_pass_over_one_mailbox_is_given_only_that_mailboxs_addresses() {
         deliver(store, &message(3, MailboxRole::Archive), imap(PROJECTS, 2));
         deliver(store, &message(4, MailboxRole::Archive), imap(PROJECTS, 3));
         (
-            store.unfetched_in(&mailbox("INBOX"), 10).unwrap(),
-            store.unfetched_in(&mailbox(PROJECTS), 10).unwrap(),
-            store.unfetched_in(&mailbox(PROJECTS), 2).unwrap(),
-            store.unfetched_in(&mailbox("Elsewhere"), 10).unwrap(),
+            store.unfetched_in(&mailbox("INBOX"), None, 10).unwrap(),
+            store.unfetched_in(&mailbox(PROJECTS), None, 10).unwrap(),
+            store.unfetched_in(&mailbox(PROJECTS), None, 2).unwrap(),
+            store.unfetched_in(&mailbox("Elsewhere"), None, 10).unwrap(),
         )
     });
     assert_eq!(sqlite, memory);
@@ -191,6 +191,32 @@ fn a_body_pass_over_one_mailbox_is_given_only_that_mailboxs_addresses() {
     assert!(elsewhere.is_empty());
 }
 
+/// An account downloaded only so far back: what is older than the window is left out before the
+/// limit cuts, so the newest of the window are never pushed out by mail it would not fetch.
+#[test]
+fn a_body_pass_reaches_back_only_as_far_as_it_is_told() {
+    let (sqlite, memory) = both(|store| {
+        for n in 1..=4 {
+            deliver(
+                store,
+                &message(n, MailboxRole::Inbox),
+                imap("INBOX", n as u32),
+            );
+        }
+        let inbox = mailbox("INBOX");
+        (
+            store.unfetched_in(&inbox, Some(at(3)), 10).unwrap(),
+            store.unfetched_in(&inbox, Some(at(2)), 1).unwrap(),
+            store.unfetched_in(&inbox, Some(at(5)), 10).unwrap(),
+        )
+    });
+    assert_eq!(sqlite, memory);
+    let (since_third, cut, none) = sqlite;
+    assert_eq!(since_third, vec![imap("INBOX", 4), imap("INBOX", 3)]);
+    assert_eq!(cut, vec![imap("INBOX", 4)]);
+    assert!(none.is_empty(), "everything is older than the window");
+}
+
 #[test]
 fn the_backlog_of_named_threads_reaches_below_any_cut_of_the_whole() {
     // Each `message(n)` is its own thread, `n + 1000`.
@@ -202,7 +228,7 @@ fn the_backlog_of_named_threads_reaches_below_any_cut_of_the_whole() {
         deliver(store, &message(4, MailboxRole::Archive), imap(PROJECTS, 4));
         (
             // The oldest is the one the whole backlog cut at one leaves out.
-            store.unfetched_in(&mailbox("INBOX"), 1).unwrap(),
+            store.unfetched_in(&mailbox("INBOX"), None, 1).unwrap(),
             store
                 .unfetched_in_threads(&mailbox("INBOX"), &[thread(1), thread(3)], 10)
                 .unwrap(),
@@ -520,4 +546,196 @@ fn a_move_made_here_leaves_the_server_address_alone() {
         }]
     );
     assert_eq!(memory, sqlite);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Copied: a copy made here lists the message in the folder it was copied to at once, beside the
+// one it is in, and the server's copy is the same message when a sync finds it.
+// ---------------------------------------------------------------------------------------------
+
+/// The listings and holdings a copy is judged by: INBOX, then Projects, then every thread held,
+/// then the addresses held in Projects.
+type Copied = (
+    BTreeSet<ThreadId>,
+    BTreeSet<ThreadId>,
+    BTreeSet<ThreadId>,
+    Vec<RemoteRef>,
+);
+
+fn copied_view(store: &dyn Store) -> Copied {
+    (
+        listed(store, Filter::InFolder(mailbox("INBOX"))),
+        listed(store, Filter::InFolder(mailbox(PROJECTS))),
+        listed(store, Filter::All),
+        store.remote_refs(&mailbox(PROJECTS)).unwrap(),
+    )
+}
+
+/// A sync of Projects that finds the server's copy of message `n` at `uid`, fetched afresh as
+/// the runtime builds it: new ids, the folder's role, the original's identity.
+fn found_in_projects(store: &dyn Store, n: u128, uid: u32) {
+    let fetched = Message {
+        id: MessageId::generate(),
+        thread: ThreadId::generate(),
+        ..message(n, MailboxRole::Archive)
+    };
+    deliver(store, &fetched, imap(PROJECTS, uid));
+}
+
+/// Copy message 1 from the inbox into Projects, and say what each step left.
+fn copy_then_sync(store: &dyn Store, copyuid: bool) -> Vec<Copied> {
+    store
+        .put_caps(acct_account(), &moving_caps(), at(0))
+        .unwrap();
+    deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
+    let mut seen = vec![copied_view(store)];
+    act(store, Op::Copy(label_named(store, PROJECTS)), 1);
+    seen.push(copied_view(store));
+    let queued = store.outbox_due(acct_account(), at(10_000)).unwrap();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(
+        queued[0].op,
+        ProtoOp::Copy {
+            remotes: vec![imap("INBOX", 1)],
+            folder: PROJECTS.to_owned(),
+        }
+    );
+    // The server copies it, and says where (`COPYUID`) or does not.
+    if copyuid {
+        store
+            .copied(acct_account(), &imap("INBOX", 1), &imap(PROJECTS, 9))
+            .unwrap();
+    }
+    store
+        .outbox_settle(queued[0].id, mail_store::Settle::Ok, at(2))
+        .unwrap();
+    seen.push(copied_view(store));
+    found_in_projects(store, 1, 9);
+    seen.push(copied_view(store));
+    seen
+}
+
+#[test]
+fn a_copy_is_listed_in_its_folder_at_once_and_once_after_the_sync() {
+    let one = BTreeSet::from([thread(1)]);
+    let none = BTreeSet::new();
+    let copy = || vec![imap(PROJECTS, 9)];
+    for (case, copyuid, settled) in [
+        // Said where: kept at once, and the sync finds it held.
+        (
+            "COPYUID",
+            true,
+            (one.clone(), one.clone(), one.clone(), copy()),
+        ),
+        // Not said: out of the folder until the sync of it finds the copy, by its identity.
+        (
+            "no COPYUID",
+            false,
+            (one.clone(), none.clone(), one.clone(), vec![]),
+        ),
+    ] {
+        let (sqlite, memory) = both(|store| copy_then_sync(store, copyuid));
+        assert_eq!(sqlite, memory, "{case}");
+        assert_eq!(
+            sqlite,
+            vec![
+                (one.clone(), none.clone(), one.clone(), vec![]),
+                // Listed in both the moment it is copied, with no address there yet.
+                (one.clone(), one.clone(), one.clone(), vec![]),
+                settled,
+                // One message, in both, at one address in each: the sync stored nothing again.
+                (one.clone(), one.clone(), one.clone(), copy()),
+            ],
+            "{case}"
+        );
+    }
+}
+
+#[test]
+fn a_copy_the_server_refuses_leaves_the_folder_as_it_was() {
+    let (sqlite, memory) = both(|store| {
+        store
+            .put_caps(acct_account(), &moving_caps(), at(0))
+            .unwrap();
+        deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
+        let projects = label_named(store, PROJECTS);
+        act(store, Op::Copy(projects), 1);
+        let listed_while_queued = copied_view(store);
+        for entry in store.outbox_due(acct_account(), at(10_000)).unwrap() {
+            store
+                .outbox_settle(
+                    entry.id,
+                    mail_store::Settle::Failed {
+                        reason: "NO [TRYCREATE] no such folder".to_owned(),
+                        retry: Retry::Fatal("NO no such folder".to_owned()),
+                    },
+                    at(2),
+                )
+                .unwrap();
+        }
+        let labelled = store
+            .message(MessageId::from_uuid(uuid::Uuid::from_u128(1)))
+            .unwrap()
+            .labels
+            .contains(&projects);
+        (listed_while_queued, copied_view(store), labelled)
+    });
+    assert_eq!(sqlite, memory);
+    let (queued, refused, labelled) = sqlite;
+    assert_eq!(queued.1, BTreeSet::from([thread(1)]));
+    assert_eq!(
+        refused.1,
+        BTreeSet::new(),
+        "still listed where the copy failed"
+    );
+    assert_eq!(
+        refused.0,
+        BTreeSet::from([thread(1)]),
+        "the original left the inbox"
+    );
+    assert!(!labelled, "the refused copy's label stayed");
+}
+
+/// A copy names one address of each message, since copying from each would leave as many copies
+/// as the message has places, and none of a message the folder already holds.
+#[test]
+fn a_copy_is_sent_from_one_address_and_not_for_mail_already_there() {
+    let (sqlite, memory) = both(|store| {
+        store
+            .put_caps(acct_account(), &moving_caps(), at(0))
+            .unwrap();
+        // Message 1 in the inbox and in Archive; message 2 in the inbox and Projects already.
+        deliver(store, &message(1, MailboxRole::Inbox), imap("INBOX", 1));
+        deliver(store, &message(1, MailboxRole::Archive), imap("Archive", 3));
+        deliver(store, &message(2, MailboxRole::Inbox), imap("INBOX", 2));
+        deliver(store, &message(2, MailboxRole::Archive), imap(PROJECTS, 4));
+        let projects = label_named(store, PROJECTS);
+        let ids = [1u128, 2].map(|n| MessageId::from_uuid(uuid::Uuid::from_u128(n)));
+        store
+            .enqueue(
+                acct_account(),
+                RemoteIntent::Copy {
+                    messages: ids.to_vec(),
+                    label: projects,
+                },
+                &patch(Vec::new()),
+                at(1),
+            )
+            .unwrap()
+            .expect("queued");
+        let entry = store.outbox_due(acct_account(), at(10_000)).unwrap()[0].id;
+        match store.outbox_dispatch(entry).unwrap() {
+            mail_store::Dispatch::Send(ProtoOp::Copy { remotes, folder }) => (remotes, folder),
+            other => panic!("{other:?}"),
+        }
+    });
+    assert_eq!(sqlite.1, PROJECTS);
+    assert_eq!(sqlite.0.len(), 1, "{:?}", sqlite.0);
+    assert!(
+        [imap("INBOX", 1), imap("Archive", 3)].contains(&sqlite.0[0]),
+        "{:?}",
+        sqlite.0
+    );
+    assert_eq!(memory.1, PROJECTS);
+    assert_eq!(memory.0.len(), 1, "{:?}", memory.0);
 }

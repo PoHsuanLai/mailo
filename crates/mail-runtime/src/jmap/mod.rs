@@ -31,8 +31,10 @@
 mod client;
 mod outbox;
 mod push;
+mod quota;
 mod search;
 mod sync;
+mod vacation;
 
 pub use client::{Auth, Client, find_session, safe_url};
 
@@ -41,8 +43,8 @@ use crate::{AccountSecrets, RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, HttpAuth,
-    Incoming, JMAP_ALL, JmapEmailId, MailboxRef, MailboxRole, MoveExt, RemoteRef, Retryable,
-    ServerLabels, ServerThreads, Supported, SyncCursor, WatchMode,
+    Incoming, JMAP_ALL, JmapEmailId, MailboxRef, MailboxRole, MessageId, MoveExt, RemoteRef,
+    Retryable, ServerLabels, ServerThreads, Supported, SyncCursor, WatchMode,
 };
 use mail_proto::jmap::{Identity, Mailboxes};
 use mail_store::{SqliteStore, Store};
@@ -154,6 +156,13 @@ impl JmapEngine {
                     "the credential kept for this account is not a password or token",
                 )));
             }
+            // A kind this build does not know is not read as "no sign-in", which asks the person
+            // to sign in again and writes over it: the account waits for a build that knows it.
+            _ => {
+                return Err(RuntimeError::Connect(Failure::said(
+                    "the credential kept for this account is of a kind this build does not know",
+                )));
+            }
         })
     }
 
@@ -238,6 +247,11 @@ impl JmapEngine {
 
     /// One whole pass: the mailbox list, what changed, headers, bodies, then the outbox.
     ///
+    /// `on_arrival` is called between the bodies and the outbox with the emails the pass stored
+    /// for the first time, so what it queues leaves in the same pass, as an IMAP pass's rules do
+    /// (`AccountEngine::run_rules`). It is given the store and what the server was seen to
+    /// support.
+    ///
     /// Failures after the session is fetched are folded into the report rather than returned,
     /// like an IMAP pass's: a body that will not download is worth seeing and is no reason to
     /// abandon the headers already in hand. A refused credential ends the pass at once and says
@@ -246,6 +260,7 @@ impl JmapEngine {
         &mut self,
         cancel: &mut crate::Cancel,
         now: DateTime<Utc>,
+        on_arrival: &mut dyn FnMut(&SqliteStore, &AccountCaps, &[MessageId]),
     ) -> Result<SyncReport, RuntimeError> {
         let mut report = SyncReport::default();
         if let Err(e) = self.connect().await {
@@ -257,7 +272,7 @@ impl JmapEngine {
             }
             return Err(e);
         }
-        let steps: [Step; 3] = [Step::Mail, Step::Bodies, Step::Outbox];
+        let steps: [Step; 4] = [Step::Mail, Step::Bodies, Step::Arrivals, Step::Outbox];
         for step in steps {
             if *cancel.borrow() {
                 break;
@@ -265,6 +280,12 @@ impl JmapEngine {
             let done = match step {
                 Step::Mail => self.sync(now, HEADERS_PER_PASS, &mut report).await,
                 Step::Bodies => self.fetch_bodies(now, BODIES_PER_PASS, &mut report).await,
+                Step::Arrivals => {
+                    if let Some(mailboxes) = &self.mailboxes {
+                        on_arrival(&self.store, &self.caps(mailboxes, now), &report.arrived);
+                    }
+                    Ok(())
+                }
                 Step::Outbox => self.drain_into(now, &mut report).await,
             };
             if let Err(e) = done {
@@ -293,6 +314,7 @@ impl JmapEngine {
 enum Step {
     Mail,
     Bodies,
+    Arrivals,
     Outbox,
 }
 

@@ -5,12 +5,12 @@
 //! offers the account's folders; in Trash, Delete Forever and Empty Trash ask first and offer no
 //! Undo after.
 
-use mail_app::ui::bin::{Bin, Destroying, Reach, words};
-use mail_app::ui::copy;
 use mail_core::Store;
 use mail_domain::{
-    Change, ChangeId, MailboxRole, Mute, Patch, ProtoOp, Snooze, Star, ThreadSummary,
+    Change, ChangeId, Hue, MailboxRole, Mute, Patch, ProtoOp, Snooze, Star, ThreadSummary,
 };
+use mail_ui::ui::bin::{Bin, Destroying, Reach, words};
+use mail_ui::ui::copy;
 
 use super::drive::{Drive, Key, PRIMARY};
 use super::look::{conversation, inbox_at, listed};
@@ -19,8 +19,7 @@ use super::window::{INBOX, Window, account, ms, row_of};
 
 /// The list's row for `subject`, as `row_menu` takes it.
 fn row_for(window: &Window, subject: &str) -> String {
-    let n = row_of(&window.harness, subject).unwrap_or_else(|| panic!("no row reads {subject:?}"));
-    item(n)
+    row_for_in(&window.harness, subject)
 }
 
 /// The `n`th item of the list.
@@ -155,12 +154,9 @@ fn the_keyboard_and_the_menus_walk_star_mute_archive_trash_and_undo() {
 
     // e archives it, with a toast that goes after its hold; Ctrl-Z brings it back.
     window.press(&[], Key::Char('e'), 1);
+    // The row leaves on the press; the toast says it once the archive is written.
     window.until("e archives it", |h| row_of(h, second).is_none());
-    assert_eq!(
-        window.harness.count(".ds-toast"),
-        1,
-        "archiving said nothing"
-    );
+    window.until("archiving says so", |h| h.count(".ds-toast") == 1);
     let hold = ds::style::tokens::delay::DelayToken::ToastHold.delay();
     window.harness.advance(hold / 2);
     assert_eq!(
@@ -243,11 +239,39 @@ fn rows_picked_together_are_acted_on_as_one_gesture_and_one_undo() {
     window.until_stored("the bar stars both", |_| true);
     assert_eq!(starred(&window), [subjects[0], subjects[2]]);
     window.press(&[PRIMARY], Key::Char('z'), 1);
+    // The undo goes through the client, which commits it a moment after the key.
+    window.until_stored("one Ctrl-Z, both", |store| {
+        listed(
+            store,
+            mail_domain::Filter::Account(account()),
+            chrono::Utc::now(),
+        )
+        .iter()
+        .all(|t| t.star != Star::Starred)
+    });
     assert!(starred(&window).is_empty(), "one Ctrl-Z, both");
     let muted = |window: &Window| stored_where(window, |t| t.mute == Mute::Muted);
     window.click(&labelled(&copy::aria::on_selected(copy::menus::MUTE, 2)));
+    window.until_stored("the bar mutes both", |store| {
+        listed(
+            store,
+            mail_domain::Filter::Account(account()),
+            chrono::Utc::now(),
+        )
+        .iter()
+        .any(|t| t.mute == Mute::Muted)
+    });
     assert_eq!(muted(&window), [subjects[0], subjects[2]]);
     window.press(&[PRIMARY], Key::Char('z'), 1);
+    window.until_stored("one Ctrl-Z, both", |store| {
+        listed(
+            store,
+            mail_domain::Filter::Account(account()),
+            chrono::Utc::now(),
+        )
+        .iter()
+        .all(|t| t.mute != Mute::Muted)
+    });
     assert!(muted(&window).is_empty(), "one Ctrl-Z, both");
 
     // The bar's last button clears the pick, leaving the open row.
@@ -480,4 +504,53 @@ fn a_click_on_a_row_opens_it_and_a_right_click_only_opens_its_menu_at_the_pointe
         1,
         "the click moved the conversation out of the account"
     );
+}
+
+/// Flag ▸ in a row's menu flags the conversation in a colour: the row's star wears it, the
+/// reader's flag before the subject says it, and Clear Flag takes the flag and its colour away.
+#[test]
+fn a_row_is_flagged_orange_from_its_menu_and_cleared_again() {
+    let mut window = Window::open(|_| {});
+    let subject = INBOX[1].1;
+    let row = row_for(&window, subject);
+    assert_eq!(
+        window.harness.attr(&format!("{row} .row"), "data-flag"),
+        None,
+        "an unflagged row wears a colour"
+    );
+
+    open_row_menu(&mut window.harness, &row);
+    window.submenu_item(copy::menus::FLAG, copy::menus::hue(Hue::Orange));
+    window.until_stored("Orange flags it orange", |store| {
+        let thread = conversation(store, subject);
+        thread.star == Star::Starred && thread.flag == Hue::Orange
+    });
+    window.until("its row wears orange", |h| {
+        h.attr(&format!("{} .row", row_for_in(h, subject)), "data-flag")
+            .as_deref()
+            == Some("orange")
+    });
+
+    window.open_subject(subject);
+    window.until("the reader says it is flagged orange", |h| {
+        h.attr(".reader-head .flag-mark", "aria-label").as_deref()
+            == Some(copy::aria::flagged(Hue::Orange).as_str())
+    });
+
+    let row = row_for(&window, subject);
+    open_row_menu(&mut window.harness, &row);
+    window.submenu_item(copy::menus::FLAG, copy::menus::CLEAR_FLAG);
+    window.until_stored("Clear Flag unflags it", |store| {
+        conversation(store, subject).star == Star::Unstarred
+    });
+    window.until("its row wears no colour", |h| {
+        h.attr(&format!("{} .row", row_for_in(h, subject)), "data-flag")
+            .is_none()
+    });
+    assert_eq!(window.harness.count(".reader-head .flag-mark"), 0);
+}
+
+/// The list's item reading `subject`, from the harness alone.
+fn row_for_in(harness: &ds_harness::Harness, subject: &str) -> String {
+    item(row_of(harness, subject).unwrap_or_else(|| panic!("no row reads {subject:?}")))
 }

@@ -23,12 +23,12 @@ pub use jmap::find as find_jmap;
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{AuthPlan, Outgoing, Retry, SaslMech, Tls, Username};
 pub use offer::{Looked, resolve, settle, typed, typed_domain};
-use porter_core::{Family, ServiceEndpoint, Tls as Wire, UrlScheme};
+use porter_core::{Family, ServiceEndpoint, Tls as Wire};
 use porter_discover::{
-    Dns, Found as Servers, NotFound, OAuthOnly, Outcome, Pop3, ProviderLead, SearchOptions,
-    Source as Via, StartTlsOnly,
+    Dns, Found as Servers, NotFound, Outcome, ProviderLead, SearchOptions, Source as Via,
 };
 use porter_http::Http;
+use porter_ids::UrlScheme;
 use porter_provider::{DomainMatch, DomainName, Issuer, ProviderSpec};
 use std::sync::RwLock;
 
@@ -564,8 +564,7 @@ pub async fn lookup(address: &str, now: DateTime<Utc>) -> Result<Found, CoreErro
 
 /// [`lookup`], with the reason a miss was left typed.
 pub async fn search(address: &str, now: DateTime<Utc>) -> Result<Found, Failed> {
-    let http = mail_runtime::lookup::ReqwestHttp::new()
-        .map_err(|e| Failed::Broken(format!("cannot build an HTTP client: {e}")))?;
+    let http = mail_runtime::lookup::http();
     let dns = mail_runtime::lookup::SystemDns::new().map_err(|e| Failed::Broken(e.to_string()))?;
     match tokio::time::timeout(mail_runtime::lookup::TOTAL, run(&http, &dns, address, now)).await {
         Ok(found) => found,
@@ -596,9 +595,9 @@ pub async fn run<H: Http, D: Dns>(
     now: DateTime<Utc>,
 ) -> Result<Found, Failed> {
     const TRY_NEXT: SearchOptions = SearchOptions {
-        starttls_only: StartTlsOnly::TryNext,
-        pop3: Pop3::Report,
-        oauth_only: OAuthOnly::Offer,
+        starttls_only: true,
+        report_pop3: true,
+        oauth_only_ok: true,
     };
     match find(http, dns, address, &TRY_NEXT).await {
         Ok(outcome) => map(outcome, address, now),
@@ -610,7 +609,7 @@ pub async fn run<H: Http, D: Dns>(
             // Nothing usable: was a STARTTLS-only document the reason? Asked again with the rule
             // off, only to say so (and to take an OAuth preset a STARTTLS document leads to).
             let accepting = SearchOptions {
-                starttls_only: StartTlsOnly::Accept,
+                starttls_only: false,
                 ..TRY_NEXT
             };
             match find(http, dns, address, &accepting).await {
@@ -646,12 +645,12 @@ async fn find<H: Http, D: Dns>(
     let outcome = porter_discover::discover_mail_with(http, dns, providers, address, options).await;
     match outcome {
         Ok(Outcome::Servers(servers))
-            if options.oauth_only == OAuthOnly::Offer
+            if options.oauth_only_ok
                 && servers.oauth.is_some()
                 && oauth_issuer(&servers).is_none() =>
         {
             let without = SearchOptions {
-                oauth_only: OAuthOnly::Miss,
+                oauth_only_ok: false,
                 ..*options
             };
             porter_discover::discover_mail_with(http, dns, providers, address, &without).await
@@ -668,7 +667,8 @@ mod tests {
     use porter_discover::{
         DnsFault, Miss, MxRecord, SrvRecord, Tried, parse_autoconfig, parse_autoconfig_with,
     };
-    use porter_http::{Http, HttpError, HttpRequest, HttpResponse, Status};
+    use porter_http::http::{Request, Response, StatusCode};
+    use porter_http::{Http, HttpError};
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -692,18 +692,17 @@ mod tests {
     }
 
     impl Http for Net {
-        async fn send(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
-            let url = request.url.to_string();
+        async fn send(&self, request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, HttpError> {
+            let url = request.uri().to_string();
             self.asked.lock().unwrap().push(url.clone());
             let (status, body) = match self.documents.get(&url) {
                 Some(body) => (200, body.clone()),
                 None => (404, String::new()),
             };
-            Ok(HttpResponse {
-                status: Status(status),
-                headers: Vec::new(),
-                body: body.into_bytes(),
-            })
+            Ok(Response::builder()
+                .status(StatusCode::from_u16(status).expect("a status"))
+                .body(body.into_bytes())
+                .expect("a response"))
         }
     }
 
@@ -784,9 +783,9 @@ mod tests {
     /// A document read under the options mailo's search uses (`run`), then mapped.
     fn found_under_mailo(xml: &str, address: &str) -> Result<Found, Failed> {
         let options = SearchOptions {
-            starttls_only: StartTlsOnly::TryNext,
-            pop3: Pop3::Report,
-            oauth_only: OAuthOnly::Offer,
+            starttls_only: true,
+            report_pop3: true,
+            oauth_only_ok: true,
         };
         let servers = parse_autoconfig_with(xml, address, &options).expect("a usable document");
         map(Outcome::Servers(servers), address, now())

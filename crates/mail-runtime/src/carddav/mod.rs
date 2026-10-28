@@ -1,10 +1,11 @@
 //! CardDAV (RFC 6352): finding a user's address books and reading them into the contacts table.
 //!
-//! The requests are built and the replies read by `mail_pim::dav`; this module sends them.
-//! Cards come down and become contacts under [`mail_store::Origin::Book`], and a `KIND:group`
-//! card becomes a [`mail_store::Group`]. The one thing written back is a group edited here
-//! ([`mail_store::Edit::Edited`]): the next sync of its book sends it with `PUT`, conditional on
-//! the etag last seen (RFC 6352 §6.3.2, RFC 9110 §13.1.1).
+//! The requests are built and the replies read by `dav_proto`; this module sends them.
+//! Cards come down and become contacts under [`mail_store::Origin::Book`]; a `KIND:group` card
+//! becomes a [`mail_store::Group`] and any other a [`mail_store::PersonCard`]. What is written
+//! back is a group or a person's card edited here ([`mail_store::Edit::Edited`]): the next sync
+//! of its book sends it with `PUT`, conditional on the etag last seen (RFC 6352 §6.3.2, RFC 9110
+//! §13.1.1).
 //!
 //! HTTPS only, whatever URL is given: every request carries a password or a bearer token.
 //! Redirects are followed by hand rather than by the client, because the one CardDAV depends on
@@ -14,6 +15,7 @@
 
 mod discover;
 mod group;
+mod person;
 mod sync;
 
 pub use discover::{Collection, discover};
@@ -123,7 +125,7 @@ impl From<CardDavFailure> for RuntimeError {
 ///
 /// A builder so a test can add a root it trusts and point a name at a local listener.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
+    crate::roots::trusting_system(reqwest::Client::builder())
         .timeout(TIMEOUT)
         .connect_timeout(Duration::from_secs(15))
         .https_only(true)
@@ -256,7 +258,7 @@ impl Dav {
         depth: &str,
         body: String,
         what: &'static str,
-    ) -> Result<(Url, mail_pim::Multistatus), CardDavFailure> {
+    ) -> Result<(Url, dav_proto::Multistatus), CardDavFailure> {
         let request = Request {
             depth: Some(depth),
             content_type: "application/xml; charset=utf-8",
@@ -270,7 +272,7 @@ impl Dav {
                 what,
             });
         }
-        let parsed = mail_pim::dav::multistatus(&reply.body)
+        let parsed = dav_proto::parse_multistatus(&reply.body)
             .map_err(|e| CardDavFailure::Malformed(e.to_string()))?;
         Ok((reply.url, parsed))
     }
@@ -295,7 +297,7 @@ impl Dav {
             StatusCode::PRECONDITION_FAILED => Ok(Put::Changed),
             status => Err(CardDavFailure::Refused {
                 status: status.as_u16(),
-                what: "the PUT of a group",
+                what: "the PUT of a card",
             }),
         }
     }

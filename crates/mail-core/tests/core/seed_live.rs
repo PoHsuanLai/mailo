@@ -64,6 +64,7 @@ fn seed() {
                 cursor: None,
                 messages: vec![],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: vec![(
                     RemoteRef::Pop {
@@ -71,6 +72,7 @@ fn seed() {
                     },
                     vec!["travel".to_owned()],
                 )],
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

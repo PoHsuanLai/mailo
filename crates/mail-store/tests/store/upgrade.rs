@@ -19,6 +19,15 @@ use rusqlite::Connection;
 const ACCOUNT: &str = "00000000-0000-4000-8000-0000000000a1";
 const THREAD: &str = "00000000-0000-4000-8000-0000000000e1";
 const MESSAGE: &str = "00000000-0000-4000-8000-0000000000f1";
+/// The identities 0034's case writes: signed, signed with only blank lines, and unsigned.
+const SIGNED: &str = "00000000-0000-4000-8000-0000000000b1";
+const BLANK: &str = "00000000-0000-4000-8000-0000000000b2";
+const UNSIGNED: &str = "00000000-0000-4000-8000-0000000000b3";
+/// The drafts 0038's case writes: plain, and with HTML.
+const PLAIN_DRAFT: &str = "00000000-0000-4000-8000-0000000000d1";
+const RICH_DRAFT: &str = "00000000-0000-4000-8000-0000000000d2";
+/// The plain template 0038's case writes.
+const PLAIN_TEMPLATE: &str = "00000000-0000-4000-8000-0000000000c1";
 /// A second message, for the cases that need one beside [`MESSAGE`].
 const OTHER: &str = "00000000-0000-4000-8000-0000000000f2";
 
@@ -282,6 +291,8 @@ const CASES: &[Case] = &[
     Case {
         // Both passes that run on open, the index backfill and the summary queue, read every
         // message, so either could lock someone out of all their mail over one bad row.
+        // And a thread that does not rebuild is not forgotten: it stays queued, and is said, for
+        // the next open to try again.
         migration: "0007_resummarize, a row that does not decode",
         from: 6,
         seed: |db| {
@@ -303,7 +314,13 @@ const CASES: &[Case] = &[
             .unwrap();
         },
         check: |open| {
-            open();
+            let store = open();
+            let queued = "SELECT count(*) FROM summaries_to_refresh";
+            assert_eq!(
+                number(&store.raw_connection(), queued),
+                1,
+                "the thread that did not rebuild stays queued"
+            );
         },
     },
     Case {
@@ -694,6 +711,359 @@ const CASES: &[Case] = &[
             );
         },
     },
+    Case {
+        // The one signature an identity had becomes its first row, the default for both, and
+        // the column it was in is emptied; a blank one becomes nothing.
+        migration: "0034_signatures",
+        from: 32,
+        seed: |db| {
+            seed(db);
+            for (id, email, signature) in [
+                (
+                    SIGNED,
+                    "me@example.test",
+                    Some("Ada Lovelace\nAnalytical Engines"),
+                ),
+                (BLANK, "alias@example.test", Some("  \n ")),
+                (UNSIGNED, "other@example.test", None),
+            ] {
+                db.execute(
+                    "INSERT INTO identities (id, account, from_name, from_email, reply_to,
+                         signature, is_default)
+                     VALUES (?1, ?2, NULL, ?3, NULL, ?4, '\"alternate\"')",
+                    rusqlite::params![id, ACCOUNT, email, signature],
+                )
+                .unwrap();
+            }
+        },
+        check: |open| {
+            use mail_domain::{IdentityId, IsDefault, SignatureUse};
+            let store = open();
+            let id = |text: &str| IdentityId::from_uuid(text.parse().unwrap());
+            let signed = store.signatures(id(SIGNED)).unwrap();
+            assert_eq!(signed.len(), 1, "{signed:?}");
+            let only = &signed[0];
+            assert_eq!(only.text, "Ada Lovelace\nAnalytical Engines");
+            assert_eq!(only.name, mail_domain::UNNAMED_SIGNATURE);
+            assert_eq!(only.html, None);
+            assert_eq!(
+                (only.new_mail, only.replies),
+                (IsDefault::Default, IsDefault::Default)
+            );
+            assert_eq!(
+                store
+                    .default_signature(id(SIGNED), SignatureUse::Replies)
+                    .unwrap()
+                    .map(|s| s.id),
+                Some(only.id)
+            );
+            // Read through the identity as it always was.
+            assert_eq!(
+                store
+                    .identity(id(SIGNED))
+                    .unwrap()
+                    .unwrap()
+                    .signature
+                    .as_deref(),
+                Some("Ada Lovelace\nAnalytical Engines")
+            );
+            assert_eq!(store.signatures(id(BLANK)).unwrap(), vec![]);
+            assert_eq!(store.signatures(id(UNSIGNED)).unwrap(), vec![]);
+            assert_eq!(store.identity(id(BLANK)).unwrap().unwrap().signature, None);
+            let db = store.raw_connection();
+            assert_eq!(
+                number(
+                    &db,
+                    "SELECT count(*) FROM identities WHERE signature IS NOT NULL"
+                ),
+                0,
+                "the old column still speaks"
+            );
+            // Deleting the row leaves the identity unsigned: nothing comes back from the column.
+            drop(db);
+            store.delete_signature(only.id).unwrap();
+            assert_eq!(store.identity(id(SIGNED)).unwrap().unwrap().signature, None);
+        },
+    },
+    Case {
+        // A plain draft an older build kept has its text as written, which is not flowed text,
+        // so it is queued to be rewritten, as is a plain template; one with HTML the composer
+        // wrote, as flowed text.
+        migration: "0038_reflow_drafts",
+        from: 37,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO identities (id, account, from_name, from_email, is_default)
+                 VALUES (?1, ?2, NULL, 'me@example.test', '\"default\"')",
+                [SIGNED, ACCOUNT],
+            )
+            .unwrap();
+            for (id, text, html) in [
+                (PLAIN_DRAFT, "Dear Ada, \nFrom here", None),
+                (RICH_DRAFT, "Dear Bea,", Some("<p>Dear Bea,</p>")),
+            ] {
+                db.execute(
+                    r#"INSERT INTO drafts (id, account, identity, recipients, subject,
+                           in_reply_to, forward_of, body_text, body_html, attachments, state,
+                           updated_at)
+                       VALUES (?1, ?2, ?3, '{"to":[],"cc":[],"bcc":[]}', 'Plans', NULL, NULL,
+                           ?4, ?5, '[]', '{"kind":"editing"}',
+                           '2023-01-02T00:00:00.000000000Z')"#,
+                    rusqlite::params![id, ACCOUNT, SIGNED, text, html],
+                )
+                .unwrap();
+            }
+            db.execute(
+                r#"INSERT INTO templates (id, account, identity, name, recipients, subject,
+                       body_text, body_html, attachments, receipt, updated_at)
+                   VALUES (?1, ?2, ?3, 'Weekly', '{"to":[],"cc":[],"bcc":[]}', 'Plans',
+                       ' indented', NULL, '[]', '"unrequested"',
+                       '2023-01-02T00:00:00.000000000Z')"#,
+                [PLAIN_TEMPLATE, ACCOUNT, SIGNED],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            use mail_domain::{DraftId, TemplateId};
+            use mail_store::Kept;
+            let store = open();
+            let draft = DraftId::from_uuid(PLAIN_DRAFT.parse().unwrap());
+            let template = TemplateId::from_uuid(PLAIN_TEMPLATE.parse().unwrap());
+            assert_eq!(
+                store.reflow_queue().unwrap(),
+                vec![
+                    (Kept::Draft(draft), "Dear Ada, \nFrom here".to_owned()),
+                    (Kept::Template(template), " indented".to_owned()),
+                ]
+            );
+            store
+                .reflowed(Kept::Draft(draft), "Dear Ada,\n From here")
+                .unwrap();
+            store
+                .reflowed(Kept::Template(template), "  indented")
+                .unwrap();
+            drop(store);
+            let store = open();
+            assert_eq!(store.reflow_queue().unwrap(), vec![], "it runs once");
+            assert_eq!(store.draft(draft).unwrap().text, "Dear Ada,\n From here");
+            assert_eq!(store.template(template).unwrap().text, "  indented");
+        },
+    },
+    Case {
+        // The list sorts by sender, subject, size, unread and starred, from columns every
+        // existing summary gets from its newest message, not left at their defaults until the
+        // thread is next written, which for old mail is never.
+        migration: "0041_sort_keys",
+        from: 40,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                     recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                     body_text, body_raw, attachments)
+                 VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', 'Ada', 'ada@b.test', '{}',
+                     'Plans', NULL, '[]', NULL, '\"unread\"', '\"starred\"', '\"inbox\"',
+                     'héllo', NULL,
+                     '[{\"name\":\"a.pdf\",\"mime\":\"application/pdf\",\"size\":100,
+                        \"remote_section\":\"2\",\"inline\":{\"kind\":\"attached\"}}]')",
+                [OTHER, THREAD, ACCOUNT],
+            )
+            .unwrap();
+            // The summary is rebuilt from these rows on open, so they are written as the store
+            // reads them now: a row that did not decode would keep its thread queued.
+            for (message, key) in [(MESSAGE, "k@example.test"), (OTHER, "k2@example.test")] {
+                let stored = format!(r#"{{"kind":"rfc","v":"{key}"}}"#);
+                db.execute(
+                    "UPDATE messages SET msg_key = ?2 WHERE id = ?1",
+                    [message, stored.as_str()],
+                )
+                .unwrap();
+            }
+            db.execute(
+                "UPDATE threads SET snooze = ?1, pin = ?2",
+                [
+                    serde_json::to_string(&mail_domain::Snooze::Inactive).unwrap(),
+                    serde_json::to_string(&mail_domain::Pin::Unpinned).unwrap(),
+                ],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
+                     from_email, participants, recipients, last_date, message_count, read, star,
+                     mailboxes, labels, attachments, snooze, pin)
+                 VALUES (?1, ?2, 's', 'hello', 'Ada', 'ada@b.test', '[]', '[]',
+                     '2023-01-02T00:00:00Z', 2, '\"unread\"', '\"starred\"', '[\"inbox\"]',
+                     '[]', '{\"files\":1}', '\"none\"', '\"none\"')",
+                [THREAD, ACCOUNT],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            let db = store.raw_connection();
+            let row: (String, String, i64, i64, i64) = db
+                .query_row(
+                    "SELECT sort_subject, sort_sender, size, unread, starred FROM thread_summary",
+                    [],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                )
+                .unwrap();
+            // The newer message's, as the store reads it: it has no raw bytes, so it is held by
+            // its headers and its 'héllo' is not counted, and its part says 100.
+            assert_eq!(row, ("plans".to_owned(), "ada".to_owned(), 100, 1, 1));
+            assert_eq!(
+                number(&db, "SELECT count(*) FROM summaries_to_refresh"),
+                0,
+                "the queue is emptied on open"
+            );
+        },
+    },
+    Case {
+        // Attachment names joined the indexed text. A version-32 row was indexed without them,
+        // so the migration clears the text and the index together and the open backfills it.
+        migration: "0042_fts_attachment_names",
+        from: 41,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO messages (id, thread, account, msg_key, date, from_name, from_email,
+                     recipients, subject, in_reply_to, refs, rfc_message_id, read, star, mailbox,
+                     body_text, body_raw, attachments, fts_text)
+                 VALUES (?1, ?2, ?3, '\"k2\"', '2023-01-02T00:00:00Z', NULL, 'c@d.test', '{}',
+                     'minutes', NULL, '[]', NULL, '\"read\"', '\"unstarred\"',
+                     '\"inbox\"', 'lunch on friday', NULL,
+                     '[{\"name\":\"quarterly-figures.pdf\",\"mime\":\"application/pdf\",
+                        \"size\":12345,\"blob\":\"04040404-0404-0404-0404-040404040404\",
+                        \"inline\":{\"kind\":\"attached\"}}]',
+                     'minutes c d test lunch on friday')",
+                [OTHER, THREAD, ACCOUNT],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            assert_eq!(
+                hits(&store, "quarterly"),
+                1,
+                "an attachment's name is indexed"
+            );
+            assert_eq!(hits(&store, "lunch"), 1, "what was findable still is");
+            assert_eq!(hits(&store, "minutes"), 1, "and only once");
+            store
+                .raw_connection()
+                .execute(
+                    "INSERT INTO messages_fts(messages_fts) VALUES ('integrity-check')",
+                    [],
+                )
+                .expect("the index agrees with the table after the upgrade");
+        },
+    },
+    Case {
+        // The VIPs are a table of their own: the book's rows stay as they were, nobody is a VIP
+        // yet, and one can be marked at once.
+        migration: "0043_vips",
+        from: 42,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO contacts (address, name, name_rank, written_count, received_count,
+                     kind, origin, keys)
+                 VALUES ('dana@example.test', 'Dana', 3, 0, 1, '\"person\"',
+                     '{\"kind\":\"manual\"}', ' dana ')",
+                [],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            assert_eq!(store.vips().unwrap(), []);
+            let kept = store.contact("dana@example.test").unwrap();
+            assert_eq!(
+                kept.and_then(|contact| contact.name).as_deref(),
+                Some("Dana")
+            );
+            store.put_vip("Dana@example.test", Some("Dana")).unwrap();
+            assert_eq!(
+                store
+                    .vips()
+                    .unwrap()
+                    .into_iter()
+                    .map(|vip| vip.address)
+                    .collect::<Vec<_>>(),
+                ["dana@example.test"]
+            );
+        },
+    },
+    Case {
+        // Each message's size is written beside it from its text and its parts, a row whose
+        // parts are not JSON counting none, and the index is told of a message only when its
+        // indexed text is written.
+        migration: "0050_message_size",
+        from: 49,
+        seed: |db| {
+            seed(db);
+            for (id, key, body, parts) in [
+                (OTHER, "k2", "héllo", r#"[{"size":100}]"#),
+                (
+                    "00000000-0000-4000-8000-0000000000f3",
+                    "k3",
+                    "plain",
+                    "not json",
+                ),
+            ] {
+                let key = format!("\"{key}\"");
+                db.execute(
+                    "INSERT INTO messages (id, thread, account, msg_key, date, from_name,
+                         from_email, recipients, subject, in_reply_to, refs, rfc_message_id, read,
+                         star, mailbox, body_text, body_raw, attachments)
+                     VALUES (?1, ?2, ?3, ?4, '2023-01-02T00:00:00Z', NULL, 'c@d.test', '{}', 'sized',
+                         NULL, '[]', NULL, '\"read\"', '\"unstarred\"', '\"inbox\"', ?5, NULL, ?6)",
+                    [id, THREAD, ACCOUNT, key.as_str(), body, parts],
+                )
+                .unwrap();
+            }
+        },
+        check: |open| {
+            let store = open();
+            let db = store.raw_connection();
+            let sizes: Vec<(String, i64)> = db
+                .prepare("SELECT id, size FROM messages ORDER BY id")
+                .unwrap()
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect();
+            assert_eq!(
+                sizes,
+                [
+                    (MESSAGE.to_owned(), 0),
+                    // 'héllo' is six bytes, and its part says 100.
+                    (OTHER.to_owned(), 106),
+                    ("00000000-0000-4000-8000-0000000000f3".to_owned(), 5),
+                ]
+            );
+            drop(db);
+            let set = |sql: &str| {
+                store.raw_connection().execute(sql, []).unwrap();
+            };
+            set(
+                "UPDATE messages SET fts_text = 'zebra' WHERE id = '00000000-0000-4000-8000-0000000000f2'",
+            );
+            assert_eq!(hits(&store, "zebra"), 1);
+            set("UPDATE messages SET read = '\"unread\"'");
+            assert_eq!(hits(&store, "zebra"), 1, "a flag leaves the index alone");
+            set(
+                "UPDATE messages SET fts_text = 'aardvark' WHERE id = '00000000-0000-4000-8000-0000000000f2'",
+            );
+            assert_eq!(hits(&store, "zebra"), 0);
+            assert_eq!(
+                hits(&store, "aardvark"),
+                1,
+                "new indexed text replaces the old"
+            );
+        },
+    },
 ];
 
 fn imap(mailbox: &str, uid: u32) -> mail_domain::RemoteRef {
@@ -766,4 +1136,313 @@ fn a_database_at_the_current_version_opens_unchanged() {
         1,
         "and keeps its rows"
     );
+}
+
+/// The SHA-256 of every migration file that has landed on master, 0001 to 0040. A database that
+/// is past a version never runs that file again, so a change to it reaches no database that
+/// matters: the change belongs in a new migration.
+const LANDED_ON_MASTER: [(u32, &str); 40] = [
+    (
+        1,
+        "d46fb00f007468c7d832c90ad6ebc0dd06c8f2a227019e99f9d43ce473d00422",
+    ),
+    (
+        2,
+        "266948f384fcad6417a3f42092b653b2d0b65f846f62f3767e3dece7af2fd8ae",
+    ),
+    (
+        3,
+        "9f3ed3eb625413bfa8797cc058a9172e10df3ea8c9daa23564c2e11dcc7394db",
+    ),
+    (
+        4,
+        "09cd53913efa769e1ac2854340bac4e188020b0b5f554f9d8d13869484ca91a3",
+    ),
+    (
+        5,
+        "fe5eddac5b8fcf7904df2aa4f8ff60cf56d9d4efb5929b11b444ba0d24c3872b",
+    ),
+    (
+        6,
+        "f35d41c6fdf32685f63fe40381be52f6c5c27e01fd210014c39ee067d92257b9",
+    ),
+    (
+        7,
+        "c1f22e531665b44a805ebdc939855260ad8b616b515449c31e7f4f1863037b76",
+    ),
+    (
+        8,
+        "b0d01eba85e02866ed1b8d67976c2f00e389bb06490d95acd3cd7a5fd0b23902",
+    ),
+    (
+        9,
+        "6643ae80846e0243d165ccf6e27cd5fd3e4c562b895c7f3cc7f4a5d4432a63fe",
+    ),
+    (
+        10,
+        "b8f905f16efa9ef31035c5e5e3870df571f540c5fa006a8d68dcfcb0ed42730e",
+    ),
+    (
+        11,
+        "a971286deebc90d98ecf94652228ff5b29f0f3016484500a8e91e6a121ed1f18",
+    ),
+    (
+        12,
+        "ad4ce1e366518604d42f3cf987059353f91136506578e10a2787a89029a2f06e",
+    ),
+    (
+        13,
+        "d89db110f7122fbcbdc82d809ed1322f3b04aaf3e382382214567a176939e825",
+    ),
+    (
+        14,
+        "91e615bf3eb276f2708a4abd26e279128c225a2ff021c6ee7bdbe31785ab96f9",
+    ),
+    (
+        15,
+        "14f3b7e6ad68327050537701a3f466c5550f0d638e6c493da578edce0e630291",
+    ),
+    (
+        16,
+        "313c68556feee4e979c6605f2c5799fc9323eaf0a6363f3ce79195c5130bbfb4",
+    ),
+    (
+        17,
+        "b96d7563642ac1db29a39ac9ef9bed6328b57b8fdb686f66efaa8af6ddcca4e3",
+    ),
+    (
+        18,
+        "20abf57c19112783d64b925cd8ac7bcc6fff793dc32eb54258c1a3b4589fc0e4",
+    ),
+    (
+        19,
+        "7db878213dc831fd27c88597f47ba0cd58de615e0709dafc4928dee55ae8c0ef",
+    ),
+    (
+        20,
+        "44a7abdd179830ea382c82e662b53ccce838a00af74b8bd66907a9c14ef1ef68",
+    ),
+    (
+        21,
+        "97c3cbcf8fd952b5b56eff58fe7ad6182f00a20040440367922d520610419ab8",
+    ),
+    (
+        22,
+        "f6f0fdff964de59b066eabb8a6eacd5ff579966f6f22acf853b3297910ce3501",
+    ),
+    (
+        23,
+        "6adb2c1f13983edcf7417b21902f5fef15ff27a9a6cebf74ba5aefa5917230e7",
+    ),
+    (
+        24,
+        "74b6603b471c7cb8b5d2942947590c7bc7ef04f7fd08718301116d2e2bb51725",
+    ),
+    (
+        25,
+        "b524808bca1be4fc97ab8b72ccc6c1ff69a969507f1c43d073f79d5df4a33e61",
+    ),
+    (
+        26,
+        "88095f2d3612efe5f7adbb448cdcf0294c90eff9df01faff9ae6feed1d8e3419",
+    ),
+    (
+        27,
+        "4bd60e765dab38b64413407cccad11988356f5db6a51bafcc7e1c07e9f003677",
+    ),
+    (
+        28,
+        "2d96ee017910bc51c82d48c1223bd7027f78f3f5846c38b60323e8665a756322",
+    ),
+    (
+        29,
+        "226a0b7c01e310496fa2d63daf678ad9b4eb71c37491735148d0af61b7c53524",
+    ),
+    (
+        30,
+        "1f214d980857f17dcbf7e74ff0efdb0b3ed775f237d44810d394e1ffd3ce80b7",
+    ),
+    (
+        31,
+        "93cebf699d42dbcdedb3270b5798a26e97ff842456b6c23c6246c0780007cfed",
+    ),
+    (
+        32,
+        "d95462598b175846a992674e2a1077a6a7b0b3e253414b23600d7baa94e844fd",
+    ),
+    (
+        33,
+        "3edd50b97aa29239aacd047c13786ed26514495e046167a8a105693b5d0fef7f",
+    ),
+    (
+        34,
+        "405a5caf8234a778397cae009de0ea10ae5b2830960b859a4d6cbc4dc2974ebd",
+    ),
+    (
+        35,
+        "57b389e3545b5867aed3b2bac301f96faa5136d978c92c98136e60a32e343fee",
+    ),
+    (
+        36,
+        "2c8d0b9bc3e10a06e94bd5ec3a5450c2d76717fa906b5b40e02c0bc9f7caa372",
+    ),
+    (
+        37,
+        "0652e173fb192935dc4ab88c8847528bcdbd48dee6a32aeefab092c8e12219a6",
+    ),
+    (
+        38,
+        "195ae5cf4817928a421722575ea1b207b280b85161e9eb99c7ed4c1ed6f6d0f6",
+    ),
+    (
+        39,
+        "5ab988080e5cbff2b78d74333f1a9a0cdad45c04b8d705c7b6950de0d83457e3",
+    ),
+    (
+        40,
+        "3570090725a6aa23c1b863368dcf3c50601ad32ca7b71447dfb1167fb8d81303",
+    ),
+];
+
+/// The migrations this branch adds, 0041 to 0052. They land together with this table, so they
+/// join the ones above from here on: once they are on master they are as fixed as those.
+const LANDED_WITH_THIS_BRANCH: [(u32, &str); 12] = [
+    (
+        41,
+        "5fb56462cc1bf3ca45b41b68ba8a03f91e6af456e2dcebdc7e24dd3e95ba8a14",
+    ),
+    (
+        42,
+        "496fd2d3fb0a7063596e59b663a1c212bbd6a2682c83368cf36a427f4c64ef18",
+    ),
+    (
+        43,
+        "8d4930a7f00360f359fb3670ea9731c996a5d84a2995013336ab9d756e147747",
+    ),
+    (
+        44,
+        "9a018114e61ff5e7f6629e205a285a3f8d6d6567956f1ea243b3dd33d422058b",
+    ),
+    (
+        45,
+        "f647b7ae08661aef1ff793b0b349deb4b4bed18d91714259ab43c48df963b68c",
+    ),
+    (
+        46,
+        "6df02e97167c0a96cc6eeccc21441933b2fa506d970902cef343e9764e15eb7c",
+    ),
+    (
+        47,
+        "749ab21acb7ff2c0b17a12e6d2cd72ab3dceef393ed42b99dcd440aeb751530c",
+    ),
+    (
+        48,
+        "ad165134b167f90d0b9bf00956a28012ce4e519cb227f4f1031ba552cc6c17e9",
+    ),
+    (
+        49,
+        "6f57efecc09d7c29a46071e18d04254c6667edd176a56652c555d31889d8aeaa",
+    ),
+    (
+        50,
+        "41e7b528154abe4ca2ca3eb02d1cfecc02c632ce762c76284bad6f81e5942092",
+    ),
+    (
+        51,
+        "bfd7f93bc32e9ffb69ab13cf6fbe81e0830ce703c2097af4eab1006ccce56a4b",
+    ),
+    (
+        52,
+        "2fabe104464fa993b8c2ca1950d1ecff4d85a068764eb911cefc2c717c6a4ae5",
+    ),
+];
+
+fn sha256_hex(text: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(text.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// A migration that has landed is never edited: a database already past it would never get the
+/// change, and the code that reads it would fail there. Add a new migration instead.
+#[test]
+fn a_migration_that_has_landed_is_not_edited_add_a_new_migration_instead() {
+    for (version, want) in LANDED_ON_MASTER.iter().chain(&LANDED_WITH_THIS_BRANCH) {
+        let (_, sql) = MIGRATIONS
+            .iter()
+            .find(|(number, _)| number == version)
+            .unwrap_or_else(|| panic!("migration {version:04} was removed"));
+        assert_eq!(
+            sha256_hex(sql),
+            *want,
+            "migration {version:04} has landed and was edited; a database past it never runs it \
+             again, so add a new migration instead and leave this file as it was"
+        );
+    }
+}
+
+/// Every table's columns as `table.column type notnull default`, sorted.
+fn columns_of(db: &Connection) -> Vec<String> {
+    let tables: Vec<String> = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .map(|name| name.unwrap())
+        .collect();
+    let mut columns = Vec::new();
+    for table in tables {
+        let mut info = db.prepare(&format!("PRAGMA table_info({table})")).unwrap();
+        let rows = info
+            .query_map([], |row| {
+                Ok(format!(
+                    "{table}.{} {} {} {:?}",
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?
+                ))
+            })
+            .unwrap();
+        columns.extend(rows.map(|row| row.unwrap()));
+    }
+    columns.sort();
+    columns
+}
+
+/// The last version on master is 40: a database there, opened by this build, has every table and
+/// column a fresh database has, so nothing the code reads is missing from the owner's own.
+#[test]
+fn a_database_at_the_last_version_on_master_gets_every_column_the_code_reads() {
+    let old = Connection::open_in_memory().unwrap();
+    apply_upto(&old, 40);
+    assert_eq!(version_of(&old), 40);
+    migrate::migrate(&old).unwrap();
+    assert_eq!(version_of(&old), EXPECTED_VERSION);
+
+    let fresh = Connection::open_in_memory().unwrap();
+    migrate::migrate(&fresh).unwrap();
+    assert_eq!(columns_of(&old), columns_of(&fresh));
+}
+
+/// And the code runs on it: the account's preferences, read and written through the store, on a
+/// file that was at version 40 with an account in it.
+#[test]
+fn the_account_preferences_work_on_a_database_that_was_at_the_last_version_on_master() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mail.db");
+    {
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        apply_upto(&db, 40);
+        seed(&db);
+    }
+    let store = SqliteStore::open(&path, dir.path()).unwrap();
+    assert!(!store.account_prefs(account()).unwrap().keep_labels);
+    store
+        .set_account_keeps_labels(account(), true, chrono::Utc::now())
+        .unwrap();
+    assert!(store.account_prefs(account()).unwrap().keep_labels);
 }
