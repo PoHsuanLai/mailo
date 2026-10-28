@@ -11,7 +11,8 @@ use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Progress, ProtoOutcome};
 use mail_store::Store;
 use porter_core::Credential;
-use porter_core::{SecretText, UnixSeconds};
+use porter_core::SecretText;
+use porter_ids::UnixSeconds;
 
 fn gmail_caps() -> AccountCaps {
     AccountCaps {

@@ -16,7 +16,7 @@ use mail_proto::sieve::{
 };
 use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::UnixSeconds;
+use porter_ids::UnixSeconds;
 
 fn at(day: u32) -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 10, day, 0, 0, 0).unwrap()

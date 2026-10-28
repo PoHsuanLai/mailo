@@ -9,12 +9,12 @@ use mail_core::account::Setup;
 use mail_core::discover::{Failed, Found, Gap, Source};
 use mail_domain::presets::{self, Manual};
 use mail_domain::{HttpAuth, Incoming, LeaveOnServer, Outgoing, Tls};
-use porter_core::sheet::{
+use porter_core::{Credential, ProviderId, SecretText};
+use porter_provider::{Issuer, Provider, SignIn, SignInMode, SignInStart, SignInStep};
+use porter_sheet::{
     Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Presence, Protocol, SignInFault,
     SignInInput, manual_form,
 };
-use porter_core::{Credential, ProviderId, SecretText};
-use porter_provider::{Issuer, Provider, SignIn, SignInMode, SignInStart, SignInStep};
 use tokio::sync::Notify;
 
 use super::provider::{AddError, AddFault, Added, MailProvider, Request, Seams, offered};

@@ -11,11 +11,12 @@
 //! A typed password lives in the draft and nowhere else, as porter's `SecretText` (its `Debug`
 //! prints nothing); the draft empties it as it sends.
 
-use porter_core::sheet::{
+use porter_core::{ProviderId, SecretText};
+use porter_ids::WebUrl;
+use porter_sheet::{
     Entry, FieldAnswer, FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProviderRow,
     RowKind, ServiceChoice, ServiceState, SheetInput, SheetView, SignInFault, form_problem, refit,
 };
-use porter_core::{ProviderId, SecretText, WebUrl};
 
 /// A row of the provider list: a provider, or the generic "Other…" row quire's list adds.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -409,10 +410,11 @@ fn submit(specs: &[FieldSpec], draft: Draft) -> (Draft, Option<SheetInput>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use porter_core::sheet::{
+    use porter_capability::{AbsentReason, CapabilityKind, Toggle};
+    use porter_core::{AccountLabel, LimitReason};
+    use porter_sheet::{
         ProblemKind, Protocol, Review, ReviewView, ServiceRow, SignInFault, SignInView, manual_form,
     };
-    use porter_core::{AbsentReason, AccountLabel, CapabilityKind, LimitReason, Toggle};
 
     fn id(text: &str) -> ProviderId {
         ProviderId::parse(text).unwrap()

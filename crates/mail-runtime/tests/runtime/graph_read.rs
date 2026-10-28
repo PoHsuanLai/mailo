@@ -12,8 +12,9 @@ use mail_runtime::graph::read::{OverHttp, Reader};
 use mail_runtime::{AccountEngine, AccountSecrets, Held, OAuthTokens, Searched};
 use mail_store::{SqliteStore, Store};
 use porter_core::EndpointUrl;
+use porter_core::SecretText;
 use porter_core::{Credential, SecretKey, SecretPurpose};
-use porter_core::{SecretText, UnixSeconds};
+use porter_ids::UnixSeconds;
 use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use porter_secrets::MemorySecrets;
 use serde_json::{Value, json};
@@ -1105,7 +1106,6 @@ async fn a_refused_token_is_renewed_once_with_both_graph_permissions() {
             authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{issuer}/authorize")).unwrap(),
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{issuer}/token")).unwrap(),
             revoke: None,
-            device: None,
         }),
         ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
     };

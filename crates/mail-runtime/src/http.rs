@@ -5,7 +5,7 @@
 
 use crate::RuntimeError;
 use crate::error::Failure;
-use crate::lookup::ReqwestHttp;
+use porter_http_reqwest::ReqwestHttp;
 use std::time::Duration;
 
 /// A token endpoint that never answers must not hang a setup command or a sync pass forever.
@@ -25,9 +25,11 @@ pub fn http_client() -> Result<reqwest::Client, RuntimeError> {
     Ok(CLIENT.get_or_init(|| client).clone())
 }
 
-/// [`http_client`] as `porter_http`'s seam, which is what porter-oauth sends its exchanges over.
-pub fn oauth_http() -> Result<ReqwestHttp, RuntimeError> {
-    http_client().map(ReqwestHttp::over)
+/// `porter_http`'s seam over porter's own client, which is what porter-oauth sends its exchanges
+/// over. Built once, like [`http_client`], and a clone shares its connections.
+pub fn oauth_http() -> ReqwestHttp {
+    static HTTP: std::sync::OnceLock<ReqwestHttp> = std::sync::OnceLock::new();
+    HTTP.get_or_init(ReqwestHttp::new).clone()
 }
 
 /// The most a JSON answer (Graph, JMAP, CardDAV) is read to. The largest real ones are a page of

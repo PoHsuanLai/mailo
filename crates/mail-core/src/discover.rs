@@ -23,12 +23,13 @@ pub use jmap::find as find_jmap;
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{AuthPlan, Outgoing, Retry, SaslMech, Tls, Username};
 pub use offer::{Looked, resolve, settle, typed, typed_domain};
-use porter_core::{Family, ServiceEndpoint, Tls as Wire, UrlScheme};
+use porter_core::{Family, ServiceEndpoint, Tls as Wire};
 use porter_discover::{
     Dns, Found as Servers, NotFound, OAuthOnly, Outcome, Pop3, ProviderLead, SearchOptions,
     Source as Via, StartTlsOnly,
 };
 use porter_http::Http;
+use porter_ids::UrlScheme;
 use porter_provider::{DomainMatch, DomainName, Issuer, ProviderSpec};
 
 /// Where a configuration came from, which is what the user is asked to trust.
@@ -531,8 +532,7 @@ pub async fn lookup(address: &str, now: DateTime<Utc>) -> Result<Found, CoreErro
 
 /// [`lookup`], with the reason a miss was left typed.
 pub async fn search(address: &str, now: DateTime<Utc>) -> Result<Found, Failed> {
-    let http = mail_runtime::lookup::ReqwestHttp::new()
-        .map_err(|e| Failed::Broken(format!("cannot build an HTTP client: {e}")))?;
+    let http = mail_runtime::lookup::http();
     let dns = mail_runtime::lookup::SystemDns::new().map_err(|e| Failed::Broken(e.to_string()))?;
     match tokio::time::timeout(mail_runtime::lookup::TOTAL, run(&http, &dns, address, now)).await {
         Ok(found) => found,
@@ -635,7 +635,8 @@ mod tests {
     use porter_discover::{
         DnsFault, Miss, MxRecord, SrvRecord, Tried, parse_autoconfig, parse_autoconfig_with,
     };
-    use porter_http::{Http, HttpError, HttpRequest, HttpResponse, Status};
+    use porter_http::http::{Request, Response, StatusCode};
+    use porter_http::{Http, HttpError};
     use std::collections::HashMap;
     use std::sync::Mutex;
 
@@ -659,18 +660,17 @@ mod tests {
     }
 
     impl Http for Net {
-        async fn send(&self, request: HttpRequest) -> Result<HttpResponse, HttpError> {
-            let url = request.url.to_string();
+        async fn send(&self, request: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, HttpError> {
+            let url = request.uri().to_string();
             self.asked.lock().unwrap().push(url.clone());
             let (status, body) = match self.documents.get(&url) {
                 Some(body) => (200, body.clone()),
                 None => (404, String::new()),
             };
-            Ok(HttpResponse {
-                status: Status(status),
-                headers: Vec::new(),
-                body: body.into_bytes(),
-            })
+            Ok(Response::builder()
+                .status(StatusCode::from_u16(status).expect("a status"))
+                .body(body.into_bytes())
+                .expect("a response"))
         }
     }
 

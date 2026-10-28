@@ -8,7 +8,8 @@
 
 use mail_runtime::RuntimeError;
 use mail_runtime::authorize::sign_in_within;
-use porter_core::{Credential, EndpointUrl, UnixSeconds};
+use porter_core::{Credential, EndpointUrl};
+use porter_ids::UnixSeconds;
 use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use std::io::{Read, Write};
 use std::net::TcpStream;
@@ -65,7 +66,6 @@ async fn token_endpoint(status: &'static str, answer: &'static str) -> (ClientEn
             authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/authorize")).unwrap(),
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
             revoke: None,
-            device: None,
         }),
         ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
     };

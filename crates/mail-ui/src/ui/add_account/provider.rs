@@ -1,7 +1,7 @@
 //! What signing mail in means to mailo, as a porter provider: the conversation the add-account
 //! window's sheet runs.
 //!
-//! porter's sheet machine (`porter_core::sheet`, driven by `porter_service::AccountService`) is
+//! porter's sheet machine (`porter_sheet`, driven by `porter_service::AccountService`) is
 //! the add-account flow: it asks nothing and clients nothing by itself, it says what to draw and
 //! asks a provider's sign-in what to do next. This file is that sign-in for mail, over what mailo
 //! already has: the address's lookup (`mail_client::discover`), the browser sign-in
@@ -26,17 +26,16 @@ use mail_client::prelude::CoreError;
 use mail_client::prelude::{Environment, OAuthClients};
 use mail_domain::presets::{self, Preset};
 use mail_domain::{AuthPlan, HttpAuth};
-use porter_core::sheet::{
-    Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Manual as Typed, Presence, Protocol,
-    SignInFault, SignInInput, manual_form, parse_manual,
-};
-use porter_core::{
-    Account, AccountId, AccountLabel, AuthKind, CapabilityKind, Claim, Credential, Offer,
-    Provenance, Restriction, Subject, WebUrl,
-};
+use porter_capability::{CapabilityKind, Claim, Offer, Provenance, Subject};
+use porter_core::{Account, AccountId, AccountLabel, AuthKind, Credential, Restriction};
+use porter_ids::WebUrl;
 use porter_provider::{
     Issuer, Presented, Provider, ProviderError, ProviderSession, ProviderSpec, RevokeOutcome,
     SignIn, SignInMode, SignInStart, SignInStep, Signed,
+};
+use porter_sheet::{
+    Entry, FieldAnswer, FieldKind, FieldSpec, FieldValue, Manual as Typed, Presence, Protocol,
+    SignInFault, SignInInput, manual_form, parse_manual,
 };
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;

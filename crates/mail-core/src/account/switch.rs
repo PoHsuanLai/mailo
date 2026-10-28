@@ -98,7 +98,8 @@ mod tests {
     use mail_domain::{MailboxRef, RemoteRef, SyncCursor};
     use mail_runtime::{AccountSecrets, Arrival, ClientRegistry};
     use mail_store::Store;
-    use porter_core::{Credential, SecretText, UnixSeconds};
+    use porter_core::{Credential, SecretText};
+    use porter_ids::UnixSeconds;
     use porter_secrets::MemorySecrets;
 
     const ADDRESS: &str = "someone@contoso.onmicrosoft.com";

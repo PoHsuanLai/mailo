@@ -11,7 +11,7 @@ use crate::password::Password;
 use chrono::{DateTime, Utc};
 use mail_domain::presets::{self, Manual, ManualPop3, Preset};
 use mail_domain::{HttpAuth, Incoming, Outgoing, Tls};
-use porter_core::sheet::{Hop, MailServers, Manual as Typed, Security};
+use porter_sheet::{Hop, MailServers, Manual as Typed, Security};
 
 /// What looking an address up came to.
 #[derive(Debug, Clone, PartialEq)]
@@ -136,6 +136,8 @@ fn secured(mut preset: Preset, servers: &MailServers) -> Preset {
         Security::StartTls => Tls::StartTlsRequired,
         // Porter accepts it for a server on this computer only, where nothing can listen in.
         Security::Plain => Tls::Plaintext,
+        // A security this build does not know is read as the encrypted one, never as plain.
+        _ => Tls::Implicit,
     };
     match &mut preset.plan.incoming {
         Incoming::Imap { tls: at, .. } | Incoming::Pop3 { tls: at, .. } => {

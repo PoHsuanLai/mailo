@@ -18,8 +18,8 @@ use mail_domain::*;
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
-use porter_core::UnixSeconds;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
+use porter_ids::UnixSeconds;
 use porter_provider::Issuer;
 use porter_secrets::MemorySecrets;
 use std::sync::Arc;
@@ -352,7 +352,6 @@ mod renewing_an_expired_sign_in {
                 authorize: EndpointUrl::parse(&ends.auth).unwrap(),
                 token: EndpointUrl::parse(&ends.token).unwrap(),
                 revoke: None,
-                device: None,
             }),
             ..clients::entry(issuer, "client-id", None)
         };

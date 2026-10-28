@@ -38,6 +38,9 @@ testing = ["mail-runtime/testing"]
 
 [dependencies]
 porter-core.workspace = true
+porter-ids.workspace = true
+porter-capability.workspace = true
+porter-sheet.workspace = true
 porter-provider.workspace = true
 porter-discover.workspace = true
 # The HTTP seam porter-discover asks through (`discover.rs` names it); no client, no I/O.

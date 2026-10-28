@@ -156,6 +156,13 @@ impl JmapEngine {
                     "the credential kept for this account is not a password or token",
                 )));
             }
+            // A kind this build does not know is not read as "no sign-in", which asks the person
+            // to sign in again and writes over it: the account waits for a build that knows it.
+            _ => {
+                return Err(RuntimeError::Connect(Failure::said(
+                    "the credential kept for this account is of a kind this build does not know",
+                )));
+            }
         })
     }
 

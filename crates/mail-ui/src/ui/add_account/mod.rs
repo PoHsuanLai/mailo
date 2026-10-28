@@ -4,7 +4,7 @@
 //! The add-account window is a window of its own, as Settings is: a separate top-level window,
 //! raised when it is already open, that draws porter's accounts sheet with quire's
 //! `ds-shell::accounts` parts. The sheet is porter's: its machine
-//! (`porter_core::sheet`) says what to draw and asks a provider's sign-in what to do next, and
+//! (`porter_sheet`) says what to draw and asks a provider's sign-in what to do next, and
 //! porter's account service runs them in this process (`host`). What is mailo's is the sign-in
 //! itself, which looks an address up, signs in in a browser where the address wants one and adds
 //! the account to mailo's client (`provider`), and the one mapping between the sheet's values and

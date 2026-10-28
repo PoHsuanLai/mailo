@@ -11,7 +11,7 @@ use mail_proto::{
 };
 use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::UnixSeconds;
+use porter_ids::UnixSeconds;
 
 const USER: &str = "ada@example.com";
 const PASSWORD: &str = "s3cr3t-password";

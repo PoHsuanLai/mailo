@@ -14,7 +14,7 @@ use mail_proto::{
 };
 use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::UnixSeconds;
+use porter_ids::UnixSeconds;
 
 fn caps(labels: ServerLabels, archive: ArchiveMeans) -> AccountCaps {
     AccountCaps {

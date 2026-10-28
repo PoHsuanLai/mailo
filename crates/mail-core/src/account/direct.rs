@@ -176,7 +176,7 @@ pub async fn sign_in_with(
             let _ = unopened.send(why.to_string());
         }
     };
-    let at = porter_core::UnixSeconds(now.timestamp());
+    let at = porter_ids::UnixSeconds(now.timestamp());
     let signing = sign_in_told(&client, &scopes, &on_url, at, wait);
     let credential = tokio::select! {
         biased;

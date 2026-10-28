@@ -11,12 +11,13 @@
 use std::sync::{Arc, Mutex};
 
 use porter_core::consent::{ConsentAnswer, ConsentAsk};
-use porter_core::sheet::{SheetInput, SheetView};
-use porter_core::wire::{ParentWindow, ProviderHint};
-use porter_core::{AccountsReply, AccountsRequest, AppId, UnixSeconds};
+use porter_core::{AppId, ProviderHint};
+use porter_ids::clock::SystemClock;
 use porter_provider::Provider;
 use porter_secrets::{Secrets, SecretsError};
-use porter_service::{AccountService, Clock, Registry, SheetFault, SheetLink, SheetOpen, Sheets};
+use porter_service::{AccountService, Registry, SheetFault, SheetLink, SheetOpen, Sheets};
+use porter_sheet::{SheetInput, SheetView};
+use porter_wire::{AccountsReply, AccountsRequest, ParentWindow};
 use tokio::sync::{mpsc, watch};
 
 use super::provider::{Added, Seams, offered};
@@ -140,16 +141,6 @@ impl Secrets for NoSecrets {
 
     async fn delete_account(&self, _account: &porter_core::AccountId) -> Result<(), SecretsError> {
         Ok(())
-    }
-}
-
-/// The system's clock.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct SystemClock;
-
-impl Clock for SystemClock {
-    fn now(&self) -> UnixSeconds {
-        UnixSeconds(chrono::Utc::now().timestamp())
     }
 }
 

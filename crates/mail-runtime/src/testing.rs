@@ -95,7 +95,6 @@ pub fn fake_clients_for(issuers: &[Issuer]) -> ClientRegistry {
                 authorize: url("authorize"),
                 token: url("token"),
                 revoke: None,
-                device: None,
             }),
             ..crate::clients::entry(issuer, &format!("test-{name}-client"), None)
         }

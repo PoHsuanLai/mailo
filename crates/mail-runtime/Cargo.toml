@@ -9,9 +9,12 @@ rust-version.workspace = true
 
 [dependencies]
 porter-core.workspace = true
+porter-ids.workspace = true
 porter-provider.workspace = true
 porter-discover.workspace = true
 porter-http.workspace = true
+# The direct-connection client behind that seam (discovery and the token exchanges).
+porter-http-reqwest.workspace = true
 porter-oauth = { workspace = true, features = ["io"] }
 # A porter relay's byte stream (`AuthenticatedStream`), which `Transport::relayed` wraps and the
 # in-memory transport of `testing` is built on. Its `dbus` feature stays off: no zbus.
@@ -135,6 +138,7 @@ oo7 = ["porter-secrets/oo7"]
 testing = ["porter-secrets/testing"]
 
 [dev-dependencies]
+porter-capability.workspace = true
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
 mail-store = { workspace = true, features = ["testing"] }
 # Its own tests use the doubles it exports.

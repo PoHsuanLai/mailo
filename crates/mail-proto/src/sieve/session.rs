@@ -435,6 +435,11 @@ impl SieveSession {
                     "a bearer token signs in to JMAP only, not ManageSieve".to_owned(),
                 ));
             }
+            _ => {
+                return Step::Fail(ProtoError::Unsupported(
+                    "a credential of a kind this build does not know".to_owned(),
+                ));
+            }
         };
         if !self.caps.sasl.iter().any(|m| m == mechanism) {
             return Step::Fail(ProtoError::Unsupported(format!(

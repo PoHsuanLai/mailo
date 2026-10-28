@@ -29,7 +29,6 @@ mod live_imap;
 mod live_pop3;
 mod live_probe;
 mod live_smtp;
-mod lookup;
 mod part_flood_ingest;
 mod pgp_learn;
 mod queued_moves;

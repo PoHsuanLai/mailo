@@ -138,7 +138,6 @@ pub fn endpoints(client: &ClientEntry) -> Result<IssuerEndpoints, RuntimeError> 
                 ),
                 token: url("https://login.microsoftonline.com/organizations/oauth2/v2.0/token"),
                 revoke: None,
-                device: None,
             })
         }
         other => Err(RuntimeError::Secrets(Failure::said(format!(

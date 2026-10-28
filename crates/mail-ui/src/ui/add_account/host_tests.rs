@@ -6,11 +6,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mail_core::discover::{Failed, Gap};
-use porter_core::sheet::ServiceChoice;
-use porter_core::sheet::{
+use porter_capability::{CapabilityKind, Toggle};
+use porter_core::{ProviderId, SecretText};
+use porter_sheet::ServiceChoice;
+use porter_sheet::{
     FieldAnswer, FieldKind, FieldValue, ProblemKind, SheetInput, SheetView, SignInFault,
 };
-use porter_core::{CapabilityKind, ProviderId, SecretText, Toggle};
 
 use super::host::{self, Ended, Shown, WindowEnd};
 use super::provider::{Added, offered};

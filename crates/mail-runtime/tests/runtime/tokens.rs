@@ -23,7 +23,8 @@ use mail_runtime::{
 };
 use mail_store::{SqliteStore, Store};
 use porter_core::EndpointUrl;
-use porter_core::{Credential, SecretKey, SecretPurpose, SecretText, UnixSeconds};
+use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
+use porter_ids::UnixSeconds;
 use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
 use porter_secrets::MemorySecrets;
 use std::collections::BTreeSet;
@@ -188,7 +189,6 @@ async fn token_endpoint(script: Vec<(&'static str, String)>) -> (ClientEntry, Se
             authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/authorize")).unwrap(),
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
             revoke: None,
-            device: None,
         }),
         ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
     };
@@ -618,7 +618,6 @@ async fn an_unreachable_issuer_is_waited_out_rather_than_called_a_refusal() {
             authorize: EndpointUrl::parse(&format!("http://127.0.0.1:{closed}/authorize")).unwrap(),
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{closed}/token")).unwrap(),
             revoke: None,
-            device: None,
         }),
         ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
     };

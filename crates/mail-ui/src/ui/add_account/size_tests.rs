@@ -2,7 +2,7 @@
 //! step as it is laid out (`tests/app/native_add_account.rs`).
 
 use porter_core::ProviderId;
-use porter_core::sheet::{
+use porter_sheet::{
     FieldKind, FieldSpec, Protocol, SheetView, SignInFault, SignInView, manual_form,
 };
 
@@ -30,8 +30,8 @@ fn step(view: SheetView) -> Step {
 fn spec(kind: FieldKind) -> FieldSpec {
     FieldSpec {
         kind,
-        entry: porter_core::sheet::Entry::Plain,
-        presence: porter_core::sheet::Presence::Required,
+        entry: porter_sheet::Entry::Plain,
+        presence: porter_sheet::Presence::Required,
         prefill: None,
     }
 }

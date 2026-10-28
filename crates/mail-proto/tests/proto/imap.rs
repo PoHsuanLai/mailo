@@ -7,7 +7,7 @@ use mail_domain::SaslMech;
 use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession, ProtoError, Refusal};
 use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::UnixSeconds;
+use porter_ids::UnixSeconds;
 
 fn oauth() -> ImapAuth {
     ImapAuth {

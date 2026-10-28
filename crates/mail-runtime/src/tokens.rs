@@ -20,9 +20,8 @@ use crate::clients;
 use crate::error::Failure;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
-use porter_core::{
-    AccountId, Credential, GrantedScopes, SecretKey, SecretPurpose, SecretText, UnixSeconds,
-};
+use porter_core::{AccountId, Credential, GrantedScopes, SecretKey, SecretPurpose, SecretText};
+use porter_ids::UnixSeconds;
 use porter_oauth::{Renewal as Due, redeem_scope, refresh_scoped_detailed, renewal};
 use porter_provider::ClientEntry;
 use std::future::Future;
@@ -244,7 +243,7 @@ pub(crate) async fn refresh(
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
     let endpoints = clients::endpoints(client)?;
-    let http = crate::http::oauth_http()?;
+    let http = crate::http::oauth_http();
     let presented = SecretText::new(refresh_token);
     let scope = (!scopes.is_empty()).then(|| scopes.join(" "));
     let tokens = refresh_scoped_detailed(&http, &endpoints, client, &presented, scope.as_deref())
@@ -470,6 +469,11 @@ async fn sign_in_refresh(
         | Credential::Bearer(_)
         | Credential::KeyPair { .. } => Err(RuntimeError::Secrets(Failure::said(
             "sending through Graph needs a Microsoft sign-in",
+        ))),
+        // A kind this build does not know is not read as "no sign-in" (which asks the person to
+        // sign in again and writes over it): the account waits for a build that knows it.
+        _ => Err(RuntimeError::Connect(Failure::said(
+            "the credential kept for this account is of a kind this build does not know",
         ))),
     }
 }
@@ -745,11 +749,9 @@ impl TokenSource for OAuthTokens {
 fn access_of(credential: &Credential) -> Option<Zeroizing<String>> {
     match credential {
         Credential::OAuth { access, .. } => Some(Zeroizing::new(access.expose().to_owned())),
-        // Not an OAuth sign-in: nothing to renew. A pasted bearer has no refresh by definition.
-        Credential::Password(_)
-        | Credential::ApiKey(_)
-        | Credential::Bearer(_)
-        | Credential::KeyPair { .. } => None,
+        // Not an OAuth sign-in: nothing to renew. A pasted bearer has no refresh by definition,
+        // and neither has a kind this build does not know.
+        _ => None,
     }
 }
 

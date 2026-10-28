@@ -820,7 +820,7 @@ pub async fn authorize(
         client,
         scopes,
         on_url,
-        porter_core::UnixSeconds(now.timestamp()),
+        porter_ids::UnixSeconds(now.timestamp()),
     )
     .await
     .map_err(CoreError::from)
@@ -1261,7 +1261,7 @@ mod tests {
                     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(claims)
                 )),
                 refresh: SecretText::new("r".to_owned()),
-                expires_at: porter_core::UnixSeconds(0),
+                expires_at: porter_ids::UnixSeconds(0),
                 granted: Default::default(),
             }
         };

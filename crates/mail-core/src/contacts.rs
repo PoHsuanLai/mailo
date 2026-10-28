@@ -8,7 +8,8 @@ use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth};
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
-use porter_core::{CapabilityKind, Credential, SecretKey, SecretPurpose, SecretText};
+use porter_capability::CapabilityKind;
+use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
 
 pub mod groups;
@@ -435,7 +436,8 @@ async fn auth_for(
             user: account.plan.username(),
             password: password.expose().to_owned(),
         }),
-        Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(CoreError::NotASignIn {
+        // An API key, a key pair, or a kind this build does not know is no sign-in.
+        _ => Err(CoreError::NotASignIn {
             address: account.address.clone(),
         }),
     }

@@ -23,7 +23,7 @@
 //! more fields: a protocol, a server, a security and a port for each direction, the login name,
 //! and for JMAP a session URL and a token. Three of them are choices (the protocol and the two
 //! securities, `FieldKind::choices()` worded here), a pick refits the form at once
-//! (`porter_core::sheet::refit`: JMAP has no outgoing server, a port follows protocol and
+//! (`porter_sheet::refit`: JMAP has no outgoing server, a port follows protocol and
 //! security until one is typed), and a form `form_problem` finds wrong is not sent: its field is
 //! marked as it is typed, which quire draws as Continue disabled.
 //!
@@ -43,11 +43,12 @@ pub(super) use mail_client::account::draft::{Action, Out, Sheet, acted, shown};
 use mail_client::account::draft::{
     CopyMark, Draft, FieldDraft, ListKey, is_manual, problem_of, retries,
 };
-use porter_core::sheet::{
+use porter_capability::{AbsentReason, CapabilityKind};
+use porter_core::{LimitReason, ProviderId, SecretText};
+use porter_sheet::{
     FieldKind, FieldProblem, FieldSpec, FieldValue, Presence, ProblemKind, RowKind, ServiceState,
     SheetView, SignInFault,
 };
-use porter_core::{AbsentReason, CapabilityKind, LimitReason, ProviderId, SecretText};
 
 // ---------------------------------------------------------------------------------------------
 // Props: what each step is given.
@@ -291,6 +292,8 @@ fn form_marked(
             ProblemKind::Missing => ShellProblemKind::Missing,
             ProblemKind::Refused => ShellProblemKind::Refused,
             ProblemKind::Invalid => ShellProblemKind::Invalid,
+            // A problem this build does not know is read as an invalid entry.
+            _ => ShellProblemKind::Invalid,
         },
         attempt: Attempt(attempt),
     };
@@ -486,7 +489,7 @@ pub(super) fn mark_of(mark: &str) -> MarkProvider {
 /// What a kind of service is called on the review: porter's own name for it, so mailo's review
 /// and porter's say the same.
 pub(super) fn service_name(kind: CapabilityKind) -> &'static str {
-    kind.display_name()
+    porter_sheet::words::service_name(kind)
 }
 
 /// The review's secondary line for a service the provider offers but limits.
@@ -496,6 +499,8 @@ pub(super) fn limit_of(reason: LimitReason) -> Limitation {
         LimitReason::PickerOnly => Limitation::PickerOnly,
         LimitReason::AppFolderOnly => Limitation::AppFolderOnly,
         LimitReason::ProviderOffersNone => Limitation::ProviderOffersNone,
+        // A limit this build does not know is read as the provider offering none.
+        _ => Limitation::ProviderOffersNone,
     }
 }
 
@@ -507,6 +512,8 @@ pub(super) fn absence_of(reason: AbsentReason) -> Limitation {
         AbsentReason::UnverifiedBuild => Limitation::UnverifiedBuild,
         AbsentReason::TurnedOff => Limitation::TurnedOff,
         AbsentReason::NotOnServer => Limitation::NotOnServer,
+        // A reason this build does not know is read as the provider offering none.
+        _ => Limitation::ProviderOffersNone,
     }
 }
 
