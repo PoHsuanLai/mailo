@@ -1,6 +1,6 @@
 //! CardDAV (RFC 6352): finding a user's address books and reading them into the contacts table.
 //!
-//! The requests are built and the replies read by `mail_pim::dav`; this module sends them.
+//! The requests are built and the replies read by `dav_proto`; this module sends them.
 //! Cards come down and become contacts under [`mail_store::Origin::Book`]; a `KIND:group` card
 //! becomes a [`mail_store::Group`] and any other a [`mail_store::PersonCard`]. What is written
 //! back is a group or a person's card edited here ([`mail_store::Edit::Edited`]): the next sync
@@ -258,7 +258,7 @@ impl Dav {
         depth: &str,
         body: String,
         what: &'static str,
-    ) -> Result<(Url, mail_pim::Multistatus), CardDavFailure> {
+    ) -> Result<(Url, dav_proto::Multistatus), CardDavFailure> {
         let request = Request {
             depth: Some(depth),
             content_type: "application/xml; charset=utf-8",
@@ -272,7 +272,7 @@ impl Dav {
                 what,
             });
         }
-        let parsed = mail_pim::dav::multistatus(&reply.body)
+        let parsed = dav_proto::parse_multistatus(&reply.body)
             .map_err(|e| CardDavFailure::Malformed(e.to_string()))?;
         Ok((reply.url, parsed))
     }

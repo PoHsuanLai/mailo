@@ -15,6 +15,8 @@ porter-discover.workspace = true
 porter-http.workspace = true
 # The direct-connection client behind that seam (discovery and the token exchanges).
 porter-http-reqwest.workspace = true
+# CardDAV's request bodies and `207 Multi-Status` replies, as text.
+dav-proto.workspace = true
 porter-oauth = { workspace = true, features = ["io"] }
 # A porter relay's byte stream (`AuthenticatedStream`), which `Transport::relayed` wraps and the
 # in-memory transport of `testing` is built on. Its `dbus` feature stays off: no zbus.

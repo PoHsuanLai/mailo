@@ -24,7 +24,9 @@ use super::group::{self, Unwritten, put_group};
 use super::person::{self, put_person};
 use super::{CardDavFailure, Dav, same};
 use crate::RuntimeError;
-use mail_pim::dav::{self, Prop};
+use dav_proto::carddav::{Props, Resource};
+use dav_proto::names::{GETETAG, RESOURCETYPE};
+use dav_proto::{Multiget, SyncLevel};
 use mail_store::{AddressBook, BookCard, CardId, GroupId, Origin, Store};
 use url::Url;
 
@@ -215,7 +217,11 @@ async fn report_changes(
                 "REPORT",
                 collection,
                 "0",
-                dav::sync_collection(from.as_deref()),
+                dav_proto::sync_collection(
+                    from.as_deref().unwrap_or(""),
+                    SyncLevel::One,
+                    &[GETETAG],
+                ),
                 "sync-collection",
             )
             .await?;
@@ -232,7 +238,7 @@ async fn report_changes(
             if response.gone() {
                 removed.push(href);
             } else {
-                members.push((href, response.props.etag.clone()));
+                members.push((href, Props::of(response).etag));
             }
         }
         if !truncated {
@@ -268,22 +274,18 @@ async fn etags(dav: &Dav, collection: &Url) -> Result<Listing, CardDavFailure> {
             "PROPFIND",
             collection,
             "1",
-            dav::propfind(&[Prop::GetEtag, Prop::ResourceType]),
+            dav_proto::propfind(&[GETETAG, RESOURCETYPE]),
             "the etag PROPFIND",
         )
         .await?;
     let mut members = Vec::new();
     for response in &reply.responses {
         let href = dav.resolve(&url, &response.href)?;
-        if same(&href, collection)
-            || response
-                .props
-                .resource
-                .contains(&mail_pim::Resource::Collection)
-        {
+        let props = Props::of(response);
+        if same(&href, collection) || props.resource.contains(&Resource::Collection) {
             continue;
         }
-        members.push((href, response.props.etag.clone()));
+        members.push((href, props.etag));
     }
     Ok(Listing {
         members,
@@ -307,7 +309,7 @@ async fn multiget(
             "REPORT",
             collection,
             "1",
-            dav::multiget(&paths),
+            dav_proto::multiget(Multiget::Addressbook, &paths),
             "addressbook-multiget",
         )
         .await?;
@@ -318,8 +320,9 @@ async fn multiget(
             out.push((href, String::new(), None));
             continue;
         }
-        if let Some(data) = response.props.address_data {
-            out.push((href, response.props.etag.unwrap_or_default(), Some(data)));
+        let props = Props::of(&response);
+        if let Some(data) = props.address_data {
+            out.push((href, props.etag.unwrap_or_default(), Some(data)));
         }
     }
     Ok(out)
