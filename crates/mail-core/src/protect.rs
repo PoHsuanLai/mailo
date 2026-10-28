@@ -11,10 +11,12 @@
 //! names both.
 
 use crate::error::CoreError;
+use crate::message::{Protection, Scheme};
 use crate::pgp::{Ask, OpenPgp};
 use crate::smime::Smime;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
+use mail_mime::Parsed;
 use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 
@@ -30,6 +32,11 @@ pub trait Seal {
     type Cert;
     /// The unlocked secret that signs.
     type Signer;
+    /// What opening a message of this scheme found.
+    type Protected;
+
+    /// Which scheme this is, as the reader names it.
+    const SCHEME: Scheme;
 
     /// What `draft` asks of this scheme: its own field.
     fn asked(draft: &Draft) -> Option<Mode>;
@@ -67,6 +74,29 @@ pub trait Seal {
         own: &Self::Own,
         now: DateTime<Utc>,
     ) -> Result<Vec<u8>, Self::Error>;
+
+    /// `message` opened: its signature checked and its encryption decrypted. `None` when it
+    /// carries nothing of this scheme. `ask` is asked for a passphrase if the scheme has any.
+    fn open(
+        store: &SqliteStore,
+        secrets: &dyn SigningStore,
+        message: &Message,
+        ask: Ask<'_>,
+        now: DateTime<Utc>,
+    ) -> Result<Option<Self::Protected>, Self::Error>;
+
+    /// What was found, in the form the reader keeps it.
+    fn wrap(protected: Self::Protected) -> Protection;
+
+    /// The opened message and the bytes it was parsed from, which [`open`](Seal::open) hands out
+    /// and the reader must not keep.
+    fn parts(protected: &mut Self::Protected) -> (&mut Option<Parsed>, &mut Option<Vec<u8>>);
+
+    /// The key whose passphrase is needed before the message opens, when that is what was found.
+    /// Defaults to none: only a scheme with passphrases can be locked.
+    fn locked(_protected: &Self::Protected) -> Option<Fingerprint> {
+        None
+    }
 
     /// The refusal for a draft that asks both schemes.
     fn both() -> Self::Error;

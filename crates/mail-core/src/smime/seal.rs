@@ -13,12 +13,14 @@
 //! envelopes, and one inside the other opens for nobody. [`Seal::check`] refuses it before anything is
 //! built.
 
-use super::SmimeError;
 use super::certs::{cert_for, identity_of, own_cert};
+use super::{Protected, SmimeError, open_message};
+use crate::message::{Protection, Scheme};
 use crate::pgp::Ask;
 use crate::protect::Seal;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
+use mail_mime::Parsed;
 use mail_mime::smime::{self, Cert, Identity as Signer, Sealing};
 use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
@@ -33,6 +35,9 @@ impl Seal for Smime {
     type Own = SmimeCert;
     type Cert = Cert;
     type Signer = Signer;
+    type Protected = Protected;
+
+    const SCHEME: Scheme = Scheme::Smime;
 
     fn asked(draft: &Draft) -> Option<Mode> {
         draft.smime
@@ -85,6 +90,25 @@ impl Seal for Smime {
             boundary_prefix: "mailo",
         };
         Ok(smime::seal(frozen, &sealing, &mut rand::rngs::OsRng)?)
+    }
+
+    /// Nothing is asked: an identity's secret has no passphrase of its own here.
+    fn open(
+        store: &SqliteStore,
+        secrets: &dyn SigningStore,
+        message: &Message,
+        _ask: Ask<'_>,
+        now: DateTime<Utc>,
+    ) -> Result<Option<Protected>, SmimeError> {
+        open_message(store, secrets, message, now)
+    }
+
+    fn wrap(protected: Protected) -> Protection {
+        Protection::Smime(Box::new(protected))
+    }
+
+    fn parts(protected: &mut Protected) -> (&mut Option<Parsed>, &mut Option<Vec<u8>>) {
+        (&mut protected.shown, &mut protected.raw)
     }
 
     fn both() -> SmimeError {

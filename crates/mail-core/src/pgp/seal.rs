@@ -19,10 +19,12 @@
 //! cannot leak; the user can send the blind copy as a message of its own.
 
 use super::keys::{key_for, own_key, unlocking};
-use super::{Ask, PgpError};
+use super::{Ask, PgpError, Protected, open_message};
+use crate::message::{Protection, Scheme};
 use crate::protect::Seal;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
+use mail_mime::Parsed;
 use mail_mime::openpgp::{self, Cert, Sealing, Unlocking};
 use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
@@ -37,6 +39,9 @@ impl Seal for OpenPgp {
     type Own = PgpKey;
     type Cert = Cert;
     type Signer = Unlocking;
+    type Protected = Protected;
+
+    const SCHEME: Scheme = Scheme::OpenPgp;
 
     fn asked(draft: &Draft) -> Option<Mode> {
         draft.openpgp
@@ -98,6 +103,31 @@ impl Seal for OpenPgp {
             boundary_prefix: "mailo",
         };
         openpgp::seal(frozen, &sealing, &mut rand::rngs::OsRng).map_err(PgpError::from)
+    }
+
+    fn open(
+        store: &SqliteStore,
+        secrets: &dyn SigningStore,
+        message: &Message,
+        ask: Ask<'_>,
+        now: DateTime<Utc>,
+    ) -> Result<Option<Protected>, PgpError> {
+        open_message(store, secrets, message, ask, now)
+    }
+
+    fn wrap(protected: Protected) -> Protection {
+        Protection::OpenPgp(Box::new(protected))
+    }
+
+    fn parts(protected: &mut Protected) -> (&mut Option<Parsed>, &mut Option<Vec<u8>>) {
+        (&mut protected.shown, &mut protected.raw)
+    }
+
+    fn locked(protected: &Protected) -> Option<Fingerprint> {
+        match protected.encryption {
+            Encryption::Locked { key } => Some(key),
+            _ => None,
+        }
     }
 
     fn both() -> PgpError {
