@@ -1130,7 +1130,6 @@ mod tests {
             authorize: EndpointUrl::parse("https://login.example/common/authorize").unwrap(),
             token: EndpointUrl::parse("https://login.example/common/token").unwrap(),
             revoke: None,
-            device: None,
         });
         judge_personal_microsoft_by(Some(crate::OAuthClients::Given(
             mail_runtime::clients::registry_of(vec![client]),

@@ -389,7 +389,7 @@ mod tests {
         let account = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc));
         assert!(send(&path, &inbox_uri(&account)));
         assert_eq!(
-            queue.try_recv().ok(),
+            queue.try_recv(),
             Some(Request::Inbox {
                 account,
                 token: None
