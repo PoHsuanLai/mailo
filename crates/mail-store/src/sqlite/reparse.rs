@@ -8,13 +8,14 @@
 use super::SqliteStore;
 use super::row::uuid;
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::MessageId;
 use rusqlite::params;
 
 impl SqliteStore {
     /// Every message waiting to be re-parsed.
     pub fn reparse_queue(&self) -> Result<Vec<MessageId>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare("SELECT message FROM messages_to_reparse ORDER BY message")?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         let mut out = Vec::new();
@@ -29,7 +30,7 @@ impl SqliteStore {
 
     /// Take `message` off the queue: rewritten, or found not worth another try.
     pub fn reparsed(&self, message: MessageId) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::SUMMARIES).execute(
             "DELETE FROM messages_to_reparse WHERE message = ?1",
             params![message.to_string()],
         )?;

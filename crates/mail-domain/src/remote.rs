@@ -6,6 +6,7 @@
 
 use crate::id::{BlobId, DraftId};
 use crate::jmap_id::JmapEmailId;
+use crate::receipt::DeliveryReport;
 use crate::section::Section;
 use crate::state::MailboxRole;
 use chrono::{DateTime, Utc};
@@ -227,7 +228,8 @@ pub enum ProtoOp {
         remotes: Vec<RemoteRef>,
         keyword: crate::receipt::Keyword,
     },
-    /// Upload a message into a mailbox: a draft to the Drafts folder, or imported mail.
+    /// Upload a message into a mailbox: imported mail, or the copy of a sent message. A draft's
+    /// copy in Drafts is [`ProtoOp::KeepDraft`], which also replaces the copy before it.
     ///
     /// `flags` and `date` are the message's own, said explicitly rather than derived from the
     /// destination: a draft is `\Draft \Seen` because it is a draft, and an imported message
@@ -261,6 +263,11 @@ pub enum ProtoOp {
         /// parsed back out of the bytes would silently drop every blind recipient — on the
         /// retry, not on the first attempt, which is the worst way to find out.
         rcpt_to: Vec<String>,
+        /// Whether `RCPT TO` asks for delivery reports (RFC 3461 `NOTIFY`). Frozen with the rest,
+        /// and defaulted so an outbox row written before reports existed still loads, asking for
+        /// none.
+        #[serde(default)]
+        delivery: DeliveryReport,
     },
     /// Flag changes since a known point, without refetching anything else.
     ///
@@ -327,9 +334,62 @@ pub enum ProtoOp {
         /// unrelated wake-up.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         uidnext: Option<u32>,
+        /// Other mailboxes to hear about on the same connection, IMAP `NOTIFY` (RFC 5465).
+        ///
+        /// Empty to watch only `mailbox`. Where the server has no `NOTIFY` a watch that names
+        /// any ends with `ProtoError::Unsupported` and the caller watches them another
+        /// way.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        also: Vec<String>,
     },
     /// Create, rename, delete or follow a mailbox. IMAP only.
     Folder(crate::folder::FolderWork),
+    /// Put the draft's latest bytes in the Drafts mailbox at `mailbox`, and remove the copies of
+    /// it already there. The bytes are made from the draft when this runs, and staged as an
+    /// [`ProtoOp::Append`]'s are; nothing is stored for them.
+    ///
+    /// The copies are found by `message_id`, which is the draft's own and the same in every
+    /// copy, rather than by where an earlier upload said it landed: a server need not say
+    /// (`APPENDUID` is optional, and some that list `UIDPLUS` never send it), and an upload cut
+    /// off before its answer leaves a copy nobody was told of. Found first, then the upload,
+    /// then those found removed, so a failure part way leaves a copy too many and never none;
+    /// the next upload finds the extra one and removes it with the rest.
+    ///
+    /// On IMAP the removal is `UID STORE +FLAGS.SILENT (\Deleted)` and `UID EXPUNGE` of exactly
+    /// the UIDs found, in a folder the server lists as Drafts; without `UIDPLUS` the old copies
+    /// are left marked `\Deleted`, and never taken with a bare `EXPUNGE`. On JMAP `Email/query`,
+    /// `Email/import` and `Email/set` `destroy`. Nothing is kept here: the copy is the server's.
+    KeepDraft {
+        draft: DraftId,
+        mailbox: MailboxRef,
+        /// The draft's `Message-ID`, without angle brackets.
+        message_id: String,
+    },
+    /// Remove every copy of a draft from the Drafts mailbox at `mailbox`: it was sent, or
+    /// discarded. Found and removed as [`ProtoOp::KeepDraft`] removes the copies it replaces.
+    DropDraft {
+        draft: DraftId,
+        mailbox: MailboxRef,
+        /// The draft's `Message-ID`, without angle brackets.
+        message_id: String,
+    },
+    /// Copy messages into the folder at `folder`, leaving them where they are: `UID COPY` on
+    /// IMAP, the label added where mailboxes are labels (Gmail, JMAP), and `POST …/copy` on
+    /// Microsoft Graph.
+    ///
+    /// Each message is named by one address. Copying every address a message has would put as
+    /// many copies in the folder as the message has places.
+    Copy {
+        remotes: Vec<RemoteRef>,
+        folder: String,
+    },
+    /// Flag messages in a colour. On IMAP `\Flagged` with Apple Mail's colour keywords set and
+    /// the others cleared ([`crate::Hue::flag_keywords`]); on JMAP the same keywords; on Graph,
+    /// which has no colours, the flag alone.
+    SetFlag {
+        remotes: Vec<RemoteRef>,
+        hue: crate::hue::Hue,
+    },
 }
 
 #[cfg(test)]

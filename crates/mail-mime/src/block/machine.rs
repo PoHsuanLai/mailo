@@ -211,7 +211,9 @@ fn inspect(spans: &[Span], found: &mut Option<(String, SafeUrl)>, extra: &mut bo
                 }
                 *extra = true;
             }
-            Span::Strong(inner) | Span::Emphasis(inner) => inspect(inner, found, extra, in_link),
+            Span::Strong(inner) | Span::Emphasis(inner) | Span::Styled { spans: inner, .. } => {
+                inspect(inner, found, extra, in_link)
+            }
             Span::Link { url, spans } => {
                 if found.is_some() {
                     *extra = true;

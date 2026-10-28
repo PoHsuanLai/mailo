@@ -743,6 +743,40 @@ async fn beside_a_watch_only_a_person_starts_a_pass() {
     }
 }
 
+/// An account checked manually: the first pass every account is given, and any timer, start
+/// nothing; a person's Sync does.
+#[tokio::test(start_paused = true)]
+async fn an_account_checked_manually_passes_only_when_asked() {
+    let host = Scripted::ending(finished());
+    let (store, _dir) = empty_store();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let scheduler = Scheduler::new(
+        &host,
+        Arc::new(store),
+        BTreeMap::new(),
+        BTreeMap::new(),
+        tx.clone(),
+    );
+    let driver = async {
+        tx.send(Note::Accounts(vec![(acct_account(), MANUALLY)]))
+            .unwrap();
+        tx.send(Note::Event(acct_account(), Event::Start(Trigger::Poll)))
+            .unwrap();
+        tx.send(Note::Event(acct_account(), Event::Tick)).unwrap();
+        tokio::time::sleep(Duration::from_secs(24 * 3600)).await;
+        assert_eq!(host.runs(), 0, "a timed pass");
+        tx.send(Note::Event(acct_account(), Event::Start(Trigger::Manual)))
+            .unwrap();
+        eventually("the person's pass", || host.runs() == 1).await;
+        tokio::time::sleep(Duration::from_secs(7 * 24 * 3600)).await;
+        assert_eq!(host.runs(), 1, "a timer after the person's pass");
+    };
+    tokio::select! {
+        _ = scheduler.run(rx, End::Never) => panic!("the scheduler ended on its own"),
+        () = driver => {}
+    }
+}
+
 #[tokio::test(start_paused = true)]
 async fn the_accounts_that_come_and_go_get_and_lose_their_link() {
     let host = Scripted::ending(finished());

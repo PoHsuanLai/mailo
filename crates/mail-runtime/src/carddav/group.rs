@@ -7,11 +7,30 @@ use mail_pim::vcard::{self, CardKind};
 use mail_store::{AddressBook, BookCard, Edit, Group, GroupHome, GroupId, Store};
 use url::Url;
 
-/// A group edited here that one sync did not write back.
+/// A group or a person's card edited here that one sync did not write back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Unwritten {
     pub name: String,
     pub why: String,
+}
+
+/// Whether a refused `PUT` will be refused again: any client error but a timeout or a rate
+/// limit, such as a read-only book's `403`. The edit it refused is then marked
+/// [`mail_store::Edit::Refused`], for a group and a person's card alike, so that it is said once
+/// rather than at every sync for ever.
+pub(super) fn refused_for_good(status: u16) -> bool {
+    (400..500).contains(&status) && !matches!(status, 408 | 429)
+}
+
+/// What is said of an edit the server refused with `status`.
+pub(super) fn refusal(status: u16) -> String {
+    if refused_for_good(status) {
+        format!(
+            "the server does not take it ({status}); it is kept here until the server's card changes"
+        )
+    } else {
+        format!("the server refused it ({status})")
+    }
 }
 
 /// `group` as a vCard 4.0 `KIND:group` card (RFC 6350 §6.1.4, §6.6.5).
@@ -94,10 +113,17 @@ pub(super) async fn write_back<S: Store + ?Sized>(
                 why: "it changed on the server; the next sync brings that in and sends this again"
                     .to_owned(),
             }),
-            Err(CardDavFailure::Refused { status, .. }) => unwritten.push(Unwritten {
-                name: group.name.clone(),
-                why: format!("the server refused it ({status})"),
-            }),
+            Err(CardDavFailure::Refused { status, .. }) => {
+                unwritten.push(Unwritten {
+                    name: group.name.clone(),
+                    why: refusal(status),
+                });
+                if refused_for_good(status) {
+                    let mut kept = group.clone();
+                    kept.home = kept.home.refused();
+                    store.put_group(&kept)?;
+                }
+            }
             Err(other) => return Err(other.into()),
         }
     }
@@ -121,15 +147,7 @@ pub(super) fn put_group<S: Store + ?Sized>(
         return Ok(());
     };
     let held = store.group(&id)?;
-    let edited = held.as_ref().filter(|g| {
-        matches!(
-            g.home,
-            GroupHome::Book {
-                edit: Edit::Edited,
-                ..
-            }
-        )
-    });
+    let edited = held.as_ref().filter(|g| g.home.is_edited());
     let group = match edited {
         Some(edited) => Group {
             uid: card.uid.clone(),

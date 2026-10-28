@@ -10,11 +10,15 @@
 //! card by its `UID` or a `mailto:` naming an address. [`Member::of`] says which. A member that
 //! names nothing this program knows is still a member, and is written back as it was read.
 
+mod edit;
 mod member;
+mod postal;
 mod read;
 mod write;
 
+pub use edit::{Details, apply, details_of};
 pub use member::{Member, uid_key};
+pub use postal::Postal;
 
 pub use read::{parse, parse_bytes};
 pub use write::{write, write_all};
@@ -186,6 +190,30 @@ impl Card {
         let mut emails: Vec<&Email> = self.emails.iter().collect();
         emails.sort_by_key(|e| e.pref.unwrap_or(u8::MAX));
         emails.iter().map(|e| e.address.as_str()).collect()
+    }
+
+    /// What an address book lists the card by: its display name, else its first address, else
+    /// nothing (an empty name).
+    pub fn list_name(&self) -> String {
+        self.display_name()
+            .or_else(|| self.addresses().into_iter().next())
+            .unwrap_or_default()
+    }
+
+    /// The addresses as an address book keys them ([`mail_domain::address::normalise`]), most
+    /// preferred first, each once. An email that is not an address is left out.
+    pub fn addresses(&self) -> Vec<String> {
+        let mut addresses: Vec<String> = Vec::new();
+        for address in self
+            .addresses_by_preference()
+            .into_iter()
+            .filter_map(mail_domain::address::normalise)
+        {
+            if !addresses.contains(&address) {
+                addresses.push(address);
+            }
+        }
+        addresses
     }
 }
 

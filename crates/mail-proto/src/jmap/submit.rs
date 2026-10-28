@@ -11,7 +11,9 @@
 use super::field::{malformed, opt_string, string};
 use super::{Call, MethodError, Responses, SetResult};
 use crate::ProtoError;
-use mail_domain::{Address, JmapAccountId, JmapBlobId, JmapEmailId, JmapIdentityId, JmapMailboxId};
+use mail_domain::{
+    Address, DeliveryReport, JmapAccountId, JmapBlobId, JmapEmailId, JmapIdentityId, JmapMailboxId,
+};
 use serde_json::{Map, Value, json};
 
 /// An address this account may send as (RFC 8621 §6).
@@ -74,6 +76,11 @@ pub struct Filed {
 
 /// The two calls that send `blob`: import it, then submit it. Ids `import` and `send`.
 ///
+/// `delivery` asks each recipient's server for a report when the message is delivered and when it
+/// fails, with the headers alone, as an SMTP send's `NOTIFY` and `RET` do (RFC 3461). The caller
+/// passes [`DeliveryReport::Unrequested`] where the session does not list DSN
+/// ([`super::Dsn`]), since a server is free to refuse parameters it did not offer.
+///
 /// Refused before anything is sent when the server lists neither a Drafts nor a Sent mailbox,
 /// since an imported email must be filed somewhere.
 pub fn submission(
@@ -83,6 +90,7 @@ pub fn submission(
     mail_from: &str,
     rcpt_to: &[String],
     filed: &Filed,
+    delivery: DeliveryReport,
 ) -> Result<Vec<Call>, ProtoError> {
     let into = filed
         .drafts
@@ -119,6 +127,13 @@ pub fn submission(
     }
     let mut update = Map::new();
     update.insert("#send".to_owned(), Value::Object(on_success));
+    let (from_parameters, rcpt_parameters) = match delivery {
+        DeliveryReport::Unrequested => (Value::Null, Value::Null),
+        DeliveryReport::Requested => (
+            json!({ "RET": "HDRS" }),
+            json!({ "NOTIFY": "SUCCESS,FAILURE" }),
+        ),
+    };
     let send = Call {
         name: "EmailSubmission/set",
         args: json!({
@@ -128,10 +143,10 @@ pub fn submission(
                     "identityId": identity.id,
                     "emailId": "#draft",
                     "envelope": {
-                        "mailFrom": { "email": mail_from, "parameters": null },
+                        "mailFrom": { "email": mail_from, "parameters": from_parameters },
                         "rcptTo": rcpt_to
                             .iter()
-                            .map(|r| json!({ "email": r, "parameters": null }))
+                            .map(|r| json!({ "email": r, "parameters": rcpt_parameters }))
                             .collect::<Vec<_>>(),
                     },
                 }

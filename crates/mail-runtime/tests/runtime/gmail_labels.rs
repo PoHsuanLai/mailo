@@ -11,7 +11,8 @@ use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{Backend, ImapAuth, ImapCommand, ImapSession, IoReady, Progress, ProtoOutcome};
 use mail_store::Store;
 use porter_core::Credential;
-use porter_core::{SecretText, UnixSeconds};
+use porter_core::SecretText;
+use porter_ids::UnixSeconds;
 
 fn gmail_caps() -> AccountCaps {
     AccountCaps {
@@ -63,7 +64,7 @@ fn backend() -> ImapBackend {
 ///
 /// No socket: the backend is sans-I/O, so "the server" is a slice of bytes handed back whenever
 /// it asks to read. That is the whole point of the `Machine` shape.
-fn survey(responses: &[&str]) -> Ingest {
+pub(crate) fn survey(responses: &[&str]) -> Ingest {
     let mut backend = backend();
     let mut replies = responses.iter();
     let mut progress = backend.begin(ProtoOp::FetchEnvelopes {
@@ -113,6 +114,7 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
         rfc_message_id: None,
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Absent,
@@ -140,8 +142,10 @@ fn a_label_on_the_wire_becomes_a_label_you_can_search_for() {
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

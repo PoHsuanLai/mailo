@@ -88,8 +88,10 @@ fn deliver_at(store: &dyn Store, m: &Message, path: &str, uid: u32, raw: BlobId)
                     message: m.clone(),
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
-                label_names: vec![],
+                label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -392,6 +394,7 @@ fn send(store: &dyn Store, draft: &Draft, now: DateTime<Utc>) {
                 raw: BlobId::generate(),
                 mail_from: ME.to_owned(),
                 rcpt_to,
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &patch(vec![]),
             now,
@@ -420,6 +423,9 @@ fn draft(to: Vec<Address>, subject: &str) -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
+        priority: mail_domain::Priority::Normal,
     }
 }
 

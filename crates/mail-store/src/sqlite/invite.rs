@@ -6,6 +6,7 @@
 use super::SqliteStore;
 use super::row::{from_time, json, time, to_json};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::{InviteAnswer, MessageId};
 use rusqlite::{OptionalExtension, params};
 
@@ -37,7 +38,7 @@ impl SqliteStore {
     }
 
     pub(super) fn write_invite_answer(&self, answer: &InviteAnswer) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::SUMMARIES);
         let known: Option<i64> = db
             .query_row(
                 "SELECT 1 FROM messages WHERE id = ?1",

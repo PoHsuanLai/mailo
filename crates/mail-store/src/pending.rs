@@ -26,6 +26,18 @@ pub(crate) fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)>
                 (*id, changes)
             })
             .collect(),
+        RemoteIntent::SetFlag { messages, hue } => messages
+            .iter()
+            .map(|id| {
+                (
+                    *id,
+                    vec![
+                        Change::MessageStar(*id, mail_domain::Star::Starred),
+                        Change::MessageFlag(*id, *hue),
+                    ],
+                )
+            })
+            .collect(),
         RemoteIntent::SetMailbox { messages, role } => messages
             .iter()
             .map(|id| (*id, vec![Change::MessageMailbox(*id, *role)]))
@@ -59,6 +71,11 @@ pub(crate) fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)>
                 )
             })
             .collect(),
+        // Only the label: a copy leaves the message filed where it was.
+        RemoteIntent::Copy { messages, label } => messages
+            .iter()
+            .map(|id| (*id, vec![Change::MessageLabel(*id, *label, Membership::In)]))
+            .collect(),
         // A submission re-layers nothing: it has no existing message to be overwritten by the
         // next ingest. Matches SqliteStore.
         // A keyword has no local mirror on the message to re-layer: the answer it records is
@@ -66,8 +83,10 @@ pub(crate) fn pending_of(intent: &RemoteIntent) -> Vec<(MessageId, Vec<Change>)>
         RemoteIntent::AddKeyword { .. } => Vec::new(),
         // As SqliteStore: a destroyed message has nothing to re-layer.
         RemoteIntent::Destroy { .. } => Vec::new(),
-        RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-            Vec::new()
-        }
+        RemoteIntent::Send { .. }
+        | RemoteIntent::Folder(_)
+        | RemoteIntent::Append { .. }
+        | RemoteIntent::KeepDraft { .. }
+        | RemoteIntent::DropDraft { .. } => Vec::new(),
     }
 }

@@ -3,9 +3,10 @@
 //! Asked of both and compared, for the reason `drafts.rs` gives: the parity proptest only sees
 //! what a filter can ask, and a view is not something a filter can ask about.
 //!
-//! A view's row is its serde form whole (migration 0024), so the row is pinned by a frozen
-//! fixture here beside the domain's own `view.json`: `tests/fixtures/view_row.json` is what
-//! this build writes into `views.view`, and a later build must still read it.
+//! A view's row is its serde form whole (migration 0024), so the row is pinned by frozen
+//! fixtures here beside the domain's own `view.json`: `tests/fixtures/view_row_single.json` is
+//! what this build writes into `views.view`, and `view_row.json` what builds wrote while a view
+//! still carried `shown`. A later build must still read both.
 
 use crate::support::*;
 use mail_domain::*;
@@ -31,7 +32,6 @@ fn view(name: &str) -> View {
         },
         group_by: Some(GroupKey::Label(LABEL)),
         threading: Threading::Threaded,
-        shown: vec![Property::From, Property::Subject],
         hover: vec![OpKind::Archive, OpKind::Star, OpKind::Snooze],
     }
 }
@@ -128,7 +128,6 @@ fn fixture_view() -> View {
         },
         group_by: Some(GroupKey::Star),
         threading: Threading::Threaded,
-        shown: Vec::new(),
         hover: vec![OpKind::Archive, OpKind::MarkRead, OpKind::Star],
     }
 }
@@ -137,18 +136,35 @@ fn fixture() -> &'static str {
     include_str!("../fixtures/view_row.json").trim_end()
 }
 
+const SINGLE_ID: ViewId = ViewId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000c2"));
+
+/// The view `tests/fixtures/view_row_single.json` was written from: listed a message to a row,
+/// and with no `shown`, which a view no longer has.
+fn single_view() -> View {
+    View {
+        id: SINGLE_ID,
+        threading: Threading::Single,
+        ..fixture_view()
+    }
+}
+
+fn single_fixture() -> &'static str {
+    include_str!("../fixtures/view_row_single.json").trim_end()
+}
+
 #[test]
 fn a_view_is_written_as_its_frozen_row() {
-    // What this build writes. If this fails, the row's schema changed: that is a migration and
-    // a new fixture beside this one, never an edit to this one.
+    // What this build writes. If this fails, the row's schema changed: that is a new fixture
+    // beside this one, never an edit to it. `view_row.json` was this test's until `shown` went;
+    // the next test still reads it.
     let b = Both::new();
-    b.sqlite.put_view(&fixture_view()).unwrap();
+    b.sqlite.put_view(&single_view()).unwrap();
     let stored: String = b
         .sqlite
         .raw_connection()
         .query_row("SELECT view FROM views", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(stored, fixture());
+    assert_eq!(stored, single_fixture());
 }
 
 #[test]
@@ -160,6 +176,7 @@ fn the_frozen_rows_still_read_back() {
     for (position, (id, text)) in [
         (FIXTURE_ID.to_string(), fixture()),
         ("0b0b0b0b-0b0b-0b0b-0b0b-0b0b0b0b0b0b".to_owned(), domain),
+        (SINGLE_ID.to_string(), single_fixture()),
     ]
     .into_iter()
     .enumerate()
@@ -173,11 +190,41 @@ fn the_frozen_rows_still_read_back() {
             .unwrap();
     }
     let views = b.sqlite.views().expect("a frozen row must still decode");
-    assert_eq!(views[0], fixture_view());
+    assert_eq!(views[0], fixture_view(), "a row with `shown` reads past it");
+    assert_eq!(views[2], single_view());
     assert_eq!(views[1].name, "Unread receipts");
     assert_eq!(
         views[1].group_by,
         Some(GroupKey::Property(Property::From)),
         "the domain fixture's grouping"
     );
+}
+
+/// A row this build cannot read (a newer build's view, with a clause or a property this one has
+/// no name for) leaves out that view alone: the others still list, and the row stays for a build
+/// that can read it.
+#[test]
+fn a_view_that_cannot_be_read_is_left_out_and_the_others_still_list() {
+    let b = Both::new();
+    let before = view("Before");
+    let after = view("After");
+    b.sqlite.put_view(&before).unwrap();
+    b.sqlite
+        .raw_connection()
+        .execute(
+            "INSERT INTO views (id, view, position) VALUES (?1, ?2, 50)",
+            rusqlite::params![
+                "0c0c0c0c-0c0c-0c0c-0c0c-0c0c0c0c0c0c",
+                r#"{"name":"From the future","filter":{"kind":"a_clause_from_later","v":1}}"#
+            ],
+        )
+        .unwrap();
+    b.sqlite.put_view(&after).unwrap();
+    assert_eq!(names(&b.sqlite), ["Before", "After"]);
+    let kept: i64 = b
+        .sqlite
+        .raw_connection()
+        .query_row("SELECT count(*) FROM views", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(kept, 3, "the unreadable row is left where it is");
 }

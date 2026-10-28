@@ -134,6 +134,7 @@ fn message() -> Message {
         rfc_message_id: Some("abc@example.test".to_owned()),
         read: ReadState::Read,
         star: Star::Starred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![LabelId::from_uuid(uuid(3))],
         body: Body::Present {
@@ -268,10 +269,14 @@ fn draft() -> Draft {
             name: "map.png".to_owned(),
             mime: "image/png".to_owned(),
             blob: BlobId::from_uuid(uuid(10)),
+            cid: None,
         }],
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Failed {
             reason: "550 rejected".to_owned(),
             retry: Retry::After(Duration::from_secs(90)),
@@ -296,6 +301,7 @@ fn template() -> Template {
             name: "plan.pdf".to_owned(),
             mime: "application/pdf".to_owned(),
             blob: BlobId::from_uuid(uuid(10)),
+            cid: None,
         }],
         receipt: ReceiptRequest::Requested,
         openpgp: OpenPgp::None,
@@ -387,6 +393,7 @@ fn proto_ops() -> Vec<ProtoOp> {
                 "to@example.test".to_owned(),
                 "blind@example.test".to_owned(),
             ],
+            delivery: DeliveryReport::Unrequested,
         },
         ProtoOp::Expunge {
             remotes: vec![RemoteRef::Pop {
@@ -396,6 +403,7 @@ fn proto_ops() -> Vec<ProtoOp> {
         ProtoOp::Watch {
             mailbox: mailbox_ref(),
             uidnext: None,
+            also: Vec::new(),
         },
         ProtoOp::AddKeyword {
             remotes: vec![imap_ref()],
@@ -500,12 +508,21 @@ fn filters() -> Vec<Filter> {
         Filter::Snoozed,
         Filter::SnoozeDue,
         Filter::Pinned,
+        Filter::Larger(5_000_000),
+        Filter::Smaller(1_000),
+        Filter::NewerThan(7),
+        Filter::OlderThan(365),
+        Filter::FromAddress("ada@example.test".to_owned()),
+        Filter::Vip,
+        Filter::Cc(TextMatch::Exact("carol@example.test".to_owned())),
     ]
 }
 
 fn rules() -> Vec<Rule> {
     vec![
         Rule {
+            made: Default::default(),
+            reply_days: 4,
             id: RuleId::from_uuid(uuid(20)),
             account: account(),
             name: "Bills".to_owned(),
@@ -524,6 +541,8 @@ fn rules() -> Vec<Rule> {
             after: AfterMatch::Stop,
         },
         Rule {
+            made: Default::default(),
+            reply_days: 4,
             id: RuleId::from_uuid(uuid(21)),
             account: account(),
             name: "Tidy".to_owned(),
@@ -556,6 +575,7 @@ fn rule_types_round_trip() {
     round_trip_each("Rule", rules());
     round_trip("Vacation", vacation());
     round_trip("Op::File", Op::File(LabelId::from_uuid(uuid(3))));
+    round_trip("Op::Copy", Op::Copy(LabelId::from_uuid(uuid(3))));
 }
 
 fn view() -> View {
@@ -572,7 +592,6 @@ fn view() -> View {
         },
         group_by: Some(GroupKey::Property(Property::From)),
         threading: Threading::Threaded,
-        shown: vec![Property::Date, Property::Subject, Property::Attachments],
         hover: vec![OpKind::Archive, OpKind::Reply, OpKind::Forward],
     }
 }
@@ -627,9 +646,11 @@ fn ingest() -> Ingest {
             message: message(),
         }],
         flags: vec![(imap_ref(), ReadState::Unread, Star::Starred)],
+        flag_colors: Vec::new(),
         labels: vec![label()],
         // Non-empty, so the round trip covers a shape a Gmail survey actually produces.
         label_names: vec![(imap_ref(), vec!["travel".to_owned(), "家人".to_owned()])],
+        provider_threads: Vec::new(),
         gone: vec![RemoteRef::Pop {
             uidl: "UID-2".to_owned(),
         }],
@@ -927,6 +948,8 @@ fn filter_and_view_types_round_trip() {
             Property::Size,
             Property::Attachments,
             Property::Pin,
+            Property::Unread,
+            Property::Starred,
         ],
     );
     round_trip_each("SortDir", vec![SortDir::Asc, SortDir::Desc]);
@@ -1047,18 +1070,34 @@ fn content_and_message_types_round_trip() {
     round_trip("ThreadSummary", summary());
     round_trip("Thread", thread());
     round_trip("Ingest", ingest());
+    round_trip(
+        "Ingest with thread ids",
+        Ingest {
+            provider_threads: vec![(imap_ref(), "1876965017123110734".to_owned())],
+            ..ingest()
+        },
+    );
     round_trip_each("Fetched", ingest().messages);
 }
 
 #[test]
 fn draft_types_round_trip() {
-    round_trip(
+    round_trip_each(
         "PendingAttachment",
-        PendingAttachment {
-            name: "map.png".to_owned(),
-            mime: "image/png".to_owned(),
-            blob: BlobId::from_uuid(uuid(10)),
-        },
+        vec![
+            PendingAttachment {
+                name: "map.png".to_owned(),
+                mime: "image/png".to_owned(),
+                blob: BlobId::from_uuid(uuid(10)),
+                cid: None,
+            },
+            PendingAttachment {
+                name: "photo.png".to_owned(),
+                mime: "image/png".to_owned(),
+                blob: BlobId::from_uuid(uuid(10)),
+                cid: Some("img1@mailo".to_owned()),
+            },
+        ],
     );
     round_trip_each(
         "SendState",
@@ -1465,6 +1504,18 @@ fixtures! {
     "patch.json" => Patch = patch(),
     "actions.json" => Vec<Action> = actions(),
     "ingest.json" => Ingest = ingest(),
+    // Gmail's thread id and inbox categories, added after the files above were frozen.
+    "ingest_threads.json" => Ingest = Ingest {
+        provider_threads: vec![(imap_ref(), "1876965017123110734".to_owned())],
+        ..ingest()
+    },
+    "filter_category.json" => Vec<Filter> = Category::ALL.into_iter().map(Filter::Category).collect(),
+    // Who wrote, who is a VIP now, and who was copied, added after the files above were frozen.
+    "filters_people.json" => Vec<Filter> = vec![
+        Filter::FromAddress("ada@example.test".to_owned()),
+        Filter::Vip,
+        Filter::Cc(TextMatch::Contains("bob".to_owned())),
+    ],
     "message.json" => Message = message(),
     "thread.json" => Thread = thread(),
     "label.json" => Label = label(),
@@ -1540,6 +1591,20 @@ fixtures! {
     "vacation.json" => Vacation = vacation(),
     "proto_ops_file.json" => Vec<ProtoOp> = vec![ProtoOp::File {
         remotes: vec![imap_ref()],
+        folder: "Money/Bills".to_owned(),
+    }],
+    // Copy to a folder, added after the files above were frozen: the op, and the outbox row that
+    // carries it to the server.
+    "actions_copy.json" => Vec<Action> = vec![Action {
+        target: Target::Messages(vec![MessageId::from_uuid(uuid(8))]),
+        op: Op::Copy(LabelId::from_uuid(uuid(3))),
+    }],
+    "proto_ops_copy.json" => Vec<ProtoOp> = vec![ProtoOp::Copy {
+        remotes: vec![
+            imap_ref(),
+            RemoteRef::Graph { mailbox: "INBOX".to_owned(), id: "AAMk-2".to_owned() },
+            RemoteRef::Jmap { email_id: "Mf40b5f831".into() },
+        ],
         folder: "Money/Bills".to_owned(),
     }],
     "message_keys.json" => Vec<MessageKey> = vec![
@@ -1658,6 +1723,95 @@ fixtures! {
     "smime_encryptions_authenticated.json" => Vec<SmimeEncryption> = vec![
         SmimeEncryption::DecryptedAuthenticated,
     ],
+    // Drafts kept on the server: the upload that replaces a draft's copy in Drafts, and the
+    // removal once it is sent or discarded, as the outbox rows that carry them.
+    "proto_ops_server_drafts.json" => Vec<ProtoOp> = vec![
+        ProtoOp::KeepDraft {
+            draft: DraftId::from_uuid(uuid(9)),
+            mailbox: MailboxRef { account: account(), path: "Drafts".to_owned() },
+            message_id: "00000000-0000-4000-8000-000000000009@example.test".to_owned(),
+        },
+        ProtoOp::DropDraft {
+            draft: DraftId::from_uuid(uuid(9)),
+            mailbox: MailboxRef { account: account(), path: "Drafts".to_owned() },
+            message_id: "00000000-0000-4000-8000-000000000009@example.test".to_owned(),
+        },
+    ],
+    // A draft's priority and its request for delivery reports, added after the files above were
+    // frozen: `draft.json` and the rest predate both and load as Normal, asking for none, and
+    // `proto_ops.json`'s submission predates the request it now carries.
+    "draft_priority.json" => Draft = Draft {
+        priority: Priority::High,
+        delivery: DeliveryReport::Requested,
+        automatic: false,
+        ..draft()
+    },
+    "priorities.json" => Vec<Priority> = Priority::ALL.to_vec(),
+    "proto_ops_delivery.json" => Vec<ProtoOp> = vec![ProtoOp::Submit {
+        draft: DraftId::from_uuid(uuid(9)),
+        raw: BlobId::from_uuid(uuid(7)),
+        mail_from: "me@example.test".to_owned(),
+        rcpt_to: vec!["to@example.test".to_owned()],
+        delivery: DeliveryReport::Requested,
+    }],
+    // An image shown in the body, by its `Content-ID`. `draft.json` predates the field and its
+    // attachment loads as a file.
+    "draft_inline_image.json" => Draft = Draft {
+        html: Some("<p>yes</p><img alt=\"\" src=\"cid:img1@mailo\">".to_owned()),
+        attachments: vec![PendingAttachment {
+            name: "photo.png".to_owned(),
+            mime: "image/png".to_owned(),
+            blob: BlobId::from_uuid(uuid(10)),
+            cid: Some("img1@mailo".to_owned()),
+        }],
+        ..draft()
+    },
+    // Sizes and relative dates (search operators), added after `filters.json` was frozen.
+    "filters_more.json" => Vec<Filter> = vec![
+        Filter::Larger(5_000_000),
+        Filter::Smaller(1_000),
+        Filter::NewerThan(7),
+        Filter::OlderThan(365),
+    ],
+    // Flag colours, added after every file above was frozen: the seven words, a message and a
+    // thread flagged orange, the op and the change, the outbox row and a survey's colours.
+    "hues.json" => Vec<Hue> = Hue::ALL.to_vec(),
+    "message_flagged.json" => Message = Message { flag: Hue::Orange, ..message() },
+    "thread_flagged.json" => Thread = Thread {
+        summary: ThreadSummary { flag: Hue::Orange, ..summary() },
+        ..thread()
+    },
+    "actions_flag.json" => Vec<Action> = vec![Action {
+        target: Target::Threads(vec![ThreadId::from_uuid(uuid(6))]),
+        op: Op::Flag(Hue::Orange),
+    }],
+    "patch_flag.json" => Patch = Patch {
+        id: ChangeId::from_uuid(uuid(9)),
+        changes: vec![
+            Change::MessageStar(MessageId::from_uuid(uuid(4)), Star::Starred),
+            Change::MessageFlag(MessageId::from_uuid(uuid(4)), Hue::Orange),
+        ],
+    },
+    "proto_ops_flag.json" => Vec<ProtoOp> = vec![ProtoOp::SetFlag {
+        remotes: vec![imap_ref()],
+        hue: Hue::Purple,
+    }],
+    "ingest_flag_colors.json" => Ingest = Ingest {
+        flag_colors: vec![(imap_ref(), Hue::Gray)],
+        ..ingest()
+    },
+    // Labels as keywords on a plain IMAP server, added after the caps files above were frozen.
+    "account_caps_keywords.json" => AccountCaps = AccountCaps {
+        labels: ServerLabels::Keywords,
+        ..caps()
+    },
+    // The actions added after `rules.json` was frozen.
+    "rule_actions_more.json" => Vec<RuleAction> = vec![
+        RuleAction::MarkUnread,
+        RuleAction::Notify,
+        RuleAction::Forward("ada@example.com".to_owned()),
+        RuleAction::Reply("Away".to_owned()),
+    ],
 }
 
 fn cert_fingerprint() -> CertFingerprint {
@@ -1762,6 +1916,28 @@ fn a_draft_from_before_openpgp_loads_as_plain() {
     assert_eq!(old.openpgp, OpenPgp::None);
 }
 
+#[test]
+fn a_draft_and_a_submission_from_before_priorities_ask_nothing() {
+    let old: Draft = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("draft_smime.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(old.priority, Priority::Normal);
+    assert_eq!(old.delivery, DeliveryReport::Unrequested);
+    let ops: Vec<ProtoOp> = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("proto_ops.json")).unwrap(),
+    )
+    .unwrap();
+    let delivery: Vec<DeliveryReport> = ops
+        .iter()
+        .filter_map(|op| match op {
+            ProtoOp::Submit { delivery, .. } => Some(*delivery),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(delivery, [DeliveryReport::Unrequested]);
+}
+
 /// `RemoteIntent` is not persisted today — `Store::enqueue` resolves it to a `ProtoOp` before
 /// anything reaches SQLite — but it is `Serialize`, so its shape is pinned here to keep the
 /// adjacent-tagging convention honest if that ever changes.
@@ -1793,6 +1969,20 @@ fn remote_intent_round_trips() {
             label: l,
         },
         RemoteIntent::Destroy { messages: vec![m] },
+        RemoteIntent::KeepDraft {
+            draft: DraftId::generate(),
+            mailbox: mailbox_ref(),
+            message_id: "d@example.test".to_owned(),
+        },
+        RemoteIntent::DropDraft {
+            draft: DraftId::generate(),
+            mailbox: mailbox_ref(),
+            message_id: "d@example.test".to_owned(),
+        },
+        RemoteIntent::Copy {
+            messages: vec![m],
+            label: l,
+        },
     ] {
         let json = serde_json::to_value(&value).expect("serialize");
         assert!(
@@ -1978,6 +2168,18 @@ fn a_follow_up_is_spelled_with_its_two_instants() {
     round_trip("Patch/follow_up", follow_up_patch());
 }
 
+/// A draft written before inline images existed carries files only, and a file on it is still
+/// written without a `cid`, so rows on disk keep the shape they had.
+#[test]
+fn a_draft_from_before_inline_images_carries_files() {
+    let text = std::fs::read_to_string(fixture_dir().join("draft.json")).expect("fixture");
+    assert!(!text.contains("cid"), "the fixture must predate the field");
+    let draft: Draft = serde_json::from_str(&text).expect("still deserializes");
+    assert!(draft.attachments.iter().all(|a| a.cid.is_none()));
+    let written = serde_json::to_string(&draft.attachments).expect("serializes");
+    assert!(!written.contains("cid"), "{written}");
+}
+
 /// A draft written before receipts existed did not ask for one, and still loads saying so.
 #[test]
 fn a_draft_from_before_receipts_asks_for_none() {
@@ -2000,4 +2202,57 @@ fn mailbox_role_word_is_its_serde_name() {
         assert_eq!(role.to_string(), role.as_str());
         assert_eq!(role.as_str().parse(), Ok(role));
     }
+}
+
+/// A message and a thread written before flags had colours were red if flagged at all, and still
+/// load saying so; the colour's own spellings are a bare word, and the op, the change and the
+/// outbox row are tagged like every other.
+#[test]
+fn a_flag_from_before_colours_is_red_and_a_colour_is_its_word() {
+    for name in ["message.json", "thread.json"] {
+        let text = std::fs::read_to_string(fixture_dir().join(name)).expect("fixture");
+        assert!(
+            !text.contains("\"flag\""),
+            "{name}: the fixture must predate the field"
+        );
+    }
+    let message: Message = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("message.json")).expect("fixture"),
+    )
+    .expect("still deserializes");
+    assert_eq!(message.flag, Hue::Red);
+    let thread: Thread = serde_json::from_str(
+        &std::fs::read_to_string(fixture_dir().join("thread.json")).expect("fixture"),
+    )
+    .expect("still deserializes");
+    assert_eq!(thread.summary.flag, Hue::Red);
+
+    assert_eq!(
+        serde_json::to_value(Op::Flag(Hue::Gray)).unwrap(),
+        serde_json::json!({"kind": "flag", "v": "gray"})
+    );
+    assert_eq!(
+        serde_json::to_value(Change::MessageFlag(
+            MessageId::from_uuid(uuid(4)),
+            Hue::Blue
+        ))
+        .unwrap(),
+        serde_json::json!({"kind": "message_flag", "v": [uuid(4).to_string(), "blue"]})
+    );
+    round_trip_each("Hue", Hue::ALL.to_vec());
+    round_trip(
+        "RemoteIntent::SetFlag",
+        RemoteIntent::SetFlag {
+            messages: vec![MessageId::from_uuid(uuid(4))],
+            hue: Hue::Yellow,
+        },
+    );
+    round_trip(
+        "ProtoOp::SetFlag",
+        ProtoOp::SetFlag {
+            remotes: vec![imap_ref()],
+            hue: Hue::Green,
+        },
+    );
+    round_trip("ServerLabels::Keywords", ServerLabels::Keywords);
 }

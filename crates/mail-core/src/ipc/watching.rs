@@ -10,6 +10,12 @@
 //! The answer is [`latchkey`]'s advisory lock, a kernel fact that dies with the process, the same
 //! as the daemon's own (`ipc::agent`), under its own name.
 //!
+//! One per Profile, not one per user: a watch fetches the one store its Profile names, so a watch
+//! over the default Profile's mail is no reason for `mailo --profile work` to leave its own
+//! fetching to it. The default Profile's lock keeps the name it had before Profiles had their own
+//! ([`name_of`]), so a watch of an older mailo and a newer window still find each other. mailo.app
+//! on macOS holds the lock itself while it runs (`mail_app::background`), whatever windows it has.
+//!
 //! # A door for the window
 //!
 //! The watch is the process that stores pushed mail while a window is open, and the one whose
@@ -23,6 +29,7 @@
 use super::door::{self, Answer};
 use super::wire::{Request, Response};
 use crate::error::CoreError;
+use crate::profile::ProfileId;
 use std::sync::Arc;
 use tokio::sync::watch;
 
@@ -30,8 +37,19 @@ use tokio::sync::watch;
 /// for each [`Request::SyncNow`].
 pub type Asked = watch::Receiver<u64>;
 
-/// The name the watch's lock and door live under, beside the daemon's.
+/// The name the default Profile's watch lock and door live under, beside the daemon's.
 const NAME: &str = "mailo-watch";
+
+/// The name `profile`'s watch lives under: [`NAME`] for the default Profile, `NAME-<id>` for
+/// another (an id is eight hex digits, so the socket's path still fits where macOS allows 104
+/// bytes).
+pub fn name_of(profile: &ProfileId) -> String {
+    if profile.is_default() {
+        NAME.to_owned()
+    } else {
+        format!("{NAME}-{}", profile.as_str())
+    }
+}
 
 /// Proof that this process is the one watching.
 ///
@@ -68,15 +86,15 @@ pub enum Refused {
     Failed(String),
 }
 
-/// This user's watch, wherever this platform puts such a thing: where its lock is, and the door
-/// the window knocks on.
-pub fn agent() -> Result<latchkey::Agent, CoreError> {
-    latchkey::Agent::new(NAME).map_err(CoreError::from)
+/// This user's watch over `profile`'s mail, wherever this platform puts such a thing: where its
+/// lock is, and the door the window knocks on.
+pub fn agent(profile: &ProfileId) -> Result<latchkey::Agent, CoreError> {
+    latchkey::Agent::new(&name_of(profile)).map_err(CoreError::from)
 }
 
-/// Become this user's watch, or say why not.
-pub fn claim() -> Result<Watching, Refused> {
-    claim_at(&agent().map_err(|e| Refused::Failed(e.to_string()))?)
+/// Become this user's watch over `profile`'s mail, or say why not.
+pub fn claim(profile: &ProfileId) -> Result<Watching, Refused> {
+    claim_at(&agent(profile).map_err(|e| Refused::Failed(e.to_string()))?)
 }
 
 /// Become the watch at `agent`'s address: [`claim`], for a test that keeps its own.
@@ -129,13 +147,22 @@ pub fn claim_at(agent: &latchkey::Agent) -> Result<Watching, Refused> {
     })
 }
 
-/// Whether a watch is running now, for this user.
-pub fn running() -> bool {
-    agent().is_ok_and(|agent| agent.is_running())
+/// Whether a watch over `profile`'s mail is running now, for this user.
+pub fn running(profile: &ProfileId) -> bool {
+    agent(profile).is_ok_and(|agent| agent.is_running())
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn the_default_profile_keeps_the_old_name_and_each_other_has_its_own() {
+        assert_eq!(name_of(&ProfileId::default()), "mailo-watch");
+        let work = ProfileId::try_from("1a2b3c4d".to_owned()).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(name_of(&work), "mailo-watch-1a2b3c4d");
+    }
+
     // One test, because the lock is per user and tests share a process: a second test claiming it
     // at the same moment would see the first's. The environment is the scratch one's, never the
     // person's runtime directory.

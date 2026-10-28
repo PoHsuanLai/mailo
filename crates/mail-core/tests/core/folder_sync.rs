@@ -686,7 +686,8 @@ fn which_mailboxes_a_pass_fetches() {
 mod sending_apart {
     use super::*;
     use mail_runtime::clients;
-    use porter_core::{EndpointUrl, UnixSeconds};
+    use porter_core::EndpointUrl;
+    use porter_ids::UnixSeconds;
     use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
     use std::io::Read as _;
 
@@ -722,7 +723,6 @@ mod sending_apart {
                 authorize: at("authorize").unwrap(),
                 token: at("token").unwrap(),
                 revoke: None,
-                device: None,
             }),
             ..clients::entry(Issuer::Microsoft, "client-id", None)
         };
@@ -805,6 +805,9 @@ mod sending_apart {
             receipt: ReceiptRequest::Unrequested,
             openpgp: OpenPgp::None,
             smime: Smime::None,
+            priority: mail_domain::Priority::Normal,
+            delivery: mail_domain::DeliveryReport::Unrequested,
+            automatic: false,
             state: SendState::Editing,
             updated: now(),
         };
@@ -827,6 +830,7 @@ mod sending_apart {
                     raw,
                     mail_from: post.mail_from.clone(),
                     rcpt_to: post.rcpt_to.clone(),
+                    delivery: mail_domain::DeliveryReport::Unrequested,
                 },
                 &Patch {
                     id: ChangeId::generate(),

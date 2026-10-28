@@ -18,6 +18,11 @@ pub enum RemoteImages {
 /// Whether the sender's CSS survives: its `<style>` sheets, `style`, `class` and `id`
 /// attributes, and the old presentational attributes (`bgcolor`, `width`, `align`...) a
 /// newsletter's tables are laid out with.
+///
+/// Dropped keeps one thing of a `style` attribute on a paragraph, a heading, a list item, a
+/// `div` or a `span`: the composer's own few styles, each from its fixed set (a size, a palette
+/// colour, an alignment, an indent; `block::style`). Every other declaration, and every other
+/// value of those, goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Styles {
     /// Default: the markup is lowered to blocks (the composer, paste, print), which draw it in
@@ -46,7 +51,7 @@ impl SanitizePolicy {
     pub const CURRENT: SanitizePolicy = SanitizePolicy {
         remote_images: RemoteImages::Blocked,
         styles: Styles::Dropped,
-        version: 3,
+        version: 4,
     };
 
     /// The reader's frame: remote images blocked until the reader asks, the sender's CSS kept.
@@ -185,11 +190,18 @@ fn build(styles: Styles, remote: RemoteImages) -> ammonia::Builder<'static> {
     // only when the reader opted in". The attribute filter applies that second rule to
     // attributes ammonia has already scheme-checked.
     let mut builder = ammonia::Builder::new();
-    if styles == Styles::Kept {
-        builder
-            .rm_clean_content_tags(&["style"])
-            .add_tags(&["style", "font", "center"])
-            .add_generic_attributes(&PRESENTATIONAL);
+    match styles {
+        Styles::Kept => {
+            builder
+                .rm_clean_content_tags(&["style"])
+                .add_tags(&["style", "font", "center"])
+                .add_generic_attributes(&PRESENTATIONAL);
+        }
+        Styles::Dropped => {
+            for tag in COMPOSED {
+                builder.add_tag_attributes(tag, &["style"]);
+            }
+        }
     }
     builder
         .url_schemes(HashSet::from(["http", "https", "mailto", "cid"]))
@@ -204,7 +216,13 @@ fn build(styles: Styles, remote: RemoteImages) -> ammonia::Builder<'static> {
         .rm_tag_attributes("q", &["cite"])
         .attribute_filter(move |element, attribute, value| {
             if attribute == "style" {
-                return Some(css::scrub(value, css::Context::Declarations));
+                return match styles {
+                    Styles::Kept => Some(css::scrub(value, css::Context::Declarations)),
+                    Styles::Dropped => crate::block::allowed_style(value).map(Cow::Owned),
+                };
+            }
+            if attribute == "class" || attribute == "id" {
+                return not_own(value);
             }
             if fetches_on_render(element, attribute) {
                 let kept = keep_fetched_url(value, remote);
@@ -223,6 +241,25 @@ fn build(styles: Styles, remote: RemoteImages) -> ammonia::Builder<'static> {
             }
         });
     builder
+}
+
+/// A sender's `class` or `id` without mailo's own names (those starting `mailo-`, in any case):
+/// the frame's document puts elements of the reader's own beside the sender's (the inset the
+/// words are read in, a folded quote), and its rules for them must reach only them. Nothing is
+/// left of an attribute that held only such names.
+fn not_own(value: &str) -> Option<Cow<'_, str>> {
+    let own = |name: &str| {
+        name.get(..6)
+            .is_some_and(|head| head.eq_ignore_ascii_case("mailo-"))
+    };
+    if !value.split_ascii_whitespace().any(own) {
+        return Some(Cow::Borrowed(value));
+    }
+    let kept: Vec<&str> = value
+        .split_ascii_whitespace()
+        .filter(|name| !own(name))
+        .collect();
+    (!kept.is_empty()).then(|| Cow::Owned(kept.join(" ")))
 }
 
 /// Elements whose content a browser never draws as text, removed with everything in them.
@@ -249,6 +286,22 @@ fn build(styles: Styles, remote: RemoteImages) -> ammonia::Builder<'static> {
 const UNRENDERED: [&str; 13] = [
     "title", "template", "xml", "svg", "iframe", "noembed", "noframes", "audio", "video", "canvas",
     "select", "datalist", "option",
+];
+
+/// The elements whose `style` keeps the composer's own styles under [`Styles::Dropped`]: where
+/// the composer writes them, and where Apple Mail's and Gmail's pastes put the same ones.
+const COMPOSED: [&str; 11] = [
+    "p",
+    "div",
+    "span",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
 ];
 
 /// The attributes a sender's layout is written in, kept with [`Styles::Kept`]. `background`

@@ -33,7 +33,9 @@
 //! properties Exchange writes those headers from (`PidTagInReplyToId`, 0x1042, and
 //! `PidTagInternetReferences`, 0x1039) through `singleValueExtendedProperties`.
 
+pub mod push;
 pub mod read;
+pub mod replies;
 
 use crate::RuntimeError;
 use crate::error::{Failure, Logged};
@@ -312,7 +314,7 @@ async fn upload(
 
     // Not the caller's client: nothing here may carry the token, and a redirect away from the
     // pre-authenticated address is not somewhere the attachment should follow.
-    let put = reqwest::Client::builder()
+    let put = crate::roots::trusting_system(reqwest::Client::builder())
         .redirect(reqwest::redirect::Policy::none())
         .timeout(CHUNK_TIMEOUT)
         .build()

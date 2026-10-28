@@ -29,7 +29,10 @@ impl<'a> Blobs<'a> {
     /// Store `bytes`, returning the id to reference them by. Identical bytes are stored once
     /// and share an id.
     pub fn put(&self, bytes: &[u8]) -> Result<BlobId, StoreError> {
-        self.store.files().put(&self.store.connection(), bytes)
+        // A body or an attachment: what a message shows.
+        self.store
+            .files()
+            .put(&self.store.touch(crate::Topics::SUMMARIES), bytes)
     }
 
     /// The bytes behind `id`.

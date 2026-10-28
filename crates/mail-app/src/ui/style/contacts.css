@@ -1,5 +1,0 @@
-/* A person, edited from their name in mail: the sender's name in the reader's header, which a
-   right click turns into Edit Contact…, and the popover that hangs from it, the address over the
-   name field and its Save. */
-.sender-name { display: inline-flex; min-width: 0; }
-.contact-editor { display: grid; gap: var(--s-6); width: 260px; }

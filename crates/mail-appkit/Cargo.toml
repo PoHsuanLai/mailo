@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 publish = false
-description = "mailo's pieces of AppKit and EventKit that need unsafe: the application delegate that hears open-URL and Dock-reopen events, and the calendar store over EventKit."
+description = "mailo's pieces of AppKit and EventKit that need unsafe: the application delegate that hears open-URL and Dock-reopen events, the login item, and the calendar store over EventKit."
 
 # The workspace forbids `unsafe_code`; `define_class!` cannot be written without it, so this crate
 # is the single place that says otherwise (denied, then allowed in `delegate.rs` alone). Nothing
@@ -32,3 +32,6 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 block2 = "0.6"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 objc2-event-kit = { version = "0.3", default-features = false, features = ["std", "block2", "EKEventStore", "EKEvent", "EKCalendar", "EKCalendarItem", "EKObject", "EKTypes", "EKSource"] }
+# The login item that starts `mailo watch` at login (`login.rs`): `SMAppService`, macOS 13 on.
+# Only the class's own bindings. Zlib OR Apache-2.0 OR MIT.
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }

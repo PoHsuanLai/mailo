@@ -1,20 +1,16 @@
 //! `mailo`, the application: a window and a command line over one store.
 //!
-//! The two front-ends sit side by side. [`ui`] is the window, drawn with quire; [`cli`] is the
-//! terminal. Neither names the other: what they share is `mail_core`, which has no window and no
-//! terminal in it (`scripts/check-boundary.sh` holds both lines). [`intents`] is a third face,
-//! with neither: what the desktop's intent router asks of mailo over D-Bus. The `mailo` binary
-//! (`main.rs`) is the router between them.
+//! The two front-ends sit side by side. `mail_ui::ui` is the window, drawn with quire over
+//! the one client; [`cli`] is the terminal. Neither names the other: what they share is
+//! `mail_core`, which has no window and no terminal in it (`scripts/check-boundary.sh` holds both
+//! lines). [`intents`] is a third face, with neither: what the desktop's intent router asks of
+//! mailo over D-Bus. The `mailo` binary (`main.rs`) is the router between them, and [`window`]
+//! opens the window with what only the program makes: the client over the store, reaching servers
+//! as [`edge`] says.
 
-pub mod calendar;
+pub mod background;
 pub mod cli;
-pub mod damage;
 pub mod edge;
-pub mod handoff;
 pub mod intents;
-pub mod launcher;
-pub mod mail_handler;
-pub mod said;
 pub mod session;
-pub mod settings;
-pub mod ui;
+pub mod window;

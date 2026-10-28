@@ -6,8 +6,6 @@
 //! `Identity/get`, blob download and upload, and an event source. Written from RFC 8620 and
 //! RFC 8621, not from any server's code. HTTP/1.1, one request per connection.
 
-#![allow(dead_code)]
-
 use serde_json::{Map, Value, json};
 use std::sync::{Arc, Mutex};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -55,6 +53,10 @@ pub struct State {
     pub submitted: Vec<Submitted>,
     /// Every method call received, by name, with its arguments.
     pub calls: Vec<(String, Value)>,
+    /// What `Quota/get` lists (RFC 9425 Quota objects).
+    pub quotas: Vec<Value>,
+    /// The account's `VacationResponse` as last set, `None` until it is.
+    pub vacation: Option<Value>,
     next: u64,
 }
 
@@ -251,7 +253,9 @@ async fn connection(fake: Fake, sock: tokio::net::TcpStream) {
                     "name": USER, "isPersonal": true, "isReadOnly": false,
                     "accountCapabilities": {
                         "urn:ietf:params:jmap:mail": {},
-                        "urn:ietf:params:jmap:submission": {}
+                        "urn:ietf:params:jmap:submission": {},
+                        "urn:ietf:params:jmap:quota": {},
+                        "urn:ietf:params:jmap:vacationresponse": {}
                     }
                 } },
                 "primaryAccounts": {
@@ -589,6 +593,23 @@ fn method(
             "accountId": ACCOUNT_ID, "state": "i1",
             "list": [{ "id": "I1", "name": "Me", "email": USER }], "notFound": []
         })),
+        "Quota/get" => one(json!({
+            "accountId": ACCOUNT_ID, "state": "q1", "list": state.quotas, "notFound": []
+        })),
+        "VacationResponse/set" => {
+            let Some(patch) = args["update"].get("singleton") else {
+                return one(json!({ "accountId": ACCOUNT_ID, "updated": {} }));
+            };
+            let mut now = state
+                .vacation
+                .take()
+                .unwrap_or_else(|| json!({ "id": "singleton" }));
+            for (key, value) in patch.as_object().unwrap() {
+                now[key] = value.clone();
+            }
+            state.vacation = Some(now);
+            one(json!({ "accountId": ACCOUNT_ID, "updated": { "singleton": null } }))
+        }
         _ => error("unknownMethod"),
     }
 }
@@ -653,6 +674,24 @@ fn matches(state: &State, email: &Email, filter: &Value) -> bool {
             "notKeyword" => !email.keywords.iter().any(|k| k.to_lowercase() == text),
             "text" => raw.contains(&text),
             "from" | "to" | "cc" | "subject" => header(key).contains(&text),
+            // `[name]` asks that the header be there, `[name, value]` that it hold the value.
+            "header" => {
+                let pair: Vec<String> = value
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .map(str::to_lowercase)
+                            .collect()
+                    })
+                    // Not an array: no name to match, which the match below answers false.
+                    .unwrap_or_default();
+                match &pair[..] {
+                    [name] => headers(raw.as_bytes()).iter().any(|(n, _)| n == name),
+                    [name, want] => header(name).contains(want.as_str()),
+                    _ => false,
+                }
+            }
             // Anything else is not something this fake can answer.
             _ => false,
         }

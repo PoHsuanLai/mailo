@@ -48,6 +48,13 @@ pub enum SearchKey {
     SentBefore(NaiveDate),
     /// Gmail's `X-GM-LABELS` (its IMAP extensions): the message bears this label.
     GmailLabel(String),
+    /// `LARGER`: the message is larger than this many octets, as the server counts them (its
+    /// whole source, headers included).
+    Larger(u64),
+    /// `SMALLER`: the message is smaller than this many octets.
+    Smaller(u64),
+    /// Gmail's `X-GM-RAW`: the message matches this search as typed in Gmail's own box.
+    GmailRaw(String),
     Not(Box<SearchKey>),
     Or(Box<SearchKey>, Box<SearchKey>),
     /// Every key, parenthesised where it is not the whole search.
@@ -199,6 +206,10 @@ fn key(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<SearchKey, Unsaid> {
         Filter::Starred(Star::Starred) => SearchKey::Flagged,
         Filter::Starred(Star::Unstarred) => SearchKey::Unflagged,
         Filter::From(m) => SearchKey::From(whole(m)?),
+        // The server's FROM finds the address as text of the header, name or address; the mail it
+        // finds is judged again by the filter when it is read.
+        Filter::FromAddress(email) => SearchKey::From(email.clone()),
+        Filter::Cc(m) => SearchKey::Cc(whole(m)?),
         Filter::To(m) => {
             let who = whole(m)?;
             SearchKey::Or(
@@ -231,9 +242,28 @@ fn key(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<SearchKey, Unsaid> {
                 ));
             }
         },
+        // The categories are Gmail's own, and only its search extension can ask for them.
+        Filter::Category(category) => match ctx.labels {
+            ServerLabels::Supported => SearchKey::GmailRaw(format!("category:{}", category.name())),
+            ServerLabels::LocalOnly | ServerLabels::Keywords => {
+                return Err(Unsaid::one(format!(
+                    "{} (only Gmail has categories)",
+                    describe(filter)
+                )));
+            }
+        },
         Filter::HasAttachment => {
             return Err(Unsaid::one(
                 "has:attachment (IMAP has no search for it)".to_owned(),
+            ));
+        }
+        Filter::Larger(bytes) => SearchKey::Larger(*bytes),
+        Filter::Smaller(bytes) => SearchKey::Smaller(*bytes),
+        // Fixed against a clock before a server is asked (`Filter::at`); one that reaches here
+        // was not, and is not guessed at.
+        Filter::NewerThan(_) | Filter::OlderThan(_) => {
+            return Err(Unsaid::one(
+                "newer_than: / older_than: (not fixed to a date)".to_owned(),
             ));
         }
         // A place under OR or NOT: a mailbox is where IMAP searches, not what it matches.
@@ -243,7 +273,7 @@ fn key(filter: &Filter, ctx: &ImapCtx<'_>) -> Result<SearchKey, Unsaid> {
                 describe(filter)
             )));
         }
-        Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned => {
+        Filter::Account(_) | Filter::Snoozed | Filter::SnoozeDue | Filter::Pinned | Filter::Vip => {
             return Err(kept_here(filter));
         }
     })
@@ -310,7 +340,8 @@ fn needs_utf8(key: &SearchKey) -> bool {
         | SearchKey::Cc(s)
         | SearchKey::Subject(s)
         | SearchKey::Body(s)
-        | SearchKey::GmailLabel(s) => !s.is_ascii(),
+        | SearchKey::GmailLabel(s)
+        | SearchKey::GmailRaw(s) => !s.is_ascii(),
         SearchKey::Not(inner) => needs_utf8(inner),
         SearchKey::Or(a, b) => needs_utf8(a) || needs_utf8(b),
         SearchKey::And(keys) => keys.iter().any(needs_utf8),
@@ -337,8 +368,11 @@ fn render(key: &SearchKey, out: &mut Vec<Piece>) -> Result<(), ProtoError> {
         SearchKey::Subject(v) => field(out, "SUBJECT", v)?,
         SearchKey::Body(v) => field(out, "BODY", v)?,
         SearchKey::GmailLabel(v) => field(out, "X-GM-LABELS", v)?,
+        SearchKey::GmailRaw(v) => field(out, "X-GM-RAW", v)?,
         SearchKey::SentSince(d) => word(out, &format!("SENTSINCE {}", imap_date(*d))),
         SearchKey::SentBefore(d) => word(out, &format!("SENTBEFORE {}", imap_date(*d))),
+        SearchKey::Larger(n) => word(out, &format!("LARGER {n}")),
+        SearchKey::Smaller(n) => word(out, &format!("SMALLER {n}")),
         SearchKey::Not(inner) => {
             word(out, "NOT ");
             render(inner, out)?;

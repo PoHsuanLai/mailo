@@ -28,7 +28,7 @@ keyring = ["mail-runtime/keyring"]
 oo7 = ["mail-runtime/oo7"]
 # The desktop's notification service and the clicks on what it shows (`notify/desktop.rs`,
 # `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface. Without
-# it a watch announces through whatever `Notifier` it is handed, or nothing.
+# it a watch announces through whatever `Notifier` it is handed.
 desktop = ["dep:notify-rust", "dep:zbus"]
 # A PDF attachment's pages for the preview (`preview.rs`), by pdfrum. Without it a PDF has no
 # preview ("could not be read") and everything else previews as before.
@@ -38,6 +38,9 @@ testing = ["mail-runtime/testing"]
 
 [dependencies]
 porter-core.workspace = true
+porter-ids.workspace = true
+porter-capability.workspace = true
+porter-sheet.workspace = true
 porter-provider.workspace = true
 porter-discover.workspace = true
 # The HTTP seam porter-discover asks through (`discover.rs` names it); no client, no I/O.
@@ -124,6 +127,10 @@ tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }
 uuid = { workspace = true }
 proptest = "1"
+# The push relay's side of a Graph account's push, played on loopback (`tests/core/graph_push.rs`):
+# the WebSocket the runtime already speaks, at its version.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 
 [lints]
 workspace = true

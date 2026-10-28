@@ -80,6 +80,7 @@ fn stored(
         rfc_message_id: Some(rfc_id),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: Body::Present {
@@ -107,8 +108,10 @@ fn stored(
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )
@@ -234,7 +237,7 @@ fn out_writes_the_file_it_names() {
 
 #[test]
 fn a_subject_cannot_choose_where_its_file_goes() {
-    use mail_core::print::file_name;
+    use mail_core::html_document::file_name;
     assert_eq!(file_name("Lunch"), "Lunch.html");
     assert_eq!(
         file_name("../../.ssh/authorized_keys"),

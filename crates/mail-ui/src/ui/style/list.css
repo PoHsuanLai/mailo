@@ -1,0 +1,93 @@
+/* The list inside the card: the header is in shell.css, the rows are quire's `VirtualList` of
+   `ThreadRow`s (they enter, leave and close the gap on quire's roster); this is layout only. */
+.list-title { display: flex; flex-direction: column; min-width: 0; flex: 0 1 auto; overflow: hidden; }
+/* The title starts where the rows' words do: a row's text sits the list's margin, the card's
+   hairline, quire's thread padding, its dot column (10 px, one --s-10) and the dot's gap in
+   (quire thread_row.css); the toolbar puts its first item its padding and one gap in. With the
+   sidebar hidden its toggle leads the bar instead, and the title follows it. */
+.list-head > .list-title:first-child {
+  margin-left: calc(var(--s-4) + var(--hair) + var(--s-11) + 2 * var(--s-10) - var(--s-12) - var(--s-8));
+}
+/* A long place name gives way to the tools: it fades out (quire's `.ds-truncate`), never under
+   a button. */
+.list-title > * { min-width: 0; overflow: hidden; white-space: nowrap; }
+/* The toolbar's search, after its tools, where the Mac keeps it: the magnifier. */
+.list-head .bar { display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
+/* While a search narrows the list it is the header: the search as the panel's field shows it
+   (the field's face at its weight, the operators as its chips, a leading magnifier), at the
+   toolbar's height, across the header; where it looks at its end, quiet, or in the danger ink
+   when it cannot be run; then Save as View and the ×. The words take the room between and give
+   way first, faded at the end of it, then a long reason why it cannot be run. */
+.list-head.searching { gap: var(--s-4); }
+.search-face {
+  display: flex; align-items: center; gap: var(--s-8); flex: 1 1 auto; min-width: 0;
+  box-sizing: border-box; height: var(--ctl-h-l); padding: 0 var(--s-12) 0 var(--s-10);
+  border-radius: var(--r-pill); cursor: text;
+  background: linear-gradient(var(--fill-btn), var(--fill-btn)), var(--surface);
+}
+.search-face:hover { background: linear-gradient(var(--hover-wash), var(--hover-wash)), linear-gradient(var(--fill-btn), var(--fill-btn)), var(--surface); }
+.search-glyph { display: inline-flex; align-items: center; flex: none; color: var(--ink-faint); }
+.search-terms {
+  display: flex; align-items: center; gap: var(--s-6); flex: 1 1 auto; min-width: 0;
+  overflow: hidden; white-space: nowrap;
+  mask-image: linear-gradient(to right, var(--ink) calc(100% - 1.5em), transparent);
+}
+.search-terms > * { flex: none; }
+.search-words { font-size: var(--fs-reading); font-weight: var(--fw-shell-field); color: var(--ink); }
+.search-scope {
+  flex: none; white-space: nowrap;
+  font-size: var(--fs-meta); color: var(--ink-faint);
+}
+.search-scope.bad { flex: 0 1 auto; min-width: 0; max-width: 60%; overflow: hidden; color: var(--danger); }
+/* The search panel: quire's search card hangs from a line across the window a little way down from
+   its top, centred under it, as Spotlight sits on the screen. The card and its rows are quire's
+   (`.ds-search-card`); this is only the line. */
+.spotlight-line { position: absolute; left: 0; right: 0; top: 14%; height: var(--hair); pointer-events: none; }
+/* The box around quire's list. The list scrolls itself (`VirtualList` holds the scroller), so this
+   does not, and its padding goes to the sides of each item: at the top or bottom it would shift
+   every row off the offsets the window is computed from. Each item is held to its slot. */
+.list { margin: 0; padding: 0; overflow: hidden; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.list .row, .list .band { height: 100%; margin: 0 var(--s-4); overflow: hidden; }
+/* mailo's box around each quire row: one flexible track, and the place the row's menus sit
+   against. */
+.row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); }
+.via { display: inline-flex; align-items: center; gap: var(--s-2); flex: none; }
+.clip { display: inline-flex; align-items: center; gap: var(--s-2); }
+.mute-mark { display: inline-flex; align-items: center; }
+/* A VIP's mark, beside their name in a row and in the reader: small, and in the quiet ink. */
+.vip-mark { display: inline-flex; align-items: center; flex: none; color: var(--ink-faint); }
+.no-reply { display: inline-flex; align-items: center; gap: var(--s-2); white-space: nowrap; }
+/* The end of a search's list: per account with a server, "Search … on the server", or what its
+   server answered. */
+.server-search { display: flex; flex-direction: column; gap: var(--s-8); padding: var(--s-10) var(--s-8); }
+.server-search-one { display: flex; flex-direction: column; align-items: center; gap: var(--s-4); }
+.server-search-one .status { text-align: center; }
+/* Why the list is empty, laid over the empty list rather than after it, where it would be past
+   the pane's end. */
+.list-empty { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: flex; flex-direction: column; }
+/* The quick filter's row under the toolbar: its toggles in a line, set in as the list's progress
+   bar is, and Clear Filter after them. It wraps rather than run past the list's edge. */
+.quick-filter {
+  display: flex; flex: none; flex-wrap: wrap; align-items: center; gap: var(--s-4) var(--s-6);
+  padding: 0 var(--s-10) var(--s-8);
+}
+/* What the accounts are doing: a bar across the list's top, under its toolbar, while a download
+   counts (its words are the sidebar's sync mark's tip), the placeholder rows before the first
+   mail, the sheet that lists accounts needing attention, and the mark beside an account's name.
+   Layout only. */
+.list-progress { display: flex; flex: none; padding: 0 var(--s-10); }
+.list-progress > * { width: 100%; }
+.first-sync { display: flex; flex-direction: column; gap: var(--s-2); }
+.doctor { display: flex; flex-direction: column; gap: var(--s-12); padding: var(--s-16); }
+.doctor-foot { display: flex; justify-content: flex-end; gap: var(--s-8); }
+.doctor-acts { display: flex; align-items: center; gap: var(--s-4); }
+/* A flag's colour: the row's star (quire draws it in --warn) and the reader's mark before the
+   subject wear the tag colour of the flag's name, which has its own dark value; a label's tag in
+   the sidebar wears its colour the same way. */
+.row[data-flag="red"], .flag-mark[data-flag="red"], .label-hue[data-hue="red"] { --warn: var(--tag-red); }
+.row[data-flag="orange"], .flag-mark[data-flag="orange"], .label-hue[data-hue="orange"] { --warn: var(--tag-orange); }
+.row[data-flag="yellow"], .flag-mark[data-flag="yellow"], .label-hue[data-hue="yellow"] { --warn: var(--tag-yellow); }
+.row[data-flag="green"], .flag-mark[data-flag="green"], .label-hue[data-hue="green"] { --warn: var(--tag-green); }
+.row[data-flag="blue"], .flag-mark[data-flag="blue"], .label-hue[data-hue="blue"] { --warn: var(--tag-blue); }
+.row[data-flag="purple"], .flag-mark[data-flag="purple"], .label-hue[data-hue="purple"] { --warn: var(--tag-purple); }
+.row[data-flag="gray"], .flag-mark[data-flag="gray"], .label-hue[data-hue="gray"] { --warn: var(--tag-gray); }

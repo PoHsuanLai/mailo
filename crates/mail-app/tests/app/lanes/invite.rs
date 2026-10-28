@@ -2,7 +2,7 @@
 //! Change answer then Decline sends another, and Save .ics writes the event where the window
 //! saves files.
 
-use mail_app::ui::copy;
+use mail_ui::ui::copy;
 
 use super::drive::Key;
 use super::window::{Window, deliver, hours_ago, queued};

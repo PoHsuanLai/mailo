@@ -57,6 +57,10 @@ fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
         receipt: ReceiptRequest::Requested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        // Not the defaults, so a column the store forgot reads back as a difference.
+        priority: mail_domain::Priority::High,
+        delivery: mail_domain::DeliveryReport::Requested,
+        automatic: false,
         state: SendState::Editing,
         updated: at(10),
     }
@@ -246,8 +250,10 @@ fn ingest_one(b: &Both) -> MessageId {
             message: message.clone(),
         }],
         flags: vec![],
+        flag_colors: Vec::new(),
         labels: vec![],
         label_names: Vec::new(),
+        provider_threads: Vec::new(),
         gone: vec![],
     };
     b.sqlite.ingest(acct_account(), ingest.clone()).unwrap();

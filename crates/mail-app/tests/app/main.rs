@@ -7,8 +7,7 @@
 // The helpers the tests share, declared once.
 #[path = "../support/cli_mail.rs"]
 mod cli_mail;
-#[path = "../support/drive.rs"]
-mod drive;
+use mail_ui::testing::drive;
 #[path = "../support/latency_inbox.rs"]
 mod latency_inbox;
 #[path = "../support/native.rs"]
@@ -21,8 +20,7 @@ mod row_menu;
 mod sealed;
 #[path = "../support/settle.rs"]
 mod settle;
-#[path = "../../../mail-mime/tests/smime_support/mod.rs"]
-mod smime_support;
+use mail_mime::testing::smime as smime_support;
 #[path = "../support/store.rs"]
 mod store;
 #[path = "../support/typing.rs"]

@@ -8,8 +8,6 @@
 //! little virtual time per step, lets the other threads run, and gives up only on a bound of the
 //! machine's own time, so a slow runner waits longer instead of failing.
 
-#![allow(dead_code)]
-
 use ds_harness::Harness;
 use std::time::{Duration, Instant};
 

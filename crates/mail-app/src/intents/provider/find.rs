@@ -66,7 +66,7 @@ impl Provider {
             &mail_core::search::Affinity::default(),
             &Local,
             &named,
-            mail_core::search::first(LIMIT.saturating_add(mail_core::search::STRIP)),
+            mail_core::search::first(LIMIT.saturating_add(mail_core::search::TOP_LIMIT)),
             Utc::now(),
         )
         .map_err(|why| AppRefusal::Failed(why.to_string()))?;

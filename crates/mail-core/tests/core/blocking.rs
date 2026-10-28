@@ -13,8 +13,6 @@ use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::watch;
 
 /// Wait for `work` on a current-thread runtime of its own.
 pub fn block_on<T>(work: impl Future<Output = T>) -> T {
@@ -73,18 +71,15 @@ pub fn fetch_body_with(
     ))
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn listen_with(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     account: AccountId,
-    cancel: watch::Receiver<bool>,
-    hold: Option<live::Hold>,
-    grace: Duration,
+    watch: live::Watch,
     heard: &dyn Fn(live::Heard),
 ) -> Result<(), live::Lost> {
     block_on(live::listen_with(
-        store, secrets, registry, account, cancel, hold, grace, heard,
+        store, secrets, registry, account, watch, heard,
     ))
 }

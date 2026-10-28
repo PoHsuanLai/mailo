@@ -176,3 +176,52 @@ fn a_message_the_survey_does_not_know_is_skipped_rather_than_failing() {
         "no label invented"
     );
 }
+
+#[test]
+fn a_labels_chosen_colour_survives_a_sync_that_reports_it_again() {
+    let store = sqlite();
+    message(&store, 42);
+    label_sweep(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);
+    let travel = store
+        .labels(acct_account())
+        .unwrap()
+        .into_iter()
+        .find(|l| l.name == "travel")
+        .unwrap();
+
+    // The person picks a colour, as the label editor writes it.
+    let coloured = Label {
+        color: Some("purple".to_owned()),
+        ..travel.clone()
+    };
+    let write = |label: &Label| {
+        store
+            .apply(
+                acct_account(),
+                &Patch {
+                    id: ChangeId::generate(),
+                    changes: vec![Change::LabelUpsert(label.clone())],
+                },
+            )
+            .unwrap();
+    };
+    let colour_now = || {
+        store
+            .labels(acct_account())
+            .unwrap()
+            .into_iter()
+            .find(|l| l.id == travel.id)
+            .unwrap()
+            .color
+    };
+    write(&coloured);
+    assert_eq!(colour_now().as_deref(), Some("purple"));
+
+    // A later sync names the label again: it is found by its name, not written over.
+    label_sweep(&store, vec![(gmail_ref(42), vec!["travel".to_owned()])]);
+    assert_eq!(colour_now().as_deref(), Some("purple"), "after a sync");
+
+    // "No colour" in the editor is an upsert of the label with none: the one way it is cleared.
+    write(&travel);
+    assert_eq!(colour_now(), None);
+}

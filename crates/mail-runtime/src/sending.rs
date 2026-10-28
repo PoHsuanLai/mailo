@@ -33,6 +33,35 @@ pub fn settles(error: &RuntimeError) -> Retry {
     }
 }
 
+/// What a redirect says when the server will not send it, as Graph's refusal up front does.
+pub const REDIRECT_REFUSED_FROM: &str = "the server will not send a message as someone who is not \
+    on this account, and a redirect keeps its sender. Forward it instead";
+
+/// Servers that refuse a message sent as another person's address say so as SMTP's enhanced
+/// status 5.2.252 or 5.7.60 (Exchange Online), or JMAP's `forbiddenFrom` (RFC 8621 §7.5). Where
+/// `resent` says the message was a redirect, that refusal is the redirect's, and the person is
+/// told to forward it instead; anything else is as the server said.
+pub(crate) fn redirect_refused(error: RuntimeError, resent: bool) -> RuntimeError {
+    use mail_proto::{ProtoError, Refusal};
+    let RuntimeError::Proto(ProtoError::Refused {
+        kind: Refusal::Permanent,
+        text,
+    }) = &error
+    else {
+        return error;
+    };
+    let from_refused = ["5.2.252", "5.7.60", "forbiddenFrom"]
+        .iter()
+        .any(|marker| text.contains(marker));
+    if resent && from_refused {
+        return RuntimeError::Proto(ProtoError::Refused {
+            kind: Refusal::Permanent,
+            text: format!("{REDIRECT_REFUSED_FROM} ({text})"),
+        });
+    }
+    error
+}
+
 /// Whether the account's pass hears of what `op`'s failure asks for (a sign-in, a wait): every
 /// operation's but a submission's, which is the outbox row's alone.
 ///
@@ -53,6 +82,36 @@ pub fn sending_alone(plan: &AccountPlan) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_redirect_a_server_will_not_send_as_another_person_says_to_forward_it() {
+        use mail_proto::{ProtoError, Refusal};
+        let refused = |text: &str| {
+            RuntimeError::Proto(ProtoError::Refused {
+                kind: Refusal::Permanent,
+                text: text.to_owned(),
+            })
+        };
+        let said = |error: RuntimeError| match error {
+            RuntimeError::Proto(ProtoError::Refused { text, .. }) => text,
+            other => panic!("not a refusal: {other:?}"),
+        };
+        for server in [
+            "550 5.7.60 SMTP; Client does not have permissions to send as this sender",
+            "550 5.2.252 SendAsDenied",
+            "submitting the message: forbiddenFrom",
+        ] {
+            let told = said(redirect_refused(refused(server), true));
+            assert!(told.contains("Forward it instead"), "{told}");
+            assert!(told.contains(server), "what the server said stays: {told}");
+            // The same refusal of a message that is not a redirect is the server's own words.
+            assert_eq!(said(redirect_refused(refused(server), false)), server);
+        }
+        assert_eq!(
+            said(redirect_refused(refused("550 5.1.1 no such user"), true)),
+            "550 5.1.1 no such user"
+        );
+    }
 
     #[test]
     fn a_refused_protocol_keeps_the_message_and_anything_else_says_what_it_says() {

@@ -9,9 +9,14 @@ rust-version.workspace = true
 
 [dependencies]
 porter-core.workspace = true
+porter-ids.workspace = true
 porter-provider.workspace = true
 porter-discover.workspace = true
 porter-http.workspace = true
+# The direct-connection client behind that seam (discovery and the token exchanges).
+porter-http-reqwest.workspace = true
+# CardDAV's request bodies and `207 Multi-Status` replies, as text.
+dav-proto.workspace = true
 porter-oauth = { workspace = true, features = ["io"] }
 # A porter relay's byte stream (`AuthenticatedStream`), which `Transport::relayed` wraps and the
 # in-memory transport of `testing` is built on. Its `dbus` feature stays off: no zbus.
@@ -32,6 +37,8 @@ tokio-rustls = "0.26"
 # TCP keepalive on the sockets this crate opens (`transport.rs`): tokio has no setter for it.
 # MIT OR Apache-2.0, already in the tree through tokio, at its version.
 socket2 = "0.6"
+# IMAP COMPRESS=DEFLATE (RFC 4978): raw DEFLATE on the connection, see `transport::Deflate`.
+flate2 = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
 rustls-pki-types = "1"
@@ -40,6 +47,15 @@ blake3 = "1"
 rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 url = "2"
+# Push for a Graph account (`graph/push.rs`): the WebSocket to the relay, over the TLS this crate
+# already opens (`transport.rs`). tungstenite is already in the tree at this version; only its
+# handshake, no TLS or connector of its own. MIT. futures-util (MIT OR Apache-2.0, already in the
+# tree) for the socket's `Stream` and `Sink`.
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
+# A Camo relay's signature on an image URL (`remote_image/route.rs`); both already in the tree.
+hmac = "0.12"
+sha1 = "0.10"
 base64 = "0.22"
 serde = { workspace = true }
 serde_json = "1"
@@ -48,6 +64,8 @@ uuid = { workspace = true }
 # its target. It serves the signing keys mailo keeps in its own store (`signing_store.rs`), which
 # are not account secrets: those go through porter-secrets.
 keyring-core = "1"
+# A value too long for one entry (the Credential Manager's 2560 bytes) kept in several.
+keyring-chunked.workspace = true
 # The system resolver, for `porter_discover::Dns` (SRV and MX, RFC 6186) and BIMI's TXT lookups
 # (`lookup.rs`). MIT OR Apache-2.0; the system resolver's configuration, over tokio. Its
 # DNS-over-TLS/HTTPS features stay off.
@@ -63,7 +81,8 @@ sha2 = "0.10"
 # A logo read as XML before it is drawn, to refuse what SVG Tiny PS leaves out. The parser usvg
 # already uses, at its version; it expands no entities and reads no DTD.
 roxmltree = "0.21"
-# The operating system's certificate authorities, as S/MIME trust anchors (`smime.rs`). Apache-2.0
+# The operating system's certificate authorities, as S/MIME trust anchors (`smime.rs`) and, beside
+# the bundled roots, for the servers an account is set up with (`roots.rs`). Apache-2.0
 # OR ISC OR MIT; reads the platform's bundle (on Linux the files OpenSSL would, found by
 # `openssl-probe`, also permissive).
 rustls-native-certs = "0.8"
@@ -95,7 +114,7 @@ dirs = "6"
 xattr = "1"
 
 # Windows: the Credential Manager. Its entries hold at most 2560 bytes, which a Microsoft token
-# or a signing key outgrows; `signing_store/chunks.rs` is why that does not matter there.
+# or a signing key outgrows; `keyring-chunked` (`signing_store.rs`) is why that does not matter there.
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1", optional = true }
 dirs = "6"
@@ -123,6 +142,7 @@ oo7 = ["porter-secrets/oo7"]
 testing = ["porter-secrets/testing"]
 
 [dev-dependencies]
+porter-capability.workspace = true
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
 mail-store = { workspace = true, features = ["testing"] }
 # Its own tests use the doubles it exports.
@@ -131,15 +151,8 @@ porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 # `test-util` for the tests that wait out a deadline on a paused clock (`tests/runtime/drive.rs`).
 tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"
-# The WKD hash the OpenPGP tests check a request path by, already in the tree through rPGP.
-sha1 = "0.10"
-# The throwaway mark verifying authority `tests/runtime/bimi.rs` builds its certificates with
-# (`mail-mime/tests/bimi_support`). All already in the tree through `mail-mime`.
-x509-cert = { version = "0.2", features = ["builder"] }
-der = "0.7"
-spki = "0.7"
-const-oid = "0.9"
-p256 = { version = "0.13", features = ["ecdsa"] }
+# The throwaway mark verifying authority `tests/runtime/bimi.rs` builds its certificates with.
+mail-mime = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

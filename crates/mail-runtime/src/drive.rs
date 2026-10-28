@@ -152,7 +152,9 @@ fn patience(need: &IoNeed, quiet: Duration) -> Duration {
 fn doing(need: &IoNeed) -> &'static str {
     match need {
         IoNeed::Read => "waiting for its answer",
-        IoNeed::Write(_) | IoNeed::Flush | IoNeed::Close => "sending to it",
+        IoNeed::Write(_) | IoNeed::Flush | IoNeed::Close | IoNeed::Deflate { .. } => {
+            "sending to it"
+        }
         IoNeed::Sleep(_) => "pausing",
         IoNeed::OpenTls { .. } => "securing the connection",
     }

@@ -5,7 +5,7 @@
 //! completes only the last one, and only while it is still being typed.
 
 use chrono::TimeZone;
-use mail_domain::{Filter, LabelId, TextMatch};
+use mail_domain::{Filter, TextMatch};
 
 /// What one search line is, before it becomes a [`Filter`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,16 +43,20 @@ impl Parsed {
 
 /// Split `input` with [`crate::query::parse_with`].
 ///
-/// `zone` resolves `before:` and `after:`. `label` resolves `label:`. A caller with no index
-/// passes `&|_| Vec::new()` and `label:travel` becomes text, which is the parser's own rule.
-pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn Fn(&str) -> Vec<LabelId>) -> Parsed {
+/// `zone` resolves `before:` and `after:`. `names` resolves `label:`, `account:` and the
+/// relative dates ([`crate::query::Names`]). A caller with no index passes
+/// `&crate::query::unnamed` and `label:travel` becomes text, which is the parser's own rule.
+///
+/// Terms joined by `OR` or `|` are one operator, typed as they were joined: an either-or of
+/// words is not a word to complete.
+pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn crate::query::Names) -> Parsed {
     let ended_with_space = input.ends_with(char::is_whitespace);
     let mut operators = Vec::new();
     let mut operator_tokens = Vec::new();
     let mut words = Vec::new();
     let mut phrases = Vec::new();
 
-    for token in raw_tokens(input) {
+    for token in either_joined(raw_tokens(input)) {
         match crate::query::parse_with(&token, zone, label) {
             Filter::All => {}
             Filter::Text(TextMatch::Contains(word)) => words.push(word),
@@ -75,6 +79,33 @@ pub fn parse<Tz: TimeZone>(input: &str, zone: &Tz, label: &dyn Fn(&str) -> Vec<L
         phrases,
         typing,
     }
+}
+
+/// `tokens` with each run joined by `OR` or `|` made one token, `a OR b`, so the query parser
+/// reads it as one either-or term. A joiner with nothing on one side stays a token of its own,
+/// which parses to nothing.
+fn either_joined(tokens: Vec<String>) -> Vec<String> {
+    let joiner = crate::query::joins;
+    let mut out: Vec<String> = Vec::new();
+    let mut joining = false;
+    for token in tokens {
+        if joiner(&token) {
+            joining = out.last().is_some_and(|last| !joiner(last));
+            if !joining {
+                out.push(token);
+            }
+            continue;
+        }
+        match out.last_mut() {
+            Some(last) if joining => {
+                last.push_str(" OR ");
+                last.push_str(&token);
+            }
+            _ => out.push(token),
+        }
+        joining = false;
+    }
+    out
 }
 
 /// Whitespace-separated tokens, keeping a quoted run — including `subject:"lunch on friday"` —

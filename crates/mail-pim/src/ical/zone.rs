@@ -2,7 +2,7 @@
 //! an instant.
 //!
 //! Most senders name an IANA zone (`Europe/Berlin`). Outlook and Exchange name Windows zones
-//! (`W. Europe Standard Time`), mapped through CLDR's table in [`super::windows`]; some programs
+//! (`W. Europe Standard Time`), mapped through CLDR's table in `windows_zones`; some programs
 //! prefix an IANA name with a path of their own (`/example.org/20260101_1/Europe/Berlin`). A
 //! name none of those recognise is looked up among the calendar's own `VTIMEZONE`s, whose
 //! `STANDARD` and `DAYLIGHT` rules are evaluated here — which is what a sender's invented name
@@ -10,7 +10,6 @@
 //! said to be one, rather than guessed at.
 
 use super::rrule::{parts, weekday};
-use super::windows::WINDOWS_ZONES;
 use super::{Moment, Observance, ZoneRules};
 use chrono::{
     DateTime, Datelike, FixedOffset, LocalResult, NaiveDate, NaiveDateTime, TimeDelta, TimeZone,
@@ -104,16 +103,12 @@ pub fn resolve_iana(tzid: &str) -> Option<Tz> {
 }
 
 fn windows(name: &str) -> Option<&'static str> {
-    WINDOWS_ZONES
-        .binary_search_by(|(windows, _)| (*windows).cmp(name))
-        .ok()
-        .map(|i| WINDOWS_ZONES[i].1)
-        .or_else(|| {
-            WINDOWS_ZONES
-                .iter()
-                .find(|(windows, _)| windows.eq_ignore_ascii_case(name))
-                .map(|(_, iana)| *iana)
-        })
+    windows_zones::iana(name).or_else(|| {
+        windows_zones::WINDOWS_ZONES
+            .iter()
+            .find(|(windows, _)| windows.eq_ignore_ascii_case(name))
+            .map(|(_, iana)| *iana)
+    })
 }
 
 /// A clock reading in `tz` as an instant. In an autumn overlap the earlier of the two; in a
@@ -352,10 +347,9 @@ mod tests {
 
     #[test]
     fn every_windows_name_maps_to_a_zone_this_build_knows() {
-        for (windows, iana) in WINDOWS_ZONES {
+        for (windows, iana) in windows_zones::WINDOWS_ZONES {
             assert!(iana.parse::<Tz>().is_ok(), "{windows} -> {iana}");
         }
-        assert!(WINDOWS_ZONES.windows(2).all(|w| w[0].0 < w[1].0), "sorted");
     }
 
     #[test]

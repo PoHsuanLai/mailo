@@ -3,12 +3,12 @@
 //! the reader; a sender whose logo is cached shows it, and the reader warns, without a logo, when
 //! the receiving server's checks say a sender may not be who they say; a wheel over an earlier
 //! message moves the whole conversation; a newsletter wider than the reader is drawn smaller to
-//! fit it.
+//! fit it; a verification email's one-time code is offered under its header, and copied.
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
-use mail_app::launcher::{Badge, Launcher, Unread};
-use mail_app::ui::copy;
+use mail_ui::launcher::{Badge, Launcher, Unread};
+use mail_ui::ui::copy;
 use std::sync::{Arc, Mutex};
 
 use super::drive::{Drive, Key, PRIMARY};
@@ -110,8 +110,8 @@ fn letters(store: &mail_core::SqliteStore) {
 fn open(counts: &Arc<Counts>) -> Window {
     let counts = Arc::clone(counts);
     Window::open_with(chrono::Utc::now(), letters, move |dir, contexts| {
-        let settings = mail_app::settings::root_for(&dir.join("config"));
-        mail_app::settings::change(&settings, |settings| {
+        let settings = mail_ui::settings::root_for(&dir.join("config"));
+        mail_ui::settings::change(&settings, |settings| {
             settings.reading.brand_logos = mail_core::bimi::Setting::On.into();
         })
         .expect("the setting is written");
@@ -120,7 +120,7 @@ fn open(counts: &Arc<Counts>) -> Window {
         mail_runtime::bimi::remember(&cache, "brand.example", Some(&png), chrono::Utc::now())
             .expect("the logo is cached");
         contexts
-            .with(mail_app::ui::native::BrandCache(cache))
+            .with(mail_ui::ui::native::BrandCache(cache))
             .with(Launcher(counts as Arc<dyn Badge>))
     })
 }
@@ -285,5 +285,84 @@ fn the_window_opens_on_the_inbox_and_reads_what_a_click_opens() {
     assert!(
         table <= pane && table > pane * 0.8,
         "the 800 px table is {table} px wide in a {pane} px frame"
+    );
+}
+
+/// A sign-in email in HTML alone, its code in bold, and an ordinary letter beside it: the code is
+/// offered under the email's header and Copy Code copies it as a sensitive text, kept out of
+/// clipboard history (a recorder's, never the desktop's), not through the plain clipboard; the
+/// letter offers nothing.
+#[test]
+fn a_one_time_code_is_offered_under_the_header_and_copied() {
+    const SIGN_IN: &str = "Sign in to Example";
+    const LUNCH: &str = "Lunch on Friday";
+    let copied = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sink = copied.clone();
+    let mut window = Window::open_with(
+        chrono::Utc::now(),
+        |store| {
+            let at = |minutes: i64| {
+                (chrono::Utc::now() - chrono::Duration::minutes(minutes)).to_rfc2822()
+            };
+            deliver(
+                store,
+                "otp1",
+                &format!(
+                    "To: me@example.test\r\nDate: {}\r\nFrom: no-reply@example.test\r\n\
+                 Subject: {SIGN_IN}\r\nMessage-ID: <otp1@example.test>\r\nMIME-Version: 1.0\r\n\
+                 Content-Type: text/html; charset=utf-8\r\n\r\n<html><body><p>Your verification \
+                 code is <b>482913</b>.</p><p>It expires in 10 minutes.</p></body></html>\r\n",
+                    at(3)
+                ),
+            );
+            deliver(
+                store,
+                "otp2",
+                &format!(
+                    "To: me@example.test\r\nDate: {}\r\nFrom: ada@example.test\r\n\
+                 Subject: {LUNCH}\r\nMessage-ID: <otp2@example.test>\r\n\r\n\
+                 Order 4521 is in; see you at 12:30 in room 2048.\r\n",
+                    at(4)
+                ),
+            );
+        },
+        move |_, contexts| {
+            contexts.with(mail_ui::ui::native::SensitiveCopy::with_sink(move |text| {
+                sink.lock().unwrap().push(text.to_owned());
+            }))
+        },
+    );
+    const LINE: &str = ".reader-body .otp-code";
+
+    window.open_subject(SIGN_IN);
+    window.until("the code is offered", |h| h.count(LINE) == 1);
+    assert_eq!(
+        window.harness.attr(LINE, "data-code").as_deref(),
+        Some("482913")
+    );
+    assert!(
+        window.text(LINE).contains("Code 482913"),
+        "{}",
+        window.text(LINE)
+    );
+    let button = format!(
+        "{LINE} button[*|aria-label=\"{}\"]",
+        copy::controls::copy_code("482913")
+    );
+    window.click(&button);
+    window.harness.advance(ms(100));
+    assert_eq!(*copied.lock().unwrap(), ["482913"]);
+    assert_eq!(
+        window.harness.clipboard_text(),
+        None,
+        "the plain clipboard, which history keeps, was not used"
+    );
+
+    window.open_subject(LUNCH);
+    window.harness.advance(ms(600));
+    assert_eq!(
+        window.harness.count(LINE),
+        0,
+        "a letter with numbers offered a code"
     );
 }

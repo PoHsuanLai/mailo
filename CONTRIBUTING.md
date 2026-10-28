@@ -14,8 +14,12 @@ Effects live at the edges, and the layering encodes that:
 - `mail-store` may touch the disk, and is the only crate that speaks SQL.
 - `mail-runtime` is the only crate that opens a socket, spawns a task or reads the clock.
 - `mail-core` drives them and may use tokio, but has no window and no terminal in it.
-- `mail-app` draws the window (`ui`) and the terminal (`cli`) over `mail-core`. The two never
-  name each other: a helper both want belongs in `mail-core`.
+- `mail-client` is the one door to mail: logic only, no window, over `mail-core` and `mail-store`.
+- `mail-ui` draws the window over a `mail-client`; its dependencies name no `mail-core`,
+  `mail-store` or `mail-runtime`.
+- `mail-app` is the program: it makes the client, hands it to the window, and holds the terminal
+  (`cli`). The window and the terminal never name each other: a helper both want belongs in
+  `mail-core`.
 
 The libraries start no runtime, read no environment variable and keep no process-wide state.
 Their I/O is `async`, and `mail-app`'s `edge` owns the one runtime and the environment, handing
@@ -153,7 +157,7 @@ for s in scripts/check-*.sh; do bash "$s"; done
 - `check-discards.sh`: in the library crates, a `let _ =`, `.ok()` or `unwrap_or_default()` with
   no comment on or above its line is counted against `scripts/discards.txt`. A fallible result
   is propagated, shown to the person, logged with `Logged::or_log`, or ignored with a reason.
-- `check-copy.sh`: visible string literals under `crates/mail-app/src/ui` outside `ui/copy/` are
+- `check-copy.sh`: visible string literals under `crates/mail-ui/src/ui` outside `ui/copy/` are
   counted against `scripts/copy-literals.txt`.
 - `check-fork-patches.sh`: the `[patch.crates-io]` block matches quire's at the pinned rev.
 - `check-nodef.sh`: every library crate builds with no default features.
@@ -168,13 +172,13 @@ invariant or the reason, not the history of how the code got here, and no ticket
 behaviour, not another client's source: "Gmail answers `X`", pointing at a trace, not
 "taken from mbsync". A quirk without a trace is a rumour.
 
-Every word the window shows lives in `crates/mail-app/src/ui/copy/`, one module per kind. Title
+Every word the window shows lives in `crates/mail-ui/src/ui/copy/`, one module per kind. Title
 Case for buttons, menu items, tooltips, titles and accessible names; sentence case for sentences.
 Ellipsis is `…` and the apostrophe `’`. `docs/design-language.md` has the rest.
 
 ## CSS
 
-mailo's stylesheets (`crates/mail-app/src/ui/style/*.css`) say where things go, never how they
+mailo's stylesheets (`crates/mail-ui/src/ui/style/*.css`) say where things go, never how they
 look: every colour, size, radius, weight, shadow and duration is a quire token, every control a
 quire component. The style tests hold four coherence rules:
 

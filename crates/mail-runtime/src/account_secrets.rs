@@ -89,6 +89,12 @@ impl SecretTrouble {
                 SecretTrouble::Unreachable("the keyring is not reachable")
             }
             Some(SecretsError::Missing | SecretsError::Unreadable) | None => SecretTrouble::Absent,
+            // A fault this build does not know: nothing says the secret is not there, so it is
+            // not read as absent (which prompts a sign-in and may write a fresh credential). It
+            // fails closed, as a keyring that is down does.
+            Some(_) => {
+                SecretTrouble::Unreachable("the keyring gave an answer this build does not know")
+            }
         }
     }
 
@@ -355,7 +361,8 @@ mod scenario {
 mod tests {
     use super::*;
     use mail_domain::id::account_id_from_uuid;
-    use porter_core::{CapabilityKind, SecretPurpose, SecretText};
+    use porter_capability::CapabilityKind;
+    use porter_core::{SecretPurpose, SecretText};
     use porter_secrets::MemorySecrets;
 
     fn key(purpose: SecretPurpose) -> SecretKey {
@@ -404,6 +411,22 @@ mod tests {
             .unwrap_err();
         // The outbox must prompt rather than retry: no amount of waiting creates a password.
         assert!(matches!(err.retry(), Retry::NeedsReauth), "{err:?}");
+    }
+
+    /// Every porter fault this build knows is classed on purpose. A fault porter adds later
+    /// cannot be built here (the enum is non-exhaustive); it falls to `Some(_)`, which is
+    /// `Unreachable`, never `Absent`.
+    #[test]
+    fn each_known_keyring_fault_is_classed_and_none_but_missing_ones_prompt() {
+        for (fault, absent) in [
+            (SecretsError::Missing, true),
+            (SecretsError::Unreadable, true),
+            (SecretsError::Locked, false),
+            (SecretsError::Unavailable, false),
+        ] {
+            let trouble = SecretTrouble::of(&refused(fault));
+            assert_eq!(trouble == SecretTrouble::Absent, absent, "{fault:?}");
+        }
     }
 
     #[tokio::test]

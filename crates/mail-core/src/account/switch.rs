@@ -10,7 +10,7 @@
 //! moved is. Nothing is done unasked: a pass that Microsoft refuses says so and offers this
 //! ([`graph_offer`]), and the person chooses it.
 
-use super::{Added, Credentials, Receive, add_receiving, microsoft_account_of};
+use super::{Added, Credentials, Receive, Requested, add_receiving, microsoft_account_of};
 use crate::error::CoreError;
 use crate::sync::report::Offer;
 use mail_domain::presets::MicrosoftAccount;
@@ -76,11 +76,13 @@ pub async fn switch_to_graph(
     // `--microsoft --receive graph`: named, so an account on IMAP is moved, as asked.
     add_receiving(
         store,
-        &stored.address,
-        None,
-        true,
-        false,
-        Receive::Graph,
+        Requested {
+            address: &stored.address,
+            manual: None,
+            microsoft: true,
+            graph: false,
+            receive: Receive::Graph,
+        },
         now,
         credentials,
     )
@@ -96,7 +98,8 @@ mod tests {
     use mail_domain::{MailboxRef, RemoteRef, SyncCursor};
     use mail_runtime::{AccountSecrets, Arrival, ClientRegistry};
     use mail_store::Store;
-    use porter_core::{Credential, SecretText, UnixSeconds};
+    use porter_core::{Credential, SecretText};
+    use porter_ids::UnixSeconds;
     use porter_secrets::MemorySecrets;
 
     const ADDRESS: &str = "someone@contoso.onmicrosoft.com";
@@ -118,11 +121,13 @@ mod tests {
     ) -> (AccountId, mail_domain::MessageId) {
         let added = mail_runtime::block_on(super::super::add_receiving(
             store,
-            ADDRESS,
-            None,
-            true,
-            true,
-            Receive::Imap,
+            Requested {
+                address: ADDRESS,
+                manual: None,
+                microsoft: true,
+                graph: true,
+                receive: Receive::Imap,
+            },
             now(),
             Credentials {
                 password: None,

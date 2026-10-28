@@ -4,7 +4,9 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::presets::{self, Manual};
-use mail_domain::{Address, DraftId, Identity, IdentityId, IsDefault, LabelOrigin, ThreadId};
+use mail_domain::{
+    Address, Draft, DraftId, Identity, IdentityId, IsDefault, LabelOrigin, ThreadId,
+};
 use mail_store::testing::{in_memory, seed_default_identity};
 use mail_store::{FollowUpHold, NewAccount, StoreError};
 use porter_core::AccountId;
@@ -280,6 +282,33 @@ fn a_label_the_user_names_twice_on_one_account_is_a_conflict() {
 }
 
 #[test]
+fn the_send_limit_is_kept_beside_the_caps_and_survives_their_rewrite() {
+    use mail_store::Store;
+    let (store, id) = with_ada();
+    assert_eq!(
+        store.send_limit(id.clone()).unwrap(),
+        None,
+        "stated before asked"
+    );
+
+    store.put_send_limit(id.clone(), Some(35_882_577)).unwrap();
+    assert_eq!(store.send_limit(id.clone()).unwrap(), Some(35_882_577));
+
+    // A sync writes the whole capabilities row again; what the submission heard stays.
+    let caps = preset("ada@example.test", "example.test").expected_caps;
+    store.put_caps(id.clone(), &caps, at(2)).unwrap();
+    assert_eq!(store.send_limit(id.clone()).unwrap(), Some(35_882_577));
+
+    store.put_send_limit(id.clone(), None).unwrap();
+    assert_eq!(store.send_limit(id.clone()).unwrap(), None, "cleared");
+
+    // An account with nowhere to keep it is not an error, and keeps nothing.
+    let stranger = new_account_id();
+    store.put_send_limit(stranger.clone(), Some(1)).unwrap();
+    assert_eq!(store.send_limit(stranger).unwrap(), None);
+}
+
+#[test]
 fn the_notify_floor_is_armed_once_and_then_read_back() {
     let (store, id) = with_ada();
 
@@ -380,4 +409,95 @@ fn blobs_are_read_and_written_without_naming_a_connection() {
     assert_eq!(store.blobs().head(small, 2).unwrap(), b"he");
     assert_eq!(store.blobs().size(small).unwrap(), 5);
     assert!(store.blobs().get(mail_domain::BlobId::generate()).is_err());
+}
+
+#[test]
+fn an_alias_is_added_edited_and_removed_and_its_drafts_go_to_the_default() {
+    let (store, id) = with_ada();
+    let main = identity(&id, "ada@example.test", IsDefault::Default);
+    store.add_identity(&main).unwrap();
+    let alias = Identity {
+        reply_to: Some(Address {
+            name: None,
+            email: "replies@example.test".to_owned(),
+        }),
+        ..identity(&id, "ada@lovelace.test", IsDefault::Alternate)
+    };
+    store.add_identity(&alias).unwrap();
+    assert_eq!(
+        store.identities(id.clone()).unwrap(),
+        [main.clone(), alias.clone()]
+    );
+
+    // An address the account already sends as, in any case, is refused, and nothing is added.
+    let twice = identity(&id, "ADA@lovelace.test", IsDefault::Alternate);
+    assert!(matches!(
+        store.add_identity(&twice),
+        Err(StoreError::AddressTaken(_))
+    ));
+    // On an account that is not here, too.
+    let stray = identity(&new_account_id(), "who@example.test", IsDefault::Alternate);
+    assert!(matches!(
+        store.add_identity(&stray),
+        Err(StoreError::NoAccount(_))
+    ));
+    assert_eq!(store.identities(id.clone()).unwrap().len(), 2);
+
+    // Edited: a name, a new address, no Reply-To; its own address in another case is not taken.
+    let named = Address {
+        name: Some("Ada L.".to_owned()),
+        email: "countess@lovelace.test".to_owned(),
+    };
+    store.edit_identity(alias.id, &named, None).unwrap();
+    let edited = store.identity(alias.id).unwrap().unwrap();
+    assert_eq!(edited.from, named);
+    assert_eq!(edited.reply_to, None);
+    assert_eq!(edited.default, IsDefault::Alternate);
+    let same = Address {
+        name: None,
+        email: "COUNTESS@lovelace.test".to_owned(),
+    };
+    store.edit_identity(alias.id, &same, None).unwrap();
+    assert!(matches!(
+        store.edit_identity(alias.id, &main.from, None),
+        Err(StoreError::AddressTaken(_))
+    ));
+    assert!(matches!(
+        store.edit_identity(IdentityId::generate(), &named, None),
+        Err(StoreError::NoIdentity(_))
+    ));
+
+    // A draft written as the alias outlives it, from the default.
+    let draft = Draft {
+        account: id.clone(),
+        ..Draft::blank(&edited, at(2))
+    };
+    mail_store::Store::apply(
+        &store,
+        id.clone(),
+        &mail_domain::Patch {
+            id: mail_domain::ChangeId::generate(),
+            changes: vec![mail_domain::Change::DraftUpsert(Box::new(draft.clone()))],
+        },
+    )
+    .unwrap();
+    store.remove_identity(alias.id).unwrap();
+    assert_eq!(
+        store.identities(id.clone()).unwrap(),
+        std::slice::from_ref(&main)
+    );
+    assert_eq!(
+        mail_store::Store::draft(&store, draft.id).unwrap().identity,
+        main.id
+    );
+
+    // The default stays: without it the account has nothing to send as.
+    assert!(matches!(
+        store.remove_identity(main.id),
+        Err(StoreError::Conflict(_))
+    ));
+    assert!(matches!(
+        store.remove_identity(alias.id),
+        Err(StoreError::NoIdentity(_))
+    ));
 }

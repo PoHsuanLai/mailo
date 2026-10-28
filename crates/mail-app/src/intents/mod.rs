@@ -29,8 +29,8 @@ pub use provider::{Opener, Provider, Shown};
 #[cfg(not(any(target_os = "macos", windows)))]
 pub use serve::{ServeError, serve, serve_on};
 
-/// The bus name and the app name in the manifest.
-pub const APP: &str = "org.quire.Mail";
+/// The bus name and the app name in the manifest: the window's desktop entry's.
+pub const APP: &str = mail_ui::APP_ID;
 
 /// Where every provider serves `org.quire.IntentProvider1`.
 pub const PATH: &str = "/org/quire/IntentProvider1";

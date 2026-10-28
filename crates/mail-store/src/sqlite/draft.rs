@@ -8,6 +8,7 @@ use super::SqliteStore;
 use super::read::Recipients;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Draft, DraftId, MessageId, PendingAttachment, SendState};
 use porter_core::AccountId;
@@ -15,7 +16,8 @@ use rusqlite::params;
 
 /// The columns a [`Draft`] is read back from, in the order [`SqliteStore::read_draft`] expects.
 const DRAFT_COLUMNS: &str = "id, account, identity, recipients, subject, in_reply_to, \
-     forward_of, body_text, body_html, attachments, state, updated_at, receipt, openpgp, smime";
+     forward_of, body_text, body_html, attachments, state, updated_at, receipt, openpgp, smime, \
+     priority, delivery, automatic";
 
 impl SqliteStore {
     /// Insert or replace a draft.
@@ -32,11 +34,12 @@ impl SqliteStore {
             cc: draft.cc.clone(),
             bcc: draft.bcc.clone(),
         };
-        self.connection().execute(
+        self.touch(Topics::DRAFTS).execute(
             "INSERT OR REPLACE INTO drafts
                (id, account, identity, recipients, subject, in_reply_to, forward_of,
-                body_text, body_html, attachments, state, updated_at, receipt, openpgp, smime)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                body_text, body_html, attachments, state, updated_at, receipt, openpgp, smime,
+                priority, delivery, automatic)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
             params![
                 draft.id.to_string(),
                 draft.account.to_string(),
@@ -53,6 +56,9 @@ impl SqliteStore {
                 to_json("ReceiptRequest", &draft.receipt)?,
                 to_json("OpenPgp", &draft.openpgp)?,
                 to_json("Smime", &draft.smime)?,
+                to_json("Priority", &draft.priority)?,
+                to_json("DeliveryReport", &draft.delivery)?,
+                draft.automatic,
             ],
         )?;
         Ok(())
@@ -65,7 +71,7 @@ impl SqliteStore {
     /// nothing left on screen to say it was coming. The caller refuses to discard a draft that
     /// is mid-send; anything else still queued is withdrawn here, in the same write.
     pub(super) fn delete_draft(&self, id: DraftId) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::DRAFTS | Topics::OUTBOX);
         db.execute(
             "DELETE FROM outbox WHERE json_extract(op, '$.kind') = 'submit'
                  AND json_extract(op, '$.v.draft') = ?1",
@@ -78,7 +84,7 @@ impl SqliteStore {
     /// One draft by id.
     pub(super) fn load_draft(&self, id: DraftId) -> Result<Draft, StoreError> {
         let sql = format!("SELECT {DRAFT_COLUMNS} FROM drafts WHERE id = ?1");
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![id.to_string()])?;
         match rows.next()? {
@@ -95,7 +101,7 @@ impl SqliteStore {
         let sql = format!(
             "SELECT {DRAFT_COLUMNS} FROM drafts WHERE account = ?1 ORDER BY updated_at DESC"
         );
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![account.to_string()])?;
         let mut out = Vec::new();
@@ -133,6 +139,9 @@ impl SqliteStore {
             receipt: json("ReceiptRequest", &row.get::<_, String>(12)?)?,
             openpgp: json("OpenPgp", &row.get::<_, String>(13)?)?,
             smime: json("Smime", &row.get::<_, String>(14)?)?,
+            priority: json("Priority", &row.get::<_, String>(15)?)?,
+            delivery: json("DeliveryReport", &row.get::<_, String>(16)?)?,
+            automatic: row.get(17)?,
             state,
             updated: time("Draft.updated_at", &row.get::<_, String>(11)?)?,
         })
@@ -149,7 +158,7 @@ impl SqliteStore {
         state: &SendState,
         now: chrono::DateTime<chrono::Utc>,
     ) -> Result<(), StoreError> {
-        let changed = self.connection().execute(
+        let changed = self.touch(Topics::DRAFTS).execute(
             "UPDATE drafts SET state = ?2, updated_at = ?3 WHERE id = ?1",
             params![id.to_string(), to_json("SendState", state)?, from_time(now)],
         )?;

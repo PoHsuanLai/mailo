@@ -44,8 +44,10 @@ fn deliver(store: &dyn Store, m: &Message, remotes: &[RemoteRef], labels: &[&str
                         message: m.clone(),
                     }],
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
-                    label_names: vec![],
+                    label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -230,6 +232,24 @@ fn folder_contents_are_what_is_addressed_there_and_what_carries_its_label() {
     assert_eq!(sql.mapped, vec![message(1).id]);
     assert_eq!(sql.labelled, vec![message(2).id]);
     assert_eq!(sql.count(), 2);
+}
+
+/// Asking after some messages answers for those alone, the same in both stores.
+#[test]
+fn a_folder_is_asked_about_the_messages_in_question_and_no_others() {
+    let (sql, mem) = both(|store| {
+        deliver(store, &message(1), &[imap("Receipts", 1)], &[]);
+        deliver(store, &message(2), &[imap("INBOX", 2)], &["Receipts"]);
+        deliver(store, &message(3), &[imap("Receipts", 3)], &[]);
+        store
+            .addressed_in(
+                &mailbox("Receipts"),
+                &[message(1).id, message(2).id, message(4).id],
+            )
+            .unwrap()
+    });
+    assert_eq!(sql, mem);
+    assert_eq!(sql, vec![message(1).id], "addressed there, and asked about");
 }
 
 /// Only once the server confirms a delete are the mailbox's addresses dropped — and with them

@@ -19,12 +19,16 @@
 //! without the query needing a clock. Writing to someone weighs [`learn::WRITTEN_WEIGHT`] times
 //! receiving from them.
 
+pub mod card;
 pub mod group;
 pub(crate) mod learn;
 pub(crate) mod ledger;
+pub mod vip;
 
+pub use card::{CardId, PersonCard};
 pub use group::{Edit, Group, GroupHome, GroupId};
-pub use learn::normalise;
+pub use learn::{no_reply, normalise};
+pub use vip::Vip;
 
 use chrono::{DateTime, Utc};
 use porter_core::AccountId;

@@ -8,15 +8,18 @@ use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth};
 use mail_runtime::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
-use porter_core::{CapabilityKind, Credential, SecretKey, SecretPurpose, SecretText};
+use porter_capability::CapabilityKind;
+use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
 use std::collections::BTreeSet;
 
 pub mod groups;
+pub mod people;
 
 pub use mail_runtime::carddav::How;
 /// The address book's own types, which a front end names to read and edit it.
 pub use mail_store::{
-    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin,
+    AddressBook, BookCard, CardId, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin,
+    PersonCard,
 };
 
 impl crate::mail::ContactOps<'_> {
@@ -33,10 +36,12 @@ impl crate::mail::ContactOps<'_> {
             url,
             account,
             user,
-            mail.secrets().as_ref(),
-            mail.environment(),
-            &mail.saved_clients(),
-            mail.now(),
+            &SignIn {
+                secrets: mail.secrets().as_ref(),
+                env: mail.environment(),
+                saved: &mail.saved_clients(),
+                now: mail.now(),
+            },
         )
         .await
     }
@@ -78,19 +83,24 @@ pub struct Imported {
     pub addresses: usize,
     /// Cards of kind group, each now a group of this book.
     pub groups: usize,
-    /// Cards that are not groups and carried no email address.
+    /// Cards of people, each now a card of this book.
+    pub people: usize,
+    /// Cards that are not groups and carried no email address: kept, but nothing to write to.
     pub empty: usize,
 }
 
-/// Every address on every card in `bytes`, added by hand under the card's name, and every
-/// `KIND:group` card as a group of this book ([`import_group`]).
+/// Every address on every card in `bytes`, added by hand under the card's name, every
+/// `KIND:group` card as a group of this book ([`import_group`]), and every other card kept whole
+/// as a person's card of this book ([`people::import_card`]).
 pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<Imported, CoreError> {
     let cards = vcard::parse_bytes(bytes);
-    let (mut added, mut empty, mut groups) = (0, 0, 0);
+    let (mut added, mut empty, mut groups, mut people) = (0, 0, 0, 0);
     for card in &cards {
         if card.is_group() {
             import_group(store, card, &cards)?;
             groups += 1;
+        } else if people::import_card(store, card)? {
+            people += 1;
         }
         let addresses = card.addresses_by_preference();
         if card.is_group() && addresses.is_empty() {
@@ -115,6 +125,7 @@ pub fn import(store: &dyn Store, bytes: &[u8]) -> Result<Imported, CoreError> {
         cards: cards.len(),
         addresses: added,
         groups,
+        people,
         empty,
     })
 }
@@ -157,29 +168,28 @@ fn import_group(
     })
 }
 
-/// The book as vCard 4.0: every synced card as the address book holds it — a group edited here
-/// as edited — then every group made here, then one card per address the user added or has
-/// written to that no synced card covers. Addresses only ever heard from are not the user's
-/// contacts and are left out, as are the user's own.
+/// The book as vCard 4.0: every synced card as the address book holds it — a group or a
+/// person's card edited here as edited — then every group made here, then every person's card
+/// made here, then one card per address the user added or has written to that no card covers.
+/// Addresses only ever heard from are not the user's contacts and are left out, as are the
+/// user's own.
 pub fn export(store: &dyn Store) -> Result<String, CoreError> {
     let mut cards: Vec<Card> = Vec::new();
     let mut covered: BTreeSet<String> = BTreeSet::new();
     let groups = store.groups()?;
+    let people = store.cards()?;
     for book in store.address_books()? {
         for (href, held) in &book.cards {
-            let edited = groups.iter().find(|g| {
-                g.id.0 == *href
-                    && matches!(
-                        g.home,
-                        GroupHome::Book {
-                            edit: Edit::Edited,
-                            ..
-                        }
-                    )
-            });
-            let text = match edited {
-                Some(group) => carddav::group_card(group, Some(&held.vcard)),
-                None => held.vcard.clone(),
+            let edited = groups
+                .iter()
+                .find(|g| g.id.0 == *href && g.home.is_edited());
+            let person = people
+                .iter()
+                .find(|p| p.id.0 == *href && p.home.is_edited());
+            let text = match (edited, person) {
+                (Some(group), _) => carddav::group_card(group, Some(&held.vcard)),
+                (None, Some(person)) => person.vcard.clone(),
+                (None, None) => held.vcard.clone(),
             };
             cards.extend(vcard::parse(&text).into_iter().take(1));
             covered.extend(held.addresses.iter().cloned());
@@ -191,6 +201,10 @@ pub fn export(store: &dyn Store) -> Result<String, CoreError> {
                 .into_iter()
                 .take(1),
         );
+    }
+    for person in people.iter().filter(|p| p.home == GroupHome::Local) {
+        cards.extend(vcard::parse(&person.vcard).into_iter().take(1));
+        covered.extend(person.addresses.iter().cloned());
     }
     for contact in store.contacts()? {
         let theirs = contact.origin != Origin::History || contact.written.count > 0;
@@ -228,18 +242,23 @@ pub enum Synced {
     Books(Vec<BookSync>),
 }
 
+/// What signing in to an address book server draws on: where the secrets are kept, what the
+/// program was started with, the OAuth clients earlier sign-ins recorded, and the time.
+struct SignIn<'a> {
+    secrets: &'a dyn AccountSecrets,
+    env: &'a Environment,
+    saved: &'a ClientRegistry,
+    now: DateTime<Utc>,
+}
+
 /// Sync the address book at `url`, or every one synced before when there is none, over the
 /// secrets it is given: the handle's, or a test's.
-#[allow(clippy::too_many_arguments)]
-pub async fn sync(
+async fn sync(
     store: &SqliteStore,
     url: Option<&str>,
     account: Option<&str>,
     user: Option<&str>,
-    secrets: &dyn AccountSecrets,
-    env: &Environment,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
+    sign_in: &SignIn<'_>,
 ) -> Result<Synced, CoreError> {
     let accounts = crate::sync::configured(store)?;
     let http = carddav::client()?;
@@ -256,17 +275,8 @@ pub async fn sync(
                         url: book.url.clone(),
                     })?;
                 let base = parse_url(&book.url)?;
-                let (dav, _) = open_dav(
-                    owner,
-                    book.login.as_deref(),
-                    Some(&base),
-                    &http,
-                    secrets,
-                    env,
-                    saved,
-                    now,
-                )
-                .await?;
+                let (dav, _) =
+                    open_dav(owner, book.login.as_deref(), Some(&base), &http, sign_in).await?;
                 synced.push(sync_one(&dav, store, book, None).await?);
             }
             return Ok(Synced::Books(synced));
@@ -277,8 +287,7 @@ pub async fn sync(
 
     let owner = owner_of(&accounts, account)?;
     let start = url.map(parse_url).transpose()?;
-    let (dav, start) =
-        open_dav(owner, user, start.as_ref(), &http, secrets, env, saved, now).await?;
+    let (dav, start) = open_dav(owner, user, start.as_ref(), &http, sign_in).await?;
     let found = carddav::discover(&dav, &start).await?;
     for collection in found {
         let key = collection.url.to_string();
@@ -313,19 +322,15 @@ fn owner_of<'a>(
 
 /// The session with the address book server of `owner`, and the URL to start from: a client of
 /// ours with the credential [`auth_for`] finds.
-#[allow(clippy::too_many_arguments)]
 async fn open_dav(
     owner: &crate::sync::Configured,
     login: Option<&str>,
     start: Option<&url::Url>,
     http: &reqwest::Client,
-    secrets: &dyn AccountSecrets,
-    env: &Environment,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
+    sign_in: &SignIn<'_>,
 ) -> Result<(Dav, url::Url), CoreError> {
     let start = start.ok_or(CoreError::BookNeedsServer)?;
-    let auth = auth_for(owner, login, secrets, env, saved, now).await?;
+    let auth = auth_for(owner, login, sign_in).await?;
     let dav = Dav::new(http.clone(), start, auth)?;
     Ok((dav, start.clone()))
 }
@@ -363,11 +368,14 @@ fn parse_url(text: &str) -> Result<url::Url, CoreError> {
 async fn auth_for(
     account: &crate::sync::Configured,
     login: Option<&str>,
-    secrets: &dyn AccountSecrets,
-    env: &Environment,
-    saved: &ClientRegistry,
-    now: DateTime<Utc>,
+    sign_in: &SignIn<'_>,
 ) -> Result<DavAuth, CoreError> {
+    let SignIn {
+        secrets,
+        env,
+        saved,
+        now,
+    } = *sign_in;
     if let Some(login) = login {
         let key = SecretKey {
             account: account.id.clone(),
@@ -428,7 +436,8 @@ async fn auth_for(
             user: account.plan.username(),
             password: password.expose().to_owned(),
         }),
-        Credential::ApiKey(_) | Credential::KeyPair { .. } => Err(CoreError::NotASignIn {
+        // An API key, a key pair, or a kind this build does not know is no sign-in.
+        _ => Err(CoreError::NotASignIn {
             address: account.address.clone(),
         }),
     }
@@ -470,6 +479,7 @@ mod tests {
                 cards: 2,
                 addresses: 1,
                 groups: 0,
+                people: 2,
                 empty: 1,
             }
         );
@@ -479,9 +489,18 @@ mod tests {
         assert_eq!(found[0].address, "renee@example.test");
         let exported = export(&store).unwrap();
         let back = vcard::parse(&exported);
-        assert_eq!(back.len(), 1);
-        assert_eq!(back[0].formatted_name.as_deref(), Some("Renée"));
-        assert_eq!(back[0].emails[0].address, "renee@example.test");
+        assert_eq!(
+            back.len(),
+            2,
+            "a card with no address is still a person's card"
+        );
+        assert_eq!(back[0].formatted_name.as_deref(), Some("No Mail"));
+        assert_eq!(back[0].phones[0].number, "1");
+        assert_eq!(back[1].formatted_name.as_deref(), Some("Renée"));
+        assert_eq!(
+            back[1].emails[0].address, "Renee@example.test",
+            "as the card wrote it"
+        );
         assert!(exported.contains("VERSION:4.0"));
         assert!(find(&store, "zzz", 5).unwrap().is_empty());
     }

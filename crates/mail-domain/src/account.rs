@@ -262,13 +262,18 @@ pub struct AccountCaps {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerLabels {
+    /// Mailboxes are labels: Gmail's `X-GM-LABELS`, JMAP's mailboxes.
     Supported,
     /// Labels exist only in our store. Every POP3 account, and IMAP servers without keywords.
     LocalOnly,
+    /// An IMAP server with folders and no labels, whose `PERMANENTFLAGS` lists `\*`: a label is
+    /// a keyword on the message ([`crate::label_keyword`]). Folders stay folders.
+    Keywords,
 }
 
 /// Where conversation grouping comes from. JWZ runs either way, so POP3 and IMAP share one
-/// set of [`crate::ThreadId`] rules; a provider id is only a hint.
+/// set of [`crate::ThreadId`] rules; `ProviderId` adds the id the server gave each message
+/// (Gmail's `X-GM-THRID`) as one more reason for messages to share a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerThreads {

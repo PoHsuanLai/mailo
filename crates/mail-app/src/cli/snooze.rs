@@ -13,6 +13,11 @@ pub fn woke() -> String {
     "back in the inbox\n".to_owned()
 }
 
+/// `mailo archive`.
+pub fn archived() -> String {
+    "archived\n".to_owned()
+}
+
 /// `mailo pin`: whether the conversation is pinned now.
 pub fn pinned(now_pinned: bool) -> String {
     if now_pinned {

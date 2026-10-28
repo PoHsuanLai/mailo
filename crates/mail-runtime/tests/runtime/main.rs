@@ -5,8 +5,6 @@
 //! as a prefix: `cargo test -p mail-runtime --test runtime -- <file>::`.
 
 // The helpers the tests share, declared once.
-#[path = "../../../mail-mime/tests/bimi_support/mod.rs"]
-mod bimi_support;
 mod fixture;
 #[path = "../jmap_fake/mod.rs"]
 mod jmap_fake;
@@ -21,6 +19,7 @@ mod end_to_end;
 mod folder_outbox;
 mod folders;
 mod gmail_labels;
+mod gmail_threads;
 mod graph_read;
 mod graph_send;
 mod imap_end_to_end;
@@ -30,13 +29,13 @@ mod live_imap;
 mod live_pop3;
 mod live_probe;
 mod live_smtp;
-mod lookup;
 mod part_flood_ingest;
 mod pgp_learn;
 mod queued_moves;
 mod reparse;
 mod send_later;
 mod sent_copy;
+mod server_drafts;
 mod server_search;
 mod sieve;
 mod sign_in;

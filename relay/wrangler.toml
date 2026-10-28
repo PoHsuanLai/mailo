@@ -1,0 +1,16 @@
+# mailo's relay: a Worker anyone can deploy on a Cloudflare account of their own with
+# `wrangler deploy`. No account id here: wrangler asks for the account it is logged in to.
+name = "mailo-relay"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# One Durable Object per registered key: it holds the hashes the key was registered with, the
+# WebSocket mailo listens on (hibernated while quiet), and whether an alert was missed.
+[[durable_objects.bindings]]
+name = "GRAPH_RELAY"
+class_name = "GraphRelay"
+
+# SQLite-backed, which Cloudflare's free plan allows.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GraphRelay"]

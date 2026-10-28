@@ -112,6 +112,8 @@ impl Backend for Scripted {
                 Progress::Done(ProtoOutcome::Fetched {
                     items: remotes.into_iter().map(|r| (r, whole())).collect(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
+                    label_names: Vec::new(),
                 })
             }
             other => panic!("not scripted: {other:?}"),

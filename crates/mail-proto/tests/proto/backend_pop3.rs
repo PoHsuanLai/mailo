@@ -13,7 +13,7 @@ use crate::common;
 use common::{Driven, replay};
 use mail_domain::testing::account;
 use mail_domain::*;
-use mail_proto::backend::{Authenticate, Pop3Backend};
+use mail_proto::backend::{Authenticate, Pop3Backend, ServerCopies};
 use mail_proto::{Backend, IoNeed, IoReady, Machine, Pop3Command, Progress, ProtoOutcome};
 use porter_core::Credential;
 use porter_core::SecretText;
@@ -194,8 +194,9 @@ fn local_only_operations_confirm_without_touching_the_wire() {
             }],
             keyword: Keyword::MdnSent,
         },
-        // Delete forever is local on POP3: a `DELE` would name a message number from an earlier
-        // session. The store keeps the UIDL so the message is not downloaded again.
+        // Delete forever is local on POP3 unless the account removes the server's copies
+        // (`removing_checks_each_number_then_deletes_and_quits`). The store keeps the UIDL so the
+        // message is not downloaded again.
         ProtoOp::Destroy {
             remotes: vec![RemoteRef::Pop {
                 uidl: "x".to_owned(),
@@ -234,6 +235,7 @@ fn submission_is_unsupported_not_silently_ignored() {
         raw: BlobId::generate(),
         mail_from: "ada@example.com".to_owned(),
         rcpt_to: vec!["bob@example.com".to_owned()],
+        delivery: mail_domain::DeliveryReport::Unrequested,
     });
     assert!(matches!(outcome, Progress::Failed(_)), "{outcome:?}");
 }
@@ -245,6 +247,7 @@ fn watch_completes_at_once_because_pop3_has_no_push() {
     match backend.begin(ProtoOp::Watch {
         mailbox: mailbox(),
         uidnext: None,
+        also: Vec::new(),
     }) {
         Progress::Done(ProtoOutcome::Woken) => {}
         other => panic!("expected Woken, got {other:?}"),
@@ -304,6 +307,131 @@ fn fetch_headers_uses_top_and_returns_raw_bytes() {
     );
 }
 
+// --- removing the server's copies --------------------------------------------------------
+
+/// A backend that has surveyed a maildrop of three messages, `aaa`, `bbb` and `ccc`, numbered
+/// 1 to 3, and removes the server's copies as `copies` says.
+fn surveyed(copies: ServerCopies) -> Pop3Backend {
+    let survey = concat!(
+        "S: +OK POP3 server ready\n",
+        "C: USER student\n",
+        "S: +OK\n",
+        "C: PASS s3cr3t\n",
+        "S: +OK\n",
+        "C: STAT\n",
+        "S: +OK 3 1536\n",
+        "C: UIDL\n",
+        "S: +OK\n",
+        "S: 1 aaa\n",
+        "S: 2 bbb\n",
+        "S: 3 ccc\n",
+        "S: .\n",
+        "C: LIST\n",
+        "S: +OK\n",
+        "S: 1 512\n",
+        "S: 2 512\n",
+        "S: 3 512\n",
+        "S: .\n",
+        "DONE\n"
+    );
+    let mut driven = Driven::new(
+        backend().with_copies(copies),
+        ProtoOp::FetchEnvelopes {
+            mailbox: mailbox(),
+            since: FetchSince::Beginning,
+        },
+    );
+    replay(&mut driven, survey).unwrap();
+    driven.backend
+}
+
+fn pop(uidl: &str) -> RemoteRef {
+    RemoteRef::Pop {
+        uidl: uidl.to_owned(),
+    }
+}
+
+/// An account that removes the server's copies: each message's number from the survey is
+/// checked against its UIDL before it is marked, and `QUIT` is sent, which is when the server
+/// removes what was marked. A UIDL the survey did not list is not on the server to remove.
+#[test]
+fn removing_checks_each_number_then_deletes_and_quits() {
+    let trace = concat!(
+        "# SYNTHETIC. RFC 1939 §7: `UIDL n` answers `+OK n id`; §6: marked messages are\n",
+        "# removed at QUIT, so the QUIT is what makes the DELEs count.\n",
+        "S: +OK POP3 server ready\n",
+        "C: USER student\n",
+        "S: +OK\n",
+        "C: PASS s3cr3t\n",
+        "S: +OK\n",
+        "C: UIDL 2\n",
+        "S: +OK 2 bbb\n",
+        "C: DELE 2\n",
+        "S: +OK message 2 deleted\n",
+        "C: UIDL 3\n",
+        "S: +OK 3 ccc\n",
+        "C: DELE 3\n",
+        "S: +OK message 3 deleted\n",
+        "C: QUIT\n",
+        "S: +OK dewey POP3 server signing off (1 message left)\n",
+        "DONE\n"
+    );
+    let mut driven = Driven::new(
+        surveyed(ServerCopies::Removable),
+        ProtoOp::Destroy {
+            remotes: vec![pop("bbb"), pop("gone"), pop("ccc")],
+        },
+    );
+    let outcome = replay(&mut driven, trace).unwrap();
+    assert!(matches!(outcome, ProtoOutcome::Applied), "{outcome:?}");
+}
+
+/// Another client deleted mail since the survey, so number 2 is `ccc` now. The session fails
+/// before anything more is sent: no `DELE` of the wrong message, and no `QUIT`, so nothing
+/// marked is removed. The refusal is transient, for the next survey to number the maildrop again.
+#[test]
+fn a_number_that_names_another_message_now_removes_nothing() {
+    let trace = concat!(
+        "# SYNTHETIC. `bbb` was deleted elsewhere, and the maildrop renumbered.\n",
+        "S: +OK POP3 server ready\n",
+        "C: USER student\n",
+        "S: +OK\n",
+        "C: PASS s3cr3t\n",
+        "S: +OK\n",
+        "C: UIDL 2\n",
+        "S: +OK 2 ccc\n",
+        "FAIL Refused\n"
+    );
+    let mut driven = Driven::new(
+        surveyed(ServerCopies::Removable),
+        ProtoOp::Destroy {
+            remotes: vec![pop("bbb")],
+        },
+    );
+    let err = replay(&mut driven, trace).unwrap_err();
+    assert_eq!(
+        err.retry(),
+        Retry::After(std::time::Duration::from_secs(60))
+    );
+}
+
+/// Nothing to remove is nothing to connect for: a removing account whose messages the survey no
+/// longer lists, and an account that keeps the server's copies, both answer at once.
+#[test]
+fn nothing_listed_or_nothing_removable_never_touches_the_wire() {
+    let cases = [
+        (ServerCopies::Removable, vec![pop("gone")]),
+        (ServerCopies::Kept, vec![pop("bbb")]),
+    ];
+    for (copies, remotes) in cases {
+        let mut backend = surveyed(copies);
+        match backend.begin(ProtoOp::Destroy { remotes }) {
+            Progress::Done(ProtoOutcome::Applied) => {}
+            other => panic!("{copies:?}: expected an immediate Applied, got {other:?}"),
+        }
+    }
+}
+
 // --- submission -----------------------------------------------------------------------
 
 /// Submission is its own backend on its own connection, and the incoming one refuses it.
@@ -344,6 +472,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
         raw: BlobId::generate(),
         mail_from: "ada@example.com".to_owned(),
         rcpt_to: vec!["bob@example.com".to_owned()],
+        delivery: mail_domain::DeliveryReport::Unrequested,
     });
     assert!(
         matches!(unstaged, Progress::Failed(_)),
@@ -356,6 +485,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
             rcpt_to: vec!["bob@example.com".to_owned()],
             message: b"From: ada@example.com\r\nTo: bob@example.com\r\nSubject: hi\r\n\r\nbody\r\n"
                 .to_vec(),
+            delivery: mail_domain::DeliveryReport::Unrequested,
         })
         .unwrap();
 
@@ -381,6 +511,7 @@ fn smtp_backend_submits_and_reports_no_remote_copy() {
             raw: BlobId::generate(),
             mail_from: "ada@example.com".to_owned(),
             rcpt_to: vec!["bob@example.com".to_owned()],
+            delivery: mail_domain::DeliveryReport::Unrequested,
         }),
     };
     let outcome = replay(

@@ -13,7 +13,7 @@ impl SqliteStore {
     pub(super) fn load_placed(&self, message: MessageId) -> Result<Vec<Placed>, StoreError> {
         let held = self.message(message)?;
         let roles = self.folder_roles(held.account.clone())?;
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT DISTINCT mailbox FROM remote_map WHERE message = ?1 ORDER BY mailbox",
         )?;
@@ -28,13 +28,27 @@ impl SqliteStore {
         let moving: Vec<String> = stmt
             .query_map(params![message.to_string()], |r| r.get(0))?
             .collect::<Result<_, _>>()?;
-        let addresses = paths
-            .into_iter()
-            .map(|path| MailboxRef {
-                account: held.account.clone(),
-                path,
-            })
-            .collect();
-        Ok(Placed::of_message(held.mailbox, addresses, &roles, &moving))
+        let mut stmt = db.prepare_cached(
+            "SELECT DISTINCT json_extract(o.op, '$.v.folder') FROM pending_changes p
+             JOIN outbox o ON o.id = p.outbox
+             WHERE p.message = ?1 AND json_extract(o.op, '$.kind') = 'copy'
+             ORDER BY 1",
+        )?;
+        let copying: Vec<String> = stmt
+            .query_map(params![message.to_string()], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        let folder = |path: String| MailboxRef {
+            account: held.account.clone(),
+            path,
+        };
+        let addresses = paths.into_iter().map(folder).collect();
+        let copying = copying.into_iter().map(folder).collect();
+        Ok(Placed::of_message_copied(
+            held.mailbox,
+            addresses,
+            &roles,
+            &moving,
+            copying,
+        ))
     }
 }

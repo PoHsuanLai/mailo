@@ -2,7 +2,7 @@
 //! edits — a synced group's marked for writing back.
 
 use super::*;
-use mail_store::{AddressBook, BookCard, Origin, SqliteStore};
+use mail_store::{AddressBook, BookCard, Edit, Origin, SqliteStore};
 
 const BOOK: &str = "https://dav.example.test/book/";
 const GRACE_UID: &str = "urn:uuid:4fbe8971-0bc3-424c-9c26-36c3e1eff6b1";

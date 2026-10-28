@@ -3,13 +3,15 @@
 //! `launcher/unity.rs`.
 
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::launcher::{Unread, unread};
+use mail_app::session::unread;
+use mail_core::notify::Places;
 use mail_core::scope::Scope;
 use mail_core::snooze;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_ui::launcher::Unread;
 use porter_core::AccountId;
 
 fn acct_work() -> AccountId {
@@ -106,9 +108,14 @@ fn change(store: &SqliteStore, account: AccountId, change: Change) {
 
 /// The count over the accounts named.
 fn count(store: &SqliteStore, scope: &[AccountId]) -> u64 {
-    unread(store, &Scope::Accounts(scope.to_vec()), now())
-        .unwrap()
-        .0
+    unread(
+        store,
+        &Scope::Accounts(scope.to_vec()),
+        now(),
+        Places::Inbox,
+    )
+    .unwrap()
+    .0
 }
 
 #[test]
@@ -128,7 +135,7 @@ fn it_counts_unread_conversations_in_the_space_s_accounts() {
         assert_eq!(count(&store, &scope), expect, "{name}");
     }
     assert_eq!(
-        unread(&store, &Scope::All, now()).unwrap(),
+        unread(&store, &Scope::All, now(), Places::Inbox).unwrap(),
         Unread(4),
         "every account"
     );
@@ -177,7 +184,13 @@ fn reading_snoozing_or_archiving_one_takes_it_off_the_count() {
     // And back: the snooze wakes by itself, the unread count with it.
     let later = now() + chrono::TimeDelta::try_days(3).unwrap();
     assert_eq!(
-        unread(&store, &Scope::Accounts(vec![acct_work()]), later).unwrap(),
+        unread(
+            &store,
+            &Scope::Accounts(vec![acct_work()]),
+            later,
+            Places::Inbox
+        )
+        .unwrap(),
         Unread(1)
     );
 }

@@ -11,7 +11,7 @@ use crate::when::{Clock, time_of_day};
 
 /// A time said for the reader.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WhenShown {
+pub struct WhenSaid {
     /// In the reader's zone.
     pub yours: String,
     /// In the organiser's zone, named, when it reads differently from `yours`.
@@ -22,13 +22,13 @@ const DAY: &str = "%a %-d %b %Y";
 
 /// `when` said in the reader's zone, and in the organiser's when that reads differently, the
 /// hours as the reader's `clock` writes them.
-pub fn show_when<Z: TimeZone>(when: &When, reader: &Z, clock: Clock) -> WhenShown {
+pub fn say_when<Z: TimeZone>(when: &When, reader: &Z, clock: Clock) -> WhenSaid {
     match when {
-        When::Unstated => WhenShown {
+        When::Unstated => WhenSaid {
             yours: "no time given".to_owned(),
             theirs: None,
         },
-        When::AllDay { first, last } => WhenShown {
+        When::AllDay { first, last } => WhenSaid {
             yours: if first == last {
                 format!("{}, all day", first.format(DAY))
             } else {
@@ -65,9 +65,9 @@ pub fn show_when<Z: TimeZone>(when: &When, reader: &Z, clock: Clock) -> WhenShow
                     format!("{text} ({tzid})")
                 }),
             };
-            WhenShown { yours, theirs }
+            WhenSaid { yours, theirs }
         }
-        When::Floating { start, end, why } => WhenShown {
+        When::Floating { start, end, why } => WhenSaid {
             yours: match why {
                 Unplaced::AsWritten => {
                     format!(
@@ -175,7 +175,7 @@ mod tests {
             zone: EventZone::Utc,
         };
         let taipei = resolve_iana("Asia/Taipei").unwrap();
-        let shown = show_when(&when, &taipei, Clock::H24);
+        let shown = say_when(&when, &taipei, Clock::H24);
         assert_eq!(shown.yours, "Fri 2 Oct 2026, 21:00–22:00");
         assert_eq!(shown.theirs, None);
     }
@@ -184,7 +184,7 @@ mod tests {
     fn the_organisers_zone_is_named_when_it_reads_differently() {
         let when = timed(iana("Asia/Taipei"));
         let london = resolve_iana("Europe/London").unwrap();
-        let shown = show_when(&when, &london, Clock::H24);
+        let shown = say_when(&when, &london, Clock::H24);
         assert_eq!(shown.yours, "Thu 1 Oct 2026, 08:00–09:00");
         assert_eq!(
             shown.theirs.as_deref(),
@@ -192,7 +192,7 @@ mod tests {
         );
         // A reader in the organiser's zone is told once.
         let taipei = resolve_iana("Asia/Taipei").unwrap();
-        let shown = show_when(&when, &taipei, Clock::H24);
+        let shown = say_when(&when, &taipei, Clock::H24);
         assert_eq!(shown.yours, "Thu 1 Oct 2026, 15:00–16:00");
         assert_eq!(shown.theirs, None);
     }
@@ -207,7 +207,7 @@ mod tests {
                 offset: FixedOffset::west_opt(7 * 3600).unwrap(),
             },
         };
-        let shown = show_when(&when, &Utc, Clock::H24);
+        let shown = say_when(&when, &Utc, Clock::H24);
         assert_eq!(shown.yours, "Fri 10 Jul 2026, 16:00–17:30");
         assert_eq!(
             shown.theirs.as_deref(),
@@ -223,7 +223,7 @@ mod tests {
             last: day(2),
         };
         assert_eq!(
-            show_when(&two, &Utc, Clock::H24).yours,
+            say_when(&two, &Utc, Clock::H24).yours,
             "Thu 1 Oct 2026 – Fri 2 Oct 2026, all day"
         );
         let one = When::AllDay {
@@ -231,11 +231,11 @@ mod tests {
             last: day(1),
         };
         assert_eq!(
-            show_when(&one, &Utc, Clock::H24).yours,
+            say_when(&one, &Utc, Clock::H24).yours,
             "Thu 1 Oct 2026, all day"
         );
         assert_eq!(
-            show_when(&When::Unstated, &Utc, Clock::H24).yours,
+            say_when(&When::Unstated, &Utc, Clock::H24).yours,
             "no time given"
         );
     }
@@ -253,7 +253,7 @@ mod tests {
             why: Unplaced::AsWritten,
         };
         assert_eq!(
-            show_when(&as_written, &Utc, Clock::H24).yours,
+            say_when(&as_written, &Utc, Clock::H24).yours,
             "Thu 1 Oct 2026, 09:00–10:00 (local time, wherever you are)"
         );
         let unknown = When::Floating {
@@ -262,7 +262,7 @@ mod tests {
             why: Unplaced::UnknownZone("Nowhere/Bogus".to_owned()),
         };
         assert!(
-            show_when(&unknown, &Utc, Clock::H24)
+            say_when(&unknown, &Utc, Clock::H24)
                 .yours
                 .contains("which could not be identified")
         );

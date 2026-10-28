@@ -18,8 +18,9 @@ use mail_proto::{Pop3Command, Pop3Session};
 use mail_runtime::graph::{Limits, send_mime_within};
 use mail_runtime::{AccountEngine, AccountSecrets};
 use mail_store::{SqliteStore, Store};
+use porter_core::SecretText;
 use porter_core::{Credential, SecretKey, SecretPurpose};
-use porter_core::{SecretText, UnixSeconds};
+use porter_ids::UnixSeconds;
 use porter_provider::Issuer;
 use porter_secrets::MemorySecrets;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -179,6 +180,9 @@ fn draft() -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: now(),
     }
@@ -276,6 +280,7 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
                 raw,
                 mail_from: post.mail_from.clone(),
                 rcpt_to: post.rcpt_to.clone(),
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &Patch {
                 id: ChangeId::generate(),

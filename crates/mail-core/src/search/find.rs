@@ -1,8 +1,9 @@
 //! What to mark on screen, and ⌘F's place in a thread.
 //!
 //! A [`Highlight`] is the typed words and phrases, plus at most one `re:/pattern/`. The list
-//! box and ⌘F both build one, and both mark text with [`Highlight::ranges`], so a row, a
-//! parsed body and a find in a thread cannot disagree about what matched.
+//! box builds one and marks text with [`Highlight::ranges`], so a row and a parsed body cannot
+//! disagree about what matched. ⌘F in a thread finds a phrase ([`super::within::find_in`]) and
+//! keeps only its place here ([`Find`]); a pattern in its box is searched as the text it is.
 //!
 //! The words are what was typed, not the vocabulary they expanded to: typing `uidval` marks
 //! `UIDVAL`, the part of `UIDVALIDITY` the person actually asked for. Every expansion starts
@@ -12,7 +13,6 @@ use crate::error::CoreError;
 use std::ops::Range;
 
 use chrono::TimeZone;
-use mail_domain::LabelId;
 
 use super::highlight::marks;
 use super::parsing::parse;
@@ -70,34 +70,16 @@ impl Highlight {
 pub fn list_highlight<Tz: TimeZone>(
     input: &str,
     zone: &Tz,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn crate::query::Names,
 ) -> Result<Highlight, CoreError> {
     let extracted = extract(input)?;
+    // Operators mark nothing whoever they name, so `is:vip` needs no list here.
     let parsed = parse(&extracted.rest, zone, label);
     let mut terms = parsed.query_words();
     terms.extend(parsed.phrases);
     Ok(Highlight {
         terms,
         pattern: extracted.regex,
-    })
-}
-
-/// What ⌘F looks for in a thread: whitespace-separated words, or one `re:/…/`.
-///
-/// No operators here, because a thread is already one conversation: `from:` in a find box is
-/// the text `from:`. A pattern takes the whole box; words beside it are ignored rather than
-/// half-applied. An invalid pattern is the `regex` crate's own message.
-pub fn find_highlight(input: &str) -> Result<Highlight, CoreError> {
-    let extracted = extract(input)?;
-    if let Some(pattern) = extracted.regex {
-        return Ok(Highlight {
-            terms: Vec::new(),
-            pattern: Some(pattern),
-        });
-    }
-    Ok(Highlight {
-        terms: input.split_whitespace().map(str::to_owned).collect(),
-        pattern: None,
     })
 }
 
@@ -134,17 +116,6 @@ impl Find {
             Step::Previous => (at + total - 1) % total,
         };
     }
-
-    /// "3 of 12", "no matches", or nothing while the box is empty.
-    pub fn count(&self, total: usize) -> Option<String> {
-        if self.query.trim().is_empty() {
-            return None;
-        }
-        Some(match self.at(total) {
-            Some(at) => format!("{} of {total}", at + 1),
-            None => "no matches".to_owned(),
-        })
-    }
 }
 
 fn merge(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
@@ -163,7 +134,7 @@ fn merge(mut ranges: Vec<Range<usize>>) -> Vec<Range<usize>> {
 mod tests {
     use chrono::Utc;
 
-    use super::{Find, Step, find_highlight, list_highlight};
+    use super::{Find, Step, list_highlight};
 
     fn marked<'a>(text: &'a str, ranges: &[std::ops::Range<usize>]) -> Vec<&'a str> {
         ranges.iter().map(|range| &text[range.clone()]).collect()
@@ -187,43 +158,11 @@ mod tests {
             ("郵", "校園郵件通知", &["郵"]),
         ];
         for (input, text, want) in cases {
-            let highlight = list_highlight(input, &Utc, &|_| Vec::new())
+            let highlight = list_highlight(input, &Utc, &crate::query::unnamed)
                 .unwrap_or_else(|why| panic!("{input:?}: {why}"));
             let ranges = highlight.ranges(text);
             assert_eq!(marked(text, &ranges), *want, "typed {input:?}");
         }
-    }
-
-    #[test]
-    fn find_takes_words_or_one_pattern() {
-        let words = find_highlight("cursor list").expect("plain words");
-        assert_eq!(words.terms, vec!["cursor".to_owned(), "list".to_owned()]);
-        assert!(words.pattern.is_none());
-
-        let pattern = find_highlight("re:/c[a-z]+r/ ignored").expect("a valid pattern");
-        assert!(
-            pattern.terms.is_empty(),
-            "words beside a pattern are ignored"
-        );
-        let text = "the cursor and the cellar";
-        assert_eq!(
-            marked(text, &pattern.ranges(text)),
-            vec!["cursor", "cellar"]
-        );
-
-        let broken = find_highlight("re:/(/")
-            .expect_err("an unclosed group")
-            .to_string();
-        let own = regex::Regex::new(&String::from("("))
-            .expect_err("the same pattern")
-            .to_string();
-        assert_eq!(broken, own, "the message is the regex crate's own");
-    }
-
-    #[test]
-    fn an_empty_match_marks_nothing() {
-        let pattern = find_highlight("re:/x*/").expect("valid");
-        assert!(pattern.ranges("abc").is_empty());
     }
 
     #[test]
@@ -234,15 +173,13 @@ mod tests {
         };
         let mut seen = Vec::new();
         for _ in 0..4 {
-            seen.push(at.count(3).unwrap_or_default());
+            seen.push(at.at(3));
             at.step(Step::Next, 3);
         }
-        assert_eq!(seen, ["1 of 3", "2 of 3", "3 of 3", "1 of 3"]);
+        assert_eq!(seen, [Some(0), Some(1), Some(2), Some(0)]);
         at.current = 0;
         at.step(Step::Previous, 3);
-        assert_eq!(at.count(3).as_deref(), Some("3 of 3"));
-        assert_eq!(at.count(0).as_deref(), Some("no matches"));
-        at.query.clear();
-        assert_eq!(at.count(3), None, "an empty box counts nothing");
+        assert_eq!(at.at(3), Some(2));
+        assert_eq!(at.at(0), None, "no match to be at");
     }
 }

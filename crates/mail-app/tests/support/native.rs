@@ -1,7 +1,5 @@
 //! What the native tests say the same way: how long, which row, and a click that waits.
 
-#![allow(dead_code)]
-
 use crate::drive::Drive;
 use ds_harness::Harness;
 use std::time::Duration;
@@ -14,11 +12,6 @@ pub fn ms(n: u64) -> Duration {
 /// The `n`th item of the list (1-based).
 pub fn item(n: usize) -> String {
     format!(".list .ds-list-item[*|aria-posinset=\"{n}\"]")
-}
-
-/// The `n`th row of the list, the part a pointer lands on.
-pub fn row(n: usize) -> String {
-    format!("{} .ds-row", item(n))
 }
 
 /// The `n`th conversation of the list, as its row draws it.

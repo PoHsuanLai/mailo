@@ -1,9 +1,0 @@
-/* Settings, a window of its own: the sidebar of pages beside the page, laid out as the desktop's
-   Settings app lays out a program's page. The sidebar stays put; the page scrolls under it. Each
-   page is quire's Form, which owns the page's margin and the gap between its sections. */
-.settings { display: grid; grid-template-columns: 13rem minmax(0, 1fr); height: 100%; min-height: 0; }
-.settings-scroll { height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; }
-.settings-page { min-width: 0; }
-/* A row that adds something leads with a bare plus (`common::add_mark`), plain beside the colour
-   of the rows it adds to, in a box a row's tile wide so its title starts where theirs do. */
-.add-mark { display: grid; place-items: center; width: var(--row-icon-tile); height: var(--row-icon-tile); color: var(--ink-soft); }

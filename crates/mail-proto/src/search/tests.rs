@@ -138,6 +138,19 @@ fn generic_rows() -> Vec<ImapRow> {
             )),
         ),
         (
+            "cc: is the Cc line alone",
+            Filter::Cc(contains("bob")),
+            Ok((inbox_archive.clone(), "a1 UID SEARCH CC \"bob\"\r\n")),
+        ),
+        (
+            "an address is a sender's address",
+            Filter::FromAddress("ada@example.test".to_owned()),
+            Ok((
+                inbox_archive.clone(),
+                "a1 UID SEARCH FROM \"ada@example.test\"\r\n",
+            )),
+        ),
+        (
             "-from:news is:starred",
             and(vec![
                 not(Filter::From(contains("news"))),
@@ -350,6 +363,21 @@ fn on_gmail_all_mail_is_searched_and_labels_are_x_gm_labels() {
             "a1 UID SEARCH X-GM-LABELS \"travel\"\r\n",
         ),
         (
+            "category: is X-GM-RAW",
+            Filter::Category(mail_domain::Category::Promotions),
+            vec!["[Gmail]/All Mail"],
+            "a1 UID SEARCH X-GM-RAW \"category:promotions\"\r\n",
+        ),
+        (
+            "a category with the inbox",
+            Filter::And(vec![
+                Filter::InMailbox(MailboxRole::Inbox),
+                Filter::Category(mail_domain::Category::Social),
+            ]),
+            vec!["INBOX"],
+            "a1 UID SEARCH X-GM-RAW \"category:social\"\r\n",
+        ),
+        (
             "in:inbox is the inbox",
             Filter::InMailbox(MailboxRole::Inbox),
             vec!["INBOX"],
@@ -546,6 +574,16 @@ fn jmap_carries_the_query_whole_as_a_filter_tree() {
             Ok(json!({ "operator": "OR", "conditions": [{ "to": "bob" }, { "cc": "bob" }] })),
         ),
         (
+            "cc: is the Cc line alone",
+            Filter::Cc(contains("bob")),
+            Ok(json!({ "cc": "bob" })),
+        ),
+        (
+            "an address is a sender's address",
+            Filter::FromAddress("ada@example.test".to_owned()),
+            Ok(json!({ "from": "ada@example.test" })),
+        ),
+        (
             "state, attachment and a place",
             and(vec![
                 Filter::Read(ReadState::Unread),
@@ -690,6 +728,26 @@ fn graph_uses_filter_for_state_and_search_for_words_never_both() {
             Err(vec!["label: (labels stay on this computer for Microsoft accounts)"]),
         ),
         ("is:pinned", and(vec![Filter::Pinned, text("x")]), Err(vec!["is:pinned (kept on this computer)"])),
+        (
+            "larger: and smaller: are KQL size",
+            and(vec![Filter::Larger(5000), Filter::Smaller(100_000)]),
+            Ok(everywhere(GraphQuery::Search("(size:>5000 AND size:<100000)".to_owned()))),
+        ),
+        (
+            "cc: is the Cc line alone",
+            Filter::Cc(contains("bob")),
+            Ok(everywhere(GraphQuery::Search("cc:\"bob\"".to_owned()))),
+        ),
+        (
+            "an address is a sender's address",
+            Filter::FromAddress("ada@example.test".to_owned()),
+            Ok(everywhere(GraphQuery::Search("from:\"ada@example.test\"".to_owned()))),
+        ),
+        (
+            "is:vip is this client's list",
+            and(vec![Filter::Vip, text("x")]),
+            Err(vec!["is:vip (kept on this computer)"]),
+        ),
     ];
     for (name, filter, expected) in cases {
         match (graph::translate(&filter, account()), expected) {
@@ -698,4 +756,19 @@ fn graph_uses_filter_for_state_and_search_for_words_never_both() {
             (got, expected) => panic!("{name}: got {got:?}, expected {expected:?}"),
         }
     }
+}
+
+#[test]
+fn a_category_is_asked_of_gmail_alone() {
+    let folders = [folder("INBOX", Some(SpecialUse::Inbox))];
+    let roles = roles(&[]);
+    let ctx = ImapCtx {
+        account: account(),
+        folders: &folders,
+        roles: &roles,
+        labels: ServerLabels::LocalOnly,
+        labels_named: &[],
+    };
+    let filter = Filter::Category(mail_domain::Category::Forums);
+    assert!(imap::translate(&filter, &ctx).is_err());
 }

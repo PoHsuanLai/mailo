@@ -14,13 +14,17 @@
 //! - **Sequence numbers renumber under you.** An untagged `EXPUNGE` shifts every later
 //!   sequence number, which is how a client deletes the wrong message. Nothing here hands a
 //!   sequence number to a caller; UIDs are the only identity that leaves this module.
-//! - **`\Deleted` and `EXPUNGE` serve one purpose only.** Gmail routes `EXPUNGE` through a
+//! - **`\Deleted` and `EXPUNGE` serve two purposes only.** Gmail routes `EXPUNGE` through a
 //!   per-account setting that may be `deleteForever` and cannot be read over IMAP, so nothing
-//!   here moves or cleans up by expunging. The one use is the user's own "Delete forever" of mail
+//!   here moves or cleans up by expunging. One use is the user's own "Delete forever" of mail
 //!   in the Trash or Spam folder (`ProtoOp::Destroy`), where deleting for good is the point:
 //!   `UID STORE +FLAGS.SILENT (\Deleted)` then `UID EXPUNGE` of the same UIDs (RFC 4315), behind
-//!   a [`ImapCommand::RequireCapability`] guard for `UIDPLUS`. A bare `EXPUNGE` does not exist
-//!   here, because it removes every `\Deleted` message in the mailbox, other clients' included.
+//!   a [`ImapCommand::RequireCapability`] guard for `UIDPLUS`. The other is this client's own
+//!   copies of a draft in the Drafts folder, replaced or sent (`ProtoOp::KeepDraft`,
+//!   `ProtoOp::DropDraft`): the same two commands, on the UIDs a search for the draft's
+//!   `Message-ID` found, and the expunge left out without `UIDPLUS`. A bare `EXPUNGE` does not
+//!   exist here, because it removes every `\Deleted` message in the mailbox, other clients'
+//!   included.
 
 use crate::machine::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use crate::mutf7;
@@ -80,6 +84,10 @@ pub enum ImapCommand {
     UidStore {
         set: String,
         what: String,
+        /// A `NO` or `BAD` to it is passed over and the walk goes on: for a keyword that only
+        /// informs (`$Junk`), which some servers refuse (Exchange answers `BAD`), and which must
+        /// not cancel the move it travels with.
+        tolerate: bool,
     },
     /// `UID SEARCH <criteria>`.
     UidSearch {
@@ -130,10 +138,29 @@ pub enum ImapCommand {
     /// `UID EXPUNGE <set>` (RFC 4315 §2.1): expunge exactly these UIDs, and no other message
     /// marked `\Deleted` in the mailbox. Only after `\Deleted` was set on the same set for a
     /// "Delete forever" in Trash or Spam, and only behind [`ImapCommand::RequireCapability`] for
-    /// `UIDPLUS`; see the module note.
+    /// `UIDPLUS`; or as [`ImapCommand::UidExpungeFound`] decides. See the module note.
     UidExpunge {
         set: String,
     },
+    /// `UID STORE <found> <what>`, where `found` is every UID the last
+    /// [`ImapCommand::UidSearch`] before it in the walk found; nothing at all when it found none.
+    ///
+    /// Decided inside the walk for the reason [`ImapCommand::RequireEmpty`] is: what to act on is
+    /// what the search on this connection answered, and a later walk on another would ask again
+    /// and might be answered differently. Only the search's own `* SEARCH` lines are read, so
+    /// nothing a message says can add a UID to the set.
+    UidStoreFound {
+        what: String,
+    },
+    /// `UID EXPUNGE <found>`, for the same UIDs as [`ImapCommand::UidStoreFound`], where the
+    /// server has `UIDPLUS` or IMAP4rev2; nothing at all where it has neither, or the search
+    /// found none.
+    ///
+    /// Not a refusal without them, unlike a walk behind [`ImapCommand::RequireCapability`]: the
+    /// UIDs are this client's own copies of a draft, marked `\Deleted` already, and are left so
+    /// for the server or another client to expunge. A bare `EXPUNGE`, which would take every
+    /// other `\Deleted` message in the mailbox with them, is never the way round it.
+    UidExpungeFound,
     /// Sends nothing: the walk stops with [`ProtoError::Unsupported`] unless the capabilities this
     /// session has seen include one of these atoms.
     ///
@@ -176,6 +203,12 @@ pub enum ImapCommand {
     Unsubscribe {
         mailbox: String,
     },
+    /// `GETQUOTAROOT <mailbox>` (RFC 9208 §4.3.2): the quota roots the mailbox counts against,
+    /// and each root's usage and limits. Only behind [`ImapCommand::RequireCapability`] for
+    /// `QUOTA`: a server without the extension answers `BAD`.
+    GetQuotaRoot {
+        mailbox: String,
+    },
     /// `STATUS <mailbox> (MESSAGES)`, and the walk stops with a refusal unless it says zero.
     ///
     /// A guard, not a query: the one way to make "delete this folder only if it is empty" hold
@@ -196,6 +229,21 @@ pub enum ImapCommand {
     IdleAfter {
         uidnext: u32,
     },
+    /// `COMPRESS DEFLATE` (RFC 4978), when the server offers it and left out when not. Once the
+    /// server accepts, the session asks the transport to compress ([`IoNeed::Deflate`]) before
+    /// anything else is sent.
+    Compress,
+    /// `NOTIFY SET` (RFC 5465): hear of new and expunged mail in these mailboxes while idling, as
+    /// `STATUS` responses, beside the selected one's own news. Behind a
+    /// [`ImapCommand::RequireCapability`] guard for `NOTIFY`.
+    Notify {
+        mailboxes: Vec<String>,
+    },
+    /// `NOTIFY NONE`: stop hearing of the other mailboxes. Sent when the idle that
+    /// [`ImapCommand::Notify`] set up is over, so that the connection, which the next operation
+    /// may go on with, does not keep a subscription it never reads. A server that refuses it is
+    /// not failed: the connection is then no worse than one that was never reused.
+    NotifyNone,
     Noop,
     Logout,
 }
@@ -309,6 +357,17 @@ impl fmt::Debug for ImapAuth {
 enum Phase {
     /// Waiting for the server greeting, which is itself an untagged response.
     Greeting,
+    /// `STARTTLS` was sent; waiting for its tagged completion (RFC 9051 §6.2.1).
+    StartingTls {
+        tag: String,
+    },
+    /// The server agreed to `STARTTLS`, and the runtime is upgrading the connection.
+    AwaitingTls,
+    /// Upgraded: `CAPABILITY` was sent, because what the server said before TLS is not to be
+    /// trusted (RFC 9051 §6.2.1), and the first command waits for its answer.
+    Recapping {
+        tag: String,
+    },
     /// A command is outstanding; waiting for its tagged completion.
     Running {
         index: usize,
@@ -403,6 +462,11 @@ pub struct ImapSession {
     /// The mailbox the connection has selected, and how: from the last `SELECT` or `EXAMINE`
     /// that completed, this session's or the one it resumed from.
     selected: Option<Access>,
+    /// The server's name and port, when the connection is to be upgraded with `STARTTLS` before
+    /// anything else is said ([`Self::with_starttls`]).
+    starttls: Option<(String, u16)>,
+    /// `COMPRESS` was just accepted and the switch has not yet been handed what was read past it.
+    compressing: bool,
 }
 
 /// What a session that finished leaves for the next one on its connection.
@@ -468,7 +532,21 @@ impl ImapSession {
             held: 0,
             resumed: false,
             selected: None,
+            starttls: None,
+            compressing: false,
         })
+    }
+
+    /// The same session, upgrading the connection with `STARTTLS` straight after the greeting,
+    /// before it signs in or sends anything else ([`mail_domain::Tls::StartTlsRequired`]).
+    ///
+    /// The upgrade is required, never opportunistic: a server that refuses it, greets with
+    /// `PREAUTH` (signed in already, so `STARTTLS` is no longer allowed), or sends anything after
+    /// agreeing to it ends the session before a credential is written.
+    #[must_use]
+    pub fn with_starttls(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.starttls = Some((host.into(), port));
+        self
     }
 
     /// The same session, failing a response that grows past `bytes` without ending rather than
@@ -504,6 +582,8 @@ impl ImapSession {
         self.selected = from.selected;
         self.buf = from.unread;
         self.resumed = true;
+        // The connection was upgraded when it was opened.
+        self.starttls = None;
         self
     }
 
@@ -533,6 +613,32 @@ impl ImapSession {
         Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
     }
 
+    /// The greeting was read: upgrade the connection first when it is to be, else begin.
+    fn greeted(&mut self, preauth: bool) -> Progress<ImapTranscript> {
+        if self.starttls.is_none() {
+            return self.issue(0);
+        }
+        if preauth {
+            return self.fail(ProtoError::Unsupported(
+                "the server signed in before STARTTLS, so the connection cannot be secured"
+                    .to_owned(),
+            ));
+        }
+        let tag = self.next_tag();
+        let line = format!("{tag} STARTTLS\r\n").into_bytes();
+        self.phase = Phase::StartingTls { tag };
+        Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
+    }
+
+    /// The connection is upgraded: forget what the server said before, and ask again.
+    fn upgraded(&mut self) -> Progress<ImapTranscript> {
+        self.transcript.capabilities.clear();
+        let tag = self.next_tag();
+        let line = format!("{tag} CAPABILITY\r\n").into_bytes();
+        self.phase = Phase::Recapping { tag };
+        Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
+    }
+
     /// How many tags the connection has used, this session's and any it resumed from.
     pub fn tags(&self) -> u32 {
         self.counter
@@ -557,8 +663,8 @@ impl ImapSession {
         if let ImapCommand::IdleAfter { uidnext } = command
             && reported_uidnext(&self.transcript.untagged).is_some_and(|now| now > uidnext)
         {
-            self.phase = Phase::Finished;
-            return Progress::Done(std::mem::take(&mut self.transcript));
+            // No idle to wait in, and what was set up for it is still taken down.
+            return self.issue(index + 1);
         }
         if let ImapCommand::RequireUidValidity(expected) = command {
             return match reported_uidvalidity(&self.transcript.untagged) {
@@ -573,6 +679,27 @@ impl ImapSession {
                 }),
             };
         }
+        // Acted on what the search before it found, or passed over.
+        let command = match command {
+            ImapCommand::UidStoreFound { what } => match self.found_before(index) {
+                Some(set) => ImapCommand::UidStore {
+                    set,
+                    what,
+                    tolerate: false,
+                },
+                None => return self.issue(index + 1),
+            },
+            ImapCommand::UidExpungeFound => match self.found_before(index) {
+                Some(set)
+                    if has_capability(&self.transcript.capabilities, "UIDPLUS")
+                        || has_capability(&self.transcript.capabilities, "IMAP4rev2") =>
+                {
+                    ImapCommand::UidExpunge { set }
+                }
+                _ => return self.issue(index + 1),
+            },
+            other => other,
+        };
         if let ImapCommand::RequireCapability(any) = &command {
             if any
                 .iter()
@@ -580,10 +707,12 @@ impl ImapSession {
             {
                 return self.issue(index + 1);
             }
-            return self.fail(ProtoError::Unsupported(format!(
-                "the server does not offer {}, so nothing was sent",
-                any.join(" or ")
-            )));
+            return self.fail(ProtoError::Unsupported(not_offered(any)));
+        }
+        if matches!(command, ImapCommand::Compress)
+            && !has_capability(&self.transcript.capabilities, "COMPRESS=DEFLATE")
+        {
+            return self.issue(index + 1);
         }
         let tag = self.next_tag();
         self.held = 0;
@@ -638,6 +767,34 @@ impl ImapSession {
         Progress::Need(vec![IoNeed::Write(line), IoNeed::Read])
     }
 
+    /// The UIDs the last [`ImapCommand::UidSearch`] before `index` found, as a set; `None` when
+    /// there was no such search or it found nothing.
+    fn found_before(&self, index: usize) -> Option<String> {
+        let search = (0..index)
+            .rev()
+            .find(|at| matches!(self.commands.get(*at), Some(ImapCommand::UidSearch { .. })))?;
+        let uids: Vec<String> = self
+            .transcript
+            .untagged
+            .iter()
+            .filter(|u| u.during == search)
+            .filter_map(|u| {
+                let text = u.text.trim();
+                let rest = text
+                    .get(..8)
+                    .filter(|head| head.eq_ignore_ascii_case("* SEARCH"))
+                    .map(|_| &text[8..])?;
+                (rest.is_empty() || rest.starts_with(' ')).then_some(rest)
+            })
+            .flat_map(str::split_whitespace)
+            // A number past a UID's range is not a UID the server could have given.
+            .filter_map(|n| n.parse::<u32>().ok())
+            .filter(|uid| *uid > 0)
+            .map(|uid| uid.to_string())
+            .collect();
+        (!uids.is_empty()).then(|| uids.join(","))
+    }
+
     /// Whether a literal of `len` bytes may be sent without waiting for `+` (RFC 7888).
     fn non_synchronizing(&self, len: usize) -> bool {
         let caps = &self.transcript.capabilities;
@@ -650,6 +807,20 @@ impl ImapSession {
             ImapCommand::Noop => "NOOP".to_owned(),
             ImapCommand::Logout => "LOGOUT".to_owned(),
             ImapCommand::Idle | ImapCommand::IdleAfter { .. } => "IDLE".to_owned(),
+            ImapCommand::Compress => "COMPRESS DEFLATE".to_owned(),
+            ImapCommand::NotifyNone => "NOTIFY NONE".to_owned(),
+            ImapCommand::Notify { mailboxes } => {
+                let names: Vec<String> = mailboxes.iter().map(|m| wire(m)).collect();
+                // RFC 5465: `mailboxes` takes one mailbox, or a parenthesised list of them.
+                let named = match names.as_slice() {
+                    [one] => one.clone(),
+                    many => format!("({})", many.join(" ")),
+                };
+                format!(
+                    "NOTIFY SET (selected (MessageNew MessageExpunge FlagChange)) \
+                     (mailboxes {named} (MessageNew MessageExpunge))"
+                )
+            }
             ImapCommand::List => "LIST \"\" \"*\"".to_owned(),
             ImapCommand::Lsub => "LSUB \"\" \"*\"".to_owned(),
             // Every name goes out as modified UTF-7, quoted: the wire name is the identity.
@@ -658,8 +829,27 @@ impl ImapSession {
             ImapCommand::Delete { mailbox } => format!("DELETE {}", wire(mailbox)),
             ImapCommand::Subscribe { mailbox } => format!("SUBSCRIBE {}", wire(mailbox)),
             ImapCommand::Unsubscribe { mailbox } => format!("UNSUBSCRIBE {}", wire(mailbox)),
+            ImapCommand::GetQuotaRoot { mailbox } => format!("GETQUOTAROOT {}", wire(mailbox)),
             ImapCommand::RequireEmpty { mailbox } => {
                 format!("STATUS {} (MESSAGES)", wire(mailbox))
+            }
+            // A server that offers SASL PLAIN with an initial response is signed in to with it:
+            // the password goes base64-encoded, so one in any script arrives as typed, where
+            // LOGIN's quoted string is 7-bit (RFC 3501 §4.3) and an accented letter in it is
+            // the server's to refuse. One round trip either way.
+            // IMAP4rev2 takes an initial response without naming SASL-IR (RFC 9051 §6.2.2).
+            ImapCommand::Login
+                if offers_sasl(&self.transcript.capabilities, "PLAIN")
+                    && (has_capability(&self.transcript.capabilities, "SASL-IR")
+                        || has_capability(&self.transcript.capabilities, "IMAP4rev2")) =>
+            {
+                let Credential::Password(password) = &self.auth.credential else {
+                    return Err(ProtoError::Unsupported(
+                        "PLAIN needs a password credential".to_owned(),
+                    ));
+                };
+                let raw = crate::smtp::plain_raw(&self.auth.username, password.expose());
+                format!("AUTHENTICATE PLAIN {}", crate::smtp::b64(&raw))
             }
             ImapCommand::Login => {
                 // RFC 3501 §6.2.3: a client MUST NOT issue LOGIN when the server advertises
@@ -732,7 +922,7 @@ impl ImapSession {
                 check_set(set)?;
                 format!("UID FETCH {set} {items}")
             }
-            ImapCommand::UidStore { set, what } => {
+            ImapCommand::UidStore { set, what, .. } => {
                 check_set(set)?;
                 format!("UID STORE {set} {what}")
             }
@@ -750,6 +940,12 @@ impl ImapSession {
             // Never rendered: `issue` either passes over it or stops the walk.
             ImapCommand::RequireCapability(_) | ImapCommand::RequireUidValidity(_) => {
                 return Err(ProtoError::Malformed("a guard is not a command".to_owned()));
+            }
+            // Never rendered: `issue` writes what the search found in its place, or passes over it.
+            ImapCommand::UidStoreFound { .. } | ImapCommand::UidExpungeFound => {
+                return Err(ProtoError::Malformed(
+                    "a command on what a search found is decided in the walk".to_owned(),
+                ));
             }
             ImapCommand::UidCopy { set, mailbox } => {
                 check_set(set)?;
@@ -905,6 +1101,18 @@ impl ImapSession {
                     self.buf = buf;
                     return self.read_more();
                 }
+                // `imap-proto` takes a capability list only with IMAP4rev1 in it, so the list of
+                // an IMAP4rev2 server that does not also name IMAP4rev1 (RFC 9051 §7.2.2) is
+                // read here, as a line of text.
+                Err(_) if starts_with_ignore_case(&buf, b"* CAPABILITY ") => {
+                    let Some(end) = find_line(&buf) else {
+                        self.buf = buf;
+                        return self.read_more();
+                    };
+                    let line = String::from_utf8_lossy(&buf[..end]).trim_end().to_owned();
+                    self.transcript.capabilities = capability_atoms(&line["* CAPABILITY ".len()..]);
+                    (end, None)
+                }
                 Err(_) => {
                     // The response as text, not as `nom`'s error. `{e:?}` prints the remaining
                     // input as a `Vec<u8>` of decimal numbers — five hundred integers where the
@@ -921,7 +1129,22 @@ impl ImapSession {
             // again. A response that ended the session leaves nothing that matters behind it.
             self.buf = buf;
             self.buf.drain(..consumed);
-            if let Some(progress) = progress {
+            // Anything the server sent after its go-ahead came before TLS, so an attacker on the
+            // path may have written it to be read as said under TLS (CVE-2011-0411's shape).
+            if matches!(self.phase, Phase::AwaitingTls) && !self.buf.is_empty() {
+                return self.fail(ProtoError::Malformed(
+                    "the server sent more after agreeing to STARTTLS".to_owned(),
+                ));
+            }
+            if let Some(mut progress) = progress {
+                // What was read past the `OK` that accepted `COMPRESS` is the inflater's, not the
+                // parser's: it goes with the switch.
+                if std::mem::take(&mut self.compressing)
+                    && let Progress::Need(needs) = &mut progress
+                    && let Some(IoNeed::Deflate { leftover }) = needs.first_mut()
+                {
+                    *leftover = std::mem::take(&mut self.buf);
+                }
                 return progress;
             }
         }
@@ -961,7 +1184,9 @@ impl ImapSession {
         let text = String::from_utf8_lossy(raw).trim_end().to_owned();
         let bytes = raw.to_vec();
 
-        if let Some(atoms) = capabilities_in(response) {
+        if let Some(atoms) =
+            capabilities_in(response).or_else(|| capabilities_in_code(response, &text))
+        {
             // Replace rather than extend: a later CAPABILITY describes the session we have now,
             // and Gmail's pre-auth list is a strict subset of its post-auth one.
             self.transcript.capabilities = atoms;
@@ -982,13 +1207,40 @@ impl ImapSession {
                     | Phase::AppendPending { tag, .. }
                     // The same for a search refused before its literal: a bad charset, say.
                     | Phase::LiteralPending { tag, .. }
-                    | Phase::Deselecting { tag } => tag.clone(),
+                    | Phase::Deselecting { tag }
+                    | Phase::StartingTls { tag }
+                    | Phase::Recapping { tag } => tag.clone(),
                     _ => String::new(),
                 };
                 if tag != expected {
                     return Some(self.fail(ProtoError::Malformed(format!(
                         "tagged {tag} while waiting for {expected}"
                     ))));
+                }
+                if matches!(self.phase, Phase::StartingTls { .. }) {
+                    return Some(match status {
+                        imap_proto::Status::Ok => {
+                            // `StartingTls` is only entered with a server to upgrade to.
+                            let Some((host, port)) = self.starttls.clone() else {
+                                return Some(self.fail(ProtoError::Malformed(
+                                    "STARTTLS without a server".to_owned(),
+                                )));
+                            };
+                            self.phase = Phase::AwaitingTls;
+                            Progress::Need(vec![IoNeed::OpenTls {
+                                host,
+                                port,
+                                mode: mail_domain::Tls::StartTlsRequired,
+                            }])
+                        }
+                        _ => self.fail(ProtoError::Unsupported(format!("STARTTLS: {text}"))),
+                    });
+                }
+                if matches!(self.phase, Phase::Recapping { .. }) {
+                    return Some(match status {
+                        imap_proto::Status::Ok => self.issue(0),
+                        _ => self.fail(ProtoError::Malformed(format!("CAPABILITY: {text}"))),
+                    });
                 }
                 if matches!(self.phase, Phase::Deselecting { .. }) {
                     return Some(match status {
@@ -1026,6 +1278,47 @@ impl ImapSession {
                         {
                             return Some(self.fail(refusal));
                         }
+                        let compressed =
+                            matches!(self.commands.get(index), Some(ImapCommand::Compress));
+                        let next = self.issue(index + 1);
+                        Some(match next {
+                            // Accepted: what the server sends from here is compressed, and so is
+                            // what goes next.
+                            Progress::Need(mut needs) if compressed => {
+                                // The buffer is out being parsed just now; the drain fills in
+                                // what followed the `OK`, which is compressed already.
+                                self.compressing = true;
+                                needs.insert(
+                                    0,
+                                    IoNeed::Deflate {
+                                        leftover: Vec::new(),
+                                    },
+                                );
+                                Progress::Need(needs)
+                            }
+                            // `COMPRESS` was the last command: nothing follows to be sent
+                            // compressed, but the connection is compressed now, and the next
+                            // session on it must find the transport switched. The switch is
+                            // asked for, and the session ends when it is done.
+                            Progress::Done(transcript) if compressed => {
+                                self.transcript = transcript;
+                                self.compressing = true;
+                                Progress::Need(vec![IoNeed::Deflate {
+                                    leftover: Vec::new(),
+                                }])
+                            }
+                            other => other,
+                        })
+                    }
+                    _ if matches!(
+                        self.commands.get(index),
+                        Some(
+                            ImapCommand::UidStore { tolerate: true, .. }
+                                | ImapCommand::Compress
+                                | ImapCommand::NotifyNone
+                        )
+                    ) =>
+                    {
                         Some(self.issue(index + 1))
                     }
                     imap_proto::Status::No => {
@@ -1035,8 +1328,18 @@ impl ImapSession {
                     _ => Some(self.fail(ProtoError::Malformed(format!("BAD: {text}")))),
                 }
             }
-            // News of the mailbox being left, not of this session's.
-            _ if matches!(self.phase, Phase::Deselecting { .. }) => None,
+            // News of the mailbox being left, not of this session's; or what the server says
+            // while the connection is being secured, which no command asked for.
+            _ if matches!(
+                self.phase,
+                Phase::Deselecting { .. }
+                    | Phase::StartingTls { .. }
+                    | Phase::AwaitingTls
+                    | Phase::Recapping { .. }
+            ) =>
+            {
+                None
+            }
             _ => {
                 // Everything else is untagged and may arrive at any moment, solicited or not.
                 let during = match &self.phase {
@@ -1094,6 +1397,62 @@ fn capabilities_in(response: &Response<'_>) -> Option<Vec<String>> {
     Some(atoms.iter().map(|c| format!("{c:?}")).collect())
 }
 
+/// The atoms of a capability list in words, rendered as `imap-proto`'s are in
+/// [`ImapTranscript::capabilities`].
+fn capability_atoms(list: &str) -> Vec<String> {
+    list.split_ascii_whitespace()
+        .map(|atom| {
+            if atom.eq_ignore_ascii_case("IMAP4rev1") {
+                "Imap4rev1".to_owned()
+            } else if atom
+                .get(..5)
+                .is_some_and(|p| p.eq_ignore_ascii_case("AUTH="))
+            {
+                format!("Auth({:?})", &atom[5..])
+            } else {
+                format!("Atom({atom:?})")
+            }
+        })
+        .collect()
+}
+
+/// The `[CAPABILITY ...]` code of a greeting or completion that `imap-proto` left as text
+/// because the list does not name IMAP4rev1 (see the `* CAPABILITY` case in `drain`).
+fn capabilities_in_code(response: &Response<'_>, text: &str) -> Option<Vec<String>> {
+    if !matches!(response, Response::Data { .. } | Response::Done { .. }) {
+        return None;
+    }
+    let line = text.lines().next()?;
+    let start = line.to_ascii_uppercase().find("[CAPABILITY ")? + "[CAPABILITY ".len();
+    let list = line.get(start..)?.split(']').next()?;
+    Some(capability_atoms(list))
+}
+
+/// Whether the server offers the SASL mechanism `mechanism` (`AUTH=<mechanism>`, RFC 9051 §6.2.2).
+fn offers_sasl(capabilities: &[String], mechanism: &str) -> bool {
+    capabilities.iter().any(|c| {
+        c.trim()
+            .strip_prefix("Auth(")
+            .and_then(|rest| rest.strip_suffix(')'))
+            .is_some_and(|name| name.trim_matches('"').eq_ignore_ascii_case(mechanism))
+    })
+}
+
+/// What a failed [`ImapCommand::RequireCapability`] says: none of `any` is offered.
+fn not_offered(any: &[String]) -> String {
+    format!(
+        "the server does not offer {}, so nothing was sent",
+        any.join(" or ")
+    )
+}
+
+/// Whether `error` is a [`ImapCommand::RequireCapability`] for `atom` alone failing: the server
+/// does not offer `atom`. Any other `Unsupported` — a server without `STARTTLS`, say — is a
+/// different thing missing.
+pub fn lacks_capability(error: &ProtoError, atom: &str) -> bool {
+    matches!(error, ProtoError::Unsupported(text) if *text == not_offered(&[atom.to_owned()]))
+}
+
 /// Whether the server advertised a capability, matched as a whole atom.
 ///
 /// `capabilities` holds `imap-proto`'s atoms rendered with `Debug`, so an entry looks like
@@ -1134,6 +1493,10 @@ fn is_news(text: &str) -> bool {
     let Some(first) = parts.next() else {
         return false;
     };
+    // NOTIFY's news of a mailbox that is not selected (RFC 5465 §5.4).
+    if first == "STATUS" {
+        return true;
+    }
     if first.parse::<u64>().is_err() {
         return false;
     }
@@ -1162,6 +1525,11 @@ impl Machine for ImapSession {
     fn feed(&mut self, ready: IoReady) -> Progress<ImapTranscript> {
         match ready {
             IoReady::Eof => self.fail(ProtoError::UnexpectedEof),
+            IoReady::TlsOpen if matches!(self.phase, Phase::AwaitingTls) => self.upgraded(),
+            // The switch to compression that ended the session was made; there is nothing to read.
+            IoReady::Woke if matches!(self.phase, Phase::Finished) => {
+                Progress::Done(std::mem::take(&mut self.transcript))
+            }
             IoReady::TlsOpen | IoReady::Woke => Progress::Need(vec![IoNeed::Read]),
             IoReady::Interrupt => match self.phase.clone() {
                 // The cancellation path IDLE exists for: wind down in protocol so the
@@ -1187,16 +1555,25 @@ impl Machine for ImapSession {
                             let text = String::from_utf8_lossy(&self.buf[..used])
                                 .trim_end()
                                 .to_owned();
-                            if let Some(atoms) = capabilities_in(&response) {
+                            if let Some(atoms) = capabilities_in(&response)
+                                .or_else(|| capabilities_in_code(&response, &text))
+                            {
                                 self.transcript.capabilities = atoms;
                             }
+                            let preauth = matches!(
+                                response,
+                                Response::Data {
+                                    status: imap_proto::Status::PreAuth,
+                                    ..
+                                }
+                            );
                             self.transcript.untagged.push(Untagged {
                                 during: 0,
                                 text,
                                 raw: self.buf[..used].to_vec(),
                             });
                             self.buf.drain(..used);
-                            self.issue(0)
+                            self.greeted(preauth)
                         }
                         Err(nom::Err::Incomplete(_)) => self.read_more(),
                         Err(_) => {
@@ -1286,6 +1663,32 @@ pub(crate) fn response_code(untagged: &[Untagged], name: &str) -> Option<u64> {
                 .flatten()
         })
         .next_back()
+}
+
+/// Whether the mailbox just selected keeps keywords nobody has used in it before: its
+/// `PERMANENTFLAGS` lists `\*` (RFC 9051 §7.1).
+///
+/// Read from status responses only, like [`response_code`], and the last one wins. No list at
+/// all is a server that did not say, which is not a yes: a keyword it will not keep would be a
+/// label that quietly disappears.
+pub(crate) fn keeps_new_keywords(untagged: &[Untagged]) -> bool {
+    untagged
+        .iter()
+        .filter_map(|u| {
+            let head = u.text.get(..6)?;
+            if !head.eq_ignore_ascii_case("* OK [") {
+                return None;
+            }
+            let rest = &u.text[6..];
+            let (key, value) = rest[..rest.find(']')?].split_once(' ')?;
+            key.eq_ignore_ascii_case("PERMANENTFLAGS").then(|| {
+                value
+                    .split(|c: char| c.is_whitespace() || c == '(' || c == ')')
+                    .any(|flag| flag == "\\*")
+            })
+        })
+        .next_back()
+        .unwrap_or(false)
 }
 
 /// Why a [`ImapCommand::RequireEmpty`] guard stops the walk, if it does.
@@ -1391,8 +1794,9 @@ fn credential_forbidden(credential: &Credential) -> bool {
             access, refresh, ..
         } => forbidden(access.expose()) || forbidden(refresh.expose()),
         // Not a sign-in credential at all: refused the same way as one that would break a line.
-        // A bearer token signs in to JMAP only; IMAP has no mechanism that presents one.
-        Credential::ApiKey(_) | Credential::Bearer(_) | Credential::KeyPair { .. } => true,
+        // A bearer token signs in to JMAP only; IMAP has no mechanism that presents one. A kind
+        // this build does not know is refused the same way.
+        _ => true,
     }
 }
 

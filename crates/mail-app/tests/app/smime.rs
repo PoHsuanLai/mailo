@@ -1,7 +1,7 @@
 //! S/MIME from the user's side: identities imported and forgotten, drafts sent
 //! signed and encrypted, protected mail opened when it is read — against a real store, with the
 //! keyring a [`MapSigningStore`] so the user's own is never touched, and every certificate and key
-//! made by the throwaway authority in `mail-mime/tests/smime_support`.
+//! made by the throwaway authority in `mail_mime::testing::smime`.
 
 use crate::sealed::{self, to};
 use crate::smime_support;

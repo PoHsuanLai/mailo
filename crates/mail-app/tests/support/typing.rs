@@ -6,8 +6,6 @@
 //! is; only `work`, the wall time `Harness::key` took (the handlers, the renders, style and
 //! layout of the frame that shows the letter), does.
 
-#![allow(dead_code)]
-
 use super::drive::{Drive, Key};
 use super::settle::settle_until;
 use ds::prelude::Rect;

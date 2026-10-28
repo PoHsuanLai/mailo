@@ -5,22 +5,22 @@
 //! semantics, and the parity test would then be comparing two wrongs.
 
 use std::cell::RefCell;
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use mail_domain::{
     AccountCaps, Change, ChangeId, Cursor, Draft, DraftId, Filter, FollowUp, Ingest, Label,
     LabelId, MailboxRef, MatchCtx, Membership, Message, MessageId, MessageKey, Mute, OutboxId,
-    Page, Patch, Pin, Property, ProtoOp, Query, ReceiptAnswer, RemoteIntent, RemoteRef, Retry,
-    SendState, Snooze, SortDir, SyncCursor, Template, TemplateId, Thread, ThreadId, ThreadSummary,
-    UidValidity,
+    Page, Patch, Pin, Property, ProtoOp, Query, ReadState, ReceiptAnswer, RemoteIntent, RemoteRef,
+    Retry, SendState, Snooze, SortDir, Star, SyncCursor, Template, TemplateId, Thread, ThreadId,
+    ThreadSummary, UidValidity,
 };
 use porter_core::AccountId;
 use serde::Serialize;
 
 use crate::{Dispatch, OutboxEntry, Settle, Store, StoreError, Term};
 
+mod cards;
 mod contacts;
 mod destroyed;
 mod folders;
@@ -33,6 +33,7 @@ mod rules;
 mod smime;
 mod templates;
 mod views;
+mod vips;
 
 /// Everything held in memory. Cheap to construct, and never touches the disk.
 #[derive(Debug, Default)]
@@ -50,6 +51,8 @@ struct Inner {
     /// Message identity. Many [`RemoteRef`]s may point at one entry; the key is not the ref.
     by_key: HashMap<AccountId, HashMap<MessageKey, MessageId>>,
     remotes: Vec<RemoteRow>,
+    /// The size the server gave a message, where it did: `messages.server_size`.
+    server_sizes: BTreeMap<MessageId, u64>,
     /// Addresses of messages deleted forever, until the server no longer lists them.
     destroyed: Vec<destroyed::DestroyedRow>,
     /// Messages a search of the server brought here, with when. Dropped with the message.
@@ -64,11 +67,15 @@ struct Inner {
     views: BTreeMap<mail_domain::ViewId, (i64, mail_domain::View)>,
     /// When each conversation was last opened: History.
     opened: BTreeMap<ThreadId, DateTime<Utc>>,
+    /// The VIPs, by address, each with the name they were marked with.
+    vips: BTreeMap<String, Option<String>>,
     rules: BTreeMap<mail_domain::RuleId, mail_domain::Rule>,
     vacations: BTreeMap<AccountId, mail_domain::Vacation>,
     /// What each account's server turned out to support.
     caps: BTreeMap<AccountId, AccountCaps>,
     outbox: BTreeMap<OutboxId, OutboxRow>,
+    /// Rows a draft's newer upload took the place of, which an attempt under way may still settle.
+    replaced: BTreeSet<OutboxId>,
     next_outbox: i64,
     pending: Vec<PendingRow>,
     sync: BTreeMap<(AccountId, String), SyncCursor>,
@@ -89,6 +96,8 @@ struct Inner {
     books: BTreeMap<String, crate::contact::AddressBook>,
     /// Contact groups, by id.
     groups: BTreeMap<crate::GroupId, crate::Group>,
+    /// People's cards, by id.
+    cards: BTreeMap<crate::CardId, crate::PersonCard>,
     /// OpenPGP public keys, by fingerprint.
     pgp_keys: BTreeMap<mail_domain::Fingerprint, mail_domain::PgpKey>,
     /// Autocrypt peer state, by lower-cased address.
@@ -141,6 +150,7 @@ impl Default for Inner {
             messages: BTreeMap::new(),
             by_key: HashMap::new(),
             remotes: Vec::new(),
+            server_sizes: BTreeMap::new(),
             destroyed: Vec::new(),
             found: BTreeMap::new(),
             unplaced: BTreeMap::new(),
@@ -149,10 +159,12 @@ impl Default for Inner {
             templates: BTreeMap::new(),
             views: BTreeMap::new(),
             opened: BTreeMap::new(),
+            vips: BTreeMap::new(),
             rules: BTreeMap::new(),
             vacations: BTreeMap::new(),
             caps: BTreeMap::new(),
             outbox: BTreeMap::new(),
+            replaced: BTreeSet::new(),
             // SQLite rowids start at 1. Matching that keeps insertion order obvious in tests.
             next_outbox: 1,
             pending: Vec::new(),
@@ -165,6 +177,7 @@ impl Default for Inner {
             sent_prints: Vec::new(),
             books: BTreeMap::new(),
             groups: BTreeMap::new(),
+            cards: BTreeMap::new(),
             pgp_keys: BTreeMap::new(),
             autocrypt: BTreeMap::new(),
             smime_certs: BTreeMap::new(),
@@ -226,11 +239,16 @@ impl Store for MemoryStore {
         Ok(Thread { summary, messages })
     }
 
-    fn unfetched_in(&self, mailbox: &MailboxRef, limit: u32) -> Result<Vec<RemoteRef>, StoreError> {
+    fn unfetched_in(
+        &self,
+        mailbox: &MailboxRef,
+        since: Option<DateTime<Utc>>,
+        limit: u32,
+    ) -> Result<Vec<RemoteRef>, StoreError> {
         let inner = self.inner.borrow();
         let mut with_dates: Vec<(DateTime<Utc>, MessageId, RemoteRef)> = Vec::new();
         for m in inner.messages.values() {
-            if !matches!(m.body, mail_domain::Body::Absent) {
+            if !matches!(m.body, mail_domain::Body::Absent) || since.is_some_and(|at| m.date < at) {
                 continue;
             }
             let Some(row) = inner.remotes.iter().find(|row| {
@@ -319,6 +337,23 @@ impl Store for MemoryStore {
         };
         inner.remove_remote(account.clone(), from);
         inner.map_remote(account, to, message);
+        Ok(())
+    }
+
+    fn copied(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        let Some(message) = inner.message_by_remote(account.clone(), from) else {
+            return Ok(());
+        };
+        // As `SqliteStore`: an address a sync mapped first stays as it is.
+        if inner.message_by_remote(account.clone(), to).is_none() {
+            inner.map_remote(account, to, message);
+        }
         Ok(())
     }
 
@@ -429,6 +464,16 @@ impl Store for MemoryStore {
         remotes: &[RemoteRef],
     ) -> Result<Vec<(RemoteRef, MessageId)>, StoreError> {
         Ok(self.inner.borrow().held_at(account, remotes))
+    }
+
+    fn hold_server_sizes(&self, sizes: &[(MessageId, u64)]) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        for (message, size) in sizes {
+            if inner.messages.contains_key(message) {
+                inner.server_sizes.insert(*message, *size);
+            }
+        }
+        Ok(())
     }
 
     fn mark_found(
@@ -854,6 +899,18 @@ impl Store for MemoryStore {
         Ok(self.inner.borrow_mut().drop_contact(address))
     }
 
+    fn vips(&self) -> Result<Vec<crate::Vip>, StoreError> {
+        Ok(self.inner.borrow().every_vip())
+    }
+
+    fn put_vip(&self, address: &str, name: Option<&str>) -> Result<crate::Vip, StoreError> {
+        self.inner.borrow_mut().mark_vip(address, name)
+    }
+
+    fn delete_vip(&self, address: &str) -> Result<bool, StoreError> {
+        Ok(self.inner.borrow_mut().unmark_vip(address))
+    }
+
     fn address_book(&self, url: &str) -> Result<Option<crate::AddressBook>, StoreError> {
         Ok(self.inner.borrow().read_book(url))
     }
@@ -883,6 +940,27 @@ impl Store for MemoryStore {
     fn delete_group(&self, id: &crate::GroupId) -> Result<bool, StoreError> {
         Ok(self.inner.borrow_mut().drop_group(id))
     }
+
+    fn cards(&self) -> Result<Vec<crate::PersonCard>, StoreError> {
+        Ok(self.inner.borrow().every_card())
+    }
+
+    fn card(&self, id: &crate::CardId) -> Result<Option<crate::PersonCard>, StoreError> {
+        Ok(self.inner.borrow().one_card(id))
+    }
+
+    fn card_of(&self, address: &str) -> Result<Option<crate::PersonCard>, StoreError> {
+        Ok(self.inner.borrow().card_listing(address))
+    }
+
+    fn put_card(&self, card: &crate::PersonCard) -> Result<(), StoreError> {
+        self.inner.borrow_mut().write_card(card);
+        Ok(())
+    }
+
+    fn delete_card(&self, id: &crate::CardId) -> Result<bool, StoreError> {
+        Ok(self.inner.borrow_mut().drop_card(id))
+    }
 }
 
 impl Inner {
@@ -895,28 +973,28 @@ impl Inner {
         let property = query.sort.property;
         let mut keyed = Vec::new();
         for summary in self.matching(&query.filter, now) {
-            keyed.push((sort_key(&summary, property)?, summary));
+            let messages = self.messages_of(summary.id);
+            keyed.push((sort_key(&summary, &messages, property)?, summary));
         }
         keyed.sort_by(|a, b| {
-            let ord = a.0.cmp(&b.0).then(a.1.id.cmp(&b.1.id));
+            let ord = a.0.cmp(&b.0);
             match query.sort.dir {
                 SortDir::Asc => ord,
                 SortDir::Desc => ord.reverse(),
             }
         });
         if let Some(cursor) = &query.page.after {
-            let (value, thread) = decode_cursor(cursor)?;
-            keyed.retain(|(key, summary)| {
-                after_cursor(key, summary.id, &value, &thread, query.sort.dir)
+            let after = decode_cursor(cursor, property)?;
+            keyed.retain(|(key, _)| match query.sort.dir {
+                SortDir::Asc => *key > after,
+                SortDir::Desc => *key < after,
             });
         }
         let limit = usize::try_from(query.page.limit).unwrap_or(usize::MAX);
         let more = keyed.len() > limit;
         keyed.truncate(limit);
         let next = if more {
-            keyed
-                .last()
-                .map(|(key, summary)| encode_cursor(key, summary.id))
+            keyed.last().map(|(key, _)| encode_cursor(key))
         } else {
             None
         };
@@ -933,20 +1011,31 @@ impl Inner {
     /// therefore sit across that join; FTS5 will not, because a phrase cannot cross rows.
     fn matching(&self, filter: &Filter, now: DateTime<Utc>) -> Vec<ThreadSummary> {
         let ids: Vec<ThreadId> = self.threads.keys().copied().collect();
+        let vips: Vec<String> = self.vips.keys().cloned().collect();
         let mut out = Vec::new();
         for id in ids {
             let Some((summary, body)) = self.view(id) else {
                 continue;
             };
-            let folders: Vec<mail_domain::Placed> = self
-                .messages_of(id)
+            let messages = self.messages_of(id);
+            let folders: Vec<mail_domain::Placed> =
+                messages.iter().flat_map(|m| self.placed_of(m.id)).collect();
+            let sizes: Vec<u64> = messages
                 .iter()
-                .flat_map(|m| self.placed_of(m.id))
+                .map(|m| {
+                    mail_domain::filter::message_size(m)
+                        .max(self.server_sizes.get(&m.id).copied().unwrap_or(0))
+                })
                 .collect();
+            let cc: Vec<mail_domain::Address> =
+                messages.iter().flat_map(|m| m.cc.clone()).collect();
             let ctx = MatchCtx {
                 summary: &summary,
                 corpus: body.as_deref(),
                 folders: &folders,
+                sizes: &sizes,
+                cc: &cc,
+                vips: &vips,
                 now,
             };
             if filter.fit(&ctx) {
@@ -972,8 +1061,9 @@ impl Inner {
 
     /// Every mailbox one message has a server address in, with whether it is still filed there:
     /// what [`mail_domain::Filter::InFolder`] weighs, read from the same rows `remote_map`
-    /// holds, the account's reported roles, and the queued `File` moves pending on it. Kept in
-    /// step with `sqlite/placed.rs` and `sql::IN_FOLDER`, which the parity proptest holds it to.
+    /// holds, the account's reported roles, and the queued `File` moves and `Copy` copies pending
+    /// on it. Kept in step with `sqlite/placed.rs` and `sql::IN_FOLDER`, which the parity
+    /// proptest holds it to.
     fn placed_of(&self, message: MessageId) -> Vec<mail_domain::Placed> {
         let Some(held) = self.messages.get(&message) else {
             return Vec::new();
@@ -992,6 +1082,17 @@ impl Inner {
                 _ => None,
             })
             .collect();
+        let mut copying: Vec<String> = self
+            .pending
+            .iter()
+            .filter(|row| row.message == message)
+            .filter_map(|row| match self.outbox.get(&row.outbox).map(|o| &o.op) {
+                Some(ProtoOp::Copy { folder, .. }) => Some(folder.clone()),
+                _ => None,
+            })
+            .collect();
+        copying.sort_unstable();
+        copying.dedup();
         let mut paths: Vec<&str> = self
             .remotes
             .iter()
@@ -1000,14 +1101,13 @@ impl Inner {
             .collect();
         paths.sort_unstable();
         paths.dedup();
-        let addresses = paths
-            .into_iter()
-            .map(|path| MailboxRef {
-                account: held.account.clone(),
-                path: path.to_owned(),
-            })
-            .collect();
-        mail_domain::Placed::of_message(held.mailbox, addresses, &roles, &moving)
+        let folder = |path: &str| MailboxRef {
+            account: held.account.clone(),
+            path: path.to_owned(),
+        };
+        let addresses = paths.into_iter().map(folder).collect();
+        let copying = copying.iter().map(|path| folder(path)).collect();
+        mail_domain::Placed::of_message_copied(held.mailbox, addresses, &roles, &moving, copying)
     }
 
     fn summary_of(&self, id: ThreadId) -> Option<ThreadSummary> {
@@ -1040,6 +1140,11 @@ impl Inner {
             Change::MessageStar(id, star) => {
                 if let Some(message) = self.messages.get_mut(id) {
                     message.star = *star;
+                }
+            }
+            Change::MessageFlag(id, hue) => {
+                if let Some(message) = self.messages.get_mut(id) {
+                    message.flag = *hue;
                 }
             }
             Change::MessageMailbox(id, role) => {
@@ -1155,6 +1260,7 @@ impl Inner {
             map.remove(&prev.key);
         }
         self.remotes.retain(|row| row.message != id);
+        self.server_sizes.remove(&id);
         self.unplaced.retain(|(_, message), _| *message != id);
         self.pending.retain(|row| row.message != id);
         self.receipts.remove(&id);
@@ -1224,6 +1330,17 @@ impl Inner {
                 self.write_change(&star_change)?;
                 changes.push(read_change);
                 changes.push(star_change);
+                if let Some(thread) = self.thread_of(id) {
+                    touched.insert(thread);
+                }
+            }
+        }
+
+        for (remote, hue) in &ingest.flag_colors {
+            if let Some(id) = self.message_by_remote(account.clone(), remote) {
+                let change = Change::MessageFlag(id, *hue);
+                self.write_change(&change)?;
+                changes.push(change);
                 if let Some(thread) = self.thread_of(id) {
                     touched.insert(thread);
                 }
@@ -1463,6 +1580,28 @@ impl Inner {
             Ok(!self.refs_for(account.clone(), &[m])?.is_empty()
                 || self.unplaced.contains_key(&(account.clone(), m)))
         })?;
+        // As `SqliteStore::queue`: a draft's upload still waiting is stale, and goes; a new
+        // upload takes over its backoff.
+        let (mut attempts, mut next_attempt) = (0_u32, now);
+        if let Some(draft) = crate::dispatch::draft_copy_of(intent) {
+            let stale: Vec<OutboxId> = self
+                .outbox
+                .iter()
+                .filter(|(_, row)| {
+                    row.account == account
+                        && matches!(&row.op, ProtoOp::KeepDraft { draft: queued, .. } if *queued == draft)
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            for id in stale {
+                if matches!(intent, RemoteIntent::KeepDraft { .. }) {
+                    attempts = attempts.max(self.outbox[&id].attempts);
+                    next_attempt = next_attempt.max(self.outbox[&id].next_attempt);
+                }
+                self.replaced.insert(id);
+                self.drop_entry(id);
+            }
+        }
         let id = OutboxId::from_i64(self.next_outbox);
         self.next_outbox += 1;
         // As `SqliteStore::queue`: kept before the caller removes the messages.
@@ -1480,8 +1619,8 @@ impl Inner {
                 op,
                 messages,
                 undo: undo.clone(),
-                attempts: 0,
-                next_attempt: now,
+                attempts,
+                next_attempt,
             },
         );
         for (message, changes) in crate::pending::pending_of(intent) {
@@ -1503,47 +1642,23 @@ impl Inner {
         intent: &RemoteIntent,
     ) -> Result<Option<ProtoOp>, StoreError> {
         // Mirrors SqliteStore::resolve_intent: a submission addresses no existing message.
-        if let RemoteIntent::Send {
-            draft,
-            raw,
-            mail_from,
-            rcpt_to,
-        } = intent
-        {
-            return Ok(Some(ProtoOp::Submit {
-                draft: *draft,
-                raw: *raw,
-                mail_from: mail_from.clone(),
-                rcpt_to: rcpt_to.clone(),
-            }));
-        }
-        if let RemoteIntent::Folder(work) = intent {
-            return Ok(Some(ProtoOp::Folder(work.clone())));
-        }
-        if let RemoteIntent::Append {
-            mailbox,
-            flags,
-            date,
-            raw,
-        } = intent
-        {
-            return Ok(Some(ProtoOp::Append {
-                mailbox: mailbox.clone(),
-                flags: flags.clone(),
-                date: *date,
-                raw: *raw,
-            }));
+        if let Some(op) = crate::dispatch::unaddressed(intent) {
+            return Ok(Some(op));
         }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
+            | RemoteIntent::SetFlag { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
+            | RemoteIntent::Copy { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. }
             | RemoteIntent::Destroy { messages } => messages,
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                unreachable!("handled above")
-            }
+            RemoteIntent::Send { .. }
+            | RemoteIntent::Folder(_)
+            | RemoteIntent::Append { .. }
+            | RemoteIntent::KeepDraft { .. }
+            | RemoteIntent::DropDraft { .. } => unreachable!("handled above"),
         };
         let remotes = self.refs_for(account.clone(), messages)?;
         if remotes.is_empty()
@@ -1559,6 +1674,7 @@ impl Inner {
                 read: *read,
                 star: *star,
             },
+            RemoteIntent::SetFlag { hue, .. } => ProtoOp::SetFlag { remotes, hue: *hue },
             RemoteIntent::SetMailbox { role, .. } => ProtoOp::SetMailbox {
                 remotes,
                 role: *role,
@@ -1580,10 +1696,19 @@ impl Inner {
                     None => return Ok(None),
                 }
             }
-            RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                unreachable!("handled above")
+            // As filing: the label's name is the folder's path.
+            RemoteIntent::Copy { label, .. } => {
+                match self.label_names(std::slice::from_ref(label)).pop() {
+                    Some(folder) => ProtoOp::Copy { remotes, folder },
+                    None => return Ok(None),
+                }
             }
+            RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
+            RemoteIntent::Send { .. }
+            | RemoteIntent::Folder(_)
+            | RemoteIntent::Append { .. }
+            | RemoteIntent::KeepDraft { .. }
+            | RemoteIntent::DropDraft { .. } => unreachable!("handled above"),
         }))
     }
 
@@ -1684,8 +1809,14 @@ impl Inner {
         settle: Settle,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
+        // As `SqliteStore::settle`: a draft's upload replaced while it ran has no row to settle,
+        // and no other row is gone.
         if !self.outbox.contains_key(&id) {
-            return Err(StoreError::db(format!("no such outbox entry: {id}")));
+            return if self.replaced.contains(&id) {
+                Ok(())
+            } else {
+                Err(StoreError::db(format!("no such outbox entry: {id}")))
+            };
         }
         match settle {
             Settle::Ok => {
@@ -1787,6 +1918,9 @@ fn thread_corpus(messages: &[Message]) -> Option<String> {
             pieces.push(Some(addr.email.as_str()));
         }
         pieces.push(message.body.text());
+        for attachment in &message.attachments {
+            pieces.push(Some(attachment.name.as_str()));
+        }
         for piece in pieces.into_iter().flatten() {
             if piece.is_empty() {
                 continue;
@@ -1805,13 +1939,55 @@ fn timestamp(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Nanos, true)
 }
 
-fn sort_key(summary: &ThreadSummary, property: Property) -> Result<String, StoreError> {
-    Ok(match property {
-        Property::Date | Property::Size => timestamp(summary.last_date),
-        Property::Subject => summary.subject.clone(),
-        Property::From | Property::Sender => summary.from.email.clone(),
-        Property::Attachments => json_text("Attachments", &summary.attachments)?,
-        Property::Pin => json_text("Pin", &summary.pin)?,
+/// Where a thread stands in a sort: its value for the sort, then its date and its id, the
+/// tie-breaks `sqlite::order_columns` orders by.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct SortKey {
+    value: SortValue,
+    date: String,
+    thread: String,
+}
+
+/// A sort's own value, as the SQLite column holds it: text, or a number that compares as one.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum SortValue {
+    Int(i64),
+    Text(String),
+}
+
+impl SortValue {
+    fn text(&self) -> String {
+        match self {
+            SortValue::Int(n) => n.to_string(),
+            SortValue::Text(text) => text.clone(),
+        }
+    }
+}
+
+fn sort_key(
+    summary: &ThreadSummary,
+    messages: &[Message],
+    property: Property,
+) -> Result<SortKey, StoreError> {
+    // A listed thread has a message, so it has facts; one with none would sort as empty, first.
+    let (subject, sender, size) = match mail_domain::SortFacts::of(messages) {
+        Some(facts) => (facts.subject, facts.sender, facts.size),
+        None => (String::new(), String::new(), 0),
+    };
+    let value = match property {
+        Property::Date => SortValue::Text(timestamp(summary.last_date)),
+        Property::Subject => SortValue::Text(subject),
+        Property::From | Property::Sender => SortValue::Text(sender),
+        Property::Size => SortValue::Int(i64::try_from(size).unwrap_or(i64::MAX)),
+        Property::Attachments => SortValue::Text(json_text("Attachments", &summary.attachments)?),
+        Property::Pin => SortValue::Text(json_text("Pin", &summary.pin)?),
+        Property::Unread => SortValue::Int(i64::from(summary.read == ReadState::Unread)),
+        Property::Starred => SortValue::Int(i64::from(summary.star == Star::Starred)),
+    };
+    Ok(SortKey {
+        value,
+        date: timestamp(summary.last_date),
+        thread: summary.id.to_string(),
     })
 }
 
@@ -1822,25 +1998,33 @@ fn json_text<T: Serialize>(what: &str, value: &T) -> Result<String, StoreError> 
     })
 }
 
-fn encode_cursor(sort_value: &str, thread: ThreadId) -> Cursor {
-    Cursor(format!("{sort_value}\u{1f}{thread}"))
+fn encode_cursor(key: &SortKey) -> Cursor {
+    Cursor(format!(
+        "{}\u{1f}{}\u{1f}{}",
+        key.value.text(),
+        key.date,
+        key.thread
+    ))
 }
 
-fn decode_cursor(cursor: &Cursor) -> Result<(String, String), StoreError> {
-    cursor
-        .0
-        .split_once('\u{1f}')
-        .map(|(value, thread)| (value.to_owned(), thread.to_owned()))
-        .ok_or(StoreError::BadCursor)
-}
-
-fn after_cursor(key: &str, id: ThreadId, cursor_key: &str, cursor_id: &str, dir: SortDir) -> bool {
-    let id = id.to_string();
-    let ord = (key, id.as_str()).cmp(&(cursor_key, cursor_id));
-    match dir {
-        SortDir::Asc => ord == Ordering::Greater,
-        SortDir::Desc => ord == Ordering::Less,
-    }
+/// Split from the right: the date and the id never hold the separator, and only the value is
+/// free text.
+fn decode_cursor(cursor: &Cursor, property: Property) -> Result<SortKey, StoreError> {
+    let mut parts = cursor.0.rsplitn(3, '\u{1f}');
+    let (Some(thread), Some(date), Some(value)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(StoreError::BadCursor);
+    };
+    let value = match property {
+        Property::Size | Property::Unread | Property::Starred => {
+            SortValue::Int(value.parse().map_err(|_| StoreError::BadCursor)?)
+        }
+        _ => SortValue::Text(value.to_owned()),
+    };
+    Ok(SortKey {
+        value,
+        date: date.to_owned(),
+        thread: thread.to_owned(),
+    })
 }
 
 fn remote_parts(remote: &RemoteRef) -> crate::remote_row::Columns {

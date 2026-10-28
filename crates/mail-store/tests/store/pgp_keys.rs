@@ -210,6 +210,9 @@ fn a_draft_keeps_what_it_asks_openpgp_to_do() {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::SignAndEncrypt,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: at(0),
     };

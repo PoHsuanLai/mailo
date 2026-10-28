@@ -280,7 +280,10 @@ fn rich_html_pasted_from_a_word_processor_keeps_its_structure_spaces_and_link() 
         [
             "h2 Agenda",
             "p Bring the numbers and a pen, see the plan",
-            "ul [Budget | Travel | Hiring]",
+            // Travel is nested under Budget, drawn as a list of its own a level in.
+            "ul [Budget]",
+            "ul [Travel]",
+            "ul [Hiring]",
         ]
     );
     assert_eq!(
@@ -381,4 +384,119 @@ fn an_input_method_writes_its_commit_and_nothing_else_and_its_window_stands_at_t
     window.until("the kanji commit is written", |h| {
         outline(h) == ["p 注a 日本"]
     });
+}
+
+/// The paragraph and text styles from the keys and the bubble: ⌘} aligns right, Tab nests a
+/// list item and Enter brings it out, ⌘' quotes a quote a level deeper, ⌘> sizes a word up and
+/// the bubble's colour swatches colour another. All of it goes out in the HTML part, and the
+/// nesting and the levels in the text part.
+#[test]
+fn alignment_nesting_quote_levels_size_and_colour_go_out_in_the_html() {
+    let mut window = composing();
+    window.type_text("To the right");
+    window.press(&[PRIMARY, Key::Shift], Key::Char('}'), 1);
+    window.until("⌘} aligns the paragraph right", |h| {
+        h.attr(".c-body > p", "style")
+            .is_some_and(|style| style.contains("text-align:right"))
+    });
+
+    window.type_text("\n");
+    window.press(&[PRIMARY, Key::Shift], Key::Char('{'), 1);
+    window.type_text("- one\ntwo");
+    window.press(&[], Key::Tab, 1);
+    assert_eq!(
+        outline(&window.harness)[1..],
+        ["ul [one]", "ul [two]"],
+        "Tab nests the second item in a list of its own"
+    );
+    assert!(
+        window.harness.is_focused(".c-body"),
+        "Tab in a list item left the body"
+    );
+    window.type_text("\nthree");
+    window.press(&[Key::Shift], Key::Tab, 1);
+    assert_eq!(
+        outline(&window.harness)[1..],
+        ["ul [one]", "ul [two]", "ul [three]"],
+        "Shift-Tab brings the third item back out"
+    );
+
+    window.type_text("\n\n> deep");
+    window.press(&[PRIMARY], Key::Char('\''), 1);
+    window.until("⌘' quotes it a level deeper", |h| {
+        h.attr(".c-body > blockquote", "style")
+            .is_some_and(|style| style.contains("margin-left"))
+    });
+
+    window.type_text("\nbig and blue");
+    window.press(&[], Key::Home, 1);
+    window.press(&[PRIMARY], Key::Char('\''), 1);
+    window.press(&[PRIMARY, Key::Alt], Key::Char('\''), 1);
+    assert_eq!(
+        outline(&window.harness).last().map(String::as_str),
+        Some("p big and blue"),
+        "⌥⌘' takes the quote it made away again"
+    );
+    // On the right, where the bar is placed from the selection's end to stay in the window.
+    window.press(&[PRIMARY, Key::Shift], Key::Char('}'), 1);
+    window.press(&[], Key::End, 1);
+    select_back(&mut window, 4);
+    window.until("the bubble is over the selection", |h| {
+        h.count(&mark_segment(1)) == 1
+    });
+    window.click(&format!(
+        ".bubble [*|aria-label=\"{}\"]",
+        mail_ui::ui::copy::aria::TEXT_COLOUR
+    ));
+    window.until("the swatches are in the bar's place", |h| {
+        h.count(".bubble .ds-radio-group-item") == 7
+    });
+    // The palette after No Colour: grey, red, orange, green, blue.
+    window.click(".bubble .ds-radio-group-item:nth-child(6)");
+    window.until("the swatch colours the word", |h| {
+        h.attr(".c-body > p:last-of-type > span:last-child", "style")
+            .is_some_and(|style| style.contains("#1a73e8"))
+    });
+    window.press(&[], Key::Home, 1);
+    window.press(&[Key::Shift], Key::Right, 3);
+    window.press(&[PRIMARY, Key::Shift], Key::Char('>'), 1);
+    window.until("⌘> sizes the word up", |h| {
+        h.attr(".c-body > p:last-of-type > span:first-child", "style")
+            .is_some_and(|style| style.contains("font-size"))
+    });
+
+    window.click(".c-props [*|data-row=to] .c-pin input");
+    window.type_text("ada@example.test\n");
+    window.click(".c-title input");
+    window.type_text("Styles");
+    window.click(&super::look::send());
+    window.until("the send pill shows", |h| h.count(".ds-send-pill") == 1);
+    let sent = queued(&window.store);
+    assert_eq!(sent.len(), 1, "not one submission");
+    let mail = parsed(&sent[0].raw);
+
+    let html = mail.html.unwrap_or_default();
+    for tag in [
+        r#"<p style="text-align:right">To the right</p>"#,
+        "<ul><li><p>one</p><ul><li><p>two</p></li></ul></li><li><p>three</p></li></ul>",
+        "<blockquote><blockquote><p>deep</p></blockquote></blockquote>",
+        r#"<span style="font-size:large">big</span>"#,
+        r#"<span style="color:#1a73e8">blue</span>"#,
+        r#"<p style="text-align:right"><span"#,
+    ] {
+        assert!(html.contains(tag), "no {tag} in the HTML part:\n{html}");
+    }
+    let text = mail.text.unwrap_or_default();
+    for line in ["- one", "- three", ">> deep"] {
+        assert!(
+            text.lines().any(|l| l.trim_end() == line),
+            "no line {line:?} in the text part:\n{text}"
+        );
+    }
+    // The nested item is indented (and, as format=flowed has it, space-stuffed).
+    assert!(
+        text.lines()
+            .any(|l| l.starts_with("  ") && l.trim() == "- two"),
+        "the nested item is not indented in the text part:\n{text}"
+    );
 }

@@ -6,7 +6,7 @@
 //! on this side: the event stays as the organiser has it until the organiser says otherwise, so
 //! no answer is recorded and no calendar is touched.
 
-use super::{Asked, Itip, asked, one_line, product, queue, show_when};
+use super::{Asked, Itip, asked, one_line, product, queue, say_when};
 use crate::error::CoreError;
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::MessageId;
@@ -88,7 +88,7 @@ pub fn propose(
         zone: ical::EventZone::Utc,
     };
     // Written for the organiser in UTC, as an answer's is: their clock is not known here.
-    let said = show_when(&proposed, &Utc, crate::when::Clock::H24);
+    let said = say_when(&proposed, &Utc, crate::when::Clock::H24);
     let mut text = format!(
         "{} proposes a new time for \"{}\".\r\n\r\nProposed: {}\r\n",
         identity.from.shown(),

@@ -12,8 +12,9 @@ use super::{Announce, configured, live};
 use crate::error::CoreError;
 use crate::fetch::{Event, Trigger};
 use crate::ipc::watching::Asked;
+use crate::junk::Policy;
 use crate::mail::{Mail, SyncOps};
-use crate::notify::Notifier;
+use crate::notify::{Notifier, Whom};
 use chrono::{DateTime, Utc};
 use mail_runtime::schedule::{
     Change, Daemon, End, Host, ListenCall, Local, Lost, Note, PassCall, Passed, Schedule,
@@ -39,14 +40,21 @@ pub fn told(end: &PassEnd, announce: Announce<'_>, at: DateTime<Utc>, tell: &dyn
     let PassEnd::Finished(report) = end else {
         return;
     };
-    let Announce::To { store, notifier } = announce else {
+    let Announce::To {
+        store,
+        notifier,
+        whom,
+    } = announce
+    else {
         return;
     };
     if let Err(why) = crate::notify::announce(
         store,
         report.account.clone(),
         &report.counts.arrived,
+        &report.counts.noted,
         notifier,
+        whom(),
         at,
     ) {
         tell(Watched::AnnounceFailed {
@@ -61,6 +69,21 @@ pub fn told(end: &PassEnd, announce: Announce<'_>, at: DateTime<Utc>, tell: &dyn
     }
 }
 
+/// What a watch asks again as each pass goes by, so that a setting changed while it runs is
+/// followed from the next pass: `whom` is whose new mail it says, asked as each pass ends, and
+/// `junk` is how the junk filter behaves, asked as each pass starts.
+#[derive(Clone, Copy)]
+pub struct Live<'a> {
+    pub whom: &'a dyn Fn() -> Whom,
+    pub junk: &'a dyn Fn() -> Policy,
+}
+
+impl std::fmt::Debug for Live<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Live(..)")
+    }
+}
+
 impl SyncOps<'_> {
     /// Keep syncing until every account has stopped for a reason worth stopping for: `mailo
     /// watch`.
@@ -69,20 +92,50 @@ impl SyncOps<'_> {
     /// whose job is to stay open; the window is not that when it is closed, so this is.
     ///
     /// `notifier` is where what each pass fetches is announced: the desktop's
-    /// service in the binary, `None` for a watch that says nothing aloud.
+    /// service in the binary, `None` for a watch that says nothing aloud. `whom` is whose new
+    /// mail it says, everyone's or the VIPs' alone, asked as each pass ends so that a change of
+    /// the setting is followed from the next pass.
     ///
     /// A watch has no end to return a report at, so each thing it would say is handed to `tell`
     /// as it happens ([`Watched`]) and the caller words it. It returns only once every account
     /// has stopped, with how each last ended.
+    ///
+    /// `junk` is how the junk filter behaves, asked as each pass starts, as `whom` is asked as
+    /// each ends: a handle's own setting is the one it was built with, which a watch that runs
+    /// for days would keep for as long.
     ///
     /// `asked` is the watch's door ([`crate::ipc::watching::Watching::asked`]): each time it
     /// moves, every account is asked for a pass now, as the window's Sync asks its own.
     pub async fn watch(
         &self,
         notifier: Option<&dyn Notifier>,
+        live: Live<'_>,
         tell: &dyn Fn(Watched),
         asked: Option<Asked>,
     ) -> Result<Vec<PassEnd>, CoreError> {
+        self.watch_until(notifier, live, tell, asked, None, End::WhenStuck)
+            .await
+    }
+
+    /// [`watch`](Self::watch), for a watch that is not a command: the one mailo.app runs in its
+    /// own process while it is open (`mail_app::background`).
+    ///
+    /// `accounts` moves when the accounts may have changed: each time, they are read again, so an
+    /// account added in a window of the same process is fetched on the watch's schedule from then
+    /// on, and one removed stops being. `mailo watch` reads them once and leaves a new one to the
+    /// next watch. `end` is when the run returns: [`End::WhenStuck`] for a command, which has
+    /// nothing left to do once every account is refused; [`End::Never`] for the app's, which a
+    /// sign-in in its window may bring back to life.
+    pub async fn watch_until(
+        &self,
+        notifier: Option<&dyn Notifier>,
+        live: Live<'_>,
+        tell: &dyn Fn(Watched),
+        asked: Option<Asked>,
+        accounts: Option<Asked>,
+        end: End,
+    ) -> Result<Vec<PassEnd>, CoreError> {
+        let Live { whom, junk } = live;
         let mail = self.0;
         // Read once up front: an unreadable registry is a reason not to start, where it would
         // otherwise fail every pass.
@@ -91,12 +144,14 @@ impl SyncOps<'_> {
             Some(notifier) => Announce::To {
                 store: mail.store(),
                 notifier,
+                whom,
             },
             None => Announce::Quietly,
         };
         let host = Watching {
             mail,
             announce,
+            junk,
             tell,
             ends: RefCell::new(BTreeMap::new()),
         };
@@ -112,8 +167,9 @@ impl SyncOps<'_> {
         // tell the next watch about.
         let _ = tx.send(Note::Accounts(super::due::intervals(mail.store())));
         tokio::select! {
-            _ = scheduler.run(inbox, End::WhenStuck) => {}
-            () = answer(asked, mail.store(), tx) => {}
+            _ = scheduler.run(inbox, end) => {}
+            () = answer(asked, mail.store(), tx.clone()) => {}
+            () = follow(accounts, mail.store(), tx) => {}
         }
         let mut ends = host.ends.into_inner();
         // In the order the accounts are configured.
@@ -140,13 +196,34 @@ pub async fn answer(asked: Option<Asked>, store: &SqliteStore, tx: UnboundedSend
     std::future::pending::<()>().await;
 }
 
+/// Tell the scheduler the accounts as they are now each time `accounts` moves. Never returns, as
+/// [`answer`] does not.
+pub async fn follow(accounts: Option<Asked>, store: &SqliteStore, tx: UnboundedSender<Note>) {
+    if let Some(mut accounts) = accounts {
+        while accounts.changed().await.is_ok() {
+            // The send fails only once the scheduler has stopped, and then nobody is left to tell.
+            let _ = tx.send(Note::Accounts(super::due::intervals(store)));
+        }
+    }
+    std::future::pending::<()>().await;
+}
+
 /// What the scheduler is lent by a watch.
 struct Watching<'a> {
     mail: &'a Mail,
     announce: Announce<'a>,
+    /// How the junk filter behaves, asked as each pass starts.
+    junk: &'a dyn Fn() -> Policy,
     tell: &'a dyn Fn(Watched),
     /// How each account's latest pass ended.
     ends: RefCell<BTreeMap<AccountId, PassEnd>>,
+}
+
+impl Watching<'_> {
+    /// The handle a pass runs over: the watch's, with the junk filter as it is set now.
+    fn mail_now(&self) -> Mail {
+        self.mail.clone().with_junk((self.junk)())
+    }
 }
 
 impl Host for Watching<'_> {
@@ -188,8 +265,8 @@ impl Host for Watching<'_> {
                 progress: Some(&say),
                 cancel: BTreeMap::from([(account.clone(), cancel)]),
             };
-            let done = self
-                .mail
+            let mail = self.mail_now();
+            let done = mail
                 .sync()
                 .run_due(std::slice::from_ref(&account), hooks)
                 .await;
@@ -264,6 +341,40 @@ mod tests {
         mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
         mail_store::testing::seed_caps(&store, account(), &caps, caps.observed_at).unwrap();
         store
+    }
+
+    /// A watch that runs for days follows the junk filter's setting from its next pass.
+    #[test]
+    fn each_pass_runs_over_the_junk_policy_as_it_is_set_then() {
+        use crate::junk::Filtering;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mail = Mail::new(
+            std::sync::Arc::new(mail_store::testing::in_memory()),
+            runtime.handle().clone(),
+        );
+        let now = std::cell::Cell::new(Policy::default());
+        let junk = || now.get();
+        let host = Watching {
+            mail: &mail,
+            announce: Announce::Quietly,
+            junk: &junk,
+            tell: &|_| {},
+            ends: RefCell::new(BTreeMap::new()),
+        };
+        assert_eq!(host.mail_now().junk().filtering, Filtering::Off);
+        now.set(Policy {
+            filtering: Filtering::On,
+            ..Policy::default()
+        });
+        assert_eq!(host.mail_now().junk().filtering, Filtering::On);
+        assert_eq!(
+            mail.junk().filtering,
+            Filtering::Off,
+            "the handle itself is unchanged"
+        );
     }
 
     /// A Sync asked for at the watch's door was refused, so a window that left fetching to the

@@ -120,8 +120,12 @@ fn assemble_as(
             .map_err(RuntimeError::Store)?;
         let key = message_key(&fields, Tiebreak::Remote(&arrival.remote));
         parsed.push((
-            arrival.remote,
+            arrival.remote.clone(),
             Built {
+                provider: store
+                    .provider_thread_of(account.clone(), &arrival.remote)
+                    .or_log("the server's thread id for a message could not be read")
+                    .flatten(),
                 fields,
                 blob,
                 key,
@@ -149,8 +153,10 @@ fn assemble_as(
             cursor,
             messages,
             flags: Vec::new(),
+            flag_colors: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
+            provider_threads: Vec::new(),
             gone: Vec::new(),
         },
         unreadable,
@@ -159,6 +165,8 @@ fn assemble_as(
 
 /// A parsed, stored message waiting for the ids and the thread only a batch can give it.
 struct Built {
+    /// The thread id the server gave it, where it gives one.
+    provider: Option<String>,
     fields: mail_mime::Parsed,
     blob: BlobId,
     key: MessageKey,
@@ -182,9 +190,13 @@ fn build(
             in_reply_to: b.fields.in_reply_to.as_deref(),
             references: &b.fields.references,
             subject: &b.fields.subject,
+            provider: b.provider.as_deref(),
         })
         .collect();
-    let known = |id: &str| thread_of_rfc_id(store, account.clone(), id);
+    let known = |id: &str| match id.strip_prefix(threading::PROVIDER_PREFIX) {
+        Some(thrid) => thread_of_provider(store, account.clone(), thrid),
+        None => thread_of_rfc_id(store, account.clone(), id),
+    };
     let threads = threading::thread(&inputs, &known);
 
     let mut messages = Vec::new();
@@ -194,6 +206,7 @@ fn build(
             blob,
             key,
             role,
+            ..
         } = b;
         let from = fields.from.clone().unwrap_or_else(|| Address {
             // A message with no From is malformed and still has to be listable; inventing a
@@ -250,6 +263,7 @@ fn build(
             rfc_message_id: fields.rfc_message_id,
             read: ReadState::Unread,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: role,
             labels: Vec::new(),
             body: Body::Present {
@@ -369,6 +383,7 @@ fn prepare(
         let blob = store.blobs().put(&item.raw).map_err(RuntimeError::Store)?;
         let key = message_key(&fields, Tiebreak::Bytes(&item.raw));
         built.push(Built {
+            provider: None,
             fields,
             blob,
             key,
@@ -531,6 +546,14 @@ fn message_key(fields: &mail_mime::Parsed, tiebreak: Tiebreak<'_>) -> MessageKey
         Tiebreak::Bytes(raw) => hasher.update(blake3::hash(raw).as_bytes()),
     };
     MessageKey::Synthetic(*hasher.finalize().as_bytes())
+}
+
+/// The thread a stored message the server gave this thread id already belongs to.
+fn thread_of_provider(store: &SqliteStore, account: AccountId, thrid: &str) -> Option<ThreadId> {
+    store
+        .thread_by_provider_thread(account, thrid)
+        .or_log("a thread could not be looked up by the server's thread id")
+        .flatten()
 }
 
 /// The thread a stored message with this `Message-ID` already belongs to.

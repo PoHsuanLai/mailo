@@ -7,6 +7,7 @@ use super::SqliteStore;
 use super::read::Recipients;
 use super::row::{from_time, json, time, to_json, uuid};
 use crate::StoreError;
+use crate::changes::Topics;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{IdentityId, PendingAttachment, Template, TemplateId};
 use porter_core::AccountId;
@@ -25,7 +26,7 @@ impl SqliteStore {
             cc: template.cc.clone(),
             bcc: template.bcc.clone(),
         };
-        self.connection().execute(
+        self.touch(Topics::TEMPLATES).execute(
             "INSERT OR REPLACE INTO templates
                (id, account, identity, name, recipients, subject, body_text, body_html,
                 attachments, receipt, updated_at, openpgp, smime)
@@ -50,7 +51,7 @@ impl SqliteStore {
     }
 
     pub(super) fn remove_template(&self, id: TemplateId) -> Result<(), StoreError> {
-        let gone = self.connection().execute(
+        let gone = self.touch(Topics::TEMPLATES).execute(
             "DELETE FROM templates WHERE id = ?1",
             params![id.to_string()],
         )?;
@@ -62,7 +63,7 @@ impl SqliteStore {
 
     pub(super) fn load_template(&self, id: TemplateId) -> Result<Template, StoreError> {
         let sql = format!("SELECT {TEMPLATE_COLUMNS} FROM templates WHERE id = ?1");
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![id.to_string()])?;
         match rows.next()? {
@@ -77,7 +78,7 @@ impl SqliteStore {
             "SELECT {TEMPLATE_COLUMNS} FROM templates WHERE account = ?1
              ORDER BY name COLLATE NOCASE, id"
         );
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(&sql)?;
         let mut rows = stmt.query(params![account.to_string()])?;
         let mut out = Vec::new();

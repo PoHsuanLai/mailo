@@ -22,14 +22,19 @@ mod seed;
 mod settings;
 mod window;
 
-// 0: opening and reading.
+// 0: opening and reading, the gutter a message is read in, and the reader's own choices.
+mod inset;
+mod reader_view;
 mod reading;
 
 // 1–2: writing, attaching and sending; formatting.
 mod compose;
 mod format;
+mod plain;
 
-// 3–6: a reply's round trip, an invitation, links, forwarding.
+// 3–6: a reply's round trip, an invitation, links and copying a message's words, forwarding.
+mod answer;
+mod copying;
 mod downloads;
 mod forward;
 mod invite;
@@ -44,6 +49,29 @@ mod rules;
 mod triage;
 
 // 13–14: the sidebar's Spaces, tiles and folders; the Settings window.
+mod find;
 mod preferences;
 mod search;
 mod sidebar;
+mod sidebar_scope;
+
+// 15: who a message is from: the name, the aliases, the From.
+mod identity;
+
+// 16: the list as conversations or a message to a row.
+mod organise;
+
+// 17: signatures, made in Settings and signing what is written.
+mod signatures;
+
+// 18: how an account is synced.
+mod syncing;
+
+// 19: a notification's click, in the Space that holds its account.
+mod clicks;
+
+// 20: sorting the list.
+mod sort;
+
+// 21: the quick filter.
+mod quick;

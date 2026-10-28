@@ -35,7 +35,7 @@ pub fn prepare(command: Option<Command>) -> Result<Prepared, String> {
     }
     // The schema needs nothing but somewhere to write it: no store, no config directory.
     if let Some(Command::WriteSchema { dir }) = &command {
-        print!("{}", crate::settings::write_schema(dir)?);
+        print!("{}", mail_ui::settings::write_schema(dir)?);
         return Ok(Prepared::Finished);
     }
 
@@ -218,7 +218,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     if reads_settings(&command)
         && let Some(config) = mail_core::config::config_dir()
     {
-        let found = crate::damage::of_config(&config);
+        let found = mail_ui::damage::of_config(&config);
         if !found.is_empty() {
             let mut said: Vec<String> = found.iter().map(ToString::to_string).collect();
             said.push("fix or move the file aside, then run the command again".to_owned());
@@ -261,7 +261,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             let ended = mail_core::ipc::daemon::serve(
                 store,
                 std::sync::Arc::new(|store| {
-                    let mail = crate::edge::mail(&store);
+                    let mail = crate::edge::syncing_mail(&store);
                     match crate::edge::block_on(mail.sync().run(Default::default())) {
                         Ok(ends) => print!("{}", super::sync::run_text(&store, &ends)),
                         Err(why) => eprintln!("{}", super::remedy::error(why)),
@@ -350,7 +350,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     }
 
     if let Command::Notify { set } = &command {
-        let said = super::settings::notify(crate::settings::person_root().as_ref(), *set)?;
+        let said = super::settings::notify(mail_ui::settings::person_root().as_ref(), *set)?;
         print!("{said}");
         return Ok(());
     }
@@ -394,35 +394,34 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     }
     // `watch` is `sync` that does not stop. It prints as it goes rather than at the end, because
     // "at the end" is when the user presses Ctrl-C.
-    if let Command::Watch { notify } = &command {
-        let notifications = match notify {
-            super::WatchNotify::Never => mail_core::notify::Setting::Off,
-            super::WatchNotify::AsSet => mail_core::notify::Setting::from(
-                crate::settings::person_root()
-                    .map(|root| crate::settings::load(&root))
-                    .unwrap_or_default()
-                    .notifications
-                    .new_mail,
-            ),
-        };
+    if let Command::Watch { notify, wait } = &command {
         // One watch per user: a second would announce every message twice. A unit that starts
         // while one runs by hand ends quietly (exit 0), so systemd does not restart it in a loop.
-        let watching = match mail_core::ipc::watching::claim() {
-            Ok(held) => held,
-            Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
-                println!("a mailo watch is already running; leaving it to it");
-                return Ok(());
-            }
-            Err(mail_core::ipc::watching::Refused::Failed(why)) => {
-                return Err(format!(
-                    "can't tell whether a mailo watch is running: {why}"
-                ));
+        // One told to wait (the login item's, which launchd would not start again after a clean
+        // exit) asks again every `background::AGAIN` and takes over once that one ends, as at ⌘Q
+        // of mailo.app. The settings are read once it watches, not before it waited.
+        let watching = loop {
+            match mail_core::ipc::watching::claim(crate::edge::profile().id()) {
+                Ok(held) => break held,
+                Err(mail_core::ipc::watching::Refused::AlreadyWatching) if *wait => {
+                    std::thread::sleep(crate::background::AGAIN);
+                }
+                Err(mail_core::ipc::watching::Refused::AlreadyWatching) => {
+                    println!("a mailo watch is already running; leaving it to it");
+                    return Ok(());
+                }
+                Err(mail_core::ipc::watching::Refused::Failed(why)) => {
+                    return Err(format!(
+                        "can't tell whether a mailo watch is running: {why}"
+                    ));
+                }
             }
         };
         if let Some(why) = watching.doorless() {
             eprintln!("Sync in an open window will not reach this watch: {why}");
         }
-        // The unread count on the launcher, kept up whether or not a window is open.
+        // The unread count on the launcher, kept up whether or not a window is open. (Not on
+        // macOS, where the Dock tile is mailo.app's, which keeps it itself.)
         if let Some(Err(e)) =
             crate::session::keep_the_launchers_badge(store.clone(), store.file().map(Into::into))
         {
@@ -440,22 +439,43 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
             let _ = std::io::stdout().flush();
         };
         let mail = crate::edge::mail(&store);
-        // The desktop's notification service when notifications are on; with none to reach it
-        // says nothing, and the watch goes on fetching.
-        let desktop;
-        let notifier: Option<&dyn mail_core::notify::Notifier> = match notifications {
-            mail_core::notify::Setting::On => {
-                desktop = mail_core::notify::desktop::Desktop::connect();
-                Some(&desktop)
+        // The desktop's notification service unless the watch was told to say nothing. What it
+        // says, whose mail, in which mailboxes, with which sound, and how the junk filter
+        // behaves are read as each pass ends or starts (`Notices`, `junk_policy`), so a change
+        // in Settings reaches a watch that has been running for days. With no service to reach
+        // it says nothing, and the watch goes on fetching.
+        let notices = match notify {
+            super::WatchNotify::Never => None,
+            super::WatchNotify::AsSet => {
+                let desktop = mail_core::notify::desktop::Desktop::connect();
+                Some(mail_ui::settings::Notices::new(
+                    Box::new(move |notification, sound| desktop.show_with(notification, sound)),
+                    mail_ui::settings::person_root(),
+                ))
             }
-            mail_core::notify::Setting::Off => None,
+        };
+        let notifier = notices
+            .as_ref()
+            .map(|notices| notices as &dyn mail_core::notify::Notifier);
+        let whom = || {
+            notices
+                .as_ref()
+                .map_or(mail_core::notify::Whom::Everyone, |notices| notices.whom())
         };
         // A Sync asked for at the watch's door (`ipc::watching`) is a pass now, here.
         let asked = Some(watching.asked());
         // Only ends when every account has stopped for a reason worth stopping for — a
         // credential the server refused, which no amount of retrying fixes.
-        let ends = crate::edge::block_on(mail.sync().watch(notifier, &say, asked))
-            .map_err(super::remedy::error)?;
+        let ends = crate::edge::block_on(mail.sync().watch(
+            notifier,
+            mail_core::sync::watcher::Live {
+                whom: &whom,
+                junk: &mail_ui::settings::junk_policy,
+            },
+            &say,
+            asked,
+        ))
+        .map_err(super::remedy::error)?;
         print!("{}", super::sync::run_text(&store, &ends));
         return Err("stopped watching; nothing left to watch".to_owned());
     }

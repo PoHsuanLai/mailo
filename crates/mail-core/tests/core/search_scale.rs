@@ -232,6 +232,7 @@ fn fill(store: &SqliteStore) {
                         ReadState::Read
                     },
                     star: Star::Unstarred,
+                    flag: mail_domain::Hue::Red,
                     mailbox: MailboxRole::Inbox,
                     labels: vec![],
                     body: Body::Present {
@@ -260,8 +261,10 @@ fn fill(store: &SqliteStore) {
                     cursor: Some(SyncCursor::Pop),
                     messages,
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -339,7 +342,7 @@ fn keystroke(store: &SqliteStore, typed: &str, now: DateTime<Utc>) -> Cost {
         &timed,
         &Affinity::default(),
         &Utc,
-        &|_| Vec::new(),
+        &mail_core::query::unnamed,
         first(PAGE),
         now,
     )

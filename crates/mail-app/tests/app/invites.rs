@@ -149,6 +149,7 @@ fn seeded(raw: Option<Vec<u8>>) -> (Arc<SqliteStore>, tempfile::TempDir, ThreadI
         rfc_message_id: Some("review-7-mail@example.test".to_owned()),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: vec![],
         body: match raw {
@@ -181,8 +182,10 @@ fn seeded(raw: Option<Vec<u8>>) -> (Arc<SqliteStore>, tempfile::TempDir, ThreadI
                     message,
                 }],
                 flags: vec![],
+                flag_colors: Vec::new(),
                 labels: vec![],
                 label_names: Vec::new(),
+                provider_threads: Vec::new(),
                 gone: vec![],
             },
         )

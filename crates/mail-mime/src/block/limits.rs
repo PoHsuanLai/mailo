@@ -31,7 +31,7 @@ impl Limits {
     /// Independent of [`crate::SanitizePolicy::version`]. The render cache must
     /// miss when the blocks would differ even if the sanitized markup would not.
     pub const fn version() -> u32 {
-        1
+        2
     }
 
     /// Start tags past this depth are transparent and their end tags pop nothing.

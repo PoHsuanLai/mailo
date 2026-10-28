@@ -28,6 +28,27 @@ pub enum Property {
     Size,
     Attachments,
     Pin,
+    /// Unread conversations apart from read ones. A sort, not a column: no row draws a word
+    /// for it, the unread dot already says it.
+    Unread,
+    /// Starred conversations apart from the rest: IMAP's `\Flagged`. A sort, like [`Self::Unread`].
+    Starred,
+}
+
+impl Property {
+    /// The way a person expects this sort to run when they first pick it: the newest, the
+    /// largest, the unread and the starred first, and words from A.
+    pub fn natural(self) -> SortDir {
+        match self {
+            Property::Subject | Property::From | Property::Sender => SortDir::Asc,
+            Property::Date
+            | Property::Size
+            | Property::Attachments
+            | Property::Pin
+            | Property::Unread
+            | Property::Starred => SortDir::Desc,
+        }
+    }
 }
 
 /// What a view groups its rows by.
@@ -40,7 +61,7 @@ pub enum Property {
 ///
 /// That is the same mistake `Op::Reply(Compose)` was, and it is fixed the same way: split the
 /// axis rather than widen the enum that was already right for its own job. [`Property`] is
-/// unchanged and still serves `shown` and [`Sort`].
+/// unchanged and still serves [`Sort`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "v", rename_all = "snake_case")]
 pub enum GroupKey {
@@ -75,6 +96,9 @@ pub struct Sort {
 }
 
 /// A saved view: the filter, plus how to present its results.
+///
+/// A view saved by an earlier build carries `shown`, the columns it was to draw in order. Nothing
+/// ever drew a column, so the field is gone, and an old row's is read past as any unknown field is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct View {
     pub id: ViewId,
@@ -83,9 +107,9 @@ pub struct View {
     pub filter: Filter,
     pub sort: Sort,
     pub group_by: Option<GroupKey>,
+    /// Whether the view lists conversations or each message on a row of its own: Organise by
+    /// Conversation, kept with the view as its grouping is.
     pub threading: Threading,
-    /// Columns, in display order.
-    pub shown: Vec<Property>,
     /// The actions a view once chose for its rows. Not read any more: a row's menu is the same
     /// in every view, built from the conversation alone. Kept, and empty in a view saved now, so
     /// that a view saved before still loads.

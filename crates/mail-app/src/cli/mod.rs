@@ -125,6 +125,9 @@ pub enum Command {
     Snooze { thread: ThreadId, when: String },
     /// Bring a snoozed conversation back now.
     Wake { thread: ThreadId },
+    /// File a conversation in Archive, from a terminal (a banner's Archive button asks the window
+    /// instead, where the Undo is).
+    Archive { thread: ThreadId },
     /// The attachments on a message.
     Attachments { message: MessageId },
     /// Write one attachment to a directory.
@@ -153,8 +156,10 @@ pub enum Command {
     Detach { draft: DraftId, index: usize },
     /// What a draft is carrying.
     Attached { draft: DraftId },
-    /// Keep fetching until stopped, announcing new mail unless told not to.
-    Watch { notify: WatchNotify },
+    /// Keep fetching until stopped, announcing new mail unless told not to. With `wait`
+    /// (`--wait`), one that finds another watch running waits to take over when that one ends,
+    /// rather than ending itself.
+    Watch { notify: WatchNotify, wait: bool },
     /// `--help`: the usage, on stdout.
     Help,
     /// `--version`: the program's name and version.
@@ -213,7 +218,8 @@ pub enum Command {
     Contacts(contacts::Contacts),
     /// A calendar invitation: show it, answer it, or save it as an `.ics` file.
     Invite(invite::InviteCommand),
-    /// Mail from an mbox, a Maildir or an `.eml`, kept locally or uploaded into a mailbox.
+    /// Mail from an mbox, a Maildir, an `.eml`, Apple Mail's mailboxes or `.emlx` files, or a
+    /// Thunderbird profile, kept locally or uploaded into a mailbox.
     Import {
         path: std::path::PathBuf,
         into: mail_core::import::Destination,
@@ -304,6 +310,19 @@ pub enum WatchNotify {
     AsSet,
     /// `--no-notify`.
     Never,
+}
+
+/// `watch`'s options, each at most once and in any order.
+fn parse_watch(args: &[String]) -> Result<Command, String> {
+    let (mut notify, mut wait) = (WatchNotify::AsSet, false);
+    for arg in args {
+        match arg.as_str() {
+            "--no-notify" if notify == WatchNotify::AsSet => notify = WatchNotify::Never,
+            "--wait" if !wait => wait = true,
+            other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+        }
+    }
+    Ok(Command::Watch { notify, wait })
 }
 
 /// Parse arguments, or explain what was wrong.
@@ -488,15 +507,7 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
         "smime" => smime::parse(&args[1..])
             .map(Command::Smime)
             .map_err(|e| e.to_string()),
-        "watch" => match args.get(1).map(String::as_str) {
-            None => Ok(Command::Watch {
-                notify: WatchNotify::AsSet,
-            }),
-            Some("--no-notify") => Ok(Command::Watch {
-                notify: WatchNotify::Never,
-            }),
-            Some(other) => Err(format!("unknown option {other:?}\n\n{}", usage())),
-        },
+        "watch" => parse_watch(&args[1..]),
         "notify" => match args.get(1).map(String::as_str) {
             None => Ok(Command::Notify { set: None }),
             Some("on") => Ok(Command::Notify {
@@ -728,6 +739,17 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
             Ok(Command::Snooze {
                 thread: ThreadId::from_uuid(uuid),
                 when,
+            })
+        }
+        "archive" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("archive needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            Ok(Command::Archive {
+                thread: ThreadId::from_uuid(uuid),
             })
         }
         "wake" => {
@@ -1021,7 +1043,7 @@ fn parse_import(args: &[String]) -> Result<Command, String> {
             })
         }
         _ => Err(format!(
-            "import takes a file or a Maildir, and optionally --to-mailbox ACCOUNT FOLDER\n\n{}",
+            "import takes a file or a folder of mail, and optionally --to-mailbox ACCOUNT FOLDER\n\n{}",
             usage()
         )),
     }
@@ -1329,6 +1351,7 @@ usage: mailo <command>
   template delete <template-id>
   snooze <thread-id> <when>   put it off: later, tonight, tomorrow, weekend,
                              monday…sunday, +2h, +3d, or a date like 2026-09-25
+  archive <thread-id>         file it in Archive
   wake <thread-id>            bring a snoozed conversation back now
   pin <thread-id>             keep it in view, or unpin it again
   attachments <message-id>    what is attached to a message
@@ -1351,12 +1374,16 @@ usage: mailo <command>
                              the account's own sign-in is presented
   rules [list] [--account A]  every rule, in the order it runs
   rules add NAME <search words…> [--label L] [--folder PATH] [--archive] [--trash]
-            [--spam] [--read] [--star] [--stop] [--account A]
+            [--spam] [--read] [--unread] [--star] [--notify] [--forward ADDRESS]
+            [--reply TEMPLATE] [--stop] [--account A]
                              run on each sync over new inbox mail the search matches;
-                             --stop keeps later rules from seeing it
+                             --stop keeps later rules from seeing it. Join conditions
+                             with OR for any of them
   rules remove|enable|disable NAME [--account A]
-  rules run NAME [--batch N] [--account A]
-                             run a rule now over the mail already here
+  rules run NAME [--in FOLDER] [--batch N] [--account A]
+                             run a rule now over the mail already here, or in one
+                             folder; it forwards, replies and notifies only as mail
+                             arrives
   sieve [status] [--account A]
                              what the server's ManageSieve runs, and whether it is
                              what this client would put there
@@ -1399,11 +1426,12 @@ usage: mailo <command>
   sync                       fetch mail and send anything queued
   sync --folder <account> <path>
                              fetch one folder now, followed or not
-  import <file|maildir> [--to-mailbox <account> <folder>]
-                             mail from an mbox (Google Takeout's too), a Maildir or
-                             one .eml, kept in \"local folders\" on this computer, or
-                             uploaded into a folder on an IMAP account. Running it
-                             again adds nothing already there
+  import <path> [--to-mailbox <account> <folder>]
+                             mail from an mbox (Google Takeout's too), a Maildir,
+                             one .eml, Apple Mail's mailboxes (an export or its .emlx
+                             files) or a Thunderbird profile, kept in \"local folders\"
+                             on this computer, or uploaded into a folder on an IMAP
+                             account. Running it again adds nothing already there
   export <search|inbox|sent|all…> --mbox FILE | --maildir DIR | --eml DIR
                              write the messages a search finds; bodies not yet
                              downloaded are skipped and counted
@@ -1415,9 +1443,11 @@ usage: mailo <command>
                              this removes a label and deletes no message
   folder subscribe|unsubscribe <account> <name>
   icons refresh              fetch each account's provider icon again
-  watch [--no-notify]        keep fetching until stopped (IDLE where offered, else
+  watch [--no-notify] [--wait]
+                             keep fetching until stopped (IDLE where offered, else
                              polling); notifies of new unread inbox mail unless
-                             --no-notify or `notify off`
+                             --no-notify or `notify off`; with --wait, one that finds
+                             another watch running takes over when it ends
   notify [on|off]            turn new-mail notifications on or off (default on)
   offline [<account> [on|off]]
                              keep every attachment of an account here too, fetched
@@ -1459,12 +1489,12 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
     let signing = mail.signing();
     match command {
         Command::List { mailbox, limit } => {
-            // `view::place_filter`, not `Filter::InMailbox`: the shell and the command list the
+            // `mailbox_filter::for_role`, not `Filter::InMailbox`: the shell and the command list the
             // same mailbox, and two spellings of "the inbox" is how one of them keeps showing
             // what the other has put away.
             let page = store
                 .threads(
-                    &list_query(mail_core::place::place_filter(*mailbox), *limit),
+                    &list_query(mail_core::mailbox_filter::for_role(*mailbox), *limit),
                     now,
                 )
                 .map_err(|e| e.to_string())?;
@@ -1562,14 +1592,17 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             }
             Ok(out)
         }
-        Command::Search { needle, limit } => Ok(search::search(
-            store,
-            needle,
-            *limit,
-            &|name| labels_named(store, name),
-            now,
-            clock,
-        )),
+        Command::Search { needle, limit } => {
+            // Shared with the window's search box, which is the point: the two had separate
+            // answers to "which label is called this", and one of them was "none, ever".
+            let labels = mail_core::query::known_labels(store);
+            let accounts = mail_core::query::known_accounts(store);
+            let known = mail_core::query::Known {
+                labels: &labels,
+                accounts: &accounts,
+            };
+            Ok(search::search(store, needle, *limit, &known, now, clock))
+        }
         // Dispatched in main: it needs an async runtime and the store by Arc, which would make
         // this function untestable without one.
         Command::Sync | Command::SyncFolder { .. } => {
@@ -1652,7 +1685,10 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             .map_err(remedy::error),
         Command::ListSnoozed { limit } => {
             let page = store
-                .threads(&list_query(mail_core::place::pending_snooze(), *limit), now)
+                .threads(
+                    &list_query(mail_core::mailbox_filter::pending_snooze(), *limit),
+                    now,
+                )
                 .map_err(|e| e.to_string())?;
             if page.items.is_empty() {
                 return Ok("nothing is snoozed\n".to_owned());
@@ -1674,6 +1710,12 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
         Command::Snooze { thread, when } => mail_core::snooze::snooze(store, *thread, when, now)
             .map(|at| snooze::snoozed(at, clock))
             .map_err(remedy::error),
+        Command::Archive { thread } => {
+            match mail_core::act::perform(store, *thread, mail_domain::Op::Archive, clock) {
+                Some(_) => Ok(snooze::archived()),
+                None => Err("that conversation could not be archived".to_owned()),
+            }
+        }
         Command::Wake { thread } => mail_core::snooze::wake(store, *thread, now)
             .map(|()| snooze::woke())
             .map_err(remedy::error),
@@ -1775,14 +1817,15 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             crate::edge::block_on(contacts::run(mail, command)).map_err(remedy::error)
         }
         Command::Print { target, out, pages } => {
-            let printed = mail_core::print::document(store, *target, &Local, now, *pages, clock)
-                .map_err(remedy::error)?;
+            let printed =
+                mail_core::html_document::document(store, *target, &Local, now, *pages, clock)
+                    .map_err(remedy::error)?;
             match out {
                 PrintTo::Unsaid | PrintTo::Stdout => Ok(printed.html),
                 PrintTo::File(path) => std::fs::write(path, &printed.html)
                     .map(|()| format!("wrote {}\n", path.display()))
                     .map_err(|e| format!("{}: {e}", path.display())),
-                PrintTo::Into(dir) => mail_core::print::write_into(dir, &printed)
+                PrintTo::Into(dir) => mail_core::html_document::write_into(dir, &printed)
                     .map(|path| format!("wrote {}\n", path.display()))
                     .map_err(remedy::error),
             }
@@ -1806,11 +1849,13 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             receive,
             consent: _,
         } => crate::edge::block_on(mail.accounts().add(
-            address,
-            manual.as_ref(),
-            *microsoft,
-            *graph,
-            *receive,
+            mail_core::account::Requested {
+                address,
+                manual: manual.as_ref(),
+                microsoft: *microsoft,
+                graph: *graph,
+                receive: *receive,
+            },
             &account::announce_sign_in,
         ))
         .map(|added| account::added(&added))
@@ -1882,10 +1927,10 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             let mut out = String::new();
             for role in MailboxRole::ALL {
                 // What the window's place lists: Archive is what is not in the inbox too.
-                let place = mail_core::place::place_filter(role);
+                let place = mail_core::mailbox_filter::for_role(role);
                 let total = store.count(&place, now).map_err(|e| e.to_string())?;
                 let unread = store
-                    .count(&mail_core::place::unread_in(place), now)
+                    .count(&mail_core::mailbox_filter::unread_in(place), now)
                     .map_err(|e| e.to_string())?;
                 if total > 0 {
                     let _ = writeln!(out, "{:<8} {:>5} total  {:>5} unread", role, total, unread);
@@ -1937,18 +1982,6 @@ fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String
         .ok_or_else(|| {
             format!("no account for {address:?}. `mailo account list` says which there are.")
         })
-}
-
-/// Every label with this name, across every configured account.
-///
-/// All of them, not the first. `UNIQUE (account, name)` means "travel" on the Gmail account and
-/// "travel" on the work one are two different labels, and a user who types `label:travel` means
-/// the word rather than one account's row. Taking the first silently searched one mailbox — a
-/// wrong answer that looks like an empty one, which is the worst kind.
-fn labels_named(store: &SqliteStore, name: &str) -> Vec<mail_domain::LabelId> {
-    // Shared with the window's search box, which is the point: the two had separate answers to
-    // "which label is called this", and one of them was "none, ever".
-    mail_core::query::named(&mail_core::query::known_labels(store))(name)
 }
 
 fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String {
@@ -2037,7 +2070,7 @@ mod tests {
                 "folder delete <account> <name> [--with-messages]",
             ),
             ("icons", "icons refresh"),
-            ("watch", "watch [--no-notify]"),
+            ("watch", "watch [--no-notify] [--wait]"),
             ("unsubscribe", "unsubscribe <thread-or-message-id>"),
             ("receipt", "receipt <message-id> [--decline]"),
             ("jmap", "account add <address> --jmap"),

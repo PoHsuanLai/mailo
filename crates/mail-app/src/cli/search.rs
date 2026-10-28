@@ -7,7 +7,7 @@
 use super::render_list;
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
-use mail_domain::{LabelId, ThreadSummary};
+use mail_domain::ThreadSummary;
 
 /// The column a top result is marked in. Every other line has as many spaces there, so the
 /// rows stay aligned.
@@ -22,13 +22,13 @@ pub(super) fn search(
     store: &SqliteStore,
     needle: &str,
     limit: u32,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn mail_core::query::Names,
     now: DateTime<Utc>,
     clock: mail_core::when::Clock,
 ) -> String {
     let take = usize::try_from(limit).unwrap_or(usize::MAX);
     // Asked for the top results' worth more, so removing them still leaves `limit` rows.
-    let page = mail_core::search::first(take.saturating_add(mail_core::search::STRIP));
+    let page = mail_core::search::first(take.saturating_add(mail_core::search::TOP_LIMIT));
     let searched = match mail_core::search::search_list(
         needle,
         store,
@@ -113,6 +113,7 @@ mod tests {
             rfc_message_id: Some(format!("m{n}@b.c")),
             read: ReadState::Read,
             star: Star::Unstarred,
+            flag: mail_domain::Hue::Red,
             mailbox: MailboxRole::Inbox,
             labels: vec![],
             body: Body::Present {
@@ -184,7 +185,7 @@ mod tests {
             &*store,
             &Affinity::default(),
             &chrono::Local,
-            &|_| Vec::new(),
+            &mail_core::query::unnamed,
             mail_core::search::first(100),
             now,
         )

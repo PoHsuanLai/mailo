@@ -39,6 +39,7 @@ fn message(n: u128, subject: &str, body: Body) -> Message {
         rfc_message_id: Some(format!("m{n}@example.test")),
         read: ReadState::Read,
         star: Star::Starred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Archive,
         labels: vec![],
         body,

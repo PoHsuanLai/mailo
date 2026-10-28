@@ -69,6 +69,17 @@ impl FrameBody {
     }
 }
 
+/// Which of a message's bodies its frame shows when it carries both an HTML and a plain-text one
+/// (a `multipart/alternative`). One with only either shows that one, whatever this says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Prefer {
+    /// The HTML, as the sender laid it out.
+    #[default]
+    Html,
+    /// The plain text the sender wrote beside it.
+    Plain,
+}
+
 /// What a rendering was made from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
@@ -90,6 +101,7 @@ pub fn render(
     store: &SqliteStore,
     message: &Message,
     policy: SanitizePolicy,
+    prefer: Prefer,
     unsealed: &dyn Fn(&Message) -> Option<mail_mime::Parsed>,
 ) -> (FrameBody, Source) {
     match &message.body {
@@ -102,14 +114,31 @@ pub fn render(
             let Some(parsed) = parsed else {
                 return (plain_frame(text.as_deref().unwrap_or("")), source);
             };
-            let body = if let Some(html) = parsed.html.as_deref() {
-                html_frame(html, &parsed, policy)
-            } else {
-                let shown = parsed.text.as_deref().or(text.as_deref()).unwrap_or("");
-                plain_frame(shown)
-            };
-            (body, source)
+            (
+                chosen_frame(&parsed, text.as_deref(), policy, prefer),
+                source,
+            )
         }
+    }
+}
+
+/// The frame for `parsed`: its HTML, unless `prefer` asks for the plain text and the message has
+/// some to show; else its text, or `stored`, the text kept beside the blob. A text part of only
+/// whitespace is no text to prefer: the sender put everything in the HTML.
+fn chosen_frame(
+    parsed: &mail_mime::Parsed,
+    stored: Option<&str>,
+    policy: SanitizePolicy,
+    prefer: Prefer,
+) -> FrameBody {
+    let text = parsed
+        .text
+        .as_deref()
+        .filter(|text| !text.trim().is_empty());
+    match (parsed.html.as_deref(), prefer, text) {
+        (Some(_), Prefer::Plain, Some(text)) => plain_frame(text),
+        (Some(html), ..) => html_frame(html, parsed, policy),
+        (None, ..) => plain_frame(parsed.text.as_deref().or(stored).unwrap_or("")),
     }
 }
 
@@ -160,6 +189,24 @@ const FRAME_INK_DARK: &str = "#ececec";
 const FRAME_PAPER: &str = "#ffffff";
 const FRAME_CODE_GROUND: &str = "#f5f5f5";
 const FRAME_LINK: &str = "#0066cc";
+/// ⌘F's marks: every match, and the one it is on, as a browser's find colours them.
+const FRAME_FOUND: &str = "#ffe066";
+const FRAME_FOUND_CURRENT: &str = "#ff9632";
+
+/// The attribute of the `<mark>` ⌘F puts around each match in a frame's document, and takes out
+/// again (`mail-app`'s `reading/find.rs`): empty on every match, `current` on the one it is on.
+pub const FOUND_MARK: &str = "data-mailo-find";
+/// [`FOUND_MARK`]'s value on the match ⌘F is on.
+pub const FOUND_CURRENT: &str = "current";
+
+/// How ⌘F's marks are drawn, over whatever the sender's sheets say of `mark`: the find colour
+/// under the text's own ink, the match it is on stronger. Both frames' sheets end with it.
+fn found_sheet() -> String {
+    format!(
+        "mark[{FOUND_MARK}] {{ background: {FRAME_FOUND} !important; color: {FRAME_INK} !important; }} \
+         mark[{FOUND_MARK}=\"{FOUND_CURRENT}\"] {{ background: {FRAME_FOUND_CURRENT} !important; }}"
+    )
+}
 
 /// What an HTML message's document starts from before the sender's own sheets: a browser's
 /// defaults, as a mail client's are, with quotes, code and headings drawn as the composer draws
@@ -173,11 +220,13 @@ const FRAME_LINK: &str = "#0066cc";
 /// percentage counts as nothing when a table sizes its columns). An image keeps the size its
 /// attributes give it, so a blocked one still holds its place. The sender's
 /// `<style>` comes later in the document and its `<body>` colours and style sit on the body
-/// itself, so either wins, a `padding: 0` included, and a full-bleed design stays one.
+/// itself, so either wins, and a sender's ground still fills the frame to its edges. The gutter
+/// the words are read in is not the body's: it is the inset's ([`INSET_STYLE`]), which no
+/// `padding: 0` of the sender's reaches.
 fn html_sheet() -> String {
     format!(
         ":root {{ color-scheme: light; }} html, body {{ margin: 0; }} \
-         body {{ padding: 16px; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
+         body {{ padding: 0; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
          line-height: {FRAME_TEXT_LINE}; color: {FRAME_INK}; background: {FRAME_PAPER}; \
          overflow-wrap: break-word; }} \
          img {{ max-width: max(100%, 64px); }} table {{ max-width: 100%; }} \
@@ -187,35 +236,57 @@ fn html_sheet() -> String {
          pre {{ background: {FRAME_CODE_GROUND}; border-radius: 6px; padding: 10px 12px; white-space: pre-wrap; }} \
          h2 {{ font-size: 1.3em; line-height: 1.25; margin: .9em 0 .35em; }} \
          h3 {{ font-size: 1.15em; margin: .8em 0 .3em; }} h4 {{ font-size: 1em; margin: .7em 0 .3em; }} \
-         a {{ color: {FRAME_LINK}; }} {}",
-        super::quote::sheet(FRAME_INK_SOFT)
+         a {{ color: {FRAME_LINK}; }} {} {}",
+        super::quote::sheet(FRAME_INK_SOFT),
+        found_sheet()
     )
 }
+
+/// The class of the element a frame's words are read in, inside its `<body>` ([`frame_document`]).
+/// The sanitizer keeps a sender's markup from carrying it and a sender's sheet from naming it
+/// (`mail_mime::sanitize`: no class, id or selector of the sender's starts `mailo-`).
+const INSET_CLASS: &str = "mailo-inset";
+
+/// The inset's style (padding 18px, the reader's `--s-18`, the gutter its header and every other
+/// part of a message are drawn at, so a message's first line starts under the sender's name),
+/// the same for an HTML message and a plain-text one, so every message's
+/// words line up. On an element of the frame's own, never the sender's `<body>`: Gmail and Mail
+/// keep a gutter whatever a sender's body says, and a sender's `margin: 0; padding: 0` on the
+/// body is for a browser window, where the window's edge is the page's. It is written inline on
+/// the element with `!important` on every property that shapes the gutter, so no rule of the
+/// sender's, however it is selected (`div:not(#z)`, `body > *`), outweighs it, and
+/// `border-box` with `width: auto` keeps the padding inside the frame. The body around it keeps
+/// the sender's ground, which still fills the frame.
+const INSET_STYLE: &str = "display:block!important;box-sizing:border-box!important;\
+    width:auto!important;max-width:none!important;min-width:0!important;float:none!important;\
+    position:static!important;margin:0!important;border:0!important;padding:18px!important";
 
 /// A plain-text message's sheet: its lines as written, on no ground of their own, so the
 /// reader's shows through, in the reader's ink for the scheme the window is in (a frame's
-/// document takes the window's scheme). The inset is the reader's (`--s-18`).
+/// document takes the window's scheme). The inset is on the element ([`INSET_STYLE`]).
 fn plain_sheet() -> String {
     format!(
         ":root {{ color-scheme: light dark; }} html, body {{ background: transparent; }} \
-         body {{ margin: 18px; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
+         body {{ margin: 0; font-family: {FRAME_FONT}; font-size: {FRAME_TEXT_SIZE}; \
          line-height: {FRAME_TEXT_LINE}; color: {FRAME_INK}; white-space: pre-wrap; \
          overflow-wrap: anywhere; }} {} \
          @media (prefers-color-scheme: dark) {{ body {{ color: {FRAME_INK_DARK}; }} \
-         details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }}",
-        super::quote::sheet(FRAME_INK_SOFT)
+         details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }} {}",
+        super::quote::sheet(FRAME_INK_SOFT),
+        found_sheet()
     )
 }
 
-/// A frame's whole document: `sheet`, then `body` (markup already safe to show) in a `<body>`
-/// carrying `body_style`, the sender's own body colours and style, when there are any.
+/// A frame's whole document: `sheet`, then `body` (markup already safe to show) in the inset
+/// ([`INSET_CLASS`]), in a `<body>` carrying `body_style`, the sender's own body colours and
+/// style, when there are any.
 fn frame_document(sheet: &str, body_style: Option<&str>, body: &str) -> String {
     let styled = body_style
         .map(|style| format!(" style=\"{}\"", escape_html(style)))
         .unwrap_or_default();
     format!(
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{sheet}</style></head>\
-         <body{styled}>{body}</body></html>"
+         <body{styled}><div class=\"{INSET_CLASS}\" style=\"{INSET_STYLE}\">{body}</div></body></html>"
     )
 }
 
@@ -247,10 +318,65 @@ mod tests {
         );
         let page = frame_document(&html_sheet(), safe.body_style(), safe.as_str());
         assert!(
-            page.contains("<body style=\"background-color:#f3f1ec;padding:0\"><p>Hi</p>"),
+            page.contains(&format!(
+                "<body style=\"background-color:#f3f1ec;padding:0\">\
+                 <div class=\"mailo-inset\" style=\"{INSET_STYLE}\"><p>Hi</p></div></body>"
+            )),
             "{page}"
         );
         assert!(!html_sheet().contains("height: auto"), "{}", html_sheet());
+    }
+
+    /// Every message's words sit in the frame's own inset, 18 px in in an HTML frame and a
+    /// plain one alike, and a sender can neither carry the inset's class nor name it in a sheet:
+    /// a notice's `<body style="margin:0;padding:0">` (the owner's sample's) keeps its ground on
+    /// the body and loses nothing of the gutter.
+    #[test]
+    fn the_words_sit_in_an_inset_the_sender_cannot_reach() {
+        assert!(INSET_STYLE.contains("padding:18px!important"));
+        for sheet in [html_sheet(), plain_sheet()] {
+            assert!(!sheet.contains("padding: 18px"), "{sheet}");
+            assert!(!sheet.contains("margin: 18px"), "{sheet}");
+        }
+        let raw = include_str!("../../tests/fixtures/flush-notice.eml");
+        let parsed = mail_mime::parse(raw.as_bytes()).expect("the notice parses");
+        let html = parsed.html.as_deref().expect("its HTML part");
+        let body = html_frame(html, &parsed, SanitizePolicy::FRAME);
+        let page = body.frame_html().expect("present");
+        assert!(
+            page.contains("<body style=\"margin:0;padding:0;background-color:#ffffff;")
+                && page.contains(&format!(
+                    "><div class=\"mailo-inset\" style=\"{INSET_STYLE}\">"
+                )),
+            "{page}"
+        );
+        assert!(page.ends_with("</div></body></html>"), "{page}");
+
+        let posing = "<style>.mailo-inset{padding:0!important} #mailo-inset, \
+                      [class*=inset-mailo]{margin:0} div:not(#z){padding:0!important;width:100%!important}</style>\
+                      <div class=\"mailo-inset lead\" id=\"mailo-inset\">Hi</div>";
+        let parsed =
+            mail_mime::parse(format!("Content-Type: text/html\r\n\r\n{posing}").as_bytes())
+                .expect("parses");
+        let body = html_frame(
+            parsed.html.as_deref().expect("html"),
+            &parsed,
+            SanitizePolicy::FRAME,
+        );
+        let page = body.frame_html().expect("present");
+        assert_eq!(
+            page.matches("class=\"mailo-inset").count(),
+            1,
+            "only the frame's own inset carries the class: {page}"
+        );
+        assert!(!page.contains("id=\"mailo-inset"), "{page}");
+        assert!(page.contains("<div class=\"lead\">Hi</div>"), "{page}");
+        assert!(
+            page.contains(
+                ".x-mailo-inset{padding:0!important} #x-mailo-inset, [x-mailo]{margin:0}"
+            ),
+            "{page}"
+        );
     }
 
     /// Nothing a sender sizes small in a table is squeezed past what a browser draws: a word
@@ -296,6 +422,73 @@ mod tests {
                 && html.contains("<blockquote>Ten?</blockquote></div></details>"),
             "{html}"
         );
+    }
+
+    /// Which body a frame shows, by what the message carries and what the reader prefers: the
+    /// plain text only where it is asked for and there is some.
+    #[test]
+    fn plain_text_is_shown_only_where_it_is_preferred_and_there_is_some() {
+        let alternative = "MIME-Version: 1.0\r\n\
+             Content-Type: multipart/alternative; boundary=\"b\"\r\n\r\n\
+             --b\r\nContent-Type: text/plain\r\n\r\nPlain words\r\n\
+             --b\r\nContent-Type: text/html\r\n\r\n<p>Rich words</p>\r\n--b--\r\n";
+        let blank_text = "MIME-Version: 1.0\r\n\
+             Content-Type: multipart/alternative; boundary=\"b\"\r\n\r\n\
+             --b\r\nContent-Type: text/plain\r\n\r\n \r\n\
+             --b\r\nContent-Type: text/html\r\n\r\n<p>Rich words</p>\r\n--b--\r\n";
+        let html_only = "MIME-Version: 1.0\r\nContent-Type: text/html\r\n\r\n<p>Rich words</p>\r\n";
+        let text_only = "Content-Type: text/plain\r\n\r\nPlain words\r\n";
+        // (case, message, preferred, shown as plain text, the words shown)
+        let cases = [
+            ("both, html", alternative, Prefer::Html, false, "Rich words"),
+            (
+                "both, plain",
+                alternative,
+                Prefer::Plain,
+                true,
+                "Plain words",
+            ),
+            ("blank text", blank_text, Prefer::Plain, false, "Rich words"),
+            ("html only", html_only, Prefer::Plain, false, "Rich words"),
+            (
+                "text only, html",
+                text_only,
+                Prefer::Html,
+                true,
+                "Plain words",
+            ),
+            (
+                "text only, plain",
+                text_only,
+                Prefer::Plain,
+                true,
+                "Plain words",
+            ),
+        ];
+        for (case, raw, prefer, plain_wanted, words) in cases {
+            let parsed = mail_mime::parse(raw.as_bytes()).expect("a message");
+            let FrameBody::Present { html, plain, .. } =
+                chosen_frame(&parsed, None, SanitizePolicy::FRAME, prefer)
+            else {
+                panic!("{case}: a frame is present");
+            };
+            assert_eq!(plain, plain_wanted, "{case}");
+            assert!(html.contains(words), "{case}: {html}");
+        }
+    }
+
+    /// Either frame draws ⌘F's marks over the sender's own `mark`, the current one apart.
+    #[test]
+    fn both_sheets_draw_the_marks_find_puts_in() {
+        for sheet in [html_sheet(), plain_sheet()] {
+            assert!(
+                sheet.ends_with(&found_sheet())
+                    && found_sheet()
+                        .contains("mark[data-mailo-find] { background: #ffe066 !important;")
+                    && found_sheet().contains("mark[data-mailo-find=\"current\"]"),
+                "{sheet}"
+            );
+        }
     }
 
     #[test]

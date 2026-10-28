@@ -60,10 +60,33 @@ pub const MIGRATIONS: &[(u32, &str)] = &[
         include_str!("../migrations/0031_drop_granted_accounts.sql"),
     ),
     (32, include_str!("../migrations/0032_sort_indexes.sql")),
+    (33, include_str!("../migrations/0033_graph_push.sql")),
+    (34, include_str!("../migrations/0034_signatures.sql")),
+    (35, include_str!("../migrations/0035_account_prefs.sql")),
+    (36, include_str!("../migrations/0036_priority_delivery.sql")),
+    (37, include_str!("../migrations/0037_send_limit.sql")),
+    (38, include_str!("../migrations/0038_reflow_drafts.sql")),
+    (39, include_str!("../migrations/0039_observed_caps.sql")),
+    (40, include_str!("../migrations/0040_stored_at.sql")),
+    (41, include_str!("../migrations/0041_sort_keys.sql")),
+    (
+        42,
+        include_str!("../migrations/0042_fts_attachment_names.sql"),
+    ),
+    (43, include_str!("../migrations/0043_vips.sql")),
+    (44, include_str!("../migrations/0044_provider_threads.sql")),
+    (45, include_str!("../migrations/0045_flag_colors.sql")),
+    (46, include_str!("../migrations/0046_binned.sql")),
+    (47, include_str!("../migrations/0047_junk.sql")),
+    (48, include_str!("../migrations/0048_contact_cards.sql")),
+    (49, include_str!("../migrations/0049_rule_replies.sql")),
+    (50, include_str!("../migrations/0050_message_size.sql")),
+    (51, include_str!("../migrations/0051_server_size.sql")),
+    (52, include_str!("../migrations/0052_keep_labels.sql")),
 ];
 
 /// The schema version this build expects.
-pub const EXPECTED_VERSION: u32 = 32;
+pub const EXPECTED_VERSION: u32 = 52;
 
 /// Bring `db` up to [`EXPECTED_VERSION`], creating it if it is empty.
 ///
@@ -73,7 +96,8 @@ pub fn migrate(db: &Connection) -> Result<(), StoreError> {
     db.execute_batch("PRAGMA foreign_keys = ON;")
         .map_err(StoreError::db)?;
 
-    let current = current_version(db)?;
+    let applied = applied_versions(db)?;
+    let current = applied.last().copied().unwrap_or(0);
     if current > EXPECTED_VERSION {
         return Err(StoreError::SchemaTooNew {
             found: current,
@@ -81,8 +105,11 @@ pub fn migrate(db: &Connection) -> Result<(), StoreError> {
         });
     }
 
+    // Every version not yet recorded runs, not only those above the highest: a build that
+    // applied a later migration first (two branches numbering past each other) still gets the
+    // earlier one rather than skipping it forever.
     for (version, sql) in MIGRATIONS {
-        if *version <= current {
+        if applied.binary_search(version).is_ok() {
             continue;
         }
         // One transaction per migration: a failure half way leaves the database at the last
@@ -107,8 +134,8 @@ pub fn migrate(db: &Connection) -> Result<(), StoreError> {
     Ok(())
 }
 
-/// The highest version applied, or 0 for an empty database.
-fn current_version(db: &Connection) -> Result<u32, StoreError> {
+/// The versions applied, in rising order; none for an empty database.
+fn applied_versions(db: &Connection) -> Result<Vec<u32>, StoreError> {
     let exists: bool = db
         .query_row(
             "SELECT count(*) > 0 FROM sqlite_master WHERE type='table' AND name='schema_version'",
@@ -117,14 +144,17 @@ fn current_version(db: &Connection) -> Result<u32, StoreError> {
         )
         .map_err(StoreError::db)?;
     if !exists {
-        return Ok(0);
+        return Ok(Vec::new());
     }
-    db.query_row(
-        "SELECT coalesce(max(version), 0) FROM schema_version",
-        [],
-        |r| r.get(0),
-    )
-    .map_err(StoreError::db)
+    let mut query = db
+        .prepare("SELECT DISTINCT version FROM schema_version ORDER BY version")
+        .map_err(StoreError::db)?;
+    let versions = query
+        .query_map([], |r| r.get(0))
+        .map_err(StoreError::db)?
+        .collect::<Result<Vec<u32>, _>>()
+        .map_err(StoreError::db)?;
+    Ok(versions)
 }
 
 #[cfg(test)]
@@ -146,6 +176,30 @@ mod tests {
             }
             other => panic!("expected SchemaTooNew, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_missing_version_below_the_highest_still_runs() {
+        // A database that took the last migration before the one under it (two branches that
+        // numbered past each other) has a gap below its highest version; the gap is applied,
+        // not skipped for good.
+        let db = Connection::open_in_memory().unwrap();
+        let gap = MIGRATIONS.len() - 2;
+        for (version, sql) in MIGRATIONS.iter().take(gap).chain(&MIGRATIONS[gap + 1..]) {
+            db.execute_batch(sql).unwrap();
+            if *version > 1 {
+                db.execute(
+                    "INSERT INTO schema_version (version, applied_at) VALUES (?1, datetime('now'))",
+                    [version],
+                )
+                .unwrap();
+            }
+        }
+        migrate(&db).unwrap();
+        assert_eq!(
+            applied_versions(&db).unwrap(),
+            (1..=EXPECTED_VERSION).collect::<Vec<_>>()
+        );
     }
 
     #[test]

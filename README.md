@@ -28,22 +28,25 @@ the least exercised.
 **Reading and writing**
 
 - HTML mail is sanitised; remote images are blocked until you allow them (per message or per
-  trusted sender). Read receipts are never sent automatically.
+  trusted sender). Read receipts are never sent unless you answer one or set Settings › Reading
+  to ask or always.
 - Threaded conversations, labels and folders, stars, archive, undo for most actions.
 - Compose with signatures, templates, reply and forward, attachments, spell check, and
   `mailto:` links (RFC 6068).
 - Send later (`mailo send --at`, taken back with `mailo unsend`), snooze, and follow-up reminders.
 - One-click and mailto `List-Unsubscribe`.
-- Import from mbox, Maildir and `.eml`; export; printing (PDF through the system print dialog);
-  BIMI sender logos.
+- Import from mbox, Maildir, `.eml`, Apple Mail (an export or its `.emlx` files) and a
+  Thunderbird profile; export; printing (PDF through the system print dialog); BIMI sender logos.
 
 **Search and rules**
 
 - Full-text search over the local store (SQLite FTS5), plus server-side search where the protocol
   has it.
 - Rules that run in mailo. Where the server offers ManageSieve, rules can be pushed to it, and an
-  away reply (`mailo vacation`) is set there. Gmail and Microsoft offer no ManageSieve, so those
-  accounts have local rules only and no vacation reply.
+  away reply (`mailo vacation`) is set there. A JMAP account's away reply is its server's own
+  vacation response, and a Microsoft account that reads through Graph gets Exchange's automatic
+  replies. Gmail and Microsoft offer no ManageSieve, so those accounts have local rules only, and
+  Gmail and Microsoft over IMAP have no vacation reply.
 
 **Encryption**
 
@@ -123,7 +126,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo nextest run --workspace          # or cargo test --workspace; no network needed
 ./scripts/check-boundary.sh            # the sans-I/O boundary
-./scripts/check-copy.sh                # the window's words live in crates/mail-app/src/ui/copy
+./scripts/check-copy.sh                # the window's words live in crates/mail-ui/src/ui/copy
 cargo deny check licenses
 ```
 
@@ -187,9 +190,11 @@ Published libraries (each package is named `mailo-*`; its folder keeps the `crat
 | `mailo-pim` (`crates/mail-pim`) | vCard, iCalendar invitations and the WebDAV/CardDAV conversation, as text in and values out. |
 
 Not published, app-side: `mail-store` (SQLite, FTS5, the outbox), `mail-runtime` (tokio and
-sockets), `mail-core` (everything the application does, with no window or terminal), `mail-appkit`
+sockets), `mail-core` (everything the application does, with no window or terminal),
+`mail-client` (the one door to mail: values already read, kept read as the store changes, and the
+calls the window makes), `mail-ui` (the window, with no store in its dependencies), `mail-appkit`
 (macOS only: the one place that needs `unsafe`, for the AppKit delegate) and `mail-app` (the
-`mailo` binary: window and command line).
+`mailo` binary: it makes the client and hands it to the window, and holds the command line).
 
 ## Contributing
 

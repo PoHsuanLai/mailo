@@ -21,6 +21,7 @@ mod pipeline;
 mod ranking;
 mod regex;
 mod source;
+mod within;
 
 #[cfg(test)]
 mod live;
@@ -29,18 +30,19 @@ mod superset;
 
 use crate::error::CoreError;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_domain::{LabelId, ThreadId, ThreadSummary};
+use mail_domain::{ThreadId, ThreadSummary};
 
 pub use expanding::{Expansion, expand, suggestions};
-pub use find::{Find, Highlight, Step, find_highlight, list_highlight};
+pub use find::{Find, Highlight, Step, list_highlight};
 pub use fuzzy::{FuzzyHit, match_list};
 pub use group::{ActionHit, Command, MailHit, PersonHit, Results, Top};
 pub use highlight::{marks, snippet};
 pub use parsing::{Parsed, parse};
-pub use pipeline::{MENU, Prepared, STRIP, Searched, WINDOW, prepare, search_list};
+pub use pipeline::{NEWEST_POOL, Prepared, QUICK_LIMIT, Searched, TOP_LIMIT, prepare, search_list};
 pub use ranking::{Affinity, MAX_BONUS, SenderStats, WEIGHTS, rank};
 pub use regex::{Extracted, compile, extract, hits as regex_hits};
 pub use source::{Source, Term, first};
+pub use within::{Found, MOST_FOUND, find_in};
 
 /// A query that has been parsed, expanded and ranked.
 #[derive(Debug, Clone)]
@@ -50,16 +52,16 @@ pub struct RankedMail {
     pub hits: Vec<(ThreadSummary, f64)>,
 }
 
-/// The newest [`WINDOW`] matches of `prepared`: the window its top hits are chosen from.
+/// The newest [`NEWEST_POOL`] matches of `prepared`: the window its top hits are chosen from.
 fn newest(prepared: &Prepared, source: &dyn Source, now: DateTime<Utc>) -> Vec<ThreadId> {
     prepared
-        .listed(source, first(WINDOW), now)
+        .listed(source, first(NEWEST_POOL), now)
         .iter()
         .map(|summary| summary.id)
         .collect()
 }
 
-/// Parse, expand, and rank the best `k` of the newest [`WINDOW`] matches of `input`.
+/// Parse, expand, and rank the best `k` of the newest [`NEWEST_POOL`] matches of `input`.
 ///
 /// `zone` and `label` are the CLI's: `before:` is the reader's midnight, `label:` is every
 /// account's row of that name. [`run`] has neither in its signature, so the menu resolves dates
@@ -72,7 +74,7 @@ pub fn rank_query<Tz: TimeZone>(
     source: &dyn Source,
     affinity: &Affinity,
     zone: &Tz,
-    label: &dyn Fn(&str) -> Vec<LabelId>,
+    label: &dyn crate::query::Names,
     k: usize,
     now: DateTime<Utc>,
 ) -> Result<RankedMail, CoreError> {
@@ -83,8 +85,8 @@ pub fn rank_query<Tz: TimeZone>(
 
 /// The menu: top hit, mail, people, actions.
 ///
-/// Mail is the [`MENU`] best of the newest [`WINDOW`] matches. A query of operators alone has
-/// nothing to rank, so its mail is the newest [`MENU`] matches, scored by the ranker's other
+/// Mail is the [`QUICK_LIMIT`] best of the newest [`NEWEST_POOL`] matches. A query of operators alone has
+/// nothing to rank, so its mail is the newest [`QUICK_LIMIT`] matches, scored by the ranker's other
 /// signals. Pure apart from the [`Source`] calls. An invalid regex yields an empty menu rather
 /// than a panic; the message itself is [`extract`]'s `Err`.
 pub fn run(
@@ -97,14 +99,20 @@ pub fn run(
     if input.trim().is_empty() {
         return group::empty_query(source, commands, now);
     }
-    let Ok(prepared) = prepare(input, source, &Utc, &|_| Vec::new()) else {
+    let Ok(prepared) = prepare(input, source, &Utc, &crate::query::unnamed) else {
         return Results::default();
     };
     let hits = if prepared.has_text() {
-        prepared.top(source, affinity, MENU, &newest(&prepared, source, now), now)
+        prepared.top(
+            source,
+            affinity,
+            QUICK_LIMIT,
+            &newest(&prepared, source, now),
+            now,
+        )
     } else {
         let newest = prepared
-            .listed(source, first(MENU), now)
+            .listed(source, first(QUICK_LIMIT), now)
             .into_iter()
             .map(|summary| (summary, 0.0))
             .collect();

@@ -1,7 +1,7 @@
 //! The session resource (RFC 8620 §2): where everything else is, and what the server allows.
 
 use super::field::{malformed, object, opt_string, string, unsigned};
-use super::{MAIL, SUBMISSION};
+use super::{MAIL, QUOTA, SUBMISSION, VACATION};
 use crate::ProtoError;
 use mail_domain::JmapAccountId;
 use serde_json::Value;
@@ -22,6 +22,13 @@ pub struct Session {
     pub account: JmapAccountId,
     /// Whether that account may send (`urn:ietf:params:jmap:submission`).
     pub submission: Submission,
+    /// Whether its submissions may ask for delivery reports: the capability's
+    /// `submissionExtensions` list `DSN` (RFC 8621 §1.3.2, RFC 3461).
+    pub dsn: Dsn,
+    /// Whether that account says how much of its storage is used (RFC 9425).
+    pub quotas: Quotas,
+    /// Whether that account has a vacation reply the server sends (RFC 8621 §8).
+    pub vacation: Vacations,
     pub limits: Limits,
     /// The name the server knows the user by.
     pub username: String,
@@ -37,6 +44,27 @@ pub enum Submission {
     Absent,
 }
 
+/// Whether the mail account's submission server takes RFC 3461's `NOTIFY` and `RET`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Dsn {
+    Offered,
+    Absent,
+}
+
+/// Whether the mail account has quotas to read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Quotas {
+    Offered,
+    Absent,
+}
+
+/// Whether the mail account has a vacation reply to set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Vacations {
+    Offered,
+    Absent,
+}
+
 /// The core capability's limits this client has to stay under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Limits {
@@ -47,6 +75,9 @@ pub struct Limits {
     pub max_calls_in_request: usize,
     /// Largest blob one upload may carry, in octets.
     pub max_size_upload: u64,
+    /// The mail capability's `maxSizeAttachmentsPerEmail` (RFC 8621 §1.3.1): the most one
+    /// message's attachments may come to, decoded, in octets. Zero when the server does not say.
+    pub max_size_attachments: u64,
 }
 
 impl Session {
@@ -79,6 +110,22 @@ impl Session {
             Some(_) => Submission::Offered,
             None => Submission::Absent,
         };
+        // The extensions are the submission server's EHLO keywords, each with its arguments;
+        // one that does not read is no reason to refuse the session, and is taken as none.
+        let dsn = account_caps
+            .and_then(|c| c.get(SUBMISSION))
+            .and_then(|s| s.get("submissionExtensions"))
+            .and_then(Value::as_object)
+            .is_some_and(|extensions| extensions.keys().any(|k| k.eq_ignore_ascii_case("DSN")));
+        let dsn = if dsn { Dsn::Offered } else { Dsn::Absent };
+        let quotas = match account_caps.and_then(|c| c.get(QUOTA)) {
+            Some(_) => Quotas::Offered,
+            None => Quotas::Absent,
+        };
+        let vacation = match account_caps.and_then(|c| c.get(VACATION)) {
+            Some(_) => Vacations::Offered,
+            None => Vacations::Absent,
+        };
         let core = value
             .get("capabilities")
             .and_then(|c| c.get(super::CORE))
@@ -87,6 +134,13 @@ impl Session {
             max_objects_in_get: clamp(unsigned(core, "maxObjectsInGet", 256)?),
             max_calls_in_request: clamp(unsigned(core, "maxCallsInRequest", 16)?),
             max_size_upload: unsigned(core, "maxSizeUpload", 0)?,
+            // Only a measure for the composer, so one that does not read is no reason to refuse
+            // the session: it is taken as unstated.
+            max_size_attachments: account_caps
+                .and_then(|c| c.get(MAIL))
+                .and_then(|mail| mail.get("maxSizeAttachmentsPerEmail"))
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
         };
         Ok(Session {
             api_url: string(&value, "apiUrl")?.to_owned(),
@@ -97,6 +151,9 @@ impl Session {
                 .map(str::to_owned),
             account,
             submission,
+            dsn,
+            quotas,
+            vacation,
             limits,
             username: opt_string(&value, "username")?.unwrap_or("").to_owned(),
             state: opt_string(&value, "state")?.unwrap_or("").to_owned(),

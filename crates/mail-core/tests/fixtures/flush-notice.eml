@@ -1,0 +1,43 @@
+From: Example Security <security@notice.example>
+To: Me <me@example.test>
+Subject: Please rotate a key you used
+Date: Mon, 19 Oct 2026 09:00:00 +0000
+Message-ID: <flush-notice@notice.example>
+MIME-Version: 1.0
+Content-Type: multipart/alternative;
+ boundary="flushnotice0123456789"
+
+--flushnotice0123456789
+Content-Type: text/plain; charset="utf-8"
+
+Hi there,
+
+We recently noticed activity related to a key, named below, that you used with us.
+
+Example API key EXAMPLE-...00
+
+Out of an abundance of caution, rotate it if it is sensitive.
+
+The Example Team
+
+--flushnotice0123456789
+Content-Type: text/html; charset="utf-8"
+
+<!DOCTYPE html><html lang="en"><head>
+  </head>
+  <body style="margin:0;padding:0;background-color:#ffffff;color:#121212;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:16px;line-height:1.5">
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title></title>
+<p style="margin:0 0 16px 0">Hi there,</p>
+<p style="margin:0 0 16px 0">We recently noticed activity related to a key, named below, that you used with us.</p>
+<p style="margin:0 0 16px 0">Example API key EXAMPLE-&hellip;00</p>
+<p style="margin:0 0 16px 0"><strong>Out of an abundance of caution, rotate it if it is sensitive.</strong> Keeping your data safe is our first concern.</p>
+<p style="margin:0">The Example Team</p>
+    <p>
+      <!--<a class="untracked" href="https://track.notice.example/unsubscribe/x">Unsubscribe</a>-->
+    </p>
+  </body>
+</html>
+
+--flushnotice0123456789--

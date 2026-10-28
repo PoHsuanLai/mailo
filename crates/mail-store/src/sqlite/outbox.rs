@@ -7,6 +7,7 @@
 
 use super::SqliteStore;
 use super::row::{from_time, json, to_json};
+use crate::changes::Topics;
 use crate::dispatch::{Answered, Place};
 use crate::{Dispatch, OutboxEntry, Settle, StoreError};
 use chrono::{DateTime, TimeDelta, Utc};
@@ -37,7 +38,7 @@ impl SqliteStore {
         messages: &[MessageId],
     ) -> Result<Vec<RemoteRef>, StoreError> {
         let mut out = Vec::new();
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT mailbox, uidvalidity, uid, uidl FROM remote_map
              WHERE account = ?1 AND message = ?2",
@@ -56,7 +57,7 @@ impl SqliteStore {
 
     fn label_names(&self, labels: &[mail_domain::LabelId]) -> Result<Vec<String>, StoreError> {
         let mut out = Vec::new();
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached("SELECT name FROM labels WHERE id = ?1")?;
         for id in labels {
             let name: Option<String> = stmt
@@ -73,7 +74,7 @@ impl SqliteStore {
 
     /// Where `message` is on the server now.
     fn addresses_now(&self, account: AccountId, message: MessageId) -> Result<Place, StoreError> {
-        let held: bool = self.connection().query_row(
+        let held: bool = self.reader().query_row(
             "SELECT EXISTS (SELECT 1 FROM messages WHERE id = ?1)",
             params![message.to_string()],
             |r| r.get(0),
@@ -115,49 +116,25 @@ impl SqliteStore {
     ) -> Result<Option<ProtoOp>, StoreError> {
         // A submission addresses no existing message — it *is* the new one — so it needs no
         // `remote_map` lookup and must not be dropped by the "no remote address" rule below.
-        if let RemoteIntent::Send {
-            draft,
-            raw,
-            mail_from,
-            rcpt_to,
-        } = intent
-        {
-            return Ok(Some(ProtoOp::Submit {
-                draft: *draft,
-                raw: *raw,
-                mail_from: mail_from.clone(),
-                rcpt_to: rcpt_to.clone(),
-            }));
-        }
-        // Nor does folder work, which names mailboxes rather than messages.
-        if let RemoteIntent::Folder(work) = intent {
-            return Ok(Some(ProtoOp::Folder(work.clone())));
-        }
-        // Nor an upload: the bytes are the new message.
-        if let RemoteIntent::Append {
-            mailbox,
-            flags,
-            date,
-            raw,
-        } = intent
-        {
-            return Ok(Some(ProtoOp::Append {
-                mailbox: mailbox.clone(),
-                flags: flags.clone(),
-                date: *date,
-                raw: *raw,
-            }));
+        // Nor does folder work, which names mailboxes rather than messages, nor an upload, whose
+        // bytes are the new message, nor a draft's copy, found on the server by its Message-ID.
+        if let Some(op) = crate::dispatch::unaddressed(intent) {
+            return Ok(Some(op));
         }
         let messages = match intent {
             RemoteIntent::SetFlags { messages, .. }
+            | RemoteIntent::SetFlag { messages, .. }
             | RemoteIntent::SetMailbox { messages, .. }
             | RemoteIntent::SetLabels { messages, .. }
             | RemoteIntent::File { messages, .. }
+            | RemoteIntent::Copy { messages, .. }
             | RemoteIntent::AddKeyword { messages, .. }
             | RemoteIntent::Destroy { messages } => messages,
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                unreachable!("handled above")
-            }
+            RemoteIntent::Send { .. }
+            | RemoteIntent::Folder(_)
+            | RemoteIntent::Append { .. }
+            | RemoteIntent::KeepDraft { .. }
+            | RemoteIntent::DropDraft { .. } => unreachable!("handled above"),
         };
         let remotes = self.refs_for(account.clone(), messages)?;
         // Normal, not exceptional: a message composed locally and not yet sent has no server
@@ -172,6 +149,7 @@ impl SqliteStore {
                 read: *read,
                 star: *star,
             },
+            RemoteIntent::SetFlag { hue, .. } => ProtoOp::SetFlag { remotes, hue: *hue },
             RemoteIntent::SetMailbox { role, .. } => ProtoOp::SetMailbox {
                 remotes,
                 role: *role,
@@ -193,10 +171,19 @@ impl SqliteStore {
                     None => return Ok(None),
                 }
             }
-            RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
-            RemoteIntent::Send { .. } | RemoteIntent::Folder(_) | RemoteIntent::Append { .. } => {
-                unreachable!("handled above")
+            // As filing: the label's name is the folder's path.
+            RemoteIntent::Copy { label, .. } => {
+                match self.label_names(std::slice::from_ref(label))?.pop() {
+                    Some(folder) => ProtoOp::Copy { remotes, folder },
+                    None => return Ok(None),
+                }
             }
+            RemoteIntent::Destroy { .. } => ProtoOp::Destroy { remotes },
+            RemoteIntent::Send { .. }
+            | RemoteIntent::Folder(_)
+            | RemoteIntent::Append { .. }
+            | RemoteIntent::KeepDraft { .. }
+            | RemoteIntent::DropDraft { .. } => unreachable!("handled above"),
         }))
     }
 
@@ -207,6 +194,9 @@ impl SqliteStore {
         undo: &Patch,
         now: DateTime<Utc>,
     ) -> Result<Option<OutboxId>, StoreError> {
+        // Taken before the reads that decide what is queued, so they read through it: where a
+        // message is addressed and what is written about it are one answer, not two.
+        let db = self.touch(Topics::OUTBOX);
         let Some(op) = self.resolve_intent(account.clone(), &intent)? else {
             return Ok(None);
         };
@@ -219,15 +209,49 @@ impl SqliteStore {
         } else {
             Some(to_json("messages", &messages)?)
         };
-        let db = self.connection();
         let tx = db.unchecked_transaction()?;
+        // A draft's copy on the server is only ever its latest: an upload still waiting is
+        // stale once another is queued, or once the draft is sent or discarded, and goes. One
+        // already under way when it goes runs to its end and settles into nothing (`settle`);
+        // what it put there is found and removed by the operation queued here.
+        // A new upload takes over the place of the one it replaces in the backoff too: a server
+        // that refuses them is not asked again at every autosave.
+        let (mut attempts, mut next_attempt) = (0_u32, now);
+        if let Some(draft) = crate::dispatch::draft_copy_of(&intent) {
+            let stale: Vec<(i64, u32, String)> = {
+                let db = self.connection();
+                let mut stmt = db.prepare(
+                    "SELECT id, attempts, next_attempt FROM outbox WHERE account = ?1
+                         AND json_extract(op, '$.kind') = 'keep_draft'
+                         AND json_extract(op, '$.v.draft') = ?2",
+                )?;
+                stmt.query_map(params![account.to_string(), draft.to_string()], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?
+                .collect::<Result<_, _>>()?
+            };
+            for (id, tried, due) in &stale {
+                if matches!(intent, RemoteIntent::KeepDraft { .. }) {
+                    attempts = attempts.max(*tried);
+                    next_attempt = next_attempt.max(super::row::time("next_attempt", due)?);
+                }
+                self.connection()
+                    .execute("DELETE FROM outbox WHERE id = ?1", params![id])?;
+                self.replaced
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(*id);
+            }
+        }
         self.connection().execute(
             "INSERT INTO outbox (account, op, undo, attempts, next_attempt, created_at, messages)
-             VALUES (?1, ?2, ?3, 0, ?4, ?4, ?5)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 account.to_string(),
                 to_json("ProtoOp", &op)?,
                 to_json("Patch", undo)?,
+                attempts,
+                from_time(next_attempt),
                 from_time(now),
                 messages,
             ],
@@ -266,7 +290,7 @@ impl SqliteStore {
     ) -> Result<Vec<OutboxEntry>, StoreError> {
         // Insertion order, not next_attempt order. Two operations on one thread must reach the
         // server in the order the user performed them, or the result is whichever won the race.
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT id, op, undo, attempts, next_attempt, messages FROM outbox
              WHERE account = ?1 AND next_attempt <= ?2 ORDER BY id",
@@ -309,7 +333,7 @@ impl SqliteStore {
     /// See [`crate::Store::outbox_dispatch`].
     pub(super) fn dispatch(&self, id: OutboxId) -> Result<Dispatch, StoreError> {
         let row: Option<(String, String, Option<String>)> = self
-            .connection()
+            .reader()
             .query_row(
                 "SELECT account, op, messages FROM outbox WHERE id = ?1",
                 params![id.as_i64()],
@@ -321,7 +345,7 @@ impl SqliteStore {
         };
         let account = account_id_from_uuid(super::row::uuid("AccountId", &account)?);
         let earlier = {
-            let db = self.connection();
+            let db = self.reader();
             let mut stmt = db.prepare_cached(
                 "SELECT messages FROM outbox
                  WHERE account = ?1 AND id < ?2 AND messages IS NOT NULL ORDER BY id",
@@ -350,7 +374,7 @@ impl SqliteStore {
         account: AccountId,
         after: DateTime<Utc>,
     ) -> Result<Option<DateTime<Utc>>, StoreError> {
-        let next: Option<String> = self.connection().query_row(
+        let next: Option<String> = self.reader().query_row(
             "SELECT min(next_attempt) FROM outbox
              WHERE account = ?1 AND attempts = 0 AND next_attempt > ?2",
             params![account.to_string(), from_time(after)],
@@ -366,8 +390,28 @@ impl SqliteStore {
         settle: Settle,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        let db = self.connection();
+        let db = self.touch(Topics::OUTBOX);
         let tx = db.unchecked_transaction()?;
+        // Taken out of the outbox while it ran: a draft's upload that a later one replaced
+        // (`queue`). Whatever it did is the later one's to correct, and there is no row to settle.
+        let held: bool = self.connection().query_row(
+            "SELECT EXISTS (SELECT 1 FROM outbox WHERE id = ?1)",
+            params![id.as_i64()],
+            |r| r.get(0),
+        )?;
+        if !held {
+            // Only an upload of a draft that a later one replaced while it ran has no row.
+            let replaced = self
+                .replaced
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .contains(&id.as_i64());
+            return if replaced {
+                Ok(())
+            } else {
+                Err(StoreError::db(format!("no such outbox entry: {id}")))
+            };
+        }
         match settle {
             Settle::Ok => {
                 self.settle_destroyed(id, Answered::Done)?;

@@ -1,9 +1,7 @@
 # mailo-pim
 
 The personal information that travels beside mail: vCards (RFC 6350, and 2.1 and 3.0 as found in
-the wild), iCalendar invitations (RFC 5545 and iTIP's replies), and the WebDAV requests and
-replies CardDAV is spoken in. Text in, values out, and text back; sending a request is the
-caller's business.
+the wild) and iCalendar invitations (RFC 5545 and iTIP's replies). Text in, values out, and text back.
 
 ```rust
 let cards = mail_pim::vcard::parse(

@@ -2,16 +2,24 @@
 //!
 //! The window wakes at the shortest interval any account asks for, [`super::poll_interval`]. A
 //! wake syncs only the accounts whose own interval has passed: one Graph account polls every
-//! minute, and the acct_imap() accounts beside it want a pass every five. A pass the user asks for is
+//! fifteen seconds, and the IMAP accounts beside it want a pass every five minutes. A pass the user asks for is
 //! not a wake and still syncs them all, through [`SyncOps::run`](crate::SyncOps).
+//!
+//! Each account's interval is the one its server asks for unless the person chose another on
+//! the account's page ([`crate::offline::Every`]). One checked manually is still an account with
+//! a server, so a person's Sync reaches it; its interval is [`MANUALLY`], which no timer reaches
+//! and the scheduler starts no pass at, the first one included.
 
 use crate::error::{CoreError, Logged};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use crate::offline::{Every, Kept};
 use mail_domain::{Incoming, WatchMode};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
+
+pub use mail_runtime::schedule::MANUALLY;
 
 /// What an account that offers IDLE is polled at, since no connection is held open for it.
 pub const IDLE: Duration = Duration::from_secs(300);
@@ -24,19 +32,43 @@ pub fn every(watch: &WatchMode) -> Duration {
     }
 }
 
-/// Each account with a server, and how often it wants a pass.
+/// How often one account is checked, given what the person chose: the server's own interval on
+/// [`Every::Automatic`], the minutes chosen, or [`MANUALLY`].
+pub fn chosen(watch: &WatchMode, chose: Every) -> Duration {
+    match chose {
+        Every::Automatic => every(watch),
+        // Never under a minute, whatever a hand-edited file says: a zero would be a pass at every
+        // turn of the loop.
+        Every::Minutes(minutes) => Duration::from_secs(60 * u64::from(minutes.max(1))),
+        Every::Manually => MANUALLY,
+    }
+}
+
+/// Each account with a server, and how often it wants a pass, as the setting in the user's config
+/// directory chooses ([`intervals_with`]).
+pub fn intervals(store: &SqliteStore) -> Vec<(AccountId, Duration)> {
+    intervals_with(store, &crate::offline::load_default())
+}
+
+/// Each account with a server, and how often it wants a pass, as `kept` chooses.
 ///
 /// An account that keeps its mail here is left out: it has nothing to fetch, so it is never due.
-pub fn intervals(store: &SqliteStore) -> Vec<(AccountId, Duration)> {
+/// Nor is one whose syncing is paused ([`super::paused`]).
+pub fn intervals_with(store: &SqliteStore, kept: &Kept) -> Vec<(AccountId, Duration)> {
     super::configured(store)
         .or_log_default("the accounts could not be read")
         .into_iter()
         .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
-        .map(|account| (account.id, every(&account.caps.watch)))
+        .filter(|account| !super::paused(store, account.id.clone()))
+        .map(|account| {
+            let wants = chosen(&account.caps.watch, kept.every_of(&account.id));
+            (account.id, wants)
+        })
         .collect()
 }
 
-/// The accounts whose own interval has passed since their last pass, and any never synced.
+/// The accounts whose own interval has passed since their last pass, and any never synced, but
+/// for one checked [`MANUALLY`], which no wake is for.
 ///
 /// `last` is when each account's last pass started, which is the moment its interval counts
 /// from. Kept by the window in memory rather than in the store: a window just opened syncs every
@@ -50,8 +82,10 @@ pub fn due(
     intervals
         .iter()
         .filter(|(account, every)| {
-            last.get(account)
-                .is_none_or(|at| now.saturating_duration_since(*at) >= *every)
+            *every != MANUALLY
+                && last
+                    .get(account)
+                    .is_none_or(|at| now.saturating_duration_since(*at) >= *every)
         })
         .map(|(account, _)| account.clone())
         .collect()
@@ -76,6 +110,7 @@ impl crate::mail::SyncOps<'_> {
             &super::Scope {
                 due: &|account| due.contains(&account),
                 kept: &crate::offline::load_default(),
+                junk: mail.junk(),
             },
             hooks,
         )
@@ -104,7 +139,12 @@ mod tests {
     #[test]
     fn each_account_is_due_at_its_own_interval() {
         let intervals = [
-            (acct_graph(), every(&WatchMode::Poll { every: secs(60) })),
+            (
+                acct_graph(),
+                every(&WatchMode::Poll {
+                    every: mail_domain::presets::GRAPH_POLL_EVERY,
+                }),
+            ),
             (acct_imap(), every(&WatchMode::Poll { every: secs(300) })),
             (acct_pushed(), every(&WatchMode::Idle)),
             (acct_new(), secs(300)),
@@ -117,8 +157,8 @@ mod tests {
             .collect();
         let table: [(u64, &[AccountId]); 6] = [
             (0, &[acct_new()]),
-            (59, &[acct_new()]),
-            (60, &[acct_graph(), acct_new()]),
+            (14, &[acct_new()]),
+            (15, &[acct_graph(), acct_new()]),
             (120, &[acct_graph(), acct_new()]),
             (299, &[acct_graph(), acct_new()]),
             (300, &[acct_graph(), acct_imap(), acct_pushed(), acct_new()]),
@@ -134,16 +174,103 @@ mod tests {
 
     #[test]
     fn a_window_just_opened_syncs_every_account() {
-        let intervals = [(acct_graph(), secs(60)), (acct_imap(), secs(300))];
+        let intervals = [(acct_graph(), secs(15)), (acct_imap(), secs(300))];
         assert_eq!(
             due(&intervals, &HashMap::new(), Instant::now()),
             [acct_graph(), acct_imap()]
         );
     }
 
+    /// What the account page offers, as the interval the scheduler is handed.
+    #[test]
+    fn each_choice_is_the_interval_it_says() {
+        let poll = WatchMode::Poll { every: secs(60) };
+        let table: [(&WatchMode, Every, Duration); 9] = [
+            (&poll, Every::Automatic, secs(60)),
+            (&WatchMode::Idle, Every::Automatic, IDLE),
+            (&WatchMode::Idle, Every::Minutes(1), secs(60)),
+            (&poll, Every::Minutes(5), secs(300)),
+            (&poll, Every::Minutes(15), secs(900)),
+            (&poll, Every::Minutes(30), secs(1800)),
+            (&WatchMode::Idle, Every::Minutes(60), secs(3600)),
+            (&poll, Every::Minutes(0), secs(60)),
+            (&WatchMode::Idle, Every::Manually, MANUALLY),
+        ];
+        for (watch, chose, want) in table {
+            assert_eq!(chosen(watch, chose), want, "{watch:?}, {chose:?}");
+        }
+    }
+
+    /// One checked manually is never due, not even before its first pass; the others beside it
+    /// are due as they always were.
+    #[test]
+    fn an_account_checked_manually_is_never_due() {
+        let intervals = [
+            (acct_graph(), chosen(&WatchMode::Idle, Every::Manually)),
+            (acct_imap(), chosen(&WatchMode::Idle, Every::Minutes(15))),
+            (acct_new(), chosen(&WatchMode::Idle, Every::Manually)),
+        ];
+        let start = Instant::now();
+        let last: HashMap<AccountId, Instant> = [acct_graph(), acct_imap()]
+            .into_iter()
+            .map(|account| (account, start))
+            .collect();
+        let table: [(u64, &[AccountId]); 4] = [
+            (0, &[]),
+            (899, &[]),
+            (900, &[acct_imap()]),
+            (365 * 24 * 3600, &[acct_imap()]),
+        ];
+        for (elapsed, expected) in table {
+            assert_eq!(
+                due(&intervals, &last, start + secs(elapsed)),
+                expected,
+                "{elapsed} s after the last pass"
+            );
+        }
+    }
+
     #[test]
     fn an_account_that_offers_idle_is_polled_every_five_minutes() {
         assert_eq!(every(&WatchMode::Idle), secs(300));
+    }
+
+    #[test]
+    fn a_paused_account_is_never_due() {
+        let store = mail_store::testing::in_memory();
+        let now = chrono::Utc::now();
+        for (id, address) in [
+            (acct_imap(), "ada@example.test"),
+            (acct_new(), "bo@example.test"),
+        ] {
+            let preset = mail_domain::presets::manual_pop3(
+                address,
+                &mail_domain::presets::ManualPop3 {
+                    pop3_host: "pop.example.test".to_owned(),
+                    pop3_port: 995,
+                    smtp_host: "smtp.example.test".to_owned(),
+                    smtp_port: 465,
+                    login: None,
+                },
+                now,
+            );
+            mail_store::testing::seed_account_plan(&store, id.clone(), address, &preset.plan, None);
+            mail_store::testing::seed_caps(&store, id, &preset.expected_caps, now).unwrap();
+        }
+        store
+            .set_account_syncing(acct_imap(), mail_store::Syncing::Paused)
+            .unwrap();
+        let listed: Vec<AccountId> = intervals(&store).into_iter().map(|(id, _)| id).collect();
+        assert_eq!(
+            listed,
+            [acct_new()],
+            "the paused account is not on the timetable"
+        );
+        assert!(due(&intervals(&store), &HashMap::new(), Instant::now()) == [acct_new()]);
+        store
+            .set_account_syncing(acct_imap(), mail_store::Syncing::On)
+            .unwrap();
+        assert_eq!(intervals(&store).len(), 2, "and is again once it syncs");
     }
 
     fn secs(n: u64) -> Duration {

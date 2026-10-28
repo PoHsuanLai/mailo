@@ -3,6 +3,7 @@
 
 use crate::block::kind::{Block, Dir, ListKind, Span};
 use crate::block::limits::{Limits, Reached};
+use crate::block::style::{ParaStyle, RunStyle};
 use crate::block::url::SafeUrl;
 use html5ever::tokenizer::Tag;
 
@@ -386,6 +387,11 @@ pub(super) struct Frame {
     pub(super) header: bool,
     pub(super) lang: Option<String>,
     pub(super) raw: bool,
+    /// The alignment and indent a paragraph made here takes: its own `style`'s, over what it
+    /// sits in.
+    pub(super) para: ParaStyle,
+    /// An inline element's own size and colour.
+    pub(super) run: RunStyle,
 }
 
 pub(super) struct Row {
@@ -421,6 +427,8 @@ impl Frame {
             header: false,
             lang: None,
             raw: false,
+            para: ParaStyle::default(),
+            run: RunStyle::default(),
         }
     }
 }

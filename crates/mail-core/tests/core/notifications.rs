@@ -68,6 +68,38 @@ fn plan(port: u16) -> AccountPlan {
     }
 }
 
+/// A watch asks whose mail it says as each pass ends, so a change of the setting is followed
+/// from the next pass and not only from the next start.
+#[test]
+fn a_watch_asks_whose_mail_is_said_at_the_end_of_every_pass() {
+    use sync::report::{AccountReport, Counts, PassEnd};
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    with_account(&store, &plan(1));
+    let recorder = Recorder::default();
+    let asked = std::cell::Cell::new(0usize);
+    let whom = || {
+        asked.set(asked.get() + 1);
+        notify::Whom::Everyone
+    };
+    let announce = sync::Announce::To {
+        store: &store,
+        notifier: &recorder,
+        whom: &whom,
+    };
+    let end = PassEnd::Finished(AccountReport {
+        account: account(),
+        address: ME.to_owned(),
+        counts: Counts::default(),
+        trouble: Vec::new(),
+    });
+    let at = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+    for pass in 1..=3 {
+        sync::watcher::told(&end, announce, at, &|_| {});
+        assert_eq!(asked.get(), pass, "asked once for each pass");
+    }
+}
+
 #[test]
 fn the_floor_is_armed_once_and_a_restart_keeps_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -97,6 +129,18 @@ fn the_floor_is_armed_once_and_a_restart_keeps_it() {
 
 /// A message as a header pass would have stored it.
 fn stored(store: &SqliteStore, n: u128, from: &str, date: DateTime<Utc>) -> MessageId {
+    stored_as(store, n, from, date, &format!("message {n}"), Body::Absent)
+}
+
+/// A message with this `subject` and `body`, as a pass would have stored it.
+fn stored_as(
+    store: &SqliteStore,
+    n: u128,
+    from: &str,
+    date: DateTime<Utc>,
+    subject: &str,
+    body: Body,
+) -> MessageId {
     let id = MessageId::from_uuid(uuid::Uuid::from_u128(0x9000 + n));
     let message = Message {
         id,
@@ -112,15 +156,16 @@ fn stored(store: &SqliteStore, n: u128, from: &str, date: DateTime<Utc>) -> Mess
         to: Vec::new(),
         cc: Vec::new(),
         bcc: Vec::new(),
-        subject: format!("message {n}"),
+        subject: subject.to_owned(),
         in_reply_to: None,
         references: Vec::new(),
         rfc_message_id: None,
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: Vec::new(),
-        body: Body::Absent,
+        body,
         attachments: Vec::new(),
     };
     store
@@ -153,7 +198,16 @@ fn an_accounts_first_backfill_raises_nothing() {
         })
         .collect();
     let recorder = Recorder::default();
-    let raised = notify::announce(&store, account(), &arrived, &recorder, watched).unwrap();
+    let raised = notify::announce(
+        &store,
+        account(),
+        &arrived,
+        &[],
+        &recorder,
+        notify::Whom::Everyone,
+        watched,
+    )
+    .unwrap();
     assert_eq!(raised, 0);
     assert!(recorder.seen().is_empty(), "{:?}", recorder.seen());
 
@@ -161,7 +215,16 @@ fn an_accounts_first_backfill_raises_nothing() {
     let later = watched + chrono::Duration::minutes(5);
     let new = stored(&store, 500, "bob@example.test", later);
     let mine = stored(&store, 501, "ME@example.test", later);
-    notify::announce(&store, account(), &[new, mine], &recorder, later).unwrap();
+    notify::announce(
+        &store,
+        account(),
+        &[new, mine],
+        &[],
+        &recorder,
+        notify::Whom::Everyone,
+        later,
+    )
+    .unwrap();
     let seen = recorder.seen();
     assert_eq!(seen.len(), 1, "{seen:?}");
     assert_eq!(seen[0].summary, "bob@example.test");
@@ -170,6 +233,160 @@ fn an_accounts_first_backfill_raises_nothing() {
         seen[0].opens,
         Opens::Thread(ThreadId::from_uuid(uuid::Uuid::from_u128(0x7000 + 500)))
     );
+}
+
+/// A new message with a one-time code is announced as every other is, by its sender and its
+/// subject, as Apple Mail, Gmail and Outlook do: the code is never the headline, never offered
+/// to copy and never copied on arrival, whether it is in the subject, in a body not here or in
+/// the HTML of a message that has no plain part.
+#[test]
+fn an_announcement_is_the_ordinary_banner_whatever_code_the_message_carries() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    with_account(&store, &plan(1));
+    let watched = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+    notify::floor::armed(&store, account(), watched).unwrap();
+    let later = watched + chrono::Duration::minutes(5);
+    let headers = stored_as(
+        &store,
+        600,
+        "no-reply@service.example",
+        later,
+        "482913 is your Example code",
+        Body::Absent,
+    );
+    let html = b"From: no-reply@bank.example\r\nContent-Type: text/html; charset=utf-8\r\n\r\n\
+        <html><body><p>Your verification code is <b>771204</b>.</p></body></html>\r\n";
+    let raw = store.blobs().put(html).unwrap();
+    let html_only = stored_as(
+        &store,
+        601,
+        "no-reply@bank.example",
+        later,
+        "Sign in to your bank",
+        Body::Present { text: None, raw },
+    );
+    let plain = stored(&store, 602, "ada@example.test", later);
+
+    let recorder = Recorder::default();
+    let raised = notify::announce(
+        &store,
+        account(),
+        &[headers, html_only, plain],
+        &[],
+        &recorder,
+        notify::Whom::Everyone,
+        later,
+    )
+    .unwrap();
+    assert_eq!(raised, 3);
+    let seen = recorder.seen();
+    assert_eq!(seen[0].summary, "no-reply@service.example");
+    assert_eq!(seen[0].body, "482913 is your Example code");
+    assert_eq!(seen[1].summary, "no-reply@bank.example");
+    assert_eq!(seen[1].body, "Sign in to your bank");
+    assert_eq!(seen[2].summary, "ada@example.test");
+    assert!(
+        seen.iter().all(|n| !n.summary.contains("771204")),
+        "a code read from a body is not on the banner"
+    );
+}
+
+/// "Notify for: VIPs only": of one pass's new mail only the VIP's is said, the VIPs read from
+/// the store as the pass ends, so one marked between passes is heard on the next.
+#[test]
+fn vips_only_says_a_vip_s_new_mail_and_holds_back_the_rest() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    with_account(&store, &plan(1));
+    let watched = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+    notify::floor::armed(&store, account(), watched).unwrap();
+    let recorder = Recorder::default();
+    store.put_vip("Dana@Example.test", Some("Dana")).unwrap();
+
+    let later = watched + chrono::Duration::minutes(5);
+    let dana = stored(&store, 600, "dana@example.test", later);
+    let bob = stored(&store, 601, "bob@example.test", later);
+    let raised = notify::announce(
+        &store,
+        account(),
+        &[dana, bob],
+        &[],
+        &recorder,
+        notify::Whom::Vips,
+        later,
+    )
+    .unwrap();
+    let seen = recorder.seen();
+    assert_eq!(raised, 1, "{seen:?}");
+    assert_eq!(seen[0].summary, "dana@example.test");
+
+    // Bob marked now: his next message is heard, and everyone's again under All new mail.
+    store.put_vip("bob@example.test", None).unwrap();
+    let again = later + chrono::Duration::minutes(5);
+    let from_bob = stored(&store, 602, "bob@example.test", again);
+    let from_cy = stored(&store, 603, "cy@example.test", again);
+    notify::announce(
+        &store,
+        account(),
+        &[from_bob, from_cy],
+        &[],
+        &recorder,
+        notify::Whom::Vips,
+        again,
+    )
+    .unwrap();
+    let from_eve = stored(&store, 604, "eve@example.test", again);
+    notify::announce(
+        &store,
+        account(),
+        &[from_eve],
+        &[],
+        &recorder,
+        notify::Whom::Everyone,
+        again,
+    )
+    .unwrap();
+    let said: Vec<String> = recorder.seen().into_iter().map(|n| n.summary).collect();
+    assert_eq!(
+        said,
+        ["dana@example.test", "bob@example.test", "eve@example.test"]
+    );
+}
+
+/// Under "VIPs only" a rule whose action is Notify is the person's explicit ask, so it is
+/// heard for a sender who is not a VIP; it does not lift the floor or the user's own mail.
+#[test]
+fn a_rule_that_notifies_is_heard_under_vips_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = open(dir.path());
+    with_account(&store, &plan(1));
+    let watched = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+    notify::floor::armed(&store, account(), watched).unwrap();
+    let recorder = Recorder::default();
+    let later = watched + chrono::Duration::minutes(5);
+    let asked = stored(&store, 700, "bob@example.test", later);
+    let not_asked = stored(&store, 701, "cy@example.test", later);
+    let before_floor = stored(
+        &store,
+        702,
+        "eve@example.test",
+        watched - chrono::Duration::days(1),
+    );
+    let mine = stored(&store, 703, "ME@example.test", later);
+    let raised = notify::announce(
+        &store,
+        account(),
+        &[asked, not_asked, before_floor, mine],
+        &[asked, before_floor, mine],
+        &recorder,
+        notify::Whom::Vips,
+        later,
+    )
+    .unwrap();
+    let seen = recorder.seen();
+    assert_eq!(raised, 1, "{seen:?}");
+    assert_eq!(seen[0].summary, "bob@example.test");
 }
 
 /// What the fake server holds: UID, raw bytes and flags, which a test adds to while the client
@@ -378,6 +595,10 @@ async fn watching<F: std::future::Future<Output = ()>>(
         plan: plan(port),
         caps: caps(),
         keep: mail_core::offline::Keep::Bodies,
+        every: mail_core::offline::Every::default(),
+        window: mail_core::offline::Window::default(),
+        remove: mail_core::offline::Remove::default(),
+        junk: mail_core::junk::Policy::default(),
     };
     let inbox = vec![MailboxRef {
         account: account.id.clone(),
@@ -387,6 +608,7 @@ async fn watching<F: std::future::Future<Output = ()>>(
     let announce = sync::Announce::To {
         store,
         notifier: recorder,
+        whom: &|| notify::Whom::Everyone,
     };
     let loop_ = async {
         loop {

@@ -80,11 +80,25 @@ struct Spec {
     folders: Vec<bool>,
     /// A queued move into one of [`MOVES`], not yet confirmed by the server.
     moving: Option<usize>,
+    /// A queued copy into one of [`MOVES`], queued before the move, not yet confirmed either.
+    copying: Option<usize>,
     date: i64,
+    /// An attachment named after one of [`WORDS`], of this many bytes, still on the server.
+    attached: Option<(usize, u64)>,
+    /// Copied to an address built from one of [`WORDS`], as the sender's is.
+    cc: Option<usize>,
+    /// Whether the sender is on the VIP list.
+    vip: bool,
 }
 
-/// Folders a queued `File` moves a message into: one it may already be held in, and one it is
-/// not. Only the second takes it out of `InFolder` for the folder it is in.
+/// A sender's or a recipient's address, built from one of [`WORDS`].
+fn address_of(word: usize) -> String {
+    format!("{}@example.test", WORDS[word].replace(['%', ' '], ""))
+}
+
+/// Folders a queued `File` moves, or a queued `Copy` copies, a message into: one it may already
+/// be held in, and one it is not. Only the second takes a move out of `InFolder` for the folder
+/// it is in, and lists a copy in `InFolder` for the folder it goes to.
 const MOVES: &[(&str, LabelId)] = &[
     (
         "Projects/2026",
@@ -136,7 +150,14 @@ fn spec() -> impl Strategy<Value = Spec> {
         0u8..6,
         prop::collection::vec(any::<bool>(), 2..=2),
         prop::collection::vec(any::<bool>(), FOLDERS.len()..=FOLDERS.len()),
-        (prop::option::of(0..MOVES.len()), 0i64..4_000),
+        (
+            prop::option::of(0..MOVES.len()),
+            prop::option::of(0..MOVES.len()),
+            0i64..4_000,
+            prop::option::of((0..WORDS.len(), 0u64..60)),
+            prop::option::of(0..WORDS.len()),
+            any::<bool>(),
+        ),
     )
         .prop_map(
             |(
@@ -151,7 +172,7 @@ fn spec() -> impl Strategy<Value = Spec> {
                 mailbox,
                 labels,
                 folders,
-                (moving, date),
+                (moving, copying, date, attached, cc, vip),
             )| {
                 Spec {
                     thread,
@@ -166,7 +187,11 @@ fn spec() -> impl Strategy<Value = Spec> {
                     labels,
                     folders,
                     moving,
+                    copying,
                     date,
+                    attached,
+                    cc,
+                    vip,
                 }
             },
         )
@@ -214,8 +239,20 @@ fn filter() -> impl Strategy<Value = Filter> {
         })),
         text.clone().prop_map(Filter::From),
         text.clone().prop_map(Filter::To),
+        text.clone().prop_map(Filter::Cc),
+        // The address alone, in any ASCII case, which `lower` and `eq_ignore_ascii_case` fold alike.
+        (0..WORDS.len(), any::<bool>()).prop_map(|(i, shout)| Filter::FromAddress(if shout {
+            address_of(i).to_ascii_uppercase()
+        } else {
+            address_of(i)
+        })),
+        Just(Filter::Vip),
         text.clone().prop_map(Filter::Subject),
         text.prop_map(Filter::Text),
+        (0u64..80).prop_map(Filter::Larger),
+        (0u64..80).prop_map(Filter::Smaller),
+        (0u32..4).prop_map(Filter::NewerThan),
+        (0u32..4).prop_map(Filter::OlderThan),
         (0i64..4_000, 0i64..4_000).prop_map(|(a, b)| Filter::Date(DateRange {
             from: Some(at(a.min(b))),
             to: Some(at(a.max(b) + 1)),
@@ -282,15 +319,20 @@ fn build(specs: &[Spec]) -> Both {
             date: at(s.date),
             from: Address {
                 name: s.from_name.map(|n| WORDS[n].to_owned()),
-                email: format!(
-                    "{}@example.test",
-                    WORDS[s.from_local].replace(['%', ' '], "")
-                ),
+                email: address_of(s.from_local),
             },
             to: vec![Address {
                 name: None,
-                email: format!("{}@example.test", WORDS[s.to_local].replace(['%', ' '], "")),
+                email: address_of(s.to_local),
             }],
+            cc: s
+                .cc
+                .map(|word| Address {
+                    name: None,
+                    email: address_of(word),
+                })
+                .into_iter()
+                .collect(),
             subject: words(&s.subject),
             rfc_message_id: Some(format!("m{i}@example.test")),
             read: if s.read {
@@ -309,11 +351,28 @@ fn build(specs: &[Spec]) -> Both {
                 text: Some(body),
                 raw,
             },
+            attachments: s
+                .attached
+                .map(|(word, size)| Attachment {
+                    name: format!("{}.pdf", WORDS[word]),
+                    mime: "application/pdf".to_owned(),
+                    size,
+                    content: PartContent::Remote {
+                        section: Section::of(&[2]).unwrap(),
+                    },
+                    inline: Inline::Attached,
+                })
+                .into_iter()
+                .collect(),
             ..message(0)
         };
         let patch = patch(vec![Change::MessageUpsert(Box::new(message.clone()))]);
         sqlite.apply(acct_account(), &patch).unwrap();
         memory.apply(acct_account(), &patch).unwrap();
+        if s.vip {
+            sqlite.put_vip(&message.from.email, None).unwrap();
+            memory.put_vip(&message.from.email, None).unwrap();
+        }
         held.push((message, s));
     }
 
@@ -347,18 +406,27 @@ fn build(specs: &[Spec]) -> Both {
             cursor: None,
             messages,
             flags: Vec::new(),
+            flag_colors: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
+            provider_threads: Vec::new(),
             gone: Vec::new(),
         };
         sqlite.ingest(acct_account(), ingest.clone()).unwrap();
         memory.ingest(acct_account(), ingest).unwrap();
     }
 
-    // Moves queued and not yet confirmed, as the window or a rule queues them: the op applied
-    // here, its remote half in the outbox. A message with no address queues nothing.
-    for (message, s) in &held {
-        let Some(to) = s.moving else { continue };
+    // Copies and moves queued and not yet confirmed, as the window or a rule queues them: the op
+    // applied here, its remote half in the outbox. A message with no address queues nothing.
+    let queued = held.iter().flat_map(|(message, s)| {
+        [
+            s.copying.map(|to| (message, Op::Copy(MOVES[to].1))),
+            s.moving.map(|to| (message, Op::File(MOVES[to].1))),
+        ]
+        .into_iter()
+        .flatten()
+    });
+    for (message, op) in queued {
         for store in [&sqlite as &dyn Store, &memory] {
             let thread = store.thread(message.thread).unwrap();
             let messages: Vec<Message> = thread
@@ -366,7 +434,7 @@ fn build(specs: &[Spec]) -> Both {
                 .iter()
                 .map(|id| store.message(*id).unwrap())
                 .collect();
-            let applied = Op::File(MOVES[to].1).apply(
+            let applied = op.apply(
                 &Target::Messages(vec![message.id]),
                 &thread,
                 &messages,
@@ -491,7 +559,8 @@ proptest! {
     }
 
     /// Paging through the list a few rows at a time, under every sort, reaches each thread once
-    /// and in the order one page of all of them has, in both stores.
+    /// and in the order one page of all of them has, in both stores, and the stores agree on
+    /// that order.
     #[test]
     fn paging_under_every_sort_reaches_each_thread_once(
         specs in prop::collection::vec(spec(), 1..8),
@@ -506,8 +575,12 @@ proptest! {
             Property::Size,
             Property::Attachments,
             Property::Pin,
+            Property::Unread,
+            Property::Starred,
         ];
+        let mut orders: Vec<Vec<Vec<ThreadId>>> = Vec::new();
         for store in [&both.sqlite as &dyn Store, &both.memory] {
+            let mut order = Vec::new();
             for property in properties {
                 for dir in [SortDir::Asc, SortDir::Desc] {
                     let query = |after, limit| Query {
@@ -534,9 +607,12 @@ proptest! {
                         }
                     }
                     prop_assert_eq!(&paged, &whole, "{:?} {:?}", property, dir);
+                    order.push(whole);
                 }
             }
+            orders.push(order);
         }
+        prop_assert_eq!(&orders[0], &orders[1], "SQLite and memory sort apart");
     }
 
     /// Term sets for an ASCII prefix. Both stores fold with `search_tokens` and count a term

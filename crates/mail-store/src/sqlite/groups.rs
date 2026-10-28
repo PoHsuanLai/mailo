@@ -4,6 +4,7 @@
 use super::SqliteStore;
 use super::row::{json, to_json};
 use crate::StoreError;
+use crate::changes::Topics;
 use crate::contact::{Group, GroupId};
 use rusqlite::{OptionalExtension, params};
 
@@ -55,7 +56,7 @@ impl SqliteStore {
     }
 
     pub(super) fn write_group(&self, group: &Group) -> Result<(), StoreError> {
-        self.connection().execute(
+        self.touch(Topics::CONTACTS).execute(
             "INSERT OR REPLACE INTO contact_groups (id, uid, name, members, home)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![
@@ -71,7 +72,7 @@ impl SqliteStore {
 
     pub(super) fn drop_group(&self, id: &GroupId) -> Result<bool, StoreError> {
         let gone = self
-            .connection()
+            .touch(Topics::CONTACTS)
             .execute("DELETE FROM contact_groups WHERE id = ?1", params![id.0])?;
         Ok(gone > 0)
     }

@@ -1,6 +1,7 @@
 //! Lane 3: a reply's round trip. Open a message, press r, write a formatted answer above the
 //! quote and send it; the answer to it comes back into the same conversation, and Reply all on
-//! that one addresses everyone on it.
+//! that one addresses everyone on it. Reply in the Same Format is off, so the answer to the
+//! seeded plain-text mail goes out rich (`plain.rs` holds the reply that answers in kind).
 
 use super::drive::{Drive, Key, PRIMARY};
 use super::look::chips;
@@ -11,7 +12,17 @@ const REPLY: &str = ".inline-reply";
 
 #[test]
 fn a_reply_goes_out_quoted_its_answer_threads_back_and_reply_all_answers_everyone() {
-    let mut window = Window::open(|_| {});
+    let mut window = Window::open_with(
+        chrono::Utc::now(),
+        |_| {},
+        |dir, contexts| {
+            mail_ui::settings::change(&mail_ui::settings::root_for(&dir.join("config")), |s| {
+                s.compose.reply_same_format = mail_ui::settings::ReplySameFormat::Off;
+            })
+            .expect("the setting is written");
+            contexts
+        },
+    );
     let subject = INBOX[0].1;
     window.open_subject(subject);
 

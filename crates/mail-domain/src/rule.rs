@@ -36,6 +36,25 @@ pub struct Rule {
     /// What to do, in order. A rule with none only matters for [`AfterMatch::Stop`].
     pub actions: Vec<RuleAction>,
     pub after: AfterMatch,
+    /// When the rule was made. A rule that sends mail (Reply, Forward) answers only mail dated
+    /// after it, so mail downloaded again, or fetched anew after a mailbox's UIDVALIDITY reset,
+    /// never sends the history.
+    #[serde(default = "epoch")]
+    pub made: DateTime<Utc>,
+    /// A Reply answers one sender at most once in this many days.
+    #[serde(default = "default_reply_days")]
+    pub reply_days: u32,
+}
+
+/// How many days a Reply rule leaves between two answers to one sender.
+pub const DEFAULT_REPLY_DAYS: u32 = 4;
+
+fn default_reply_days() -> u32 {
+    DEFAULT_REPLY_DAYS
+}
+
+fn epoch() -> DateTime<Utc> {
+    DateTime::<Utc>::UNIX_EPOCH
 }
 
 /// Whether a rule runs.
@@ -75,6 +94,52 @@ pub enum RuleAction {
     File(String),
     MarkRead,
     Star,
+    MarkUnread,
+    /// Raise a notification for it, wherever it went and whether or not it is read: the way to
+    /// hear of mail a rule files away, or of one sender when everything else is quiet.
+    Notify,
+    /// Send it on to this address, as a forward with the message quoted beneath.
+    Forward(String),
+    /// Answer its sender with the template of this name. Not to the user's own mail, and not to
+    /// an address that takes no answers (`noreply@`, `mailer-daemon@`), so two clients' rules
+    /// cannot answer each other for ever.
+    Reply(String),
+}
+
+impl RuleAction {
+    /// A Forward to `address`, if it is one address: `name@domain`, with no spaces, commas or
+    /// angle brackets, which a rule would otherwise hand a mail server as it stands.
+    pub fn forward(address: &str) -> Result<RuleAction, String> {
+        let address = address.trim();
+        let plain = |part: &str| {
+            !part.is_empty()
+                && !part
+                    .chars()
+                    .any(|c| c.is_whitespace() || c.is_control() || "<>(),;:\\\"[]".contains(c))
+        };
+        match address.split_once('@') {
+            Some((name, domain))
+                if plain(name)
+                    && plain(domain)
+                    && !domain.contains('@')
+                    && !domain.starts_with('.')
+                    && !domain.ends_with('.') =>
+            {
+                Ok(RuleAction::Forward(address.to_owned()))
+            }
+            _ => Err(format!("{address:?} is not an address")),
+        }
+    }
+
+    /// Whether this action sends mail or raises a notification: things only a running client
+    /// can do, and that a second run would do twice. They are never written into a server's
+    /// script, and running a rule over mail already here leaves them out.
+    pub fn speaks(&self) -> bool {
+        matches!(
+            self,
+            RuleAction::Notify | RuleAction::Forward(_) | RuleAction::Reply(_)
+        )
+    }
 }
 
 impl Rule {
@@ -158,5 +223,29 @@ impl Vacation {
     /// Whether the reply should be going out at `now`.
     pub fn active_at(&self, now: DateTime<Utc>) -> bool {
         self.during.from.is_none_or(|from| now >= from) && self.during.to.is_none_or(|to| now < to)
+    }
+}
+
+#[cfg(test)]
+mod forward_tests {
+    use super::RuleAction;
+
+    #[test]
+    fn a_forward_goes_to_one_plain_address_only() {
+        let cases = [
+            ("ada@example.test", true),
+            ("  ada@example.test ", true),
+            ("ada@example.test, bob@example.test", false),
+            ("Ada <ada@example.test>", false),
+            ("ada@@example.test", false),
+            ("ada@", false),
+            ("@example.test", false),
+            ("ada example@example.test", false),
+            ("ada@example.", false),
+            ("not an address", false),
+        ];
+        for (typed, ok) in cases {
+            assert_eq!(RuleAction::forward(typed).is_ok(), ok, "{typed}");
+        }
     }
 }

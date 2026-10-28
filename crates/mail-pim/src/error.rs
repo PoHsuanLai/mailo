@@ -1,19 +1,15 @@
-//! What can be wrong with a card, a calendar or a DAV reply.
+//! What can be wrong with a card or a calendar.
 
 use mail_domain::{Retry, Retryable};
 
 /// The bytes did not hold together.
 ///
-/// Never a panic: a vCard file came from another program and a DAV reply from a server, and
-/// either may be anything.
+/// Never a panic: a vCard file or a calendar came from another
+/// program, and may be anything.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum PimError {
-    /// A DAV reply that is not well-formed XML.
-    #[error("the server's reply is not XML: {0}")]
-    Xml(String),
-    /// Well-formed XML that is not the document asked for, such as a reply with no
-    /// `multistatus` at its root.
+    /// Well-formed text that is not the document asked for, such as an invitation with no event.
     #[error("the server's reply is not a {expected}")]
     Unexpected { expected: &'static str },
     /// More text than a calendar object is allowed to be here.

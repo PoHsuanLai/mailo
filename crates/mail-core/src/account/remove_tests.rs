@@ -155,7 +155,8 @@ fn a_keyring_that_will_not_forget_stops_the_removal_with_nothing_deleted() {
 
 #[test]
 fn removing_an_account_forgets_every_purpose_of_it_through_delete_account() {
-    use porter_core::{CapabilityKind, SecretText};
+    use porter_capability::CapabilityKind;
+    use porter_core::SecretText;
     let secrets = MemorySecrets::default();
     let store = two_accounts(&secrets);
     let gone = account_of(&store, GONE);

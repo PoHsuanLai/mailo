@@ -385,3 +385,257 @@ mod top_hits {
         }
     }
 }
+
+/// A message's attachment names are searched, and its size is what `larger:` and `smaller:`
+/// compare: in both stores alike. The SQLite store reads both from what it indexed and stored,
+/// the memory store from the message.
+#[test]
+fn attachment_names_and_sizes_are_searched() {
+    let both = Both::new();
+    seed_account(&both.sqlite, acct_account(), "me@example.test");
+    let raw = both.sqlite.blobs().put(b"raw").unwrap();
+    // 2048 bytes of attachment and the bytes of "see attached".
+    let message = Message {
+        subject: "figures".into(),
+        body: Body::Present {
+            text: Some("see attached".to_owned()),
+            raw,
+        },
+        attachments: vec![Attachment {
+            name: "quarterly-figures.pdf".to_owned(),
+            mime: "application/pdf".to_owned(),
+            size: 2048,
+            content: PartContent::Held(raw),
+            inline: Inline::Attached,
+        }],
+        ..message(1)
+    };
+    let size = 2048 + "see attached".len() as u64;
+    for (_, store) in both.each() {
+        store
+            .apply(
+                acct_account(),
+                &patch(vec![Change::MessageUpsert(Box::new(message.clone()))]),
+            )
+            .unwrap();
+    }
+    let cases: Vec<(&str, Filter, usize)> = vec![
+        (
+            "an attachment's name",
+            Filter::Text(TextMatch::Contains("quarterly".into())),
+            1,
+        ),
+        (
+            "a word of no part",
+            Filter::Text(TextMatch::Contains("annual".into())),
+            0,
+        ),
+        ("larger than a byte under", Filter::Larger(size - 1), 1),
+        ("larger than itself", Filter::Larger(size), 0),
+        ("smaller than a byte over", Filter::Smaller(size + 1), 1),
+        ("smaller than itself", Filter::Smaller(size), 0),
+    ];
+    for (case, filter, want) in cases {
+        let found = both.agree(|store| {
+            store
+                .threads(&query(filter.clone(), 10), at(0))
+                .unwrap()
+                .items
+                .len()
+        });
+        assert_eq!(found, want, "{case}");
+    }
+}
+
+/// A message's size is kept beside it as `message_size` gives it: a message held by its headers
+/// alone, with no size from the server, is no bytes, the body arriving makes it its text, and a part held later says its own
+/// size. The same in both stores, and what `larger:` and `smaller:` compare.
+#[test]
+fn a_messages_size_is_kept_as_it_changes() {
+    let both = Both::new();
+    seed_account(&both.sqlite, acct_account(), "me@example.test");
+    let raw = both.sqlite.blobs().put(b"raw").unwrap();
+    let headers_only = Message {
+        subject: "figures".into(),
+        body: Body::Absent,
+        attachments: Vec::new(),
+        ..message(1)
+    };
+    let with_body = Message {
+        body: Body::Present {
+            text: Some("see attached".to_owned()),
+            raw,
+        },
+        attachments: vec![Attachment {
+            name: "figures.pdf".to_owned(),
+            mime: "application/pdf".to_owned(),
+            size: 100,
+            content: PartContent::Remote {
+                section: Section::of(&[2]).unwrap(),
+            },
+            inline: Inline::Attached,
+        }],
+        ..headers_only.clone()
+    };
+    let found = |filter: Filter| {
+        both.agree(|store| {
+            store
+                .threads(&query(filter.clone(), 10), at(0))
+                .unwrap()
+                .items
+                .len()
+        })
+    };
+    let stored = || -> i64 {
+        both.sqlite
+            .raw_connection()
+            .query_row("SELECT size FROM messages", [], |row| row.get(0))
+            .unwrap()
+    };
+    for (_, store) in both.each() {
+        store
+            .apply(
+                acct_account(),
+                &patch(vec![Change::MessageUpsert(Box::new(headers_only.clone()))]),
+            )
+            .unwrap();
+    }
+    assert_eq!(stored(), 0, "headers alone are no bytes");
+    assert_eq!(found(Filter::Smaller(1)), 1);
+    assert_eq!(found(Filter::Larger(0)), 0);
+    for (_, store) in both.each() {
+        store
+            .apply(
+                acct_account(),
+                &patch(vec![Change::MessageUpsert(Box::new(with_body.clone()))]),
+            )
+            .unwrap();
+    }
+    let size = 100 + "see attached".len() as u64;
+    assert_eq!(stored(), size as i64, "the text and the part's own size");
+    assert_eq!(found(Filter::Larger(size - 1)), 1);
+    assert_eq!(found(Filter::Larger(size)), 0);
+    assert_eq!(found(Filter::Smaller(1)), 0, "no longer headers alone");
+}
+
+/// A message held by its headers alone weighs what the server said it does: `larger:` and
+/// `smaller:` find it by that size, a body or part arriving later only sharpens the size (the
+/// larger of the two is kept), and a message the store does not hold is left out.
+#[test]
+fn a_header_only_message_weighs_what_the_server_said() {
+    let both = Both::new();
+    seed_account(&both.sqlite, acct_account(), "me@example.test");
+    let raw = both.sqlite.blobs().put(b"raw").unwrap();
+    let headers_only = Message {
+        subject: "photos".into(),
+        body: Body::Absent,
+        attachments: Vec::new(),
+        ..message(1)
+    };
+    let found = |filter: Filter| {
+        both.agree(|store| {
+            store
+                .threads(&query(filter.clone(), 10), at(0))
+                .unwrap()
+                .items
+                .len()
+        })
+    };
+    let server_size = |store: &SqliteStore| -> i64 {
+        store
+            .raw_connection()
+            .query_row("SELECT server_size FROM messages", [], |row| row.get(0))
+            .unwrap()
+    };
+    for (_, store) in both.each() {
+        store
+            .apply(
+                acct_account(),
+                &patch(vec![Change::MessageUpsert(Box::new(headers_only.clone()))]),
+            )
+            .unwrap();
+    }
+    assert_eq!(found(Filter::Larger(500_000)), 0, "no size known yet");
+    let megabyte = 1_000_000;
+    for (_, store) in both.each() {
+        store
+            .hold_server_sizes(&[(headers_only.id, megabyte), (message(2).id, 7)])
+            .unwrap();
+    }
+    assert_eq!(server_size(&both.sqlite), megabyte as i64);
+    assert_eq!(found(Filter::Larger(500_000)), 1);
+    assert_eq!(found(Filter::Smaller(100_000)), 0);
+    assert_eq!(found(Filter::Larger(megabyte)), 0, "not larger than itself");
+
+    // The headers stored again, as a sync does, and the body arriving: the server's size stays
+    // the larger of the two.
+    let with_body = Message {
+        body: Body::Present {
+            text: Some("short".to_owned()),
+            raw,
+        },
+        ..headers_only.clone()
+    };
+    for (_, store) in both.each() {
+        store
+            .apply(
+                acct_account(),
+                &patch(vec![Change::MessageUpsert(Box::new(headers_only.clone()))]),
+            )
+            .unwrap();
+    }
+    assert_eq!(found(Filter::Larger(500_000)), 1, "headers again");
+    for (_, store) in both.each() {
+        store
+            .apply(
+                acct_account(),
+                &patch(vec![Change::MessageUpsert(Box::new(with_body.clone()))]),
+            )
+            .unwrap();
+    }
+    assert_eq!(found(Filter::Larger(500_000)), 1, "the body arrived");
+    assert_eq!(found(Filter::Smaller(100_000)), 0);
+}
+
+/// Opening a store whose rows all lack their indexed text (as migration 0042 leaves them)
+/// indexes every one, however many there are, and a second open has nothing to do.
+#[test]
+fn opening_indexes_every_row_that_lacks_its_text_in_batches() {
+    let dir = tempfile::tempdir().unwrap();
+    let open = || SqliteStore::open(dir.path().join("mail.db"), dir.path().join("blobs")).unwrap();
+    let pending = |store: &SqliteStore| -> i64 {
+        store
+            .raw_connection()
+            .query_row(
+                "SELECT count(*) FROM messages WHERE fts_text IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap()
+    };
+    {
+        let store = open();
+        seed_account(&store, acct_account(), "me@example.test");
+        let mut batch = ingest("INBOX");
+        for n in 1..=2500u32 {
+            let mut m = message(u128::from(n));
+            m.subject = format!("invoice {n}");
+            batch.messages.push(Fetched {
+                remote: imap("INBOX", n),
+                key: m.key.clone(),
+                raw: BlobId::generate(),
+                message: m,
+            });
+        }
+        store.ingest(acct_account(), batch).unwrap();
+        store
+            .raw_connection()
+            .execute("UPDATE messages SET fts_text = NULL", [])
+            .unwrap();
+        assert_eq!(pending(&store), 2500);
+    }
+    let store = open();
+    assert_eq!(pending(&store), 0);
+    drop(store);
+    assert_eq!(pending(&open()), 0);
+}

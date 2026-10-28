@@ -3,8 +3,10 @@
 //! Submission is deliberately absent: it is a separate connection to a separate host and lives
 //! in [`crate::backend::SmtpBackend`].
 
+mod quota;
 mod search;
 
+pub use quota::Quota;
 pub use search::{Found, Searching};
 
 use super::folders::{already_so, folder_commands, listing, roles};
@@ -12,8 +14,8 @@ use crate::imap::{Access, ImapCommand, ImapSession, Resume};
 use crate::machine::{Backend, IoReady, Machine, Moved, Progress, ProtoError, ProtoOutcome};
 use mail_domain::{
     AccountCaps, ArchiveMeans, Condstore, ExpungeMeans, FetchSince, FolderWork, Ingest, MailboxRef,
-    MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels, SyncCursor,
-    SystemFlag, UidValidity,
+    MailboxRole, MoveExt, PartTree, ProtoOp, RemoteRef, Resync, ServerLabels, ServerThreads,
+    SyncCursor, SystemFlag, UidValidity,
 };
 use porter_core::AccountId;
 
@@ -60,6 +62,11 @@ enum Job {
     Applied,
     /// A move of `remotes` into `target`, whose answer may say where each landed.
     Moving {
+        remotes: Vec<RemoteRef>,
+        target: String,
+    },
+    /// A copy of `remotes` into `target`, whose answer may say where each copy landed.
+    Copying {
         remotes: Vec<RemoteRef>,
         target: String,
     },
@@ -126,14 +133,20 @@ impl ImapBackend {
     fn queue_as(
         &mut self,
         auth: Authenticate,
-        commands: Vec<ImapCommand>,
+        mut commands: Vec<ImapCommand>,
     ) -> Progress<ProtoOutcome> {
         // Resumed, the connection is signed in already, and signing in twice is refused.
         let going_on = self.going_on.take();
+        let going_on_is_new = going_on.is_none();
         let auth = match going_on {
             Some(_) => Authenticate::No,
             None => auth,
         };
+        // Compressed on a connection this operation signs in on, when the server offers it. A
+        // connection gone on from keeps what it was given, and a relay's is its own.
+        if going_on_is_new && auth != Authenticate::No {
+            commands.insert(0, ImapCommand::Compress);
+        }
         let session = match (self.build)(auth, commands) {
             Ok(session) => session,
             Err(e) => return Progress::Failed(e),
@@ -156,6 +169,84 @@ impl ImapBackend {
     ///
     /// `EXAMINE` rather than `SELECT` wherever possible: a read-only selection cannot set
     /// `\Recent` or implicitly expunge, and fetching should never have a side effect.
+    /// Whether the server keeps keywords on its messages, and may be given ours: a server whose
+    /// `PERMANENTFLAGS` lists `\*` and whose account keeps its labels there
+    /// ([`ServerLabels::Keywords`]). Not Gmail, whose keywords come back as labels of its own
+    /// (a flag colour's bits would show as labels there); not a server that may refuse a
+    /// keyword, or keep it for the session and lose it. Where it is not, none is written and
+    /// none is read for a meaning.
+    fn keeps_keywords(&self) -> bool {
+        matches!(self.caps.labels, ServerLabels::Keywords)
+    }
+
+    /// Labels by name, as keywords on `remotes`: each name's keyword added or taken away. A
+    /// name with no keyword is a label kept here alone, and is left out.
+    fn store_label_keywords(
+        &mut self,
+        remotes: &[RemoteRef],
+        add: &[String],
+        remove: &[String],
+    ) -> Progress<ProtoOutcome> {
+        let keywords = |names: &[String]| -> Vec<String> {
+            names
+                .iter()
+                .filter_map(|name| mail_domain::label_keyword(name))
+                .collect()
+        };
+        let (add, remove) = (keywords(add), keywords(remove));
+        let Some(set) = uid_set(remotes).filter(|_| !add.is_empty() || !remove.is_empty()) else {
+            return Progress::Done(ProtoOutcome::Applied);
+        };
+        let mailbox = mailbox_of(remotes, self.account.clone());
+        let mut commands = vec![Self::select(&mailbox, Access::ReadWrite)];
+        if !add.is_empty() {
+            commands.push(ImapCommand::UidStore {
+                set: set.clone(),
+                what: format!("+FLAGS ({})", add.join(" ")),
+                tolerate: false,
+            });
+        }
+        if !remove.is_empty() {
+            commands.push(ImapCommand::UidStore {
+                set,
+                what: format!("-FLAGS ({})", remove.join(" ")),
+                tolerate: false,
+            });
+        }
+        self.job = Job::Applied;
+        self.queue(commands)
+    }
+
+    /// Each surveyed message's flag colour, where the server keeps keywords to say it with.
+    fn flag_colors(&self, rows: &[Surveyed]) -> Vec<(RemoteRef, mail_domain::Hue)> {
+        if !self.keeps_keywords() {
+            return Vec::new();
+        }
+        rows.iter()
+            .map(|row| (row.remote.clone(), row.hue))
+            .collect()
+    }
+
+    /// Each surveyed message's labels, read from its keywords, where labels are keywords. Every
+    /// message, those with none included: the list is complete, and a message with no keyword
+    /// left has had its last label taken away.
+    fn keyword_labels(&self, rows: &[Surveyed]) -> Vec<(RemoteRef, Vec<String>)> {
+        if !matches!(self.caps.labels, ServerLabels::Keywords) {
+            return Vec::new();
+        }
+        rows.iter()
+            .map(|row| {
+                let names = row
+                    .keywords
+                    .iter()
+                    .filter_map(|keyword| mail_domain::keyword_label(keyword))
+                    .map(|(name, _)| name)
+                    .collect();
+                (row.remote.clone(), names)
+            })
+            .collect()
+    }
+
     fn select(mailbox: &MailboxRef, access: Access) -> ImapCommand {
         ImapCommand::Select {
             mailbox: mailbox.path.clone(),
@@ -187,6 +278,7 @@ impl ImapBackend {
         remotes: &[RemoteRef],
         set: String,
         target: String,
+        marks: Vec<ImapCommand>,
     ) -> Progress<ProtoOutcome> {
         // Already where it is going: nothing to do, and nothing sent. The retry of a move split
         // per mailbox, interrupted after its first part, finds that part's messages in the
@@ -214,7 +306,43 @@ impl ImapBackend {
                 mailbox: target,
             },
         };
-        self.queue(vec![Self::select(source, Access::ReadWrite), action])
+        let mut commands = vec![Self::select(source, Access::ReadWrite)];
+        // Set before the move, so they travel with the message (RFC 6851 §3.3, and `COPY`).
+        commands.extend(marks);
+        commands.push(action);
+        self.queue(commands)
+    }
+
+    /// Copy `remotes`, all in `source`, into `target` with `UID COPY`, leaving them where they
+    /// are.
+    ///
+    /// Nothing is sent for a copy into the folder it is in: `COPY` would put a second copy of
+    /// the message beside it, which nobody asked for.
+    fn copy_into(
+        &mut self,
+        source: &MailboxRef,
+        remotes: &[RemoteRef],
+        set: String,
+        target: String,
+    ) -> Progress<ProtoOutcome> {
+        if same_folder(&source.path, &target) {
+            return Progress::Done(ProtoOutcome::Applied);
+        }
+        self.job = Job::Copying {
+            remotes: remotes
+                .iter()
+                .filter(|r| matches!(r, RemoteRef::Imap { mailbox, .. } if *mailbox == source.path))
+                .cloned()
+                .collect(),
+            target: target.clone(),
+        };
+        self.queue(vec![
+            Self::select(source, Access::ReadOnly),
+            ImapCommand::UidCopy {
+                set,
+                mailbox: target,
+            },
+        ])
     }
 
     /// Delete `remotes` for good: the user's "Delete forever", from Trash or Spam.
@@ -286,9 +414,71 @@ impl ImapBackend {
             ImapCommand::UidStore {
                 set: set.clone(),
                 what: "+FLAGS.SILENT (\\Deleted)".to_owned(),
+                tolerate: false,
             },
             ImapCommand::UidExpunge { set },
         ])
+    }
+
+    /// Put `raw` in the Drafts folder at `mailbox` in place of the copies of the draft whose
+    /// `Message-ID` is `message_id` already there ([`ProtoOp::KeepDraft`]), or with no `raw`
+    /// only remove them ([`ProtoOp::DropDraft`]).
+    ///
+    /// The folder must be the one the server lists as Drafts, as Trash or Spam must be for a
+    /// deletion forever: this marks messages `\Deleted`, and nowhere else is that this client's
+    /// to do. Then, on one connection: `CAPABILITY`, so the session knows what the server offers
+    /// once signed in; `SELECT`; `UID SEARCH DRAFT HEADER Message-ID`, which finds the copies
+    /// already there, by the draft's own id rather than by UIDs an earlier upload was told, since
+    /// a server need not say where an upload landed (`APPENDUID`) and an upload cut off before its
+    /// answer leaves a copy nobody was told of; the `APPEND`; and `UID STORE +FLAGS.SILENT
+    /// (\Deleted)` and `UID EXPUNGE` of exactly the UIDs the search found, which are decided in
+    /// the walk ([`ImapCommand::UidStoreFound`]). Found before the upload, so the new copy is
+    /// never among them; removed after it, so a walk cut off part way leaves a copy too many,
+    /// which the next one finds, and never none.
+    ///
+    /// Without `UIDPLUS` (or IMAP4rev2) the old copies are marked and not expunged, and the walk
+    /// still succeeds: they are this client's own, and are left for the server or a client that
+    /// expunges the folder. A bare `EXPUNGE` would take other clients' `\Deleted` mail with them.
+    fn draft_copy(
+        &mut self,
+        mailbox: &MailboxRef,
+        message_id: &str,
+        raw: Option<Vec<u8>>,
+    ) -> Progress<ProtoOutcome> {
+        if self.caps.folders.role(&mailbox.path) != Some(MailboxRole::Drafts) {
+            return Progress::Failed(ProtoError::Unsupported(format!(
+                "keeping a draft outside the Drafts folder: the server does not list {} as \
+                 Drafts, so nothing was sent",
+                mailbox.path
+            )));
+        }
+        let Some(criteria) = draft_search(message_id) else {
+            return Progress::Failed(ProtoError::Malformed(format!(
+                "{message_id:?} is not a Message-ID this client gives a draft"
+            )));
+        };
+        let mut commands = vec![
+            ImapCommand::Capability,
+            Self::select(mailbox, Access::ReadWrite),
+            ImapCommand::UidSearch { criteria },
+        ];
+        if let Some(raw) = raw {
+            commands.push(ImapCommand::Append {
+                mailbox: mailbox.path.clone(),
+                flags: [SystemFlag::Draft, SystemFlag::Seen]
+                    .iter()
+                    .map(|f| wire_flag(*f).to_owned())
+                    .collect(),
+                date: None,
+                raw,
+            });
+        }
+        commands.push(ImapCommand::UidStoreFound {
+            what: "+FLAGS.SILENT (\\Deleted)".to_owned(),
+        });
+        commands.push(ImapCommand::UidExpungeFound);
+        self.job = Job::Applied;
+        self.queue(commands)
     }
 
     /// One `UID FETCH` over a batch, on one authenticated connection.
@@ -349,7 +539,22 @@ impl Backend for ImapBackend {
                 // Ask, authenticate, ask again. Gmail's pre-auth list omits CONDSTORE, MOVE and
                 // SPECIAL-USE, so believing the first answer reports a far less capable server
                 // than it is.
-                self.queue(vec![ImapCommand::Capability, ImapCommand::Capability])
+                //
+                // Then select the inbox, read-write, for its `PERMANENTFLAGS`: whether the server
+                // keeps keywords it has not seen before (`\*`) decides whether labels can be
+                // keywords. `EXAMINE` will not do: a read-only mailbox keeps no flags at all, and
+                // says so with an empty list.
+                self.queue(vec![
+                    ImapCommand::Capability,
+                    ImapCommand::Capability,
+                    Self::select(
+                        &MailboxRef {
+                            account: self.account.clone(),
+                            path: "INBOX".to_owned(),
+                        },
+                        Access::ReadWrite,
+                    ),
+                ])
             }
             ProtoOp::ListFolders => {
                 self.job = Job::Folders;
@@ -396,20 +601,21 @@ impl Backend for ImapBackend {
                 // would have discarded.
                 //
                 // `X-GM-LABELS` is asked for because the code that reads it exists, which is the
-                // only condition under which asking for something is worth the bytes.
+                // only condition under which asking for something is worth the bytes. So is
+                // `X-GM-THRID`, Gmail's own conversation id, which threading joins on.
                 // `ENVELOPE`, `BODYSTRUCTURE`, `INTERNALDATE` and the other `X-GM-*` attributes
                 // stay out: nothing reads them.
-                let items = if matches!(self.caps.labels, ServerLabels::Supported) {
-                    "(UID FLAGS RFC822.SIZE X-GM-LABELS)"
-                } else {
-                    "(UID FLAGS RFC822.SIZE)"
-                };
+                let mut items = String::from("(UID FLAGS RFC822.SIZE");
+                if matches!(self.caps.labels, ServerLabels::Supported) {
+                    items.push_str(" X-GM-LABELS");
+                }
+                if matches!(self.caps.threads, ServerThreads::ProviderId) {
+                    items.push_str(" X-GM-THRID");
+                }
+                items.push(')');
                 self.queue(vec![
                     Self::select(&mailbox, Access::ReadOnly),
-                    ImapCommand::UidFetch {
-                        set,
-                        items: items.to_owned(),
-                    },
+                    ImapCommand::UidFetch { set, items },
                 ])
             }
             ProtoOp::FetchHeaders { remotes } => {
@@ -458,7 +664,14 @@ impl Backend for ImapBackend {
                 }
                 match star {
                     Some(mail_domain::Star::Starred) => add.push("\\Flagged"),
-                    Some(mail_domain::Star::Unstarred) => remove.push("\\Flagged"),
+                    // The colour goes with the flag, as Apple Mail clears it: a star set again
+                    // later, by any client, is a red one.
+                    Some(mail_domain::Star::Unstarred) => {
+                        remove.push("\\Flagged");
+                        if self.keeps_keywords() {
+                            remove.extend(mail_domain::FLAG_BIT_KEYWORDS);
+                        }
+                    }
                     None => {}
                 }
                 let mailbox = mailbox_of(&remotes, self.account.clone());
@@ -467,12 +680,45 @@ impl Backend for ImapBackend {
                     commands.push(ImapCommand::UidStore {
                         set: set.clone(),
                         what: format!("+FLAGS ({})", add.join(" ")),
+                        tolerate: false,
                     });
                 }
                 if !remove.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set,
                         what: format!("-FLAGS ({})", remove.join(" ")),
+                        tolerate: false,
+                    });
+                }
+                self.job = Job::Applied;
+                self.queue(commands)
+            }
+            ProtoOp::SetFlag { remotes, hue } => {
+                let Some(set) = uid_set(&remotes) else {
+                    return Progress::Done(ProtoOutcome::Applied);
+                };
+                // A server that keeps no keywords keeps the flag, and the colour stays here.
+                let (bits, clear) = if self.keeps_keywords() {
+                    hue.flag_keywords()
+                } else {
+                    (Vec::new(), Vec::new())
+                };
+                let mailbox = mailbox_of(&remotes, self.account.clone());
+                let mut add = vec!["\\Flagged"];
+                add.extend(bits);
+                let mut commands = vec![
+                    Self::select(&mailbox, Access::ReadWrite),
+                    ImapCommand::UidStore {
+                        set: set.clone(),
+                        what: format!("+FLAGS ({})", add.join(" ")),
+                        tolerate: false,
+                    },
+                ];
+                if !clear.is_empty() {
+                    commands.push(ImapCommand::UidStore {
+                        set,
+                        what: format!("-FLAGS ({})", clear.join(" ")),
+                        tolerate: false,
                     });
                 }
                 self.job = Job::Applied;
@@ -493,6 +739,7 @@ impl Backend for ImapBackend {
                     ImapCommand::UidStore {
                         set,
                         what: format!("+FLAGS ({})", keyword_atom(keyword)),
+                        tolerate: false,
                     },
                 ])
             }
@@ -501,6 +748,9 @@ impl Backend for ImapBackend {
                 add,
                 remove,
             } => {
+                if matches!(self.caps.labels, ServerLabels::Keywords) {
+                    return self.store_label_keywords(&remotes, &add, &remove);
+                }
                 if !matches!(self.caps.labels, ServerLabels::Supported) {
                     return Progress::Done(ProtoOutcome::Applied);
                 }
@@ -513,12 +763,14 @@ impl Backend for ImapBackend {
                     commands.push(ImapCommand::UidStore {
                         set: set.clone(),
                         what: format!("+X-GM-LABELS ({})", quoted_labels(&add)),
+                        tolerate: false,
                     });
                 }
                 if !remove.is_empty() {
                     commands.push(ImapCommand::UidStore {
                         set,
                         what: format!("-X-GM-LABELS ({})", quoted_labels(&remove)),
+                        tolerate: false,
                     });
                 }
                 self.job = Job::Applied;
@@ -540,6 +792,7 @@ impl Backend for ImapBackend {
                             commands.push(ImapCommand::UidStore {
                                 set: set.clone(),
                                 what: format!("+X-GM-LABELS ({label})"),
+                                tolerate: false,
                             });
                         }
                         // Back to the inbox is `\Inbox` added and nothing taken away. Taking it
@@ -549,6 +802,7 @@ impl Backend for ImapBackend {
                             commands.push(ImapCommand::UidStore {
                                 set,
                                 what: "-X-GM-LABELS (\\Inbox)".to_owned(),
+                                tolerate: false,
                             });
                         }
                         self.queue(commands)
@@ -561,7 +815,8 @@ impl Backend for ImapBackend {
                                 "filing into {role:?}: this server named no folder for it"
                             )));
                         };
-                        self.move_into(&source, &remotes, set, target)
+                        let marks = junk_marks(&self.caps, &source.path, role, &set);
+                        self.move_into(&source, &remotes, set, target, marks)
                     }
                 }
             }
@@ -581,14 +836,42 @@ impl Backend for ImapBackend {
                             ImapCommand::UidStore {
                                 set: set.clone(),
                                 what: format!("+X-GM-LABELS ({})", quoted_labels(&[folder])),
+                                tolerate: false,
                             },
                             ImapCommand::UidStore {
                                 set,
                                 what: "-X-GM-LABELS (\\Inbox)".to_owned(),
+                                tolerate: false,
                             },
                         ])
                     }
-                    ArchiveMeans::MoveToFolder(_) => self.move_into(&source, &remotes, set, folder),
+                    ArchiveMeans::MoveToFolder(_) => {
+                        self.move_into(&source, &remotes, set, folder, Vec::new())
+                    }
+                }
+            }
+            ProtoOp::Copy { remotes, folder } => {
+                let Some(set) = uid_set(&remotes) else {
+                    return Progress::Done(ProtoOutcome::Applied);
+                };
+                let source = mailbox_of(&remotes, self.account.clone());
+                match &self.caps.archive {
+                    ArchiveMeans::LocalOnly => Progress::Done(ProtoOutcome::Applied),
+                    // Gmail: the folder is a label, and a copy into it is the label added. A
+                    // `COPY` would do the same, under a UID in a mailbox this client does not
+                    // sync; the label is how the folder is listed here.
+                    ArchiveMeans::DropInbox => {
+                        self.job = Job::Applied;
+                        self.queue(vec![
+                            Self::select(&source, Access::ReadWrite),
+                            ImapCommand::UidStore {
+                                set,
+                                what: format!("+X-GM-LABELS ({})", quoted_labels(&[folder])),
+                                tolerate: false,
+                            },
+                        ])
+                    }
+                    ArchiveMeans::MoveToFolder(_) => self.copy_into(&source, &remotes, set, folder),
                 }
             }
             ProtoOp::FetchFlags {
@@ -649,13 +932,35 @@ impl Backend for ImapBackend {
                     },
                 ])
             }
-            ProtoOp::Watch { mailbox, uidnext } => {
+            ProtoOp::Watch {
+                mailbox,
+                uidnext,
+                also,
+            } => {
                 self.job = Job::Watching;
                 let idle = match uidnext {
                     Some(uidnext) => ImapCommand::IdleAfter { uidnext },
                     None => ImapCommand::Idle,
                 };
-                self.queue(vec![Self::select(&mailbox, Access::ReadOnly), idle])
+                let notified = !also.is_empty();
+                let mut walk = Vec::new();
+                // Other mailboxes through NOTIFY, and nothing at all where the server has none:
+                // the guard ends the walk as unsupported before a mailbox is selected, which is
+                // how the caller learns to watch them another way.
+                if notified {
+                    walk.push(ImapCommand::RequireCapability(vec!["NOTIFY".to_owned()]));
+                }
+                walk.push(Self::select(&mailbox, Access::ReadOnly));
+                if notified {
+                    walk.push(ImapCommand::Notify { mailboxes: also });
+                }
+                walk.push(idle);
+                // The connection may be resumed for the next operation: it is left hearing of
+                // nothing it will not read.
+                if notified {
+                    walk.push(ImapCommand::NotifyNone);
+                }
+                self.queue(walk)
             }
             ProtoOp::Expunge { .. } => Progress::Failed(ProtoError::Unsupported(
                 "expunging is forbidden: Gmail may be configured to delete permanently, and \
@@ -701,6 +1006,24 @@ impl Backend for ImapBackend {
             ProtoOp::Submit { .. } => Progress::Failed(ProtoError::Unsupported(
                 "submission is a separate backend".to_owned(),
             )),
+            ProtoOp::KeepDraft {
+                mailbox,
+                message_id,
+                ..
+            } => {
+                // Staged as an `Append`'s bytes are, made from the draft by the runtime.
+                let Some(body) = self.staged.take() else {
+                    return Progress::Failed(ProtoError::Malformed(
+                        "a draft was not staged: call stage() with its bytes".to_owned(),
+                    ));
+                };
+                self.draft_copy(&mailbox, &message_id, Some(body))
+            }
+            ProtoOp::DropDraft {
+                mailbox,
+                message_id,
+                ..
+            } => self.draft_copy(&mailbox, &message_id, None),
         }
     }
 
@@ -758,10 +1081,19 @@ impl Backend for ImapBackend {
                 } else {
                     MoveExt::Absent
                 };
-                caps.labels = if seen("X-GM-EXT-1") {
+                // Gmail's extensions bring its labels and its own conversation ids.
+                let gmail = seen("X-GM-EXT-1");
+                caps.labels = if gmail {
                     ServerLabels::Supported
+                } else if crate::imap::keeps_new_keywords(&transcript.untagged) {
+                    ServerLabels::Keywords
                 } else {
                     ServerLabels::LocalOnly
+                };
+                caps.threads = if gmail {
+                    ServerThreads::ProviderId
+                } else {
+                    ServerThreads::Jwz
                 };
                 // Never inferred from a capability: see ExpungeMeans.
                 caps.expunge = ExpungeMeans::Forbidden;
@@ -806,8 +1138,10 @@ impl Backend for ImapBackend {
                     }),
                     messages: Vec::new(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 })))
             }
@@ -819,8 +1153,10 @@ impl Backend for ImapBackend {
                     cursor: None,
                     messages: Vec::new(),
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
                     labels: Vec::new(),
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: Vec::new(),
                 };
                 // A different UIDVALIDITY and the server ignores the parameter (RFC 7162
@@ -842,6 +1178,8 @@ impl Backend for ImapBackend {
                             uidnext,
                             modseq,
                         }),
+                        flag_colors: self.flag_colors(&changed),
+                        label_names: self.keyword_labels(&changed),
                         flags: changed
                             .into_iter()
                             .map(|row| (row.remote, row.read, row.star))
@@ -882,13 +1220,22 @@ impl Backend for ImapBackend {
                         .iter()
                         .map(|row| (row.remote.clone(), row.read, row.star))
                         .collect(),
+                    flag_colors: self.flag_colors(&seen),
                     labels: Vec::new(),
                     // Only where the server has them. Everywhere else this is empty and the
-                    // store does nothing, which is what "labels are local" means on POP3.
-                    label_names: seen
+                    // store does nothing, which is what "labels are local" means on POP3. As
+                    // keywords, every message's list, read from its keywords.
+                    label_names: match self.caps.labels {
+                        ServerLabels::Keywords => self.keyword_labels(&seen),
+                        ServerLabels::Supported | ServerLabels::LocalOnly => seen
+                            .iter()
+                            .filter(|row| !row.labels.is_empty())
+                            .map(|row| (row.remote.clone(), row.labels.clone()))
+                            .collect(),
+                    },
+                    provider_threads: seen
                         .iter()
-                        .filter(|row| !row.labels.is_empty())
-                        .map(|row| (row.remote.clone(), row.labels.clone()))
+                        .filter_map(|row| Some((row.remote.clone(), row.thread.clone()?)))
                         .collect(),
                     gone: Vec::new(),
                 })))
@@ -919,14 +1266,17 @@ impl Backend for ImapBackend {
                 // The same parser the survey uses. The header fetch asks for `FLAGS`, so they
                 // are already on the wire; not reading them here is what left every message
                 // unread until a later sweep happened to revisit it.
-                let flags = parse_fetches(
+                let rows = parse_fetches(
                     &transcript.untagged,
                     &mailbox_of(&remotes, self.account.clone()).path,
                     uidvalidity_of(&remotes),
-                )
-                .into_iter()
-                .map(|row| (row.remote, row.read, row.star))
-                .collect();
+                );
+                let flag_colors = self.flag_colors(&rows);
+                let label_names = self.keyword_labels(&rows);
+                let flags = rows
+                    .into_iter()
+                    .map(|row| (row.remote, row.read, row.star))
+                    .collect();
                 Progress::Done(ProtoOutcome::Fetched {
                     items: remotes
                         .into_iter()
@@ -936,6 +1286,8 @@ impl Backend for ImapBackend {
                         })
                         .collect(),
                     flags,
+                    flag_colors,
+                    label_names,
                 })
             }
             Job::Structure { remotes } => {
@@ -995,6 +1347,14 @@ impl Backend for ImapBackend {
                     .find_map(copyuid);
                 Progress::Done(ProtoOutcome::Moved(landed_at(remotes, &target, landed)))
             }
+            // In the tagged `OK`, as for a `UID COPY` standing in for a move.
+            Job::Copying { remotes, target } => {
+                let landed = transcript
+                    .completed
+                    .iter()
+                    .find_map(|done| copyuid(&done.text));
+                Progress::Done(ProtoOutcome::Copied(landed_at(remotes, &target, landed)))
+            }
             Job::Applied | Job::Folder(_) => Progress::Done(ProtoOutcome::Applied),
             Job::Watching => Progress::Done(ProtoOutcome::Woken),
         }
@@ -1013,6 +1373,21 @@ impl Backend for ImapBackend {
     }
 }
 
+/// `DRAFT HEADER Message-ID "<id>"`: the search that finds a draft's copies by the id every one
+/// of them carries, and by the `\Draft` flag every one was uploaded with. A message without it
+/// is not a copy of the draft, whatever its id: the sent message itself, filed in Drafts by a
+/// server or client that keeps no Sent folder, carries the same `Message-ID`, and is never
+/// marked for removal. `None` for an id that is not one this client gives a draft, which is ASCII
+/// with one `@` and nothing that could close the quoted string or the brackets.
+fn draft_search(message_id: &str) -> Option<String> {
+    let fits = !message_id.is_empty()
+        && message_id.matches('@').count() == 1
+        && message_id
+            .bytes()
+            .all(|b| b.is_ascii_graphic() && !matches!(b, b'"' | b'\\' | b'<' | b'>'));
+    fits.then(|| format!("DRAFT HEADER Message-ID \"<{message_id}>\""))
+}
+
 /// The wire spelling of a keyword. `$`-prefixed keywords are the registered ones (RFC 5788).
 fn keyword_atom(keyword: mail_domain::Keyword) -> &'static str {
     match keyword {
@@ -1029,6 +1404,12 @@ struct Surveyed {
     star: mail_domain::Star,
     /// Gmail's user labels, empty everywhere else. See [`user_labels`].
     labels: Vec<String>,
+    /// Gmail's conversation id for it (`X-GM-THRID`), absent everywhere else.
+    thread: Option<String>,
+    /// Every keyword in `FLAGS`: the flags that are not system flags.
+    keywords: Vec<String>,
+    /// The flag colour the keywords spell ([`mail_domain::Hue::from_keywords`]).
+    hue: mail_domain::Hue,
 }
 
 /// The UIDVALIDITY a batch of references carries, so re-parsed rows key to the same rows.
@@ -1089,7 +1470,11 @@ fn user_labels(line: &str) -> Vec<String> {
                 chars.next();
             }
         }
-        if value.is_empty() || value.starts_with('\\') {
+        // Not a label: a flag colour's bits, which Gmail lists beside the labels it keeps.
+        let colour_bit = mail_domain::FLAG_BIT_KEYWORDS
+            .iter()
+            .any(|bit| bit.eq_ignore_ascii_case(&value));
+        if value.is_empty() || value.starts_with('\\') || colour_bit {
             continue;
         }
         out.push(crate::mutf7::decode(&value));
@@ -1132,6 +1517,14 @@ fn parse_fetches(untagged: &[crate::Untagged], mailbox: &str, uidvalidity: u32) 
         let flags = flag_list(&text);
         out.push(Surveyed {
             labels: user_labels(&text),
+            thread: after_atom(&text, "X-GM-THRID ")
+                .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_digit())),
+            hue: mail_domain::Hue::from_keywords(&flags),
+            keywords: flags
+                .iter()
+                .filter(|f| !f.starts_with('\\'))
+                .cloned()
+                .collect(),
             remote: RemoteRef::Imap {
                 mailbox: mailbox.to_owned(),
                 // The mailbox's own UIDVALIDITY, not zero. `remote_map` keys on it, so a
@@ -1553,6 +1946,38 @@ fn role_folder(caps: &AccountCaps, archive: &str, role: MailboxRole) -> Option<S
     }
 }
 
+/// What a move into or out of Junk says to the server's filter, and to other clients'
+/// (RFC 9051 §2.3.2, Apple Mail and Thunderbird read the same two): `$Junk` going in, `$NotJunk`
+/// coming out of the Junk folder to the inbox, and the other one taken off. Any other move, an
+/// archive or a trash out of Junk among them, says nothing: that is no word on whether it was
+/// junk.
+///
+/// Each is a STORE that only informs: one the server refuses (Exchange answers `BAD` to a
+/// keyword it does not keep) is passed over, and the move goes on.
+fn junk_marks(caps: &AccountCaps, source: &str, role: MailboxRole, set: &str) -> Vec<ImapCommand> {
+    let from_junk = caps
+        .folders
+        .path(MailboxRole::Spam)
+        .is_some_and(|junk| same_folder(junk, source));
+    let (on, off) = match role {
+        MailboxRole::Spam => ("$Junk", "$NotJunk"),
+        MailboxRole::Inbox if from_junk => ("$NotJunk", "$Junk"),
+        _ => return Vec::new(),
+    };
+    vec![
+        ImapCommand::UidStore {
+            set: set.to_owned(),
+            what: format!("+FLAGS ({on})"),
+            tolerate: true,
+        },
+        ImapCommand::UidStore {
+            set: set.to_owned(),
+            what: format!("-FLAGS ({off})"),
+            tolerate: true,
+        },
+    ]
+}
+
 /// Whether two paths name one mailbox: exactly, or `INBOX` in any case (RFC 9051 §5.1).
 fn same_folder(a: &str, b: &str) -> bool {
     a == b || (a.eq_ignore_ascii_case("INBOX") && b.eq_ignore_ascii_case("INBOX"))
@@ -1587,5 +2012,17 @@ impl std::fmt::Debug for ImapBackend {
             .field("job", &self.job)
             .field("session", &self.session.is_some())
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::user_labels;
+
+    /// Gmail lists a flag colour's bits beside a message's labels; they are not labels.
+    #[test]
+    fn a_flag_colours_bits_are_not_labels() {
+        let line = "* 1 FETCH (X-GM-LABELS (\\Inbox Work $MailFlagBit0 \"$mailflagbit2\" Home))";
+        assert_eq!(user_labels(line), ["Work", "Home"]);
     }
 }

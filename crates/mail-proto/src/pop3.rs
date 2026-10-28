@@ -68,6 +68,15 @@ pub enum Pop3Command {
     /// documented `TOP` bug in the wild is a failure to return the requested *body lines*, never
     /// wrong headers, so zero body lines sits in the corner implementations get right.
     Top(u32, u32),
+    /// `UIDL` of one server message number, answered with the unique id the caller says it
+    /// must have. Any other id fails the session.
+    ///
+    /// What makes a [`Pop3Command::Dele`] behind it safe: a message number names a message only
+    /// within one session (RFC 1939 §7), and a walk's commands are chosen before it connects,
+    /// from a survey an earlier session took. A number that names another message now, after
+    /// some other client deleted mail, is caught here, and since a POP3 server removes what was
+    /// marked only at `QUIT` (RFC 1939 §6), a session that fails before it removes nothing.
+    Check { number: u32, uidl: String },
     /// `DELE` of one server message number.
     Dele(u32),
     /// `QUIT`. A `+OK` ends the session even if further commands were queued.
@@ -149,6 +158,10 @@ impl fmt::Debug for Auth {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Phase {
     Greeting,
+    /// `STLS` was sent (RFC 2595 §4); waiting for its `+OK`.
+    Stls,
+    /// The server agreed to `STLS`, and the runtime is upgrading the connection.
+    AwaitTls,
     /// Waiting for a one-line `+OK` or `-ERR`.
     Single(Pop3Command),
     /// Waiting for the status line of a dot-terminated reply.
@@ -196,6 +209,10 @@ impl PartialEq for Buffer {
 impl Eq for Buffer {}
 
 impl Buffer {
+    fn is_empty(&self) -> bool {
+        self.pos == self.bytes.len()
+    }
+
     fn extend(&mut self, more: &[u8]) {
         self.bytes.extend_from_slice(more);
     }
@@ -236,6 +253,9 @@ struct State {
     buf: Buffer,
     replies: Vec<Pop3Reply>,
     wind_down: WindDown,
+    /// The server's name and port, when the connection is to be upgraded with `STLS` before
+    /// the first command ([`Pop3Session::with_starttls`]).
+    starttls: Option<(String, u16)>,
 }
 
 /// What [`step`] was just told.
@@ -244,7 +264,9 @@ enum Event {
     Bytes(Vec<u8>),
     Eof,
     Interrupt,
-    /// `TlsOpen` or `Woke`. The session never asks for either; keep reading.
+    /// The connection was upgraded, as [`Phase::AwaitTls`] asked.
+    TlsOpen,
+    /// `Woke`. The session never asks for it; keep reading.
     Continue,
 }
 
@@ -257,13 +279,16 @@ enum Action {
     Next(Pop3Reply),
     /// `QUIT` succeeded.
     Done(Pop3Reply),
+    /// `STLS` was agreed to: upgrade the connection before anything else is said.
+    StartTls,
     Fail(ProtoError),
 }
 
 /// A POP3 session that speaks only after the runtime has handed it a byte stream.
 ///
-/// TLS is the runtime's job, before [`Machine::start`]. Implicit POP3S (port 995)
-/// never appears here. `STLS` is not a command this session sends.
+/// TLS is the runtime's job: implicit POP3S (port 995) before [`Machine::start`], and
+/// `STLS` (RFC 2595) when [`Pop3Session::with_starttls`] asks for it, which this session sends
+/// and the runtime then performs on [`IoNeed::OpenTls`].
 ///
 /// `Out` is [`Vec<Pop3Reply>`] rather than one reply: [`Progress::Done`] happens
 /// once, at `QUIT` or when the queue runs out, and the caller needs every reply
@@ -319,8 +344,20 @@ impl Pop3Session {
                 buf: Buffer::default(),
                 replies: Vec::new(),
                 wind_down: WindDown::Run,
+                starttls: None,
             },
         })
+    }
+
+    /// The same session, upgrading the connection with `STLS` straight after the greeting,
+    /// before it signs in or sends anything else ([`mail_domain::Tls::StartTlsRequired`]).
+    ///
+    /// The upgrade is required, never opportunistic: a server that refuses it, or sends anything
+    /// after agreeing to it, ends the session before the password is written.
+    #[must_use]
+    pub fn with_starttls(mut self, host: impl Into<String>, port: u16) -> Self {
+        self.state.starttls = Some((host.into(), port));
+        self
     }
 }
 
@@ -336,7 +373,8 @@ impl Machine for Pop3Session {
             IoReady::Bytes(bytes) => Event::Bytes(bytes),
             IoReady::Eof => Event::Eof,
             IoReady::Interrupt => Event::Interrupt,
-            IoReady::TlsOpen | IoReady::Woke => Event::Continue,
+            IoReady::TlsOpen => Event::TlsOpen,
+            IoReady::Woke => Event::Continue,
         };
         step(&mut self.state, &self.auth, event)
     }
@@ -357,7 +395,11 @@ fn step(state: &mut State, auth: &Auth, event: Event) -> Progress<Vec<Pop3Reply>
             state.wind_down = WindDown::QuitNext;
             pump(state, auth)
         }
-        Event::Continue => pump(state, auth),
+        Event::TlsOpen if state.phase == Phase::AwaitTls => {
+            state.starttls = None;
+            dispatch_next(state, auth)
+        }
+        Event::TlsOpen | Event::Continue => pump(state, auth),
     }
 }
 
@@ -392,8 +434,33 @@ fn pump(state: &mut State, auth: &Auth) -> Progress<Vec<Pop3Reply>> {
         match action {
             Action::Continue => {}
             Action::Next(reply) => {
+                let greeted = matches!(reply, Pop3Reply::Greeting(_));
                 state.replies.push(reply);
+                if greeted && state.starttls.is_some() {
+                    state.phase = Phase::Stls;
+                    return Progress::Need(vec![IoNeed::Write(b"STLS\r\n".to_vec()), IoNeed::Read]);
+                }
                 return dispatch_next(state, auth);
+            }
+            Action::StartTls => {
+                // Anything the server sent after its `+OK` came before TLS, so an attacker on
+                // the path may have written it to be read as said under TLS.
+                if !state.buf.is_empty() {
+                    state.phase = Phase::Closed;
+                    return Progress::Failed(ProtoError::Malformed(
+                        "the server sent more after agreeing to STLS".into(),
+                    ));
+                }
+                let Some((host, port)) = state.starttls.clone() else {
+                    state.phase = Phase::Closed;
+                    return Progress::Failed(ProtoError::Malformed("STLS without a server".into()));
+                };
+                state.phase = Phase::AwaitTls;
+                return Progress::Need(vec![IoNeed::OpenTls {
+                    host,
+                    port,
+                    mode: mail_domain::Tls::StartTlsRequired,
+                }]);
             }
             Action::Done(reply) => {
                 state.replies.push(reply);
@@ -430,6 +497,13 @@ fn dispatch_next(state: &mut State, auth: &Auth) -> Progress<Vec<Pop3Reply>> {
 fn decide(phase: Phase, line: &[u8]) -> (Phase, Action) {
     match phase {
         Phase::Greeting => decide_greeting(line),
+        Phase::Stls => decide_stls(line),
+        Phase::AwaitTls => (
+            Phase::Closed,
+            Action::Fail(ProtoError::Malformed(
+                "the server spoke while the connection was being secured".into(),
+            )),
+        ),
         Phase::Single(cmd) => decide_single(cmd, line),
         Phase::MultiStatus(cmd) => decide_multi_status(cmd, line),
         Phase::MultiBody { cmd, lines, held } => decide_multi_body(cmd, lines, held, line),
@@ -447,6 +521,17 @@ fn decide_greeting(line: &[u8]) -> (Phase, Action) {
             kind: Refusal::Permanent,
             text: bounded(&text),
         }),
+        Err(err) => Action::Fail(err),
+    };
+    (Phase::Closed, action)
+}
+
+fn decide_stls(line: &[u8]) -> (Phase, Action) {
+    let action = match status_of(line) {
+        Ok(Status::Ok(_)) => Action::StartTls,
+        Ok(Status::Err(text)) => {
+            Action::Fail(ProtoError::Unsupported(format!("STLS: {}", bounded(&text))))
+        }
         Err(err) => Action::Fail(err),
     };
     (Phase::Closed, action)
@@ -521,6 +606,7 @@ fn shape(cmd: &Pop3Command) -> ResponseShape {
         | Pop3Command::Pass
         | Pop3Command::AuthPlain
         | Pop3Command::Stat
+        | Pop3Command::Check { .. }
         | Pop3Command::Dele(_)
         | Pop3Command::Quit => ResponseShape::Single,
     }
@@ -531,6 +617,7 @@ fn interpret_single(cmd: &Pop3Command, text: &str) -> Result<Pop3Reply, ProtoErr
         Pop3Command::Stat => interpret_stat(text),
         Pop3Command::User => Ok(Pop3Reply::UserAccepted(text.to_owned())),
         Pop3Command::Pass | Pop3Command::AuthPlain => Ok(Pop3Reply::Authenticated(text.to_owned())),
+        Pop3Command::Check { number, uidl } => checked(*number, uidl, text),
         Pop3Command::Dele(_) => Ok(Pop3Reply::Deleted(text.to_owned())),
         Pop3Command::Quit => Ok(Pop3Reply::Quit(text.to_owned())),
         Pop3Command::Capa
@@ -569,6 +656,7 @@ fn interpret_multi(cmd: &Pop3Command, lines: &[Vec<u8>]) -> Result<Pop3Reply, Pr
         | Pop3Command::Pass
         | Pop3Command::AuthPlain
         | Pop3Command::Stat
+        | Pop3Command::Check { .. }
         | Pop3Command::Dele(_)
         | Pop3Command::Quit => {
             // invariant: those commands are Phase::Single, never Phase::MultiBody
@@ -584,6 +672,20 @@ fn interpret_stat(text: &str) -> Result<Pop3Reply, ProtoError> {
     let messages = parse_u32(parts.next(), "STAT message count")?;
     let octets = parse_u64(parts.next(), "STAT octet count")?;
     Ok(Pop3Reply::Stat { messages, octets })
+}
+
+/// `UIDL n`'s answer, `n uidl`, as one row, when it is the number asked about and the id
+/// expected. Another id is a transient refusal: the message the survey saw at that number is not
+/// there now, and the next survey will number the maildrop afresh.
+fn checked(number: u32, uidl: &str, text: &str) -> Result<Pop3Reply, ProtoError> {
+    let entry = uidl_entry(text.as_bytes())?;
+    if entry.number != number || entry.uidl != uidl {
+        return Err(ProtoError::Refused {
+            kind: Refusal::Transient,
+            text: format!("message {number} is no longer the one this client listed"),
+        });
+    }
+    Ok(Pop3Reply::Uidl(vec![entry]))
 }
 
 fn uidl_entry(line: &[u8]) -> Result<UidlEntry, ProtoError> {
@@ -682,6 +784,12 @@ fn refused(cmd: &Pop3Command, text: String) -> ProtoError {
         Pop3Command::User | Pop3Command::Pass | Pop3Command::AuthPlain => {
             ProtoError::AuthRejected(text)
         }
+        // No message at that number now: the maildrop changed since it was listed, and the next
+        // survey numbers it afresh.
+        Pop3Command::Check { .. } => ProtoError::Refused {
+            kind: Refusal::Transient,
+            text,
+        },
         _ => ProtoError::Refused {
             kind: Refusal::Permanent,
             text,
@@ -718,6 +826,10 @@ fn encode(cmd: &Pop3Command, auth: &Auth) -> Vec<u8> {
             out.extend_from_slice(number.to_string().as_bytes());
             out.push(b' ');
             out.extend_from_slice(body_lines.to_string().as_bytes());
+        }
+        Pop3Command::Check { number, .. } => {
+            out.extend_from_slice(b"UIDL ");
+            out.extend_from_slice(number.to_string().as_bytes());
         }
         Pop3Command::Dele(number) => {
             out.extend_from_slice(b"DELE ");

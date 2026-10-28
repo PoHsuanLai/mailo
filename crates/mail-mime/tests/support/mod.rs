@@ -2,18 +2,12 @@
 //! message starts from, the walkers the block tests read a document with, and the throwaway
 //! certificate authorities.
 //!
-//! The authorities stay in `bimi_support/` and `smime_support/`, where `mail-runtime`'s and
-//! `mail-app`'s tests include them by path.
+//! The authorities live in `mail_mime::testing`, which `mail-runtime`'s and `mail-app`'s tests
+//! use too.
 
-#![allow(dead_code)]
-
-#[cfg(feature = "smime")]
-#[path = "../bimi_support/mod.rs"]
-pub mod bimi;
 pub mod block;
 #[cfg(feature = "smime")]
-#[path = "../smime_support/mod.rs"]
-pub mod smime;
+pub use mail_mime::testing::{bimi, smime};
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::new_account_id;
@@ -60,6 +54,9 @@ pub fn draft() -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: mail_domain::OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: at(),
     }
@@ -84,6 +81,7 @@ pub fn parent(references: Vec<String>, rfc_message_id: Option<&str>) -> Message 
         rfc_message_id: rfc_message_id.map(str::to_owned),
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
         mailbox: MailboxRole::Inbox,
         labels: Vec::new(),
         body: Body::Present {

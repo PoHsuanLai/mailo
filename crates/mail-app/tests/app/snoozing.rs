@@ -7,11 +7,11 @@
 use crate::store::acct_account;
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
 use mail_app::cli;
-use mail_app::ui::view;
 use mail_core::snooze;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
+use mail_ui::ui::view;
 
 fn now() -> DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 22, 6, 0, 0).unwrap()
@@ -75,7 +75,7 @@ fn listed(store: &SqliteStore, filter: Filter, at: DateTime<Utc>) -> Vec<ThreadI
 /// so tested a filter the test had written: the CLI was still listing snoozed conversations and
 /// every one of these passed. Running `mailo list` found it in a second.
 fn inbox() -> Filter {
-    mail_core::place::place_filter(MailboxRole::Inbox)
+    mail_core::mailbox_filter::for_role(MailboxRole::Inbox)
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn a_snoozed_conversation_leaves_the_inbox_and_returns_by_itself() {
         "still in the inbox"
     );
     assert_eq!(
-        listed(&store, mail_core::place::pending_snooze(), now()),
+        listed(&store, mail_core::mailbox_filter::pending_snooze(), now()),
         vec![thread]
     );
 
@@ -108,7 +108,7 @@ fn a_snoozed_conversation_leaves_the_inbox_and_returns_by_itself() {
         "it did not come back"
     );
     assert!(
-        listed(&store, mail_core::place::pending_snooze(), later).is_empty(),
+        listed(&store, mail_core::mailbox_filter::pending_snooze(), later).is_empty(),
         "a due conversation is still listed as snoozed"
     );
 }
@@ -131,7 +131,7 @@ fn waking_one_brings_it_back_before_its_hour() {
     snooze::wake(&store, thread, now()).unwrap();
 
     assert_eq!(listed(&store, inbox(), now()), vec![thread]);
-    assert!(listed(&store, mail_core::place::pending_snooze(), now()).is_empty());
+    assert!(listed(&store, mail_core::mailbox_filter::pending_snooze(), now()).is_empty());
 }
 
 #[test]
@@ -176,7 +176,7 @@ mod one_definition {
             .source;
         assert_eq!(
             from_the_sidebar,
-            view::Source::Mail(mail_core::place::place_filter(MailboxRole::Inbox))
+            view::Source::Mail(mail_core::mailbox_filter::for_role(MailboxRole::Inbox))
         );
     }
 
@@ -186,7 +186,7 @@ mod one_definition {
         // conversation you lost, so Archive, Sent, Spam and Trash show everything. Archive
         // leaves out what is in the inbox, snoozed or not: that is not archived.
         assert_eq!(
-            mail_core::place::place_filter(MailboxRole::Archive),
+            mail_core::mailbox_filter::for_role(MailboxRole::Archive),
             Filter::And(vec![
                 Filter::InMailbox(MailboxRole::Archive),
                 Filter::Not(Box::new(Filter::InMailbox(MailboxRole::Inbox))),
@@ -194,7 +194,7 @@ mod one_definition {
         );
         for role in [MailboxRole::Spam, MailboxRole::Trash] {
             assert_eq!(
-                mail_core::place::place_filter(role),
+                mail_core::mailbox_filter::for_role(role),
                 Filter::InMailbox(role)
             );
         }
@@ -251,7 +251,7 @@ mod pinning {
 
         assert_eq!(listed(&store, Filter::Pinned, now()), vec![thread]);
         assert_eq!(
-            listed(&store, mail_core::place::pending_snooze(), now()),
+            listed(&store, mail_core::mailbox_filter::pending_snooze(), now()),
             vec![thread]
         );
         assert!(

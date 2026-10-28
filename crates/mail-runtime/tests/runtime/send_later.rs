@@ -253,6 +253,9 @@ fn schedule(store: &SqliteStore, at: DateTime<Utc>) -> Draft {
         receipt: ReceiptRequest::Unrequested,
         openpgp: OpenPgp::None,
         smime: mail_domain::Smime::None,
+        priority: mail_domain::Priority::Normal,
+        delivery: mail_domain::DeliveryReport::Unrequested,
+        automatic: false,
         state: SendState::Editing,
         updated: written(),
     };
@@ -275,6 +278,7 @@ fn schedule(store: &SqliteStore, at: DateTime<Utc>) -> Draft {
                 raw,
                 mail_from: post.mail_from,
                 rcpt_to: post.rcpt_to,
+                delivery: mail_domain::DeliveryReport::Unrequested,
             },
             &Patch {
                 id: ChangeId::generate(),

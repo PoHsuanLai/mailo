@@ -64,22 +64,32 @@ fn added(
     username: Username,
     password: &str,
 ) -> (Arc<SqliteStore>, Arc<dyn AccountSecrets>) {
-    let store = Arc::new(mail_store::testing::in_memory());
-    let manual = presets::ManualPop3 {
-        pop3_host: "127.0.0.1".to_owned(),
-        pop3_port: port,
-        smtp_host: "127.0.0.1".to_owned(),
-        smtp_port: 1,
-        login: None,
-    };
-    let mut preset = presets::manual_pop3("ada@example.test", &manual, now());
     // Plaintext because this is loopback to a server in this process.
-    preset.plan.incoming = Incoming::Pop3 {
+    let incoming = Incoming::Pop3 {
         host: "127.0.0.1".to_owned(),
         port,
         tls: Tls::Plaintext,
         leave: LeaveOnServer::Keep,
     };
+    added_on(incoming, username, password)
+}
+
+/// [`added`], with `incoming` as the account's incoming server.
+fn added_on(
+    incoming: Incoming,
+    username: Username,
+    password: &str,
+) -> (Arc<SqliteStore>, Arc<dyn AccountSecrets>) {
+    let store = Arc::new(mail_store::testing::in_memory());
+    let manual = presets::ManualPop3 {
+        pop3_host: "127.0.0.1".to_owned(),
+        pop3_port: 110,
+        smtp_host: "127.0.0.1".to_owned(),
+        smtp_port: 1,
+        login: None,
+    };
+    let mut preset = presets::manual_pop3("ada@example.test", &manual, now());
+    preset.plan.incoming = incoming;
     preset.plan.auth = AuthPlan::Password {
         username,
         sasl: Vec::new(),
@@ -168,4 +178,83 @@ async fn a_server_nobody_listens_on_is_unreachable_not_refused() {
         "an unreachable server is not a refused login: {failed}"
     );
     assert!(failed.to_string().contains("127.0.0.1"), "{failed}");
+}
+
+/// A server that answers each protocol's greeting, refuses its upgrade to TLS, and keeps every
+/// line it was sent. The port it listens on, and the lines.
+async fn refusing_tls(greeting: &'static str) -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let heard = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let kept = heard.clone();
+    tokio::spawn(async move {
+        while let Ok((sock, _)) = listener.accept().await {
+            let kept = kept.clone();
+            tokio::spawn(async move {
+                let (read, mut write) = sock.into_split();
+                let mut lines = BufReader::new(read).lines();
+                let _ = write.write_all(greeting.as_bytes()).await;
+                while let Ok(Some(line)) = lines.next_line().await {
+                    kept.lock().unwrap().push(line.clone());
+                    let reply = match line.split_whitespace().collect::<Vec<_>>().as_slice() {
+                        ["STLS"] => "-ERR no TLS here\r\n".to_owned(),
+                        ["CAPA"] => "+OK\r\nUSER\r\n.\r\n".to_owned(),
+                        [tag, verb] if verb.eq_ignore_ascii_case("STARTTLS") => {
+                            format!("{tag} NO no TLS here\r\n")
+                        }
+                        [tag, ..] if !tag.starts_with(char::is_uppercase) => {
+                            format!("{tag} OK\r\n")
+                        }
+                        _ => "+OK\r\n".to_owned(),
+                    };
+                    if write.write_all(reply.as_bytes()).await.is_err() {
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    (port, heard)
+}
+
+/// An account whose incoming server is to be secured with STARTTLS signs in only over TLS: when
+/// the server will not upgrade, the check fails and the server never hears the password.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_server_that_will_not_start_tls_never_hears_the_password() {
+    for imap in [false, true] {
+        let greeting = if imap {
+            "* OK ready\r\n"
+        } else {
+            "+OK ready\r\n"
+        };
+        let (port, heard) = refusing_tls(greeting).await;
+        let incoming = if imap {
+            Incoming::Imap {
+                host: "127.0.0.1".to_owned(),
+                port,
+                tls: Tls::StartTlsRequired,
+            }
+        } else {
+            Incoming::Pop3 {
+                host: "127.0.0.1".to_owned(),
+                port,
+                tls: Tls::StartTlsRequired,
+                leave: LeaveOnServer::Keep,
+            }
+        };
+        let (store, secrets) = added_on(incoming, Username::Literal("ada".to_owned()), "right");
+        check_sign_in(&store, "ada@example.test", secrets, now())
+            .await
+            .expect_err("the server will not secure the connection");
+        let heard = heard.lock().unwrap().clone();
+        assert!(
+            heard.iter().all(|line| !line.contains("right")),
+            "imap {imap}: the password went out in the clear: {heard:?}"
+        );
+        let first = heard.first().map(String::as_str).unwrap_or("");
+        assert!(
+            first.ends_with("STLS") || first.ends_with("STARTTLS"),
+            "imap {imap}: the upgrade was not the first thing asked: {heard:?}"
+        );
+    }
 }

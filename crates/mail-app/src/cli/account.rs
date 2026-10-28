@@ -35,7 +35,8 @@ pub(super) fn remove(
             let removed = crate::edge::block_on(mail.accounts().remove(id.clone()))
                 .map_err(|e| e.to_string())?;
             if let Some(config) = config {
-                let _ = mail_core::offline::save(config, id, mail_core::offline::Keep::Bodies);
+                // The account is gone either way; a setting left behind is never asked about.
+                let _ = mail_core::offline::change(config, |kept| kept.without(id));
             }
             Ok(format!(
                 "removed {} and {} of stored mail\n",

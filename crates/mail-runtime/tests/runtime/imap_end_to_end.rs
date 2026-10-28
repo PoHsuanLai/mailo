@@ -1174,15 +1174,14 @@ mod round_trip {
 
     /// Star the newest thread locally, exactly as a hover button does.
     fn star(store: &SqliteStore, caps: &AccountCaps) -> ThreadId {
+        act(store, caps, Op::SetStar(Star::Starred))
+    }
+
+    /// Apply `op` to the newest thread locally and queue what it asks of the server.
+    fn act(store: &SqliteStore, caps: &AccountCaps, op: Op) -> ThreadId {
         let (id, messages) = thread_of(store);
         let loaded = store.thread(id).unwrap();
-        let applied = Op::SetStar(Star::Starred).apply(
-            &Target::Threads(vec![id]),
-            &loaded,
-            &messages,
-            caps,
-            now(),
-        );
+        let applied = op.apply(&Target::Threads(vec![id]), &loaded, &messages, caps, now());
         store.apply(acct_account(), &applied.forward).unwrap();
         if let Some(intent) = applied.remote {
             store
@@ -1238,6 +1237,86 @@ mod round_trip {
             is_starred(&it.store, thread),
             "server truth un-starred what the user starred"
         );
+    }
+
+    /// A flag's colour, on a server that keeps keywords: Orange is stored as Apple Mail stores
+    /// it, read back as orange, and a colour another client set is read as its colour.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_flag_colour_is_stored_as_keywords_and_read_back_from_them() {
+        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+        let (port, _validity, _present, flags) = serve_flags(seen.clone(), Fault::None).await;
+        let keywords = AccountCaps {
+            labels: ServerLabels::Keywords,
+            ..caps()
+        };
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), keywords.clone());
+        let (_tx, mut cancel) = watch::channel(false);
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+
+        let thread = act(&it.store, &keywords, Op::Flag(Hue::Orange));
+        let report = it.engine.drain_outbox(&mut cancel, now()).await.unwrap();
+        assert_eq!(report.outbox_settled, 1, "{report:?}");
+        let stores: Vec<String> = seen
+            .lock()
+            .unwrap()
+            .commands
+            .iter()
+            .filter(|c| c.to_uppercase().starts_with("UID STORE"))
+            .cloned()
+            .collect();
+        assert_eq!(
+            stores,
+            [
+                "UID STORE 102 +FLAGS (\\Flagged $MailFlagBit0)",
+                "UID STORE 102 -FLAGS ($MailFlagBit1 $MailFlagBit2)",
+            ]
+        );
+
+        // The next sync reads the keywords back: still orange, not a red flag.
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        assert_eq!(it.store.thread(thread).unwrap().summary.flag, Hue::Orange);
+
+        // Another client flags the other message blue.
+        flags.lock().unwrap().insert(
+            101,
+            vec![
+                "\\Seen".to_owned(),
+                "\\Flagged".to_owned(),
+                "$MailFlagBit2".to_owned(),
+            ],
+        );
+        it.engine
+            .sync(&inbox(), &mut cancel, now(), 200)
+            .await
+            .unwrap();
+        let blue = it
+            .store
+            .threads(
+                &Query {
+                    filter: Filter::All,
+                    sort: Sort {
+                        property: Property::Date,
+                        dir: SortDir::Desc,
+                    },
+                    page: PageReq {
+                        after: None,
+                        limit: 10,
+                    },
+                },
+                now(),
+            )
+            .unwrap()
+            .items
+            .into_iter()
+            .find(|t| t.id != thread)
+            .expect("the other conversation");
+        assert_eq!((blue.star, blue.flag), (Star::Starred, Hue::Blue));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1657,93 +1736,9 @@ mod watching {
     }
 }
 
-/// Uploading a draft, which `ProtoOp::Append` was written for and nothing called.
+/// Uploading a message, through the outbox. A draft's copy in Drafts is `server_drafts.rs`'s.
 mod appending {
     use super::*;
-
-    fn draft() -> Draft {
-        Draft {
-            id: DraftId::generate(),
-            account: acct_account(),
-            identity: IdentityId::generate(),
-            to: vec![Address {
-                name: None,
-                email: "ada@example.test".to_owned(),
-            }],
-            cc: vec![],
-            bcc: vec![],
-            subject: "half a thought".to_owned(),
-            in_reply_to: None,
-            forward_of: None,
-            text: "to be continued".to_owned(),
-            html: None,
-            attachments: vec![],
-            receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: mail_domain::Smime::None,
-            state: SendState::Editing,
-            updated: now(),
-        }
-    }
-
-    const RAW: &[u8] = b"From: me@example.test\r\n\
-Subject: half a thought\r\n\
-\r\n\
-to be continued\r\n\
-.a line that starts with a dot\r\n";
-
-    /// One upload, and what the server got: one append to the Drafts folder, the literal byte
-    /// for byte, and the flags that keep it a draft and read.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_draft_is_appended_to_drafts_byte_for_byte_flagged_draft_and_seen() {
-        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-        let (port, _v, _p, _f, appended) = serve_appending(seen.clone(), Fault::None).await;
-        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
-        let (_tx, mut cancel) = watch::channel(false);
-
-        // The Drafts path comes from the server, not from a guess, so discovery runs first.
-        it.engine.refresh_caps(&mut cancel, now()).await.unwrap();
-
-        let uploaded = it
-            .engine
-            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
-            .await
-            .expect("the append succeeds");
-        assert!(
-            uploaded,
-            "drafts folder: the server named a Drafts folder and nothing used it"
-        );
-
-        let stored = appended.lock().unwrap().clone();
-        assert_eq!(
-            stored.len(),
-            1,
-            "drafts folder: nothing was appended: {:?}",
-            seen.lock().unwrap().commands
-        );
-        // A literal is framed by a byte count, not by a terminator, so a body containing a line
-        // that begins with a dot — or a CRLF, or anything else — must survive untouched. A count
-        // that disagrees with what follows desynchronises the connection entirely.
-        assert_eq!(
-            stored[0].as_bytes(),
-            RAW,
-            "byte for byte: the literal was altered in transit"
-        );
-
-        // Without \\Draft the message shows up as ordinary mail in the folder; without \\Seen the
-        // user's own unfinished note arrives as unread mail on every device they own.
-        let append = seen
-            .lock()
-            .unwrap()
-            .commands
-            .iter()
-            .find(|c| c.to_uppercase().starts_with("APPEND"))
-            .cloned()
-            .expect("an APPEND was sent");
-        assert!(append.contains("\\Draft"), "flags: {append}");
-        assert!(append.contains("\\Seen"), "flags: {append}");
-        assert!(append.contains("Drafts"), "drafts folder: {append}");
-    }
 
     /// An import's upload: queued in the outbox, sent by the drain with its own flags and date,
     /// and kept here at the address `APPENDUID` gave it, so a second import finds it held.
@@ -1811,27 +1806,6 @@ kept for years\r\n";
                 .outbox_due(acct_account(), now())
                 .unwrap()
                 .is_empty()
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn an_account_with_no_drafts_folder_says_so_rather_than_guessing() {
-        // Uploading into a path nobody confirmed is how a message lands somewhere the user will
-        // never look. `caps()` has an empty FolderRoles and no discovery has run.
-        let seen: Shared = Arc::new(Mutex::new(Seen::default()));
-        let (port, _v, _p, _f, appended) = serve_appending(seen, Fault::None).await;
-        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps());
-        let (_tx, mut cancel) = watch::channel(false);
-
-        let uploaded = it
-            .engine
-            .upload_draft(&draft(), RAW.to_vec(), &mut cancel)
-            .await
-            .expect("no folder is not an error");
-        assert!(!uploaded, "a folder was invented");
-        assert!(
-            appended.lock().unwrap().is_empty(),
-            "something was uploaded anyway"
         );
     }
 }
@@ -1924,4 +1898,294 @@ async fn a_listing_with_no_inbox_is_an_error_and_not_an_empty_account() {
         .await
         .expect_err("the same listing, asked for on its own");
     assert!(matches!(e, mail_runtime::RuntimeError::NoInbox), "{e}");
+}
+
+/// Hearing of more than the inbox (`NOTIFY`, RFC 5465), and compressing the connection that
+/// listens (`COMPRESS DEFLATE`, RFC 4978), against a server on loopback that speaks both.
+mod pushing {
+    use super::*;
+    use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
+    use mail_runtime::Notify;
+    use tokio::net::TcpStream;
+
+    /// What the scripted server has and does.
+    #[derive(Clone, Copy)]
+    struct Script {
+        notify: bool,
+        compress: bool,
+        /// Whether its first compressed bytes go out in the same write as the `OK` that accepts
+        /// `COMPRESS`.
+        eager: bool,
+        /// What it says a moment after IDLE begins.
+        announce: &'static str,
+    }
+
+    #[derive(Default)]
+    struct Heard {
+        /// Every command line the client sent, as the server read it.
+        commands: Vec<String>,
+        /// Whether anything arrived compressed and inflated to a command.
+        inflated: bool,
+    }
+
+    /// One connection: bytes in, with the inflating that `COMPRESS` turns on.
+    struct Pipe {
+        sock: TcpStream,
+        deflate: Option<(Compress, Decompress)>,
+        plain: Vec<u8>,
+    }
+
+    impl Pipe {
+        async fn say(&mut self, text: &str) {
+            let bytes = match &mut self.deflate {
+                None => text.as_bytes().to_vec(),
+                Some((out, _)) => {
+                    let mut wire = Vec::with_capacity(text.len() + 64);
+                    out.compress_vec(text.as_bytes(), &mut wire, FlushCompress::Sync)
+                        .unwrap();
+                    wire
+                }
+            };
+            let _ = self.sock.write_all(&bytes).await;
+        }
+
+        async fn line(&mut self) -> Option<String> {
+            loop {
+                if let Some(end) = self.plain.windows(2).position(|w| w == b"\r\n") {
+                    let line: Vec<u8> = self.plain.drain(..end + 2).collect();
+                    return Some(String::from_utf8_lossy(&line[..end]).into_owned());
+                }
+                let mut raw = [0u8; 4096];
+                let n = self.sock.read(&mut raw).await.ok()?;
+                if n == 0 {
+                    return None;
+                }
+                match &mut self.deflate {
+                    None => self.plain.extend_from_slice(&raw[..n]),
+                    Some((_, inn)) => {
+                        let mut out = Vec::with_capacity(n * 4 + 64);
+                        inn.decompress_vec(&raw[..n], &mut out, FlushDecompress::Sync)
+                            .unwrap();
+                        self.plain.extend(out);
+                    }
+                }
+            }
+        }
+    }
+
+    async fn serve(script: Script) -> (u16, Arc<Mutex<Heard>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heard = Arc::new(Mutex::new(Heard::default()));
+        let shared = heard.clone();
+        tokio::spawn(async move {
+            while let Ok((sock, _)) = listener.accept().await {
+                let heard = shared.clone();
+                tokio::spawn(async move {
+                    let mut pipe = Pipe {
+                        sock,
+                        deflate: None,
+                        plain: Vec::new(),
+                    };
+                    let caps = format!(
+                        "IMAP4rev1 IDLE{}{}",
+                        if script.notify { " NOTIFY" } else { "" },
+                        if script.compress {
+                            " COMPRESS=DEFLATE"
+                        } else {
+                            ""
+                        }
+                    );
+                    pipe.say(&format!("* OK [CAPABILITY {caps}] ready\r\n"))
+                        .await;
+                    let mut idle = None;
+                    while let Some(line) = pipe.line().await {
+                        {
+                            let mut heard = heard.lock().unwrap();
+                            heard.commands.push(line.clone());
+                            heard.inflated |= pipe.deflate.is_some();
+                        }
+                        let (tag, rest) = line.split_once(' ').unwrap_or((&line, ""));
+                        let tag = tag.to_owned();
+                        let upper = rest.to_uppercase();
+                        if tag.eq_ignore_ascii_case("DONE") {
+                            if let Some(idle) = idle.take() {
+                                pipe.say(&format!("{idle} OK idle done\r\n")).await;
+                            }
+                        } else if upper.starts_with("LOGIN") {
+                            pipe.say(&format!("{tag} OK [CAPABILITY {caps}] in\r\n"))
+                                .await;
+                        } else if upper.starts_with("COMPRESS") {
+                            let ok = format!("{tag} OK DEFLATE active\r\n");
+                            if script.eager {
+                                let mut out = Compress::new(Compression::default(), false);
+                                let mut first = Vec::with_capacity(128);
+                                out.compress_vec(
+                                    b"* 0 EXISTS\r\n",
+                                    &mut first,
+                                    FlushCompress::Sync,
+                                )
+                                .unwrap();
+                                let mut both = ok.into_bytes();
+                                both.extend(first);
+                                let _ = pipe.sock.write_all(&both).await;
+                                pipe.deflate = Some((out, Decompress::new(false)));
+                            } else {
+                                pipe.say(&ok).await;
+                                pipe.deflate = Some((
+                                    Compress::new(Compression::default(), false),
+                                    Decompress::new(false),
+                                ));
+                            }
+                        } else if upper.starts_with("EXAMINE") || upper.starts_with("SELECT") {
+                            pipe.say(&format!(
+                                "* 0 EXISTS\r\n* OK [UIDVALIDITY 7] v\r\n* OK [UIDNEXT 1] n\r\n\
+                                 {tag} OK [READ-ONLY] done\r\n"
+                            ))
+                            .await;
+                        } else if upper.starts_with("IDLE") {
+                            idle = Some(tag);
+                            pipe.say("+ idling\r\n").await;
+                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                            pipe.say(script.announce).await;
+                        } else if upper.starts_with("LOGOUT") {
+                            pipe.say(&format!("* BYE\r\n{tag} OK done\r\n")).await;
+                            return;
+                        } else {
+                            pipe.say(&format!("{tag} OK done\r\n")).await;
+                        }
+                    }
+                });
+            }
+        });
+        (port, heard)
+    }
+
+    fn caps_idle() -> AccountCaps {
+        AccountCaps {
+            watch: WatchMode::Idle,
+            ..caps()
+        }
+    }
+
+    fn lists() -> MailboxRef {
+        MailboxRef {
+            account: acct_account(),
+            path: "Lists".to_owned(),
+        }
+    }
+
+    const FIVE: std::time::Duration = std::time::Duration::from_secs(5);
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn another_folders_news_wakes_a_watch_through_notify() {
+        let (port, heard) = serve(Script {
+            notify: true,
+            compress: false,
+            eager: false,
+            announce: "* STATUS \"Lists\" (UIDNEXT 9)\r\n",
+        })
+        .await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        it.engine = it.engine.with_also(vec![lists()]);
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the STATUS did not end the idle")
+            .unwrap();
+        assert!(woken);
+        assert_eq!(it.engine.notifies(), Notify::Works);
+        let sent = heard.lock().unwrap().commands.clone();
+        assert!(
+            sent.iter()
+                .any(|c| c.contains("NOTIFY SET") && c.contains("\"Lists\"")),
+            "{sent:?}"
+        );
+        assert!(
+            sent.iter().any(|c| c.ends_with("NOTIFY NONE")),
+            "the connection is left hearing of nothing: {sent:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_server_without_notify_leaves_the_other_folders_to_the_caller() {
+        let (port, heard) = serve(Script {
+            notify: false,
+            compress: false,
+            eager: false,
+            announce: "* 1 EXISTS\r\n",
+        })
+        .await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        it.engine = it.engine.with_also(vec![lists()]);
+        let (_tx, mut cancel) = watch::channel(false);
+        assert_eq!(it.engine.notifies(), Notify::Unasked);
+
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the refusal ended nothing")
+            .unwrap();
+        assert!(!woken, "nothing was heard");
+        assert_eq!(it.engine.notifies(), Notify::Absent);
+        let sent = heard.lock().unwrap().commands.clone();
+        assert!(
+            !sent.iter().any(|c| c.contains("NOTIFY")),
+            "NOTIFY was sent to a server without it: {sent:?}"
+        );
+
+        // Asked once: the next watch is the inbox alone, and idles.
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the inbox's own news did not end the idle")
+            .unwrap();
+        assert!(woken);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_connection_the_server_compresses_still_carries_the_watch() {
+        let (port, heard) = serve(Script {
+            notify: false,
+            compress: true,
+            eager: false,
+            announce: "* 3 EXISTS\r\n",
+        })
+        .await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the compressed idle never ended")
+            .unwrap();
+        assert!(woken, "the news came back compressed and was not read");
+        let heard = heard.lock().unwrap();
+        let at = |what: &str| heard.commands.iter().position(|c| c.contains(what));
+        assert!(
+            at("COMPRESS DEFLATE") < at("EXAMINE") && at("EXAMINE").is_some(),
+            "{:?}",
+            heard.commands
+        );
+        assert!(heard.inflated, "nothing after COMPRESS arrived compressed");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn compressed_bytes_in_the_read_that_accepts_compress_are_inflated() {
+        let (port, heard) = serve(Script {
+            notify: false,
+            compress: true,
+            eager: true,
+            announce: "* 3 EXISTS\r\n",
+        })
+        .await;
+        let mut it = engine_with(port, tempfile::tempdir().unwrap(), caps_idle());
+        let (_tx, mut cancel) = watch::channel(false);
+
+        let woken = tokio::time::timeout(FIVE, it.engine.watch(&inbox(), &mut cancel))
+            .await
+            .expect("the watch hung on bytes read with the OK")
+            .unwrap();
+        assert!(woken);
+        assert!(heard.lock().unwrap().inflated);
+    }
 }

@@ -1,15 +1,22 @@
 //! The real [`Store`]: SQLite in WAL mode, with FTS5.
 
+mod account_prefs;
 mod accounts;
+mod binned;
 mod contacts;
+mod copies;
 mod destroyed;
 mod draft;
 mod folders;
 mod forget;
 pub use forget::Freed;
+mod cards;
 mod found;
+mod graph_push;
 mod groups;
 mod invite;
+mod junk;
+mod keywords;
 mod offline;
 mod opened;
 mod outbox;
@@ -18,20 +25,29 @@ mod pgp;
 mod placed;
 mod read;
 mod receipt;
+mod reflow;
+pub use reflow::Kept;
 mod reparse;
 mod row;
 mod rules;
 mod search;
+mod signatures;
+mod singles;
+pub use singles::MessageRow;
 mod smime;
 mod template;
 mod views;
+mod vips;
 mod write;
+pub(crate) use write::INGEST_CHUNK;
 
 use crate::blob::BlobStore;
+use crate::changes::{Changes, Committed, Generation, Topics};
 use crate::{StoreError, migrate};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
 use rusqlite::{Connection, OptionalExtension};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 
 /// A connection to the on-disk database, plus the blob store beside it.
 ///
@@ -48,7 +64,13 @@ use std::path::{Path, PathBuf};
 /// to have: a second connection reading a half-written thread summary *is* a wrong answer, so
 /// the readers are never used inside a write. What keeps that true is a signature rather than
 /// a rule — `summary_of`, `messages_of`, `labels_of` and `read_message` take the connection
-/// they should read from, so a write path physically cannot hand them a reader.
+/// they should read from, so a write path physically cannot hand them a reader. Every other read
+/// asks [`SqliteStore::reader`], which hands a thread that already holds the writer the writer
+/// again, so a read inside a write is a read of that write.
+///
+/// The second half is that a write does not hold the writer for long: an ingest commits every
+/// `INGEST_CHUNK` entries rather than once per batch, so a write that has to wait waits for one
+/// chunk and not a mailbox.
 #[derive(Debug)]
 pub struct SqliteStore {
     /// Behind a mutex because `rusqlite::Connection` is `Send` but **not `Sync`**, so an
@@ -77,11 +99,21 @@ pub struct SqliteStore {
     /// open file handles without limit; `try_lock` in turn takes the first free one.
     readers: Vec<ReentrantMutex<Connection>>,
     blobs: BlobStore,
+    /// Who hears a commit, and what the writer has done under its current hold
+    /// ([`crate::changes`]).
+    changes: Changes,
     /// The database's file, for [`SqliteStore::file`]. `None` for an in-memory database.
     file: Option<PathBuf>,
+    /// Outbox rows a draft's newer upload took the place of, which an attempt already under way
+    /// may still settle ([`SqliteStore::settle`]). Only those; any other row that is gone is a
+    /// mistake of the caller's.
+    replaced: std::sync::Mutex<std::collections::BTreeSet<i64>>,
     /// The directory a test store's blobs live in, removed with the store.
     #[cfg(feature = "testing")]
     pub(crate) scratch: Option<tempfile::TempDir>,
+    /// What a test runs after each chunk of an ingest commits; see `testing::on_ingest_chunk`.
+    #[cfg(feature = "testing")]
+    pub(crate) on_chunk: parking_lot::Mutex<Option<crate::testing::ChunkHook>>,
 }
 
 /// Make the database at `path` its owner's alone (0600), before SQLite opens it: created so if it
@@ -122,6 +154,11 @@ fn private_files(path: &Path) -> Result<(), StoreError> {
 /// Three: the window's list, whatever the reader pane is showing, and a sync pass asking what it
 /// already holds. More would be file handles against a mailbox that belongs to one person.
 const READERS: usize = 3;
+
+thread_local! {
+    /// Whether this thread is one of the client's read workers ([`SqliteStore::mark_worker_thread`]).
+    static WORKER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 /// How many prepared statements each connection keeps.
 ///
@@ -195,20 +232,42 @@ impl SqliteStore {
         migrate::migrate(&db)?;
         backfill_fts(&db)?;
         search::ensure_vocab(&db)?;
+        // After the migrations, which no one is listening to yet. SQLite calls the hook only for
+        // a transaction that wrote, and calls it before the commit is made: what it marks is
+        // said when the writer is let go of, by which time the commit is there for readers.
+        //
+        // No `update_hook`, which would say which tables: SQLite does not call it for a
+        // WITHOUT ROWID table (`folders`, `message_labels`, `sync_state`, `pending_changes`), so
+        // the write methods say what they touch instead. Nor a `rollback_hook`: a transaction
+        // rolled back never reached the commit hook, so it already says nothing, and a commit
+        // that fails after the hook let it through is told as one, which costs a recount and
+        // never a stale window.
+        let changes = Changes::default();
+        let committed = changes.commit_flag();
+        db.commit_hook(Some(move || {
+            committed.store(true, Ordering::Relaxed);
+            // `false` lets the commit go ahead.
+            false
+        }))
+        .map_err(StoreError::db)?;
         let store = Self {
             db: ReentrantMutex::new(db),
             readers: Vec::new(),
             blobs: BlobStore::new(blob_root.as_ref().to_path_buf()),
+            changes,
             file: None,
+            replaced: std::sync::Mutex::new(std::collections::BTreeSet::new()),
             #[cfg(feature = "testing")]
             scratch: None,
+            #[cfg(feature = "testing")]
+            on_chunk: parking_lot::Mutex::new(None),
         };
         store.refresh_queued_summaries()?;
         store.backfill_contacts()?;
         Ok(store)
     }
 
-    /// Re-derive every summary a migration queued, then forget them.
+    /// Re-derive every summary a migration queued, forgetting each one as it is rebuilt.
     ///
     /// For a derivation change SQL cannot express; see `0007_resummarize.sql`. Nothing queued is
     /// one indexed count and no work.
@@ -233,11 +292,19 @@ impl SqliteStore {
                     what: "summaries_to_refresh.thread".to_owned(),
                     why: e.to_string(),
                 })?;
-            // One thread that no longer decodes keeps the summary it had. Failing here would
-            // stop the database opening at all, over one row, on the first run after an upgrade.
-            let _ = self.refresh_summary(mail_domain::ThreadId::from_uuid(id));
+            // One thread that no longer decodes keeps the summary it had, and stays queued for
+            // the next open. Failing here would stop the database opening at all, over one row,
+            // on the first run after an upgrade; saying nothing would leave it stale for ever.
+            match self.refresh_summary(mail_domain::ThreadId::from_uuid(id)) {
+                Ok(()) => {
+                    tx.execute(
+                        "DELETE FROM summaries_to_refresh WHERE thread = ?1",
+                        [&thread],
+                    )?;
+                }
+                Err(e) => log::warn!("the summary of thread {thread} was not rebuilt: {e}"),
+            }
         }
-        tx.execute("DELETE FROM summaries_to_refresh", [])?;
         tx.commit().map_err(StoreError::db)?;
         Ok(())
     }
@@ -271,73 +338,85 @@ pub(crate) fn held(
 /// message columns. So it runs here, once, over the rows that have no segmented text yet — and
 /// the `AFTER UPDATE` trigger reindexes each one as it is written.
 ///
-/// Cheap to check and cheap to skip: one indexed-free count on a column that is `NOT NULL` for
-/// every row after the first run. A 2372-message maildrop takes a fraction of a second; a
-/// database that has already been backfilled does no work at all.
+/// [`BACKFILL_BATCH`] rows at a time, each batch in a transaction of its own: a migration that
+/// clears every row's text leaves the whole mailbox to index, and one transaction over all of it
+/// holds the writer, and the memory of every row, for as long as it takes. A batch that fails
+/// leaves the earlier ones done, and the next open goes on from there.
+///
+/// Cheap to check and cheap to skip: a database that has already been backfilled finds no row
+/// without text and does no work at all.
 fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
-    let pending: i64 = db
-        .query_row(
-            "SELECT count(*) FROM messages WHERE fts_text IS NULL",
-            [],
-            |r| r.get(0),
-        )
-        .map_err(StoreError::db)?;
-    if pending == 0 {
-        return Ok(());
-    }
-
     /// One row's worth of the columns the index is built from.
-    type Indexed = (i64, String, Option<String>, String, String, Option<String>);
-    let rows: Vec<Indexed> = {
-        let mut stmt = db
-            .prepare(
-                "SELECT rowid, subject, from_name, from_email, recipients, body_text
-                 FROM messages WHERE fts_text IS NULL",
+    type Indexed = (
+        i64,
+        String,
+        Option<String>,
+        String,
+        String,
+        Option<String>,
+        String,
+    );
+    loop {
+        let rows: Vec<Indexed> = {
+            let mut stmt = db
+                .prepare(
+                    "SELECT rowid, subject, from_name, from_email, recipients, body_text, attachments
+                     FROM messages WHERE fts_text IS NULL LIMIT ?1",
+                )
+                .map_err(StoreError::db)?;
+            let mapped = stmt
+                .query_map([BACKFILL_BATCH], |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                    ))
+                })
+                .map_err(StoreError::db)?;
+            mapped
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(StoreError::db)?
+        };
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let tx = db.unchecked_transaction().map_err(StoreError::db)?;
+        for (rowid, subject, from_name, from_email, recipients, body_text, attachments) in rows {
+            // A row whose recipients no longer decode is indexed without them, rather than
+            // stopping the database from opening over one message.
+            let recipients: read::Recipients =
+                row::json("Message.recipients", &recipients).unwrap_or_default();
+            let attachments: Vec<mail_domain::Attachment> =
+                // Its attachments likewise: indexed without their names rather than not at all.
+                row::json("Message.attachments", &attachments).unwrap_or_default();
+            let from = mail_domain::Address {
+                name: from_name,
+                email: from_email,
+            };
+            let text = crate::sql::message_index(
+                &subject,
+                &from,
+                &recipients.to,
+                &recipients.cc,
+                body_text.as_deref(),
+                &attachments,
+            );
+            tx.execute(
+                "UPDATE messages SET fts_text = ?2 WHERE rowid = ?1",
+                rusqlite::params![rowid, text],
             )
             .map_err(StoreError::db)?;
-        let mapped = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get(0)?,
-                    r.get(1)?,
-                    r.get(2)?,
-                    r.get(3)?,
-                    r.get(4)?,
-                    r.get(5)?,
-                ))
-            })
-            .map_err(StoreError::db)?;
-        mapped
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(StoreError::db)?
-    };
-
-    let tx = db.unchecked_transaction().map_err(StoreError::db)?;
-    for (rowid, subject, from_name, from_email, recipients, body_text) in rows {
-        // A row whose recipients no longer decode is indexed without them, rather than stopping
-        // the database from opening over one message.
-        let recipients: read::Recipients =
-            row::json("Message.recipients", &recipients).unwrap_or_default();
-        let from = mail_domain::Address {
-            name: from_name,
-            email: from_email,
-        };
-        let text = crate::sql::message_index(
-            &subject,
-            &from,
-            &recipients.to,
-            &recipients.cc,
-            body_text.as_deref(),
-        );
-        tx.execute(
-            "UPDATE messages SET fts_text = ?2 WHERE rowid = ?1",
-            rusqlite::params![rowid, text],
-        )
-        .map_err(StoreError::db)?;
+        }
+        tx.commit().map_err(StoreError::db)?;
     }
-    tx.commit().map_err(StoreError::db)?;
-    Ok(())
 }
+
+/// How many rows [`backfill_fts`] indexes in one transaction.
+const BACKFILL_BATCH: i64 = 1000;
 
 impl SqliteStore {
     /// The blobs, for callers that need to read a raw message or an attachment.
@@ -351,13 +430,97 @@ impl SqliteStore {
         &self.blobs
     }
 
-    /// The underlying connection.
+    /// The underlying connection, the one that writes.
     ///
     /// Reentrant: taking it twice on one thread is normal here, because a public method opens a
     /// transaction and then calls helpers that each need the connection again. With a plain
     /// mutex that is a deadlock, and a deadlock has no error message.
-    pub(crate) fn connection(&self) -> ReentrantMutexGuard<'_, Connection> {
-        self.db.lock()
+    ///
+    /// What is committed under it is said when the outermost hold is let go of; a write that
+    /// knows what it touches takes the writer through [`Self::touch`] instead, so it is said as
+    /// that rather than as everything.
+    pub(crate) fn connection(&self) -> Writer<'_> {
+        let held = self.db.lock();
+        self.changes.enter(held.total_changes());
+        Writer {
+            held,
+            changes: &self.changes,
+        }
+    }
+
+    /// The writer, for a write that touches `topics`: what a commit under this hold (or the
+    /// outermost one it is inside) is said to have changed.
+    pub(crate) fn touch(&self, topics: Topics) -> Writer<'_> {
+        let writer = self.connection();
+        self.changes.declare(topics);
+        writer
+    }
+
+    /// Hear every commit this store makes from now on, as it is made: one [`Committed`] for
+    /// each time the writer is let go of with something committed under it.
+    ///
+    /// Not another process's commits, which go to the file without passing through here: those
+    /// are heard by watching the file and [`Self::data_version`].
+    pub fn subscribe(&self) -> std::sync::mpsc::Receiver<Committed> {
+        self.changes.subscribe(None)
+    }
+
+    /// [`Self::subscribe`], with `wake` called on the committing thread each time a commit is
+    /// waiting: for a subscriber with no thread of its own blocked on the receiver.
+    pub fn subscribe_waking(
+        &self,
+        wake: crate::changes::Wake,
+    ) -> std::sync::mpsc::Receiver<Committed> {
+        self.changes.subscribe(Some(wake))
+    }
+
+    /// Say that the calling thread is a worker that reads for others, as the client's read threads
+    /// are: it may hold a reader for as long as a read takes (a pinned snapshot, a slow query),
+    /// so it is kept off the last reader, which is the one the other threads — the window's
+    /// drawing among them — can always get.
+    pub fn mark_worker_thread() {
+        WORKER.set(true);
+    }
+
+    /// How many connections read beside the writer: none for an in-memory database. What a
+    /// caller that reads on threads of its own sizes them by, leaving one free.
+    pub fn reader_count(&self) -> usize {
+        self.readers.len()
+    }
+
+    /// The generation of the last commit this store has said it made. Read before a read
+    /// begins, it is a commit that read is sure to see.
+    pub fn generation(&self) -> Generation {
+        self.changes.generation()
+    }
+
+    /// Run `read` with every read on this thread seeing one moment of the database.
+    ///
+    /// Each read normally takes whichever reader is free and sees the database as it is then,
+    /// so twenty counts made one after another can straddle a commit, and a badge can count a
+    /// message its list does not have yet. Here one reader is held for the thread in one read
+    /// transaction, and [`Self::reader`] hands the thread that reader every time, so everything
+    /// `read` asks is answered from the same snapshot, whatever commits meanwhile.
+    ///
+    /// Nested, or inside a write, `read` simply runs: the snapshot or the write already held is
+    /// the one it sees. An in-memory database has no readers, and holds the writer instead.
+    pub fn read_pinned<T>(&self, read: impl FnOnce() -> T) -> Result<T, StoreError> {
+        let held_already = self.db.is_owned_by_current_thread()
+            || self
+                .readers
+                .iter()
+                .any(ReentrantMutex::is_owned_by_current_thread);
+        if held_already {
+            return Ok(read());
+        }
+        if self.readers.is_empty() {
+            let _writer = self.db.lock();
+            return Ok(read());
+        }
+        let pinned = Pinned::begin(self.reader())?;
+        let answer = read();
+        drop(pinned);
+        Ok(answer)
     }
 
     /// The file the database is in, when it is in one: what another process's commit writes to
@@ -392,18 +555,115 @@ impl SqliteStore {
     /// change it is part of. That is why `summary_of`, `messages_of`, `labels_of` and
     /// `read_message` take a `&Connection` instead of reaching for one: the caller says which
     /// world it means, and the compiler will not let a write path forget.
+    ///
+    /// Every other read can come here without that care, because this is what keeps the rule:
+    /// a thread already holding the writer is handed the writer again. Every write holds it for
+    /// as long as its transaction is open (the transaction borrows the guard), so a read made
+    /// anywhere inside one — `write_folders` asking what folder work is queued, an ingest asking
+    /// which message a key names — reads the transaction it is part of, and takes nothing it
+    /// could wait on. Only a thread that holds no part of the writer reads beside it.
+    ///
+    /// A thread inside [`Self::read_pinned`] is handed its pinned reader again, so every read it
+    /// makes is of the one snapshot.
+    ///
+    /// The last reader is not a worker's ([`Self::mark_worker_thread`]): a thread that waits for a
+    /// reader waits on that one, so the window's drawing never waits behind a worker's pinned read.
     pub(crate) fn reader(&self) -> ReentrantMutexGuard<'_, Connection> {
-        for reader in &self.readers {
+        if self.db.is_owned_by_current_thread() {
+            return self.db.lock();
+        }
+        if let Some(pinned) = self
+            .readers
+            .iter()
+            .find(|reader| reader.is_owned_by_current_thread())
+        {
+            return pinned.lock();
+        }
+        // The last reader is kept for threads that are not workers: workers, which may hold a
+        // reader for a whole pinned read, take the others, so the thread that draws never waits
+        // on one.
+        let Some((reserved, others)) = self.readers.split_last() else {
+            return self.db.lock();
+        };
+        if WORKER.get() && !others.is_empty() {
+            for reader in others {
+                if let Some(free) = reader.try_lock() {
+                    return free;
+                }
+            }
+            // Every reader a worker may use is busy with other workers: wait on one of them.
+            return others[0].lock();
+        }
+        if let Some(free) = reserved.try_lock() {
+            return free;
+        }
+        for reader in others {
             if let Some(free) = reader.try_lock() {
                 return free;
             }
         }
-        // Every reader busy: wait on one of them rather than on the writer, which may hold its
-        // lock for a whole ingest batch.
-        match self.readers.first() {
-            Some(reader) => reader.lock(),
-            None => self.db.lock(),
-        }
+        // Every reader busy: wait on the reserved one, which only threads that are not workers
+        // hold, rather than on a worker's or on the writer, which may be held for a whole ingest
+        // chunk. A thread holding the writer never gets here, so this wait cannot close a cycle
+        // with one.
+        reserved.lock()
+    }
+}
+
+/// The writer, held: what [`SqliteStore::connection`] and [`SqliteStore::touch`] hand out.
+///
+/// A connection, by `Deref`, and a count of how deep the thread holds it. When the outermost hold
+/// is let go of, whatever was committed under it is said to the store's subscribers
+/// ([`crate::changes`]), while the lock is still held, so commits are told in the order they were
+/// made.
+pub struct Writer<'a> {
+    held: ReentrantMutexGuard<'a, Connection>,
+    changes: &'a Changes,
+}
+
+impl std::ops::Deref for Writer<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.held
+    }
+}
+
+impl Drop for Writer<'_> {
+    fn drop(&mut self) {
+        self.changes.leave(self.held.total_changes());
+    }
+}
+
+impl std::fmt::Debug for Writer<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Writer")
+    }
+}
+
+/// A reader held for one thread in one read transaction, for [`SqliteStore::read_pinned`]. The
+/// transaction ends when this is dropped, whether the read finished or panicked.
+struct Pinned<'a>(ReentrantMutexGuard<'a, Connection>);
+
+impl<'a> Pinned<'a> {
+    fn begin(reader: ReentrantMutexGuard<'a, Connection>) -> Result<Self, StoreError> {
+        reader.execute_batch("BEGIN").map_err(StoreError::db)?;
+        let pinned = Self(reader);
+        // A deferred transaction takes its snapshot at its first read, not at `BEGIN`: this is
+        // that read, so the moment is now rather than whenever `read` first asks.
+        pinned
+            .0
+            .query_row("SELECT count(*) FROM sqlite_schema", [], |_| Ok(()))
+            .map_err(StoreError::db)?;
+        Ok(pinned)
+    }
+}
+
+impl Drop for Pinned<'_> {
+    fn drop(&mut self) {
+        // A read transaction has nothing to keep or lose, and a reader whose `COMMIT` failed is
+        // still a connection the next read can use: SQLite ends the transaction either way.
+        let _ = self.0.execute_batch("COMMIT");
     }
 }
 
@@ -417,66 +677,136 @@ use mail_domain::{
 };
 use porter_core::AccountId;
 
-/// The `thread_summary` column a [`Property`] sorts on.
+/// The `thread_summary` column a [`Property`] sorts on, and whether it holds a number.
 ///
-/// Every one is indexed or cheap; `Size` is not stored, so it falls back to date rather than
-/// forcing a scan over message bodies to answer a sort nobody can see the result of anyway.
-fn sort_column(property: Property) -> &'static str {
+/// Each but `Attachments`, which no menu offers, has an index that matches its `ORDER BY`
+/// exactly (`0041_sort_keys.sql`). Subject, sender and size are the newest message's
+/// ([`mail_domain::SortFacts`]).
+fn sort_column(property: Property) -> (&'static str, Value) {
     match property {
-        Property::Date | Property::Size => "ts.last_date",
-        Property::Subject => "ts.subject",
-        Property::From | Property::Sender => "ts.from_email",
-        Property::Attachments => "ts.attachments",
-        Property::Pin => "ts.pin",
+        Property::Date => ("ts.last_date", Value::Text),
+        Property::Subject => ("ts.sort_subject", Value::Text),
+        Property::From | Property::Sender => ("ts.sort_sender", Value::Text),
+        Property::Size => ("ts.size", Value::Int),
+        Property::Attachments => ("ts.attachments", Value::Text),
+        Property::Pin => ("ts.pin", Value::Text),
+        Property::Unread => ("ts.unread", Value::Int),
+        Property::Starred => ("ts.starred", Value::Int),
     }
 }
 
-/// Encode a keyset position. Opaque to every caller; the format is this module's business.
-fn encode_cursor(sort_value: &str, thread: ThreadId) -> Cursor {
-    Cursor(format!("{}\u{1f}{}", sort_value, thread))
+/// What a sort column holds, so a cursor's text is bound back as the type the keyset compares
+/// against: SQLite orders every integer before every text, so `'9' > 10`.
+#[derive(Clone, Copy)]
+enum Value {
+    Text,
+    Int,
 }
 
-fn decode_cursor(cursor: &Cursor) -> Result<(String, String), StoreError> {
-    cursor
-        .0
-        .split_once('\u{1f}')
-        .map(|(a, b)| (a.to_owned(), b.to_owned()))
-        .ok_or(StoreError::BadCursor)
+/// The columns a sort orders by, most significant first: its own, then the date, then the
+/// thread, so the order is total and two rows that sort alike stay newest first, or oldest first,
+/// whichever way the sort runs. The date sorts by itself and the thread alone.
+fn order_columns(property: Property) -> Vec<(&'static str, Value)> {
+    let tie = [("ts.last_date", Value::Text), ("ts.thread", Value::Text)];
+    match property {
+        Property::Date => tie.to_vec(),
+        other => std::iter::once(sort_column(other)).chain(tie).collect(),
+    }
+}
+
+/// Encode a keyset position: each order column's value. Opaque to every caller; the format is
+/// this module's business.
+fn encode_cursor(values: &[String]) -> Cursor {
+    Cursor(values.join("\u{1f}"))
+}
+
+/// The values of a cursor for `columns`, bound as each column's type. Split from the right, so
+/// a subject that somehow holds the separator is still one value: only the first column is ever
+/// free text.
+fn decode_cursor(
+    cursor: &Cursor,
+    columns: &[(&'static str, Value)],
+) -> Result<Vec<sql::SqlValue>, StoreError> {
+    let mut parts: Vec<&str> = cursor.0.rsplitn(columns.len(), '\u{1f}').collect();
+    if parts.len() != columns.len() {
+        return Err(StoreError::BadCursor);
+    }
+    parts.reverse();
+    parts
+        .into_iter()
+        .zip(columns)
+        .map(|(part, (_, value))| match value {
+            Value::Text => Ok(sql::SqlValue::Text(part.to_owned())),
+            Value::Int => part
+                .parse()
+                .map(sql::SqlValue::Int)
+                .map_err(|_| StoreError::BadCursor),
+        })
+        .collect()
 }
 
 impl Store for SqliteStore {
+    fn followed_folders(&self) -> Result<Vec<MailboxRef>, StoreError> {
+        let mut followed = Vec::new();
+        for stored in self.list_accounts()? {
+            for folder in self.folders(stored.id.clone())? {
+                if folder.subscription == mail_domain::Subscription::Subscribed
+                    && folder.holds == mail_domain::Holds::Mail
+                    && folder.protected().is_none()
+                    && folder.special.is_none()
+                {
+                    followed.push(MailboxRef {
+                        account: stored.id.clone(),
+                        path: folder.path,
+                    });
+                }
+            }
+        }
+        Ok(followed)
+    }
+
     fn threads(
         &self,
         query: &Query,
         now: DateTime<Utc>,
     ) -> Result<Page<ThreadSummary>, StoreError> {
         let compiled = sql::compile(&query.filter, now);
-        let column = sort_column(query.sort.property);
+        let columns = order_columns(query.sort.property);
         let dir = match query.sort.dir {
             SortDir::Asc => "ASC",
             SortDir::Desc => "DESC",
         };
+        let names: Vec<&str> = columns.iter().map(|(name, _)| *name).collect();
         // Keyset, not OFFSET: an offset shifts under the reader when mail arrives mid-scroll,
-        // which silently skips or repeats a row. The tie-break on thread id makes the order
-        // total, so a page boundary is never ambiguous.
+        // which silently skips or repeats a row. The date and then the thread id break ties,
+        // which makes the order total, so a page boundary is never ambiguous.
         let (keyset, mut params): (String, Vec<sql::SqlValue>) = match &query.page.after {
             None => (String::from("1=1"), Vec::new()),
             Some(cursor) => {
-                let (value, thread) = decode_cursor(cursor)?;
+                let values = decode_cursor(cursor, &columns)?;
                 let cmp = if matches!(query.sort.dir, SortDir::Asc) {
                     ">"
                 } else {
                     "<"
                 };
-                (
-                    format!("({column}, ts.thread) {cmp} (?, ?)"),
-                    vec![sql::SqlValue::Text(value), sql::SqlValue::Text(thread)],
-                )
+                let marks = vec!["?"; values.len()].join(", ");
+                (format!("({}) {cmp} ({marks})", names.join(", ")), values)
             }
         };
+        let order = names
+            .iter()
+            .map(|name| format!("{name} {dir}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let selected = names
+            .iter()
+            .enumerate()
+            .map(|(at, name)| format!("{name} AS sort_key_{at}"))
+            .collect::<Vec<_>>()
+            .join(", ");
 
         let sql_text = format!(
-            "SELECT {}, {column} AS sort_key FROM thread_summary ts WHERE {} AND {} ORDER BY {column} {dir}, ts.thread {dir} LIMIT ?",
+            "SELECT {}, {selected} FROM thread_summary ts WHERE {} AND {} ORDER BY {order} LIMIT ?",
             read::qualified_summary_columns(),
             compiled.where_clause,
             keyset,
@@ -498,20 +828,30 @@ impl Store for SqliteStore {
             sql::SqlValue::Int(i) => rusqlite::types::Value::Integer(*i),
         })))?;
 
-        // Each row's sort value as the column holds it, so the next page resumes from the text
+        // Each row's order values as the columns hold them, so the next page resumes from what
         // the keyset compares against, whatever the sort.
         let mut items = Vec::new();
         let mut keys = Vec::new();
         while let Some(row) = rows.next()? {
             items.push(self.read_summary(row)?);
-            keys.push(row.get::<_, String>("sort_key")?);
+            let mut values = Vec::with_capacity(columns.len());
+            for (at, (_, value)) in columns.iter().enumerate() {
+                let name = format!("sort_key_{at}");
+                values.push(match value {
+                    Value::Text => row.get::<_, String>(name.as_str())?,
+                    Value::Int => row.get::<_, i64>(name.as_str())?.to_string(),
+                });
+            }
+            keys.push(values);
         }
 
         let next = if items.len() as i64 > limit {
             items.truncate(limit as usize);
             items
-                .last()
-                .map(|s| encode_cursor(&keys[items.len() - 1], s.id))
+                .len()
+                .checked_sub(1)
+                .and_then(|last| keys.get(last))
+                .map(|values| encode_cursor(values))
         } else {
             None
         };
@@ -630,7 +970,7 @@ impl Store for SqliteStore {
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError> {
         // A message may have several remote addresses; any one of them can fetch the body, so
         // take the first per message rather than returning the same work several times.
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
              FROM messages m
@@ -647,21 +987,33 @@ impl Store for SqliteStore {
         rows.map(|row| remote_from_columns(row?)).collect()
     }
 
-    fn unfetched_in(&self, mailbox: &MailboxRef, limit: u32) -> Result<Vec<RemoteRef>, StoreError> {
+    fn unfetched_in(
+        &self,
+        mailbox: &MailboxRef,
+        since: Option<DateTime<Utc>>,
+        limit: u32,
+    ) -> Result<Vec<RemoteRef>, StoreError> {
         // The address in this mailbox, one per message: a server may hold two copies of one
         // message in one folder, and one fetch fills both.
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl
              FROM remote_map r
              JOIN messages m ON m.id = r.message
              WHERE r.account = ?1 AND r.mailbox = ?2 AND m.body_raw IS NULL
+               AND (?4 IS NULL OR m.date >= ?4)
              GROUP BY m.id
              ORDER BY m.date DESC, m.id DESC
              LIMIT ?3",
         )?;
+        let since = since.map(row::from_time);
         let rows = stmt.query_map(
-            rusqlite::params![mailbox.account.to_string(), mailbox.path, i64::from(limit)],
+            rusqlite::params![
+                mailbox.account.to_string(),
+                mailbox.path,
+                i64::from(limit),
+                since
+            ],
             remote_columns,
         )?;
         rows.map(|row| remote_from_columns(row?)).collect()
@@ -681,7 +1033,7 @@ impl Store for SqliteStore {
         let ids: Vec<String> = threads.iter().map(ToString::to_string).collect();
         let ids =
             serde_json::to_string(&ids).map_err(|e| StoreError::db(format!("threads: {e}")))?;
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT r.mailbox, r.uidvalidity, r.uid, r.uidl, m.thread
              FROM remote_map r
@@ -715,7 +1067,7 @@ impl Store for SqliteStore {
         // `sync_state` has been written by every ingest since the store was created. Nothing
         // had ever read it back, which is why the CONDSTORE path could never start.
         let text: Option<String> = self
-            .connection()
+            .reader()
             .query_row(
                 "SELECT cursor FROM sync_state WHERE account = ?1 AND mailbox = ?2",
                 rusqlite::params![mailbox.account.to_string(), mailbox.path],
@@ -731,16 +1083,20 @@ impl Store for SqliteStore {
         caps: &AccountCaps,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        self.connection().execute(
-            "INSERT INTO account_caps (account, caps, observed_at) VALUES (?1, ?2, ?3)
-             ON CONFLICT(account) DO UPDATE SET
-                 caps = excluded.caps, observed_at = excluded.observed_at",
-            rusqlite::params![
-                account.to_string(),
-                row::to_json("AccountCaps", caps)?,
-                row::from_time(now),
-            ],
-        )?;
+        let was_keywords = self.labels_as_keywords(account.clone())?;
+        // What was observed, with what the person picked laid over it: a refresh replaces the
+        // first and keeps the second. One transaction, so a pick made meanwhile is not lost.
+        {
+            let db = self.touch(Topics::ACCOUNTS);
+            let tx = db.unchecked_transaction()?;
+            account_prefs::write_caps(&tx, &account, caps, &row::from_time(now))?;
+            tx.commit()?;
+        }
+        // Judged on what is stored, which has the person's say over it: a server that takes
+        // keywords is not asked for them unless they chose to keep their labels there.
+        if !was_keywords && self.labels_as_keywords(account.clone())? {
+            self.push_keyword_labels(account, now)?;
+        }
         Ok(())
     }
 
@@ -770,15 +1126,37 @@ impl Store for SqliteStore {
         blob: mail_domain::BlobId,
         size: u64,
     ) -> Result<(), StoreError> {
-        let mut attachments = self.message(message)?.attachments;
-        held(&mut attachments, message, section, blob, size)?;
-        self.connection().execute(
-            "UPDATE messages SET attachments = ?2 WHERE id = ?1",
+        // The writer for the read too, so no other write to the attachments lands between it
+        // and this one.
+        let db = self.touch(Topics::SUMMARIES);
+        let mut held_message = self.message(message)?;
+        held(&mut held_message.attachments, message, section, blob, size)?;
+        db.execute(
+            "UPDATE messages SET attachments = ?2, size = max(?3, server_size) WHERE id = ?1",
             rusqlite::params![
                 message.to_string(),
-                row::to_json("attachments", &attachments)?
+                row::to_json("attachments", &held_message.attachments)?,
+                i64::try_from(held_message.size()).unwrap_or(i64::MAX),
             ],
         )?;
+        Ok(())
+    }
+
+    fn hold_server_sizes(&self, sizes: &[(MessageId, u64)]) -> Result<(), StoreError> {
+        if sizes.is_empty() {
+            return Ok(());
+        }
+        let db = self.touch(Topics::SUMMARIES);
+        let tx = db.unchecked_transaction()?;
+        for (message, size) in sizes {
+            // Bytes held in an `INTEGER`, which is signed: nothing is past `i64::MAX`.
+            let size = i64::try_from(*size).unwrap_or(i64::MAX);
+            tx.prepare_cached(
+                "UPDATE messages SET server_size = ?2, size = max(size, ?2) WHERE id = ?1",
+            )?
+            .execute(rusqlite::params![message.to_string(), size])?;
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -816,7 +1194,7 @@ impl Store for SqliteStore {
     }
 
     fn remote_refs(&self, mailbox: &MailboxRef) -> Result<Vec<RemoteRef>, StoreError> {
-        let db = self.connection();
+        let db = self.reader();
         let mut stmt = db.prepare_cached(
             "SELECT mailbox, uidvalidity, uid, uidl FROM remote_map
              WHERE account = ?1 AND mailbox = ?2",
@@ -841,6 +1219,15 @@ impl Store for SqliteStore {
         to: &RemoteRef,
     ) -> Result<(), StoreError> {
         self.write_remap(account, from, to)
+    }
+
+    fn copied(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError> {
+        self.write_copied(account, from, to)
     }
 
     fn unmap(
@@ -960,6 +1347,14 @@ impl Store for SqliteStore {
         mailbox: &MailboxRef,
     ) -> Result<mail_domain::FolderContents, StoreError> {
         self.contents(mailbox)
+    }
+
+    fn addressed_in(
+        &self,
+        mailbox: &MailboxRef,
+        messages: &[MessageId],
+    ) -> Result<Vec<MessageId>, StoreError> {
+        self.addressed(mailbox, messages)
     }
 
     fn outbox_settle(
@@ -1109,6 +1504,18 @@ impl Store for SqliteStore {
         self.drop_contact(address)
     }
 
+    fn vips(&self) -> Result<Vec<crate::Vip>, StoreError> {
+        self.every_vip()
+    }
+
+    fn put_vip(&self, address: &str, name: Option<&str>) -> Result<crate::Vip, StoreError> {
+        self.mark_vip(address, name)
+    }
+
+    fn delete_vip(&self, address: &str) -> Result<bool, StoreError> {
+        self.unmark_vip(address)
+    }
+
     fn address_book(&self, url: &str) -> Result<Option<AddressBook>, StoreError> {
         self.read_book(url)
     }
@@ -1135,6 +1542,26 @@ impl Store for SqliteStore {
 
     fn delete_group(&self, id: &crate::GroupId) -> Result<bool, StoreError> {
         self.drop_group(id)
+    }
+
+    fn cards(&self) -> Result<Vec<crate::PersonCard>, StoreError> {
+        self.every_card()
+    }
+
+    fn card(&self, id: &crate::CardId) -> Result<Option<crate::PersonCard>, StoreError> {
+        self.one_card(id)
+    }
+
+    fn card_of(&self, address: &str) -> Result<Option<crate::PersonCard>, StoreError> {
+        self.card_listing(address)
+    }
+
+    fn put_card(&self, card: &crate::PersonCard) -> Result<(), StoreError> {
+        self.write_card(card)
+    }
+
+    fn delete_card(&self, id: &crate::CardId) -> Result<bool, StoreError> {
+        self.drop_card(id)
     }
 }
 

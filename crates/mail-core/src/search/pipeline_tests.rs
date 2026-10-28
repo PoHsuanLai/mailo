@@ -7,7 +7,7 @@ use mail_domain::{Filter, PageReq, ReadState, Star, ThreadId, ThreadSummary};
 
 use super::super::ranking::Affinity;
 use super::super::source::{Source, Term, first};
-use super::{STRIP, search_list};
+use super::{TOP_LIMIT, search_list};
 use crate::support_tests::{at, sqlite_with, summary};
 
 fn searched(input: &str, store: &mail_store::SqliteStore) -> super::Searched {
@@ -16,7 +16,7 @@ fn searched(input: &str, store: &mail_store::SqliteStore) -> super::Searched {
         store,
         &Affinity::default(),
         &Utc,
-        &|_| Vec::new(),
+        &crate::query::unnamed,
         first(100),
         at(10_000),
     )
@@ -41,14 +41,14 @@ fn the_list_is_newest_first_and_the_strip_is_best_first() {
         vec!["Parking", "Lunch", "Invoice for March"],
         "the matches, newest first"
     );
-    let strip = found.strip();
+    let strip = found.top_results();
     assert_eq!(
         strip.first().map(|row| row.subject.as_str()),
         Some("Invoice for March"),
         "the subject hit leads the strip although it is the oldest: {:?}",
         subjects(&strip)
     );
-    assert!(strip.len() <= STRIP, "{:?}", subjects(&strip));
+    assert!(strip.len() <= TOP_LIMIT, "{:?}", subjects(&strip));
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn operators_alone_list_without_a_strip() {
     let found = searched("from:a@b.c", &store);
     assert_eq!(subjects(&found.rows), vec!["Lunch", "Invoice for March"]);
     assert!(found.top.is_empty(), "nothing to rank by: {:?}", found.top);
-    assert!(found.strip().is_empty());
+    assert!(found.top_results().is_empty());
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn a_strip_that_repeats_the_first_rows_is_not_shown() {
         "the store did find a top result"
     );
     assert!(
-        found.strip().is_empty(),
+        found.top_results().is_empty(),
         "one match is its own top result, and a strip of it says nothing"
     );
 }
@@ -125,9 +125,9 @@ type AskedFor = (&'static str, &'static [u32], &'static [(usize, usize)]);
 #[test]
 fn a_search_asks_for_one_page_and_a_bounded_window_never_every_match() {
     let cases: &[AskedFor] = &[
-        ("the ", &[100], &[(STRIP, 100)]),
-        ("invoice from:a@b.c", &[100], &[(STRIP, 100)]),
-        ("\"lunch on friday\"", &[100], &[(STRIP, 100)]),
+        ("the ", &[100], &[(TOP_LIMIT, 100)]),
+        ("invoice from:a@b.c", &[100], &[(TOP_LIMIT, 100)]),
+        ("\"lunch on friday\"", &[100], &[(TOP_LIMIT, 100)]),
         ("from:a@b.c is:unread", &[100], &[]),
     ];
     for (input, listed, top) in cases {
@@ -137,7 +137,7 @@ fn a_search_asks_for_one_page_and_a_bounded_window_never_every_match() {
             &asked,
             &Affinity::default(),
             &Utc,
-            &|_| Vec::new(),
+            &crate::query::unnamed,
             first(100),
             at(0),
         )

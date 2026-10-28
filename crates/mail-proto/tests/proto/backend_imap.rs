@@ -14,12 +14,15 @@ use mail_proto::{
 };
 use porter_core::Credential;
 use porter_core::SecretText;
-use porter_core::UnixSeconds;
+use porter_ids::UnixSeconds;
 
 fn caps(labels: ServerLabels, archive: ArchiveMeans) -> AccountCaps {
     AccountCaps {
         labels,
-        threads: ServerThreads::ProviderId,
+        threads: match labels {
+            ServerLabels::Supported => ServerThreads::ProviderId,
+            ServerLabels::LocalOnly | ServerLabels::Keywords => ServerThreads::Jwz,
+        },
         archive,
         condstore: Condstore::Supported,
         move_ext: MoveExt::Supported,
@@ -463,14 +466,26 @@ fn trash_and_spam_go_to_their_own_folders_not_the_archive() {
     ] {
         // One rule both ways: where a role is sent is where a message held there is filed.
         assert_eq!(roles.folders.filed_as(folder), role, "{folder}");
+        // Into Junk, the filter is told first (`junk_marks_travel_with_a_move_into_and_out_of_junk`).
+        let (marks, tag) = match role {
+            MailboxRole::Spam => (
+                "C: a003 UID STORE 5 +FLAGS ($Junk)\n\
+                 S: a003 OK stored\n\
+                 C: a004 UID STORE 5 -FLAGS ($NotJunk)\n\
+                 S: a004 OK stored\n",
+                "a005",
+            ),
+            _ => ("", "a003"),
+        };
         let trace = format!(
             "S: * OK ready\n\
              C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
              S: a001 OK logged in\n\
              C: a002 SELECT \"Work\"\n\
              S: a002 OK [READ-WRITE] SELECT completed\n\
-             C: a003 UID MOVE 5 \"{folder}\"\n\
-             S: a003 OK moved\n\
+             {marks}\
+             C: {tag} UID MOVE 5 \"{folder}\"\n\
+             S: {tag} OK moved\n\
              DONE\n"
         );
         let mut driven = Driven::new(
@@ -717,6 +732,7 @@ fn submission_is_refused_here() {
             raw: BlobId::generate(),
             mail_from: "ada@example.com".to_owned(),
             rcpt_to: vec!["bob@example.com".to_owned()],
+            delivery: mail_domain::DeliveryReport::Unrequested,
         }),
         Progress::Failed(_)
     ));
@@ -818,7 +834,7 @@ mod gmail_labels {
                 "S: * OK [UIDVALIDITY 1] UIDs valid.\n",
                 "S: * OK [UIDNEXT 43] Predicted next UID.\n",
                 "S: a002 OK [READ-ONLY] EXAMINE completed\n",
-                "C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE X-GM-LABELS)\n",
+                "C: a003 UID FETCH 1:* (UID FLAGS RFC822.SIZE X-GM-LABELS X-GM-THRID)\n",
                 "{}",
                 "S: a003 OK Success\n",
                 "DONE\n"
@@ -884,6 +900,23 @@ mod gmail_labels {
         for (name, fetch_lines, want) in cases {
             assert_eq!(surveyed(fetch_lines).label_names, want, "{name}");
         }
+    }
+
+    /// Gmail's thread id rides in the same survey, and is read wherever the server gives one.
+    #[test]
+    fn x_gm_thrid_is_carried_for_threading() {
+        let ingest = surveyed(concat!(
+            "S: * 1 FETCH (UID 42 FLAGS (\\Seen) RFC822.SIZE 100 X-GM-LABELS () X-GM-THRID 1876965017123110734)\n",
+            "S: * 2 FETCH (UID 43 FLAGS () RFC822.SIZE 200 X-GM-THRID 1876965017123110734 X-GM-LABELS ())\n",
+            "S: * 3 FETCH (UID 44 FLAGS () RFC822.SIZE 200 X-GM-LABELS ())\n",
+        ));
+        assert_eq!(
+            ingest.provider_threads,
+            vec![
+                (imap_ref("INBOX", 42), "1876965017123110734".to_owned()),
+                (imap_ref("INBOX", 43), "1876965017123110734".to_owned()),
+            ]
+        );
     }
 
     #[test]
@@ -1070,6 +1103,8 @@ fn qresync_is_believed_only_alongside_condstore() {
              C: a003 CAPABILITY\n\
              S: * CAPABILITY {advertised}\n\
              S: a003 OK done\n\
+             C: a004 SELECT \"INBOX\"\n\
+             S: a004 OK [READ-WRITE] done\n\
              DONE\n"
         );
         let mut driven = Driven::new(
@@ -1281,4 +1316,111 @@ fn a_resumed_operation_takes_no_news_of_the_mailbox_before_it() {
 fn without_unselect_a_connection_with_a_mailbox_selected_is_not_resumed() {
     let mut backend = flags_of_the_inbox(false);
     assert!(!backend.resume(&flags_of("Archive")));
+}
+
+/// A move into Junk sets `$Junk` and takes `$NotJunk` off before the move, so the keywords travel
+/// with the message; one out of Junk does the reverse; any other move sends neither.
+#[test]
+fn junk_marks_travel_with_a_move_into_and_out_of_junk() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.folders = FolderRoles(vec![
+        ("Junk".to_owned(), MailboxRole::Spam),
+        ("Trash".to_owned(), MailboxRole::Trash),
+    ]);
+    let cases: &[(&str, &str, MailboxRole, &str, &str)] = &[
+        (
+            "not junk",
+            "Junk",
+            MailboxRole::Inbox,
+            "INBOX",
+            "$NotJunk/$Junk",
+        ),
+        ("junk", "INBOX", MailboxRole::Spam, "Junk", "$Junk/$NotJunk"),
+        ("archived", "INBOX", MailboxRole::Archive, "Archive", ""),
+        // Out of Junk but not to the inbox: no word on whether it was junk.
+        (
+            "archived out of junk",
+            "Junk",
+            MailboxRole::Archive,
+            "Archive",
+            "",
+        ),
+        (
+            "trashed out of junk",
+            "Junk",
+            MailboxRole::Trash,
+            "Trash",
+            "",
+        ),
+    ];
+    for (name, from, role, to, marks) in cases {
+        let mut trace = format!(
+            "S: * OK ready\n\
+             C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+             S: a001 OK logged in\n\
+             C: a002 SELECT \"{from}\"\n\
+             S: a002 OK [READ-WRITE] SELECT completed\n"
+        );
+        let mut tag = 3;
+        if let Some((on, off)) = marks.split_once('/') {
+            trace.push_str(&format!(
+                "C: a00{tag} UID STORE 5 +FLAGS ({on})\nS: a00{tag} OK stored\n\
+                 C: a00{} UID STORE 5 -FLAGS ({off})\nS: a00{} OK stored\n",
+                tag + 1,
+                tag + 1
+            ));
+            tag += 2;
+        }
+        trace.push_str(&format!(
+            "C: a00{tag} UID MOVE 5 \"{to}\"\nS: a00{tag} OK moved\nDONE\n"
+        ));
+        let mut driven = Driven::new(
+            password_backend(roles.clone()),
+            ProtoOp::SetMailbox {
+                remotes: vec![imap_ref(from, 5)],
+                role: *role,
+            },
+        );
+        assert!(
+            matches!(replay(&mut driven, &trace).unwrap(), ProtoOutcome::Moved(_)),
+            "{name}"
+        );
+    }
+}
+
+/// A server that refuses the junk keywords (Exchange answers `BAD` to `$Junk`) still has the
+/// message moved: the STOREs only inform, and their refusal is passed over.
+#[test]
+fn a_refused_junk_mark_does_not_cancel_the_move() {
+    let mut roles = caps(
+        ServerLabels::LocalOnly,
+        ArchiveMeans::MoveToFolder("Archive".to_owned()),
+    );
+    roles.folders = FolderRoles(vec![("Junk".to_owned(), MailboxRole::Spam)]);
+    let trace = "S: * OK ready\n\
+         C: a001 LOGIN \"ada@example.test\" \"hunter2\"\n\
+         S: a001 OK logged in\n\
+         C: a002 SELECT \"INBOX\"\n\
+         S: a002 OK [READ-WRITE] SELECT completed\n\
+         C: a003 UID STORE 5 +FLAGS ($Junk)\n\
+         S: a003 BAD Command Argument Error. 11\n\
+         C: a004 UID STORE 5 -FLAGS ($NotJunk)\n\
+         S: a004 NO keywords are not kept here\n\
+         C: a005 UID MOVE 5 \"Junk\"\n\
+         S: a005 OK moved\n\
+         DONE\n";
+    let mut driven = Driven::new(
+        password_backend(roles),
+        ProtoOp::SetMailbox {
+            remotes: vec![imap_ref("INBOX", 5)],
+            role: MailboxRole::Spam,
+        },
+    );
+    assert!(matches!(
+        replay(&mut driven, trace).unwrap(),
+        ProtoOutcome::Moved(_)
+    ));
 }

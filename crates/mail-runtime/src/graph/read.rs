@@ -21,8 +21,10 @@
 //! - **Bodies** are `GET /me/messages/{id}/$value`: the message's own MIME, so everything
 //!   downstream parses real RFC 5322 bytes. The message size (`PidTagMessageSize`) comes with the
 //!   delta, and the engine fetches small bodies first, as it does over IMAP.
-//! - **Changes** made here go back as `PATCH isRead`, `PATCH flag`, and `POST …/move`. A move
-//!   gives the message a new id, which the move's answer names; the engine remaps it.
+//! - **Changes** made here go back as `PATCH isRead`, `PATCH flag`, `POST …/move` and
+//!   `POST …/copy`. A move gives the message a new id, which the move's answer names; the engine
+//!   remaps it. A copy is a new message with its own id, which the engine keeps as one more
+//!   address of the message copied.
 //!
 //! Labels stay on this computer. Outlook's categories look like labels and are not the thing
 //! this client means by one: [`mail_domain::ServerLabels::Supported`] says a folder *is* a label,
@@ -33,9 +35,12 @@
 //! Email (`Destroy`, a `permanentDelete` of each message). `Expunge` is refused, and so is
 //! deleting a folder.
 //!
-//! There is no push. Graph's change notifications are delivered to a public HTTPS webhook,
-//! which a desktop client does not have, so an account that reads through Graph polls — every
-//! minute, which is cheap because a delta query with nothing to report returns nothing.
+//! Graph's change notifications are delivered to a public HTTPS webhook, which a desktop client
+//! does not have, so an account that reads through Graph polls — every fifteen seconds, or slower
+//! for a mailbox of many folders ([`mail_domain::presets::graph_poll_every`]). That is cheap
+//! because a pass that resumes asks each folder's stored delta link and nothing else, and a delta
+//! with nothing to report returns nothing. With a relay set, one that receives them and passes
+//! them on ([`super::push`]), new mail is heard as it arrives as well.
 
 mod search;
 
@@ -49,6 +54,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, FetchSince, Folder, FolderRoles, FolderWork, Holds, Ingest, MailboxRole, ProtoOp,
     ReadState, RemoteRef, Retry, SpecialUse, Star, Subscription, SyncCursor, UidValidity,
+    WatchMode, presets::graph_poll_every,
 };
 use mail_proto::ProtoOutcome;
 use porter_core::AccountId;
@@ -116,6 +122,8 @@ pub struct Reader {
     arrivals: Vec<(RemoteRef, Vec<u8>)>,
     /// Moves made by the last operation: where each message was, and where it is now.
     moves: Vec<(RemoteRef, RemoteRef)>,
+    /// Copies made by the last operation: each message copied, and where its copy is.
+    copies: Vec<(RemoteRef, RemoteRef)>,
     /// How many messages the next delta walk may go through.
     per_pass: usize,
 }
@@ -132,6 +140,7 @@ impl Reader {
             sizes: HashMap::new(),
             arrivals: Vec::new(),
             moves: Vec::new(),
+            copies: Vec::new(),
             per_pass: PER_PASS,
         })
     }
@@ -147,10 +156,26 @@ impl Reader {
         &self.caps
     }
 
-    /// Date the capabilities: they were confirmed at `now`.
-    pub fn observed(&mut self, now: DateTime<Utc>) -> AccountCaps {
+    /// Date the capabilities: they were confirmed at `now`, on a mailbox of `folders` folders.
+    ///
+    /// The poll interval is set here too, from the folders, rather than kept from when the
+    /// account was added: what Graph offers is this client's to decide, and an interval stored
+    /// before it changed would otherwise stay for as long as the account does.
+    pub fn observed(&mut self, now: DateTime<Utc>, folders: usize) -> AccountCaps {
         self.caps.observed_at = now;
+        self.caps.watch = WatchMode::Poll {
+            every: graph_poll_every(folders),
+        };
         self.caps.clone()
+    }
+
+    /// Whether the capabilities poll slower than a mailbox of `folders` folders may: written
+    /// before the interval was shortened, so worth asking again before the day is out.
+    pub fn polls_behind(&self, folders: usize) -> bool {
+        match self.caps.watch {
+            WatchMode::Poll { every } => every > graph_poll_every(folders),
+            WatchMode::Idle => true,
+        }
     }
 
     /// Let the next delta walk go through at most `messages` before it stops.
@@ -171,6 +196,11 @@ impl Reader {
     /// The moves the last operation made, each once.
     pub fn take_moves(&mut self) -> Vec<(RemoteRef, RemoteRef)> {
         std::mem::take(&mut self.moves)
+    }
+
+    /// The copies the last operation made, each once.
+    pub fn take_copies(&mut self) -> Vec<(RemoteRef, RemoteRef)> {
+        std::mem::take(&mut self.copies)
     }
 
     /// Do `op` with the access token `token`. `staged` is the message an `Append` uploads.
@@ -204,6 +234,8 @@ impl Reader {
                 Ok(ProtoOutcome::Fetched {
                     items,
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
+                    label_names: Vec::new(),
                 })
             }
             ProtoOp::FetchBody { remotes } => {
@@ -222,6 +254,8 @@ impl Reader {
                 Ok(ProtoOutcome::Fetched {
                     items,
                     flags: Vec::new(),
+                    flag_colors: Vec::new(),
+                    label_names: Vec::new(),
                 })
             }
             ProtoOp::SetFlags {
@@ -240,6 +274,18 @@ impl Reader {
                     };
                     patch["flag"] = json!({ "flagStatus": status });
                 }
+                for id in graph_ids(&remotes) {
+                    let url = format!("{}/messages/{}", self.me, segment(id));
+                    self.call(reqwest::Method::PATCH, &url, token, Some(&patch))
+                        .await?;
+                }
+                Ok(ProtoOutcome::Applied)
+            }
+            // Graph's flag has no colour. Outlook's categories have colours, but a category is
+            // a named label on the mailbox's own list, not a flag's colour, so the colour stays
+            // here and the server is told the message is flagged.
+            ProtoOp::SetFlag { remotes, .. } => {
+                let patch = json!({ "flag": { "flagStatus": "flagged" } });
                 for id in graph_ids(&remotes) {
                     let url = format!("{}/messages/{}", self.me, segment(id));
                     self.call(reqwest::Method::PATCH, &url, token, Some(&patch))
@@ -267,6 +313,12 @@ impl Reader {
                     .await?;
                 Ok(ProtoOutcome::Applied)
             }
+            ProtoOp::Copy { remotes, folder } => {
+                let destination = self.folder_id(&folder, token).await?;
+                self.copy_all(&remotes, &destination, &folder, token)
+                    .await?;
+                Ok(ProtoOutcome::Applied)
+            }
             // Labels and keywords stay here; see the module's documentation.
             ProtoOp::SetLabels { .. } | ProtoOp::AddKeyword { .. } => Ok(ProtoOutcome::Applied),
             ProtoOp::Append { mailbox, .. } => {
@@ -274,6 +326,12 @@ impl Reader {
                 self.upload_draft(&mailbox.path, &raw, token).await
             }
             ProtoOp::Folder(work) => self.folder_work(work, token).await,
+            // Not kept through Graph: it makes a message from MIME only as a new draft with an
+            // id of its own, so replacing one would be a search by `internetMessageId` and a
+            // `DELETE` of each found, which nothing here does yet. A draft on a Graph account is
+            // this client's alone, as every draft was; nothing queues these for one, and a row
+            // that got into the outbox some other way is done with.
+            ProtoOp::KeepDraft { .. } | ProtoOp::DropDraft { .. } => Ok(ProtoOutcome::Applied),
             ProtoOp::Expunge { .. } => Err(refused_here(
                 "deleting mail for good, which this client doesn’t do through Microsoft Graph",
             )),
@@ -297,12 +355,13 @@ impl Reader {
         token: &str,
     ) -> Result<Ingest, RuntimeError> {
         let path = mailbox.path.clone();
-        let first = self.first_delta(&path, token).await?;
+        // A pass that resumes asks the link it stored and nothing else: the folder's id is in
+        // it already, and looking the id up could cost a listing of every folder each pass.
         let (mut url, mut resumed) = match since {
             FetchSince::After {
                 cursor: SyncCursor::Graph { delta_link },
             } => (delta_link, true),
-            _ => (first.clone(), false),
+            _ => (self.first_delta(&path, token).await?, false),
         };
         let mut validity = UidValidity::Same;
         let mut ingest = Ingest {
@@ -311,8 +370,10 @@ impl Reader {
             cursor: None,
             messages: Vec::new(),
             flags: Vec::new(),
+            flag_colors: Vec::new(),
             labels: Vec::new(),
             label_names: Vec::new(),
+            provider_threads: Vec::new(),
             gone: Vec::new(),
         };
         self.arrivals.clear();
@@ -328,7 +389,7 @@ impl Reader {
                 None if resumed => {
                     resumed = false;
                     validity = UidValidity::Reset;
-                    url = first.clone();
+                    url = self.first_delta(&path, token).await?;
                     seen = 0;
                     ingest.flags.clear();
                     ingest.gone.clear();
@@ -578,6 +639,47 @@ impl Reader {
                     self.sizes.insert(to.clone(), size);
                 }
                 self.moves.push((remote.clone(), to));
+            }
+        }
+        Ok(())
+    }
+
+    /// `POST …/copy` each of `remotes` into the folder Graph knows as `destination`, at `path`
+    /// here. A message already in that folder is left alone: a copy beside it is not what was
+    /// asked for. The copy is a new message with its own id, kept as one more address of the one
+    /// copied.
+    async fn copy_all(
+        &mut self,
+        remotes: &[RemoteRef],
+        destination: &str,
+        path: &str,
+        token: &str,
+    ) -> Result<(), RuntimeError> {
+        for remote in remotes {
+            let RemoteRef::Graph { id, mailbox } = remote else {
+                continue;
+            };
+            if mailbox == path {
+                continue;
+            }
+            let url = format!("{}/messages/{}/copy", self.me, segment(id));
+            let body = json!({ "destinationId": destination });
+            let Answer::Done(bytes) = self
+                .call(reqwest::Method::POST, &url, token, Some(&body))
+                .await?
+            else {
+                continue;
+            };
+            // An answer that names no copy leaves it to the next delta of the folder to find.
+            let copied: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+            if let Some(new) = copied.get("id").and_then(Value::as_str) {
+                self.copies.push((
+                    remote.clone(),
+                    RemoteRef::Graph {
+                        mailbox: path.to_owned(),
+                        id: new.to_owned(),
+                    },
+                ));
             }
         }
         Ok(())

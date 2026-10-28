@@ -47,6 +47,7 @@ pub fn summary() -> ThreadSummary {
         message_count: 1,
         read: ReadState::Unread,
         star: Star::Unstarred,
+        flag: crate::Hue::Red,
         mailboxes: MailboxSet::only(MailboxRole::Inbox),
         labels: vec![],
         attachments: Attachments::None,

@@ -3,14 +3,18 @@
 //! Does disk I/O. Opens no sockets. The schema is `migrations/0001_initial.sql`.
 
 mod account;
+pub mod binned;
 mod blob;
+pub mod changes;
 pub mod contact;
 mod dispatch;
 pub mod error;
 mod file;
 mod filing;
 mod follow_up;
+mod graph_push;
 mod history;
+pub mod junk;
 #[cfg(any(test, feature = "testing"))]
 pub mod memory;
 #[cfg(any(test, feature = "testing"))]
@@ -35,14 +39,17 @@ mod term;
 #[cfg(feature = "testing")]
 pub mod testing;
 
-pub use account::{NewAccount, StoredAccount};
+pub use account::{AccountPrefs, NewAccount, StoredAccount, Syncing, with_picks};
 pub use blob::Blobs;
+pub use changes::{Committed, Generation, Topics, Wake};
 pub use contact::{
-    AddressBook, BookCard, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin, Tally,
+    AddressBook, BookCard, CardId, Contact, Edit, Group, GroupHome, GroupId, Kind, Origin,
+    PersonCard, Tally, Vip, no_reply,
 };
 pub use dispatch::{PASSES_TO_FIND, SYNCS_TO_FIND};
 pub use file::write_atomic;
 pub use follow_up::FollowUpHold;
+pub use graph_push::{GraphPush, Registered, Subscribed};
 pub use history::SenderRecord;
 #[cfg(any(test, feature = "testing"))]
 pub use memory::MemoryStore;
@@ -50,8 +57,8 @@ pub use offline::{Offline, RemotePart};
 pub use opened::OPENED_KEPT;
 pub use passes::{PassFailed, Passes};
 pub use sql::{SqlFilter, SqlValue, compile};
-pub use sqlite::Freed;
 pub use sqlite::SqliteStore;
+pub use sqlite::{Freed, Kept, MessageRow};
 pub use term::Term;
 
 pub use error::StoreError;
@@ -129,6 +136,7 @@ pub fn message_of(change: &Change) -> Option<MessageId> {
     match change {
         Change::MessageRead(m, _)
         | Change::MessageStar(m, _)
+        | Change::MessageFlag(m, _)
         | Change::MessageMailbox(m, _)
         | Change::MessageLabel(m, _, _)
         | Change::MessageDelete(m) => Some(*m),
@@ -341,9 +349,15 @@ pub trait Store {
     /// it, so a batch drawn from the whole account — as [`Store::unfetched`] returns it — asked
     /// the inbox for UIDs that belonged to Sent, and the answers were paired with the wrong
     /// addresses. Newest first, like `unfetched`, ties broken by message id.
+    ///
+    /// Only messages dated at `since` or later, where it is given: an account downloaded only so
+    /// far back (`mail_core::offline::Window`) leaves an older message's body on the server
+    /// until it is opened. The cut is here rather than after `limit`, or a pass would stop short
+    /// of the window's newest messages behind the old ones it then threw away.
     fn unfetched_in(
         &self,
         mailbox: &MailboxRef,
+        since: Option<DateTime<Utc>>,
         limit: u32,
     ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
 
@@ -393,6 +407,20 @@ pub trait Store {
     /// sync already mapped `to`, the row for `from` simply goes.
     fn remap(&self, account: AccountId, from: &RemoteRef, to: &RemoteRef)
     -> Result<(), StoreError>;
+
+    /// The server copied a message and gave the copy an address: `to` names it too, beside
+    /// `from`.
+    ///
+    /// A copy is the same message in one more place ([`mail_domain::Op::Copy`]), so it is kept
+    /// as one more address of the message `from` names, and the sync that lists `to` finds it
+    /// held rather than storing it again. Nothing happens if `from` is not held, and if a sync
+    /// already mapped `to`, it stays as it is.
+    fn copied(
+        &self,
+        account: AccountId,
+        from: &RemoteRef,
+        to: &RemoteRef,
+    ) -> Result<(), StoreError>;
 
     /// The server moved a message and did not say where: `remote` no longer addresses it.
     ///
@@ -474,6 +502,14 @@ pub trait Store {
 
     /// How many of `account`'s messages are held here in full, and what is still on the server.
     fn offline(&self, account: AccountId) -> Result<Offline, StoreError>;
+
+    /// Keep the size the server gave each of these messages, in bytes.
+    ///
+    /// A message held by its headers alone has no text and no parts to size it by, so without
+    /// this `larger:` and `smaller:` read it as no bytes. The size searched is the larger of
+    /// this and what is held, so a body or part arriving later only sharpens it. A message not
+    /// held is left out.
+    fn hold_server_sizes(&self, sizes: &[(MessageId, u64)]) -> Result<(), StoreError>;
 
     /// The messages held here at these server addresses, each with its address; an address
     /// that names nothing held is left out. What a search of the server asks before fetching
@@ -592,6 +628,14 @@ pub trait Store {
     /// Empty until the first listing, and always for POP3, which has no folders to list.
     fn folders(&self, account: AccountId) -> Result<Vec<Folder>, StoreError>;
 
+    /// The mailboxes of every account that its server lists as followed, beside the Inbox: the
+    /// subscribed ones holding mail, not protected and without a special use (so a folder the
+    /// person made, not Junk, Trash, Sent, Archive or the like). Empty for a store that knows
+    /// no accounts.
+    fn followed_folders(&self) -> Result<Vec<MailboxRef>, StoreError> {
+        Ok(Vec::new())
+    }
+
     /// Replace the account's folders with what the server just listed.
     ///
     /// Folder work still queued is re-applied over the listing, in queue order, for the reason
@@ -606,6 +650,22 @@ pub trait Store {
     /// server is asked again when the delete is sent, because a folder never synced holds
     /// nothing here whatever it holds there.
     fn folder_contents(&self, mailbox: &MailboxRef) -> Result<FolderContents, StoreError>;
+
+    /// Which of `messages` the client has a server address for in `mailbox`: the part of
+    /// [`folder_contents`](Self::folder_contents)' answer that is about them, asked without
+    /// reading the rest of the folder.
+    fn addressed_in(
+        &self,
+        mailbox: &MailboxRef,
+        messages: &[mail_domain::MessageId],
+    ) -> Result<Vec<mail_domain::MessageId>, StoreError> {
+        let held = self.folder_contents(mailbox)?.mapped;
+        Ok(messages
+            .iter()
+            .copied()
+            .filter(|message| held.contains(message))
+            .collect())
+    }
 
     /// Record how a queued operation finished and act on it.
     ///
@@ -745,6 +805,17 @@ pub trait Store {
     /// Forget a contact. `true` when there was one. Mail arriving later may teach it again.
     fn delete_contact(&self, address: &str) -> Result<bool, StoreError>;
 
+    /// Every VIP, by address.
+    fn vips(&self) -> Result<Vec<Vip>, StoreError>;
+
+    /// Mark `address` a VIP, with the name to list them by when the book has none (`None` keeps
+    /// the one they were marked with before). Marking one already marked changes only that name.
+    /// Returns the VIP as stored; [`StoreError::BadAddress`] for something with no `@`.
+    fn put_vip(&self, address: &str, name: Option<&str>) -> Result<Vip, StoreError>;
+
+    /// Take `address` off the VIPs. `true` when they were one.
+    fn delete_vip(&self, address: &str) -> Result<bool, StoreError>;
+
     /// Where the last sync of the address book at `url` got to.
     fn address_book(&self, url: &str) -> Result<Option<AddressBook>, StoreError>;
 
@@ -765,6 +836,22 @@ pub trait Store {
 
     /// Forget a contact group. `true` when there was one. Its members stay in the book.
     fn delete_group(&self, id: &GroupId) -> Result<bool, StoreError>;
+
+    /// Every person's card, by name without regard to ASCII case, then by id.
+    fn cards(&self) -> Result<Vec<PersonCard>, StoreError>;
+
+    /// One person's card; `None` when there is none.
+    fn card(&self, id: &CardId) -> Result<Option<PersonCard>, StoreError>;
+
+    /// The card listing `address`, in any case: the first by id when several do. `None` when
+    /// none does, or it is not an address.
+    fn card_of(&self, address: &str) -> Result<Option<PersonCard>, StoreError>;
+
+    /// Add a person's card, or replace the one with its id.
+    fn put_card(&self, card: &PersonCard) -> Result<(), StoreError>;
+
+    /// Forget a person's card. `true` when there was one. Its addresses stay in the book.
+    fn delete_card(&self, id: &CardId) -> Result<bool, StoreError>;
 
     /// Every conversation with a follow-up reminder, waiting or returned, soonest due first and
     /// ties by thread id, on every account.

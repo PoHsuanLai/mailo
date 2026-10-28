@@ -25,6 +25,8 @@ pub struct Draft {
     pub query: String,
     pub actions: Vec<RuleAction>,
     pub after: AfterMatch,
+    /// A Reply answers one sender at most once in this many days.
+    pub reply_days: u32,
 }
 
 impl Draft {
@@ -36,6 +38,7 @@ impl Draft {
             query: String::new(),
             actions: Vec::new(),
             after: AfterMatch::Continue,
+            reply_days: mail_domain::rule::DEFAULT_REPLY_DAYS,
         }
     }
 
@@ -47,6 +50,7 @@ impl Draft {
             query: listed.condition.clone(),
             actions: listed.rule.actions.clone(),
             after: listed.rule.after,
+            reply_days: listed.rule.reply_days,
         }
     }
 }
@@ -109,6 +113,82 @@ pub fn labels(store: &SqliteStore, account: AccountId) -> Vec<(String, LabelId)>
         .collect()
 }
 
+/// Whether Apply Rules may send the mail its Reply and Forward rules ask for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Sending {
+    Yes,
+    No,
+}
+
+/// Whether applying the rules to `threads` could send mail: an enabled rule on one of their
+/// accounts replies or forwards. What a front end asks about before it applies them.
+pub fn would_send(store: &SqliteStore, threads: &[mail_domain::ThreadId]) -> bool {
+    let mut seen: Vec<AccountId> = Vec::new();
+    for thread in threads {
+        let Ok(thread) = store.thread(*thread) else {
+            continue;
+        };
+        let account = thread.summary.account;
+        if seen.contains(&account) {
+            continue;
+        }
+        let rules = store
+            .rules(account.clone())
+            .or_log_default("the account's rules could not be read");
+        if mail_domain::rule::ordered(&rules).iter().any(|rule| {
+            rule.actions
+                .iter()
+                .any(|a| matches!(a, RuleAction::Reply(_) | RuleAction::Forward(_)))
+        }) {
+            return true;
+        }
+        seen.push(account);
+    }
+    false
+}
+
+/// Run each account's rules over the messages of `threads`, as if they had just arrived: Mail's
+/// Apply Rules. Forwards and replies are queued, unless `sending` is [`Sending::No`]; a notification is not raised, the person
+/// being there. Returns how many messages a rule acted on.
+pub fn apply_to(
+    store: &SqliteStore,
+    threads: &[mail_domain::ThreadId],
+    sending: Sending,
+    now: DateTime<Utc>,
+) -> Result<usize, CoreError> {
+    let mut by_account: Vec<(AccountId, Vec<mail_domain::MessageId>)> = Vec::new();
+    for thread in threads {
+        let thread = store.thread(*thread)?;
+        let account = thread.summary.account.clone();
+        match by_account.iter_mut().find(|(seen, _)| *seen == account) {
+            Some((_, ids)) => ids.extend(thread.messages.iter().copied()),
+            None => by_account.push((account, thread.messages.clone())),
+        }
+    }
+    let mut acted = 0;
+    for (account, ids) in by_account {
+        let caps = crate::act::caps_here(store, account.clone(), now);
+        let speaking = match sending {
+            Sending::Yes => mail_store::rules::Speaking::Yes,
+            Sending::No => mail_store::rules::Speaking::No,
+        };
+        let ran = mail_store::rules::apply_to(store, account, &caps, &ids, speaking, now)?;
+        acted += ran.acted.len();
+        super::speak::carry_out(store, &ran.left, super::guard::Occasion::Asked, now);
+    }
+    Ok(acted)
+}
+
+/// The names of the account's templates, which a rule's reply names.
+pub fn templates(store: &SqliteStore, account: AccountId) -> Vec<String> {
+    store
+        .templates(account)
+        .or_log_default("the account's templates could not be read")
+        .into_iter()
+        .map(|template| template.name)
+        .collect()
+}
+
 /// A label's name, for writing a condition back; one since deleted says so.
 fn name_of(index: &[(String, LabelId)]) -> impl Fn(LabelId) -> String + '_ {
     move |id| {
@@ -146,6 +226,9 @@ pub fn listed(store: &SqliteStore, account: AccountId) -> Result<Vec<ListedRule>
 /// as the text "frm:bank" is a rule that silently never fires. So every `word:` term is read on
 /// its own through the same parser, and one the parser did not take as that term is refused here
 /// before it is kept.
+///
+/// `is:vip` is read as the clause it is, which asks the VIP list whenever the rule runs: a rule
+/// follows the list, and does not keep the people on it when the rule was saved.
 pub fn read_condition<Tz: TimeZone>(
     text: &str,
     labels: &[(String, LabelId)],
@@ -164,6 +247,13 @@ pub fn read_condition<Tz: TimeZone>(
             continue;
         };
         let alone = crate::query::parse_with(bare, zone, &named);
+        // Gmail's category is the server's to say, and a message here is never in one: a rule on
+        // it would never fire, and the script pushed to the server cannot say it.
+        if matches!(alone, Filter::Category(_)) {
+            return Err(ConditionError::UnknownField {
+                field: field.to_ascii_lowercase(),
+            });
+        }
         if !matches!(alone, Filter::Text(_)) {
             continue;
         }
@@ -239,6 +329,25 @@ pub fn save<Tz: TimeZone>(
             RuleState::Enabled,
         ),
     };
+    // A rule counts from when it first sent mail: an edit that adds a Reply or a Forward it
+    // did not have starts that count again, so it never sends what arrived before.
+    let sends = |actions: &[RuleAction]| {
+        actions
+            .iter()
+            .filter(|a| matches!(a, RuleAction::Reply(_) | RuleAction::Forward(_)))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let made = match kept {
+        Some(rule)
+            if sends(&draft.actions)
+                .iter()
+                .all(|a| sends(&rule.actions).contains(a)) =>
+        {
+            rule.made
+        }
+        _ => Utc::now(),
+    };
     let rule = Rule {
         id,
         account,
@@ -248,6 +357,8 @@ pub fn save<Tz: TimeZone>(
         filter,
         actions: draft.actions.clone(),
         after: draft.after,
+        made,
+        reply_days: draft.reply_days.max(1),
     };
     store.put_rule(&rule).map_err(CoreError::from)?;
     Ok(rule)
@@ -330,6 +441,7 @@ pub fn run(
         store,
         &caps,
         rule,
+        &Filter::All,
         BATCH,
         now,
         &mut |_| {
@@ -382,6 +494,12 @@ mod tests {
                 "label:nowhere",
                 NoLabel {
                     value: "nowhere".to_owned(),
+                },
+            ),
+            (
+                "category:promotions",
+                UnknownField {
+                    field: "category".to_owned(),
                 },
             ),
             ("is:important", BadIs),

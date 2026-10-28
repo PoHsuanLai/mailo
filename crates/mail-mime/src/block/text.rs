@@ -10,10 +10,14 @@
 //! A run is [`Block::Code`] on column alignment, rule characters, or source
 //! shape. Prose is a veto, and a flowed line is never code: the sender said
 //! it may be rewrapped, which is a fact rather than a guess.
+//!
+//! A paragraph's addresses become links (see [`super::linkify`]); a code block's do not.
 
 use super::kind::{Block, Delsp, Flowed, Span, first_strong, strip_overrides};
 use super::limits::{Limits, Reached};
+use super::linkify::linked;
 use super::quote::is_attribution;
+use super::style::ParaStyle;
 
 pub(crate) struct TextOut {
     pub blocks: Vec<Block>,
@@ -175,8 +179,9 @@ fn paragraph(depth: usize, text: String) -> Piece {
     Piece {
         depth,
         block: Block::Paragraph {
-            spans: vec![Span::Text(text)],
+            spans: linked(&text),
             dir,
+            style: ParaStyle::default(),
         },
     }
 }
@@ -193,13 +198,14 @@ fn broken_paragraph(depth: usize, run: &[Line]) -> Piece {
         if at > 0 {
             spans.push(Span::Break);
         }
-        spans.push(Span::Text((*text).to_owned()));
+        spans.extend(linked(text));
     }
     Piece {
         depth,
         block: Block::Paragraph {
             spans,
             dir: first_strong(&texts.join(" ")),
+            style: ParaStyle::default(),
         },
     }
 }
@@ -291,8 +297,10 @@ fn attribution_of(parent: &mut Vec<Block>) -> Option<Vec<Span>> {
 fn span_text_plain(spans: &[Span]) -> String {
     let mut out = String::new();
     for span in spans {
-        if let Span::Text(text) = span {
-            out.push_str(text);
+        match span {
+            Span::Text(text) => out.push_str(text),
+            Span::Link { spans, .. } => out.push_str(&span_text_plain(spans)),
+            _ => {}
         }
     }
     out
@@ -394,4 +402,51 @@ fn note(reached: &mut Reached, next: Reached) {
     if *reached == Reached::Nothing {
         *reached = next;
     }
+}
+
+/// `format=flowed` text as the lines its writer meant: one stuffing space off each line,
+/// every soft line joined to the next one at its quote depth, quotes written back as `> `.
+///
+/// For a program that keeps text rather than draws it: the composer reopening a draft, or a
+/// server that takes a plain body and knows nothing of flowed text. Unlike [`parse`] it keeps
+/// every line and every character, bidi overrides included.
+pub fn unflow(text: &str, delsp: Delsp) -> String {
+    let mut out: Vec<(usize, String)> = Vec::new();
+    let mut joining = false;
+    for raw in text.split('\n') {
+        let raw = raw.strip_suffix('\r').unwrap_or(raw);
+        let (depth, body) = unquoted(raw);
+        let soft = body != "-- " && body.ends_with(' ');
+        let body = if soft && delsp == Delsp::Yes {
+            &body[..body.len() - 1]
+        } else {
+            body
+        };
+        match out.last_mut() {
+            Some((at, line)) if joining && *at == depth => line.push_str(body),
+            _ => out.push((depth, body.to_owned())),
+        }
+        joining = soft;
+    }
+    out.into_iter()
+        .map(|(depth, line)| match depth {
+            0 => line,
+            _ if line.is_empty() => ">".repeat(depth),
+            _ => format!("{} {line}", ">".repeat(depth)),
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// A flowed line's quote depth and its text, stuffing and markers off.
+fn unquoted(mut raw: &str) -> (usize, &str) {
+    let mut depth = 0usize;
+    while let Some(rest) = raw.strip_prefix('>') {
+        depth += 1;
+        raw = rest;
+        if raw.starts_with(' ') && raw.as_bytes().get(1) == Some(&b'>') {
+            raw = &raw[1..];
+        }
+    }
+    (depth, raw.strip_prefix(' ').unwrap_or(raw))
 }

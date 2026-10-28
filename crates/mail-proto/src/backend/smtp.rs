@@ -5,7 +5,7 @@
 //! here.
 
 use crate::machine::{Backend, IoReady, Machine, Progress, ProtoError, ProtoOutcome};
-use crate::smtp::{Open, SmtpSession, Submission};
+use crate::smtp::{Open, SizeLimit, SmtpSession, Submission};
 use mail_domain::{AccountCaps, DraftId, ProtoOp};
 use mail_mime::Posting;
 use porter_core::AccountId;
@@ -33,6 +33,9 @@ pub struct SmtpBackend {
     stays: bool,
     /// What an accepted submission that stayed open left its connection with.
     left: Option<Open>,
+    /// What the server's last `EHLO` said of `SIZE`, kept past the session so a submission the
+    /// server refused still says what it would have taken.
+    size: SizeLimit,
 }
 
 impl SmtpBackend {
@@ -49,6 +52,7 @@ impl SmtpBackend {
             draft: None,
             stays: false,
             left: None,
+            size: SizeLimit::Absent,
         }
     }
 
@@ -83,6 +87,12 @@ impl SmtpBackend {
     pub fn left_open(&mut self) -> Option<Open> {
         self.left.take()
     }
+
+    /// What the server said of `SIZE` (RFC 1870) in its last `EHLO`: `Absent` when it said
+    /// nothing, or no `EHLO` was answered.
+    pub fn size_limit(&self) -> &SizeLimit {
+        &self.size
+    }
 }
 
 impl Backend for SmtpBackend {
@@ -115,7 +125,11 @@ impl Backend for SmtpBackend {
                 "bytes arrived with no submission in flight".to_owned(),
             ));
         };
-        match session.feed(ready) {
+        let progress = session.feed(ready);
+        if session.extensions().size != SizeLimit::Absent {
+            self.size = session.extensions().size.clone();
+        }
+        match progress {
             Progress::Need(needs) => Progress::Need(needs),
             Progress::Failed(e) => {
                 // Drop the session: a failed submission must not be resumed mid-DATA, and the

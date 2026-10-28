@@ -75,6 +75,7 @@ fn fill(store: &SqliteStore, count: i64) {
                     ReadState::Read
                 },
                 star: Star::Unstarred,
+                flag: mail_domain::Hue::Red,
                 mailbox: MailboxRole::Inbox,
                 labels: vec![],
                 body: Body::Present {
@@ -102,8 +103,10 @@ fn fill(store: &SqliteStore, count: i64) {
                     cursor: Some(SyncCursor::Pop),
                     messages,
                     flags: vec![],
+                    flag_colors: Vec::new(),
                     labels: vec![],
                     label_names: Vec::new(),
+                    provider_threads: Vec::new(),
                     gone: vec![],
                 },
             )
@@ -257,8 +260,8 @@ fn top_hits_of_a_common_word_cost_less_than_listing_it() {
 
 #[test]
 fn an_unread_count_does_not_read_the_mailbox() {
-    // Every sidebar badge runs this on every revision. A count that scans is a count that makes
-    // the whole window pause each time a message arrives.
+    // Every sidebar badge runs this each time a commit touches the conversations. A count that
+    // scans is a count that makes the whole window pause each time a message arrives.
     let (store, _dir) = store();
     fill(&store, 10_000);
 
@@ -307,6 +310,7 @@ mod ingest_throughput {
                 rfc_message_id: Some(key.clone()),
                 read: ReadState::Unread,
                 star: Star::Unstarred,
+                flag: mail_domain::Hue::Red,
                 mailbox: MailboxRole::Inbox,
                 labels: vec![],
                 body: Body::Present {
@@ -331,8 +335,10 @@ mod ingest_throughput {
             cursor: Some(SyncCursor::Pop),
             messages,
             flags: vec![],
+            flag_colors: Vec::new(),
             labels: vec![],
             label_names: Vec::new(),
+            provider_threads: Vec::new(),
             gone: vec![],
         }
     }
@@ -356,6 +362,63 @@ mod ingest_throughput {
         assert!(
             elapsed < std::time::Duration::from_secs(20),
             "absorbing a real maildrop took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn a_write_queued_behind_a_big_ingest_waits_for_a_chunk_and_not_for_the_batch() {
+        // `INGEST_CHUNK` exists so that the click that stars a message does not wait for a
+        // mailbox. Nothing else holds it to that: write a batch of ten chunks while a small
+        // write is made again and again beside it, and the longest the small one waited has to
+        // be a fraction of the whole. One transaction for the batch would make it the whole.
+        // A ratio, not a time, as every test here: a busy machine slows both alike.
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (store, _dir) = store();
+        let store = Arc::new(store);
+        store
+            .ingest(acct_account(), batch(&store, 0, 10, None))
+            .unwrap();
+        let listed = store.threads(&page(1, Filter::All), at(0)).unwrap();
+        let message = store.thread(listed.items[0].id).unwrap().messages[0];
+
+        let big = batch(&store, 1_000, 2_000, None);
+        let done = Arc::new(AtomicBool::new(false));
+        let ingesting = {
+            let (store, done) = (store.clone(), done.clone());
+            std::thread::spawn(move || {
+                let start = Instant::now();
+                store.ingest(acct_account(), big).unwrap();
+                done.store(true, Ordering::SeqCst);
+                start.elapsed()
+            })
+        };
+        let mut worst = std::time::Duration::ZERO;
+        let mut writes = 0;
+        while !done.load(Ordering::SeqCst) {
+            let start = Instant::now();
+            store
+                .apply(
+                    acct_account(),
+                    &Patch {
+                        id: ChangeId::generate(),
+                        changes: vec![Change::MessageStar(message, Star::Starred)],
+                    },
+                )
+                .unwrap();
+            worst = worst.max(start.elapsed());
+            writes += 1;
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let whole = ingesting.join().unwrap();
+        eprintln!("{writes} small writes beside a {whole:?} ingest; the longest waited {worst:?}");
+        assert!(
+            writes >= 5,
+            "only {writes} small writes were made during the ingest: it was too short to tell"
+        );
+        assert!(
+            worst * 2 < whole,
+            "a small write waited {worst:?} of an ingest that took {whole:?}: the batch is one transaction"
         );
     }
 
@@ -434,6 +497,16 @@ mod the_search_language {
             ("has:attachment", Filter::HasAttachment),
             ("is:pinned", Filter::Pinned),
             ("is:snoozed", Filter::Snoozed),
+            // The clauses that read a message and not the thread's row: sizes come from the
+            // stored column, and the copied and the VIPs are answered without a scan of text.
+            ("larger:1K", Filter::Larger(1024)),
+            ("smaller:1K", Filter::Smaller(1024)),
+            ("cc:s1", Filter::Cc(TextMatch::Contains("s1@".to_owned()))),
+            ("is:vip", Filter::Vip),
+            (
+                "from the address s1@…",
+                Filter::FromAddress("s1@example.test".to_owned()),
+            ),
             (
                 "after:…",
                 Filter::Date(DateRange {

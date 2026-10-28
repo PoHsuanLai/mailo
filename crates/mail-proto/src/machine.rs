@@ -21,6 +21,18 @@ pub enum IoNeed {
         port: u16,
         mode: Tls,
     },
+    /// Compress everything on the connection from here on, both ways, as raw DEFLATE (RFC 1951)
+    /// flushed at the end of each write: IMAP `COMPRESS DEFLATE` (RFC 4978) was accepted, and the
+    /// next byte either side sends is compressed.
+    ///
+    /// Satisfied with nothing fed back, like a write. Whatever follows in the same list is
+    /// already compressed.
+    ///
+    /// `leftover` is what the machine had already read past the accepting `OK` line: compressed
+    /// bytes, to be inflated and handed back by the next read before the socket is read again.
+    Deflate {
+        leftover: Vec<u8>,
+    },
     /// Wait. Used for poll intervals and for IDLE's re-issue deadline.
     Sleep(Duration),
     Close,
@@ -90,6 +102,12 @@ pub enum ProtoOutcome {
     /// an operation queued behind the move and sent to the old address is answered OK and does
     /// nothing, since a UID set naming no message is not an error (RFC 9051 §6.4.8).
     Moved(Vec<Moved>),
+    /// Messages were copied into another mailbox, and stay where they were: each address they
+    /// had still names them, and each copy's, where the server said it, names them too.
+    ///
+    /// Its own variant for the same reason as [`ProtoOutcome::Moved`]: the caller keeps the new
+    /// addresses, so the sync of the destination finds the copies held.
+    Copied(Vec<Moved>),
     /// A message was uploaded. `remote` is where it landed, when the server said
     /// (`APPENDUID`, RFC 4315); `None` when it did not, and then only a later sync finds it.
     Appended {
@@ -119,6 +137,13 @@ pub enum ProtoOutcome {
         ///
         /// Empty on POP3, which has no server-side flags at all.
         flags: Vec<(RemoteRef, mail_domain::ReadState, mail_domain::Star)>,
+        /// Each message's flag colour, from the same `FLAGS`, where the server keeps keywords;
+        /// [`mail_domain::Ingest::flag_colors`] says how it is applied.
+        flag_colors: Vec<(RemoteRef, mail_domain::Hue)>,
+        /// Each message's labels read from its keywords, where labels are keywords
+        /// ([`mail_domain::ServerLabels::Keywords`]); empty everywhere else. Complete, as
+        /// [`mail_domain::Ingest::label_names`] is.
+        label_names: Vec<(RemoteRef, Vec<String>)>,
     },
     /// A watch saw activity. The runtime schedules a fetch; the machine does not do it itself.
     Woken,
@@ -149,7 +174,8 @@ pub enum ProtoOutcome {
     },
 }
 
-/// One message moved into another mailbox: the address it had, and the one it has now.
+/// One message moved or copied into another mailbox: the address it had, and the one it has
+/// there now.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Moved {
     pub from: RemoteRef,

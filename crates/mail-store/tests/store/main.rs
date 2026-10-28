@@ -4,21 +4,27 @@
 //! dependency graph again. A file here is a module, so a test's name gains its file's name
 //! as a prefix: `cargo test -p mail-store --test store -- <file>::`.
 
+mod account_prefs;
 mod accounts;
+mod cards;
+mod changes;
 mod concurrency;
 mod contacts;
 mod destroy;
 mod drafts;
+mod flags;
 mod fold_table;
 mod folders;
 mod follow_up;
 mod found;
+mod graph_push;
 mod graph_remote;
 mod groups;
 mod import;
 mod in_folder;
 mod ingest_to_search;
 mod jmap;
+mod junk;
 mod labels;
 mod offline;
 mod opened;
@@ -32,14 +38,20 @@ mod remove_account;
 mod rules;
 mod search;
 mod send_later;
+mod server_copies;
+mod server_drafts;
+mod signatures;
+mod singles;
 mod smime_certs;
 mod sort_indexes;
+mod sort_orders;
 mod sqlite_capabilities;
 mod support;
 mod templates;
 mod two_writers;
 mod upgrade;
 mod views;
+mod vips;
 
 /// The tests that keep a binary of their own, each saying why at its top.
 const OWN_BINARY: &[&str] = &["scale.rs"];

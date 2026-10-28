@@ -13,7 +13,6 @@ mod keep;
 mod read;
 mod reply;
 mod rrule;
-mod windows;
 mod write;
 mod zone;
 
