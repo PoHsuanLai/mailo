@@ -6,7 +6,10 @@
 //! the moment the user pressed the key would lose the message on a train.
 
 use crate::error::{CoreError, Logged, TimeError};
+use crate::pgp::OpenPgp;
+use crate::protect::Seal;
 use crate::rich_text::plain_to_flowed;
+use crate::smime::Smime;
 use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
@@ -913,12 +916,7 @@ pub fn new_sealed_message(
     let mut refused = None;
     if draft.openpgp.is_some() || draft.smime.is_some() {
         let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
-        refused = crate::pgp::check(store, &draft, &identity, now)
-            .map_err(CoreError::from)
-            .and_then(|()| {
-                crate::smime::check(store, &draft, &identity, now).map_err(CoreError::from)
-            })
-            .err();
+        refused = crate::protect::check_both(store, &draft, &identity, now).err();
     }
     Ok(Composed { draft, refused })
 }
@@ -1478,7 +1476,7 @@ pub fn queue(
 ///
 /// The keyring is read only for a draft that asks to be signed or encrypted; `ask` is asked only
 /// when that key is passphrase-protected. The OpenPGP work happens here, as the bytes are
-/// frozen, so what the outbox holds is already signed and encrypted — see `pgp::send`.
+/// frozen, so what the outbox holds is already signed and encrypted — see `protect::Seal`.
 pub fn queue_with(
     store: &SqliteStore,
     secrets: &dyn mail_runtime::SigningStore,
@@ -1567,11 +1565,10 @@ fn queue_inner(
 
     let mut post = posting(&draft, &identity, parent.as_ref(), &parts)?;
     // Before anything is taken back or queued, so a send OpenPGP or S/MIME refuses (no key for a
-    // recipient, no passphrase, both asked at once) leaves the draft as it was. S/MIME is checked
-    // first so a draft asking both is refused before OpenPGP seals anything.
-    crate::smime::check(store, &draft, &identity, now)?;
-    post.message = crate::pgp::outgoing(store, secrets, ask, &draft, &identity, post.message, now)?;
-    post.message = crate::smime::outgoing(store, secrets, &draft, &identity, post.message, now)?;
+    // recipient, no passphrase, both asked at once) leaves the draft as it was.
+    crate::protect::check_both(store, &draft, &identity, now)?;
+    post.message = OpenPgp::outgoing(store, secrets, ask, &draft, &identity, post.message, now)?;
+    post.message = Smime::outgoing(store, secrets, ask, &draft, &identity, post.message, now)?;
     let raw = store.blobs().put(&post.message)?;
 
     let queued = store.enqueue(

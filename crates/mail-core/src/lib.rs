@@ -50,6 +50,7 @@ pub mod otp;
 pub mod password;
 pub mod pgp;
 pub mod profile;
+pub mod protect;
 pub mod provider;
 pub mod query;
 pub mod receipt;

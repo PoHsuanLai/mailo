@@ -9,6 +9,7 @@ use crate::smime_support;
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp::WithSecret;
+use mail_core::protect::Seal;
 use mail_core::smime;
 use mail_core::testing::MapSigningStore;
 use mail_core::{Arrival, SigningStore};
@@ -403,7 +404,7 @@ mod sending {
         let identity = my_identity();
         for (said, mode, recipients, bcc) in CASES {
             let d = draft(&store, *mode, recipients, bcc);
-            let refused = smime::check(&store, &d, &identity, now()).unwrap_err();
+            let refused = smime::Smime::check(&store, &d, &identity, now()).unwrap_err();
             assert!(refused.to_string().contains(said), "{said}: {refused}");
             let sent = send(&store, &secrets, d.id).unwrap_err();
             assert!(sent.contains(said), "{said}: {sent}");
@@ -412,7 +413,7 @@ mod sending {
         // Signing needs the user's own certificate.
         let (bare, _dir2) = seeded();
         let d = draft(&bare, Some(Mode::Sign), &[BEA], &[]);
-        let refused = smime::check(&bare, &d, &identity, now()).unwrap_err();
+        let refused = smime::Smime::check(&bare, &d, &identity, now()).unwrap_err();
         assert!(
             matches!(refused, smime::SmimeError::NoOwnCert(_)),
             "{refused}"
@@ -425,20 +426,20 @@ mod sending {
         let (store, _dir, _secrets) = with_identity();
         let identity = my_identity();
         let check = |mode, to: &[&str], bcc: &[&str]| {
-            smime::check(&store, &draft(&store, mode, to, bcc), &identity, now())
+            smime::Smime::check(&store, &draft(&store, mode, to, bcc), &identity, now())
         };
 
         // Nothing asked, or only OpenPGP asked: not this scheme's business.
         assert!(check(None, &[BEA], &[]).is_ok());
         let mut pgp_only = draft(&store, None, &[BEA], &[]);
         pgp_only.openpgp = Some(Mode::Sign);
-        assert!(smime::check(&store, &pgp_only, &identity, now()).is_ok());
+        assert!(smime::Smime::check(&store, &pgp_only, &identity, now()).is_ok());
 
         // Both asked.
         let mut both = draft(&store, Some(Mode::Sign), &[BEA], &[]);
         both.openpgp = Some(Mode::Sign);
         assert!(matches!(
-            smime::check(&store, &both, &identity, now()),
+            smime::Smime::check(&store, &both, &identity, now()),
             Err(smime::SmimeError::BothProtections)
         ));
 
@@ -446,7 +447,7 @@ mod sending {
         let (bare, _dir2) = seeded();
         let unkeyed = draft(&bare, Some(Mode::Sign), &[BEA], &[]);
         assert!(matches!(
-            smime::check(&bare, &unkeyed, &identity, now()),
+            smime::Smime::check(&bare, &unkeyed, &identity, now()),
             Err(smime::SmimeError::NoOwnCert(address)) if address == ME
         ));
 
@@ -480,11 +481,11 @@ mod sending {
         compose::save(&store, &d).unwrap();
         let identity = my_identity();
         assert!(matches!(
-            smime::check(&store, &d, &identity, now()),
+            smime::Smime::check(&store, &d, &identity, now()),
             Err(smime::SmimeError::BothProtections)
         ));
         assert!(matches!(
-            mail_core::pgp::check(&store, &d, &identity, now()),
+            mail_core::pgp::OpenPgp::check(&store, &d, &identity, now()),
             Err(mail_core::pgp::PgpError::BothProtections)
         ));
         let refused = compose::send_with(

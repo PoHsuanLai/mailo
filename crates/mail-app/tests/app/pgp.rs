@@ -8,6 +8,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp;
+use mail_core::protect::Seal;
 use mail_core::testing::MapSigningStore;
 use mail_core::{Arrival, SigningStore};
 use mail_core::{SqliteStore, Store};
@@ -382,20 +383,20 @@ mod sending {
         import_public(&store, &secrets, &someone_elses(BEA, 11));
         let identity = my_identity();
         let check = |mode, to: &[&str], bcc: &[&str]| {
-            pgp::check(&store, &draft(&store, mode, to, bcc), &identity, now())
+            pgp::OpenPgp::check(&store, &draft(&store, mode, to, bcc), &identity, now())
         };
 
         // Nothing asked, or only S/MIME asked: not this scheme's business.
         assert!(check(None, &["cara@example.test"], &[]).is_ok());
         let mut smime_only = draft(&store, None, &[BEA], &[]);
         smime_only.smime = Some(Mode::Sign);
-        assert!(pgp::check(&store, &smime_only, &identity, now()).is_ok());
+        assert!(pgp::OpenPgp::check(&store, &smime_only, &identity, now()).is_ok());
 
         // Both asked.
         let mut both = draft(&store, Some(Mode::Sign), &[BEA], &[]);
         both.smime = Some(Mode::Sign);
         assert!(matches!(
-            pgp::check(&store, &both, &identity, now()),
+            pgp::OpenPgp::check(&store, &both, &identity, now()),
             Err(pgp::PgpError::BothProtections)
         ));
 
@@ -403,7 +404,7 @@ mod sending {
         let (bare, _dir2) = seeded();
         let unkeyed = draft(&bare, Some(Mode::Sign), &[BEA], &[]);
         assert!(matches!(
-            pgp::check(&bare, &unkeyed, &identity, now()),
+            pgp::OpenPgp::check(&bare, &unkeyed, &identity, now()),
             Err(pgp::PgpError::NoOwnKey(address)) if address == ME
         ));
 
