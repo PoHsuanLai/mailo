@@ -152,8 +152,7 @@ pub(in crate::ui) fn drawn_states() -> String {
             page.bcc = vec![dana()];
             page.when = When::Monday;
             page.remind = super::super::remind::Remind::After("three-days");
-            page.protection =
-                super::super::protection::Protection::OpenPgp(super::super::protection::Mode::Sign);
+            page.protection = super::super::protection::Protection::OpenPgp(Mode::Sign);
             page.receipt = ReceiptRequest::Requested;
             page.plain = Fold::Open;
             page.attached = vec![("agenda.pdf".to_owned(), "1.2 MB".to_owned())];

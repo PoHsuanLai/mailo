@@ -34,16 +34,16 @@ pub fn check(
     identity: &Identity,
     now: DateTime<Utc>,
 ) -> Result<(), PgpError> {
-    if draft.openpgp == OpenPgp::None {
+    let Some(mode) = draft.openpgp else {
         return Ok(());
-    }
-    if draft.smime != Smime::None {
+    };
+    if draft.smime.is_some() {
         return Err(PgpError::BothProtections);
     }
     if own_key(store, &identity.from.email)?.is_none() {
         return Err(PgpError::NoOwnKey(identity.from.email.clone()));
     }
-    if !draft.openpgp.encrypts() {
+    if !mode.encrypts() {
         return Ok(());
     }
     if !draft.bcc.is_empty() {
@@ -88,21 +88,21 @@ pub fn outgoing(
             ),
         );
     }
-    if draft.openpgp == OpenPgp::None {
+    let Some(mode) = draft.openpgp else {
         return Ok(bytes);
-    }
+    };
     check(store, draft, identity, now)?;
     let (Some(own), Some(own_cert)) = (own, own_cert) else {
         return Err(PgpError::NoOwnKey(identity.from.email.clone()));
     };
-    let signer = if draft.openpgp.signs() {
+    let signer = if mode.signs() {
         Some(unlocking(store, secrets, &own, ask)?)
     } else {
         None
     };
     let mut to: Vec<Cert> = Vec::new();
     let mut gossip: Vec<(String, Cert)> = Vec::new();
-    if draft.openpgp.encrypts() {
+    if mode.encrypts() {
         for address in recipients(draft) {
             let Some((_, cert)) = key_for(store, &address, now)? else {
                 return Err(PgpError::NoKeyFor(vec![address]));
@@ -118,7 +118,7 @@ pub fn outgoing(
         gossip.clear();
     }
     let sealing = Sealing {
-        mode: draft.openpgp,
+        mode,
         signer: signer.as_ref(),
         recipients: &to,
         gossip: &gossip,

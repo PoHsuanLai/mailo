@@ -272,8 +272,8 @@ fn draft() -> Draft {
             cid: None,
         }],
         receipt: ReceiptRequest::Unrequested,
-        openpgp: OpenPgp::None,
-        smime: Smime::None,
+        openpgp: None,
+        smime: None,
         priority: mail_domain::Priority::Normal,
         delivery: mail_domain::DeliveryReport::Unrequested,
         automatic: false,
@@ -304,8 +304,8 @@ fn template() -> Template {
             cid: None,
         }],
         receipt: ReceiptRequest::Requested,
-        openpgp: OpenPgp::None,
-        smime: Smime::None,
+        openpgp: None,
+        smime: None,
         updated: at(5),
     }
 }
@@ -1355,6 +1355,11 @@ macro_rules! fixtures {
     };
 }
 
+/// A draft's `openpgp` or `smime` on its own: what the mode fixtures hold.
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+struct Asked(#[serde(with = "mail_domain::protect::asked")] Option<Mode>);
+
 fn fixture_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
@@ -1630,15 +1635,15 @@ fixtures! {
     "graph_remote_refs.json" => Vec<RemoteRef> = vec![graph_ref()],
     "graph_sync_cursors.json" => Vec<SyncCursor> = vec![graph_cursor()],
     // OpenPGP. `draft.json` predates the draft's field and keeps loading as
-    // `OpenPgp::None`; this pins the field's own spelling.
-    "draft_openpgp.json" => Draft = Draft { openpgp: OpenPgp::SignAndEncrypt, ..draft() },
+    // `None`; this pins the field's own spelling.
+    "draft_openpgp.json" => Draft = Draft { openpgp: Some(Mode::SignAndEncrypt), ..draft() },
     // Templates carry it too; `template.json` predates the field and loads as plain.
-    "template_openpgp.json" => Template = Template { openpgp: OpenPgp::Encrypt, ..template() },
-    "openpgp_modes.json" => Vec<OpenPgp> = vec![
-        OpenPgp::None,
-        OpenPgp::Sign,
-        OpenPgp::Encrypt,
-        OpenPgp::SignAndEncrypt,
+    "template_openpgp.json" => Template = Template { openpgp: Some(Mode::Encrypt), ..template() },
+    "openpgp_modes.json" => Vec<Asked> = vec![
+        Asked(None),
+        Asked(Some(Mode::Sign)),
+        Asked(Some(Mode::Encrypt)),
+        Asked(Some(Mode::SignAndEncrypt)),
     ],
     "pgp_key.json" => PgpKey = pgp_key(),
     "autocrypt_peer.json" => AutocryptPeer = AutocryptPeer {
@@ -1668,13 +1673,13 @@ fixtures! {
         Encryption::Unreadable { why: "modification detected".to_owned() },
     ],
     // S/MIME. `draft_openpgp.json` predates the field and loads as plain.
-    "draft_smime.json" => Draft = Draft { smime: Smime::SignAndEncrypt, ..draft() },
-    "template_smime.json" => Template = Template { smime: Smime::Sign, ..template() },
-    "smime_modes.json" => Vec<Smime> = vec![
-        Smime::None,
-        Smime::Sign,
-        Smime::Encrypt,
-        Smime::SignAndEncrypt,
+    "draft_smime.json" => Draft = Draft { smime: Some(Mode::SignAndEncrypt), ..draft() },
+    "template_smime.json" => Template = Template { smime: Some(Mode::Sign), ..template() },
+    "smime_modes.json" => Vec<Asked> = vec![
+        Asked(None),
+        Asked(Some(Mode::Sign)),
+        Asked(Some(Mode::Encrypt)),
+        Asked(Some(Mode::SignAndEncrypt)),
     ],
     "smime_cert.json" => SmimeCert = smime_cert(),
     // The key's own dates (10.16's migration, for the window). `pgp_key.json` predates them and
@@ -1859,12 +1864,12 @@ fn smime_values_round_trip_and_a_certificate_fingerprint_persists_as_its_hex() {
 #[test]
 fn a_draft_writes_every_protection_under_the_name_of_its_scheme() {
     let spellings = [
-        (OpenPgp::None, Smime::None, "none"),
-        (OpenPgp::Sign, Smime::Sign, "sign"),
-        (OpenPgp::Encrypt, Smime::Encrypt, "encrypt"),
+        (None, None, "none"),
+        (Some(Mode::Sign), Some(Mode::Sign), "sign"),
+        (Some(Mode::Encrypt), Some(Mode::Encrypt), "encrypt"),
         (
-            OpenPgp::SignAndEncrypt,
-            Smime::SignAndEncrypt,
+            Some(Mode::SignAndEncrypt),
+            Some(Mode::SignAndEncrypt),
             "sign_and_encrypt",
         ),
     ];
@@ -1889,8 +1894,8 @@ fn a_draft_from_before_smime_loads_as_plain() {
         &std::fs::read_to_string(fixture_dir().join("draft_openpgp.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(old.smime, Smime::None);
-    assert_eq!(old.openpgp, OpenPgp::SignAndEncrypt);
+    assert_eq!(old.smime, None);
+    assert_eq!(old.openpgp, Some(Mode::SignAndEncrypt));
 }
 
 fn fingerprint() -> Fingerprint {
@@ -1942,7 +1947,7 @@ fn a_draft_from_before_openpgp_loads_as_plain() {
         &std::fs::read_to_string(fixture_dir().join("draft_receipt.json")).unwrap(),
     )
     .unwrap();
-    assert_eq!(old.openpgp, OpenPgp::None);
+    assert_eq!(old.openpgp, None);
 }
 
 #[test]

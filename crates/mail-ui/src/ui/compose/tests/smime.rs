@@ -6,7 +6,7 @@ use mail_core::Store;
 use mail_core::testing::MapSigningStore;
 use rand::SeedableRng;
 
-use super::super::protection::{Mode, Protection, items, label, pick};
+use super::super::protection::{Protection, items, label, pick};
 use super::super::seal::SealBar;
 use super::*;
 use crate::ui::fixtures::smime_support::{Person, identity, pki, rng};
@@ -32,7 +32,7 @@ fn keys() -> Vec<String> {
 }
 
 /// A draft to dana asking `openpgp` and `smime`, stored.
-fn asking(store: &SqliteStore, openpgp: OpenPgp, smime: Smime) -> Draft {
+fn asking(store: &SqliteStore, openpgp: Option<Mode>, smime: Option<Mode>) -> Draft {
     let to = [Address {
         name: Some("Dana Whitfield".to_owned()),
         email: "dana@example.test".to_owned(),
@@ -74,12 +74,12 @@ fn window(store: Arc<SqliteStore>, draft: Draft, secrets: Arc<MapSigningStore>) 
 fn the_one_control_can_never_ask_for_both_protections() {
     // A draft asking both, as only another client could leave one: the page reads one of them.
     let mut both = draft_of("");
-    both.openpgp = OpenPgp::Sign;
-    both.smime = Smime::Encrypt;
+    both.openpgp = Some(Mode::Sign);
+    both.smime = Some(Mode::Encrypt);
     let read = Page::of(&both, Vec::new(), Vec::new());
     assert_eq!(read.protection, Protection::OpenPgp(Mode::Sign));
     let saved = read.apply_to(&both, at(1));
-    assert_eq!((saved.openpgp, saved.smime), (OpenPgp::Sign, Smime::None));
+    assert_eq!((saved.openpgp, saved.smime), (Some(Mode::Sign), None));
 
     // From every choice, every pick, over a stored draft that asked both: never both.
     let keys = keys();
@@ -90,7 +90,7 @@ fn the_one_control_can_never_ask_for_both_protections() {
             pick(&mut page, to);
             let draft = page.apply_to(&both, at(2));
             assert!(
-                draft.openpgp == OpenPgp::None || draft.smime == Smime::None,
+                draft.openpgp.is_none() || draft.smime.is_none(),
                 "{from} then {to} asked for both: {:?} {:?}",
                 draft.openpgp,
                 draft.smime
@@ -122,7 +122,7 @@ fn the_one_control_can_never_ask_for_both_protections() {
 #[test]
 fn picking_smime_clears_openpgp() {
     let mut base = draft_of("");
-    base.openpgp = OpenPgp::SignAndEncrypt;
+    base.openpgp = Some(Mode::SignAndEncrypt);
     let mut page = Page::of(&base, Vec::new(), Vec::new());
     assert_eq!(label(page.protection), "OpenPGP · Sign and Encrypt");
     page.seal_bar = SealBar::NoOwnKey("me@example.test".to_owned());
@@ -135,20 +135,17 @@ fn picking_smime_clears_openpgp() {
     );
     assert_eq!(label(page.protection), "S/MIME · Sign");
     let draft = page.apply_to(&base, at(1));
-    assert_eq!((draft.openpgp, draft.smime), (OpenPgp::None, Smime::Sign));
+    assert_eq!((draft.openpgp, draft.smime), (None, Some(Mode::Sign)));
     // And back: OpenPGP clears S/MIME.
     pick(&mut page, "pgp-encrypt");
     let draft = page.apply_to(&draft, at(2));
-    assert_eq!(
-        (draft.openpgp, draft.smime),
-        (OpenPgp::Encrypt, Smime::None)
-    );
+    assert_eq!((draft.openpgp, draft.smime), (Some(Mode::Encrypt), None));
 }
 
 #[tokio::test]
 async fn the_row_offers_both_schemes_in_one_menu_and_saves_the_choice() {
     let (store, _dir) = seeded();
-    let draft = asking(&store, OpenPgp::Sign, Smime::None);
+    let draft = asking(&store, Some(Mode::Sign), None);
     let (mut window, seen) = window(store.clone(), draft.clone(), Arc::default());
     click(
         &mut window.dom,
@@ -178,7 +175,7 @@ async fn the_row_offers_both_schemes_in_one_menu_and_saves_the_choice() {
     let stored = store.draft(draft.id).unwrap();
     assert_eq!(
         (stored.openpgp, stored.smime),
-        (OpenPgp::None, Smime::SignAndEncrypt)
+        (None, Some(Mode::SignAndEncrypt))
     );
 }
 
@@ -186,7 +183,7 @@ async fn the_row_offers_both_schemes_in_one_menu_and_saves_the_choice() {
 async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSigningStore::default());
-    let draft = asking(&store, OpenPgp::None, Smime::Encrypt);
+    let draft = asking(&store, None, Some(Mode::Encrypt));
     let (mut window, seen) = window(store.clone(), draft.clone(), secrets.clone());
 
     // No certificate of my own.
@@ -247,7 +244,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     );
     // S/MIME Encrypt without encryption is nothing: the plain send is queued at once.
     let stored = store.draft(draft.id).unwrap();
-    assert_eq!((stored.openpgp, stored.smime), (OpenPgp::None, Smime::None));
+    assert_eq!((stored.openpgp, stored.smime), (None, None));
     assert_ne!(stored.state, SendState::Editing, "nothing was sent");
 }
 
@@ -270,7 +267,7 @@ fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
         Utc::now(),
     )
     .unwrap();
-    let draft = asking(&store, OpenPgp::Sign, Smime::None);
+    let draft = asking(&store, Some(Mode::Sign), None);
 
     // The data side's answer, typed: the key, whether or not a passphrase was asked for.
     let refused = super::super::life::queue(

@@ -193,9 +193,9 @@ pub enum Command {
         /// `--request-receipt`: ask the recipients to confirm they displayed it.
         receipt: ReceiptRequest,
         /// `--sign`, `--encrypt`, or both: what OpenPGP does to it when it is sent.
-        openpgp: OpenPgp,
+        openpgp: Option<Mode>,
         /// The same with `--smime`: what S/MIME does to it instead.
-        smime: Smime,
+        smime: Option<Mode>,
     },
     /// S/MIME certificates: list, import, export, delete, trust, and one message's status.
     Smime(smime::SmimeCommand),
@@ -670,22 +670,22 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 body: String::new(),
                 receipt,
                 openpgp: match (sign, encrypt, smime) {
-                    (_, _, true) | (false, false, _) => OpenPgp::None,
-                    (true, false, false) => OpenPgp::Sign,
-                    (false, true, false) => OpenPgp::Encrypt,
-                    (true, true, false) => OpenPgp::SignAndEncrypt,
+                    (_, _, true) | (false, false, _) => None,
+                    (true, false, false) => Some(Mode::Sign),
+                    (false, true, false) => Some(Mode::Encrypt),
+                    (true, true, false) => Some(Mode::SignAndEncrypt),
                 },
                 smime: match (sign, encrypt, smime) {
-                    (_, _, false) => Smime::None,
+                    (_, _, false) => None,
                     (false, false, true) => {
                         return Err(format!(
                             "--smime says how to --sign or --encrypt; give one of them too\n\n{}",
                             usage()
                         ));
                     }
-                    (true, false, true) => Smime::Sign,
-                    (false, true, true) => Smime::Encrypt,
-                    (true, true, true) => Smime::SignAndEncrypt,
+                    (true, false, true) => Some(Mode::Sign),
+                    (false, true, true) => Some(Mode::Encrypt),
+                    (true, true, true) => Some(Mode::SignAndEncrypt),
                 },
             })
         }

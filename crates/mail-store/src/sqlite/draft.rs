@@ -6,7 +6,7 @@
 
 use super::SqliteStore;
 use super::read::Recipients;
-use super::row::{from_time, json, time, to_json, uuid};
+use super::row::{asked, from_time, json, time, to_asked, to_json, uuid};
 use crate::StoreError;
 use crate::changes::Topics;
 use mail_domain::id::account_id_from_uuid;
@@ -54,8 +54,8 @@ impl SqliteStore {
                 to_json("SendState", &draft.state)?,
                 from_time(draft.updated),
                 to_json("ReceiptRequest", &draft.receipt)?,
-                to_json("OpenPgp", &draft.openpgp)?,
-                to_json("Smime", &draft.smime)?,
+                to_asked("OpenPgp", &draft.openpgp)?,
+                to_asked("Smime", &draft.smime)?,
                 to_json("Priority", &draft.priority)?,
                 to_json("DeliveryReport", &draft.delivery)?,
                 draft.automatic,
@@ -137,8 +137,8 @@ impl SqliteStore {
             html: row.get(8)?,
             attachments,
             receipt: json("ReceiptRequest", &row.get::<_, String>(12)?)?,
-            openpgp: json("OpenPgp", &row.get::<_, String>(13)?)?,
-            smime: json("Smime", &row.get::<_, String>(14)?)?,
+            openpgp: asked("OpenPgp", &row.get::<_, String>(13)?)?,
+            smime: asked("Smime", &row.get::<_, String>(14)?)?,
             priority: json("Priority", &row.get::<_, String>(15)?)?,
             delivery: json("DeliveryReport", &row.get::<_, String>(16)?)?,
             automatic: row.get(17)?,

@@ -1,5 +1,5 @@
-//! S/MIME as product vocabulary: which certificate, whose, whether the user trusts it, what a
-//! draft asks for, and what reading a protected message found.
+//! S/MIME as product vocabulary: which certificate, whose, whether the user trusts it, and what
+//! reading a protected message found.
 //!
 //! No cryptography here. Certificates are parsed, checked and used in `mail-mime`, where the CMS
 //! implementation lives; the store keeps [`SmimeCert`] rows, the OS keyring keeps the private
@@ -188,35 +188,6 @@ impl SmimeCert {
     /// Whether it is valid at `at` by its own dates. Says nothing of who issued it.
     pub fn current_at(&self, at: DateTime<Utc>) -> bool {
         self.not_before <= at && at <= self.not_after
-    }
-}
-
-/// What a draft asks S/MIME to do to it when it is sent.
-///
-/// Defaulted so drafts saved before S/MIME existed load as [`Smime::None`]. A draft asks this or
-/// [`crate::OpenPgp`], never both; sending refuses a draft that asks both.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Smime {
-    #[default]
-    None,
-    /// `multipart/signed` (RFC 8551 §3.5.3): readable by anyone, provably from the sender.
-    Sign,
-    /// `application/pkcs7-mime` enveloped-data (RFC 8551 §3.3) to every recipient and the sender.
-    Encrypt,
-    /// Signed, then the signed message encrypted (RFC 8551 §3.6).
-    SignAndEncrypt,
-}
-
-impl Smime {
-    /// Whether the message is signed.
-    pub fn signs(self) -> bool {
-        matches!(self, Smime::Sign | Smime::SignAndEncrypt)
-    }
-
-    /// Whether the message is encrypted.
-    pub fn encrypts(self) -> bool {
-        matches!(self, Smime::Encrypt | Smime::SignAndEncrypt)
     }
 }
 

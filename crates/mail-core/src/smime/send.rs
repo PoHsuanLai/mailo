@@ -29,16 +29,16 @@ pub fn check(
     identity: &Identity,
     now: DateTime<Utc>,
 ) -> Result<(), SmimeError> {
-    if draft.smime == Smime::None {
+    let Some(mode) = draft.smime else {
         return Ok(());
-    }
-    if draft.openpgp != OpenPgp::None {
+    };
+    if draft.openpgp.is_some() {
         return Err(SmimeError::BothProtections);
     }
     let Some(own) = own_cert(store, &identity.from.email, now)? else {
         return Err(SmimeError::NoOwnCert(identity.from.email.clone()));
     };
-    if !draft.smime.encrypts() {
+    if !mode.encrypts() {
         return Ok(());
     }
     if !draft.bcc.is_empty() {
@@ -70,20 +70,20 @@ pub fn outgoing(
     frozen: Vec<u8>,
     now: DateTime<Utc>,
 ) -> Result<Vec<u8>, SmimeError> {
-    if draft.smime == Smime::None {
+    let Some(mode) = draft.smime else {
         return Ok(frozen);
-    }
+    };
     check(store, draft, identity, now)?;
     let Some(own) = own_cert(store, &identity.from.email, now)? else {
         return Err(SmimeError::NoOwnCert(identity.from.email.clone()));
     };
-    let signer = if draft.smime.signs() {
+    let signer = if mode.signs() {
         Some(identity_of(store, secrets, &own)?)
     } else {
         None
     };
     let mut to: Vec<Cert> = Vec::new();
-    if draft.smime.encrypts() {
+    if mode.encrypts() {
         for address in recipients(draft) {
             let Some((_, cert)) = cert_for(store, &address, now)? else {
                 return Err(SmimeError::NoCertFor(vec![address]));
@@ -93,7 +93,7 @@ pub fn outgoing(
         to.push(Cert::from_der(&own.der)?);
     }
     let sealing = Sealing {
-        mode: draft.smime,
+        mode,
         signer: signer.as_ref(),
         recipients: &to,
         now,

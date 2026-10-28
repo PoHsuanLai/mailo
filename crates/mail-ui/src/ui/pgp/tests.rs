@@ -61,7 +61,7 @@ pub(in crate::ui) fn someone_elses(address: &str, seed: u64) -> SecretCert {
 /// `raw` sealed as `mode`, signed by `signer` when given, to `to`.
 pub(super) fn sealed(
     raw: &str,
-    mode: OpenPgp,
+    mode: Mode,
     signer: Option<&SecretCert>,
     to: &[Cert],
     seed: u64,
@@ -533,7 +533,7 @@ async fn a_signed_message_says_who_signed_it_over_its_body() {
     let raw = letter("owl", "the owl note is signed");
     let message = arrive(
         &store,
-        sealed(&raw, OpenPgp::Sign, Some(&mine(&secrets, &key)), &[], 21),
+        sealed(&raw, Mode::Sign, Some(&mine(&secrets, &key)), &[], 21),
     );
     let (mut dom, mut seen, looks) = reader_looking(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| mark(page).is_some()).await;
@@ -561,7 +561,7 @@ async fn a_bad_signature_is_said_on_the_danger_ground() {
     let secrets = Arc::new(MapSigningStore::default());
     let key = own_key(&store, &secrets);
     let raw = letter("heron", "pay the heron invoice");
-    let signed = sealed(&raw, OpenPgp::Sign, Some(&mine(&secrets, &key)), &[], 22);
+    let signed = sealed(&raw, Mode::Sign, Some(&mine(&secrets, &key)), &[], 22);
     // Changed after it was signed.
     let text = String::from_utf8(signed).unwrap();
     assert!(text.contains("pay the heron invoice"));
@@ -584,7 +584,7 @@ async fn a_signature_by_a_key_not_held_cannot_be_checked_and_does_not_look_good(
     let secrets = Arc::new(MapSigningStore::default());
     let bea = someone_elses(BEA, 23);
     let raw = letter("lynx", "the lynx is signed by bea");
-    let message = arrive(&store, sealed(&raw, OpenPgp::Sign, Some(&bea), &[], 24));
+    let message = arrive(&store, sealed(&raw, Mode::Sign, Some(&bea), &[], 24));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| mark(page).is_some()).await;
     assert_eq!(mark(&page).as_deref(), Some("unconfirmed"), "{page}");
@@ -615,7 +615,7 @@ async fn an_encrypted_message_shows_what_it_was_encrypted_to_say() {
     let to = Cert::from_bytes(&key.key).unwrap();
     let message = arrive(
         &store,
-        sealed(&raw, OpenPgp::SignAndEncrypt, Some(&bea), &[to], 26),
+        sealed(&raw, Mode::SignAndEncrypt, Some(&bea), &[to], 26),
     );
     assert!(!message.body.text().unwrap_or_default().contains("zebra"));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
@@ -665,7 +665,7 @@ fn locked(
     let raw = letter(word, &format!("the {word} sleeps at noon"));
     let message = arrive(
         store,
-        sealed(&raw, OpenPgp::Encrypt, None, &[key.public()], seed + 2),
+        sealed(&raw, Mode::Encrypt, None, &[key.public()], seed + 2),
     );
     (message, passphrase, key.fingerprint())
 }
@@ -760,7 +760,7 @@ async fn a_signature_on_only_part_of_a_message_says_so() {
     let key = own_key(&store, &secrets);
     let signed = sealed(
         &letter("crane", "the crane part is signed"),
-        OpenPgp::Sign,
+        Mode::Sign,
         Some(&mine(&secrets, &key)),
         &[],
         51,
@@ -817,7 +817,7 @@ async fn a_plain_message_says_nothing_and_every_seal_class_is_styled() {
     let raw = letter("wren", "wren");
     let bad = String::from_utf8(sealed(
         &raw,
-        OpenPgp::Sign,
+        Mode::Sign,
         Some(&mine(&secrets, &key)),
         &[],
         62,

@@ -877,7 +877,7 @@ pub fn new_message(
         recipients,
         subject,
         body,
-        (receipt, OpenPgp::None, Smime::None),
+        (receipt, None, None),
         now,
     )
 }
@@ -892,7 +892,7 @@ pub fn new_sealed_message(
     [to, cc, bcc]: [&[Address]; 3],
     subject: &str,
     body: &str,
-    (receipt, openpgp, smime): (ReceiptRequest, OpenPgp, Smime),
+    (receipt, openpgp, smime): (ReceiptRequest, Option<Mode>, Option<Mode>),
     now: DateTime<Utc>,
 ) -> Result<Composed, CoreError> {
     let account = account_for(store, from)?;
@@ -911,7 +911,7 @@ pub fn new_sealed_message(
         save(store, &draft)?;
     }
     let mut refused = None;
-    if draft.openpgp != OpenPgp::None || draft.smime != Smime::None {
+    if draft.openpgp.is_some() || draft.smime.is_some() {
         let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
         refused = crate::pgp::check(store, &draft, &identity, now)
             .map_err(CoreError::from)
@@ -1080,7 +1080,7 @@ pub fn keep_on_server(
     let Some(mailbox) = drafts_on_server(store, &draft.account) else {
         return Ok(false);
     };
-    if draft.openpgp.encrypts() || draft.smime.encrypts() {
+    if draft.openpgp.is_some_and(Mode::encrypts) || draft.smime.is_some_and(Mode::encrypts) {
         // Asked to be encrypted after a copy was kept: the copy in the clear goes, and the
         // upload still waiting with it, which would have put the plaintext there.
         mail_runtime::server_drafts::queue_drop(store, &draft, mailbox, now)?;
@@ -1832,8 +1832,8 @@ mod server_copy_tests {
     fn a_draft_that_asks_to_be_encrypted_is_not_put_on_the_server_in_the_clear() {
         let (store, draft) = writing(imap(), with_drafts());
         for (openpgp, smime) in [
-            (OpenPgp::Encrypt, Smime::None),
-            (OpenPgp::None, Smime::SignAndEncrypt),
+            (Some(Mode::Encrypt), None),
+            (None, Some(Mode::SignAndEncrypt)),
         ] {
             save(
                 &store,
@@ -1864,7 +1864,7 @@ mod server_copy_tests {
         save(
             &store,
             &Draft {
-                openpgp: OpenPgp::Encrypt,
+                openpgp: Some(Mode::Encrypt),
                 ..draft.clone()
             },
         )

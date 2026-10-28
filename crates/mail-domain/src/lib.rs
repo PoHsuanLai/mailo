@@ -27,6 +27,7 @@ pub mod parts;
 pub mod pgp;
 pub mod presets;
 pub mod priority;
+pub mod protect;
 pub mod receipt;
 pub mod remote;
 pub mod retry;
@@ -73,10 +74,10 @@ pub use message::{Message, MessageKey, SortFacts, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;
 pub use pgp::{
-    Coverage, Encryption, Fingerprint, KeyId, KeySource, KeyTrust, OpenPgp, PgpKey, SecretHeld,
-    Verification,
+    Coverage, Encryption, Fingerprint, KeyId, KeySource, KeyTrust, PgpKey, SecretHeld, Verification,
 };
 pub use priority::Priority;
+pub use protect::Mode;
 pub use receipt::{DeliveryReport, Keyword, ReceiptAnswer, ReceiptRequest};
 pub use remote::{
     FetchSince, JMAP_ALL, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag,
@@ -87,7 +88,7 @@ pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
 pub use section::Section;
 pub use signature::{Signature, SignatureUse, UNNAMED_SIGNATURE};
 pub use smime::{
-    BadSignature, CertFingerprint, CertProblem, CertSource, Smime, SmimeCert, SmimeEncryption,
+    BadSignature, CertFingerprint, CertProblem, CertSource, SmimeCert, SmimeEncryption,
     SmimeVerification,
 };
 pub use state::{

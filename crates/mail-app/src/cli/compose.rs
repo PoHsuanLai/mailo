@@ -6,7 +6,7 @@
 use chrono::{DateTime, Local, TimeZone, Utc};
 use mail_core::compose::{AttachedFile, Composed, Scheduled, SignatureChange};
 use mail_core::when::Clock;
-use mail_domain::{Address, Draft, OpenPgp, ReceiptRequest, SendState, Smime};
+use mail_domain::{Address, Draft, Mode, ReceiptRequest, SendState};
 use std::fmt::Write as _;
 
 fn addresses(list: &[Address]) -> String {
@@ -37,26 +37,26 @@ pub fn composed(composed: &Composed) -> String {
         let _ = writeln!(out, "  asks for a read receipt");
     }
     match draft.openpgp {
-        OpenPgp::None => {}
-        OpenPgp::Sign => {
+        None => {}
+        Some(Mode::Sign) => {
             let _ = writeln!(out, "  signed with OpenPGP when it is sent");
         }
-        OpenPgp::Encrypt => {
+        Some(Mode::Encrypt) => {
             let _ = writeln!(out, "  encrypted with OpenPGP when it is sent");
         }
-        OpenPgp::SignAndEncrypt => {
+        Some(Mode::SignAndEncrypt) => {
             let _ = writeln!(out, "  signed and encrypted with OpenPGP when it is sent");
         }
     }
     match draft.smime {
-        Smime::None => {}
-        Smime::Sign => {
+        None => {}
+        Some(Mode::Sign) => {
             let _ = writeln!(out, "  signed with S/MIME when it is sent");
         }
-        Smime::Encrypt => {
+        Some(Mode::Encrypt) => {
             let _ = writeln!(out, "  encrypted with S/MIME when it is sent");
         }
-        Smime::SignAndEncrypt => {
+        Some(Mode::SignAndEncrypt) => {
             let _ = writeln!(out, "  signed and encrypted with S/MIME when it is sent");
         }
     }

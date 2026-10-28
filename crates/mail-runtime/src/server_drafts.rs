@@ -46,7 +46,10 @@ pub fn copy(store: &SqliteStore, draft: DraftId) -> Result<Option<Vec<u8>>, Runt
         Err(StoreError::NoDraft(_)) => return Ok(None),
         Err(e) => return Err(e.into()),
     };
-    if draft.state != SendState::Editing || draft.openpgp.encrypts() || draft.smime.encrypts() {
+    if draft.state != SendState::Editing
+        || draft.openpgp.is_some_and(mail_domain::Mode::encrypts)
+        || draft.smime.is_some_and(mail_domain::Mode::encrypts)
+    {
         return Ok(None);
     }
     let Some(identity) = store.identity(draft.identity)? else {

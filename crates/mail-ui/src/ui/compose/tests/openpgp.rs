@@ -6,7 +6,7 @@ use mail_core::testing::MapSigningStore;
 use rand::SeedableRng;
 
 use super::super::page::Float;
-use super::super::protection::{Mode, Protection, items, pick};
+use super::super::protection::{Protection, items, pick};
 use super::super::seal::SealBar;
 use super::*;
 use crate::ui::fixtures::{Seen, acct_account, click, rebuild_into, seeded, type_into};
@@ -37,7 +37,7 @@ fn queued(store: &SqliteStore) -> Vec<Vec<u8>> {
 }
 
 /// A draft to dana that asks for `openpgp`, stored.
-fn asking(store: &SqliteStore, openpgp: OpenPgp) -> Draft {
+fn asking(store: &SqliteStore, openpgp: Option<Mode>) -> Draft {
     let to = [Address {
         name: Some("Dana Whitfield".to_owned()),
         email: "dana@example.test".to_owned(),
@@ -137,11 +137,11 @@ fn the_row_writes_the_drafts_openpgp() {
     assert_eq!(page.saved, super::super::page::Saved::Dirty);
     assert_eq!(
         page.apply_to(&draft_of(""), at(1)).openpgp,
-        OpenPgp::SignAndEncrypt
+        Some(Mode::SignAndEncrypt)
     );
     // Opened again, the page asks what the draft asks.
     let mut draft = draft_of("");
-    draft.openpgp = OpenPgp::Sign;
+    draft.openpgp = Some(Mode::Sign);
     assert_eq!(
         Page::of(&draft, Vec::new(), Vec::new()).protection,
         Protection::OpenPgp(Mode::Sign)
@@ -151,7 +151,7 @@ fn the_row_writes_the_drafts_openpgp() {
 #[tokio::test]
 async fn security_is_chosen_from_the_more_menu_and_drawn_only_while_set() {
     let (store, _dir) = seeded();
-    let draft = asking(&store, OpenPgp::None);
+    let draft = asking(&store, None);
     let (mut window, _seen) = window(store.clone(), draft.clone(), Arc::default());
     let markup = window.render();
     assert!(!markup.contains("data-row=\"security\""), "{markup}");
@@ -176,7 +176,7 @@ async fn security_is_chosen_from_the_more_menu_and_drawn_only_while_set() {
         )
         .unwrap();
     });
-    assert_eq!(store.draft(draft.id).unwrap().openpgp, OpenPgp::Sign);
+    assert_eq!(store.draft(draft.id).unwrap().openpgp, Some(Mode::Sign));
     // The row's menu sets it back to None, and the row goes.
     window.dom.in_runtime(|| pick(&mut page.write(), "none"));
     let markup = window.render();
@@ -189,7 +189,7 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     let secrets = Arc::new(MapSigningStore::default());
     mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
         .unwrap();
-    let draft = asking(&store, OpenPgp::Encrypt);
+    let draft = asking(&store, Some(Mode::Encrypt));
     let (mut window, seen) = window(store.clone(), draft.clone(), secrets);
 
     let mut after = click(
@@ -244,7 +244,7 @@ async fn no_key_for_a_recipient_names_them_and_holds_the_send_until_a_choice() {
     let text = String::from_utf8_lossy(&sent[0]);
     assert!(!text.contains("multipart/encrypted"), "{text}");
     assert!(text.contains("see you there"), "{text}");
-    assert_eq!(store.draft(draft.id).unwrap().openpgp, OpenPgp::None);
+    assert_eq!(store.draft(draft.id).unwrap().openpgp, None);
 }
 
 #[tokio::test]
@@ -269,7 +269,7 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
             Ok(found.into_iter().next().map(|one| one.key))
         })
     };
-    let draft = asking(&store, OpenPgp::Encrypt);
+    let draft = asking(&store, Some(Mode::Encrypt));
     let (mut window, seen) = window_with(store.clone(), draft, seams);
     let after = click(
         &mut window.dom,
@@ -305,7 +305,7 @@ async fn a_key_found_by_looking_up_clears_the_bar_and_the_send_goes_encrypted() 
 #[tokio::test]
 async fn no_key_of_ones_own_offers_to_make_one() {
     let (store, _dir) = seeded();
-    let draft = asking(&store, OpenPgp::Sign);
+    let draft = asking(&store, Some(Mode::Sign));
     let (mut window, seen) = window(store.clone(), draft, Arc::default());
     let after = click(
         &mut window.dom,
@@ -347,7 +347,7 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
         Utc::now(),
     )
     .unwrap();
-    let draft = asking(&store, OpenPgp::Sign);
+    let draft = asking(&store, Some(Mode::Sign));
     let (mut window, seen) = window(store.clone(), draft, secrets);
 
     let mut after = click(
@@ -414,7 +414,7 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
 /// The bar asking for a missing key, then for a locked one, for the style lint in `style::tests`.
 pub(in crate::ui) async fn drawn_states() -> String {
     let (store, _dir) = seeded();
-    let draft = asking(&store, OpenPgp::Encrypt);
+    let draft = asking(&store, Some(Mode::Encrypt));
     let secrets = Arc::new(MapSigningStore::default());
     mail_core::pgp::keys::generate(&store, secrets.as_ref(), "me@example.test", Utc::now())
         .unwrap();
