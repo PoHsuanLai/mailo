@@ -149,9 +149,12 @@ pub fn preset_for_issuer(issuer: Issuer, address: &str, now: DateTime<Utc>) -> O
     match issuer {
         Issuer::Google => Some(gmail(address, now)),
         Issuer::Microsoft => Some(microsoft_for(MicrosoftAccount::Organisation, address, now)),
-        Issuer::Dropbox | Issuer::Box | Issuer::Fastmail | Issuer::OpenRouter | Issuer::OpenAi => {
-            None
-        }
+        Issuer::Dropbox
+        | Issuer::Box
+        | Issuer::Fastmail
+        | Issuer::OpenRouter
+        | Issuer::OpenAi
+        | Issuer::Yahoo => None,
     }
 }
 

@@ -1,7 +1,7 @@
 //! Hosting porter's account service in this process, with the add-account window as the host
 //! that draws its sheet.
 //!
-//! `porter_service::Sheets` is the seam between the service (which runs the sheet's machine and
+//! `porter_service_core::sheets::Sheets` is the seam between the service (which runs the sheet's machine and
 //! the provider's sign-in) and whoever draws: here a pair of channels. The service end, a
 //! [`WindowSheets`], is handed the views and reads the person's inputs; the window's end
 //! ([`Ends::window`]) is what the window draws from and answers into. Nothing crosses them but
@@ -15,7 +15,9 @@ use porter_core::{AppId, ProviderHint};
 use porter_ids::clock::SystemClock;
 use porter_provider::Provider;
 use porter_secrets::{Secrets, SecretsError};
-use porter_service::{AccountService, Registry, SheetFault, SheetLink, SheetOpen, Sheets};
+use porter_service::AccountService;
+use porter_service_core::registry::Registry;
+use porter_service_core::sheets::{SheetFault, SheetLink, SheetOpen, Sheets};
 use porter_sheet::{SheetInput, SheetView};
 use porter_wire::{AccountsReply, AccountsRequest, ParentWindow};
 use tokio::sync::{mpsc, watch};
@@ -42,7 +44,7 @@ pub(super) struct WindowEnd {
     pub inputs: mpsc::UnboundedSender<SheetInput>,
 }
 
-/// The service's end, as `porter_service::Sheets`.
+/// The service's end, as `porter_service_core::sheets::Sheets`.
 #[derive(Debug)]
 pub(super) struct WindowSheets {
     views: Arc<watch::Sender<Shown>>,

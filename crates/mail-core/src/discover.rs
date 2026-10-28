@@ -25,8 +25,7 @@ use mail_domain::{AuthPlan, Outgoing, Retry, SaslMech, Tls, Username};
 pub use offer::{Looked, resolve, settle, typed, typed_domain};
 use porter_core::{Family, ServiceEndpoint, Tls as Wire};
 use porter_discover::{
-    Dns, Found as Servers, NotFound, OAuthOnly, Outcome, Pop3, ProviderLead, SearchOptions,
-    Source as Via, StartTlsOnly,
+    Dns, Found as Servers, NotFound, Outcome, ProviderLead, SearchOptions, Source as Via,
 };
 use porter_http::Http;
 use porter_ids::UrlScheme;
@@ -563,9 +562,9 @@ pub async fn run<H: Http, D: Dns>(
     now: DateTime<Utc>,
 ) -> Result<Found, Failed> {
     const TRY_NEXT: SearchOptions = SearchOptions {
-        starttls_only: StartTlsOnly::TryNext,
-        pop3: Pop3::Report,
-        oauth_only: OAuthOnly::Offer,
+        starttls_only: true,
+        report_pop3: true,
+        oauth_only_ok: true,
     };
     match find(http, dns, address, &TRY_NEXT).await {
         Ok(outcome) => map(outcome, address, now),
@@ -577,7 +576,7 @@ pub async fn run<H: Http, D: Dns>(
             // Nothing usable: was a STARTTLS-only document the reason? Asked again with the rule
             // off, only to say so (and to take an OAuth preset a STARTTLS document leads to).
             let accepting = SearchOptions {
-                starttls_only: StartTlsOnly::Accept,
+                starttls_only: false,
                 ..TRY_NEXT
             };
             match find(http, dns, address, &accepting).await {
@@ -613,12 +612,12 @@ async fn find<H: Http, D: Dns>(
     let outcome = porter_discover::discover_mail_with(http, dns, providers, address, options).await;
     match outcome {
         Ok(Outcome::Servers(servers))
-            if options.oauth_only == OAuthOnly::Offer
+            if options.oauth_only_ok
                 && servers.oauth.is_some()
                 && oauth_issuer(&servers).is_none() =>
         {
             let without = SearchOptions {
-                oauth_only: OAuthOnly::Miss,
+                oauth_only_ok: false,
                 ..*options
             };
             porter_discover::discover_mail_with(http, dns, providers, address, &without).await
@@ -751,9 +750,9 @@ mod tests {
     /// A document read under the options mailo's search uses (`run`), then mapped.
     fn found_under_mailo(xml: &str, address: &str) -> Result<Found, Failed> {
         let options = SearchOptions {
-            starttls_only: StartTlsOnly::TryNext,
-            pop3: Pop3::Report,
-            oauth_only: OAuthOnly::Offer,
+            starttls_only: true,
+            report_pop3: true,
+            oauth_only_ok: true,
         };
         let servers = parse_autoconfig_with(xml, address, &options).expect("a usable document");
         map(Outcome::Servers(servers), address, now())

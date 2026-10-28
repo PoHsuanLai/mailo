@@ -6,9 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use mail_core::discover::{Failed, Gap};
-use porter_capability::{CapabilityKind, Toggle};
+use porter_capability::{CapabilityKind, KindToggle, Toggle};
 use porter_core::{ProviderId, SecretText};
-use porter_sheet::ServiceChoice;
 use porter_sheet::{
     FieldAnswer, FieldKind, FieldValue, ProblemKind, SheetInput, SheetView, SignInFault,
 };
@@ -48,7 +47,7 @@ fn submit(answers: Vec<(FieldKind, FieldValue)>) -> SheetInput {
 }
 
 fn confirm() -> SheetInput {
-    SheetInput::Confirm(vec![ServiceChoice {
+    SheetInput::Confirm(vec![KindToggle {
         kind: CapabilityKind::Mail,
         toggle: Toggle::On,
     }])

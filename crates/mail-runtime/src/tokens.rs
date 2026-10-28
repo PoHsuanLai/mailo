@@ -22,7 +22,7 @@ use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
 use porter_core::{AccountId, Credential, GrantedScopes, SecretKey, SecretPurpose, SecretText};
 use porter_ids::UnixSeconds;
-use porter_oauth::{Renewal as Due, redeem_scope, refresh_scoped_detailed, renewal};
+use porter_oauth::{is_due, redeem_scope, refresh_scoped_detailed};
 use porter_provider::ClientEntry;
 use std::future::Future;
 use std::pin::Pin;
@@ -149,9 +149,7 @@ fn due_refresh(credential: &Credential, now: DateTime<Utc>) -> Option<Zeroizing<
             refresh,
             expires_at,
             ..
-        } if renewal(*expires_at, unix(now)) == Due::Due => {
-            Some(Zeroizing::new(refresh.expose().to_owned()))
-        }
+        } if is_due(*expires_at, unix(now)) => Some(Zeroizing::new(refresh.expose().to_owned())),
         _ => None,
     }
 }

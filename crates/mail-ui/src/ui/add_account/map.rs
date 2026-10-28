@@ -489,7 +489,7 @@ pub(super) fn mark_of(mark: &str) -> MarkProvider {
 /// What a kind of service is called on the review: porter's own name for it, so mailo's review
 /// and porter's say the same.
 pub(super) fn service_name(kind: CapabilityKind) -> &'static str {
-    porter_sheet::words::service_name(kind)
+    kind.name()
 }
 
 /// The review's secondary line for a service the provider offers but limits.
