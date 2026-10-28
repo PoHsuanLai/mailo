@@ -79,6 +79,26 @@ impl std::fmt::Debug for ClientConfig {
 #[derive(Clone)]
 pub struct Client(Arc<Inner>);
 
+/// A client that does not keep the client going: for what the client itself holds (the seams it
+/// fetches through). A closure the client owns that held a [`Client`] would be an `Arc` cycle:
+/// the client's threads would never be told to stop. Hold this and [`upgrade`](Self::upgrade) it
+/// for the length of one call.
+#[derive(Clone)]
+pub struct WeakClient(Weak<Inner>);
+
+impl std::fmt::Debug for WeakClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WeakClient")
+    }
+}
+
+impl WeakClient {
+    /// The client, if some other holder still has it.
+    pub fn upgrade(&self) -> Option<Client> {
+        self.0.upgrade().map(Client)
+    }
+}
+
 impl std::fmt::Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Client")
@@ -376,6 +396,11 @@ impl Client {
     pub fn committed(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
         let shared = &self.0.shared;
         shared.inline.then(|| shared.committed.subscribe())
+    }
+
+    /// A handle that does not keep this client's threads from stopping ([`WeakClient`]).
+    pub fn downgrade(&self) -> WeakClient {
+        WeakClient(Arc::downgrade(&self.0))
     }
 
     /// Fetch mail: every account's link, polled, pushed to and fetched on request by the one

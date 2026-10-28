@@ -25,7 +25,7 @@ mod stored;
 
 pub use act::{Acted, Command, Done, Ticket};
 pub use caches::{Framing, Looking};
-pub use client::{Client, ClientConfig, FetchRun};
+pub use client::{Client, ClientConfig, FetchRun, WeakClient};
 pub use error::ClientError;
 pub use external::on_write;
 pub use live::{Live, Query, Snapshot, bucket_of};
