@@ -260,7 +260,7 @@ pub(super) fn Places(
                 SpacesFoot {
                     handle,
                     new_payload: move |()| Mail::new_in(&ProfileId::default()),
-                    new_space: NewSpace::Hidden,
+                    new_space: Shown::Hidden,
                     leading: rsx! {
                         div { class: "foot-lead",
                             sync::SyncMark { shell }

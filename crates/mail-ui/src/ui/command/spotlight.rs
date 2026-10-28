@@ -7,7 +7,7 @@
 //! while the last word starts an operator, which Tab completes.
 //! The card is quire's `SearchField` in its card form (the field and its rows as one surface,
 //! floated from the line at the top; a press outside it closes it, with no scrim). The rows show
-//! at once (`Panel::Shown`) and the arrows stop at the ends (`Ends::Stop`); the keyboard stays in
+//! at once (`Panel::Shown`) and the arrows stop at the ends (`stop_at_ends`); the keyboard stays in
 //! the field, which moves the highlight and runs it, and mailo's [`super::keys`] completes it and
 //! leaves. The rows are one answer to one settled
 //! text: the search runs off the thread that draws once the field has been still for
@@ -122,7 +122,7 @@ pub(in crate::ui) fn Spotlight(
             // is ours: it leaves the panel (or the templates), the rows staying until then.
             open: Panel::Shown,
             // Arrows stop at the first and last row, as `keys::step` has it.
-            ends: Ends::Stop,
+            stop_at_ends: true,
             present: SuggestionsPresent::Card,
             // The highlight is the shell's (`BarOpen::active`), so a click, a key and the text
             // changing all move the one.

@@ -24,7 +24,7 @@ use ds::components::menus::item::item::{MenuImage, MenuItem};
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
-use ds::style::tokens::tag_colour::TagColour;
+use ds::style::tokens::system_hue::SystemHue;
 use mail_client::conversation::{offers, says};
 use mail_domain::{Hue, MailboxRole, OpKind, ReadState, Star, ThreadSummary};
 
@@ -246,15 +246,15 @@ fn icon(pick: Pick) -> Icon {
 }
 
 /// quire's dot for a flag's colour: the tag colour of the same name.
-pub(in crate::ui) fn swatch(hue: Hue) -> TagColour {
+pub(in crate::ui) fn swatch(hue: Hue) -> SystemHue {
     match hue {
-        Hue::Red => TagColour::Red,
-        Hue::Orange => TagColour::Orange,
-        Hue::Yellow => TagColour::Yellow,
-        Hue::Green => TagColour::Green,
-        Hue::Blue => TagColour::Blue,
-        Hue::Purple => TagColour::Purple,
-        Hue::Gray => TagColour::Gray,
+        Hue::Red => SystemHue::Red,
+        Hue::Orange => SystemHue::Orange,
+        Hue::Yellow => SystemHue::Yellow,
+        Hue::Green => SystemHue::Green,
+        Hue::Blue => SystemHue::Blue,
+        Hue::Purple => SystemHue::Purple,
+        Hue::Gray => SystemHue::Gray,
     }
 }
 

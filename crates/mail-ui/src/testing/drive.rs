@@ -9,7 +9,7 @@ use dioxus::html::Modifiers;
 use ds::base::press::PointerButton;
 use ds::file_drop::drag::{DropAcceptance, FileDragInput};
 use ds::prelude::*;
-use ds_harness::{FocusState, Harness, Input, PointerAction, PointerInput};
+use ds_harness::{Harness, Input, PointerAction, PointerInput};
 use std::time::Duration;
 
 /// A key the tests press: the words the window's own shortcuts are written in.
@@ -115,6 +115,6 @@ impl Drive for Harness {
         self.advance(Duration::from_millis(ms));
     }
     fn is_focused(&self, selector: &str) -> bool {
-        self.focus_of(selector) == FocusState::Focused
+        self.focus_of(selector)
     }
 }

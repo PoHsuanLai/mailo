@@ -10,7 +10,7 @@
 //! the sanitizer, are `tests/app/native_frame.rs`.
 
 use ds::prelude::*;
-use ds_blitz::{AppNet, NetDecision, NetPolicy, NetReply, NetRequest, RequestOrigin, RootContexts};
+use ds_blitz::{AppNet, FrameId, NetDecision, NetPolicy, NetReply, NetRequest, RootContexts};
 use ds_harness::{Clock, Harness, HarnessConfig, Viewport};
 use mail_core::SqliteStore;
 use mail_core::{Arrival, absorb};
@@ -462,7 +462,7 @@ fn the_newsletter_s_frame_is_sealed_its_links_are_checked_and_its_images_wait_fo
 
 /// Every request any document of the window makes, refused and kept.
 #[derive(Default)]
-struct Requests(Mutex<Vec<(RequestOrigin, String)>>);
+struct Requests(Mutex<Vec<(Option<FrameId>, String)>>);
 
 impl AppNet for Requests {
     fn decide(&self, request: &NetRequest) -> NetDecision {

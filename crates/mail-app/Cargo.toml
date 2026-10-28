@@ -125,7 +125,7 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", 
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 chrono.workspace = true
 # Settings I/O: `appearance.toml` (imported once from `appearance.json`), the settings portal.
-ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "ffdcc30c8fe0d08a96654ba9add416d0b9445b9c", features = ["dioxus"] }  # ffdcc30c (blitz-select-scroll, PR 64; forks blitz 841386a7, blitz-kit 4ad80cdc)
+ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "8760244b938ff2603af5e5b3f59b55ad0aab9246", features = ["dioxus"] }  # 8760244b (v0.3.57; forks blitz 841386a7, blitz-kit fd08b468)
 # `mailo.toml`, and the `appearance.toml` written once on the first run after the move.
 toml = "1"
 # Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that
@@ -156,15 +156,15 @@ latchkey.workspace = true
 mail-ui = { workspace = true, features = ["testing"] }
 # The window's integration tests drive it as the launched program does (`tests/app`).
 dioxus = { version = "0.7" }
-ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "ffdcc30c8fe0d08a96654ba9add416d0b9445b9c" }  # ffdcc30c (blitz-select-scroll, PR 64; forks blitz 841386a7, blitz-kit 4ad80cdc)
+ds = { git = "https://github.com/PoHsuanLai/quire.git", rev = "8760244b938ff2603af5e5b3f59b55ad0aab9246" }  # 8760244b (v0.3.57; forks blitz 841386a7, blitz-kit fd08b468)
 # The account sheets' views: `ds_shell::accounts`, the parts `sill` draws the same sheet with.
 # Only the accounts module is used; the shell's own surfaces (bar, dock, lock) are not drawn here.
-ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "ffdcc30c8fe0d08a96654ba9add416d0b9445b9c" }  # ffdcc30c (blitz-select-scroll, PR 64; forks blitz 841386a7, blitz-kit 4ad80cdc)
+ds-shell = { git = "https://github.com/PoHsuanLai/quire.git", rev = "8760244b938ff2603af5e5b3f59b55ad0aab9246" }  # 8760244b (v0.3.57; forks blitz 841386a7, blitz-kit fd08b468)
 # The window: quire's Blitz host (the window, its fonts, focus, clipboard, PDF output), and
 # `print`: the system's print dialog for a PDF (the desktop portal on Linux, else the PDF opened
 # in the viewer); `spell`: the composer's spelling, against the system's Hunspell dictionaries
 # (none is bundled); `pdf` also rasterises a PDF attachment's first page (`PdfFileThumb`).
-ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "ffdcc30c8fe0d08a96654ba9add416d0b9445b9c", features = ["pdf", "print", "spell"] }  # ffdcc30c (blitz-select-scroll, PR 64; forks blitz 841386a7, blitz-kit 4ad80cdc)
+ds-blitz = { git = "https://github.com/PoHsuanLai/quire.git", rev = "8760244b938ff2603af5e5b3f59b55ad0aab9246", features = ["pdf", "print", "spell"] }  # 8760244b (v0.3.57; forks blitz 841386a7, blitz-kit fd08b468)
 base64 = "0.22"
 blitz-dom = { workspace = true }
 dioxus-native-dom = { workspace = true }
@@ -193,8 +193,8 @@ uuid = { workspace = true }
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the
 # same tag.
-ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "ffdcc30c8fe0d08a96654ba9add416d0b9445b9c" }  # ffdcc30c (blitz-select-scroll, PR 64; forks blitz 841386a7, blitz-kit 4ad80cdc)
-ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "ffdcc30c8fe0d08a96654ba9add416d0b9445b9c", features = ["pdf"] }  # ffdcc30c (blitz-select-scroll, PR 64; forks blitz 841386a7, blitz-kit 4ad80cdc)
+ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "8760244b938ff2603af5e5b3f59b55ad0aab9246" }  # 8760244b (v0.3.57; forks blitz 841386a7, blitz-kit fd08b468)
+ds-harness = { git = "https://github.com/PoHsuanLai/quire.git", rev = "8760244b938ff2603af5e5b3f59b55ad0aab9246", features = ["pdf"] }  # 8760244b (v0.3.57; forks blitz 841386a7, blitz-kit fd08b468)
 
 [lints]
 workspace = true

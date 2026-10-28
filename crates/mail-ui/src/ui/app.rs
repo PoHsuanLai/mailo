@@ -1031,8 +1031,6 @@ pub(super) fn Frame(
             system: environment.system,
             look,
             material: Material::Window,
-            tint_alpha: Some(environment.tint_alpha()),
-            stack: Some(environment.material_stack()),
             // One Look: Inter. The editorial faces are the design system's, not mail chrome's.
             typeface: Some(Typeface::System),
             styles: styles(),
