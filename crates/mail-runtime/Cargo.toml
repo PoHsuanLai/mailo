@@ -64,6 +64,8 @@ uuid = { workspace = true }
 # its target. It serves the signing keys mailo keeps in its own store (`signing_store.rs`), which
 # are not account secrets: those go through porter-secrets.
 keyring-core = "1"
+# A value too long for one entry (the Credential Manager's 2560 bytes) kept in several.
+keyring-chunked.workspace = true
 # The system resolver, for `porter_discover::Dns` (SRV and MX, RFC 6186) and BIMI's TXT lookups
 # (`lookup.rs`). MIT OR Apache-2.0; the system resolver's configuration, over tokio. Its
 # DNS-over-TLS/HTTPS features stay off.
@@ -112,7 +114,7 @@ dirs = "6"
 xattr = "1"
 
 # Windows: the Credential Manager. Its entries hold at most 2560 bytes, which a Microsoft token
-# or a signing key outgrows; `signing_store/chunks.rs` is why that does not matter there.
+# or a signing key outgrows; `keyring-chunked` (`signing_store.rs`) is why that does not matter there.
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1", optional = true }
 dirs = "6"
