@@ -7,7 +7,7 @@
 use crate::support::account;
 use chrono::{DateTime, TimeZone, Utc};
 use mail_core::CoreError;
-use mail_core::compose::{self, Answer, Quote};
+use mail_core::compose::{self, Answer, Quote, Saying};
 use mail_core::signature::Placement;
 use mail_domain::*;
 use mail_store::{SqliteStore, Store};
@@ -183,9 +183,11 @@ fn a_reply_to_a_selection_quotes_only_what_was_selected() {
     let selected = compose::draft_answer_in(
         &store,
         id,
-        Answer::Scope(ReplyScope::Sender),
-        Quote::Selection("one o'clock\n"),
-        "",
+        Saying {
+            to: Answer::Scope(ReplyScope::Sender),
+            quote: Quote::Selection("one o'clock\n"),
+            body: "",
+        },
         at(10),
         &Utc,
         Placement::default(),
@@ -204,9 +206,11 @@ fn a_reply_to_a_selection_quotes_only_what_was_selected() {
     let whole = compose::draft_answer_in(
         &store,
         id,
-        Answer::Scope(ReplyScope::Sender),
-        Quote::Selection(" \n "),
-        "",
+        Saying {
+            to: Answer::Scope(ReplyScope::Sender),
+            quote: Quote::Selection(" \n "),
+            body: "",
+        },
         at(10),
         &Utc,
         Placement::default(),

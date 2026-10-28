@@ -23,6 +23,16 @@ use mail_proto::{ProtoError, ProtoOutcome, Refusal};
 use mail_store::{Dispatch, Settle, Store};
 use serde_json::{Map, Value};
 
+/// One message to submit: the frozen bytes, the envelope, whether a delivery report is asked
+/// for, and when it leaves (stamped into its `Date`).
+struct Sending<'a> {
+    raw: BlobId,
+    mail_from: &'a str,
+    rcpt_to: &'a [String],
+    delivery: DeliveryReport,
+    leaving: Option<DateTime<Utc>>,
+}
+
 impl JmapEngine {
     /// Drain the outbox into `report`, stopping at the first failure so nothing overtakes it.
     pub(super) async fn drain_into(
@@ -331,10 +341,14 @@ impl JmapEngine {
                 delivery,
                 ..
             } => {
-                self.submit(
-                    &client, &mailboxes, raw, &mail_from, &rcpt_to, delivery, leaving,
-                )
-                .await
+                let sending = Sending {
+                    raw,
+                    mail_from: &mail_from,
+                    rcpt_to: &rcpt_to,
+                    delivery,
+                    leaving,
+                };
+                self.submit(&client, &mailboxes, sending).await
             }
             ProtoOp::KeepDraft {
                 draft,
@@ -526,17 +540,19 @@ impl JmapEngine {
     }
 
     /// Send one frozen message: upload it, import it into Drafts, submit it.
-    #[allow(clippy::too_many_arguments)]
     async fn submit(
         &mut self,
         client: &Client,
         mailboxes: &jmap::Mailboxes,
-        raw: BlobId,
-        mail_from: &str,
-        rcpt_to: &[String],
-        delivery: DeliveryReport,
-        leaving: Option<DateTime<Utc>>,
+        sending: Sending<'_>,
     ) -> Result<ProtoOutcome, RuntimeError> {
+        let Sending {
+            raw,
+            mail_from,
+            rcpt_to,
+            delivery,
+            leaving,
+        } = sending;
         if client.session.submission == Submission::Absent {
             return Err(ProtoError::Unsupported(
                 "this JMAP account may not send (no urn:ietf:params:jmap:submission)".to_owned(),

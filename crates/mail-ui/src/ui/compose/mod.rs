@@ -423,10 +423,12 @@ fn send_page(
         &mut page.write(),
         anyway,
         life::grace(),
-        // The window's clock, which a reminder asked for here is later measured against.
-        super::clock::now(),
-        &chrono::Local,
-        super::clock::hours(),
+        life::Dated {
+            // The window's clock, which a reminder asked for here is later measured against.
+            now: super::clock::now(),
+            zone: &chrono::Local,
+            clock: super::clock::hours(),
+        },
     );
     match sent {
         Ok(Sent::Sealing { going, remind }) => {

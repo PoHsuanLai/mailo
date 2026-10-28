@@ -93,7 +93,7 @@ static PROFILE: std::sync::OnceLock<ProfileId> = std::sync::OnceLock::new();
 static WATCHING_HERE: std::sync::OnceLock<fn() -> bool> = std::sync::OnceLock::new();
 
 /// Whose mail the running program is over: the default Profile's until [`run`] records it.
-#[cfg_attr(test, allow(dead_code))]
+#[cfg(not(test))]
 pub(in crate::ui) fn profile() -> ProfileId {
     PROFILE
         .get()
@@ -103,7 +103,7 @@ pub(in crate::ui) fn profile() -> ProfileId {
 
 /// Whether the program's own watch, in this process, holds the lock: a window of this process asks
 /// it before it knocks on the lock's door.
-#[cfg_attr(test, allow(dead_code))]
+#[cfg(not(test))]
 pub(in crate::ui) fn watching_here() -> bool {
     WATCHING_HERE.get().is_some_and(|here| here())
 }

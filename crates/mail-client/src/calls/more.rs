@@ -2,7 +2,6 @@
 // Generated from a list of function names; each is the `mail-core` function of the same name.
 
 mod signature {
-    #![allow(clippy::too_many_arguments)]
     use crate::Client;
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -56,7 +55,6 @@ mod signature {
 pub use signature::SignatureCalls;
 
 mod identity {
-    #![allow(clippy::too_many_arguments)]
     use crate::Client;
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -111,7 +109,6 @@ mod identity {
 pub use identity::IdentityCalls;
 
 mod rules_block {
-    #![allow(clippy::too_many_arguments)]
     use crate::Client;
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -156,7 +153,6 @@ mod rules_block {
 pub use rules_block::RulesBlockCalls;
 
 mod erase {
-    #![allow(clippy::too_many_arguments)]
     use crate::Client;
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -196,7 +192,6 @@ mod erase {
 pub use erase::EraseCalls;
 
 mod export {
-    #![allow(clippy::too_many_arguments)]
 
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -223,7 +218,6 @@ mod export {
     }
 }
 mod signature_more {
-    #![allow(clippy::too_many_arguments)]
 
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -280,7 +274,6 @@ mod signature_more {
     }
 }
 mod identity_more {
-    #![allow(clippy::too_many_arguments)]
 
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -307,7 +300,6 @@ mod identity_more {
     }
 }
 mod graph_push {
-    #![allow(clippy::too_many_arguments)]
     use crate::Client;
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -361,7 +353,6 @@ mod graph_push {
 pub use graph_push::GraphPushCalls;
 
 mod rules_manage {
-    #![allow(clippy::too_many_arguments)]
 
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -403,7 +394,6 @@ mod rules_manage {
     }
 }
 mod compose {
-    #![allow(clippy::too_many_arguments)]
 
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -430,7 +420,6 @@ mod compose {
     }
 }
 mod compose_weight {
-    #![allow(clippy::too_many_arguments)]
 
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -467,7 +456,6 @@ mod compose_weight {
     }
 }
 mod compose_modes {
-    #![allow(clippy::too_many_arguments)]
 
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};
@@ -500,7 +488,6 @@ mod compose_modes {
     }
 }
 mod sync_caps {
-    #![allow(clippy::too_many_arguments)]
 
     #[allow(unused_imports)]
     use chrono::{DateTime, Utc};

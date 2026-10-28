@@ -425,7 +425,7 @@ mod native_print {
     pub(in crate::ui) struct Dated<'a, Tz> {
         pub zone: &'a Tz,
         pub now: DateTime<Utc>,
-        pub clock: mail_core::when::Clock,
+        pub clock: mail_client::when::Clock,
     }
 
     /// Build `job` with the remote images `sources` consents to, make it a PDF on `paper`, hand

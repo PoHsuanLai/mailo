@@ -321,25 +321,31 @@ pub(in crate::ui) struct Going {
     pub pictures: PictureSize,
 }
 
+/// When and where a send is made: the moment, the zone its times are shown in, and the clock
+/// they are read on.
+pub(in crate::ui) struct Dated<'a, Tz> {
+    pub now: DateTime<Utc>,
+    pub zone: &'a Tz,
+    pub clock: mail_client::when::Clock,
+}
+
 /// Send, if the guards allow it: no recipients shakes the To row, a mentioned attachment with
 /// nothing attached shows the warning bar once, and a draft OpenPGP or S/MIME cannot sign or
 /// encrypt as it asks says why in the same bar. A plain draft is queued here, with `secrets` as
 /// the keyring; a draft to be sealed comes back as [`Sent::Sealing`]. A send that leaves now waits
 /// `grace` first ([`grace`]).
-#[allow(clippy::too_many_arguments)]
 pub(in crate::ui) fn send<Tz: TimeZone>(
     client: &Client,
     secrets: &dyn SigningStore,
     page: &mut Page,
     anyway: Anyway,
     grace: chrono::TimeDelta,
-    now: DateTime<Utc>,
-    zone: &Tz,
-    clock: mail_client::when::Clock,
+    dated: Dated<'_, Tz>,
 ) -> Result<Sent, String>
 where
     Tz::Offset: std::fmt::Display,
 {
+    let Dated { now, zone, clock } = dated;
     if !commit_typed(page, List::To)
         || !commit_typed(page, List::Cc)
         || !commit_typed(page, List::Bcc)

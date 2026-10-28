@@ -13,7 +13,7 @@
 
 use crate::support::{account, now};
 use mail_core::fetch::{Event, Trigger};
-use mail_core::sync::live::Heard;
+use mail_core::sync::live::{Heard, Watch};
 use mail_core::sync::{graph_push, live};
 use mail_domain::*;
 use mail_runtime::AccountSecrets;
@@ -358,9 +358,11 @@ fn watching(store: Arc<SqliteStore>, secrets: Arc<MemorySecrets>, graph: &str) -
             &mail_runtime::testing::fake_clients(),
             &graph,
             account(),
-            cancel,
-            None,
-            Duration::from_millis(100),
+            Watch {
+                cancel,
+                hold: None,
+                grace: Duration::from_millis(100),
+            },
             &|h| said.lock().unwrap().push(h),
         ))
     });
@@ -792,9 +794,11 @@ fn a_graph_account_without_a_relay_is_polled() {
         &mail_runtime::testing::fake_clients(),
         "http://127.0.0.1:9/v1.0/subscriptions",
         account(),
-        cancel,
-        None,
-        Duration::from_millis(100),
+        Watch {
+            cancel,
+            hold: None,
+            grace: Duration::from_millis(100),
+        },
         &|_| {},
     ))
     .unwrap_err();
@@ -832,9 +836,11 @@ async fn an_unreachable_relay_is_a_loss_the_scheduler_waits_out_while_polling() 
             &mail_runtime::testing::fake_clients(),
             &graph_at,
             account(),
-            cancel,
-            None,
-            Duration::from_millis(100),
+            Watch {
+                cancel,
+                hold: None,
+                grace: Duration::from_millis(100),
+            },
             &|_| {},
         ))
     })

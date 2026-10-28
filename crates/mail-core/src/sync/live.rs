@@ -181,11 +181,7 @@ pub async fn listen_with(
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     account: AccountId,
-    Watch {
-        cancel,
-        hold,
-        grace,
-    }: Watch,
+    watch: Watch,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
     listen_at(
@@ -194,9 +190,7 @@ pub async fn listen_with(
         registry,
         SUBSCRIPTIONS,
         account,
-        cancel,
-        hold,
-        grace,
+        watch,
         heard,
     )
     .await
@@ -204,16 +198,17 @@ pub async fn listen_with(
 
 /// [`listen_with`], with Graph's subscriptions at `subscriptions` rather than Microsoft's: a
 /// test's own listener.
-#[allow(clippy::too_many_arguments)]
 pub async fn listen_at(
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     registry: &ClientRegistry,
     subscriptions: &str,
     account: AccountId,
-    cancel: watch::Receiver<bool>,
-    hold: Option<Hold>,
-    grace: Duration,
+    Watch {
+        cancel,
+        hold,
+        grace,
+    }: Watch,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
     let account = configured(&store)

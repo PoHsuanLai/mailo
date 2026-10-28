@@ -86,9 +86,11 @@ fn window(dress: impl FnOnce(&mut Page), before: Before) -> (String, Work) {
                 &mut write,
                 Anyway::Yes,
                 chrono::TimeDelta::seconds(5),
-                Utc::now(),
-                &chrono::Local,
-                mail_core::when::Clock::H24,
+                life::Dated {
+                    now: Utc::now(),
+                    zone: &chrono::Local,
+                    clock: mail_core::when::Clock::H24,
+                },
             );
             let Ok(Sent::Queued {
                 draft,

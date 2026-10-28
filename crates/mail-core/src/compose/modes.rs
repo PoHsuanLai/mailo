@@ -37,6 +37,15 @@ pub enum Quote<'a> {
     Selection(&'a str),
 }
 
+/// What an answer says: who it goes to, what it quotes of the original, and the `body` written
+/// above (or below) the quote.
+#[derive(Debug, Clone, Copy)]
+pub struct Saying<'a> {
+    pub to: Answer,
+    pub quote: Quote<'a>,
+    pub body: &'a str,
+}
+
 /// [`draft_answer_in`], with the attribution line written in this machine's zone.
 pub fn draft_answer(
     store: &SqliteStore,
@@ -46,7 +55,12 @@ pub fn draft_answer(
     now: DateTime<Utc>,
     placement: Placement,
 ) -> Result<Draft, CoreError> {
-    draft_answer_in(store, message, to, quote, "", now, &Local, placement)
+    let saying = Saying {
+        to,
+        quote,
+        body: "",
+    };
+    draft_answer_in(store, message, saying, now, &Local, placement)
 }
 
 /// Create and persist an answer to `message`: addressed `to`, `body` above the quote, `quote` of
@@ -59,13 +73,10 @@ pub fn draft_answer(
 /// [`super::draft_reply_in`] is this with [`Quote::Whole`]. A reply to the list is refused, with
 /// [`CoreError::NoListPost`], for a message that names no list address; one whose body has not
 /// been fetched cannot say, and is refused as not fetched.
-#[allow(clippy::too_many_arguments)]
 pub fn draft_answer_in<Tz: chrono::TimeZone>(
     store: &SqliteStore,
     message: MessageId,
-    to: Answer,
-    quote: Quote<'_>,
-    body: &str,
+    saying: Saying<'_>,
     now: DateTime<Utc>,
     zone: &Tz,
     placement: Placement,
@@ -73,6 +84,7 @@ pub fn draft_answer_in<Tz: chrono::TimeZone>(
 where
     Tz::Offset: std::fmt::Display,
 {
+    let Saying { to, quote, body } = saying;
     let original = store.message(message)?;
     let identity = identity_of(store, original.account.clone(), answering(store, &original))?;
     let signature = signature::default_for(store, identity.id, SignatureUse::Replies)?;
