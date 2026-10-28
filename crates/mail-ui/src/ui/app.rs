@@ -1012,7 +1012,7 @@ fn styles() -> ReadSignal<Styles> {
 /// Its own component so a Space change re-renders only the root's attributes and frame
 /// layers, not `App`: the children are `App`'s, unchanged. The Space's look is the frame (the
 /// sidebar sits on its colour, the card on paper); its motion is the root's motion level, since
-/// quire's `SpaceLook` has none (reported to quire); the rest of the appearance, the typeface
+/// quire's `SpaceLook` has none (reported to quire); the rest of the appearance, the type
 /// included, is `appearance.toml`'s. A switch or an edit only writes the Spaces, and `Ds`
 /// cross-fades the frame's layers itself. `sheet` is the design system's stylesheet when a window
 /// needs more than `ds::stylesheet()`: the add-account window's parts are `ds-shell`'s.
@@ -1031,8 +1031,6 @@ pub(super) fn Frame(
             system: environment.system,
             look,
             material: Material::Window,
-            // One Look: Inter. The editorial faces are the design system's, not mail chrome's.
-            typeface: Some(Typeface::System),
             styles: styles(),
             custom_styles: environment.settings.appearance.custom_styles,
             surface: Some("window"),
