@@ -420,6 +420,57 @@ mod sending {
     }
 
     #[test]
+    fn check_names_what_stands_in_the_way_of_each_ask() {
+        let _serial = serial();
+        let (store, _dir, _secrets) = with_identity();
+        let identity = my_identity();
+        let check = |mode, to: &[&str], bcc: &[&str]| {
+            smime::check(&store, &draft(&store, mode, to, bcc), &identity, now())
+        };
+
+        // Nothing asked, or only OpenPGP asked: not this scheme's business.
+        assert!(check(Smime::None, &[BEA], &[]).is_ok());
+        let mut pgp_only = draft(&store, Smime::None, &[BEA], &[]);
+        pgp_only.openpgp = OpenPgp::Sign;
+        assert!(smime::check(&store, &pgp_only, &identity, now()).is_ok());
+
+        // Both asked.
+        let mut both = draft(&store, Smime::Sign, &[BEA], &[]);
+        both.openpgp = OpenPgp::Sign;
+        assert!(matches!(
+            smime::check(&store, &both, &identity, now()),
+            Err(smime::SmimeError::BothProtections)
+        ));
+
+        // No certificate of the sender's own.
+        let (bare, _dir2) = seeded();
+        let unkeyed = draft(&bare, Smime::Sign, &[BEA], &[]);
+        assert!(matches!(
+            smime::check(&bare, &unkeyed, &identity, now()),
+            Err(smime::SmimeError::NoOwnCert(address)) if address == ME
+        ));
+
+        // Bcc with encryption, and not with signing alone.
+        assert!(matches!(
+            check(Smime::SignAndEncrypt, &[BEA], &["blind@example.test"]),
+            Err(smime::SmimeError::BlindRecipients(blind)) if blind == ["blind@example.test"]
+        ));
+        assert!(check(Smime::Sign, &[BEA], &["blind@example.test"]).is_ok());
+
+        // A recipient with no certificate.
+        assert!(matches!(
+            check(Smime::Encrypt, &[BEA], &[]),
+            Err(smime::SmimeError::NoCertFor(missing)) if missing == [BEA]
+        ));
+
+        // Every recipient certified.
+        import_bea(&store, &_secrets);
+        assert!(check(Smime::Encrypt, &[BEA], &[]).is_ok());
+        assert!(check(Smime::SignAndEncrypt, &[BEA], &[]).is_ok());
+        assert!(check(Smime::Sign, &[BEA], &[]).is_ok());
+    }
+
+    #[test]
     fn a_draft_asking_both_openpgp_and_smime_is_refused_at_check_and_at_send() {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();

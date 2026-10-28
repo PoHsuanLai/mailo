@@ -1854,6 +1854,35 @@ fn smime_values_round_trip_and_a_certificate_fingerprint_persists_as_its_hex() {
     );
 }
 
+/// The draft writes each protection under its own field, as the spelling of the mode alone. Both
+/// fields share the four spellings, and a draft is read back from what it wrote.
+#[test]
+fn a_draft_writes_every_protection_under_the_name_of_its_scheme() {
+    let spellings = [
+        (OpenPgp::None, Smime::None, "none"),
+        (OpenPgp::Sign, Smime::Sign, "sign"),
+        (OpenPgp::Encrypt, Smime::Encrypt, "encrypt"),
+        (
+            OpenPgp::SignAndEncrypt,
+            Smime::SignAndEncrypt,
+            "sign_and_encrypt",
+        ),
+    ];
+    for (openpgp, smime, word) in spellings {
+        let only_pgp = Draft { openpgp, ..draft() };
+        let value = serde_json::to_value(&only_pgp).unwrap();
+        assert_eq!(value["openpgp"], word);
+        assert_eq!(value["smime"], "none");
+        assert_eq!(serde_json::from_value::<Draft>(value).unwrap(), only_pgp);
+
+        let only_smime = Draft { smime, ..draft() };
+        let value = serde_json::to_value(&only_smime).unwrap();
+        assert_eq!(value["openpgp"], "none");
+        assert_eq!(value["smime"], word);
+        assert_eq!(serde_json::from_value::<Draft>(value).unwrap(), only_smime);
+    }
+}
+
 #[test]
 fn a_draft_from_before_smime_loads_as_plain() {
     let old: Draft = serde_json::from_str(

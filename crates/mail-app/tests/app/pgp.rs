@@ -363,6 +363,69 @@ mod sending {
         );
     }
 
+    /// The identity `seed` makes, as the composer holds it.
+    fn my_identity() -> Identity {
+        Identity {
+            id: IDENTITY,
+            account: acct_account(),
+            from: Address {
+                name: Some("Me".to_owned()),
+                email: ME.to_owned(),
+            },
+            ..mail_domain::testing::identity()
+        }
+    }
+
+    #[test]
+    fn check_names_what_stands_in_the_way_of_each_ask() {
+        let (store, _dir, secrets, _) = with_key();
+        import_public(&store, &secrets, &someone_elses(BEA, 11));
+        let identity = my_identity();
+        let check = |mode, to: &[&str], bcc: &[&str]| {
+            pgp::check(&store, &draft(&store, mode, to, bcc), &identity, now())
+        };
+
+        // Nothing asked, or only S/MIME asked: not this scheme's business.
+        assert!(check(OpenPgp::None, &["cara@example.test"], &[]).is_ok());
+        let mut smime_only = draft(&store, OpenPgp::None, &[BEA], &[]);
+        smime_only.smime = Smime::Sign;
+        assert!(pgp::check(&store, &smime_only, &identity, now()).is_ok());
+
+        // Both asked.
+        let mut both = draft(&store, OpenPgp::Sign, &[BEA], &[]);
+        both.smime = Smime::Sign;
+        assert!(matches!(
+            pgp::check(&store, &both, &identity, now()),
+            Err(pgp::PgpError::BothProtections)
+        ));
+
+        // No key of the sender's own.
+        let (bare, _dir2) = seeded();
+        let unkeyed = draft(&bare, OpenPgp::Sign, &[BEA], &[]);
+        assert!(matches!(
+            pgp::check(&bare, &unkeyed, &identity, now()),
+            Err(pgp::PgpError::NoOwnKey(address)) if address == ME
+        ));
+
+        // Bcc with encryption, and not with signing alone.
+        assert!(matches!(
+            check(OpenPgp::SignAndEncrypt, &[BEA], &["blind@example.test"]),
+            Err(pgp::PgpError::BlindRecipients(blind)) if blind == ["blind@example.test"]
+        ));
+        assert!(check(OpenPgp::Sign, &[BEA], &["blind@example.test"]).is_ok());
+
+        // A recipient with no key, named alone.
+        assert!(matches!(
+            check(OpenPgp::Encrypt, &[BEA, "cara@example.test"], &[]),
+            Err(pgp::PgpError::NoKeyFor(missing)) if missing == ["cara@example.test"]
+        ));
+
+        // Every recipient keyed.
+        assert!(check(OpenPgp::Encrypt, &[BEA], &[]).is_ok());
+        assert!(check(OpenPgp::SignAndEncrypt, &[BEA], &[]).is_ok());
+        assert!(check(OpenPgp::Sign, &[BEA], &[]).is_ok());
+    }
+
     #[test]
     fn plain_mail_from_an_identity_with_a_key_carries_its_autocrypt_header() {
         let (store, _dir) = seeded();
