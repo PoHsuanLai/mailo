@@ -29,6 +29,8 @@ encoding_rs = "0.8"
 # The WebDAV multistatus replies CardDAV answers in. A read-only tree with namespaces, which is
 # all a `PROPFIND` or `REPORT` answer needs; its one dependency, memchr, is already here.
 roxmltree = "0.21"
+# The Windows zone names Outlook and Exchange write in `TZID`, as IANA ones (CLDR's table).
+windows-zones.workspace = true
 
 [dev-dependencies]
 proptest = "1"
