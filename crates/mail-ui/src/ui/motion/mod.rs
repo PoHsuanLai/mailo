@@ -8,7 +8,7 @@
 //!   `List` plays the exit for a key that stops being listed and closes the gap;
 //! - the undo toast is up because an op was applied, and it names it (quire's `ToastHost`).
 //!
-//! **The row leaves on the press.** The write goes to the client (`mail_client::Command`), which
+//! **The row leaves on the press.** The write goes to the client (`mail_client::Act`), which
 //! applies it off the thread that draws; the list stops drawing what it takes out at once
 //! (`list_query::hide`), and the undo and the toast that names it come when it is done.
 
@@ -24,8 +24,9 @@ use crate::ui::view::Shell;
 use dioxus::prelude::*;
 use ds::stack::toast_hub::{ToastAction, ToastHub, UndoToken};
 use mail_client::Client;
+use mail_client::act::{Keep, TookBack};
 use mail_client::undo::{Undo, UndoHandle};
-use mail_client::{Acted, Command, Done, Ticket};
+use mail_client::{Acted, Destroy, Perform, TakeBack, Ticket};
 use mail_domain::*;
 
 /// What the toast says, and which op it belongs to.
@@ -250,7 +251,7 @@ pub(in crate::ui) fn act_saying(
     let then_erase = deletes_now();
     let motion = motion();
     let gesture = begin(motion);
-    let ticket = super::live::client().act(Command::Perform {
+    let ticket = super::live::client().act(Perform {
         ops,
         clock: hours,
         alone,
@@ -260,11 +261,7 @@ pub(in crate::ui) fn act_saying(
         motion.dest.set(None);
     }
     when_done(ticket, move |acted| {
-        let Some(Acted {
-            done: Done::Performed(done),
-            generation,
-        }) = acted
-        else {
+        let Some(Acted { done, generation }) = acted else {
             hiding.settle(None, &[]);
             end(motion, shell, gesture, None);
             return 0;
@@ -361,9 +358,9 @@ fn deletes_now() -> bool {
 /// that applies on this thread), otherwise from a task of the window's that outlives the
 /// component that asked, so a row that has left still has its undo kept. Returns what `then`
 /// did, when it ran here.
-pub(in crate::ui) fn when_done<T: 'static>(
-    mut ticket: Ticket,
-    then: impl FnOnce(Option<Acted>) -> T + 'static,
+pub(in crate::ui) fn when_done<D: 'static, T: 'static>(
+    mut ticket: Ticket<D>,
+    then: impl FnOnce(Option<Acted<D>>) -> T + 'static,
 ) -> Option<T> {
     if let Some(acted) = ticket.now() {
         return Some(then(Some(acted)));
@@ -378,31 +375,27 @@ pub(in crate::ui) fn when_done<T: 'static>(
 /// is handed what came of it once it is done (the label a [`Keep::Label`] made, else `None`), or
 /// the sentence that says why not.
 pub(in crate::ui) fn keep(
-    keep: mail_client::act::Keep,
+    keep: Keep,
     then: impl FnOnce(Result<Option<mail_domain::LabelId>, String>) + 'static,
 ) {
-    let ticket = super::live::client().act(Command::Keep(keep));
+    let ticket = super::live::client().act(keep);
     when_done(ticket, move |acted| {
         then(match acted {
-            Some(Acted {
-                done: Done::Kept(kept),
-                ..
-            }) => kept.map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why)),
-            _ => Err(copy::errors::NOT_KEPT_CLOSING.to_owned()),
+            Some(Acted { done, .. }) => {
+                done.map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why))
+            }
+            None => Err(copy::errors::NOT_KEPT_CLOSING.to_owned()),
         })
     });
 }
 
 /// The same, as a future: for a write that runs inside a task.
-pub(in crate::ui) async fn kept(keep: mail_client::act::Keep) -> Result<(), String> {
-    match super::live::client().act(Command::Keep(keep)).await {
-        Some(Acted {
-            done: Done::Kept(kept),
-            ..
-        }) => kept
+pub(in crate::ui) async fn kept(keep: Keep) -> Result<(), String> {
+    match super::live::client().act(keep).await {
+        Some(Acted { done, .. }) => done
             .map(|_| ())
             .map_err(|why| crate::ui::remedy::plainly(copy::errors::NOT_KEPT_HERE, why)),
-        _ => Err(copy::errors::NOT_KEPT_CLOSING.to_owned()),
+        None => Err(copy::errors::NOT_KEPT_CLOSING.to_owned()),
     }
 }
 
@@ -474,13 +467,13 @@ pub(in crate::ui) fn destroy_all(
         .map(|thread| (*thread, Op::Destroy))
         .collect();
     let hiding = super::list_query::hide(&ops);
-    let ticket = super::live::client().act(Command::Destroy(threads.to_vec()));
+    let ticket = super::live::client().act(Destroy(threads.to_vec()));
     let asked = threads.len();
     let threads = threads.to_vec();
     let motion = motion();
     when_done(ticket, move |acted| {
         let Some(Acted {
-            done: Done::Destroyed(gone),
+            done: gone,
             generation,
         }) = acted
         else {
@@ -612,15 +605,15 @@ fn restore(
     if parts.is_empty() {
         took(unsent);
     } else {
-        let ticket = super::live::client().act(Command::TakeBack(parts.clone()));
+        let ticket = super::live::client().act(TakeBack(parts.clone()));
         when_done(ticket, move |acted| {
             let refused = match acted {
                 Some(Acted {
-                    done: Done::TookBack { refused, .. },
+                    done: TookBack { refused, .. },
                     ..
                 }) => refused,
                 // Not done: all of it is still there to take back.
-                _ => parts,
+                None => parts,
             };
             took(unsent.into_iter().chain(refused).collect());
         });

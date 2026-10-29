@@ -58,3 +58,25 @@ pub fn from_time(at: DateTime<Utc>) -> String {
     // the two would disagree.
     at.to_rfc3339_opts(chrono::SecondsFormat::Nanos, true)
 }
+
+/// Encode what a draft or template asks of a protection scheme, as it has always been written:
+/// the mode's name, or `"none"`.
+pub fn to_asked(what: &str, value: &Option<mail_domain::Mode>) -> Result<String, StoreError> {
+    let mut out = Vec::new();
+    mail_domain::protect::asked::serialize(value, &mut serde_json::Serializer::new(&mut out))
+        .map_err(|e| StoreError::Decode {
+            what: what.to_owned(),
+            why: e.to_string(),
+        })?;
+    Ok(String::from_utf8_lossy(&out).into_owned())
+}
+
+/// Decode what [`to_asked`] wrote.
+pub fn asked(what: &str, text: &str) -> Result<Option<mail_domain::Mode>, StoreError> {
+    mail_domain::protect::asked::deserialize(&mut serde_json::Deserializer::from_str(text)).map_err(
+        |e| StoreError::Decode {
+            what: what.to_owned(),
+            why: e.to_string(),
+        },
+    )
+}

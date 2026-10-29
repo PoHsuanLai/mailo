@@ -281,7 +281,7 @@ async fn new_from_template_lists_the_templates_in_the_panel_and_starts_one() {
     mail_core::template::save(&store, draft.id, "Weekly", chrono::Utc::now())
         .unwrap_or_else(|why| panic!("a template: {why}"));
     // The row, not the field's own value, which holds the same words.
-    let action = items::entry_of(items::CommandId::FromTemplate).label;
+    let action = commands::FromTemplate.label();
     bar.typed(action, |page| {
         // The answer to the words typed, not the empty field's: the action leads its section.
         words(page).contains(&format!("{COMMANDS}{action}"))

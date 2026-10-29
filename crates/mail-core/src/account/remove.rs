@@ -11,7 +11,6 @@
 //! and the stored messages and attachment parts nothing else uses. Nothing on the server is
 //! touched, and keys and certificates stay: they are the user's, not the account's.
 
-use mail_domain::Incoming;
 use mail_runtime::AccountSecrets;
 use mail_store::{Freed, SqliteStore};
 use porter_core::AccountId;
@@ -68,7 +67,7 @@ pub async fn remove(
     // is refused.
     if plan
         .as_ref()
-        .is_some_and(|plan| matches!(plan.incoming, Incoming::Local))
+        .is_some_and(|plan| !plan.incoming.caps().has_server)
     {
         return Err(RemoveError::Local);
     }

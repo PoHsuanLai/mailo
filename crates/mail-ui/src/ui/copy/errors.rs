@@ -137,6 +137,8 @@ pub const NOT_READ_HERE: &str = "This couldn’t be read from this computer. Try
 /// A change that could not be written on this computer.
 /// A change asked for as the app was closing, which was not made.
 pub const NOT_KEPT_CLOSING: &str = "The app was closing, so the change wasn\u{2019}t saved.";
+/// A folder opened from a window that has closed, which was not fetched.
+pub const WINDOW_CLOSED: &str = "The window closed before the folder was fetched.";
 pub const NOT_KEPT_HERE: &str = "The change couldn’t be saved on this computer. Try again.";
 /// An attachment that could not be written to the downloads folder.
 pub const ATTACHMENT_NOT_SAVED: &str = "The attachment couldn’t be saved.";
@@ -193,6 +195,22 @@ pub const ALLOW_LOGIN_ITEM: &str = "To check for mail while mailo is quit, turn 
 
 /// A banner's Archive for a conversation this mailbox no longer has.
 pub const NOT_ARCHIVED: &str = "That conversation could not be archived.";
+
+/// A `mailto:` link whose message could not be made or opened.
+pub fn mailto_not_opened(why: &str) -> String {
+    format!("That link\u{2019}s message could not be opened: {why}")
+}
+
+/// `mailo open` with nothing after it.
+pub const OPEN_NEEDS_THREAD: &str = "open needs a thread id: mailo open <thread>";
+
+/// `mailo open` with more than one word after it.
+pub const OPEN_TAKES_ONE_THREAD: &str = "open takes one thread id: mailo open <thread>";
+
+/// `mailo open` with something after it that is not a thread id.
+pub fn not_a_thread_id(given: &str) -> String {
+    format!("{given:?} is not a thread id")
+}
 
 /// `mailo open --inbox` with no account after it.
 pub const OPEN_INBOX_NEEDS_ACCOUNT: &str =

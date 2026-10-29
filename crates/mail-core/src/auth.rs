@@ -11,7 +11,7 @@
 //! the frozen `Message` to cache something shown for one message at a time.
 
 use crate::error::Logged;
-use mail_domain::{AccountPlan, Incoming, Message};
+use mail_domain::{AccountPlan, Message};
 use mail_mime::{AuthResults, Check, Receiver, Verdict};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
@@ -26,13 +26,7 @@ const ALSO_SIGNS_AS: &[(&str, &[&str])] = &[
 
 /// Whose `Authentication-Results` to believe for mail that came to an account with `plan`.
 pub fn receiver(plan: &AccountPlan) -> Receiver {
-    let host = match &plan.incoming {
-        Incoming::Imap { host, .. } | Incoming::Pop3 { host, .. } => Some(host.clone()),
-        Incoming::Jmap { session, .. } => url::Url::parse(session)
-            .ok()
-            .and_then(|url| url.host_str().map(str::to_owned)),
-        Incoming::Local | Incoming::Graph => None,
-    };
+    let host = plan.incoming.served_from();
     let Some(registered) = host.as_deref().and_then(crate::trust::registered) else {
         return Receiver::Topmost;
     };
@@ -189,7 +183,7 @@ pub fn sentence(results: &AuthResults) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_domain::{AuthPlan, Identity, LeaveOnServer, Outgoing, Tls};
+    use mail_domain::{AuthPlan, Identity, Incoming, LeaveOnServer, Outgoing, Tls};
 
     fn plan(incoming: Incoming) -> AccountPlan {
         AccountPlan {

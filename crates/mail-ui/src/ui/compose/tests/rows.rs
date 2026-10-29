@@ -256,9 +256,7 @@ fn each_rows_menu_sets_it_back_first() {
         Some((remind::OFF_KEY.to_owned(), "Off".to_owned()))
     );
     assert_eq!(
-        first(protection::items(Protection::OpenPgp(
-            protection::Mode::Sign
-        ))),
+        first(protection::items(Protection::OpenPgp(Mode::Sign))),
         Some(("none".to_owned(), "None".to_owned()))
     );
     let receipt_keys: Vec<String> = receipt::row_items(ReceiptRequest::Requested)

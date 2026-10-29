@@ -1,6 +1,6 @@
 //! Finding and reading: search, a conversation's text, and a conversation's preview.
 
-use super::{Provider, Shown, outcome};
+use super::{Provider, outcome};
 use crate::intents::APP;
 use crate::intents::wire::{
     AppRefusal, EntityId, EntityRef, Hit, Invocation, Label, Labelled, Outcome, Output, Preview,
@@ -10,6 +10,7 @@ use chrono::{Local, Utc};
 use mail_core::when::{Clock, Stamp, stamp};
 use mail_core::{SqliteStore, Store};
 use mail_domain::{Address, Message, ThreadId, ThreadSummary};
+use mail_ui::ui::ask;
 use std::fmt::Write as _;
 
 /// The most a search answers with.
@@ -144,7 +145,7 @@ impl Provider {
             return Err(AppRefusal::Unsupported);
         };
         let (_, thread) = self.loaded(id)?;
-        (self.opener.0)(&Shown::Thread(thread), invocation.activation.as_deref())
+        (self.opener.0)(&ask::Thread(thread), invocation.activation.as_deref())
             .map_err(AppRefusal::Failed)?;
         Ok(outcome(None, None, None))
     }

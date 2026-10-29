@@ -268,7 +268,7 @@ pub(super) fn Places(
                     },
                     trailing: rsx! {
                         div { class: "foot-end",
-                            foot::MoreMenu { shell, side_hidden }
+                            foot::MoreMenu { shell, pages, side_hidden }
                         }
                     },
                 }

@@ -50,48 +50,44 @@ mail-store  = { path = "crates/mail-store" }
 # target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
 # enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
 # stay free of zbus and tokio (`scripts/check-boundary.sh`).
-porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b", default-features = false }
+porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+porter-secrets = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933", default-features = false }
 # Discovery. porter-discover without its `io` feature is pure parsers and two seams (no
 # tokio, no hickory); mail-runtime implements `porter_discover::Dns` and `porter_http::Http` over
 # the resolver and the HTTP client mailo already has, so neither dependency is added for them.
-porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b", default-features = false }
+porter-discover = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933", default-features = false }
 # OAuth. Without its `io` feature porter-oauth is the rules, the registry and the exchanges
 # over `porter_http::Http` (no tokio); only mail-runtime, the I/O crate, turns `io` on, for the
 # loopback listener.
-porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b", default-features = false }
-porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b", default-features = false }
+porter-oauth = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933", default-features = false }
+porter-http = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933", default-features = false }
 # The values that name nothing of accounts (units, `WebUrl`, the clock seam), the capability
 # vocabulary (`CapabilityKind`, `Toggle`, the offers) and the add-account sheet's machine and the
 # wire an app speaks to the service, each split out of porter-core: every caller names them directly.
-porter-ids = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-porter-capability = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-porter-sheet = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-porter-wire = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
+porter-ids = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+porter-capability = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+porter-sheet = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+porter-wire = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
 # `ReqwestHttp`, the one direct-connection client behind `porter_http::Http`.
-porter-http-reqwest = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
+porter-http-reqwest = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
 # WebDAV, CalDAV and CardDAV as text with no I/O (request bodies, multistatus replies), and the
 # Windows time zone names to IANA ones: porter's crates, used here by the pure `mail-pim`.
-dav-proto = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-windows-zones = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
+dav-proto = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+windows-zones = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
 # A keyring-core store that keeps a value too long for one entry in several (the Windows
 # Credential Manager's 2560 bytes): the signing keys' store in `mail-runtime`.
-keyring-chunked = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
+keyring-chunked = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+# porter-client is the app-facing API: the relay's byte stream `mail-runtime`'s transport can wrap.
+# porter-client-inproc is its in-process transport: the add-account window hosts porter's account
+# service and draws its sheet. Neither brings in zbus: mailo keeps its own accounts and credentials.
 # The calendar store every porter client shares (`CalendarStore`): mailo puts invitations in it.
 # Every porter pin here is the `calendar-store` branch's commit while that pull request waits
 # (porter #68, a descendant of the commit the pins were at); they move to porter's master as one
 # once it lands.
-porter-calendar = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-# The add-account window hosts porter's account service in process and draws its sheet
-# (`porter-service`: the sheet's conversation, `Sheets`, `AccountService`; pure, no zbus). It enters
-# `mail-app`, the front-end that draws.
-porter-service = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-porter-service-core = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b" }
-# porter-client is the app-facing API: the add-account window's in-process transport, and the
-# relay's byte stream `mail-runtime`'s transport can wrap. Its `dbus` feature stays off: mailo keeps
-# its own accounts and credentials, and no zbus comes in through it.
-porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "fdafd30b2f74b22f8f60794519e6927017b7801b", default-features = false }
+porter-calendar = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+porter-client = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
+porter-client-inproc = { git = "https://github.com/PoHsuanLai/porter", rev = "477733c4e47d1d7a83c25a5a5d53f2c7f32bd933" }
 serde       = { version = "1", features = ["derive"] }
 chrono      = { version = "0.4", features = ["serde"] }
 uuid        = { version = "1", features = ["v4", "serde"] }

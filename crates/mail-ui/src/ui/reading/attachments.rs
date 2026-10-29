@@ -56,6 +56,15 @@ struct Part {
     name: String,
 }
 
+/// What Save is called for a part, as the tile's control and as the right click's item: a part
+/// still on the server is downloaded, and one that is here is saved.
+fn save_words(kept: Kept) -> (&'static str, &'static str) {
+    match kept {
+        Kept::Here | Kept::Opened => (copy::controls::SAVE, copy::menus::SAVE),
+        Kept::OnServer => (copy::controls::DOWNLOAD, copy::menus::DOWNLOAD),
+    }
+}
+
 /// What a tile's right click offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pick {
@@ -131,10 +140,7 @@ pub(super) fn Attachments(
             .cloned()
             .unwrap_or(Download::Idle);
         let busy = matches!(state, Download::Running { .. });
-        let label = match row.kept {
-            Kept::Here | Kept::Opened => copy::controls::SAVE,
-            Kept::OnServer => copy::controls::DOWNLOAD,
-        };
+        let (label, _) = save_words(row.kept);
         let name = row.name.clone();
         let kept = row.kept;
         let sign_in_account = account.clone();
@@ -310,10 +316,7 @@ fn TileMenu(
     mut menu: Signal<Option<Held>>,
     mut picked: Signal<Option<(Pick, Part)>>,
 ) -> Element {
-    let save = match held.part.kept {
-        Kept::Here | Kept::Opened => copy::menus::SAVE,
-        Kept::OnServer => copy::menus::DOWNLOAD,
-    };
+    let (_, save) = save_words(held.part.kept);
     let mut items = vec![
         MenuItem::new(Pick::Save, save),
         MenuItem::new(Pick::SaveTo, copy::menus::SAVE_TO),

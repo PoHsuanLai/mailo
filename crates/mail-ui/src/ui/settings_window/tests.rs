@@ -9,30 +9,37 @@ use crate::ui::app::App;
 use crate::ui::fixtures::{
     INSIDE_THE_SHELL, Seen, Work, chord, click, dispatching, drain_seen, rebuild_into, work,
 };
-use crate::ui::view::SettingsPage;
+use crate::ui::view::PageId;
 use dioxus::dioxus_core::{self, VirtualDom};
 use std::sync::{Arc, Mutex};
 
 /// The Settings window over `built`, on `page`.
-pub(in crate::ui) fn opened_on(built: &Work, page: SettingsPage) -> (VirtualDom, Seen) {
+pub(in crate::ui) fn opened_on(built: &Work, page: PageId) -> (VirtualDom, Seen) {
     dispatching();
     let mut dom = VirtualDom::new(settings_root)
         .with_root_context(crate::ui::fixtures::client(&built.store))
         .with_root_context(built.dirs.clone());
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
-    match page {
-        SettingsPage::General => (dom, seen),
-        other => {
-            let seen =
-                click(&mut dom, seen.one("aria-label", other.name())).merge(drain_seen(&mut dom));
-            (dom, seen)
-        }
+    if page == PageId::GENERAL {
+        return (dom, seen);
     }
+    let label = page_of(page).name();
+    let seen = click(&mut dom, seen.one("aria-label", label)).merge(drain_seen(&mut dom));
+    (dom, seen)
+}
+
+/// The page `id` names.
+fn page_of(id: PageId) -> &'static dyn super::page::Page {
+    super::PAGES
+        .iter()
+        .copied()
+        .find(|page| page.id() == id)
+        .unwrap_or_else(|| panic!("{id:?} is not in PAGES"))
 }
 
 /// The Settings window over `built`, on Privacy's trusted senders, pushed from their row.
 fn trusted_senders(built: &Work) -> (VirtualDom, Seen) {
-    let (mut dom, seen) = opened_on(built, SettingsPage::Privacy);
+    let (mut dom, seen) = opened_on(built, PageId::PRIVACY);
     let seen =
         click(&mut dom, seen.one("id", "privacy-pane-open-trusted")).merge(drain_seen(&mut dom));
     (dom, seen)
@@ -106,13 +113,13 @@ async fn command_comma_and_the_foot_menu_ask_for_the_settings_window() {
 }
 
 /// Each page that draws the schema, with the rows it draws in the order drawn.
-const KEYED: &[(SettingsPage, &[&str])] = &[
+const KEYED: &[(PageId, &[&str])] = &[
     (
-        SettingsPage::General,
+        PageId::GENERAL,
         &[crate::ui::copy::headers::MAIL, "Search server"],
     ),
     (
-        SettingsPage::Composing,
+        PageId::COMPOSING,
         &[
             "Message format",
             "Reply in the same format as the original",
@@ -121,7 +128,7 @@ const KEYED: &[(SettingsPage, &[&str])] = &[
         ],
     ),
     (
-        SettingsPage::Viewing,
+        PageId::VIEWING,
         &[
             "Brand logos",
             "Prefer plain text",
@@ -131,7 +138,7 @@ const KEYED: &[(SettingsPage, &[&str])] = &[
         ],
     ),
     (
-        SettingsPage::Notifications,
+        PageId::NOTIFICATIONS,
         &[
             "Notifications",
             "Notify for",
@@ -143,7 +150,7 @@ const KEYED: &[(SettingsPage, &[&str])] = &[
         ],
     ),
     (
-        SettingsPage::Privacy,
+        PageId::PRIVACY,
         &[
             "Load remote images",
             crate::ui::copy::titles::TRUSTED_SENDERS,
@@ -152,7 +159,7 @@ const KEYED: &[(SettingsPage, &[&str])] = &[
         ],
     ),
     (
-        SettingsPage::JunkMail,
+        PageId::JUNK_MAIL,
         &[
             "Filter Junk Mail",
             "When Mail Is Junk",
@@ -186,9 +193,9 @@ async fn each_page_draws_its_rows_in_order() {
 /// two pages.
 #[test]
 fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
-    let named: Vec<&str> = SettingsPage::ALL
-        .into_iter()
-        .flat_map(|page| super::pages::sections(page).iter())
+    let named: Vec<&str> = super::PAGES
+        .iter()
+        .flat_map(|page| page.sections().iter())
         .flat_map(|section| section.lines.iter())
         .filter_map(|line| match line {
             super::pages::Line::Key(path)
@@ -231,7 +238,7 @@ fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
 #[tokio::test]
 async fn page_controls_write_settings_toml() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Viewing);
+    let (mut dom, seen) = opened_on(&built, PageId::VIEWING);
     assert_eq!(
         stored(&built).reading.brand_logos,
         BrandLogos::Off,
@@ -247,7 +254,7 @@ async fn page_controls_write_settings_toml() {
         BrandLogos::On,
         "the brand logos switch"
     );
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Composing);
+    let (mut dom, seen) = opened_on(&built, PageId::COMPOSING);
     click(
         &mut dom,
         seen.after("aria-label", "Check spelling", "aria-checked")[0],
@@ -269,7 +276,7 @@ async fn an_account_s_switch_in_notifications_mutes_and_unmutes_it() {
         .first()
         .map(|row| row.address.clone())
         .expect("the fixture has an account");
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Notifications);
+    let (mut dom, seen) = opened_on(&built, PageId::NOTIFICATIONS);
     assert!(stored(&built).notifications.muted_accounts.is_empty());
     // The switch carries its own label (its `aria-checked` is set before it), so it is the one
     // element labelled with the address.
@@ -387,39 +394,36 @@ async fn a_login_item_the_system_refuses_leaves_the_switch_off_and_says_so() {
 #[tokio::test]
 async fn without_a_login_item_there_is_no_switch() {
     let built = work();
-    let (dom, _) = opened_on(&built, SettingsPage::General);
+    let (dom, _) = opened_on(&built, PageId::GENERAL);
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("Search server"), "General is drawn: {page}");
     assert!(!page.contains("Check for mail when quit"), "{page}");
 }
 
 /// Each page, by the sidebar's row, and a line only that page draws.
-const PAGES: &[(SettingsPage, &str)] = &[
-    (SettingsPage::General, "Search server"),
-    (
-        SettingsPage::Accounts,
-        crate::ui::copy::controls::ADD_ACCOUNT,
-    ),
-    (
-        SettingsPage::Contacts,
-        crate::ui::copy::controls::NEW_CONTACT,
-    ),
-    (SettingsPage::Signatures, "id=\"signatures-pane\""),
-    (SettingsPage::Spaces, crate::ui::copy::controls::NEW_SPACE),
-    (SettingsPage::Composing, "Check spelling"),
-    (SettingsPage::Viewing, "Brand logos"),
-    (SettingsPage::Notifications, "aria-label=\"Notifications\""),
-    (SettingsPage::Privacy, "Load remote images"),
-    (SettingsPage::JunkMail, "Filter Junk Mail"),
-    (SettingsPage::Rules, crate::ui::copy::controls::NEW_RULE),
-    (SettingsPage::Vacation, "id=\"vacation-pane\""),
-    (SettingsPage::Keyboard, "Change the key for"),
+const PAGES: &[(PageId, &str)] = &[
+    (PageId::GENERAL, "Search server"),
+    (PageId::ACCOUNTS, crate::ui::copy::controls::ADD_ACCOUNT),
+    (PageId::CONTACTS, crate::ui::copy::controls::NEW_CONTACT),
+    (PageId::SIGNATURES, "id=\"signatures-pane\""),
+    (PageId::SPACES, crate::ui::copy::controls::NEW_SPACE),
+    (PageId::COMPOSING, "Check spelling"),
+    (PageId::VIEWING, "Brand logos"),
+    (PageId::NOTIFICATIONS, "aria-label=\"Notifications\""),
+    (PageId::PRIVACY, "Load remote images"),
+    (PageId::JUNK_MAIL, "Filter Junk Mail"),
+    (PageId::RULES, crate::ui::copy::controls::NEW_RULE),
+    (PageId::VACATION, "id=\"vacation-pane\""),
+    (PageId::KEYBOARD, "Change the key for"),
 ];
 
 #[test]
 fn settings_has_13_pages_in_that_order() {
     assert_eq!(
-        SettingsPage::ALL.map(SettingsPage::name),
+        super::PAGES
+            .iter()
+            .map(|page| page.name())
+            .collect::<Vec<_>>(),
         [
             crate::ui::copy::titles::GENERAL,
             crate::ui::copy::titles::ACCOUNTS,
@@ -443,14 +447,17 @@ async fn every_page_is_drawn_in_the_window_from_its_sidebar_row() {
     let built = work();
     assert_eq!(
         PAGES.iter().map(|(page, _)| *page).collect::<Vec<_>>(),
-        SettingsPage::ALL,
+        super::PAGES
+            .iter()
+            .map(|page| page.id())
+            .collect::<Vec<_>>(),
         "a page has no case here"
     );
     for (page, drawn) in PAGES {
         let (dom, _seen) = opened_on(&built, *page);
         let markup = dioxus_ssr::render(&dom);
         assert!(
-            markup.contains(&format!("data-page=\"{}\"", page.name())),
+            markup.contains(&format!("data-page=\"{}\"", page_of(*page).name())),
             "{page:?} is not the page shown: {markup}"
         );
         assert!(
@@ -467,7 +474,7 @@ async fn every_page_is_drawn_in_the_window_from_its_sidebar_row() {
 #[tokio::test]
 async fn vacation_reply_lists_the_accounts_and_a_row_pushes_its_reply() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Vacation);
+    let (mut dom, seen) = opened_on(&built, PageId::VACATION);
     let list = dioxus_ssr::render(&dom);
     let rows: Vec<_> = crate::ui::data::account_rows(&crate::ui::fixtures::client(&built.store))
         .into_iter()
@@ -513,19 +520,19 @@ async fn vacation_reply_lists_the_accounts_and_a_row_pushes_its_reply() {
 }
 
 /// Each page that lists things, the add row under them, and the label of the list it stands in.
-const ADDS: &[(SettingsPage, &str, &str)] = &[
+const ADDS: &[(PageId, &str, &str)] = &[
     (
-        SettingsPage::Accounts,
+        PageId::ACCOUNTS,
         crate::ui::copy::controls::ADD_ACCOUNT,
         crate::ui::copy::aria::ADD_ACCOUNT,
     ),
     (
-        SettingsPage::Spaces,
+        PageId::SPACES,
         crate::ui::copy::controls::NEW_SPACE,
         crate::ui::copy::aria::ADD_A_SPACE,
     ),
     (
-        SettingsPage::Rules,
+        PageId::RULES,
         crate::ui::copy::controls::NEW_RULE,
         crate::ui::copy::aria::ADD_A_RULE,
     ),
@@ -568,7 +575,7 @@ async fn every_add_row_stands_in_a_list_of_its_own_led_by_the_plain_plus() {
 async fn an_open_window_turns_to_the_page_asked_for() {
     let built = work();
     let asked = super::SettingsAsked::default();
-    asked.ask(SettingsAt::Page(SettingsPage::Rules));
+    asked.ask(SettingsAt::Page(PageId::RULES));
     dispatching();
     let mut dom = VirtualDom::new(settings_root)
         .with_root_context(crate::ui::fixtures::client(&built.store))
@@ -581,7 +588,7 @@ async fn an_open_window_turns_to_the_page_asked_for() {
         "it opened elsewhere: {page}"
     );
 
-    asked.ask(SettingsAt::Page(SettingsPage::Keyboard));
+    asked.ask(SettingsAt::Page(PageId::KEYBOARD));
     for _ in 0..20 {
         let quiet = std::time::Duration::from_millis(50);
         if tokio::time::timeout(quiet, dom.wait_for_work())
@@ -655,7 +662,7 @@ async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
     let built = work();
     let folder = tempfile::tempdir().unwrap_or_else(|why| panic!("a temp dir: {why}"));
     let (dialogs, asked) = Dialogs::answering(vec![folder.path().to_path_buf()]);
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Viewing);
+    let (mut dom, seen) = opened_on(&built, PageId::VIEWING);
     dom.provide_root_context(dialogs);
     assert_eq!(stored(&built).attachments.downloads_folder, "", "before");
 
@@ -699,10 +706,13 @@ async fn choose_sets_the_downloads_folder_and_use_downloads_clears_it() {
 async fn the_vips_page_offers_the_pinned_people_and_removes_a_vip() {
     use mail_core::Store as _;
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Notifications);
+    let (mut dom, seen) = opened_on(&built, PageId::NOTIFICATIONS);
     let seen = click(
         &mut dom,
-        seen.one("id", &super::pages::vips_row(SettingsPage::Notifications)),
+        seen.one(
+            "id",
+            &super::pages::vips_row(page_of(PageId::NOTIFICATIONS).name()),
+        ),
     )
     .merge(drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
@@ -757,7 +767,7 @@ async fn the_vips_page_offers_the_pinned_people_and_removes_a_vip() {
 async fn turning_to_another_page_leaves_a_pushed_page_behind() {
     let built = work();
     let asked = super::SettingsAsked::default();
-    asked.ask(SettingsAt::Page(SettingsPage::Privacy));
+    asked.ask(SettingsAt::Page(PageId::PRIVACY));
     dispatching();
     let mut dom = VirtualDom::new(settings_root)
         .with_root_context(crate::ui::fixtures::client(&built.store))
@@ -765,7 +775,7 @@ async fn turning_to_another_page_leaves_a_pushed_page_behind() {
         .with_root_context(asked.clone());
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     click(&mut dom, seen.one("id", "privacy-pane-open-trusted"));
-    asked.ask(SettingsAt::Page(SettingsPage::Viewing));
+    asked.ask(SettingsAt::Page(PageId::VIEWING));
     for _ in 0..20 {
         let quiet = std::time::Duration::from_millis(50);
         if tokio::time::timeout(quiet, dom.wait_for_work())
@@ -845,7 +855,7 @@ async fn an_address_that_cannot_be_used_is_said_under_its_field() {
     crate::settings::store(crate::settings::root_for(&built.dirs.config))
         .save(&settings)
         .unwrap_or_else(|why| panic!("{why:?}"));
-    let (dom, _) = opened_on(&built, SettingsPage::Privacy);
+    let (dom, _) = opened_on(&built, PageId::PRIVACY);
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains(crate::ui::copy::fields::route_problem(RouteProblem::Relay)),
@@ -868,12 +878,13 @@ async fn an_address_that_cannot_be_used_is_said_under_its_field() {
 /// them.
 #[test]
 fn the_junk_switches_are_on_their_own_page_after_privacy() {
-    let all = SettingsPage::ALL;
-    let privacy = all.iter().position(|page| *page == SettingsPage::Privacy);
-    let junk = all.iter().position(|page| *page == SettingsPage::JunkMail);
+    let all: Vec<PageId> = super::PAGES.iter().map(|page| page.id()).collect();
+    let privacy = all.iter().position(|page| *page == PageId::PRIVACY);
+    let junk = all.iter().position(|page| *page == PageId::JUNK_MAIL);
     assert_eq!(junk, privacy.map(|at| at + 1));
-    let keys = |page| -> Vec<&'static str> {
-        super::pages::sections(page)
+    let keys = |page: PageId| -> Vec<&'static str> {
+        page_of(page)
+            .sections()
             .iter()
             .flat_map(|section| section.lines.iter())
             .filter_map(|line| match line {
@@ -883,7 +894,7 @@ fn the_junk_switches_are_on_their_own_page_after_privacy() {
             .collect()
     };
     assert_eq!(
-        keys(SettingsPage::JunkMail),
+        keys(PageId::JUNK_MAIL),
         [
             "junk.filter",
             "junk.treat",
@@ -895,12 +906,13 @@ fn the_junk_switches_are_on_their_own_page_after_privacy() {
         ]
     );
     assert!(
-        keys(SettingsPage::General)
+        keys(PageId::GENERAL)
             .iter()
             .all(|path| !path.starts_with("junk."))
     );
     assert!(
-        super::pages::sections(SettingsPage::General)
+        page_of(PageId::GENERAL)
+            .sections()
             .iter()
             .all(|section| section.title != Some("Junk Mail"))
     );
@@ -909,8 +921,34 @@ fn the_junk_switches_are_on_their_own_page_after_privacy() {
 #[tokio::test]
 async fn the_general_page_no_longer_draws_the_junk_mail_group() {
     let built = work();
-    let (dom, _seen) = opened_on(&built, SettingsPage::General);
+    let (dom, _seen) = opened_on(&built, PageId::GENERAL);
     let markup = dioxus_ssr::render(&dom);
     assert!(!markup.contains("Filter Junk Mail"), "{markup}");
     assert!(!markup.contains("Never Junk Mail From"), "{markup}");
+}
+
+/// Every page's id is its own, and each of the ids the shell and the deep links name is a page
+/// of the sidebar.
+#[test]
+fn every_page_id_names_one_page_of_the_sidebar() {
+    let named = [
+        PageId::GENERAL,
+        PageId::ACCOUNTS,
+        PageId::CONTACTS,
+        PageId::SIGNATURES,
+        PageId::SPACES,
+        PageId::COMPOSING,
+        PageId::VIEWING,
+        PageId::NOTIFICATIONS,
+        PageId::PRIVACY,
+        PageId::JUNK_MAIL,
+        PageId::RULES,
+        PageId::VACATION,
+        PageId::KEYBOARD,
+    ];
+    let listed: Vec<PageId> = super::PAGES.iter().map(|page| page.id()).collect();
+    assert_eq!(listed, named, "the sidebar lists the ids in this order");
+    for (at, id) in named.iter().enumerate() {
+        assert!(!named[..at].contains(id), "{id:?} names two pages");
+    }
 }

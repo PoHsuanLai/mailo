@@ -922,69 +922,64 @@ mod composing {
     #[test]
     fn compose_flags_set_what_they_say() {
         use ReceiptRequest::{Requested, Unrequested};
-        const CASES: &[(&str, &[&str], ReceiptRequest, OpenPgp, Smime)] = &[
-            (
-                "nothing asked",
-                &[],
-                Unrequested,
-                OpenPgp::None,
-                Smime::None,
-            ),
+        type Case = (
+            &'static str,
+            &'static [&'static str],
+            ReceiptRequest,
+            Option<Mode>,
+            Option<Mode>,
+        );
+        const CASES: &[Case] = &[
+            ("nothing asked", &[], Unrequested, None, None),
             (
                 "--request-receipt",
                 &["--request-receipt"],
                 Requested,
-                OpenPgp::None,
-                Smime::None,
+                None,
+                None,
             ),
             (
                 "--receipt-request",
                 &["--receipt-request"],
                 Requested,
-                OpenPgp::None,
-                Smime::None,
+                None,
+                None,
             ),
-            (
-                "--sign",
-                &["--sign"],
-                Unrequested,
-                OpenPgp::Sign,
-                Smime::None,
-            ),
+            ("--sign", &["--sign"], Unrequested, Some(Mode::Sign), None),
             (
                 "--encrypt",
                 &["--encrypt"],
                 Unrequested,
-                OpenPgp::Encrypt,
-                Smime::None,
+                Some(Mode::Encrypt),
+                None,
             ),
             (
                 "--encrypt --sign",
                 &["--encrypt", "--sign"],
                 Unrequested,
-                OpenPgp::SignAndEncrypt,
-                Smime::None,
+                Some(Mode::SignAndEncrypt),
+                None,
             ),
             (
                 "--sign --smime",
                 &["--sign", "--smime"],
                 Unrequested,
-                OpenPgp::None,
-                Smime::Sign,
+                None,
+                Some(Mode::Sign),
             ),
             (
                 "--encrypt --smime",
                 &["--encrypt", "--smime"],
                 Unrequested,
-                OpenPgp::None,
-                Smime::Encrypt,
+                None,
+                Some(Mode::Encrypt),
             ),
             (
                 "--smime --sign --encrypt",
                 &["--smime", "--sign", "--encrypt"],
                 Unrequested,
-                OpenPgp::None,
-                Smime::SignAndEncrypt,
+                None,
+                Some(Mode::SignAndEncrypt),
             ),
         ];
         for (name, flags, want_receipt, want_openpgp, want_smime) in CASES {

@@ -538,7 +538,7 @@ async fn auth(
         })
         .await
         .map_err(|e| CoreError::unread_credential(&account.address, &account.plan.auth, &e))?;
-    let credential = crate::sync::signed_in(account, stored, secrets, saved, now).await?;
+    let credential = crate::sync::renewed(account, stored, secrets, saved, now).await?;
     Ok(SieveAuth {
         username: account.plan.username(),
         credential,

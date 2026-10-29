@@ -21,7 +21,7 @@ use anyview_peek::{AnyPeeked, PeekWorker, Peeking, WorkerConfig};
 use mail_client::Client;
 use mail_domain::{BlobId, MessageId};
 
-use super::route::{self, Hand};
+use super::peek::{HEAD, mailo_draws};
 
 /// What a peek may spend: 32 MiB read (a part over it is not peeked whole), a megapixel decoded, and
 /// half a second. A card is a few hundred pixels across; a photograph from a phone is the largest
@@ -178,7 +178,7 @@ pub(super) enum Seen {
     Ready(Arc<AnyPeeked>),
     /// Still on the server: nothing is fetched to peek at it.
     NotHere,
-    /// mailo's to draw, not anyview's (`route::hand`).
+    /// mailo's to draw, not anyview's (`peek::mailo_draws`).
     Own,
     /// No card, and why.
     Failed(String),
@@ -197,11 +197,11 @@ pub(super) fn see(client: &Client, message: MessageId, index: usize) -> Seen {
         return Seen::NotHere;
     };
     let blobs = client.blobs();
-    let head = match blobs.head(blob, route::HEAD) {
+    let head = match blobs.head(blob, HEAD) {
         Ok(head) => head,
         Err(why) => return unreadable(why),
     };
-    if route::hand(&attachment.name, &head) == Hand::Mailo {
+    if mailo_draws(&attachment.name, &head) {
         return Seen::Own;
     }
     let len = match blobs.size(blob) {

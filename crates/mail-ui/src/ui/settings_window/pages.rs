@@ -1,7 +1,7 @@
 //! The pages that draw mailo's settings: General, Composing, Viewing, Notifications, Privacy and Junk Mail.
 //!
-//! Each page is a list of groups of [`Line`]s ([`sections`]): a key of the schema, drawn by its
-//! kind ([`super::keys`]) as detent draws it, the row that opens the trusted senders, or the row
+//! Each page is a list of groups of [`Line`]s ([`super::page::Page::sections`]): a key of the
+//! schema, drawn by its kind ([`super::keys`]) as detent draws it, the row that opens the trusted senders, or the row
 //! that sets the default mail application. A key is on a page once it is named there, and the
 //! tests hold every key of the schema to being named or left to detent on purpose (the provider
 //! marks, and the calendar's id, which the pop-up sets). The help the schema gives each key is detent's; the pages draw no captions.
@@ -14,7 +14,6 @@ use super::rows::link_row;
 use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::press::on_primary;
-use crate::ui::view::SettingsPage;
 use dioxus::prelude::*;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::fields::text_field_model::Invalid;
@@ -27,7 +26,7 @@ use ds_settings::schema::{Help, KeySpec};
 
 /// One row of a page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Line {
+pub(in crate::ui) enum Line {
     /// The schema's key at this path.
     Key(&'static str),
     /// The row that opens the trusted senders' page.
@@ -52,133 +51,10 @@ pub(super) enum Line {
 }
 
 /// A group of a page: its header, when it has one, and its rows in the order drawn.
-pub(super) struct Section {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::ui) struct Section {
     pub title: Option<&'static str>,
     pub lines: &'static [Line],
-}
-
-/// The groups `page` draws. Accounts, Signatures, Spaces, Rules, Vacation Reply and Keyboard draw
-/// their own.
-pub(super) fn sections(page: SettingsPage) -> &'static [Section] {
-    match page {
-        SettingsPage::General => &[
-            Section {
-                title: Some(copy::headers::MAIL),
-                lines: &[
-                    Line::DefaultMail,
-                    Line::Key(crate::settings::WHILE_QUIT),
-                    Line::Key("search.server_automatically"),
-                ],
-            },
-            Section {
-                title: Some(copy::headers::MAILBOXES),
-                lines: &[
-                    Line::Key("mailboxes.delete"),
-                    Line::Key("mailboxes.erase_trash"),
-                    Line::Key("mailboxes.erase_spam"),
-                ],
-            },
-            Section {
-                title: Some(copy::headers::CALENDAR),
-                lines: &[Line::Calendar, Line::Key("calendar.keep_in_step")],
-            },
-        ],
-        SettingsPage::Composing => &[Section {
-            title: None,
-            lines: &[
-                Line::Key("compose.format"),
-                Line::Key("compose.reply_same_format"),
-                Line::Key("compose.undo_send"),
-                Line::Key("compose.spelling"),
-                Line::Key("compose.copy_myself"),
-                Line::Key("compose.signature_above_quote"),
-            ],
-        }],
-        SettingsPage::Viewing => &[
-            Section {
-                title: None,
-                lines: &[
-                    Line::Key("reading.brand_logos"),
-                    Line::Key("reading.prefer_plain_text"),
-                    Line::Key("reading.mark_read"),
-                    Line::Key("reading.mark_read_delay"),
-                    Line::Key("reading.text_zoom"),
-                    Line::Folder("attachments.downloads_folder"),
-                    Line::Key("attachments.remove_unedited"),
-                ],
-            },
-            Section {
-                title: Some(copy::headers::MESSAGE_LIST),
-                lines: &[
-                    Line::Key("window.snippets"),
-                    Line::Key("window.label_chips"),
-                    Line::Key("window.group_by_date"),
-                ],
-            },
-        ],
-        SettingsPage::Notifications => &[
-            Section {
-                title: None,
-                lines: &[
-                    Line::Key("notifications.new_mail"),
-                    Line::Key("notifications.notify_for"),
-                    Line::Vips,
-                    Line::Key("notifications.places"),
-                    Line::Key("notifications.sound"),
-                    Line::Key("notifications.badge"),
-                ],
-            },
-            Section {
-                title: Some(copy::headers::NOTIFY_FOR_ACCOUNTS),
-                lines: &[Line::MutedAccounts],
-            },
-        ],
-        SettingsPage::Privacy => &[
-            Section {
-                title: None,
-                lines: &[
-                    Line::Key("reading.remote_images"),
-                    Line::TrustedSenders,
-                    Line::Key("reading.read_receipts"),
-                ],
-            },
-            Section {
-                title: Some(copy::headers::REMOTE_CONTENT),
-                lines: &[
-                    Line::Key("privacy.protect"),
-                    Line::Key("privacy.relay_kind"),
-                    Line::Address("privacy.relay"),
-                    Line::RelayKey,
-                    Line::Address("privacy.proxy"),
-                ],
-            },
-        ],
-        SettingsPage::JunkMail => &[
-            Section {
-                title: None,
-                lines: &[Line::Key("junk.filter"), Line::Key("junk.treat")],
-            },
-            Section {
-                title: Some(copy::headers::NEVER_JUNK_MAIL_FROM),
-                lines: &[
-                    Line::Key("junk.spare_contacts"),
-                    Line::Key("junk.spare_written_to"),
-                    Line::Key("junk.spare_full_name"),
-                ],
-            },
-            Section {
-                title: None,
-                lines: &[Line::Key("junk.trust_server"), Line::Key("junk.order")],
-            },
-        ],
-        SettingsPage::Accounts
-        | SettingsPage::Contacts
-        | SettingsPage::Signatures
-        | SettingsPage::Spaces
-        | SettingsPage::Rules
-        | SettingsPage::Vacation
-        | SettingsPage::Keyboard => &[],
-    }
 }
 
 /// A page of a settings page's pane.
@@ -190,28 +66,28 @@ enum PageAt {
 }
 
 /// The stack's element id: its back button is `<id>-back-detail`, as `general-pane-back-detail`.
-fn stack(page: SettingsPage) -> String {
-    format!("{}-pane", page.name().to_lowercase())
+fn stack(name: &str) -> String {
+    format!("{}-pane", name.to_lowercase())
 }
 
 /// The element id of the row that opens the trusted senders, where the keyboard goes back to.
-fn trusted_row(page: SettingsPage) -> String {
-    format!("{}-open-trusted", stack(page))
+fn trusted_row(name: &str) -> String {
+    format!("{}-open-trusted", stack(name))
 }
 
 /// The element id of the row that opens the VIPs, where the keyboard goes back to.
-pub(super) fn vips_row(page: SettingsPage) -> String {
-    format!("{}-open-vips", stack(page))
+pub(super) fn vips_row(name: &str) -> String {
+    format!("{}-open-vips", stack(name))
 }
 
 /// One of the pages that draw the schema: its groups at the root, the trusted senders (on Privacy)
 /// or the VIPs (on Notifications) pushed over them.
 #[component]
-pub(super) fn Page(page: SettingsPage) -> Element {
+pub(super) fn Page(name: &'static str, sections: &'static [Section]) -> Element {
     let mut path = use_signal(|| PanePath::new(PageAt::Root));
     let title = use_callback(move |at: PageAt| {
         match at {
-            PageAt::Root => page.name(),
+            PageAt::Root => name,
             PageAt::TrustedSenders => copy::titles::TRUSTED_SENDERS,
             PageAt::Vips => copy::titles::VIPS,
         }
@@ -220,7 +96,8 @@ pub(super) fn Page(page: SettingsPage) -> Element {
     let shown = use_callback(move |at: PageAt| match at {
         PageAt::Root => rsx! {
             Groups {
-                page,
+                name,
+                sections,
                 on_trusted: move |()| {
                     let next = path.peek().pushed(PageAt::TrustedSenders);
                     path.set(next);
@@ -236,8 +113,8 @@ pub(super) fn Page(page: SettingsPage) -> Element {
     });
     let opener = use_callback(move |at: PageAt| match at {
         PageAt::Root => None,
-        PageAt::TrustedSenders => Some(trusted_row(page)),
-        PageAt::Vips => Some(vips_row(page)),
+        PageAt::TrustedSenders => Some(trusted_row(name)),
+        PageAt::Vips => Some(vips_row(name)),
     });
     rsx! {
         PaneStack::<PageAt> {
@@ -249,7 +126,7 @@ pub(super) fn Page(page: SettingsPage) -> Element {
                 let back = path.peek().popped();
                 path.set(back);
             },
-            common: Common { id: Some(stack(page)), ..Common::default() },
+            common: Common { id: Some(stack(name)), ..Common::default() },
         }
     }
 }
@@ -293,7 +170,12 @@ pub(super) fn shown(line: Line, settings: &crate::settings::MailSettings) -> boo
 
 /// The root: each group's rows.
 #[component]
-fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandler<()>) -> Element {
+fn Groups(
+    name: &'static str,
+    sections: &'static [Section],
+    on_trusted: EventHandler<()>,
+    on_vips: EventHandler<()>,
+) -> Element {
     let settings = crate::ui::prefs::current();
     let values =
         toml::Value::try_from(&settings).unwrap_or_else(|_| toml::Value::Table(toml::Table::new()));
@@ -312,7 +194,7 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandle
     };
     rsx! {
         Form {
-            for (at, section) in sections(page).iter().enumerate() {
+            for (at, section) in sections.iter().enumerate() {
                 FormSection { key: "{at}", title: section.title.map(str::to_owned),
                     for line in section.lines.iter().copied().filter(|line| shown(*line, &settings)) {
                         match line {
@@ -348,7 +230,7 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandle
                                         copy::titles::VIPS,
                                         RowLeading::None,
                                         move |_| on_vips.call(()),
-                                        Common { id: Some(vips_row(page)), ..Common::default() },
+                                        Common { id: Some(vips_row(name)), ..Common::default() },
                                     )],
                                 }
                             },
@@ -361,7 +243,7 @@ fn Groups(page: SettingsPage, on_trusted: EventHandler<()>, on_vips: EventHandle
                                         copy::titles::TRUSTED_SENDERS,
                                         RowLeading::None,
                                         move |_| on_trusted.call(()),
-                                        Common { id: Some(trusted_row(page)), ..Common::default() },
+                                        Common { id: Some(trusted_row(name)), ..Common::default() },
                                     )],
                                 }
                             },

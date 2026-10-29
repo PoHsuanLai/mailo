@@ -16,6 +16,7 @@ pub mod folder;
 pub mod hex;
 pub mod hue;
 pub mod id;
+pub mod incoming;
 pub mod ingest;
 pub mod invite;
 pub mod jmap_id;
@@ -26,6 +27,7 @@ pub mod parts;
 pub mod pgp;
 pub mod presets;
 pub mod priority;
+pub mod protect;
 pub mod receipt;
 pub mod remote;
 pub mod retry;
@@ -61,6 +63,7 @@ pub use id::{
     BlobId, ChangeId, DraftId, IdentityId, LabelId, MessageId, OutboxId, RuleId, SignatureId,
     TemplateId, ThreadId, ViewId,
 };
+pub use incoming::{Caps, Server};
 pub use ingest::{Fetched, Import, Ingest, Kept};
 pub use invite::{Attendance, InviteAnswer};
 pub use jmap_id::{
@@ -71,10 +74,10 @@ pub use message::{Message, MessageKey, SortFacts, Thread, ThreadSummary};
 pub use op::{Action, Applied, Change, Op, OpKind, Patch, RemoteIntent, Target};
 pub use parts::PartTree;
 pub use pgp::{
-    Coverage, Encryption, Fingerprint, KeyId, KeySource, KeyTrust, OpenPgp, PgpKey, SecretHeld,
-    Verification,
+    Coverage, Encryption, Fingerprint, KeyId, KeySource, KeyTrust, PgpKey, SecretHeld, Verification,
 };
 pub use priority::Priority;
+pub use protect::Mode;
 pub use receipt::{DeliveryReport, Keyword, ReceiptAnswer, ReceiptRequest};
 pub use remote::{
     FetchSince, JMAP_ALL, MailboxRef, ProtoOp, RemoteRef, Resync, SyncCursor, SystemFlag,
@@ -85,7 +88,7 @@ pub use rule::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
 pub use section::Section;
 pub use signature::{Signature, SignatureUse, UNNAMED_SIGNATURE};
 pub use smime::{
-    BadSignature, CertFingerprint, CertProblem, CertSource, Smime, SmimeCert, SmimeEncryption,
+    BadSignature, CertFingerprint, CertProblem, CertSource, SmimeCert, SmimeEncryption,
     SmimeVerification,
 };
 pub use state::{

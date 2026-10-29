@@ -8,10 +8,10 @@
 
 use crate::error::CoreError;
 use crate::error::Logged;
-use crate::export::{self, Target};
+use crate::export;
+use crate::formats::Writer;
 use crate::import::{self, Destination, Imported, Source};
 use chrono::{DateTime, Utc};
-use mail_domain::Incoming;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::ffi::OsStr;
@@ -110,7 +110,7 @@ pub fn look(path: &Path) -> Seen {
         Ok(source) => source,
         Err(why) => return Seen::Refused(Refusal::Unreadable(why.to_string())),
     };
-    match import::items(&source) {
+    match source.items() {
         Ok(items) => Seen::Mail {
             count: items.count(),
             source,
@@ -138,7 +138,7 @@ pub fn upload_folders(store: &SqliteStore) -> Vec<Upload> {
         .or_log_default("the accounts could not be read")
     {
         let imap = match &account.plan {
-            Ok(plan) => matches!(plan.incoming, Incoming::Imap { .. }),
+            Ok(plan) => plan.incoming.caps().writes_mailboxes,
             Err(_) => true,
         };
         if !imap {
@@ -181,43 +181,10 @@ pub fn import_into(
     }
 }
 
-/// The three ways an export is written.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum Format {
-    #[default]
-    Mbox,
-    Maildir,
-    Eml,
-}
-
-impl Format {
-    pub const ALL: [Format; 3] = [Format::Mbox, Format::Maildir, Format::Eml];
-
-    /// The export target at `path`.
-    pub fn target(self, path: PathBuf) -> Target {
-        match self {
-            Format::Mbox => Target::Mbox(path),
-            Format::Maildir => Target::Maildir(path),
-            Format::Eml => Target::Eml(path),
-        }
-    }
-
-    /// Whether the target is one file, rather than a directory.
-    pub fn is_file(self) -> bool {
-        self == Format::Mbox
-    }
-}
-
 /// A name for the export in `dir` that nothing uses yet, from the query and the format:
 /// `mailo-inbox.mbox`, `mailo-inbox` for a Maildir, `mailo-inbox-eml` for a directory of files.
-pub fn suggested(dir: &Path, query: &str, format: Format) -> PathBuf {
-    let slug = slug(query);
-    let name = match format {
-        Format::Mbox => format!("mailo-{slug}.mbox"),
-        Format::Maildir => format!("mailo-{slug}"),
-        Format::Eml => format!("mailo-{slug}-eml"),
-    };
-    crate::attach::free_path(dir, &name)
+pub fn suggested(dir: &Path, query: &str, writer: &dyn Writer) -> PathBuf {
+    crate::attach::free_path(dir, &writer.suggested(&slug(query)))
 }
 
 /// The query as a file name: letters and digits, the rest one dash, at most forty characters.
@@ -253,6 +220,8 @@ pub fn selection_size(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::export::{EmlWriter, MaildirWriter, usual};
+    use crate::import::Maildir;
     use crate::support_tests::now;
     use mail_domain::id::new_account_id;
     use mail_domain::{AccountPlan, Folder, Holds, Subscription, presets};
@@ -282,24 +251,24 @@ mod tests {
     #[test]
     fn an_export_is_never_written_over_an_existing_file() {
         let out = tempfile::tempdir().unwrap();
-        let first = suggested(out.path(), "from:dana has:attachment", Format::Mbox);
+        let first = suggested(out.path(), "from:dana has:attachment", usual());
         assert_eq!(
             first,
             out.path().join("mailo-from-dana-has-attachment.mbox")
         );
         std::fs::write(&first, b"someone's archive").unwrap();
-        let second = suggested(out.path(), "from:dana has:attachment", Format::Mbox);
+        let second = suggested(out.path(), "from:dana has:attachment", usual());
         assert_eq!(
             second,
             out.path().join("mailo-from-dana-has-attachment (2).mbox")
         );
         std::fs::create_dir(out.path().join("mailo-inbox")).unwrap();
         assert_eq!(
-            suggested(out.path(), "inbox", Format::Maildir),
+            suggested(out.path(), "inbox", &MaildirWriter),
             out.path().join("mailo-inbox (2)")
         );
         assert_eq!(
-            suggested(out.path(), "  ", Format::Eml),
+            suggested(out.path(), "  ", &EmlWriter),
             out.path().join("mailo-mail-eml")
         );
     }
@@ -343,7 +312,7 @@ mod tests {
         assert_eq!(
             look(&root),
             Seen::Mail {
-                source: Source::Maildir(root.clone()),
+                source: Source::new(&Maildir, root.clone()),
                 count: 2
             }
         );

@@ -7,11 +7,11 @@
 
 pub mod keys;
 pub mod read;
-pub mod send;
+pub mod seal;
 
 pub use keys::{Imported, WithSecret, own_key};
 pub use read::{Protected, open_bytes, open_message};
-pub use send::{check, outgoing};
+pub use seal::OpenPgp;
 
 use chrono::{DateTime, Utc};
 use mail_domain::{Fingerprint, KeySource, PgpKey};

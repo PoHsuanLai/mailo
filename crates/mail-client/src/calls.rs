@@ -711,6 +711,7 @@ mod pgp {
     use crate::Client;
     use chrono::{DateTime, Utc};
     use mail_core::pgp::PgpError;
+    use mail_core::protect::Seal;
     use mail_domain::*;
 
     /// What the client calls in `mail_core::pgp`.
@@ -725,14 +726,14 @@ mod pgp {
     }
 
     impl Pgp<'_> {
-        /// `mail_core::pgp::check`.
+        /// `mail_core::pgp::OpenPgp::check`.
         pub fn check(
             &self,
             draft: &Draft,
             identity: &Identity,
             now: DateTime<Utc>,
         ) -> Result<(), PgpError> {
-            mail_core::pgp::check(self.0.store(), draft, identity, now)
+            mail_core::pgp::OpenPgp::check(self.0.store(), draft, identity, now)
         }
 
         /// `mail_core::pgp::own_key`.
@@ -1139,6 +1140,7 @@ pub use smime_certs::SmimeCerts;
 mod smime {
     use crate::Client;
     use chrono::{DateTime, Utc};
+    use mail_core::protect::Seal;
     use mail_core::smime::SmimeError;
     use mail_domain::*;
 
@@ -1154,14 +1156,14 @@ mod smime {
     }
 
     impl Smime<'_> {
-        /// `mail_core::smime::check`.
+        /// `mail_core::smime::Smime::check`.
         pub fn check(
             &self,
             draft: &Draft,
             identity: &Identity,
             now: DateTime<Utc>,
         ) -> Result<(), SmimeError> {
-            mail_core::smime::check(self.0.store(), draft, identity, now)
+            mail_core::smime::Smime::check(self.0.store(), draft, identity, now)
         }
 
         /// `mail_core::smime::own_cert`.

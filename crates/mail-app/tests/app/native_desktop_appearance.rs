@@ -63,7 +63,7 @@ fn a_change_to_the_desktops_appearance_restyles_the_running_window() {
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     )
     .with(DesktopSettings {
         root: ConfigRoot::Scratch(config.clone()),

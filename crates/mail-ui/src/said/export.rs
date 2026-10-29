@@ -4,9 +4,7 @@ use mail_client::export::{Exported, Target};
 
 /// What an export says when it is done.
 pub fn said(done: &Exported, target: &Target) -> String {
-    let place = match target {
-        Target::Mbox(path) | Target::Maildir(path) | Target::Eml(path) => path.display(),
-    };
+    let place = target.path.display();
     let mut out = format!("{} message(s) written to {place}\n", done.written);
     let skipped = done.absent + done.partial;
     if skipped > 0 {

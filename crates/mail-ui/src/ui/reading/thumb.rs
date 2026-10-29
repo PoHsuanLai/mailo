@@ -10,7 +10,7 @@
 //! A picture mailo decodes and a PDF's first page are drawn as they always were. With the
 //! `anyview` feature, a part of any other kind that anyview can show as a picture (a bitmap, an
 //! SVG, a recording's cover) is drawn by anyview's pane, media only; one it has only facts for
-//! keeps the paperclip (`route.rs` says who draws which).
+//! keeps the paperclip (`peek/previewer.rs` says who draws which).
 
 use std::sync::Mutex;
 

@@ -284,9 +284,30 @@ pub fn contexts(
     look: Appearance,
     spaces: Option<Spaces>,
     dirs: Option<WindowDirs>,
-    start: crate::ui::Start,
+    start: crate::ui::ask::Open,
 ) -> RootContexts {
-    window_contexts(client, look, spaces, dirs, start).with(crate::ui::fetching::Passer::idle())
+    contexts_passing(
+        client,
+        look,
+        spaces,
+        dirs,
+        start,
+        crate::ui::fetching::Passer::idle().0,
+    )
+}
+
+/// [`contexts`] with `pass` run for each account's pass in place of the idle one: a test that
+/// needs the first fetch to be in a state it can hold (still running, say) lends a pass that
+/// stays there, where the idle one ends at once and the window moves on between two looks.
+pub fn contexts_passing(
+    client: mail_client::Client,
+    look: Appearance,
+    spaces: Option<Spaces>,
+    dirs: Option<WindowDirs>,
+    start: crate::ui::ask::Open,
+    pass: mail_client::fetch::Pass,
+) -> RootContexts {
+    window_contexts(client, look, spaces, dirs, start).with(crate::ui::fetching::Passer(pass))
 }
 
 /// [`contexts`] as the launched window has them: its passes go to the servers.
@@ -295,7 +316,7 @@ fn window_contexts(
     look: Appearance,
     spaces: Option<Spaces>,
     dirs: Option<WindowDirs>,
-    start: crate::ui::Start,
+    start: crate::ui::ask::Open,
 ) -> RootContexts {
     let looks = crate::ui::reading::looks();
     // The accounts and saved views read before the first window asks, so its first frame has its
