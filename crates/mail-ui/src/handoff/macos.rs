@@ -6,17 +6,16 @@
 //! process: [`deliver`] writes the conversation's URI to the socket and waits for the window's
 //! `ok`. The system's own launch of an app that is already running is not a second process at all:
 //! LaunchServices tells the one running, and [`hear_urls`] and [`hear_reopen`] turn what it says into the same requests.
-//! The socket is also how a second `mailo` with nothing to do ([`deliver_activate`]) raises the
+//! The socket is also how a second `mailo` with nothing to do (a `Raise` ask) raises the
 //! window instead of opening another.
 //!
 //! One line per request: `mailo:thread/<id>`, or `mailo:activate` for the window alone. A path the
 //! socket cannot have (too long for `sockaddr_un`, no home) means no hand-off, as no bus does on
 //! Linux.
 
-use super::{Request, archive_uri, inbox_uri, reply_uri, requests_of, uri_of};
+use super::opens_of;
+use crate::ui::ask::{Ask, Open};
 use mail_client::profile::ProfileId;
-use mail_domain::ThreadId;
-use porter_core::AccountId;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
@@ -25,9 +24,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
-
-/// The request that asks for the window alone.
-const ACTIVATE: &str = "mailo:activate";
 
 /// How long either end waits on the other before giving up: both are on this machine.
 const PATIENCE: Duration = Duration::from_secs(1);
@@ -45,12 +41,12 @@ const LONGEST_LINE: u64 = 512;
 #[derive(Clone)]
 pub struct Requests {
     slot: Arc<Mutex<Slot>>,
-    sender: UnboundedSender<Request>,
+    sender: UnboundedSender<Open>,
 }
 
 /// The queue, while no window reads it, and how a window is opened to read it.
 struct Slot {
-    queue: Option<UnboundedReceiver<Request>>,
+    queue: Option<UnboundedReceiver<Open>>,
     /// Opens a window that will read the queue; true when one is on its way.
     open: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     /// A window is on its way and has not taken the queue yet: the launch's first, or one opened
@@ -68,7 +64,7 @@ impl std::fmt::Debug for Requests {
 
 impl Requests {
     /// A queue with nobody serving it, for a test to push into.
-    pub fn local() -> (Requests, UnboundedSender<Request>) {
+    pub fn local() -> (Requests, UnboundedSender<Open>) {
         let (sender, queue) = unbounded_channel();
         let requests = Requests {
             slot: Arc::new(Mutex::new(Slot {
@@ -106,7 +102,7 @@ impl Requests {
     }
 
     /// Queue `request`, and open a window for it when none reads the queue.
-    pub(crate) fn send(&self, request: Request) {
+    pub(crate) fn send(&self, request: Open) {
         // The receiver lives in this queue's slot or in the window reading it, and goes back to
         // the slot when that window closes: a send fails only once the app is ending.
         let _ = self.sender.send(request);
@@ -140,7 +136,7 @@ impl Requests {
 /// The queue as the window that reads it holds it: given back to its [`Requests`] when the
 /// window closes, so the next request opens a window again.
 pub struct Reading {
-    queue: Option<UnboundedReceiver<Request>>,
+    queue: Option<UnboundedReceiver<Open>>,
     slot: Arc<Mutex<Slot>>,
 }
 
@@ -152,12 +148,12 @@ impl std::fmt::Debug for Reading {
 
 impl Reading {
     /// The next request, or `None` once the app is ending.
-    pub async fn recv(&mut self) -> Option<Request> {
+    pub async fn recv(&mut self) -> Option<Open> {
         self.queue.as_mut()?.recv().await
     }
 
     /// The next request already queued, if there is one.
-    pub fn try_recv(&mut self) -> Option<Request> {
+    pub fn try_recv(&mut self) -> Option<Open> {
         self.queue.as_mut()?.try_recv().ok()
     }
 }
@@ -258,8 +254,8 @@ fn answer(stream: UnixStream, requests: &Requests) {
         return;
     }
     let uri = line.trim_end().to_owned();
-    for request in requests_of(&[uri], None) {
-        requests.send(request);
+    for open in opens_of(&[uri], None) {
+        requests.send(open);
     }
     let _ = (&stream).write_all(b"ok\n");
 }
@@ -270,8 +266,8 @@ fn answer(stream: UnixStream, requests: &Requests) {
 fn hear_urls(requests: &Requests) {
     let requests = requests.clone();
     let heard = mail_appkit::hear_urls(move |url| {
-        for request in requests_of(&[url], None) {
-            requests.send(request);
+        for open in opens_of(&[url], None) {
+            requests.send(open);
         }
     });
     if !heard {
@@ -287,7 +283,7 @@ pub fn hear_reopen(requests: &Requests) -> bool {
         return true;
     }
     let heard = requests.clone();
-    let set = mail_appkit::hear_reopen(move || heard.send(Request::Activate { token: None }));
+    let set = mail_appkit::hear_reopen(move || heard.send(Open::raise()));
     if !set {
         // Not heard, so the next window to read the queue asks again.
         requests.slot().reopen_heard = false;
@@ -295,36 +291,11 @@ pub fn hear_reopen(requests: &Requests) -> bool {
     set
 }
 
-/// Ask the running window to open `thread`. True when a window took it; false when none is
-/// running, and then the caller opens a window of its own. macOS has no activation token to hand
-/// over, so there is none to take.
-pub fn deliver(profile: &ProfileId, thread: ThreadId, _token: Option<&str>) -> bool {
-    socket_path(profile).is_some_and(|path| send(&path, &uri_of(thread)))
-}
-
-/// Ask the running window to open a composer on the `mailto:` link `uri`. True when one took it.
-pub fn deliver_mailto(profile: &ProfileId, uri: &str, _token: Option<&str>) -> bool {
-    socket_path(profile).is_some_and(|path| send(&path, uri))
-}
-
-/// Ask the running window to open a reply to `thread`. True when one took it.
-pub fn deliver_reply(profile: &ProfileId, thread: ThreadId, _token: Option<&str>) -> bool {
-    socket_path(profile).is_some_and(|path| send(&path, &reply_uri(thread)))
-}
-
-/// Ask the running window to archive `thread`. True when one took it.
-pub fn deliver_archive(profile: &ProfileId, thread: ThreadId, _token: Option<&str>) -> bool {
-    socket_path(profile).is_some_and(|path| send(&path, &archive_uri(thread)))
-}
-
-/// Ask the running window to show `account`'s inbox. True when one took it.
-pub fn deliver_inbox(profile: &ProfileId, account: &AccountId, _token: Option<&str>) -> bool {
-    socket_path(profile).is_some_and(|path| send(&path, &inbox_uri(account)))
-}
-
-/// Ask the running window to raise itself. True when one did; false when none is running.
-pub fn deliver_activate(profile: &ProfileId, _token: Option<&str>) -> bool {
-    socket_path(profile).is_some_and(|path| send(&path, ACTIVATE))
+/// Hand `ask` to the running window. True when a window took it; false when none is running, and
+/// then the caller opens a window of its own. macOS has no activation token to hand over, so there
+/// is none to take.
+pub fn deliver(profile: &ProfileId, ask: &dyn Ask, _token: Option<&str>) -> bool {
+    socket_path(profile).is_some_and(|path| send(&path, &ask.uri()))
 }
 
 fn send(path: &Path, uri: &str) -> bool {
@@ -343,6 +314,8 @@ fn send(path: &Path, uri: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::ask::{Inbox, Raise, Thread};
+    use mail_domain::ThreadId;
 
     fn thread() -> ThreadId {
         ThreadId::from_uuid(uuid::Uuid::from_u128(0x1234))
@@ -355,14 +328,8 @@ mod tests {
         let requests = serve_at(&path).expect("served");
         let mut queue = requests.take().expect("the queue, once");
 
-        assert!(send(&path, &uri_of(thread())));
-        assert_eq!(
-            queue.try_recv(),
-            Some(Request::Thread {
-                thread: thread(),
-                token: None
-            })
-        );
+        assert!(send(&path, &Thread(thread()).uri()));
+        assert_eq!(queue.try_recv(), Some(Open::new(Thread(thread()), None)));
     }
 
     #[test]
@@ -373,10 +340,10 @@ mod tests {
         let mut queue = requests.take().expect("the queue, once");
 
         assert!(send(&path, "mailto:a@example.test?subject=hi"));
-        assert!(matches!(
-            queue.try_recv(),
-            Some(Request::Mailto { link, .. }) if link.subject == "hi"
-        ));
+        assert_eq!(
+            queue.try_recv().map(|open| open.ask.uri()).as_deref(),
+            Some("mailto:a@example.test?subject=hi")
+        );
     }
 
     #[test]
@@ -387,14 +354,8 @@ mod tests {
         let mut queue = requests.take().expect("the queue, once");
 
         let account = mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(0xacc));
-        assert!(send(&path, &inbox_uri(&account)));
-        assert_eq!(
-            queue.try_recv().ok(),
-            Some(Request::Inbox {
-                account,
-                token: None
-            })
-        );
+        assert!(send(&path, &Inbox(account.clone()).uri()));
+        assert_eq!(queue.try_recv(), Some(Open::new(Inbox(account), None)));
     }
 
     #[test]
@@ -404,8 +365,8 @@ mod tests {
         let requests = serve_at(&path).expect("served");
         let mut queue = requests.take().expect("the queue, once");
 
-        assert!(send(&path, ACTIVATE));
-        assert_eq!(queue.try_recv(), Some(Request::Activate { token: None }));
+        assert!(send(&path, Raise::URI));
+        assert_eq!(queue.try_recv(), Some(Open::raise()));
     }
 
     #[test]
@@ -422,36 +383,27 @@ mod tests {
         let count = || opened.load(std::sync::atomic::Ordering::SeqCst);
 
         // The launch's first window is on its way: a URL that came with the launch waits for it.
-        requests.send(Request::Activate { token: None });
+        requests.send(Open::raise());
         assert_eq!(count(), 0, "the first window is coming");
         let mut first = requests.take().expect("the first window takes the queue");
-        assert_eq!(first.try_recv(), Some(Request::Activate { token: None }));
+        assert_eq!(first.try_recv(), Some(Open::raise()));
 
         // While a window reads, a request is its.
-        requests.send(Request::Thread {
-            thread: thread(),
-            token: None,
-        });
+        requests.send(Open::new(Thread(thread()), None));
         assert_eq!(count(), 0);
         assert!(requests.take().is_none(), "one window reads it");
 
         // The window closes and gives the queue back, with what it had not read.
         drop(first);
-        requests.send(Request::Activate { token: None });
+        requests.send(Open::raise());
         assert_eq!(count(), 1, "the Dock icon opens a window");
-        requests.send(Request::Activate { token: None });
+        requests.send(Open::raise());
         assert_eq!(count(), 1, "a second click waits for the window on its way");
 
         let mut again = requests.take().expect("the new window takes the queue");
-        assert_eq!(
-            again.try_recv(),
-            Some(Request::Thread {
-                thread: thread(),
-                token: None
-            })
-        );
-        assert_eq!(again.try_recv(), Some(Request::Activate { token: None }));
-        assert_eq!(again.try_recv(), Some(Request::Activate { token: None }));
+        assert_eq!(again.try_recv(), Some(Open::new(Thread(thread()), None)));
+        assert_eq!(again.try_recv(), Some(Open::raise()));
+        assert_eq!(again.try_recv(), Some(Open::raise()));
     }
 
     #[test]
@@ -466,8 +418,8 @@ mod tests {
                 false
             }
         });
-        requests.send(Request::Activate { token: None });
-        requests.send(Request::Activate { token: None });
+        requests.send(Open::raise());
+        requests.send(Open::raise());
         assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
@@ -475,9 +427,9 @@ mod tests {
     fn a_queue_with_no_way_to_open_a_window_keeps_what_it_is_sent() {
         let (requests, _sender) = Requests::local();
         drop(requests.take());
-        requests.send(Request::Activate { token: None });
+        requests.send(Open::raise());
         let mut later = requests.take().expect("given back");
-        assert_eq!(later.try_recv(), Some(Request::Activate { token: None }));
+        assert_eq!(later.try_recv(), Some(Open::raise()));
     }
 
     #[test]
@@ -502,7 +454,10 @@ mod tests {
     #[test]
     fn nothing_listening_is_no_delivery() {
         let dir = tempfile::tempdir().expect("a scratch directory");
-        assert!(!send(&dir.path().join("none.sock"), &uri_of(thread())));
+        assert!(!send(
+            &dir.path().join("none.sock"),
+            &Thread(thread()).uri()
+        ));
     }
 
     #[test]

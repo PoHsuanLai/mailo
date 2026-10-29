@@ -70,7 +70,7 @@ fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     );
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
@@ -113,7 +113,7 @@ fn an_account_added_while_the_window_is_open_is_said() {
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     );
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)

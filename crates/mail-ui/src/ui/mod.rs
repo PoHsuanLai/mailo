@@ -5,6 +5,7 @@
 //! rendering a stranger's HTML.
 
 pub mod appearance;
+pub mod ask;
 pub mod bin;
 pub mod copy;
 pub mod emoji;
@@ -83,7 +84,6 @@ mod server_search;
 mod settings_window;
 mod sidebar;
 mod space_menu;
-mod start;
 mod style;
 mod switch;
 mod text;
@@ -142,7 +142,5 @@ pub mod native {
         OpenSettings, SettingsAsked, SettingsAt, SettingsWindows, settings_root,
     };
     pub use super::window::{Ask, MessageOpen, OpenWindow, Windows, message_root};
-    pub use crate::handoff::{ActivationToken, Request, Requests};
+    pub use crate::handoff::{ActivationToken, Requests};
 }
-
-pub use start::{Start, mailto_of, open_thread, start_mailto, start_of};

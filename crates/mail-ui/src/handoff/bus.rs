@@ -1,24 +1,20 @@
 //! The session-bus half of [`super`]: serving `org.freedesktop.Application` from the window, and
 //! calling it from `mailo open`.
 
-use super::{
-    ActivationToken, Request, archive_uri, inbox_uri, name_of, path_of, reply_uri, requests_of,
-    uri_of,
-};
+use super::{ActivationToken, name_of, opens_of, path_of};
+use crate::ui::ask::{Ask, Open, Raise};
 use mail_client::profile::ProfileId;
-use mail_domain::ThreadId;
-use porter_core::AccountId;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use zbus::blocking::{Connection, connection::Builder};
 use zbus::zvariant::{OwnedValue, Value};
 
-/// What the window reads requests from, as a root context. The bus connection is held with it, so
+/// What the window reads asks from, as a root context. The bus connection is held with it, so
 /// the name is owned for as long as the window's contexts are.
 #[derive(Clone)]
 pub struct Requests {
-    queue: Arc<Mutex<Option<UnboundedReceiver<Request>>>>,
+    queue: Arc<Mutex<Option<UnboundedReceiver<Open>>>>,
     _connection: Option<Connection>,
 }
 
@@ -30,7 +26,7 @@ impl std::fmt::Debug for Requests {
 
 impl Requests {
     /// A queue with nobody serving it, for a test to push into.
-    pub fn local() -> (Requests, UnboundedSender<Request>) {
+    pub fn local() -> (Requests, UnboundedSender<Open>) {
         let (sender, queue) = unbounded_channel();
         let requests = Requests {
             queue: Arc::new(Mutex::new(Some(queue))),
@@ -40,7 +36,7 @@ impl Requests {
     }
 
     /// The queue, once: the window reads it on the thread that draws.
-    pub fn take(&self) -> Option<UnboundedReceiver<Request>> {
+    pub fn take(&self) -> Option<UnboundedReceiver<Open>> {
         self.queue
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -58,18 +54,18 @@ fn token_of(mut platform_data: HashMap<String, OwnedValue>) -> Option<Activation
 }
 
 /// The object a caller's `org.freedesktop.Application` calls land on.
-struct Application(UnboundedSender<Request>);
+struct Application(UnboundedSender<Open>);
 
 #[zbus::interface(name = "org.freedesktop.Application")]
 impl Application {
     fn activate(&self, platform_data: HashMap<String, OwnedValue>) {
         let token = token_of(platform_data);
-        let _ = self.0.send(Request::Activate { token });
+        let _ = self.0.send(Open::new(Raise, token));
     }
 
     fn open(&self, uris: Vec<String>, platform_data: HashMap<String, OwnedValue>) {
-        for request in requests_of(&uris, token_of(platform_data)) {
-            let _ = self.0.send(request);
+        for open in opens_of(&uris, token_of(platform_data)) {
+            let _ = self.0.send(open);
         }
     }
 
@@ -80,7 +76,7 @@ impl Application {
         platform_data: HashMap<String, OwnedValue>,
     ) {
         let token = token_of(platform_data);
-        let _ = self.0.send(Request::Activate { token });
+        let _ = self.0.send(Open::new(Raise, token));
     }
 }
 
@@ -106,42 +102,11 @@ pub fn serve(profile: &ProfileId) -> Option<Requests> {
     })
 }
 
-/// Ask `profile`'s running window to open `thread`, handing it the activation `token` of the
-/// click. True when a window took it; false when none is running (or there is no bus), and then
-/// the caller opens a window of its own.
-pub fn deliver(profile: &ProfileId, thread: ThreadId, token: Option<&str>) -> bool {
-    open(profile, &uri_of(thread), token)
-}
-
-/// Ask `profile`'s running window to open a composer on the `mailto:` link `uri`. True when one
-/// took it.
-pub fn deliver_mailto(profile: &ProfileId, uri: &str, token: Option<&str>) -> bool {
-    open(profile, uri, token)
-}
-
-/// Ask `profile`'s running window to show `account`'s inbox. True when one took it.
-pub fn deliver_inbox(profile: &ProfileId, account: &AccountId, token: Option<&str>) -> bool {
-    open(profile, &inbox_uri(account), token)
-}
-
-/// Ask `profile`'s running window to open a reply to `thread`. True when one took it.
-pub fn deliver_reply(profile: &ProfileId, thread: ThreadId, token: Option<&str>) -> bool {
-    open(profile, &reply_uri(thread), token)
-}
-
-/// Ask `profile`'s running window to archive `thread`. True when one took it.
-pub fn deliver_archive(profile: &ProfileId, thread: ThreadId, token: Option<&str>) -> bool {
-    open(profile, &archive_uri(thread), token)
-}
-
-/// Ask `profile`'s running window to raise itself. True when one did; false when none is running.
-pub fn deliver_activate(profile: &ProfileId, token: Option<&str>) -> bool {
-    call(profile, "Activate", &(platform_data(token),))
-}
-
-/// `Open` of the one `uri` on the window's object.
-fn open(profile: &ProfileId, uri: &str, token: Option<&str>) -> bool {
-    call(profile, "Open", &(vec![uri], platform_data(token)))
+/// Hand `ask` to `profile`'s running window, with the activation `token` of the click. True when
+/// a window took it; false when none is running (or there is no bus), and then the caller opens
+/// a window of its own.
+pub fn deliver(profile: &ProfileId, ask: &dyn Ask, token: Option<&str>) -> bool {
+    call(profile, "Open", &(vec![ask.uri()], platform_data(token)))
 }
 
 /// The `platform_data` a call carries: the activation `token`, when there is one.

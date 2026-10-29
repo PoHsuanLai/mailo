@@ -196,6 +196,17 @@ pub const ALLOW_LOGIN_ITEM: &str = "To check for mail while mailo is quit, turn 
 /// A banner's Archive for a conversation this mailbox no longer has.
 pub const NOT_ARCHIVED: &str = "That conversation could not be archived.";
 
+/// `mailo open` with nothing after it.
+pub const OPEN_NEEDS_THREAD: &str = "open needs a thread id: mailo open <thread>";
+
+/// `mailo open` with more than one word after it.
+pub const OPEN_TAKES_ONE_THREAD: &str = "open takes one thread id: mailo open <thread>";
+
+/// `mailo open` with something after it that is not a thread id.
+pub fn not_a_thread_id(given: &str) -> String {
+    format!("{given:?} is not a thread id")
+}
+
 /// `mailo open --inbox` with no account after it.
 pub const OPEN_INBOX_NEEDS_ACCOUNT: &str =
     "open --inbox needs an account id: mailo open --inbox <account>";

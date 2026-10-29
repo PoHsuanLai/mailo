@@ -17,7 +17,6 @@ crates/mail-ui/src/ui/row.rs 2
 crates/mail-ui/src/ui/saved.rs 14
 crates/mail-ui/src/ui/server_search.rs 10
 crates/mail-ui/src/ui/space_menu.rs 1
-crates/mail-ui/src/ui/start.rs 3
 crates/mail-ui/src/ui/text.rs 1
 crates/mail-ui/src/ui/view.rs 8
 crates/mail-ui/src/ui/view_groups.rs 17

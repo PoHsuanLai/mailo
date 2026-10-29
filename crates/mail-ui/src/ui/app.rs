@@ -1,4 +1,5 @@
 use super::actions::{self, Heard};
+use super::ask::{self, Open, Window};
 use super::compose::{self, SendPill};
 use super::data::{PAGE, accounts};
 use super::frame;
@@ -29,15 +30,15 @@ use mail_client::profile::ProfileId;
 use mail_domain::*;
 
 /// The Spaces the window opens on, `first` as stored: a window started from a click (`mailo
-/// open`, its conversation already in the shell) opens on the Space [`super::start::space_for`]
-/// chooses for it, written so that is where the window is. Shown without a switch: nothing was
-/// on screen to remember.
+/// open`, its conversation already in the shell) opens on the Space [`ask::space_for`] chooses
+/// for it, written so that is where the window is. Shown without a switch: nothing was on
+/// screen to remember.
 fn arrived_at(mut first: Spaces) -> Spaces {
-    let Some(start) = try_consume_context::<super::Start>() else {
+    let Some(open) = try_consume_context::<Open>() else {
         return first;
     };
     let client = crate::ui::live::client();
-    if let Some(id) = super::start::space_for(&first, &client, &start)
+    if let Some(id) = ask::space_for(&first, &client, &*open.ask)
         && id != first.current().id
     {
         first.select(id);
@@ -66,39 +67,11 @@ pub(super) fn App() -> Element {
             sorts: crate::settings::sorts_of(&crate::ui::prefs::current().window),
             ..Shell::default()
         };
-        match try_consume_context::<super::Start>() {
-            // A click's conversation or inbox. Its Space is chosen with the Spaces, below.
-            Some(start @ (super::Start::Thread(_) | super::Start::InboxOf(_))) => {
-                super::start::show(&mut shell, &start);
-            }
-            // Started from a `mailto:` link: its draft was saved before the window opened, and
-            // one read here, once, puts it in the composer.
-            Some(super::Start::Compose(id)) => {
-                let client = crate::ui::live::client();
-                if let Err(why) = shell.compose_id(&client, id) {
-                    log::warn!("compose: {why}");
-                }
-            }
-            // A banner's Reply: the reply to that conversation, in its own account.
-            Some(super::Start::Reply(thread)) => {
-                super::start::show(&mut shell, &super::Start::Reply(thread));
-                let client = crate::ui::live::client();
-                let started = super::ops::start_composing_on(
-                    &client,
-                    thread,
-                    None,
-                    super::ops::Composes::Reply(mail_domain::ReplyScope::Sender),
-                    None,
-                );
-                match started {
-                    Ok(draft) => shell.compose(&draft),
-                    Err(why) => log::warn!("compose: {why}"),
-                }
-            }
-            // A banner's Archive shows the Inbox now; the archive itself is done below, once the
-            // window's toast host exists (`super::start::archive`).
-            Some(start @ super::Start::Archive(_)) => super::start::show(&mut shell, &start),
-            Some(super::Start::Inbox) | None => {}
+        // What the window was started to show (`mailo open`, a banner's click): its conversation
+        // or inbox, shown here. Its Space is chosen with the Spaces, below, and what it does
+        // once shown is done after the first draw.
+        if let Some(open) = try_consume_context::<Open>() {
+            open.ask.show(&mut shell);
         }
         shell
     });
@@ -132,21 +105,19 @@ pub(super) fn App() -> Element {
     // conversation opens here, where the person reads, in a Space that shows its account, and
     // the window is raised with the click's token.
     super::handoff::use_handoff(shell, handle);
-    // A window started by a banner's Archive archives that conversation as its own Archive does:
-    // the toast with Undo, and a failure said in it.
+    // A window started on an ask does what it asks once it is shown: a banner's Archive archives
+    // the conversation as the window's own Archive does (the toast with Undo, a failure said in
+    // it), a Reply opens the composer, a `mailto:` link saves its draft and opens it.
     // It runs as an effect, after the first draw: the toast host is mounted with the list, and a
     // toast said before it is would only be kept as words, never shown.
-    let mut archive_asked = use_hook(|| {
-        CopyValue::new(match try_consume_context::<super::Start>() {
-            Some(super::Start::Archive(thread)) => Some(thread),
-            _ => None,
-        })
-    });
+    let mut launched = use_hook(|| CopyValue::new(try_consume_context::<Open>()));
     use_effect(move || {
-        let asked = archive_asked.write().take();
-        if let Some(thread) = asked {
-            let client = crate::ui::live::client();
-            super::start::archive(&client, shell, thread);
+        let asked = launched.write().take();
+        if let Some(open) = asked {
+            open.ask.run(Window {
+                shell,
+                spaces: handle,
+            });
         }
     });
     let spaces = handle.spaces();

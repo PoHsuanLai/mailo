@@ -202,7 +202,7 @@ impl Shared {
             mail_ui::ui::view::Appearance::default(),
             None,
             Some(self.dirs.clone()),
-            mail_ui::ui::Start::Inbox,
+            mail_ui::ui::ask::Open::raise(),
         )
         .with(self.configured.clone())
         .with(self.dialogs.clone())

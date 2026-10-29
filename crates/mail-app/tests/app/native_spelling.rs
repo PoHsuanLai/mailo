@@ -134,7 +134,7 @@ fn contexts(
             config: dir.join("config"),
             state: dir.join("state"),
         }),
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     )
     .with(printer)
     .with(dictionaries(dir))

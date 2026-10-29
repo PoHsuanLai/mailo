@@ -278,7 +278,7 @@ pub fn contexts(
     look: Appearance,
     spaces: Option<Spaces>,
     dirs: Option<WindowDirs>,
-    start: crate::ui::Start,
+    start: crate::ui::ask::Open,
 ) -> RootContexts {
     window_contexts(client, look, spaces, dirs, start).with(crate::ui::fetching::Passer::idle())
 }
@@ -289,7 +289,7 @@ fn window_contexts(
     look: Appearance,
     spaces: Option<Spaces>,
     dirs: Option<WindowDirs>,
-    start: crate::ui::Start,
+    start: crate::ui::ask::Open,
 ) -> RootContexts {
     let looks = crate::ui::reading::looks();
     // The accounts and saved views read before the first window asks, so its first frame has its
