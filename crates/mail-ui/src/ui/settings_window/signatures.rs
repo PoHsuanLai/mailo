@@ -1,6 +1,7 @@
-//! Signatures: a pane of two levels. Its root has a group for each address mail is sent from
-//! (every identity of every account that sends), each listing that identity's signatures and
-//! ending in New Signature; a signature's row pushes its page.
+//! Signatures: the accounts that send in a list on the left ([`super::account_split`]), and on the
+//! right a pane of two levels for the chosen one. Its root has the signatures of each address the
+//! account sends from, ending in New Signature (a group for each only when the account has more
+//! than one address, aliases); a signature's row pushes its page.
 //!
 //! A signature's page is its name, its words, written in the composer's own body (`compose::Body`
 //! over a page of its own that is never a draft), whether it is the default for new messages and
@@ -10,8 +11,10 @@
 //! Undo puts the signature back. The composer reads the client when it opens a message, so the
 //! next one is signed with what was kept here.
 
+use super::account_split::{AccountSplit, NoAccountsPage, shown};
 use crate::ui::compose::{Body, Page};
 use crate::ui::copy;
+use crate::ui::data::{AccountRow, account_rows};
 use crate::ui::motion::{Follow, Restore, tell};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -25,8 +28,10 @@ use mail_client::Logged;
 use mail_client::rich_text::{Doc, Node, ParaKind, Session};
 use mail_client::signature;
 use mail_domain::{Draft, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
+use porter_core::AccountId;
 
-/// The stack's element id: its back button is `signatures-pane-back-detail`.
+/// The stack's element id: its back button is `signatures-pane-back-detail`. The accounts' rows
+/// are `signatures-pane-open-<account>`.
 const STACK: &str = "signatures-pane";
 
 /// A page of the pane: the list, or one signature's page over it.
@@ -92,33 +97,57 @@ impl Unkept {
     }
 }
 
-/// The pane: every identity's signatures at its root, a signature's page over them.
+/// The page: the accounts that send, and the chosen one's signatures beside them.
 #[component]
 pub(super) fn Signatures(shell: Signal<Shell>) -> Element {
     use_context_provider(|| Refusals(Signal::new(Vec::new())));
+    // Read again when an account comes or goes.
+    let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
+    let client = crate::ui::live::client();
+    let sending = client.compose().sending_accounts();
+    let rows: Vec<AccountRow> = account_rows(&client)
+        .into_iter()
+        .filter(|row| sending.iter().any(|(_, id)| *id == row.id))
+        .collect();
+    if rows.is_empty() {
+        return rsx! { NoAccountsPage { title: copy::titles::SIGNATURES } };
+    }
+    let held = shell.read().signatures_account.clone();
+    let chosen = shown(&rows, held.as_ref()).cloned();
+    rsx! {
+        AccountSplit {
+            pane: STACK,
+            label: copy::titles::SIGNATURES,
+            rows: rows.clone(),
+            chosen: chosen.as_ref().map(|row| row.id.clone()),
+            onpick: move |id: AccountId| {
+                let mut shell = shell;
+                shell.write().signatures_account = Some(id);
+            },
+            if let Some(row) = chosen {
+                AccountSignatures { key: "{row.id}", shell, row }
+            }
+        }
+    }
+}
+
+/// One account's signatures: its addresses' at the root, a signature's page over them.
+#[component]
+fn AccountSignatures(shell: Signal<Shell>, row: AccountRow) -> Element {
     let client = crate::ui::live::client();
     let mut path = use_signal(|| PanePath::new(SignaturesAt::List));
-    let any = !client.compose().sending_accounts().is_empty();
-    if !any {
-        return rsx! {
-            PageHeader { title: copy::titles::SIGNATURES }
-            Form {
-                FormSection {
-                    FieldRow { label: copy::empty::ADD_AN_ACCOUNT_FIRST }
-                }
-            }
-        };
-    }
+    let account = row.id.clone();
+    let name = row.shown();
     let titled = client.clone();
     let title = use_callback(move |at: SignaturesAt| match at {
-        SignaturesAt::List => copy::titles::SIGNATURES.to_owned(),
+        SignaturesAt::List => name.clone(),
         SignaturesAt::Signature(id) => titled
             .stored()
             .signature(id)
-            .map_or_else(|_| copy::titles::SIGNATURES.to_owned(), |kept| kept.name),
+            .map_or_else(|_| name.clone(), |kept| kept.name),
     });
     let page = use_callback(move |at: SignaturesAt| match at {
-        SignaturesAt::List => rsx! { SignatureList { path } },
+        SignaturesAt::List => rsx! { SignatureList { path, account: account.clone() } },
         SignaturesAt::Signature(id) => rsx! {
             SignaturePage { key: "{id}", shell, path, id }
         },
@@ -154,19 +183,27 @@ fn defaults_of(signature: &Signature) -> String {
     }
 }
 
-/// The root: a group for each identity, its signatures and New Signature.
+/// The root: the account's identities, each with its signatures and New Signature, in a group of
+/// its own titled by the address only where there is more than one to tell apart.
 #[component]
-fn SignatureList(path: Signal<PanePath<SignaturesAt>>) -> Element {
+fn SignatureList(path: Signal<PanePath<SignaturesAt>>, account: AccountId) -> Element {
     // Read again with each change: a signature made, renamed, made a default or deleted.
     let _ =
         crate::ui::live::moved_for(mail_client::Topics::IDENTITIES | mail_client::Topics::ACCOUNTS);
     let client = crate::ui::live::client();
     // Unreadable is nothing to list; the next change read again.
-    let every = client.signing().every().unwrap_or_default();
+    let every: Vec<_> = client
+        .signing()
+        .every()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(identity, _)| identity.account == account)
+        .collect();
+    let aliased = every.len() > 1;
     rsx! {
         Form {
             for (identity, signatures) in every {
-                FormSection { key: "{identity.id}", title: Some(heading(&identity)),
+                FormSection { key: "{identity.id}", title: aliased.then(|| heading(&identity)),
                     List::<String> {
                         label: heading(&identity),
                         items: rows(&identity, &signatures, path),

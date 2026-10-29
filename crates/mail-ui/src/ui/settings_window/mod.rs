@@ -33,6 +33,7 @@
 //! open: quire's harness has no event loop to open a window on.
 
 mod account;
+pub(in crate::ui) mod account_split;
 mod accounts;
 mod keys;
 mod offline;
@@ -52,8 +53,7 @@ pub use root::settings_root;
 use crate::ui::copy;
 use crate::ui::space::SpaceId;
 use crate::ui::view::{
-    AccountStep, AccountsPage, AccountsPane, ContactsPage, RulesAt, SettingsPage, Shell,
-    SpacesPage, VacationAt,
+    AccountStep, AccountsPage, AccountsPane, ContactsPage, RulesAt, SettingsPage, Shell, SpacesPage,
 };
 use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
@@ -70,7 +70,7 @@ use tokio::sync::watch;
 pub(in crate::ui) const TITLE: &str = copy::titles::SETTINGS;
 
 /// The size the window opens at, in logical pixels.
-const SIZE: (u32, u32) = (780, 620);
+const SIZE: (u32, u32) = (960, 640);
 
 impl SettingsPage {
     pub(in crate::ui) const ALL: [SettingsPage; 13] = [
@@ -127,7 +127,7 @@ impl SettingsPage {
     }
 }
 
-/// Where the Settings window is asked to be: a page, one account's page pushed over Accounts,
+/// Where the Settings window is asked to be: a page, one account's page beside Accounts' list,
 /// one Space's pushed over Spaces, or one person's card pushed over Contacts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsAt {
@@ -148,15 +148,14 @@ impl SettingsAt {
         }
     }
 
-    /// The Accounts pane as it stands there: the list, or the account's page over it.
+    /// The Accounts pane as it stands there: the first account, or the account asked for.
     pub(in crate::ui) fn pane(&self) -> AccountsPane {
         match self {
             SettingsAt::Page(_) | SettingsAt::Space(_) | SettingsAt::Card(_) => {
                 AccountsPane::default()
             }
             SettingsAt::Account(account) => AccountsPane {
-                path: PanePath::new(AccountsPage::List)
-                    .pushed(AccountsPage::Account(account.clone())),
+                shown: Some(AccountsPage::Account(account.clone())),
                 step: AccountStep::Showing,
             },
         }
@@ -264,7 +263,7 @@ pub(in crate::ui) fn open_at(page: SettingsPage) {
     ask(Some(SettingsAt::Page(page)));
 }
 
-/// Open Settings on `account`'s page, pushed over Accounts, or raise it and turn it there.
+/// Open Settings on `account`'s page, beside Accounts' list, or raise it and turn it there.
 pub(in crate::ui) fn open_account(account: AccountId) {
     ask(Some(SettingsAt::Account(account)));
 }
@@ -293,22 +292,21 @@ fn ask(at: Option<SettingsAt>) {
     }
 }
 
-/// Show `page` in this Settings window, Accounts and Rules at their lists as System Settings shows
-/// a pane chosen in its sidebar.
+/// Show `page` in this Settings window, each per-account page on the account it last showed and
+/// with what it pushed closed, as System Settings shows a pane chosen in its sidebar.
 pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: SettingsPage) {
     let mut write = shell.write();
     write.settings = Some(page);
     if write.accounts_pane.step != AccountStep::Removing {
-        write.accounts_pane = AccountsPane::default();
+        write.accounts_pane.step = AccountStep::Showing;
     }
     write.rules.path = PanePath::new(RulesAt::List);
     write.spaces_pane = PanePath::new(SpacesPage::List);
     write.contacts_pane = PanePath::new(ContactsPage::List);
-    write.vacation_pane = PanePath::new(VacationAt::List);
 }
 
-/// Turn this Settings window to `at`: a page, an account's page over Accounts, or a Space's
-/// over Spaces.
+/// Turn this Settings window to `at`: a page, an account's page beside Accounts' list, or a
+/// Space's over Spaces.
 pub(in crate::ui) fn go_to(shell: Signal<Shell>, at: SettingsAt) {
     match at {
         SettingsAt::Page(page) => go(shell, page),

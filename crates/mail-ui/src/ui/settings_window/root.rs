@@ -113,12 +113,6 @@ fn SettingsShell() -> Element {
     crate::ui::frame::use_followed_configuration(shell, spaces, Some(handle), keys);
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
-        // Escape with the keyboard outside the Accounts pane (on the window itself, or the
-        // sidebar) still goes back from an account's page; inside it the pane's stack took it.
-        let pushed = !shell.read().accounts_pane.path.is_root();
-        if key == "Escape" && pushed && shell.read().settings == Some(SettingsPage::Accounts) {
-            super::account::back(shell);
-        }
         let space_pushed = !shell.read().spaces_pane.is_root();
         if key == "Escape" && space_pushed && shell.read().settings == Some(SettingsPage::Spaces) {
             super::spaces::back(shell, handle);
@@ -126,11 +120,6 @@ fn SettingsShell() -> Element {
         let card_pushed = !shell.read().contacts_pane.is_root();
         if key == "Escape" && card_pushed && shell.read().settings == Some(SettingsPage::Contacts) {
             crate::ui::contacts::page::back(shell);
-        }
-        let reply_pushed = !shell.read().vacation_pane.is_root();
-        if key == "Escape" && reply_pushed && shell.read().settings == Some(SettingsPage::Vacation)
-        {
-            crate::ui::rules::vacation_back(shell);
         }
     };
 

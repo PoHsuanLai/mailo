@@ -10,13 +10,10 @@ pub const NO_RECIPIENT: &str = "(no recipient)";
 pub const NO_TRUSTED_SENDERS: &str = "No trusted senders yet";
 /// Settings › General › VIPs, with nobody marked.
 pub const NO_VIPS: &str = "No VIPs yet";
-/// Settings › Notifications, with no account to switch on or off.
-pub const NO_ACCOUNTS_TO_NOTIFY: &str = "No accounts yet";
 /// Settings › Accounts › Other Keys, with nothing on it.
 pub const NO_OTHER_KEYS: &str = "No other keys or certificates yet";
-/// Settings › Accounts with no account.
-pub const NO_ACCOUNTS: &str = "No accounts yet";
-/// Settings › Rules with no account to make a rule on.
+/// Settings › Accounts, Signatures, Rules, Vacation Reply and Notifications with no account to
+/// show or switch, beside an Add Account….
 pub const ADD_AN_ACCOUNT_FIRST: &str = "Add an account first.";
 
 /// The list with nothing left in it once the quick filter's toggles narrowed it.

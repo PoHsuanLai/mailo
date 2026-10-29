@@ -25,7 +25,7 @@ use crate::ui::files::Phase;
 use crate::ui::fixtures::{
     Seen, acct_account, click, dispatching, drain_seen, rebuild_into, right_click, type_into,
 };
-use crate::ui::view::{RulesAt, Shell, VacationAt};
+use crate::ui::view::{RulesAt, Shell};
 
 /// The first render, then the ones after it, keeping every attribute they set: what floats in
 /// quire's overlay, and a page the stack pushes, are drawn the frames after the one that asked
@@ -44,8 +44,8 @@ async fn landed(dom: &mut VirtualDom, mut seen: Seen) -> Seen {
     seen.merge(drain_seen(dom))
 }
 
-/// The page on `account`, at `at`; Settings' Vacation Reply page instead, for `vacation`, with
-/// `account`'s reply pushed over the accounts.
+/// The page on `account`, at `at`; Settings' Vacation Reply page instead, for `vacation`, on
+/// `account`'s reply.
 #[component]
 fn Page(account: Option<AccountId>, at: RulesAt, #[props(default)] vacation: bool) -> Element {
     let shell = use_signal(|| Shell {
@@ -53,12 +53,7 @@ fn Page(account: Option<AccountId>, at: RulesAt, #[props(default)] vacation: boo
             account: account.clone(),
             path: PanePath::new(RulesAt::List).pushed(at.clone()),
         },
-        vacation_pane: match account.clone() {
-            Some(account) if vacation => {
-                PanePath::new(VacationAt::List).pushed(VacationAt::Account(account))
-            }
-            _ => PanePath::new(VacationAt::List),
-        },
+        vacation_account: account.clone(),
         ..Shell::default()
     });
     crate::ui::motion::use_motion();

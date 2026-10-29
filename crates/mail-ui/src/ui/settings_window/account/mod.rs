@@ -1,6 +1,6 @@
-//! An account's own page in Settings' Accounts pane, pushed over the list as System Settings
-//! pushes an Internet Account: whether all its mail is downloaded ([`super::offline`]), how often
-//! it is checked and how far back ([`super::syncing`]), the name it sends as and its aliases
+//! An account's own page in Settings' Accounts pane, on the right of the list of accounts as
+//! System Settings shows an Internet Account: whether all its mail is downloaded
+//! ([`super::offline`]), how often it is checked and how far back ([`super::syncing`]), the name it sends as and its aliases
 //! ([`sends_as`]), its servers and sign-in, its own keys and certificates (`pgp::keys`), and,
 //! last and alone, Remove Account….
 //!
@@ -17,7 +17,7 @@
 //! confirming button removes; Escape and Cancel leave the page as it was. A removal runs off the
 //! thread that draws (the keyring blocks), on the window's own task, so turning to another page
 //! does not cut it short. When it is done the offline setting forgets the account, the store
-//! has moved and the pane goes back to the list: the links, the lists, the Spaces and the pressed
+//! has moved and the pane shows the first account: the links, the lists, the Spaces and the pressed
 //! tile follow it, as they do for an account removed with `mailo account remove`. What the page
 //! says is [`words`]'s.
 
@@ -160,34 +160,19 @@ fn to(mut shell: Signal<Shell>, step: AccountStep) {
     shell.write().accounts_pane.step = step;
 }
 
-/// Back one page, as the back button, Escape and ⌘[ ask: from an account's page to the list.
-/// Nothing while the question is up (the alert answers Escape itself) or a removal is under way.
-pub(super) fn back(mut shell: Signal<Shell>) {
-    let step = shell.peek().accounts_pane.step.clone();
-    match step {
-        AccountStep::Asking | AccountStep::Removing => {}
-        AccountStep::Showing | AccountStep::Refused(_) => {
-            let mut write = shell.write();
-            let popped = write.accounts_pane.path.popped();
-            write.accounts_pane.path = popped;
-            write.accounts_pane.step = AccountStep::Showing;
-        }
-    }
-}
-
-/// Show the list: the account's page has nothing left to show. A removal under way goes back
-/// to it on its own.
-fn to_list(mut shell: Signal<Shell>) {
+/// Show the first account: the page has nothing left to show. A removal under way goes to it
+/// on its own.
+fn to_first(mut shell: Signal<Shell>) {
     if shell.peek().accounts_pane.step == AccountStep::Removing {
         return;
     }
     let mut write = shell.write();
-    write.accounts_pane.path = PanePath::new(AccountsPage::List);
+    write.accounts_pane.shown = None;
     write.accounts_pane.step = AccountStep::Showing;
 }
 
-/// The confirming button: remove the account, then tidy what the window kept of it and go back
-/// to the list.
+/// The confirming button: remove the account, then tidy what the window kept of it and show the
+/// first account.
 fn confirm(mut shell: Signal<Shell>, account: AccountId) {
     if shell.peek().accounts_pane.step != AccountStep::Asking {
         return;
@@ -218,9 +203,8 @@ fn confirm(mut shell: Signal<Shell>, account: AccountId) {
                 forgotten(dirs.as_ref(), account.clone());
                 let mut write = shell.write();
                 write.accounts_pane.step = AccountStep::Showing;
-                if *write.accounts_pane.path.current() == AccountsPage::Account(account) {
-                    let popped = write.accounts_pane.path.popped();
-                    write.accounts_pane.path = popped;
+                if write.accounts_pane.shown == Some(AccountsPage::Account(account)) {
+                    write.accounts_pane.shown = None;
                 }
             }
             Err(error) => to(shell, AccountStep::Refused(words::refused(&error))),
@@ -282,11 +266,11 @@ pub(super) fn AccountPage(shell: Signal<Shell>, account: AccountId) -> Element {
     let waiting = use_needs();
     let storage = use_storage(account.clone(), waiting);
     let row = row_of(&account);
-    // Removed from elsewhere while the page was shown: the pane goes back to the list.
+    // Removed from elsewhere while the page was shown: the pane shows the first account.
     let gone = row.is_none();
     use_effect(use_reactive!(|gone| {
         if gone {
-            to_list(shell);
+            to_first(shell);
         }
     }));
     let Some(row) = row else {

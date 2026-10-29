@@ -9,7 +9,7 @@
 //! A folder picked for a role is laid over what the server says (the client's `with_picks`), so
 //! the next refresh of the server's folders keeps it; "Automatic" gives the role back.
 
-use crate::ui::common::{Problem, classed};
+use crate::ui::common::Problem;
 use crate::ui::copy;
 use crate::ui::copy::fields::account as field;
 use crate::ui::copy::status::account as said;
@@ -61,7 +61,7 @@ pub(super) fn About(row: AccountRow) -> Element {
                     label: field::DESCRIPTION.to_owned(),
                     value: typed(),
                     placeholder: row.address.clone(),
-                    common: Common { id: Some("acct-description".to_owned()), ..classed("acct-field") },
+                    common: Common { id: Some("acct-description".to_owned()), ..Common::default() },
                     oninput: move |value: String| typed.set(value),
                     onchange: move |value: String| {
                         let account = described.clone();
