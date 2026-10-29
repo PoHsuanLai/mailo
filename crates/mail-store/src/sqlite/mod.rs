@@ -156,8 +156,8 @@ fn private_files(path: &Path) -> Result<(), StoreError> {
 const READERS: usize = 3;
 
 thread_local! {
-    /// Whether this thread is one of the client's read workers ([`SqliteStore::mark_worker_thread`]).
-    static WORKER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Whether the last reader is kept for this thread ([`SqliteStore::reserve_reader_for_this_thread`]).
+    static RESERVED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 /// How many prepared statements each connection keeps.
@@ -474,12 +474,12 @@ impl SqliteStore {
         self.changes.subscribe(Some(wake))
     }
 
-    /// Say that the calling thread is a worker that reads for others, as the client's read threads
-    /// are: it may hold a reader for as long as a read takes (a pinned snapshot, a slow query),
-    /// so it is kept off the last reader, which is the one the other threads — the window's
-    /// drawing among them — can always get.
-    pub fn mark_worker_thread() {
-        WORKER.set(true);
+    /// Keep the last reader for the calling thread, the one whose reads must never queue behind
+    /// another thread's: every other thread — the client's read workers holding a snapshot, a
+    /// sync pass reading what it already holds — reads on the others, however long it holds one.
+    /// Several threads may say so; they share the last reader among themselves alone.
+    pub fn reserve_reader_for_this_thread() {
+        RESERVED.set(true);
     }
 
     /// How many connections read beside the writer: none for an in-memory database. What a
@@ -566,8 +566,9 @@ impl SqliteStore {
     /// A thread inside [`Self::read_pinned`] is handed its pinned reader again, so every read it
     /// makes is of the one snapshot.
     ///
-    /// The last reader is not a worker's ([`Self::mark_worker_thread`]): a thread that waits for a
-    /// reader waits on that one, so the window's drawing never waits behind a worker's pinned read.
+    /// The last reader is kept for the threads it is reserved for
+    /// ([`Self::reserve_reader_for_this_thread`]), so their reads never wait behind another
+    /// thread's, pinned or slow.
     pub(crate) fn reader(&self) -> ReentrantMutexGuard<'_, Connection> {
         if self.db.is_owned_by_current_thread() {
             return self.db.lock();
@@ -579,19 +580,18 @@ impl SqliteStore {
         {
             return pinned.lock();
         }
-        // The last reader is kept for threads that are not workers: workers, which may hold a
-        // reader for a whole pinned read, take the others, so the thread that draws never waits
-        // on one.
         let Some((reserved, others)) = self.readers.split_last() else {
             return self.db.lock();
         };
-        if WORKER.get() && !others.is_empty() {
+        if !RESERVED.get() && !others.is_empty() {
             for reader in others {
                 if let Some(free) = reader.try_lock() {
                     return free;
                 }
             }
-            // Every reader a worker may use is busy with other workers: wait on one of them.
+            // Every reader this thread may use is busy: wait on one of them, never on the
+            // reserved one or on the writer, which may be held for a whole ingest chunk. A thread
+            // holding the writer never gets here, so this wait cannot close a cycle with one.
             return others[0].lock();
         }
         if let Some(free) = reserved.try_lock() {
@@ -602,10 +602,7 @@ impl SqliteStore {
                 return free;
             }
         }
-        // Every reader busy: wait on the reserved one, which only threads that are not workers
-        // hold, rather than on a worker's or on the writer, which may be held for a whole ingest
-        // chunk. A thread holding the writer never gets here, so this wait cannot close a cycle
-        // with one.
+        // Every reader busy: wait on the reserved one, which only the threads it is kept for hold.
         reserved.lock()
     }
 }
