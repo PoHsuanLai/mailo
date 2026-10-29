@@ -30,8 +30,6 @@ pub const CHECK_FOR_NEW_MAIL: &str = "Check for new mail";
 pub const DOWNLOAD_MAIL_FROM: &str = "Download mail from";
 /// A POP3 account's page: when the server's copy of a message goes.
 pub const REMOVE_FROM_SERVER: &str = "Remove from server";
-/// Settings › Rules: whose rules the page shows, when there are several accounts.
-pub const ACCOUNT: &str = "Account";
 /// The keys Settings lists: the row that imports an OpenPGP key.
 pub const OPENPGP_KEY: &str = "OpenPGP Key";
 /// The keys Settings lists: the row that imports an S/MIME certificate or identity.

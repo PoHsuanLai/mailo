@@ -193,25 +193,8 @@ pub fn receipt_goes_unchecked(to: &str) -> String {
     format!("It would go to {to}, which can’t be checked against where the message came from")
 }
 
-/// Whether an account's vacation reply is on, beside its address in Settings › Vacation Reply.
+/// A vacation reply in words, in Settings › Vacation Reply.
 pub mod vacation {
-    pub const OFF: &str = "Off";
-    pub const ON: &str = "On";
-    /// Its "Until" has passed: the server sends it no longer.
-    pub const ENDED: &str = "Ended";
-    /// The account's server runs no vacation reply.
-    pub const UNAVAILABLE: &str = "Not available";
-
-    /// On, starting at `when`.
-    pub fn from(when: &str) -> String {
-        format!("From {when}")
-    }
-
-    /// On, ending at `when`.
-    pub fn until(when: &str) -> String {
-        format!("Until {when}")
-    }
-
     /// When a kept reply runs: from `from` until `until`, each `None` when it is unbounded.
     pub fn runs(from: Option<&str>, until: Option<&str>) -> String {
         match (from, until) {

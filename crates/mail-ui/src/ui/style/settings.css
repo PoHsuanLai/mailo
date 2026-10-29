@@ -4,6 +4,10 @@
 .settings { display: grid; grid-template-columns: 13rem minmax(0, 1fr); height: 100%; min-height: 0; }
 .settings-scroll { height: 100%; min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .settings-page { min-width: 0; }
+/* The pages that list accounts (`settings_window::account_split`): the list in a pane of its
+   own, and the chosen account's settings beside it. Each scrolls under the page's height. */
+.account-list, .account-detail { height: 100%; box-sizing: border-box; overflow-y: auto; scrollbar-width: none; }
+.account-list { padding: var(--s-8) var(--s-6); }
 /* A row that adds something leads with a bare plus (`common::add_mark`), plain beside the colour
    of the rows it adds to, in a box a row's tile wide so its title starts where theirs do. */
 .add-mark { display: grid; place-items: center; width: var(--row-icon-tile); height: var(--row-icon-tile); color: var(--ink-soft); }

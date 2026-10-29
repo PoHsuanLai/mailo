@@ -1,7 +1,6 @@
-//! An account's page in Settings' Accounts pane, over the reference fixture: its row pushes it
-//! under a back button to Accounts, the back button and Escape go back to the list, Remove
-//! Account… asks before it removes and then goes back, and the window opens on the page when the
-//! main window asks for it.
+//! An account's page in Settings' Accounts pane, over the reference fixture: its row in the list
+//! shows it beside the list, Remove Account… asks before it removes and then shows the first
+//! account, and the window opens on the page when the main window asks for it.
 
 use super::Seams;
 use crate::ui::data::account_rows;
@@ -28,22 +27,23 @@ fn poh(built: &Work) -> AccountId {
         .unwrap_or_else(|| panic!("the fixture has no {ADDRESS}"))
 }
 
-/// The Settings window on Accounts with `ADDRESS`'s page pushed by its row.
+/// The element id of `account`'s row in the list.
+fn row_id(account: &AccountId) -> String {
+    crate::ui::settings_window::account_split::row_id("accounts-pane", account)
+}
+
+/// The Settings window on Accounts with `ADDRESS`'s page chosen by its row.
 pub(in crate::ui) fn pushed(built: &Work) -> (VirtualDom, Seen) {
     let (mut dom, seen) = opened_on(built, PageId::ACCOUNTS);
-    let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
+    let row = seen.one("id", &row_id(&poh(built)));
     let seen = seen.merge(click(&mut dom, row)).merge(drain_seen(&mut dom));
     (dom, seen)
 }
 
-/// Whether the pane shows an account's page, the page a slide arrives at: the stack's page that
-/// is not leaving holds the back button, which names the list. A leaving page stays drawn until
-/// its slide rests, which a test's VirtualDom never plays.
+/// Whether the pane shows `ADDRESS`'s page: its Remove Account… is the page's last part, and
+/// no other account's page draws the same label.
 fn on_account_page(page: &str) -> bool {
-    page.split(r#"class="ds-pane-stack-page""#)
-        .skip(1)
-        .find(|drawn| !drawn[..drawn.find('>').unwrap_or(0)].contains(r#"data-presence="leaving""#))
-        .is_some_and(|drawn| drawn.contains(r#"aria-label="Back to Accounts""#))
+    page.contains(&format!(r#"aria-label="Remove {ADDRESS}""#))
 }
 
 /// Render until `done` holds of the page, bounded by the wall clock: the removal and the list's
@@ -77,18 +77,27 @@ fn alert_confirm(seen: &Seen) -> dioxus::dioxus_core::ElementId {
 }
 
 #[tokio::test]
-async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
+async fn an_account_s_row_shows_its_page_beside_the_list() {
     let built = work();
     let (dom, _) = opened_on(&built, PageId::ACCOUNTS);
     let page = dioxus_ssr::render(&dom);
-    assert!(!on_account_page(&page), "pushed before a click: {page}");
     assert!(
         page.contains(crate::ui::copy::controls::ADD_ACCOUNT),
         "{page}"
     );
+    assert!(
+        page.contains(&format!("id=\"{}\"", row_id(&poh(&built)))),
+        "{ADDRESS} has no row: {page}"
+    );
+    // Add Account… leads with the plain plus, as every add row does.
+    assert!(page.contains("class=\"add-mark\""), "{page}");
     // The list names each account by its address and its provider's mark, never its protocol.
-    // The page's words: its text, not its stylesheets or attributes.
-    let words: String = page
+    // The list's words: its text, not its stylesheets or attributes.
+    let list = page
+        .split(r#"class="account-detail""#)
+        .next()
+        .unwrap_or_default();
+    let words: String = list
         .split("</style>")
         .map(|part| part.split("<style").next().unwrap_or_default())
         .collect::<String>()
@@ -105,11 +114,8 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
 
     let (dom, _) = pushed(&built);
     let page = dioxus_ssr::render(&dom);
-    assert!(on_account_page(&page), "no back button: {page}");
-    assert!(
-        page.contains(&format!(r#"<h2 class="ds-page-title">{ADDRESS}</h2>"#)),
-        "the page is not titled with the account: {page}"
-    );
+    assert!(on_account_page(&page), "no page for the account: {page}");
+    assert!(!page.contains("Back to"), "a back button: {page}");
     assert!(page.contains("Receiving"), "{page}");
     assert!(page.contains("Signs in"), "{page}");
     assert!(page.contains("data-page=\"Accounts\""), "{page}");
@@ -132,20 +138,7 @@ async fn an_account_s_row_pushes_its_page_under_a_back_button_to_accounts() {
 }
 
 #[tokio::test]
-async fn the_back_button_goes_back_to_the_list() {
-    let built = work();
-    let (mut dom, seen) = pushed(&built);
-    click(&mut dom, seen.one("aria-label", "Back to Accounts"));
-    let _ = drain_seen(&mut dom);
-    let page = dioxus_ssr::render(&dom);
-    assert!(
-        !on_account_page(&page),
-        "the back button left the page: {page}"
-    );
-}
-
-#[tokio::test]
-async fn remove_asks_then_removes_the_account_and_goes_back_to_the_list() {
+async fn remove_asks_then_removes_the_account_and_shows_the_first() {
     let built = work();
     let before = account_rows(&crate::ui::fixtures::client(&built.store)).len();
     let (mut dom, seen) = pushed(&built);
@@ -165,8 +158,8 @@ async fn remove_asks_then_removes_the_account_and_goes_back_to_the_list() {
     let _ = drain_seen(&mut dom);
     assert!(on_account_page(&dioxus_ssr::render(&dom)));
 
+    let gone = format!("id=\"{}\"", row_id(&poh(&built)));
     click(&mut dom, alert_confirm(&asked));
-    let gone = format!("Details for {ADDRESS}");
     let (listed_without, page) = until(&mut dom, |page| {
         !on_account_page(page) && !page.contains(&gone)
     })
@@ -191,15 +184,19 @@ async fn the_window_opens_on_the_account_s_page_the_main_window_asks_for() {
         .with_root_context(crate::ui::fixtures::client(&built.store))
         .with_root_context(built.dirs.clone())
         .with_root_context(asked.clone());
-    let _ = crate::ui::fixtures::rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    let seen = crate::ui::fixtures::rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains("data-page=\"Accounts\""), "{page}");
-    assert!(on_account_page(&page), "not pushed: {page}");
+    assert!(on_account_page(&page), "not shown: {page}");
     assert!(page.contains(ADDRESS), "{page}");
 
-    // Asked again while open, after going back.
-    press(&mut dom, "Escape", INSIDE_THE_SHELL);
-    let _ = drain_seen(&mut dom);
+    // Asked again while open, after another account was chosen.
+    let other = account_rows(&crate::ui::fixtures::client(&built.store))
+        .into_iter()
+        .find(|row| row.address != ADDRESS)
+        .expect("the fixture has another account")
+        .id;
+    let _ = click(&mut dom, seen.one("id", &row_id(&other))).merge(drain_seen(&mut dom));
     assert!(!on_account_page(&dioxus_ssr::render(&dom)));
     asked.ask(SettingsAt::Account(poh(&built)));
     let (turned, page) = until(&mut dom, on_account_page).await;
@@ -234,14 +231,17 @@ async fn the_page_says_how_much_storage_the_server_counts_once_it_has_said() {
         seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
-    // The list asks no server: only an account's own page does.
-    assert!(asked.lock().unwrap().is_empty());
-    let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
+    let row = seen.one("id", &row_id(&poh(&built)));
     let _ = click(&mut dom, row).merge(drain_seen(&mut dom));
     let storage = crate::ui::copy::fields::account::STORAGE;
     let (shown, page) = until(&mut dom, |page| page.contains(storage)).await;
     assert!(shown, "no storage row: {page}");
-    assert_eq!(*asked.lock().unwrap(), vec![poh(&built)]);
+    let asks = asked.lock().unwrap().clone();
+    assert_eq!(
+        asks.iter().filter(|id| **id == poh(&built)).count(),
+        1,
+        "asked once for the account"
+    );
     // Under the servers, before the keys.
     let at = |drawn: &str| {
         page.find(drawn)
@@ -282,11 +282,11 @@ async fn an_account_waiting_to_sign_in_is_not_asked_for_its_storage() {
         seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
-    let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
+    let row = seen.one("id", &row_id(&poh(&built)));
     let _ = click(&mut dom, row).merge(drain_seen(&mut dom));
     let _ = until(&mut dom, on_account_page).await;
     assert!(
-        asked.lock().unwrap().is_empty(),
+        !asked.lock().unwrap().contains(&poh(&built)),
         "asked a server that needs a sign-in"
     );
 }
@@ -322,11 +322,11 @@ async fn a_paused_account_is_not_asked_for_its_storage() {
         seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
-    let row = seen.one("aria-label", &format!("Details for {ADDRESS}"));
+    let row = seen.one("id", &row_id(&poh(&built)));
     let _ = click(&mut dom, row).merge(drain_seen(&mut dom));
     let _ = until(&mut dom, on_account_page).await;
     assert!(
-        asked.lock().unwrap().is_empty(),
+        !asked.lock().unwrap().contains(&poh(&built)),
         "asked a server of a paused account"
     );
 }

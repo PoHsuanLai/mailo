@@ -422,7 +422,7 @@ const PAGES: &[(PageId, &str)] = &[
     (PageId::PRIVACY, "Load remote images"),
     (PageId::JUNK_MAIL, "Filter Junk Mail"),
     (PageId::RULES, crate::ui::copy::controls::NEW_RULE),
-    (PageId::VACATION, "id=\"vacation-pane\""),
+    (PageId::VACATION, "id=\"vacation-pane-open-"),
     (PageId::KEYBOARD, "Change the key for"),
 ];
 
@@ -478,20 +478,32 @@ async fn every_page_is_drawn_in_the_window_from_its_sidebar_row() {
     }
 }
 
-/// Vacation Reply is a pane as Spaces is: its root lists the accounts, each saying whether its
-/// reply is on, and a row pushes that account's reply, switch and all, as a page of its own.
+/// Whether the element with `id` is drawn selected.
+fn selected(markup: &str, id: &str) -> bool {
+    let at = markup
+        .find(&format!("id=\"{id}\""))
+        .unwrap_or_else(|| panic!("no element {id}: {markup}"));
+    let start = markup[..at].rfind('<').unwrap_or(0);
+    let end = at + markup[at..].find('>').unwrap_or(0);
+    markup[start..end].contains("aria-selected=\"true\"")
+}
+
+/// The accounts with a server, as the fixture has them.
+fn served(built: &Work) -> Vec<crate::ui::data::AccountRow> {
+    crate::ui::data::account_rows(&crate::ui::fixtures::client(&built.store))
+        .into_iter()
+        .filter(|row| !row.is_local())
+        .collect()
+}
+
+/// Vacation Reply lists the accounts, the first chosen, and beside the list is the chosen
+/// account's reply, switch and all; another row shows that account's.
 #[tokio::test]
-async fn vacation_reply_lists_the_accounts_and_a_row_pushes_its_reply() {
+async fn vacation_reply_lists_the_accounts_and_shows_the_chosen_one_s_reply() {
     let built = work();
     let (mut dom, seen) = opened_on(&built, PageId::VACATION);
     let list = dioxus_ssr::render(&dom);
-    let rows: Vec<_> = crate::ui::data::account_rows(&crate::ui::fixtures::client(&built.store))
-        .into_iter()
-        .filter(|row| !row.is_local())
-        .collect();
-    let first = rows
-        .first()
-        .expect("the fixture has an account with a server");
+    let rows = served(&built);
     for row in &rows {
         assert!(
             list.contains(&format!("id=\"vacation-pane-open-{}\"", row.id)),
@@ -500,41 +512,84 @@ async fn vacation_reply_lists_the_accounts_and_a_row_pushes_its_reply() {
         );
     }
     assert!(
-        !list.contains("role=\"switch\""),
-        "the root draws a reply: {list}"
+        list.contains("role=\"switch\""),
+        "no reply beside the list: {list}"
     );
+    assert!(selected(
+        &list,
+        &format!("vacation-pane-open-{}", rows[0].id)
+    ));
 
-    let pushed = click(
+    let _ = click(
         &mut dom,
-        seen.one("id", &format!("vacation-pane-open-{}", first.id)),
+        seen.one("id", &format!("vacation-pane-open-{}", rows[1].id)),
     )
     .merge(drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
-    assert!(
-        page.contains("role=\"switch\""),
-        "the reply's page has no switch: {page}"
-    );
-    assert!(
-        page.contains(&first.shown()),
-        "the page is not titled by its account: {page}"
-    );
-    let back = pushed.one("id", "vacation-pane-back-detail");
-    let _ = click(&mut dom, back);
-    // The page slides away before it is gone.
-    let _ = crate::ui::fixtures::later(&mut dom).await;
-    assert!(
-        !dioxus_ssr::render(&dom).contains("role=\"switch\""),
-        "back did not go back"
-    );
+    assert!(page.contains("role=\"switch\""), "{page}");
+    assert!(selected(
+        &page,
+        &format!("vacation-pane-open-{}", rows[1].id)
+    ));
+    assert!(!selected(
+        &page,
+        &format!("vacation-pane-open-{}", rows[0].id)
+    ));
+}
+
+/// Every per-account page is the same split: picking an account in its list changes what is
+/// beside it, and each page keeps its own choice while the window turns to others.
+#[tokio::test]
+async fn an_account_picked_in_the_list_is_kept_for_the_page_that_picked_it() {
+    let built = work();
+    let rows = served(&built);
+    dispatching();
+    let mut dom = VirtualDom::new(settings_root)
+        .with_root_context(crate::ui::fixtures::client(&built.store))
+        .with_root_context(built.dirs.clone());
+    let window = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
+    let seen = click(
+        &mut dom,
+        window.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
+    )
+    .merge(drain_seen(&mut dom));
+    let account = |row: &crate::ui::data::AccountRow| format!("accounts-pane-open-{}", row.id);
+    let remove =
+        |row: &crate::ui::data::AccountRow| format!("aria-label=\"Remove {}\"", row.address);
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains(&remove(&rows[0])), "{page}");
+    assert!(selected(&page, &account(&rows[0])));
+
+    let _ = click(&mut dom, seen.one("id", &account(&rows[1]))).merge(drain_seen(&mut dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(page.contains(&remove(&rows[1])), "{page}");
+    assert!(!page.contains(&remove(&rows[0])), "{page}");
+
+    // Another page of the same layout has a choice of its own, the first by default.
+    let _ = click(
+        &mut dom,
+        window.one("aria-label", crate::ui::copy::titles::VACATION_REPLY),
+    )
+    .merge(drain_seen(&mut dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(selected(
+        &page,
+        &format!("vacation-pane-open-{}", rows[0].id)
+    ));
+
+    // And the first keeps what it was given.
+    let _ = click(
+        &mut dom,
+        window.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
+    )
+    .merge(drain_seen(&mut dom));
+    let page = dioxus_ssr::render(&dom);
+    assert!(selected(&page, &account(&rows[1])), "{page}");
+    assert!(page.contains(&remove(&rows[1])), "{page}");
 }
 
 /// Each page that lists things, the add row under them, and the label of the list it stands in.
 const ADDS: &[(PageId, &str, &str)] = &[
-    (
-        PageId::ACCOUNTS,
-        crate::ui::copy::controls::ADD_ACCOUNT,
-        crate::ui::copy::aria::ADD_ACCOUNT,
-    ),
     (
         PageId::SPACES,
         crate::ui::copy::controls::NEW_SPACE,
@@ -547,7 +602,7 @@ const ADDS: &[(PageId, &str, &str)] = &[
     ),
 ];
 
-/// Accounts, Spaces and Rules set their add row alike: in a list of its own under the things it
+/// Spaces and Rules set their add row alike: in a list of its own under the things it
 /// adds to, led by the plain plus and not a coloured tile.
 #[tokio::test]
 async fn every_add_row_stands_in_a_list_of_its_own_led_by_the_plain_plus() {

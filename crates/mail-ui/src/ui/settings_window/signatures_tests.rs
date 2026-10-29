@@ -1,4 +1,5 @@
-//! Settings › Signatures over the reference fixture: a signature's page pushed from its row,
+//! Settings › Signatures over the reference fixture: an account's signatures beside the list of
+//! accounts, a signature's page pushed from its row,
 //! Delete Signature said in a toast whose Undo puts it back, and a change the store refuses said
 //! under the words.
 
@@ -28,9 +29,24 @@ fn work_signature(built: &Work) -> Signature {
     signature::create(&built.store, identity.id, "Work").unwrap()
 }
 
-/// The Settings window on Signatures, with `made`'s page pushed from its row.
+/// The Settings window on Signatures, with `made`'s account chosen in the list and its page
+/// pushed from its row.
 fn pushed(built: &Work, made: &Signature) -> (VirtualDom, Seen) {
     let (mut dom, seen) = opened_on(built, PageId::SIGNATURES);
+    let account = built
+        .store
+        .identity(made.identity)
+        .unwrap()
+        .expect("the signature's identity")
+        .account;
+    let picked = click(
+        &mut dom,
+        seen.one(
+            "id",
+            &crate::ui::settings_window::account_split::row_id("signatures-pane", &account),
+        ),
+    );
+    let seen = seen.merge(picked).merge(drain_seen(&mut dom));
     let seen = click(&mut dom, seen.one("id", &row_id(made.id))).merge(drain_seen(&mut dom));
     (dom, seen)
 }

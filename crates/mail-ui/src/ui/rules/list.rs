@@ -1,4 +1,4 @@
-//! The root of the Rules page: the account chosen, when there are several; its rules in the order
+//! The root of an account's rules: its rules in the order
 //! they run, a row each with its switch and its name, then New Rule…; and how a rule being applied
 //! to the mail already here goes. On an account whose server cannot run rules, one line says they
 //! run only while mailo is open.
@@ -13,12 +13,9 @@ use ds::components::controls::progress::view::ProgressIndicator;
 use ds::components::fields::field_row::FieldRow;
 use ds::components::lists::list::model::ListStyle;
 use ds::components::lists::row::size::RowSize;
-use ds::components::menus::item::item::MenuItem as Choice;
-use ds::components::menus::pop_up_button::PopUpButton;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_domain::{Rule, RuleState};
-use porter_core::AccountId;
 
 use super::super::common::{add_mark, classed};
 use super::super::data::AccountRow;
@@ -30,18 +27,17 @@ use super::work::{self, Listed, Step};
 use super::{Said, open, row_id};
 use crate::ui::common::Problem;
 use crate::ui::copy;
-use crate::ui::view::{RulesAt, RulesPage as Showing, Shell};
+use crate::ui::view::{RulesAt, Shell};
 
 /// The keys of the list's rows that are not a rule's.
 const NEW: &str = " new";
 const NONE: &str = " none";
 
-/// The list, for `row` (`None` before there is an account), `rows` being every account.
+/// The list, for `row`.
 #[component]
 pub(super) fn RulesList(
     shell: Signal<Shell>,
-    row: Option<AccountRow>,
-    rows: Vec<AccountRow>,
+    row: AccountRow,
     said: Said,
     pushed: Callback<AccountRow>,
     phase: Signal<Phase>,
@@ -54,21 +50,8 @@ pub(super) fn RulesList(
     // What a rule's menu asks, done here, as the menu closes on the pick.
     let acted = use_callback({
         let row = row.clone();
-        move |(key, rule): (String, Rule)| {
-            if let Some(row) = &row {
-                act(&key, &rule, row, said, pushed);
-            }
-        }
+        move |(key, rule): (String, Rule)| act(&key, &rule, &row, said, pushed)
     });
-    let Some(row) = row else {
-        return rsx! {
-            Form {
-                FormSection {
-                    FieldRow { label: copy::empty::ADD_AN_ACCOUNT_FIRST }
-                }
-            }
-        };
-    };
     let client = crate::ui::live::client();
     let (rules, failed) = match work::listed(&client, row.id.clone()) {
         Ok(rules) => (rules, None),
@@ -123,7 +106,6 @@ pub(super) fn RulesList(
         .is_err()
         .then(|| copy::status::RULES_RUN_HERE.to_owned());
     rsx! {
-        AccountChoice { shell, rows, row: row.clone(), said }
         Form {
             // With no rules yet, New Rule stands alone and says where they would run.
             if !empty {
@@ -138,43 +120,6 @@ pub(super) fn RulesList(
         }
         if let Some((listed, at)) = menu() {
             RuleMenu { listed, at, row, menu, acted }
-        }
-    }
-}
-
-/// The account whose rules and vacation reply are shown, when there are several: the Rules and
-/// Vacation Reply pages share it.
-#[component]
-pub(super) fn AccountChoice(
-    shell: Signal<Shell>,
-    rows: Vec<AccountRow>,
-    row: AccountRow,
-    said: Said,
-) -> Element {
-    if rows.len() < 2 {
-        return rsx! {};
-    }
-    let accounts: Vec<Choice<AccountId>> = rows
-        .iter()
-        .map(|row| Choice::new(row.id.clone(), row.shown()))
-        .collect();
-    rsx! {
-        Form {
-            FormSection {
-                FieldRow { label: copy::fields::ACCOUNT,
-                    PopUpButton::<AccountId> {
-                        items: accounts,
-                        value: Some(row.id.clone()),
-                        title: Some(copy::fields::ACCOUNT.to_owned()),
-                        onpick: move |id: AccountId| {
-                            let mut said = said;
-                            said.set(None);
-                            let mut shell = shell;
-                            shell.write().rules = Showing { account: Some(id), ..Showing::default() };
-                        },
-                    }
-                }
-            }
         }
     }
 }
