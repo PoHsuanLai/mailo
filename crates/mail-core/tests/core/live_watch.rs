@@ -1,9 +1,9 @@
 //! The reusable watch: one connection held open, and what the server says as typed events.
 //!
 //! The scripted server is a thread on loopback speaking just enough IMAP to log in, select the
-//! inbox and park in `IDLE`. What is under test is that a `* n EXISTS` it sends while idling comes
-//! out as [`Heard::Mail`], that the connection is called established only once it has been held,
-//! and that the watch ends in the ways a caller has to act on.
+//! inbox and park in `IDLE`. What is under test is IMAP's: a refused login is a loss that asks for
+//! a sign-in, and a followed folder is idled on a connection of its own. How a watch hears and
+//! ends is `sync::live`'s own tests, against a protocol with no server.
 
 use crate::support::{account, now};
 use mail_core::sync::live::{self, Heard};
@@ -22,8 +22,6 @@ use tokio::sync::watch;
 /// What the scripted server does when the client asks to idle.
 #[derive(Clone, Copy)]
 enum Idling {
-    /// Park, then report one new message after a moment.
-    Announce,
     /// Park and say nothing.
     Quiet,
     /// Park, saying nothing in the inbox and reporting one new message after a moment in the
@@ -86,7 +84,6 @@ fn session(sock: std::net::TcpStream, idling: Idling, login: Login) {
             idle_tag = Some(tag);
             say("+ idling\r\n");
             let announces = match idling {
-                Idling::Announce => true,
                 Idling::AnnounceIn(mailbox) => selected == mailbox,
                 Idling::Quiet => false,
             };
@@ -175,49 +172,6 @@ fn listening_with_grace(
         )
     });
     (handle, heard)
-}
-
-/// Wait up to five seconds for `heard` to hold at least `n` events.
-fn until(heard: &Arc<Mutex<Vec<Heard>>>, n: usize) -> Vec<Heard> {
-    for _ in 0..100 {
-        let now = heard.lock().unwrap().clone();
-        if now.len() >= n {
-            return now;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    heard.lock().unwrap().clone()
-}
-
-#[test]
-fn a_server_announcing_mail_while_idling_is_heard_as_mail() {
-    let port = server(Idling::Announce, Login::Accept);
-    let store = configured(port, WatchMode::Idle);
-    let (cancel, rx) = watch::channel(false);
-    let (handle, heard) = listening(store, rx);
-
-    let all = until(&heard, 2);
-    assert_eq!(
-        all.get(..2),
-        Some(&[Heard::Established, Heard::Mail][..]),
-        "held, then told: {all:?}"
-    );
-    cancel.send(true).unwrap();
-    assert_eq!(handle.join().unwrap(), Ok(()), "cancelling is not a loss");
-}
-
-#[test]
-fn a_quiet_server_is_held_and_released_on_cancel() {
-    let port = server(Idling::Quiet, Login::Accept);
-    let store = configured(port, WatchMode::Idle);
-    let (cancel, rx) = watch::channel(false);
-    let (handle, heard) = listening(store, rx);
-
-    assert_eq!(until(&heard, 1), [Heard::Established]);
-    std::thread::sleep(Duration::from_millis(200));
-    assert_eq!(*heard.lock().unwrap(), [Heard::Established], "nothing said");
-    cancel.send(true).unwrap();
-    assert_eq!(handle.join().unwrap(), Ok(()));
 }
 
 #[test]

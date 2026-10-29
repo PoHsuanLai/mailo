@@ -11,272 +11,37 @@ use ds::prelude::*;
 use std::collections::HashMap;
 
 use super::super::menu::{MenuItem, Right, Run, Tile, Tone};
+use super::commands::{COMMANDS, Command};
 use crate::ui::actions;
-use crate::ui::bin::Bin;
 use crate::ui::copy::menus;
-use chordkit::{Keymap, StandardAction};
+use chordkit::Keymap;
 use chrono::{DateTime, Utc};
 use mail_client::Client;
-use mail_client::search::{self, ActionHit, Command, PersonHit, Results, Top};
+use mail_client::search::{self, ActionHit, PersonHit, Results, Top};
 use mail_domain::ThreadId;
 
-/// A command the panel offers, by what it does. A row is dispatched on this, never on its
-/// words: its label is looked up from [`ENTRIES`], so renaming one changes no behaviour.
-///
-/// Only verbs. A place is found by its own name ([`super::sections::places_for`]), and a page of
-/// Settings, the theme or the state of the connections are Settings' own, one row away.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum CommandId {
-    Compose,
-    FromTemplate,
-    ForwardAttached,
-    /// The open conversation's newest message: answered at its list's address, passed on
-    /// unchanged, and copied into a new message.
-    ReplyList,
-    Redirect,
-    Again,
-    /// Run the rules over the conversations picked, or the open one.
-    ApplyRules,
-    Print,
-    Sync,
-    Empty(Bin),
-    TidyUp,
-    Sidebar,
-    /// Organise by Conversation, turned for the place shown: a menu bar's View menu has it.
-    Conversations,
-    AddAccount,
-    Import,
-    Export,
-    NewView,
-    Settings,
-    /// Contacts in or out as vCard: the book has no page of its own.
-    Contacts(Cards),
-}
-
-/// Which way a Contacts command moves the book.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Cards {
-    /// Settings › Contacts, the book itself.
-    Open,
-    Import,
-    Export,
-}
-
-/// One command's row: what it does, the key its row carries, its words, its glyph, and the
-/// standard action whose chord is drawn beside it.
-pub(in crate::ui) struct Entry {
-    pub id: CommandId,
-    /// The row's key after `action:`. Stable, and never shown.
-    pub key: &'static str,
-    pub label: &'static str,
-    pub icon: Icon,
-    pub standard: Option<StandardAction>,
-}
-
-const fn entry(
-    id: CommandId,
-    key: &'static str,
-    label: &'static str,
-    icon: Icon,
-    standard: Option<StandardAction>,
-) -> Entry {
-    Entry {
-        id,
-        key,
-        label,
-        icon,
-        standard,
-    }
-}
-
-/// The actions the window can run today, in the order the panel offers them.
-pub(in crate::ui) const ENTRIES: &[Entry] = &[
-    entry(
-        CommandId::Compose,
-        "compose",
-        menus::NEW_MESSAGE,
-        Icon::Pen,
-        Some(StandardAction::New),
-    ),
-    entry(
-        CommandId::FromTemplate,
-        "from-template",
-        menus::NEW_FROM_TEMPLATE,
-        Icon::FilePen,
-        None,
-    ),
-    entry(
-        CommandId::ForwardAttached,
-        "forward-attached",
-        menus::FORWARD_AS_ATTACHMENT,
-        Icon::Forward,
-        None,
-    ),
-    entry(
-        CommandId::ReplyList,
-        "reply-list",
-        menus::REPLY_TO_LIST,
-        Icon::Group,
-        None,
-    ),
-    entry(
-        CommandId::Redirect,
-        "redirect",
-        menus::REDIRECT,
-        Icon::ArrowUpRight,
-        None,
-    ),
-    entry(
-        CommandId::Again,
-        "edit-as-new",
-        menus::EDIT_AS_NEW,
-        Icon::FilePen,
-        None,
-    ),
-    entry(
-        CommandId::ApplyRules,
-        "apply-rules",
-        menus::APPLY_RULES,
-        Icon::Check,
-        None,
-    ),
-    entry(
-        CommandId::Print,
-        "print",
-        menus::PRINT_CONVERSATION,
-        Icon::Printer,
-        Some(StandardAction::Print),
-    ),
-    entry(
-        CommandId::Sync,
-        "sync",
-        menus::SYNC_NOW,
-        Icon::Refresh,
-        None,
-    ),
-    entry(
-        CommandId::Empty(Bin::Trash),
-        "empty-trash",
-        menus::EMPTY_TRASH,
-        Icon::Command,
-        None,
-    ),
-    entry(
-        CommandId::Empty(Bin::Spam),
-        "empty-spam",
-        menus::EMPTY_SPAM,
-        Icon::Command,
-        None,
-    ),
-    entry(
-        CommandId::TidyUp,
-        "tidy-up",
-        menus::TIDY_UP,
-        Icon::Archive,
-        None,
-    ),
-    entry(
-        CommandId::Sidebar,
-        "sidebar",
-        menus::HIDE_SIDEBAR,
-        Icon::PanelLeft,
-        Some(StandardAction::ToggleSidebar),
-    ),
-    entry(
-        CommandId::Conversations,
-        "conversations",
-        menus::ORGANISE_BY_CONVERSATION,
-        Icon::Group,
-        None,
-    ),
-    entry(
-        CommandId::AddAccount,
-        "add-account",
-        menus::ADD_ACCOUNT,
-        Icon::Plus,
-        None,
-    ),
-    entry(
-        CommandId::Import,
-        "import",
-        menus::IMPORT_MAIL,
-        Icon::Plus,
-        None,
-    ),
-    entry(
-        CommandId::Export,
-        "export",
-        menus::EXPORT_MAIL,
-        Icon::Forward,
-        None,
-    ),
-    // The contact book, and the book in and out as vCard.
-    entry(
-        CommandId::Contacts(Cards::Open),
-        "contacts",
-        menus::OPEN_CONTACTS,
-        Icon::Group,
-        None,
-    ),
-    entry(
-        CommandId::Contacts(Cards::Import),
-        "import-contacts",
-        menus::IMPORT_CONTACTS,
-        Icon::Group,
-        None,
-    ),
-    entry(
-        CommandId::Contacts(Cards::Export),
-        "export-contacts",
-        menus::EXPORT_CONTACTS,
-        Icon::Group,
-        None,
-    ),
-    entry(
-        CommandId::NewView,
-        "new-view",
-        menus::NEW_VIEW,
-        Icon::Search,
-        None,
-    ),
-    entry(
-        CommandId::Settings,
-        "settings",
-        menus::SETTINGS,
-        Icon::Settings,
-        None,
-    ),
-];
-
 /// The commands as the matcher takes them: their words, in the panel's order.
-pub(in crate::ui) fn commands() -> Vec<Command> {
-    ENTRIES
+pub(in crate::ui) fn commands() -> Vec<search::Command> {
+    COMMANDS
         .iter()
-        .map(|entry| Command {
-            label: entry.label.to_owned(),
+        .map(|command| search::Command {
+            label: command.label().to_owned(),
         })
         .collect()
 }
 
-/// The entry for `id`. Every id has one; [`ENTRIES`] is checked against them in the tests.
-pub(in crate::ui) fn entry_of(id: CommandId) -> &'static Entry {
-    ENTRIES
+/// The command the matcher answered with: its hit carries the words it matched, which are one
+/// command's (the labels are distinct, as the tests hold).
+fn hit_command(hit: &ActionHit) -> Option<&'static dyn Command> {
+    COMMANDS
         .iter()
-        .find(|entry| entry.id == id)
-        .expect("every command has an entry")
-}
-
-/// The entry the matcher answered with: its hit carries the words it matched, which are one
-/// entry's (the labels are distinct, as the tests hold).
-fn entry_hit(hit: &ActionHit) -> Option<&'static Entry> {
-    ENTRIES
-        .iter()
-        .find(|entry| entry.label == hit.command.label)
+        .copied()
+        .find(|command| command.label() == hit.command.label)
 }
 
 /// The key a command's row carries.
-pub(in crate::ui) fn action_key(entry: &Entry) -> String {
-    format!("action:{}", entry.key)
+pub(in crate::ui) fn action_key(command: &dyn Command) -> String {
+    format!("action:{}", command.key())
 }
 
 /// What Enter does with one row.
@@ -284,7 +49,7 @@ pub(in crate::ui) fn action_key(entry: &Entry) -> String {
 pub(in crate::ui) enum Pick {
     Open(ThreadId),
     From(String),
-    Action(CommandId),
+    Action(&'static dyn Command),
 }
 
 /// The key the row was given, read back against the results that produced it.
@@ -306,9 +71,9 @@ pub(in crate::ui) fn interpret(results: &Results, key: &str) -> Option<Pick> {
     top_action
         .into_iter()
         .chain(&results.actions)
-        .filter_map(entry_hit)
-        .find(|entry| key == action_key(entry))
-        .map(|entry| Pick::Action(entry.id))
+        .filter_map(hit_command)
+        .find(|command| key == action_key(*command))
+        .map(Pick::Action)
 }
 
 /// The groups [`rows_of`] and Recent file their rows under, which
@@ -433,17 +198,17 @@ pub(in crate::ui) fn avatar_color(email: &str) -> String {
 /// A command row, with the chord of the standard action it is drawn from `keymap`: its first
 /// chord, in the platform's own order and words (`Ctrl+N` on Windows, ⌘N on a Mac).
 fn action_item(hit: &ActionHit, group: &str, keymap: &Keymap) -> MenuItem {
-    let entry = entry_hit(hit);
-    let shortcut = entry
-        .and_then(|entry| entry.standard)
+    let command = hit_command(hit);
+    let shortcut = command
+        .and_then(|command| command.standard())
         .and_then(|action| actions::hint_standard(keymap, action));
     MenuItem {
         right: shortcut.map(Right::Shortcut).unwrap_or(Right::None),
         group: Some(group.to_owned()),
         marks: hit.indices.clone(),
         ..MenuItem::icon(
-            entry.map_or_else(String::new, action_key),
-            entry.map_or(Icon::Command, |entry| entry.icon),
+            command.map_or_else(String::new, action_key),
+            command.map_or(Icon::Command, |command| command.icon()),
             hit.command.label.clone(),
         )
     }

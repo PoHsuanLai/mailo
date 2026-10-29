@@ -4,13 +4,14 @@
 //! own (names they gave, addresses they wrote to), so it is labelled trusted, unlike the mail it
 //! was learned from.
 
-use super::{Provider, Shown, outcome};
+use super::{Provider, outcome};
 use crate::intents::APP;
 use crate::intents::wire::{
     AppRefusal, EntityId, Invocation, Label, Labelled, Outcome, Output, Target,
 };
 use mail_core::Store;
 use mail_domain::Address;
+use mail_ui::ui::ask;
 
 /// The most a contact search answers with.
 const LIMIT: usize = 25;
@@ -57,7 +58,7 @@ impl Provider {
         };
         let address = self.contact_address(id)?;
         (self.opener.0)(
-            &Shown::Mailto(mailto_of(&address.email)),
+            &ask::Mailto::to(&address.email),
             invocation.activation.as_deref(),
         )
         .map_err(AppRefusal::Failed)?;
@@ -80,18 +81,4 @@ impl Provider {
             email: contact.address,
         })
     }
-}
-
-/// A `mailto:` link to `email`: every byte but a letter, a digit and `@ . _ + -` escaped, so the
-/// link reads back as the one address (`mail_mime::mailto`) whatever the address holds.
-pub(super) fn mailto_of(email: &str) -> String {
-    let mut link = String::from("mailto:");
-    for byte in email.bytes() {
-        if byte.is_ascii_alphanumeric() || b"@._+-".contains(&byte) {
-            link.push(char::from(byte));
-        } else {
-            link.push_str(&format!("%{byte:02X}"));
-        }
-    }
-    link
 }

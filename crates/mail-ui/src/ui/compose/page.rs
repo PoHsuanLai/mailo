@@ -469,6 +469,7 @@ impl Page {
     /// (the identity, what it replies to) is whatever the client says.
     pub(in crate::ui) fn apply_to(&self, base: &Draft, now: DateTime<Utc>) -> Draft {
         let doc = &self.session.doc;
+        let (openpgp, smime) = self.protection.fields();
         Draft {
             to: self.to.iter().map(address).collect(),
             cc: self.cc.iter().map(address).collect(),
@@ -483,8 +484,8 @@ impl Page {
             priority: self.priority,
             delivery: self.delivery,
             automatic: false,
-            openpgp: self.protection.openpgp(),
-            smime: self.protection.smime(),
+            openpgp,
+            smime,
             updated: now,
             ..base.clone()
         }

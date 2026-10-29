@@ -9,6 +9,7 @@ use crate::smime_support;
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp::WithSecret;
+use mail_core::protect::Seal;
 use mail_core::smime;
 use mail_core::testing::MapSigningStore;
 use mail_core::{Arrival, SigningStore};
@@ -96,7 +97,7 @@ fn trust_root(store: &SqliteStore, secrets: &MapSigningStore) {
     smime::certs::trust(store, pki().root.cert.fingerprint(), KeyTrust::Verified).unwrap();
 }
 
-fn draft(store: &SqliteStore, mode: Smime, recipients: &[&str], bcc: &[&str]) -> Draft {
+fn draft(store: &SqliteStore, mode: Option<Mode>, recipients: &[&str], bcc: &[&str]) -> Draft {
     sealed::draft(
         store,
         acct_account(),
@@ -151,7 +152,7 @@ fn arrive(store: &SqliteStore, raw: Vec<u8>) -> Message {
 }
 
 /// A message from Bea to the user, sealed by Bea's client.
-fn from_bea(mode: Smime, to_certs: &[Cert], body: &[u8]) -> Vec<u8> {
+fn from_bea(mode: Mode, to_certs: &[Cert], body: &[u8]) -> Vec<u8> {
     cms_smime::seal(
         body,
         &Sealing {
@@ -317,7 +318,7 @@ mod sending {
     fn a_signed_draft_leaves_as_multipart_signed_that_verifies() {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();
-        let d = draft(&store, Smime::Sign, &[BEA], &[]);
+        let d = draft(&store, Some(Mode::Sign), &[BEA], &[]);
         send(&store, &secrets, d.id).unwrap();
         let raw = frozen(&store);
         let text = String::from_utf8_lossy(&raw);
@@ -342,7 +343,7 @@ mod sending {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();
         import_bea(&store, &secrets);
-        let d = draft(&store, Smime::SignAndEncrypt, &[BEA], &[]);
+        let d = draft(&store, Some(Mode::SignAndEncrypt), &[BEA], &[]);
         send(&store, &secrets, d.id).unwrap();
         let raw = frozen(&store);
         assert!(
@@ -381,20 +382,20 @@ mod sending {
         let _serial = serial();
         type Case = (
             &'static str,
-            Smime,
+            Option<Mode>,
             &'static [&'static str],
             &'static [&'static str],
         );
         const CASES: &[Case] = &[
             (
                 "certificate to encrypt to for bea@example.test",
-                Smime::Encrypt,
+                Some(Mode::Encrypt),
                 &[BEA],
                 &[],
             ),
             (
                 "cannot have Bcc",
-                Smime::Encrypt,
+                Some(Mode::Encrypt),
                 &[BEA],
                 &["hidden@example.test"],
             ),
@@ -403,7 +404,7 @@ mod sending {
         let identity = my_identity();
         for (said, mode, recipients, bcc) in CASES {
             let d = draft(&store, *mode, recipients, bcc);
-            let refused = smime::check(&store, &d, &identity, now()).unwrap_err();
+            let refused = smime::Smime::check(&store, &d, &identity, now()).unwrap_err();
             assert!(refused.to_string().contains(said), "{said}: {refused}");
             let sent = send(&store, &secrets, d.id).unwrap_err();
             assert!(sent.contains(said), "{said}: {sent}");
@@ -411,8 +412,8 @@ mod sending {
         }
         // Signing needs the user's own certificate.
         let (bare, _dir2) = seeded();
-        let d = draft(&bare, Smime::Sign, &[BEA], &[]);
-        let refused = smime::check(&bare, &d, &identity, now()).unwrap_err();
+        let d = draft(&bare, Some(Mode::Sign), &[BEA], &[]);
+        let refused = smime::Smime::check(&bare, &d, &identity, now()).unwrap_err();
         assert!(
             matches!(refused, smime::SmimeError::NoOwnCert(_)),
             "{refused}"
@@ -420,20 +421,71 @@ mod sending {
     }
 
     #[test]
+    fn check_names_what_stands_in_the_way_of_each_ask() {
+        let _serial = serial();
+        let (store, _dir, _secrets) = with_identity();
+        let identity = my_identity();
+        let check = |mode, to: &[&str], bcc: &[&str]| {
+            smime::Smime::check(&store, &draft(&store, mode, to, bcc), &identity, now())
+        };
+
+        // Nothing asked, or only OpenPGP asked: not this scheme's business.
+        assert!(check(None, &[BEA], &[]).is_ok());
+        let mut pgp_only = draft(&store, None, &[BEA], &[]);
+        pgp_only.openpgp = Some(Mode::Sign);
+        assert!(smime::Smime::check(&store, &pgp_only, &identity, now()).is_ok());
+
+        // Both asked.
+        let mut both = draft(&store, Some(Mode::Sign), &[BEA], &[]);
+        both.openpgp = Some(Mode::Sign);
+        assert!(matches!(
+            smime::Smime::check(&store, &both, &identity, now()),
+            Err(smime::SmimeError::BothProtections)
+        ));
+
+        // No certificate of the sender's own.
+        let (bare, _dir2) = seeded();
+        let unkeyed = draft(&bare, Some(Mode::Sign), &[BEA], &[]);
+        assert!(matches!(
+            smime::Smime::check(&bare, &unkeyed, &identity, now()),
+            Err(smime::SmimeError::NoOwnCert(address)) if address == ME
+        ));
+
+        // Bcc with encryption, and not with signing alone.
+        assert!(matches!(
+            check(Some(Mode::SignAndEncrypt), &[BEA], &["blind@example.test"]),
+            Err(smime::SmimeError::BlindRecipients(blind)) if blind == ["blind@example.test"]
+        ));
+        assert!(check(Some(Mode::Sign), &[BEA], &["blind@example.test"]).is_ok());
+
+        // A recipient with no certificate.
+        assert!(matches!(
+            check(Some(Mode::Encrypt), &[BEA], &[]),
+            Err(smime::SmimeError::NoCertFor(missing)) if missing == [BEA]
+        ));
+
+        // Every recipient certified.
+        import_bea(&store, &_secrets);
+        assert!(check(Some(Mode::Encrypt), &[BEA], &[]).is_ok());
+        assert!(check(Some(Mode::SignAndEncrypt), &[BEA], &[]).is_ok());
+        assert!(check(Some(Mode::Sign), &[BEA], &[]).is_ok());
+    }
+
+    #[test]
     fn a_draft_asking_both_openpgp_and_smime_is_refused_at_check_and_at_send() {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();
         mail_core::pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
-        let mut d = draft(&store, Smime::Sign, &[BEA], &[]);
-        d.openpgp = OpenPgp::Sign;
+        let mut d = draft(&store, Some(Mode::Sign), &[BEA], &[]);
+        d.openpgp = Some(Mode::Sign);
         compose::save(&store, &d).unwrap();
         let identity = my_identity();
         assert!(matches!(
-            smime::check(&store, &d, &identity, now()),
+            smime::Smime::check(&store, &d, &identity, now()),
             Err(smime::SmimeError::BothProtections)
         ));
         assert!(matches!(
-            mail_core::pgp::check(&store, &d, &identity, now()),
+            mail_core::pgp::OpenPgp::check(&store, &d, &identity, now()),
             Err(mail_core::pgp::PgpError::BothProtections)
         ));
         let refused = compose::send_with(
@@ -466,7 +518,7 @@ mod sending {
                 [&to(&[BEA]), &[], &[]],
                 "hi",
                 "body",
-                (ReceiptRequest::Unrequested, OpenPgp::None, Smime::Encrypt),
+                (ReceiptRequest::Unrequested, None, Some(Mode::Encrypt)),
                 now(),
             )
             .unwrap(),
@@ -514,7 +566,7 @@ mod reading {
         let (store, _dir, secrets) = with_identity();
         assert!(smime::cert_for(&store, BEA, now()).unwrap().is_none());
         let before = smime::epoch();
-        arrive(&store, from_bea(Smime::Sign, &[], BODY));
+        arrive(&store, from_bea(Mode::Sign, &[], BODY));
         let learnt = smime::certs::find(&store, BEA).unwrap();
         assert_eq!(learnt.source, CertSource::Received);
         assert_eq!(learnt.fingerprint, bea().cert.fingerprint());
@@ -524,10 +576,10 @@ mod reading {
         let second = String::from_utf8(BODY.to_vec())
             .unwrap()
             .replace("<b1@example.test>", "<b2@example.test>");
-        arrive(&store, from_bea(Smime::Sign, &[], second.as_bytes()));
+        arrive(&store, from_bea(Mode::Sign, &[], second.as_bytes()));
         assert_eq!(smime::epoch(), again);
         // And the user can now answer encrypted.
-        let d = draft(&store, Smime::Encrypt, &[BEA], &[]);
+        let d = draft(&store, Some(Mode::Encrypt), &[BEA], &[]);
         send(&store, &secrets, d.id).unwrap();
     }
 
@@ -539,7 +591,7 @@ mod reading {
             "From: Bea <bea@example.test>",
             "From: Eve <eve@example.test>",
         );
-        arrive(&store, from_bea(Smime::Sign, &[], forged.as_bytes()));
+        arrive(&store, from_bea(Mode::Sign, &[], forged.as_bytes()));
         assert!(store.smime_certs_for(BEA).unwrap().is_empty());
         assert!(
             store
@@ -553,7 +605,7 @@ mod reading {
     fn an_encrypted_message_opens_with_its_attachment_readable_and_is_never_stored_decrypted() {
         let _serial = serial();
         let (store, dir, secrets) = with_identity();
-        let message = arrive(&store, from_bea(Smime::SignAndEncrypt, &[me().cert], BODY));
+        let message = arrive(&store, from_bea(Mode::SignAndEncrypt, &[me().cert], BODY));
         let opened = smime::open_message(&store, &secrets, &message, now())
             .unwrap()
             .unwrap();
@@ -602,9 +654,9 @@ mod reading {
         let looks = mail_core::message::Looks::new();
         let sealed = arrive(
             &store,
-            from_bea(Smime::SignAndEncrypt, &[me().cert], &html("sealed")),
+            from_bea(Mode::SignAndEncrypt, &[me().cert], &html("sealed")),
         );
-        let signed = arrive(&store, from_bea(Smime::Sign, &[], &html("signed")));
+        let signed = arrive(&store, from_bea(Mode::Sign, &[], &html("signed")));
         // Not yet opened: the reader may be about to find it decrypted, so nothing remote yet.
         assert!(!looks.opened_may_load_remote(&sealed));
         assert!(looks.opened_may_load_remote(&signed));
@@ -619,7 +671,7 @@ mod reading {
     fn mail_encrypted_to_someone_else_says_so_and_the_cli_shows_the_status() {
         let _serial = serial();
         let (store, _dir, secrets) = with_identity();
-        let message = arrive(&store, from_bea(Smime::Encrypt, &[bea().cert], BODY));
+        let message = arrive(&store, from_bea(Mode::Encrypt, &[bea().cert], BODY));
         let opened = smime::open_message(&store, &secrets, &message, now())
             .unwrap()
             .unwrap();

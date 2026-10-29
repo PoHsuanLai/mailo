@@ -12,11 +12,11 @@
 
 pub mod certs;
 pub mod read;
-pub mod send;
+pub mod seal;
 
 pub use certs::{Imported, cert_for, own_cert};
 pub use read::{Protected, open_bytes, open_message};
-pub use send::{check, outgoing};
+pub use seal::Smime;
 
 use mail_domain::CertFingerprint;
 use mail_mime::MimeError;

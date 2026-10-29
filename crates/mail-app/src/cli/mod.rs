@@ -193,9 +193,9 @@ pub enum Command {
         /// `--request-receipt`: ask the recipients to confirm they displayed it.
         receipt: ReceiptRequest,
         /// `--sign`, `--encrypt`, or both: what OpenPGP does to it when it is sent.
-        openpgp: OpenPgp,
+        openpgp: Option<Mode>,
         /// The same with `--smime`: what S/MIME does to it instead.
-        smime: Smime,
+        smime: Option<Mode>,
     },
     /// S/MIME certificates: list, import, export, delete, trust, and one message's status.
     Smime(smime::SmimeCommand),
@@ -670,22 +670,22 @@ pub fn parse(args: &[String]) -> Result<Command, String> {
                 body: String::new(),
                 receipt,
                 openpgp: match (sign, encrypt, smime) {
-                    (_, _, true) | (false, false, _) => OpenPgp::None,
-                    (true, false, false) => OpenPgp::Sign,
-                    (false, true, false) => OpenPgp::Encrypt,
-                    (true, true, false) => OpenPgp::SignAndEncrypt,
+                    (_, _, true) | (false, false, _) => None,
+                    (true, false, false) => Some(Mode::Sign),
+                    (false, true, false) => Some(Mode::Encrypt),
+                    (true, true, false) => Some(Mode::SignAndEncrypt),
                 },
                 smime: match (sign, encrypt, smime) {
-                    (_, _, false) => Smime::None,
+                    (_, _, false) => None,
                     (false, false, true) => {
                         return Err(format!(
                             "--smime says how to --sign or --encrypt; give one of them too\n\n{}",
                             usage()
                         ));
                     }
-                    (true, false, true) => Smime::Sign,
-                    (false, true, true) => Smime::Encrypt,
-                    (true, true, true) => Smime::SignAndEncrypt,
+                    (true, false, true) => Some(Mode::Sign),
+                    (false, true, true) => Some(Mode::Encrypt),
+                    (true, true, true) => Some(Mode::SignAndEncrypt),
                 },
             })
         }
@@ -1057,9 +1057,14 @@ fn parse_export(args: &[String]) -> Result<Command, String> {
             usage()
         )
     };
+    // The flag is a format's slug: `--mbox`, `--maildir`, `--eml`.
+    fn writer_of(flag: &str) -> Option<&'static dyn mail_core::formats::Writer> {
+        flag.strip_prefix("--")
+            .and_then(mail_core::formats::writer_named)
+    }
     let at = args
         .iter()
-        .position(|a| matches!(a.as_str(), "--mbox" | "--maildir" | "--eml"))
+        .position(|a| writer_of(a).is_some())
         .ok_or_else(wrong)?;
     let [flag, path] = &args[at..] else {
         return Err(wrong());
@@ -1069,12 +1074,11 @@ fn parse_export(args: &[String]) -> Result<Command, String> {
         return Err(wrong());
     }
     let path = std::path::PathBuf::from(path);
-    let target = match flag.as_str() {
-        "--mbox" => mail_core::export::Target::Mbox(path),
-        "--maildir" => mail_core::export::Target::Maildir(path),
-        _ => mail_core::export::Target::Eml(path),
-    };
-    Ok(Command::Export { query, target })
+    let writer = writer_of(flag).ok_or_else(wrong)?;
+    Ok(Command::Export {
+        query,
+        target: mail_core::export::Target::new(writer, path),
+    })
 }
 
 fn parse_folder(args: &[String]) -> Result<Command, String> {

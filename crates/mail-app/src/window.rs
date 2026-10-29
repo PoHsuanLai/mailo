@@ -14,7 +14,7 @@ pub fn open(
     look: mail_ui::ui::view::Appearance,
     spaces: mail_ui::ui::space::Spaces,
     dirs: Option<mail_ui::ui::appearance::WindowDirs>,
-    start: mail_ui::ui::Start,
+    start: mail_ui::ui::ask::Open,
 ) -> Result<(), mail_ui::ui::LaunchError> {
     // The desktop launcher's copy of the recent conversations and the address book, kept while
     // the window runs, on threads of its own (`intents::index`).

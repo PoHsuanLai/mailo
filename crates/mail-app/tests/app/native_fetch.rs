@@ -13,7 +13,7 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use porter_core::AccountId;
 use settle::settle_until;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use crate::store::acct_account;
@@ -61,16 +61,35 @@ fn with_account(store: &SqliteStore, id: AccountId, address: &str) {
         .unwrap();
 }
 
+/// A pass that stays unfinished until the returned sender is dropped (or a minute passes, so a
+/// test that fails before dropping it leaves no thread behind for good). The placeholder rows
+/// show for as long as an account's first fetch runs; the idle pass the window is otherwise
+/// lent ends at once, and the rows are gone between two looks when the machine is busy.
+fn held_pass() -> (mail_client::fetch::Pass, mpsc::Sender<()>) {
+    let (release, waiting) = mpsc::channel::<()>();
+    let waiting = std::sync::Mutex::new(waiting);
+    let pass: mail_client::fetch::Pass = Arc::new(move |_store, _now, _account, _hooks| {
+        let _ = waiting
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(60));
+        Ok(Vec::new())
+    });
+    (pass, release)
+}
+
 #[test]
 fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
     let dir = tempfile::tempdir().unwrap();
     let store = bare(dir.path());
-    let contexts = mail_ui::ui::native::contexts(
+    let (pass, release) = held_pass();
+    let contexts = mail_ui::ui::native::contexts_passing(
         mail_client::Client::open(store, mail_client::ClientConfig::default()),
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
+        pass,
     );
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
@@ -99,6 +118,7 @@ fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
         0,
         "a first fetch is not an empty mailbox"
     );
+    drop(release);
 }
 
 /// An account added while the window is open (in the Add Account window, a commit every window
@@ -108,12 +128,14 @@ fn an_account_never_fetched_shows_placeholder_rows_and_no_caption() {
 fn an_account_added_while_the_window_is_open_is_said() {
     let dir = tempfile::tempdir().unwrap();
     let store = bare(dir.path());
-    let contexts = mail_ui::ui::native::contexts(
+    let (pass, release) = held_pass();
+    let contexts = mail_ui::ui::native::contexts_passing(
         mail_client::Client::open(Arc::clone(&store), mail_client::ClientConfig::default()),
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
+        pass,
     );
     let config = HarnessConfig::new(VIEW)
         .with_net(NetPolicy::Local)
@@ -133,4 +155,5 @@ fn an_account_added_while_the_window_is_open_is_said() {
     settle_until(&mut harness, |h| {
         h.html().contains("Added you@example.test")
     });
+    drop(release);
 }

@@ -10,7 +10,7 @@
 //!   queue and reads it, in one moment of the database.
 //! - **Changes** (`mailo-changes`) hears every commit the store makes, gathers the ones that come
 //!   together, and marks stale every value that reads what they touched.
-//! - **Act** (`mailo-act`) applies [`Command`]s, one at a time, in the order they were given: the
+//! - **Act** (`mailo-act`) applies [`Act`]s, one at a time, in the order they were given: the
 //!   only one that waits on the store's writer.
 //! - **Clock** (`mailo-clock`) marks stale what reads the clock when a snooze ends (`clock`).
 //! - **External** (`mailo-external`) watches the store's file for another process's commits
@@ -22,7 +22,7 @@
 //! stale while it is read is read again when that reading ends. So the queue is never longer than
 //! the values held, however many commits a sync makes.
 
-use crate::act::{Acted, Command, Ticket};
+use crate::act::{Act, Ticket};
 use crate::fetch::{Fetched, Fetcher, Seams};
 use crate::live::{Entry, Job, Live, Query};
 use chrono::{DateTime, Utc};
@@ -79,6 +79,26 @@ impl std::fmt::Debug for ClientConfig {
 #[derive(Clone)]
 pub struct Client(Arc<Inner>);
 
+/// A client that does not keep the client going: for what the client itself holds (the seams it
+/// fetches through). A closure the client owns that held a [`Client`] would be an `Arc` cycle:
+/// the client's threads would never be told to stop. Hold this and [`upgrade`](Self::upgrade) it
+/// for the length of one call.
+#[derive(Clone)]
+pub struct WeakClient(Weak<Inner>);
+
+impl std::fmt::Debug for WeakClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WeakClient")
+    }
+}
+
+impl WeakClient {
+    /// The client, if some other holder still has it.
+    pub fn upgrade(&self) -> Option<Client> {
+        self.0.upgrade().map(Client)
+    }
+}
+
 impl std::fmt::Debug for Client {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Client")
@@ -133,8 +153,8 @@ pub(crate) struct Shared {
 /// its caller's thread. Runs until it is dropped.
 pub type FetchRun = std::pin::Pin<Box<dyn std::future::Future<Output = ()>>>;
 
-/// A command, and where to say what it did.
-type Asked = (Command, tokio::sync::oneshot::Sender<Acted>);
+/// A change to make in the store, and the telling of what it did, ready to run on the act thread.
+type Asked = Box<dyn FnOnce(&SqliteStore) + Send>;
 
 /// The values held of one type of query, found by [`Query::bucket`] and then by equality: a
 /// query is asked with what it reads (filters, accounts), which need not hash.
@@ -174,9 +194,8 @@ impl Client {
             threads.push(spawn("mailo-act", move || {
                 // Every command given is applied, even once the client is stopping: a change the
                 // person made is not dropped because the caller stopped the client after it.
-                for (command, said) in asked {
-                    // Whoever asked may have stopped waiting; the change is made all the same.
-                    let _ = said.send(crate::act::apply(&shared.store, command));
+                for job in asked {
+                    job(&shared.store);
                 }
             }));
         }
@@ -274,7 +293,7 @@ impl Client {
 
     /// Apply `command`, in order after every command given before it. Never waits on the store:
     /// the ticket says what was done once it has been. An inline client applies it here, now.
-    pub fn act(&self, command: Command) -> Ticket {
+    pub fn act<A: Act>(&self, command: A) -> Ticket<A::Done> {
         let (said, ticket) = Ticket::new();
         let shared = &self.0.shared;
         if shared.inline {
@@ -283,9 +302,13 @@ impl Client {
             return ticket;
         }
         if let Some(acts) = shared.acts.lock().as_ref() {
+            let job: Asked = Box::new(move |store| {
+                // Whoever asked may have stopped waiting; the change is made all the same.
+                let _ = said.send(crate::act::apply(store, command));
+            });
             // A thread that has gone leaves the ticket unanswered, which says the command was
             // not done.
-            let _ = acts.send((command, said));
+            let _ = acts.send(job);
         }
         ticket
     }
@@ -376,6 +399,11 @@ impl Client {
     pub fn committed(&self) -> Option<tokio::sync::watch::Receiver<u64>> {
         let shared = &self.0.shared;
         shared.inline.then(|| shared.committed.subscribe())
+    }
+
+    /// A handle that does not keep this client's threads from stopping ([`WeakClient`]).
+    pub fn downgrade(&self) -> WeakClient {
+        WeakClient(Arc::downgrade(&self.0))
     }
 
     /// Fetch mail: every account's link, polled, pushed to and fetched on request by the one

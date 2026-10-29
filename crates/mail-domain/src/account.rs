@@ -8,6 +8,7 @@
 
 use crate::content::Address;
 use crate::id::IdentityId;
+use crate::incoming::Server;
 use crate::state::{IsDefault, MailboxRole};
 use chrono::{DateTime, Utc};
 use porter_core::AccountId;
@@ -140,6 +141,21 @@ pub enum Outgoing {
     /// Nothing leaves from this account. A [`Incoming::Local`] account's, which has no server
     /// to submit to; a send from it is refused before anything is queued.
     Nowhere,
+}
+
+impl Outgoing {
+    /// The submission server mail is handed to: SMTP's. `None` for Graph and JMAP, which are
+    /// HTTPS to a fixed host or a session URL, and for an account that sends nowhere.
+    pub fn server(&self) -> Option<Server<'_>> {
+        match self {
+            Self::Smtp { host, port, tls } => Some(Server {
+                host,
+                port: *port,
+                tls: *tls,
+            }),
+            Self::Graph | Self::Jmap | Self::Nowhere => None,
+        }
+    }
 }
 
 /// Transport security.

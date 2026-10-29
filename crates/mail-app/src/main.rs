@@ -49,23 +49,17 @@ fn main() {
     // else is the CLI. One binary because they are one application over one store, and a
     // separate CLI would drift from what the UI does.
     // `mailo mailto:…`, as the desktop runs the scheme's handler: the window, on a composer
-    // holding what the link asks for. The draft is made once the store is open, below.
-    let mailto = mail_ui::ui::mailto_of(&args);
-    let start = match mail_ui::ui::start_of(&args) {
-        _ if mailto.is_some() => Some(mail_ui::ui::Start::Inbox),
-        Some(Ok(start)) => Some(start),
+    // holding what the link asks for. The window makes the draft once it is open.
+    // What the window is asked, which a second `mailo` would hand the window of its Profile that
+    // is running, once the Profile is known (below).
+    let start = match mail_ui::ui::ask::parse_args(&args) {
+        Some(Ok(ask)) => Some(mail_ui::ui::ask::Open { ask, token: None }),
         Some(Err(message)) => {
             eprintln!("{message}");
             std::process::exit(2);
         }
         None => None,
     };
-    // What a second `mailo` would hand the window of its Profile that is running, once the
-    // Profile is known (below).
-    let handoff = mail_ui::handoff::Handoff::of(
-        start.as_ref(),
-        mailto.as_ref().and(args.first()).map(String::as_str),
-    );
     let command = if start.is_some() {
         None
     } else {
@@ -128,8 +122,8 @@ fn main() {
     // `mailo` raises it, as macOS's launcher does for the app bundle. A window of another Profile
     // is never handed to. No window running (or no bus) is the ordinary start below.
     let token = std::env::var("XDG_ACTIVATION_TOKEN").ok();
-    if let Some(handoff) = &handoff
-        && handoff.deliver(chosen.id(), token.as_deref())
+    if let Some(start) = &start
+        && mail_ui::handoff::deliver(chosen.id(), &*start.ask, token.as_deref())
     {
         return;
     }
@@ -163,23 +157,6 @@ fn main() {
     }
 
     let store = std::sync::Arc::new(store);
-    let start = match &mailto {
-        Some(link) => match mail_ui::ui::start_mailto(
-            &mail_client::Client::inline(
-                store.clone(),
-                std::sync::Arc::new(mail_core::mail::SystemClock),
-            ),
-            link,
-            chrono::Utc::now(),
-        ) {
-            Ok(compose) => Some(compose),
-            Err(message) => {
-                eprintln!("{message}");
-                std::process::exit(1);
-            }
-        },
-        None => start,
-    };
     // Every command is the cli's: the steps that wait on the network or end the process live in
     // `cli::exec`. No command is the window.
     if let Some(command) = command {
@@ -225,7 +202,7 @@ fn main() {
             look,
             spaces,
             dirs,
-            start.unwrap_or(mail_ui::ui::Start::Inbox),
+            start.unwrap_or_else(mail_ui::ui::ask::Open::raise),
         ) {
             eprintln!("mailo: the window could not open: {why}");
             std::process::exit(1);

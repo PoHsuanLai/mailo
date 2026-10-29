@@ -37,6 +37,7 @@ pub(in crate::ui) mod account_split;
 mod accounts;
 mod keys;
 mod offline;
+mod page;
 mod pages;
 mod push_relay;
 mod root;
@@ -48,12 +49,13 @@ mod vips;
 
 pub(in crate::ui) use account::Seams as AccountSeams;
 pub(in crate::ui) use keys::with_value;
+pub(in crate::ui) use page::PAGES;
 pub use root::settings_root;
 
 use crate::ui::copy;
 use crate::ui::space::SpaceId;
 use crate::ui::view::{
-    AccountStep, AccountsPage, AccountsPane, ContactsPage, RulesAt, SettingsPage, Shell, SpacesPage,
+    AccountStep, AccountsPage, AccountsPane, ContactsPage, PageId, RulesAt, Shell, SpacesPage,
 };
 use dioxus::prelude::*;
 use ds::components::chrome::sidebar::Sidebar;
@@ -72,66 +74,11 @@ pub(in crate::ui) const TITLE: &str = copy::titles::SETTINGS;
 /// The size the window opens at, in logical pixels.
 const SIZE: (u32, u32) = (960, 640);
 
-impl SettingsPage {
-    pub(in crate::ui) const ALL: [SettingsPage; 13] = [
-        SettingsPage::General,
-        SettingsPage::Accounts,
-        SettingsPage::Contacts,
-        SettingsPage::Signatures,
-        SettingsPage::Spaces,
-        SettingsPage::Composing,
-        SettingsPage::Viewing,
-        SettingsPage::Notifications,
-        SettingsPage::Privacy,
-        SettingsPage::JunkMail,
-        SettingsPage::Rules,
-        SettingsPage::Vacation,
-        SettingsPage::Keyboard,
-    ];
-
-    /// The page's name in the sidebar, which is also the row's accessible name.
-    pub(in crate::ui) fn name(self) -> &'static str {
-        match self {
-            SettingsPage::General => copy::titles::GENERAL,
-            SettingsPage::Accounts => copy::titles::ACCOUNTS,
-            SettingsPage::Contacts => copy::titles::CONTACTS,
-            SettingsPage::Signatures => copy::titles::SIGNATURES,
-            SettingsPage::Spaces => copy::titles::SPACES,
-            SettingsPage::Composing => copy::titles::COMPOSING,
-            SettingsPage::Viewing => copy::titles::VIEWING,
-            SettingsPage::Notifications => copy::titles::NOTIFICATIONS,
-            SettingsPage::Privacy => copy::titles::PRIVACY,
-            SettingsPage::JunkMail => copy::titles::JUNK_MAIL,
-            SettingsPage::Rules => copy::titles::RULES,
-            SettingsPage::Vacation => copy::titles::VACATION_REPLY,
-            SettingsPage::Keyboard => copy::titles::KEYBOARD,
-        }
-    }
-
-    fn icon(self) -> Icon {
-        match self {
-            SettingsPage::General => Icon::Settings,
-            SettingsPage::Accounts => Icon::Mail,
-            SettingsPage::Contacts => Icon::Group,
-            SettingsPage::Signatures => Icon::Pen,
-            SettingsPage::Spaces => Icon::Grid,
-            SettingsPage::Composing => Icon::Pen,
-            SettingsPage::Viewing => Icon::Image,
-            SettingsPage::Notifications => Icon::Bell,
-            SettingsPage::Privacy => Icon::Lock,
-            SettingsPage::JunkMail => Icon::OctagonAlert,
-            SettingsPage::Rules => Icon::FolderInput,
-            SettingsPage::Vacation => Icon::Sun,
-            SettingsPage::Keyboard => Icon::Keyboard,
-        }
-    }
-}
-
 /// Where the Settings window is asked to be: a page, one account's page beside Accounts' list,
 /// one Space's pushed over Spaces, or one person's card pushed over Contacts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsAt {
-    Page(SettingsPage),
+    Page(PageId),
     Account(AccountId),
     Space(SpaceId),
     Card(mail_client::contacts::CardId),
@@ -139,12 +86,12 @@ pub enum SettingsAt {
 
 impl SettingsAt {
     /// The page of the sidebar it is on.
-    pub(in crate::ui) fn page(&self) -> SettingsPage {
+    pub(in crate::ui) fn page(&self) -> PageId {
         match self {
             SettingsAt::Page(page) => *page,
-            SettingsAt::Account(_) => SettingsPage::Accounts,
-            SettingsAt::Space(_) => SettingsPage::Spaces,
-            SettingsAt::Card(_) => SettingsPage::Contacts,
+            SettingsAt::Account(_) => PageId::ACCOUNTS,
+            SettingsAt::Space(_) => PageId::SPACES,
+            SettingsAt::Card(_) => PageId::CONTACTS,
         }
     }
 
@@ -184,7 +131,7 @@ impl SettingsAt {
 
 impl Default for SettingsAt {
     fn default() -> Self {
-        SettingsAt::Page(SettingsPage::default())
+        SettingsAt::Page(PageId::default())
     }
 }
 
@@ -259,7 +206,7 @@ pub(in crate::ui) fn open() {
 }
 
 /// Open Settings on `page`, or raise it and turn it to `page`.
-pub(in crate::ui) fn open_at(page: SettingsPage) {
+pub(in crate::ui) fn open_at(page: PageId) {
     ask(Some(SettingsAt::Page(page)));
 }
 
@@ -294,7 +241,7 @@ fn ask(at: Option<SettingsAt>) {
 
 /// Show `page` in this Settings window, each per-account page on the account it last showed and
 /// with what it pushed closed, as System Settings shows a pane chosen in its sidebar.
-pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: SettingsPage) {
+pub(in crate::ui) fn go(mut shell: Signal<Shell>, page: PageId) {
     let mut write = shell.write();
     write.settings = Some(page);
     if write.accounts_pane.step != AccountStep::Removing {
@@ -311,15 +258,15 @@ pub(in crate::ui) fn go_to(shell: Signal<Shell>, at: SettingsAt) {
     match at {
         SettingsAt::Page(page) => go(shell, page),
         SettingsAt::Account(account) => {
-            go(shell, SettingsPage::Accounts);
+            go(shell, PageId::ACCOUNTS);
             accounts::push(shell, account);
         }
         SettingsAt::Space(space) => {
-            go(shell, SettingsPage::Spaces);
+            go(shell, PageId::SPACES);
             spaces::push(shell, space);
         }
         SettingsAt::Card(card) => {
-            go(shell, SettingsPage::Contacts);
+            go(shell, PageId::CONTACTS);
             crate::ui::contacts::page::push(shell, ContactsPage::Person(card));
         }
     }
@@ -353,17 +300,19 @@ fn quire() {
 /// The window's content: the sidebar of pages beside the page shown, which scrolls.
 #[component]
 pub(in crate::ui) fn SettingsView(shell: Signal<Shell>) -> Element {
-    let page = shell.read().settings.unwrap_or_default();
-    let items: Vec<ListItem<SettingsPage>> = SettingsPage::ALL
-        .into_iter()
+    let current = shell.read().settings.unwrap_or_default();
+    let items: Vec<ListItem<PageId>> = PAGES
+        .iter()
+        .copied()
         .map(|each| {
-            let selection = if each == page {
+            let id = each.id();
+            let selection = if id == current {
                 Selection::Selected
             } else {
                 Selection::Unselected
             };
             ListItem::row(
-                each,
+                id,
                 each.name(),
                 rsx! {
                     Row {
@@ -374,38 +323,26 @@ pub(in crate::ui) fn SettingsView(shell: Signal<Shell>) -> Element {
                             aria_label: Some(each.name().to_owned()),
                             ..Default::default()
                         },
-                        onclick: move |_| go(shell, each),
+                        onclick: move |_| go(shell, id),
                     }
                 },
             )
         })
         .collect();
+    let shown = PAGES.iter().copied().find(|each| each.id() == current);
     rsx! {
         div { class: "settings",
-            Sidebar::<SettingsPage> {
+            Sidebar::<PageId> {
                 label: TITLE,
                 sections: vec![SidebarSection::List(items)],
-                cursor: Some(page),
-                onselect: move |next: SettingsPage| go(shell, next),
+                cursor: Some(current),
+                onselect: move |next: PageId| go(shell, next),
             }
-            div { class: "settings-scroll settings-page", "data-page": page.name(),
-                match page {
-                    SettingsPage::General
-                    | SettingsPage::Composing
-                    | SettingsPage::Viewing
-                    | SettingsPage::Notifications
-                    | SettingsPage::Privacy
-                    | SettingsPage::JunkMail => rsx! { pages::Page { key: "{page.name()}", page } },
-                    SettingsPage::Accounts => rsx! { accounts::Accounts { shell } },
-                    SettingsPage::Contacts => rsx! { crate::ui::contacts::page::Contacts { shell } },
-                    SettingsPage::Signatures => rsx! { signatures::Signatures { shell } },
-                    SettingsPage::Spaces => match try_consume_context::<crate::ui::space::Handle>() {
-                        Some(handle) => rsx! { spaces::Spaces { shell, handle } },
-                        None => rsx! {},
-                    },
-                    SettingsPage::Rules => rsx! { crate::ui::rules::RulesPage { shell } },
-                    SettingsPage::Vacation => rsx! { crate::ui::rules::VacationPage { shell } },
-                    SettingsPage::Keyboard => rsx! { crate::ui::keyboard::KeyboardPage { shell } },
+            div {
+                class: "settings-scroll settings-page",
+                "data-page": shown.map(|each| each.name()),
+                if let Some(page) = shown {
+                    {page.body(shell)}
                 }
             }
         }

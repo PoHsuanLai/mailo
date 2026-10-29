@@ -7,7 +7,7 @@ use super::super::tests::opened_on;
 use super::row_id;
 use crate::ui::copy;
 use crate::ui::fixtures::{Seen, Work, click, drain_seen, identify, settle_quiet, type_into, work};
-use crate::ui::view::SettingsPage;
+use crate::ui::view::PageId;
 use dioxus::dioxus_core::VirtualDom;
 use mail_core::signature;
 use mail_domain::{IdentityId, Signature};
@@ -32,7 +32,7 @@ fn work_signature(built: &Work) -> Signature {
 /// The Settings window on Signatures, with `made`'s account chosen in the list and its page
 /// pushed from its row.
 fn pushed(built: &Work, made: &Signature) -> (VirtualDom, Seen) {
-    let (mut dom, seen) = opened_on(built, SettingsPage::Signatures);
+    let (mut dom, seen) = opened_on(built, PageId::SIGNATURES);
     let account = built
         .store
         .identity(made.identity)

@@ -13,7 +13,9 @@
 use super::looks::{Looks, Read, held};
 use crate::SigningStore;
 use crate::password::Password;
-use crate::pgp::Ask;
+use crate::pgp::{Ask, OpenPgp};
+use crate::protect::Seal;
+use crate::smime::Smime;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::Parsed;
@@ -196,43 +198,9 @@ impl Looks {
         let Ok(stored) = store.message(message) else {
             return Opening::Plain;
         };
-        match crate::pgp::open_message(store, secrets, &stored, ask, now) {
-            Ok(None) => {}
-            Ok(Some(mut protected)) => {
-                return match protected.encryption {
-                    Encryption::Locked { key } => Opening::Locked { key, tried },
-                    _ => {
-                        let shown = protected.shown.take().map(Box::new);
-                        protected.raw = None;
-                        Opening::Opened(Box::new(Sealed {
-                            protection: Protection::OpenPgp(Box::new(protected)),
-                            shown,
-                        }))
-                    }
-                };
-            }
-            Err(e) => {
-                return Opening::Failed {
-                    scheme: Scheme::OpenPgp,
-                    why: e.to_string(),
-                };
-            }
-        }
-        match crate::smime::open_message(store, secrets, &stored, now) {
-            Ok(None) => Opening::Plain,
-            Ok(Some(mut protected)) => {
-                let shown = protected.shown.take().map(Box::new);
-                protected.raw = None;
-                Opening::Opened(Box::new(Sealed {
-                    protection: Protection::Smime(Box::new(protected)),
-                    shown,
-                }))
-            }
-            Err(e) => Opening::Failed {
-                scheme: Scheme::Smime,
-                why: e.to_string(),
-            },
-        }
+        try_open::<OpenPgp>(store, secrets, &stored, ask, tried, now)
+            .or_else(|| try_open::<Smime>(store, secrets, &stored, ask, tried, now))
+            .unwrap_or(Opening::Plain)
     }
 
     /// Keep `opening`, under the count as it stands once the opening is done: opening a signed
@@ -248,6 +216,38 @@ impl Looks {
             },
         );
     }
+}
+
+/// What opening `message` as scheme `S` found, or `None` when it carries nothing of `S` and the
+/// next scheme should be tried. The opened body is taken out of what was found and the bytes it
+/// was parsed from dropped, so the reader keeps the one and never the other.
+fn try_open<S: Seal>(
+    store: &SqliteStore,
+    secrets: &dyn SigningStore,
+    message: &Message,
+    ask: Ask<'_>,
+    tried: Tried,
+    now: DateTime<Utc>,
+) -> Option<Opening> {
+    Some(match S::open(store, secrets, message, ask, now) {
+        Ok(None) => return None,
+        Ok(Some(mut protected)) => match S::locked(&protected) {
+            Some(key) => Opening::Locked { key, tried },
+            None => {
+                let (shown, raw) = S::parts(&mut protected);
+                let shown = shown.take().map(Box::new);
+                *raw = None;
+                Opening::Opened(Box::new(Sealed {
+                    protection: S::wrap(protected),
+                    shown,
+                }))
+            }
+        },
+        Err(e) => Opening::Failed {
+            scheme: S::SCHEME,
+            why: e.to_string(),
+        },
+    })
 }
 
 /// Whether `message` holds an `application/pkcs7-mime` part (either spelling): S/MIME enveloped,

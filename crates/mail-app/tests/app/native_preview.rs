@@ -230,7 +230,7 @@ fn open() -> Window {
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     );
     let asked = Arc::new(Recorder::default());
     let config = HarnessConfig::new(VIEW)

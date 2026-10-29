@@ -12,7 +12,7 @@ use crate::ui::app::Frame;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::space::{Recall, Spaces};
 use crate::ui::style::STYLE;
-use crate::ui::view::{SettingsPage, Shell};
+use crate::ui::view::{PageId, Shell};
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds::components::app::spaces::{Switched, use_spaces};
@@ -114,11 +114,11 @@ fn SettingsShell() -> Element {
     let on_key = move |event: Event<KeyboardData>| {
         let key = event.key().to_string();
         let space_pushed = !shell.read().spaces_pane.is_root();
-        if key == "Escape" && space_pushed && shell.read().settings == Some(SettingsPage::Spaces) {
+        if key == "Escape" && space_pushed && shell.read().settings == Some(PageId::SPACES) {
             super::spaces::back(shell, handle);
         }
         let card_pushed = !shell.read().contacts_pane.is_root();
-        if key == "Escape" && card_pushed && shell.read().settings == Some(SettingsPage::Contacts) {
+        if key == "Escape" && card_pushed && shell.read().settings == Some(PageId::CONTACTS) {
             crate::ui::contacts::page::back(shell);
         }
     };

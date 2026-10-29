@@ -1,7 +1,7 @@
 //! Hosting porter's account service in this process, with the add-account window as the host
 //! that draws its sheet.
 //!
-//! `porter_service_core::sheets::Sheets` is the seam between the service (which runs the sheet's machine and
+//! `porter_sheet::host::Sheets` is the seam between the service (which runs the sheet's machine and
 //! the provider's sign-in) and whoever draws: here a pair of channels. The service end, a
 //! [`WindowSheets`], is handed the views and reads the person's inputs; the window's end
 //! ([`Ends::window`]) is what the window draws from and answers into. Nothing crosses them but
@@ -10,16 +10,14 @@
 
 use std::sync::{Arc, Mutex};
 
+use porter_client_inproc::{HostConfig, hosted};
 use porter_core::consent::{ConsentAnswer, ConsentAsk};
 use porter_core::{AppId, ProviderHint};
-use porter_ids::clock::SystemClock;
 use porter_provider::Provider;
 use porter_secrets::{Secrets, SecretsError};
-use porter_service::AccountService;
-use porter_service_core::registry::Registry;
-use porter_service_core::sheets::{SheetFault, SheetLink, SheetOpen, Sheets};
+use porter_sheet::host::{SheetFault, SheetLink, SheetOpen, Sheets};
 use porter_sheet::{SheetInput, SheetView};
-use porter_wire::{AccountsReply, AccountsRequest, ParentWindow};
+use porter_wire::ParentWindow;
 use tokio::sync::{mpsc, watch};
 
 use super::provider::{Added, Seams, offered};
@@ -44,7 +42,7 @@ pub(super) struct WindowEnd {
     pub inputs: mpsc::UnboundedSender<SheetInput>,
 }
 
-/// The service's end, as `porter_service_core::sheets::Sheets`.
+/// The service's end, as `porter_sheet::host::Sheets`.
 #[derive(Debug)]
 pub(super) struct WindowSheets {
     views: Arc<watch::Sender<Shown>>,
@@ -166,21 +164,15 @@ pub(super) enum Ended {
 
 /// Run the add-account conversation to its end: the service over `providers`, the sheet through
 /// `sheets`. Resolves when the sheet closes.
-pub(super) async fn run<P: Provider>(providers: Vec<P>, sheets: WindowSheets) -> Ended {
-    let service = AccountService::new(
-        providers,
-        Registry::from_persisted(porter_core::store::Persisted::empty()),
-        NoSecrets,
-        sheets,
-        SystemClock,
-    );
-    let request = AccountsRequest::AddAccount {
-        hint: ProviderHint::Any,
-        window: ParentWindow::Unparented,
-    };
-    match service.handle(&caller(), request).await {
-        AccountsReply::Added(_) => Ended::Added,
-        _ => Ended::NoAccount,
+pub(super) async fn run<P: Provider + 'static>(providers: Vec<P>, sheets: WindowSheets) -> Ended {
+    let porter = hosted(HostConfig::new(caller(), providers, NoSecrets, sheets));
+    match porter
+        .accounts()
+        .add(ProviderHint::Any, &ParentWindow::Unparented)
+        .await
+    {
+        Ok(_) => Ended::Added,
+        Err(_) => Ended::NoAccount,
     }
 }
 

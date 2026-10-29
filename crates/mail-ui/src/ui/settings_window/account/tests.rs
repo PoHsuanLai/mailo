@@ -9,7 +9,7 @@ use crate::ui::fixtures::{
 };
 use crate::ui::settings_window::tests::opened_on;
 use crate::ui::settings_window::{SettingsAsked, SettingsAt, settings_root};
-use crate::ui::view::SettingsPage;
+use crate::ui::view::PageId;
 use dioxus::dioxus_core::VirtualDom;
 use mail_core::Storage;
 use porter_core::AccountId;
@@ -34,7 +34,7 @@ fn row_id(account: &AccountId) -> String {
 
 /// The Settings window on Accounts with `ADDRESS`'s page chosen by its row.
 pub(in crate::ui) fn pushed(built: &Work) -> (VirtualDom, Seen) {
-    let (mut dom, seen) = opened_on(built, SettingsPage::Accounts);
+    let (mut dom, seen) = opened_on(built, PageId::ACCOUNTS);
     let row = seen.one("id", &row_id(&poh(built)));
     let seen = seen.merge(click(&mut dom, row)).merge(drain_seen(&mut dom));
     (dom, seen)
@@ -79,7 +79,7 @@ fn alert_confirm(seen: &Seen) -> dioxus::dioxus_core::ElementId {
 #[tokio::test]
 async fn an_account_s_row_shows_its_page_beside_the_list() {
     let built = work();
-    let (dom, _) = opened_on(&built, SettingsPage::Accounts);
+    let (dom, _) = opened_on(&built, PageId::ACCOUNTS);
     let page = dioxus_ssr::render(&dom);
     assert!(
         page.contains(crate::ui::copy::controls::ADD_ACCOUNT),
@@ -228,7 +228,7 @@ async fn the_page_says_how_much_storage_the_server_counts_once_it_has_said() {
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let seen = click(
         &mut dom,
-        seen.one("aria-label", SettingsPage::Accounts.name()),
+        seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
     let row = seen.one("id", &row_id(&poh(&built)));
@@ -279,7 +279,7 @@ async fn an_account_waiting_to_sign_in_is_not_asked_for_its_storage() {
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let seen = click(
         &mut dom,
-        seen.one("aria-label", SettingsPage::Accounts.name()),
+        seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
     let row = seen.one("id", &row_id(&poh(&built)));
@@ -319,7 +319,7 @@ async fn a_paused_account_is_not_asked_for_its_storage() {
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let seen = click(
         &mut dom,
-        seen.one("aria-label", SettingsPage::Accounts.name()),
+        seen.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
     let row = seen.one("id", &row_id(&poh(&built)));

@@ -14,9 +14,11 @@ use super::super::common::classed;
 use super::super::debounce::use_debounced;
 use super::super::pick::{Ask, choose};
 use super::super::press::{SheetClose, available, on_primary};
-use super::work::{self, Counted, Format};
+use super::work::{self, Counted};
 use super::{Phase, Report, run};
 use crate::ui::view::{FileSheet, Shell};
+use mail_client::export::{Target, usual};
+use mail_client::formats::{Writer, writers};
 
 /// The query the sheet's field holds.
 fn typed(shell: &Shell) -> String {
@@ -57,7 +59,7 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
             }
         }
     });
-    let mut format = use_signal(Format::default);
+    let mut format = use_signal(usual);
     let mut place = use_signal(|| Place::Suggested);
     let phase = use_signal(|| Phase::Ready);
     let settled = debounced.settled.read().text.clone();
@@ -76,22 +78,14 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
     };
     let busy = phase.read().running();
     let can_run = count.is_some() && !busy && !target_path.trim().is_empty();
-    let formats: Vec<Choice<Format>> = Format::ALL
-        .iter()
-        .map(|one| Choice::new(*one, work::format_label(*one)))
-        .collect();
-    let what = if format().is_file() {
-        "One mbox file"
-    } else if format() == Format::Maildir {
-        "A Maildir folder per place"
-    } else {
-        "One .eml file per message"
-    };
+    let formats: Vec<Choice<&'static dyn Writer>> =
+        writers().map(|one| Choice::new(one, one.label())).collect();
+    let what = crate::ui::copy::status::export_makes(format().slug());
     let start = {
         let target_path = target_path.clone();
         move |_| {
             let query = typed(&shell.peek());
-            let target = format().target(work::expand_here(&target_path));
+            let target = Target::new(format(), work::expand_here(&target_path));
             let of = count.unwrap_or(0);
             let client = crate::ui::live::client();
             run(
@@ -134,11 +128,11 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
                         label: "As",
                         help: Some(what.into()),
                         layout: RowLayout::Form,
-                        SegmentedControl::<Format> {
+                        SegmentedControl::<&'static dyn Writer> {
                             label: "Format".to_owned(),
                             choices: formats,
                             tracking: Tracking::SelectOne(format()),
-                            onchange: move |one: Format| format.set(one),
+                            onchange: move |one: &'static dyn Writer| format.set(one),
                         }
                     }
                     FieldRow {

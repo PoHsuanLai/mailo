@@ -73,7 +73,7 @@ fn letter(word: &str, text: &str) -> String {
 }
 
 /// `raw` sealed by `signer`'s client as `mode`, to `to`.
-fn sealed(raw: &str, mode: Smime, signer: &Identity, to: &[Cert]) -> Vec<u8> {
+fn sealed(raw: &str, mode: Mode, signer: &Identity, to: &[Cert]) -> Vec<u8> {
     mail_mime::smime::seal(
         raw.as_bytes(),
         &Sealing {
@@ -367,7 +367,7 @@ async fn a_good_smime_signature_says_who_signed_and_their_certificate() {
     let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let raw = letter("owl", "the owl note is signed");
-    let message = arrive(&store, sealed(&raw, Smime::Sign, &bea(), &[]));
+    let message = arrive(&store, sealed(&raw, Mode::Sign, &bea(), &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| {
         // The signature's own row leaves once the seal is read, fading out before it is gone.
@@ -412,7 +412,7 @@ async fn a_changed_smime_message_is_said_on_the_danger_ground() {
     let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let raw = letter("heron", "pay the heron invoice");
-    let signed = String::from_utf8(sealed(&raw, Smime::Sign, &bea(), &[])).unwrap();
+    let signed = String::from_utf8(sealed(&raw, Mode::Sign, &bea(), &[])).unwrap();
     assert!(signed.contains("pay the heron invoice"));
     let tampered = signed.replace("pay the heron invoice", "pay the forged invoice");
     let message = arrive(&store, tampered.into_bytes());
@@ -466,7 +466,7 @@ async fn a_forged_smime_signature_is_said_on_the_danger_ground() {
     let secrets = Arc::new(MapSigningStore::default());
     trust_root(&store, &secrets);
     let raw = letter("lynx", "the lynx is signed by bea");
-    let signed = String::from_utf8(sealed(&raw, Smime::Sign, &bea(), &[])).unwrap();
+    let signed = String::from_utf8(sealed(&raw, Mode::Sign, &bea(), &[])).unwrap();
     let message = arrive(&store, forged(&signed).into_bytes());
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| shows(page, "seal-line bad")).await;
@@ -488,7 +488,7 @@ async fn a_signature_from_an_authority_nobody_trusts_is_amber_and_says_why() {
     trust_root(&store, &secrets);
     let stranger = identity(stranger_pki(), &Person::new("Carol", &[BEA], 13, 1003));
     let raw = letter("crane", "the crane is signed by a stranger");
-    let message = arrive(&store, sealed(&raw, Smime::Sign, &stranger, &[]));
+    let message = arrive(&store, sealed(&raw, Mode::Sign, &stranger, &[]));
     let (mut dom, mut seen) = reader(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| {
         shows(page, "seal-line warn") && super::tests::mark(page).is_some()
@@ -526,7 +526,7 @@ async fn an_encrypted_smime_message_shows_its_body_and_lists_what_is_attached_in
     let raw = letter("zebra", "the zebra is under the mat");
     let message = arrive(
         &store,
-        sealed(&raw, Smime::SignAndEncrypt, &bea(), &[me().cert]),
+        sealed(&raw, Mode::SignAndEncrypt, &bea(), &[me().cert]),
     );
     assert!(!message.body.text().unwrap_or_default().contains("zebra"));
     let (mut dom, mut seen, looks) = reader_looking(store, secrets, message.thread);

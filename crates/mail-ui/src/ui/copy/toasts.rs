@@ -120,6 +120,12 @@ pub fn not_opened(why: &str) -> String {
 
 /// ⌘K's Redirect…, Reply to List or Edit as New with no conversation open behind it.
 pub const OPEN_ONE_FIRST: &str = "Open a conversation first.";
+/// ⌘K's Forward as Attachment with no conversation open behind it.
+pub const OPEN_ONE_TO_FORWARD: &str = "Open a conversation to forward it as an attachment.";
+/// ⌘K's Forward as Attachment, when the message could not be made.
+pub fn not_forwarded_as_attachment(why: &str) -> String {
+    format!("Not forwarded as an attachment: {why}.")
+}
 /// Add to Contacts made a card.
 pub fn added_to_contacts(name: &str) -> String {
     format!("Added {name} to Contacts.")

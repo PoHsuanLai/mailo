@@ -5,7 +5,7 @@
 
 use super::SqliteStore;
 use super::read::Recipients;
-use super::row::{from_time, json, time, to_json, uuid};
+use super::row::{asked, from_time, json, time, to_asked, to_json, uuid};
 use crate::StoreError;
 use crate::changes::Topics;
 use mail_domain::id::account_id_from_uuid;
@@ -43,8 +43,8 @@ impl SqliteStore {
                 to_json("Template.attachments", &template.attachments)?,
                 to_json("Template.receipt", &template.receipt)?,
                 from_time(template.updated),
-                to_json("Template.openpgp", &template.openpgp)?,
-                to_json("Template.smime", &template.smime)?,
+                to_asked("Template.openpgp", &template.openpgp)?,
+                to_asked("Template.smime", &template.smime)?,
             ],
         )?;
         Ok(())
@@ -105,8 +105,8 @@ impl SqliteStore {
             html: row.get(7)?,
             attachments,
             receipt: json("Template.receipt", &row.get::<_, String>(9)?)?,
-            openpgp: json("Template.openpgp", &row.get::<_, String>(11)?)?,
-            smime: json("Template.smime", &row.get::<_, String>(12)?)?,
+            openpgp: asked("Template.openpgp", &row.get::<_, String>(11)?)?,
+            smime: asked("Template.smime", &row.get::<_, String>(12)?)?,
             updated: time("Template.updated_at", &row.get::<_, String>(10)?)?,
         })
     }

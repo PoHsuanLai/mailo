@@ -458,39 +458,47 @@ impl Default for AccountsPane {
     }
 }
 
-/// A page of Settings, in the order its sidebar lists them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum SettingsPage {
-    #[default]
-    General,
+/// A page of Settings: the id its `settings_window::Page` goes by. The sidebar lists them in
+/// the order of `settings_window::PAGES`; a test holds each of these to being in it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct PageId(pub &'static str);
+
+impl PageId {
+    pub const GENERAL: PageId = PageId("general");
     /// A list of accounts, the chosen one's page beside it: its mail, its encryption keys and its
     /// removal.
     /// Nothing about a key is kept in the shell: the page reads the client, and a passphrase, a
     /// password or a secret key never passes through it.
-    Accounts,
+    pub const ACCOUNTS: PageId = PageId("accounts");
     /// The address book: every person's card and every group, each with its own page.
-    Contacts,
+    pub const CONTACTS: PageId = PageId("contacts");
     /// A list of accounts, and beside it the chosen one's signatures for each address it sends
     /// from, each with its own page: its name, its words and its defaults. Read from the client,
     /// as the composer reads them.
-    Signatures,
+    pub const SIGNATURES: PageId = PageId("signatures");
     /// Every Space, each with its own page: its name, colour, theme and accounts, and Delete.
-    Spaces,
+    pub const SPACES: PageId = PageId("spaces");
     /// What a message is written with: spelling.
-    Composing,
+    pub const COMPOSING: PageId = PageId("composing");
     /// How a message looks when it is read.
-    Viewing,
+    pub const VIEWING: PageId = PageId("viewing");
     /// Whether and how new mail is announced.
-    Notifications,
+    pub const NOTIFICATIONS: PageId = PageId("notifications");
     /// What a message may fetch or tell the sender when it is read: remote images, the relay and
     /// the proxy they go through, and read receipts.
-    Privacy,
+    pub const PRIVACY: PageId = PageId("privacy");
     /// How mail the junk filter calls junk is treated, and what the filter never calls junk.
-    JunkMail,
-    Rules,
+    pub const JUNK_MAIL: PageId = PageId("junk-mail");
+    pub const RULES: PageId = PageId("rules");
     /// A list of accounts, and beside it the chosen one's vacation reply, which its server sends.
-    Vacation,
-    Keyboard,
+    pub const VACATION: PageId = PageId("vacation");
+    pub const KEYBOARD: PageId = PageId("keyboard");
+}
+
+impl Default for PageId {
+    fn default() -> Self {
+        PageId::GENERAL
+    }
 }
 
 /// Where an account's page is.
@@ -717,7 +725,7 @@ pub struct Shell {
     /// Which account Settings' Vacation Reply page shows (`None` is the first account there is).
     pub vacation_account: Option<AccountId>,
     /// Settings while it is open, on the page shown. `None` is closed.
-    pub settings: Option<SettingsPage>,
+    pub settings: Option<PageId>,
     /// The saved-view editor while it is open, with what its fields hold. `None` is closed.
     pub view_editor: Option<crate::ui::saved::ViewDraft>,
     /// Which key does what: the shipped keys with the user's own over them, read from

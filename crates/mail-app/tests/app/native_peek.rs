@@ -129,7 +129,7 @@ fn open(browse: Opened) -> (Harness, tempfile::TempDir) {
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     );
     let config = HarnessConfig::new(VIEW)
         .with_clock(Clock::Virtual)

@@ -75,3 +75,6 @@ mod sort;
 
 // 21: the quick filter.
 mod quick;
+
+// A window that is dropped takes its client, and the client's threads, with it.
+mod closing;
