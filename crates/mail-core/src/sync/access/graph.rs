@@ -1,12 +1,17 @@
 //! Microsoft Graph: HTTPS to a fixed host, with a Graph token beside the sign-in's own.
 
-use super::{Access, Answer, Pass};
+use super::{Access, Answer, Pass, Wait, refuse};
+use crate::sync::graph_push::relayed;
+use crate::sync::live::{Lost, lost, unsupported};
 use crate::sync::report::{Done, Failure};
 use crate::sync::run::{Run, Signed, signed_in};
-use crate::sync::{Mode, fetch_folder, graph_engine, sending_token};
+use crate::sync::{Mode, fetch_folder, graph_engine, poll_floor, sending_token};
+use mail_domain::AuthPlan;
 use mail_domain::{Filter, LabelId, MessageId};
+use mail_runtime::graph::push::Listener;
 use mail_runtime::graph::read::OverHttp;
-use mail_runtime::{AccountEngine, Searched};
+use mail_runtime::{AccountEngine, Cancel, RuntimeError, Searched, Woke};
+use std::time::Duration;
 use tokio::sync::watch;
 
 /// Microsoft Graph.
@@ -79,5 +84,52 @@ impl Access for Graph {
                 .await
                 .map_err(|e| Failure::of("the server was not searched: ", &e))
         })
+    }
+
+    /// Through the account's push relay, where it names one: see `mail_runtime::graph::push`.
+    /// Without one it is polled, and there is nothing to wait on.
+    fn wait<'a>(
+        &'a self,
+        run: &'a Run<'a>,
+        subscriptions: &'a str,
+    ) -> Answer<'a, Box<dyn Wait>, Lost> {
+        if !relayed(run.store, run.account) {
+            return refuse(run, "be waited on without a push relay");
+        }
+        Box::pin(async move {
+            let AuthPlan::OAuth { issuer, .. } = &run.account.plan.auth else {
+                return Err(unsupported("a Graph account signs in with Microsoft"));
+            };
+            let client = mail_runtime::clients::client(run.registry, *issuer)
+                .ok_or_else(|| Lost::from(Failure::reauth(crate::account::no_client_id(*issuer))))?
+                .clone();
+            let listener = Listener::open(
+                run.account.id.clone(),
+                &run.account.plan,
+                run.store.clone(),
+                run.secrets.clone(),
+                client,
+                subscriptions,
+            )
+            .await
+            .map_err(|e| lost(&e))?;
+            let waiting: Box<dyn Wait> = Box::new(Relayed {
+                listener: Box::new(listener),
+                floor: poll_floor(&run.account.caps.watch),
+            });
+            Ok(waiting)
+        })
+    }
+}
+
+/// A Graph account's relay.
+struct Relayed {
+    listener: Box<Listener>,
+    floor: Duration,
+}
+
+impl Wait for Relayed {
+    fn wait<'a>(&'a mut self, cancel: &'a mut Cancel) -> Answer<'a, Woke, RuntimeError> {
+        Box::pin(self.listener.wait(cancel, self.floor))
     }
 }

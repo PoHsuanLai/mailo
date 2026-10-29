@@ -9,19 +9,22 @@
 //! An operation a protocol cannot do is a method it does not override, and the default refuses
 //! with one sentence that names the protocol ([`refuse`]).
 
+#[cfg(test)]
+pub(super) mod fake;
 mod graph;
 pub(super) mod imap;
 mod jmap;
 mod local;
 mod pop3;
 
+use super::live::Lost;
 use super::report::{Done, Emit, Failure};
 use super::run::Run;
 use super::{Configured, Mode, inbox_and_sent};
 use crate::error::CoreError;
 use mail_domain::{Filter, Incoming, LabelId, MailboxRef, MessageId};
 use mail_proto::Storage;
-use mail_runtime::{Cancel, RuntimeError, Searched};
+use mail_runtime::{Cancel, RuntimeError, Searched, Woke};
 use std::future::Future;
 use std::pin::Pin;
 
@@ -47,14 +50,12 @@ pub(crate) trait Access: Send + Sync {
     fn pass<'a>(&'a self, run: &'a Run<'a>, pass: Pass<'a>) -> Answer<'a, Done>;
 
     /// Download one message's body and store it.
-    fn body<'a>(&'a self, run: &'a Run<'a>, message: MessageId) -> Answer<'a, ()> {
-        let _ = message;
+    fn body<'a>(&'a self, run: &'a Run<'a>, _message: MessageId) -> Answer<'a, ()> {
         refuse(run, "fetch one message on its own")
     }
 
     /// Fetch one folder now.
-    fn folder_now<'a>(&'a self, run: &'a Run<'a>, path: &'a str) -> Answer<'a, Done> {
-        let _ = path;
+    fn folder_now<'a>(&'a self, run: &'a Run<'a>, _path: &'a str) -> Answer<'a, Done> {
         refuse(run, "fetch one folder")
     }
 
@@ -63,24 +64,32 @@ pub(crate) trait Access: Send + Sync {
     fn search<'a>(
         &'a self,
         run: &'a Run<'a>,
-        filter: &'a Filter,
-        labels: &'a [(LabelId, String)],
+        _filter: &'a Filter,
+        _labels: &'a [(LabelId, String)],
     ) -> Answer<'a, Searched> {
-        let _ = (filter, labels);
         refuse(run, "search the server")
     }
 
     /// How much storage the server says is used. `None` where it keeps no quota.
-    fn quota<'a>(&'a self, run: &'a Run<'a>) -> Answer<'a, Option<Storage>> {
-        let _ = run;
+    fn quota<'a>(&'a self, _run: &'a Run<'a>) -> Answer<'a, Option<Storage>> {
         Box::pin(std::future::ready(Ok(None)))
     }
 
     /// Try the account's password against its server, as a pass would, and say what it
     /// answered. Only the two that sign in with one (IMAP, POP3) have anything to try.
-    fn check_sign_in<'a>(&'a self, run: &'a Run<'a>) -> Answer<'a, (), CoreError> {
-        let _ = run;
+    fn check_sign_in<'a>(&'a self, _run: &'a Run<'a>) -> Answer<'a, (), CoreError> {
         Box::pin(std::future::ready(Ok(())))
+    }
+
+    /// Sign in and open what waits on the server for news: IDLE, an event source, a push relay.
+    /// `subscriptions` is where Graph's subscriptions are made, which a test points at its own
+    /// listener.
+    fn wait<'a>(
+        &'a self,
+        run: &'a Run<'a>,
+        _subscriptions: &'a str,
+    ) -> Answer<'a, Box<dyn Wait>, Lost> {
+        refuse(run, "be waited on for new mail")
     }
 
     /// The mailboxes a pass fetches, in the order it fetches them, given the folders the store
@@ -88,6 +97,12 @@ pub(crate) trait Access: Send + Sync {
     fn mailboxes(&self, account: &Configured, folders: &[mail_domain::Folder]) -> Vec<MailboxRef> {
         inbox_and_sent(account, folders)
     }
+}
+
+/// An open wait on one account's server, which ends when the server has news, the outbox has
+/// something due, the floor has passed, or `cancel` fires.
+pub(crate) trait Wait {
+    fn wait<'a>(&'a mut self, cancel: &'a mut Cancel) -> Answer<'a, Woke, RuntimeError>;
 }
 
 /// The protocol `incoming` names. The only match on [`Incoming`] in this crate.
@@ -122,6 +137,7 @@ fn verdict(run: &Run<'_>, asked: Result<impl Sized, RuntimeError>) -> Result<(),
         .plan
         .incoming
         .host()
+        // Only IMAP and POP3 check a sign-in, and both always name a host.
         .unwrap_or_default()
         .to_owned();
     let login = run.account.plan.username();

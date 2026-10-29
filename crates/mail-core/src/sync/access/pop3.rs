@@ -14,10 +14,7 @@ use tokio::sync::watch;
 pub(crate) struct Pop3;
 
 /// An engine for `run`'s account, signed in with its password.
-async fn signed_engine(
-    run: &Run<'_>,
-    mode: Mode,
-) -> Result<AccountEngine<Pop3Backend>, Failure> {
+async fn signed_engine(run: &Run<'_>, mode: Mode) -> Result<AccountEngine<Pop3Backend>, Failure> {
     let Signed { held, renewal } = signed_in(run, mode).await?;
     let engine = pop3_engine(run.store, run.account, &held, run.secrets.clone())?;
     Ok(match renewal {
@@ -47,14 +44,16 @@ impl Access for Pop3 {
                 now: run.now,
             };
             remove_copies(&mut engine, &removing, pass.cancel, &mut done).await;
-            Ok(done)
+            Ok::<Done, Failure>(done)
         })
     }
 
     fn check_sign_in<'a>(&'a self, run: &'a Run<'a>) -> Answer<'a, (), CoreError> {
         Box::pin(async move {
             let (_tx, mut cancel) = watch::channel(false);
-            let mut engine = signed_engine(run, Mode::Once).await.map_err(crate::sync::pass_error)?;
+            let mut engine = signed_engine(run, Mode::Once)
+                .await
+                .map_err(crate::sync::pass_error)?;
             let asked = engine.refresh_caps(&mut cancel, run.now).await;
             verdict(run, asked)
         })
