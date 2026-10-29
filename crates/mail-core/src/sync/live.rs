@@ -29,10 +29,8 @@
 //! person set to an interval is polled at it, and one set to manually holds no connection at all.
 
 use super::report::Failure;
-use super::{
-    Configured, Mode, clock_for, configured, imap_engine, poll_floor, pushed_folders, renewal_for,
-};
-use super::{signed_in_typed, to_sync};
+use super::run::{Run, Signed, signed_in};
+use super::{Configured, Mode, configured, imap_engine, poll_floor, pushed_folders, to_sync};
 use crate::error::Logged;
 use mail_domain::*;
 use mail_runtime::graph::push::{Listener, SUBSCRIPTIONS};
@@ -256,21 +254,18 @@ impl Waiter {
         if !pushes(account) {
             return Err(unsupported("this account has no push to wait on"));
         }
-        let stored = super::stored_credential(account, secrets.as_ref()).await?;
         // The wall clock, because a watch outlives any `now` it could be handed.
-        let now = chrono::Utc::now();
-        let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;
+        let run = Run {
+            store,
+            secrets: secrets.clone(),
+            registry,
+            now: chrono::Utc::now(),
+            account,
+        };
+        let Signed { held, renewal } = signed_in(&run, Mode::Watch).await?;
         let floor = poll_floor(&account.caps.watch);
         match &account.plan.incoming {
             Incoming::Imap { .. } => {
-                let held = Held::new(credential);
-                let renewal = renewal_for(
-                    account,
-                    &held,
-                    secrets.clone(),
-                    registry,
-                    clock_for(Mode::Watch, now),
-                );
                 let folders = {
                     use mail_store::Store as _;
                     store

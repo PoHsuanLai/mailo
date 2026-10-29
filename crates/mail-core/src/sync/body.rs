@@ -77,20 +77,16 @@ pub async fn fetch_body_with(
     }
     async {
         let (_tx, mut cancel) = watch::channel(false);
-        let stored = super::stored_credential(&account, secrets.as_ref())
-            .await
-            .map_err(|f| (f.retry, f.why))?;
-        let credential = signed_in_typed(&account, stored, secrets.as_ref(), registry, now)
-            .await
-            .map_err(|f| (f.retry, f.why))?;
-        let held = Held::new(credential);
-        let renewal = renewal_for(
-            &account,
-            &held,
-            secrets.clone(),
+        let run = Run {
+            store: &store,
+            secrets: secrets.clone(),
             registry,
-            clock_for(Mode::Once, now),
-        );
+            now,
+            account: &account,
+        };
+        let Signed { held, renewal } = signed_in(&run, Mode::Once)
+            .await
+            .map_err(|f| (f.retry, f.why))?;
         let failed = |e: mail_runtime::RuntimeError| {
             (e.retry(), format!("cannot download the message: {e}"))
         };

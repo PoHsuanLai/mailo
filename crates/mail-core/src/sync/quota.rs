@@ -6,6 +6,7 @@
 //! POP3 and local folders have nothing to say: for those, and for a server that keeps no quota,
 //! there is none.
 
+use super::run::Run;
 use super::{configured, signed_in_imap};
 use crate::error::CoreError;
 use mail_domain::Incoming;
@@ -30,7 +31,14 @@ impl crate::mail::SyncOps<'_> {
         match &account.plan.incoming {
             Incoming::Imap { .. } => {
                 let (_tx, mut cancel) = watch::channel(false);
-                let mut engine = signed_in_imap(store, &account, secrets, &registry, now).await?;
+                let run = Run {
+                    store,
+                    secrets,
+                    registry: &registry,
+                    now,
+                    account: &account,
+                };
+                let mut engine = signed_in_imap(&run).await?;
                 engine.quota_imap(&mut cancel).await.map_err(failed)
             }
             Incoming::Jmap { .. } => {

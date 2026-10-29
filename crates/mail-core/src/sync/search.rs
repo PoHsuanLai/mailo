@@ -1,6 +1,7 @@
 //! A search of one account's server, signed in as a sync signs in: an IMAP engine with a fresh
 //! credential kept fresh, a Graph engine with a Graph token valid now, or a JMAP engine.
 
+use super::run::Run;
 use super::{
     AccountSecrets, ClientRegistry, configured, graph_engine, sending_token, signed_in_imap,
 };
@@ -57,7 +58,14 @@ pub async fn search_server_with(
         match &account.plan.incoming {
             Incoming::Imap { .. } => {
                 let (_tx, mut cancel) = watch::channel(false);
-                let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
+                let run = Run {
+                    store,
+                    secrets,
+                    registry,
+                    now,
+                    account: &account,
+                };
+                let mut engine = signed_in_imap(&run).await?;
                 engine
                     .search_imap(filter, labels, &mut cancel, now)
                     .await

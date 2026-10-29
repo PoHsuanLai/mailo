@@ -17,6 +17,7 @@ mod body;
 pub use body::fetch_body_with;
 mod jmap;
 mod quota;
+mod run;
 mod search;
 
 use crate::error::{CoreError, Logged};
@@ -32,6 +33,7 @@ use mail_runtime::{
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
+use run::{Run, Signed, signed_in};
 pub use search::search_server_with;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -403,7 +405,14 @@ async fn pass_over(
     // between runs for no reason the user could see.
     Ok(
         futures_util::future::join_all(accounts.iter().map(|account| async {
-            let result = one(store, account, secrets.clone(), registry, now, mode, &hooks).await;
+            let run = Run {
+                store,
+                secrets: secrets.clone(),
+                registry,
+                now,
+                account,
+            };
+            let result = one(&run, mode, &hooks).await;
             let end = ended(account, result, hooks.cancel.get(&account.id).cloned());
             remember(store, &end, now);
             end
@@ -463,20 +472,20 @@ fn ended(
 /// backend, so an OAuth account fetched mail until its first token expired and then failed on
 /// every pass afterwards with an authentication error — while the refresh token that would have
 /// fixed it sat unused in the same keyring entry.
-pub(crate) async fn signed_in(
+pub(crate) async fn renewed(
     account: &Configured,
     credential: Credential,
     secrets: &dyn AccountSecrets,
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, CoreError> {
-    signed_in_typed(account, credential, secrets, registry, now)
+    renewed_typed(account, credential, secrets, registry, now)
         .await
         .map_err(pass_error)
 }
 
-/// [`signed_in`], with what to do about a failure kept beside what to say about it.
-async fn signed_in_typed(
+/// [`renewed`], with what to do about a failure kept beside what to say about it.
+async fn renewed_typed(
     account: &Configured,
     credential: Credential,
     secrets: &dyn AccountSecrets,
@@ -533,7 +542,7 @@ pub(crate) async fn stored_credential(
 /// What keeps an OAuth account's tokens fresh for as long as its engine runs.
 ///
 /// `None` for a password account and for one this installation has no client id for: the first
-/// has nothing to renew, and [`signed_in`] has already said what is wrong with the second.
+/// has nothing to renew, and [`renewed`] has already said what is wrong with the second.
 ///
 /// `clock` is where it reads the time. A watch reads the wall clock, because it outlives any
 /// `now` it could be handed; a single pass uses the instant it was given, like everything else
@@ -568,15 +577,15 @@ fn clock_for(mode: Mode, now: chrono::DateTime<chrono::Utc>) -> Now {
     }
 }
 
-async fn one(
-    store: &Arc<SqliteStore>,
-    account: &Configured,
-    secrets: Arc<dyn AccountSecrets>,
-    registry: &ClientRegistry,
-    now: chrono::DateTime<chrono::Utc>,
-    mode: Mode,
-    hooks: &Hooks<'_>,
-) -> Result<Done, Failure> {
+async fn one(run: &Run<'_>, mode: Mode, hooks: &Hooks<'_>) -> Result<Done, Failure> {
+    let Run {
+        store,
+        registry,
+        now,
+        account,
+        ..
+    } = *run;
+    let secrets = run.secrets.clone();
     let cancel = hooks.cancel.get(&account.id).cloned();
     let emitting = |progress| {
         if let Some(sink) = hooks.progress {
@@ -585,8 +594,7 @@ async fn one(
     };
     let emit: Emit<'_> = Some(&emitting);
     say(emit, Progress::Connecting);
-    let stored = stored_credential(account, secrets.as_ref()).await?;
-    let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;
+    let Signed { held, renewal } = signed_in(run, mode).await?;
     // Not fatal to the pass: an account that cannot send can still receive. And a token for
     // sending alone is sending's (`mail_runtime::sending`): what it could not have is said on
     // the outbox, when there is something to send, and never asks this account to sign in or
@@ -595,16 +603,6 @@ async fn one(
         .await
         .err()
         .filter(|_| !mail_runtime::sending::sending_alone(&account.plan));
-    // The credential goes into a cell rather than into the session factory, so a token renewed
-    // an hour into a watch reaches the next connection.
-    let held = Held::new(credential);
-    let renewal = renewal_for(
-        account,
-        &held,
-        secrets.clone(),
-        registry,
-        clock_for(mode, now),
-    );
 
     let folders = {
         use mail_store::Store as _;
@@ -989,7 +987,14 @@ pub async fn fetch_part_with(
         return Err(CoreError::OnlyImapLeavesAttachments);
     }
     let (_tx, mut cancel) = watch::channel(false);
-    let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
+    let run = Run {
+        store,
+        secrets,
+        registry,
+        now,
+        account: &account,
+    };
+    let mut engine = signed_in_imap(&run).await?;
     engine
         .fetch_part(message, section, &mut cancel)
         .await
@@ -998,26 +1003,9 @@ pub async fn fetch_part_with(
 }
 
 /// An IMAP engine for `account`, signed in with a fresh credential and kept fresh.
-async fn signed_in_imap(
-    store: &Arc<SqliteStore>,
-    account: &Configured,
-    secrets: Arc<dyn AccountSecrets>,
-    registry: &ClientRegistry,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<AccountEngine<ImapBackend>, CoreError> {
-    let stored = stored_credential(account, secrets.as_ref())
-        .await
-        .map_err(pass_error)?;
-    let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
-    let held = Held::new(credential);
-    let renewal = renewal_for(
-        account,
-        &held,
-        secrets.clone(),
-        registry,
-        clock_for(Mode::Once, now),
-    );
-    let mut engine = imap_engine(store, account, held, secrets);
+async fn signed_in_imap(run: &Run<'_>) -> Result<AccountEngine<ImapBackend>, CoreError> {
+    let Signed { held, renewal } = signed_in(run, Mode::Once).await.map_err(pass_error)?;
+    let mut engine = imap_engine(run.store, run.account, held, run.secrets.clone());
     if let Some(source) = renewal {
         engine = engine.with_tokens(source);
     }
@@ -1040,7 +1028,14 @@ pub async fn drain_with(
         return Err(CoreError::OnlyImapUploads);
     }
     let (_tx, mut cancel) = watch::channel(false);
-    let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
+    let run = Run {
+        store,
+        secrets,
+        registry,
+        now,
+        account: &account,
+    };
+    let mut engine = signed_in_imap(&run).await?;
     Ok(engine.drain_outbox(&mut cancel, now).await?)
 }
 
@@ -1404,18 +1399,16 @@ pub async fn folder_now_with(
         account: account.id.clone(),
         path: path.to_owned(),
     };
+    let run = Run {
+        store: &store,
+        secrets: secrets.clone(),
+        registry,
+        now,
+        account: &account,
+    };
     let done = async {
-        let stored = stored_credential(&account, secrets.as_ref()).await?;
-        let credential = signed_in_typed(&account, stored, secrets.as_ref(), registry, now).await?;
+        let Signed { held, renewal } = signed_in(&run, Mode::Once).await?;
         let (_tx, mut cancel) = watch::channel(false);
-        let held = Held::new(credential);
-        let renewal = renewal_for(
-            &account,
-            &held,
-            secrets.clone(),
-            registry,
-            clock_for(Mode::Once, now),
-        );
         let mut done = Done::default();
         if account.plan.incoming == Incoming::Graph {
             sending_token_typed(&account, secrets.as_ref(), registry, now).await?;
