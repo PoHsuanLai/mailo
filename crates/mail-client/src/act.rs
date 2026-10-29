@@ -1,6 +1,6 @@
-//! What a caller changes: commands, applied in order on a thread of the client's own.
+//! What a caller changes: [`Act`]s, applied in order on a thread of the client's own.
 //!
-//! A command is the same rule the command line applies ([`mail_core::act`]): an op on a
+//! A change is the same rule the command line applies ([`mail_core::act`]): an op on a
 //! conversation, taking one back, deleting one for good. The caller is handed a [`Ticket`] at
 //! once and never waits on the store's writer; the ticket says what was done, and the
 //! [`Generation`] a value has to be read at to show it.
@@ -17,27 +17,103 @@ use mail_domain::{
 use mail_store::{Generation, SqliteStore, Store};
 use porter_core::AccountId;
 
-/// What to change.
+/// A change the client makes, on a thread of its own.
+///
+/// Each kind of change is a type, and what it came to is its [`Done`](Act::Done): the ticket
+/// [`Client::act`](crate::Client::act) hands back is typed by it, so a caller reads what it asked
+/// for without matching the answer to another kind of change.
+pub trait Act: Send + 'static {
+    /// What the change came to.
+    type Done: Send + 'static;
+
+    /// Make the change in `store`.
+    fn run(self, store: &SqliteStore) -> Self::Done;
+}
+
+/// Apply each op to its conversation, oldest first.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Command {
-    /// Apply each op to its conversation, oldest first. `clock` is how the words that say what
-    /// was done write a time.
-    Perform {
-        ops: Vec<(ThreadId, Op)>,
-        clock: mail_core::when::Clock,
-        /// Conversations whose op reaches only the one message named, not the conversation whole:
-        /// a message opened alone from a list that shows a message to a row.
-        alone: Vec<(ThreadId, MessageId)>,
-        /// Whether what an op moved to Trash is erased from there once the server holds it
-        /// ([`mail_core::erase::mark_deleted`]), for a Delete that means "deletes now".
-        then_erase: bool,
-    },
-    /// Take back each of these, newest first.
-    TakeBack(Vec<Undo>),
-    /// Delete for good what each conversation holds in Trash or Spam.
-    Destroy(Vec<ThreadId>),
-    /// Keep something the person made or forgot.
-    Keep(Keep),
+pub struct Perform {
+    pub ops: Vec<(ThreadId, Op)>,
+    /// How the words that say what was done write a time.
+    pub clock: mail_core::when::Clock,
+    /// Conversations whose op reaches only the one message named, not the conversation whole:
+    /// a message opened alone from a list that shows a message to a row.
+    pub alone: Vec<(ThreadId, MessageId)>,
+    /// Whether what an op moved to Trash is erased from there once the server holds it
+    /// ([`mail_core::erase::mark_deleted`]), for a Delete that means "deletes now".
+    pub then_erase: bool,
+}
+
+/// The ops that were applied, each with what takes it back. One that was refused is not here.
+pub type Performed = Vec<(ThreadId, Op, Undo)>;
+
+impl Act for Perform {
+    type Done = Performed;
+
+    fn run(self, store: &SqliteStore) -> Performed {
+        let Perform {
+            ops,
+            clock,
+            alone,
+            then_erase,
+        } = self;
+        let done: Performed = ops
+            .into_iter()
+            .filter_map(|(thread, op)| {
+                let target = match alone.iter().find(|(of, _)| *of == thread) {
+                    Some((_, message)) => Target::Messages(vec![*message]),
+                    None => Target::Threads(vec![thread]),
+                };
+                mail_core::act::perform_on(store, thread, target, op.clone(), clock)
+                    .map(|undo| (thread, op, undo))
+            })
+            .collect();
+        if then_erase && done.iter().any(|(_, op, _)| *op == Op::Trash) {
+            let undos: Vec<Undo> = done.iter().map(|(_, _, undo)| undo.clone()).collect();
+            mail_core::erase::mark_deleted(store, &undos, Utc::now());
+        }
+        done
+    }
+}
+
+/// Take back each of these, newest first.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TakeBack(pub Vec<Undo>);
+
+/// What was taken back, and what was refused, in the order they were asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TookBack {
+    pub back: Vec<Undo>,
+    pub refused: Vec<Undo>,
+}
+
+impl Act for TakeBack {
+    type Done = TookBack;
+
+    fn run(self, store: &SqliteStore) -> TookBack {
+        let (back, refused) = self
+            .0
+            .into_iter()
+            .partition(|undo| mail_core::act::take_back(store, undo));
+        TookBack { back, refused }
+    }
+}
+
+/// Delete for good what each conversation holds in Trash or Spam.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Destroy(pub Vec<ThreadId>);
+
+impl Act for Destroy {
+    /// The messages deleted.
+    type Done = Vec<MessageId>;
+
+    fn run(self, store: &SqliteStore) -> Vec<MessageId> {
+        self.0
+            .into_iter()
+            .filter_map(|thread| mail_core::act::destroy(store, thread))
+            .flatten()
+            .collect()
+    }
 }
 
 /// What a person makes or forgets, written like an op is: off the thread that draws.
@@ -51,46 +127,49 @@ pub enum Keep {
     Label { account: AccountId, name: String },
 }
 
-/// What a [`Command`] did.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Done {
-    /// The ops that were applied, each with what takes it back. One that was refused is not here.
-    Performed(Vec<(ThreadId, Op, Undo)>),
-    /// What was taken back, and what was refused, in the order they were asked for.
-    TookBack { back: Vec<Undo>, refused: Vec<Undo> },
-    /// The messages deleted.
-    Destroyed(Vec<MessageId>),
-    /// What a [`Keep`] came to: the label it made, for one that makes a label, else `None`; or
-    /// why it was not kept.
-    Kept(Result<Option<LabelId>, String>),
+/// What a [`Keep`] came to: the label it made, for one that makes a label, else `None`; or why it
+/// was not kept.
+pub type Kept = Result<Option<LabelId>, String>;
+
+impl Act for Keep {
+    type Done = Kept;
+
+    fn run(self, store: &SqliteStore) -> Kept {
+        match self {
+            Keep::View(view) => store.put_view(&view).map(|()| None),
+            Keep::ForgetView(id) => store.delete_view(id).map(|()| None),
+            Keep::Label { account, name } => store.create_label(account, &name).map(Some),
+        }
+        .map_err(|why| why.to_string())
+    }
 }
 
-/// A command done: what it did, and the generation a value read at or after has it.
+/// A change done: what it did, and the generation a value read at or after has it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Acted {
-    pub done: Done,
+pub struct Acted<D> {
+    pub done: D,
     pub generation: Generation,
 }
 
-/// What a command will have done, once it has. Awaited, or looked at without waiting.
+/// What a change will have done, once it has. Awaited, or looked at without waiting.
 #[derive(Debug)]
-pub struct Ticket(tokio::sync::oneshot::Receiver<Acted>);
+pub struct Ticket<D>(tokio::sync::oneshot::Receiver<Acted<D>>);
 
-impl Ticket {
-    pub(crate) fn new() -> (tokio::sync::oneshot::Sender<Acted>, Ticket) {
+impl<D> Ticket<D> {
+    pub(crate) fn new() -> (tokio::sync::oneshot::Sender<Acted<D>>, Ticket<D>) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         (tx, Ticket(rx))
     }
 
     /// What was done, if it has been; `None` while it waits.
-    pub fn now(&mut self) -> Option<Acted> {
+    pub fn now(&mut self) -> Option<Acted<D>> {
         self.0.try_recv().ok()
     }
 }
 
-impl std::future::Future for Ticket {
-    /// `None` when the client stopped before the command was done.
-    type Output = Option<Acted>;
+impl<D> std::future::Future for Ticket<D> {
+    /// `None` when the client stopped before the change was done.
+    type Output = Option<Acted<D>>;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
@@ -100,54 +179,9 @@ impl std::future::Future for Ticket {
     }
 }
 
-/// Do `command` on `store`, here.
-pub(crate) fn apply(store: &SqliteStore, command: Command) -> Acted {
-    let done = match command {
-        Command::Perform {
-            ops,
-            clock,
-            alone,
-            then_erase,
-        } => {
-            let done: Vec<(ThreadId, Op, Undo)> = ops
-                .into_iter()
-                .filter_map(|(thread, op)| {
-                    let target = match alone.iter().find(|(of, _)| *of == thread) {
-                        Some((_, message)) => Target::Messages(vec![*message]),
-                        None => Target::Threads(vec![thread]),
-                    };
-                    mail_core::act::perform_on(store, thread, target, op.clone(), clock)
-                        .map(|undo| (thread, op, undo))
-                })
-                .collect();
-            if then_erase && done.iter().any(|(_, op, _)| *op == Op::Trash) {
-                let undos: Vec<Undo> = done.iter().map(|(_, _, undo)| undo.clone()).collect();
-                mail_core::erase::mark_deleted(store, &undos, Utc::now());
-            }
-            Done::Performed(done)
-        }
-        Command::TakeBack(undos) => {
-            let (back, refused) = undos
-                .into_iter()
-                .partition(|undo| mail_core::act::take_back(store, undo));
-            Done::TookBack { back, refused }
-        }
-        Command::Destroy(threads) => Done::Destroyed(
-            threads
-                .into_iter()
-                .filter_map(|thread| mail_core::act::destroy(store, thread))
-                .flatten()
-                .collect(),
-        ),
-        Command::Keep(keep) => Done::Kept(
-            match keep {
-                Keep::View(view) => store.put_view(&view).map(|()| None),
-                Keep::ForgetView(id) => store.delete_view(id).map(|()| None),
-                Keep::Label { account, name } => store.create_label(account, &name).map(Some),
-            }
-            .map_err(|why| why.to_string()),
-        ),
-    };
+/// Make `change` in `store`, here.
+pub(crate) fn apply<A: Act>(store: &SqliteStore, change: A) -> Acted<A::Done> {
+    let done = change.run(store);
     Acted {
         done,
         generation: store.generation(),

@@ -23,7 +23,7 @@ mod pure;
 pub mod query;
 mod stored;
 
-pub use act::{Acted, Command, Done, Ticket};
+pub use act::{Act, Acted, Destroy, Perform, TakeBack, Ticket};
 pub use caches::{Framing, Looking};
 pub use client::{Client, ClientConfig, FetchRun, WeakClient};
 pub use error::ClientError;
