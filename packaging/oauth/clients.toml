@@ -1,0 +1,29 @@
+# The OAuth clients this build signs in as, built into the macOS and Windows binaries
+# (`crates/mail-runtime/src/clients.rs`). An installed app's client id is not a secret.
+#
+# Every id below is a PLACEHOLDER: the apps are not registered yet. An id that starts with
+# `REPLACE-ME` is never used to sign in; the app treats it as having no client until a real id
+# is pasted over it. To register the apps and fill this in:
+#
+# - Google: an OAuth client of type "Desktop app" with the Gmail mail scope
+#   (https://mail.google.com/). That scope is restricted, so it needs Google's verification.
+#   A desktop client also has a secret; paste it as `client_secret` (it is not confidential).
+# - Microsoft: an app registration that accepts personal Microsoft accounts and work or school
+#   accounts, as a public client with a loopback redirect. Its endpoints below name the `common`
+#   tenant; that is what lets a personal Outlook.com or Hotmail address sign in.
+# - Yahoo: waits on porter naming Yahoo as an issuer; see the pull request.
+
+[[client]]
+issuer = "google"
+channel = "stable"
+client_id = "REPLACE-ME-google-desktop-client-id.apps.googleusercontent.com"
+# client_secret = "REPLACE-ME-google-desktop-client-secret"
+
+[[client]]
+issuer = "microsoft"
+channel = "stable"
+client_id = "REPLACE-ME-microsoft-application-client-id"
+
+[client.endpoints]
+authorize = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+token = "https://login.microsoftonline.com/common/oauth2/v2.0/token"

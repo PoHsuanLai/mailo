@@ -27,14 +27,38 @@ use std::path::{Path, PathBuf};
 pub const CHANNEL: ClientChannel = ClientChannel::Stable;
 
 /// Where porter ships its clients, on a system that has porter installed.
-#[cfg(not(any(target_os = "macos", windows)))]
-const SHIPPED: Option<&str> = Some("/usr/share/porter/clients.toml");
-#[cfg(any(target_os = "macos", windows))]
-const SHIPPED: Option<&str> = None;
+const SHIPPED: Option<&str> = if cfg!(any(target_os = "macos", windows)) {
+    None
+} else {
+    Some("/usr/share/porter/clients.toml")
+};
 
-/// The three files a registry is read from.
+/// The clients file this repository ships (`packaging/oauth/clients.toml`), on every OS so a test
+/// can read it; only macOS and Windows build it into the program, where there is no
+/// `/usr/share/porter` to read.
+const PACKAGED: &str = include_str!("../../../packaging/oauth/clients.toml");
+
+/// The clients built into this program: [`PACKAGED`] where there is no porter install to read.
+const BUILT_IN: Option<&str> = if cfg!(any(target_os = "macos", windows)) {
+    Some(PACKAGED)
+} else {
+    None
+};
+
+/// The start of a client id that stands in for one not yet registered.
+const PLACEHOLDER: &str = "REPLACE-ME";
+
+/// Whether `entry` is a placeholder from the packaged file, not a registered client. `load`
+/// drops such a row, so it is never used to sign in: it is read as no client at all.
+fn is_placeholder(entry: &ClientEntry) -> bool {
+    entry.client_id.0.starts_with(PLACEHOLDER)
+}
+
+/// The files a registry is read from, and the clients built into the program.
 #[derive(Debug, Clone, Default)]
 pub struct Files {
+    /// The clients built into the program (a `clients.toml`'s text), under the shipped file.
+    pub built_in: Option<&'static str>,
     /// porter's shipped clients.
     pub shipped: Option<PathBuf>,
     /// The person's own clients (porter's file; read only).
@@ -47,6 +71,7 @@ impl Files {
     /// Where this installation keeps them.
     pub fn here() -> Self {
         Self {
+            built_in: BUILT_IN,
             shipped: SHIPPED.map(PathBuf::from),
             own: crate::places::porter_config().map(|dir| dir.join("clients.toml")),
             legacy: legacy_path(),
@@ -64,12 +89,31 @@ pub fn load_default() -> Result<ClientRegistry, RuntimeError> {
     load(&Files::here())
 }
 
-/// The registry from `files`: porter's first, then mailo's earlier file for each issuer they do
-/// not cover. A file that does not exist is empty; one that is damaged is an error, never read
-/// as empty (that would report a configured client as missing). Nothing is written.
+/// The registry from `files`: the built-in clients, porter's over them, then mailo's earlier file
+/// for each issuer they do not cover. A file that does not exist is empty; one that is damaged
+/// is an error, never read as empty (that would report a configured client as missing). Nothing
+/// is written.
 pub fn load(files: &Files) -> Result<ClientRegistry, RuntimeError> {
     let mut shipped = read(files.shipped.as_deref())?;
-    let own = read(files.own.as_deref())?;
+    if let Some(text) = files.built_in {
+        let built_in = parse_clients(text).map_err(|e| {
+            RuntimeError::Secrets(Failure::new("the built-in clients are unreadable", e))
+        })?;
+        for entry in built_in.clients {
+            if !shipped
+                .clients
+                .iter()
+                .any(|c| c.issuer == entry.issuer && c.channel == entry.channel)
+            {
+                shipped.clients.push(entry);
+            }
+        }
+    }
+    let mut own = read(files.own.as_deref())?;
+    // A placeholder is dropped before the earlier file is consulted, so it neither signs in nor
+    // hides a client registered through mailo's `oauth.json`.
+    shipped.clients.retain(|c| !is_placeholder(c));
+    own.clients.retain(|c| !is_placeholder(c));
     if let Some(path) = &files.legacy
         && let Some(text) = text(path)?
     {
@@ -100,6 +144,22 @@ pub fn client(registry: &ClientRegistry, issuer: Issuer) -> Option<&ClientEntry>
     registry.lookup(issuer, CHANNEL)
 }
 
+/// Whether this installation can sign a personal Microsoft account (Outlook.com, Hotmail) in:
+/// it has a Microsoft client, and that client signs in on an endpoint that takes personal
+/// accounts (`common` or `consumers`) rather than mailo's default of `organizations`. With none,
+/// or with placeholders only, it cannot, and a personal address is told why.
+pub fn personal_microsoft_ready(registry: &ClientRegistry) -> bool {
+    client(registry, Issuer::Microsoft)
+        // A client whose endpoints cannot be worked out signs nobody in, so it takes no personal
+        // account either.
+        .and_then(|found| endpoints(found).ok())
+        .is_some_and(|ends| {
+            ["/common/", "/consumers/"]
+                .iter()
+                .any(|tenant| ends.authorize.as_str().contains(tenant))
+        })
+}
+
 /// A client a person typed in (`MAILO_OAUTH_CLIENT_ID`), as a registry entry.
 pub fn entry(issuer: Issuer, client_id: &str, client_secret: Option<&str>) -> ClientEntry {
     ClientEntry {
@@ -115,12 +175,10 @@ pub fn entry(issuer: Issuer, client_id: &str, client_secret: Option<&str>) -> Cl
 /// issuer's.
 ///
 /// mailo's one departure from the issuer's published ones is Microsoft's: `organizations`, not
-/// `common`. `common` also accepts personal Outlook.com accounts, and those are a worse case this
-/// does not support: basic authentication was retired there on 2024-09-16 and recently created
-/// personal mailboxes are reported to have SMTP client authentication permanently off, so a
-/// `common` endpoint would hand back a perfectly good token that then fails at submission with
-/// nothing to explain it. Refusing at sign-in, where the user can read the reason, is the better
-/// failure. An error for an issuer mailo has no mail sign-in for.
+/// `common`. `common` also accepts personal Outlook.com accounts, which recently created
+/// mailboxes are reported to refuse SMTP client authentication for, so a client signs personal
+/// accounts in only when its own endpoints say so ([`personal_microsoft_ready`]). An error for an
+/// issuer mailo has no mail sign-in for.
 pub fn endpoints(client: &ClientEntry) -> Result<IssuerEndpoints, RuntimeError> {
     if let Some(own) = &client.endpoints {
         return Ok(own.clone());
@@ -249,6 +307,7 @@ mod tests {
     fn porters_registry_wins_and_the_legacy_file_fills_the_gaps() {
         let dir = tempfile::tempdir().unwrap();
         let files = Files {
+            built_in: None,
             shipped: Some(write(dir.path(), "shipped.toml", SHIPPED_TOML)),
             own: Some(write(dir.path(), "own.toml", OWN_TOML)),
             legacy: Some(write(dir.path(), "oauth.json", LEGACY)),
@@ -300,6 +359,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let absent = |n: &str| Some(dir.path().join(n));
         let registry = load(&Files {
+            built_in: None,
             shipped: absent("a"),
             own: absent("b"),
             legacy: absent("c"),
@@ -331,6 +391,55 @@ mod tests {
             Issuer::Google.endpoints()
         );
         assert!(endpoints(&entry(Issuer::Dropbox, "x", None)).is_err());
+    }
+
+    #[test]
+    fn a_placeholder_client_is_no_client_and_hides_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        // The file this repository ships has placeholders only: no issuer has a client.
+        let registry = load(&Files {
+            built_in: Some(PACKAGED),
+            ..Files::default()
+        })
+        .unwrap();
+        for issuer in [Issuer::Google, Issuer::Microsoft] {
+            assert_eq!(id(&registry, issuer), None);
+        }
+        assert!(!personal_microsoft_ready(&registry));
+        // And it does not cover for the client mailo's earlier file has for that issuer.
+        let registry = load(&Files {
+            built_in: Some(PACKAGED),
+            legacy: Some(write(dir.path(), "oauth.json", LEGACY)),
+            ..Files::default()
+        })
+        .unwrap();
+        assert_eq!(id(&registry, Issuer::Google).as_deref(), Some("legacy-g"));
+    }
+
+    #[test]
+    fn a_built_in_client_is_used_once_its_id_is_real_and_the_shipped_file_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = PACKAGED.replace("REPLACE-ME-microsoft-application-client-id", "real-ms");
+        let leaked: &'static str = Box::leak(real.into_boxed_str());
+        let registry = load(&Files {
+            built_in: Some(leaked),
+            ..Files::default()
+        })
+        .unwrap();
+        assert_eq!(id(&registry, Issuer::Microsoft).as_deref(), Some("real-ms"));
+        assert!(personal_microsoft_ready(&registry));
+        let registry = load(&Files {
+            built_in: Some(leaked),
+            shipped: Some(write(dir.path(), "shipped.toml", SHIPPED_TOML)),
+            ..Files::default()
+        })
+        .unwrap();
+        assert_eq!(
+            id(&registry, Issuer::Microsoft).as_deref(),
+            Some("shipped-ms")
+        );
+        // A client on the default `organizations` endpoint does not take personal accounts.
+        assert!(!personal_microsoft_ready(&registry));
     }
 
     #[test]

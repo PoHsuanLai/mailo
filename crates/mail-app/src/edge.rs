@@ -62,7 +62,11 @@ pub fn environment() -> Environment {
 
 /// Records the OAuth clients the program signs in as. Only the first call counts.
 pub fn install_clients(clients: OAuthClients) {
-    let _ = CLIENTS.set(clients);
+    if CLIENTS.set(clients.clone()).is_ok() {
+        // A personal Outlook.com or Hotmail address is refused until a client that takes personal
+        // accounts is registered (the placeholders in `packaging/oauth/clients.toml` are not).
+        mail_core::discover::judge_personal_microsoft_by(Some(clients));
+    }
 }
 
 /// The OAuth clients `main` recorded: none until it does.

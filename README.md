@@ -17,7 +17,8 @@ the least exercised.
   have no server.
 - Sending over SMTP, JMAP `EmailSubmission` or Graph `sendMail`.
 - OAuth sign-in for Google and Microsoft accounts, with an OAuth client id of your own: no
-  client id ships with mailo. Give one in `MAILO_OAUTH_CLIENT_ID` (and `MAILO_OAUTH_CLIENT_SECRET`
+  registered client id ships with mailo yet (`packaging/oauth/clients.toml` holds placeholders for
+  the macOS and Windows builds). Give one in `MAILO_OAUTH_CLIENT_ID` (and `MAILO_OAUTH_CLIENT_SECRET`
   where the client has a secret), in porter's `clients.toml`
   (`$XDG_CONFIG_HOME/porter/clients.toml`), or in mailo's `oauth.json` in its config folder.
   Passwords and PLAIN/LOGIN-style SASL for the rest. Server settings are discovered from the
