@@ -10,11 +10,12 @@
 //! message is `RETR`ed by a number that only the session which listed it can resolve, and a
 //! single-message fetch has no listing, so the account's sync is the only way a POP3 body
 //! arrives. JMAP's engine fetches bodies only as a mailbox pass and offers no call for one
-//! email. Both answer [`Retry::Fatal`] with that reason rather than running a whole pass the
-//! caller did not ask for.
+//! email. Those, and local mail, answer [`Retry::Fatal`] ([`super::access`]) rather than running
+//! a whole pass the caller did not ask for.
 
+use super::access::access;
 use super::*;
-use mail_domain::{Retry, Retryable as _};
+use mail_domain::Retry;
 
 impl crate::mail::SyncOps<'_> {
     /// Download one message's body and store it, so the reader's next read shows it.
@@ -55,64 +56,15 @@ pub async fn fetch_body_with(
         .ok_or_else(|| {
             fatal("the account this message belongs to is no longer configured".to_owned())
         })?;
-    match account.plan.incoming {
-        Incoming::Imap { .. } | Incoming::Graph => {}
-        Incoming::Pop3 { .. } => {
-            return Err(fatal(
-                "POP3 cannot fetch one message on its own; its bodies arrive with a sync"
-                    .to_owned(),
-            ));
-        }
-        Incoming::Jmap { .. } => {
-            return Err(fatal(
-                "JMAP bodies arrive with a sync; there is no fetch for a single email yet"
-                    .to_owned(),
-            ));
-        }
-        Incoming::Local => {
-            return Err(fatal(
-                "a local account has no server to fetch from".to_owned(),
-            ));
-        }
-    }
-    async {
-        let (_tx, mut cancel) = watch::channel(false);
-        let run = Run {
-            store: &store,
-            secrets: secrets.clone(),
-            registry,
-            now,
-            account: &account,
-        };
-        let Signed { held, renewal } = signed_in(&run, Mode::Once)
-            .await
-            .map_err(|f| (f.retry, f.why))?;
-        let failed = |e: mail_runtime::RuntimeError| {
-            (e.retry(), format!("cannot download the message: {e}"))
-        };
-        if let Incoming::Graph = account.plan.incoming {
-            sending_token_typed(&account, secrets.as_ref(), registry, now)
-                .await
-                .map_err(|f| (f.retry, f.why))?;
-            let mut engine =
-                graph_engine(&store, &account, secrets).map_err(|e| fatal(e.to_string()))?;
-            if let Some(renewal) = renewal {
-                engine = engine.with_tokens(renewal);
-            }
-            engine
-                .fetch_body(message, &mut cancel, now)
-                .await
-                .map_err(failed)
-        } else {
-            let mut engine = imap_engine(&store, &account, held, secrets);
-            if let Some(renewal) = renewal {
-                engine = engine.with_tokens(renewal);
-            }
-            engine
-                .fetch_body(message, &mut cancel, now)
-                .await
-                .map_err(failed)
-        }
-    }
-    .await
+    let run = Run {
+        store: &store,
+        secrets,
+        registry,
+        now,
+        account: &account,
+    };
+    access(&account.plan.incoming)
+        .body(&run, message)
+        .await
+        .map_err(|f| (f.retry, f.why))
 }

@@ -13,6 +13,8 @@ use crate::account::{Incoming, Tls};
 /// this holds only the facts about it a caller reads to decide whether to ask.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Caps {
+    /// What to call the protocol where a refusal names it: "IMAP", "POP3", "local mail".
+    pub name: &'static str,
     /// Mail comes from a server. Only [`Incoming::Local`] has none: it keeps its mail on this
     /// computer, so it is never synced, never waited on and never sent from.
     pub has_server: bool,
@@ -51,6 +53,7 @@ impl Incoming {
     pub const fn caps(&self) -> Caps {
         match self {
             Self::Imap { .. } => Caps {
+                name: "IMAP",
                 has_server: true,
                 lists_folders: true,
                 searchable: true,
@@ -62,6 +65,7 @@ impl Incoming {
                 server_drafts: true,
             },
             Self::Pop3 { .. } => Caps {
+                name: "POP3",
                 has_server: true,
                 lists_folders: false,
                 searchable: false,
@@ -73,6 +77,7 @@ impl Incoming {
                 server_drafts: false,
             },
             Self::Local => Caps {
+                name: "local mail",
                 has_server: false,
                 lists_folders: false,
                 searchable: false,
@@ -84,6 +89,7 @@ impl Incoming {
                 server_drafts: false,
             },
             Self::Graph => Caps {
+                name: "Microsoft Graph",
                 has_server: true,
                 lists_folders: true,
                 searchable: true,
@@ -95,6 +101,7 @@ impl Incoming {
                 server_drafts: false,
             },
             Self::Jmap { .. } => Caps {
+                name: "JMAP",
                 has_server: true,
                 lists_folders: true,
                 searchable: true,

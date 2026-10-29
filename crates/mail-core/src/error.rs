@@ -241,10 +241,6 @@ pub enum CoreError {
     Discovery(#[from] crate::discover::Failed),
     #[error("that account is no longer configured")]
     AccountGone,
-    #[error("{address} is POP3, which has one mailbox and no search")]
-    Pop3NoSearch { address: String },
-    #[error("{address} is kept on this computer: there is no server to search")]
-    LocalNoSearch { address: String },
 
     // ---- accounts
     #[error("no such account")]
@@ -394,12 +390,6 @@ pub enum CoreError {
     OnlyImapLeavesAttachments,
     #[error("only an IMAP account has mailboxes to upload into")]
     OnlyImapUploads,
-    #[error("POP3 has one mailbox, and every sync fetches it")]
-    Pop3OneMailbox,
-    #[error("{address} is kept on this computer: there is no server to fetch from")]
-    LocalNoServerToFetch { address: String },
-    #[error("on {address} folders are labels: every sync fetches the whole account")]
-    FoldersAreLabelsWhole { address: String },
     #[error("on {address} folders are labels: a folder's mail arrives with its label")]
     FoldersAreLabels { address: String },
 }
