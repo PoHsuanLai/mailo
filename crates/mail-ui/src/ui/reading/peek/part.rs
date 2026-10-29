@@ -1,6 +1,6 @@
 //! An attachment in Peek: a stored picture, or a PDF a page at a time, larger; a calendar file,
 //! a contact card or a forwarded message as mailo reads it (`own.rs`); with the `anyview` feature,
-//! anyview's card for any other part (`route.rs` says who draws which). An SVG, and every other
+//! anyview's card for any other part (`previewer.rs` says who draws which). An SVG, and every other
 //! part in a build without the feature, says there is no preview.
 //!
 //! The part is read and drawn on a blocking thread from a resource that runs again only when the
@@ -17,15 +17,12 @@ use ds::style::appearance::peek::PeekMode;
 use mail_client::Client;
 use mail_domain::MessageId;
 
-use super::super::route::{self, Own};
-use super::own::{self, Sheet};
+use super::own::Sheet;
+use super::previewer::{self, HEAD, Part};
 use crate::ui::copy;
 use crate::ui::remedy::plainly;
 use crate::ui::view::{Preview, Shell, Viewing};
 use mail_client::attachment_image::{self, Kind, Page, Picture, Unavailable};
-
-/// The most of a calendar, a contact or a message that is read whole to draw it.
-const OWN_LIMIT: u64 = 16 << 20;
 
 /// What Peek draws for a part.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,40 +56,33 @@ pub(super) fn draw(
     let Some(blob) = attachment.blob() else {
         return Drawn::Said(copy::status::NOT_DOWNLOADED.to_owned());
     };
-    let head = match client.blobs().head(blob, route::HEAD) {
+    let head = match client.blobs().head(blob, HEAD) {
         Ok(head) => head,
         Err(why) => return unreadable(why),
     };
-    let read: fn(MessageId, &[u8], mail_client::when::Clock) -> Option<Sheet> =
-        match route::own(&attachment.name, &head) {
-            Some(Own::Svg) => return Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
-            Some(Own::Calendar) => own::calendar,
-            Some(Own::Contact) => |_, bytes, _| own::contact(bytes),
-            Some(Own::Message) => |_, bytes, clock| own::message(bytes, clock),
-            Some(Own::Picture) | None => return picture(client, message, index, page),
-        };
-    let whole = match client.blobs().size(blob) {
-        Ok(size) if size <= OWN_LIMIT => client.blobs().get(blob),
-        Ok(_) => return Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
-        Err(why) => Err(why),
+    let part = Part {
+        client,
+        message,
+        index,
+        page,
+        clock,
+        blob,
     };
-    match whole {
-        Ok(bytes) => read(message, &bytes, clock).map_or_else(
-            || Drawn::Said(copy::status::NO_PREVIEW.to_owned()),
-            Drawn::Sheet,
-        ),
-        Err(why) => unreadable(why),
+    // A part no kind of mailo's claims is tried as a picture, and then left to anyview.
+    match previewer::claimant(&attachment.name, &head) {
+        Some(previewer) => previewer.draw(&part),
+        None => picture(client, message, index, page),
     }
 }
 
 /// A part the client could not read: the reason goes to the log, and Peek says only that.
-fn unreadable(why: impl std::fmt::Display) -> Drawn {
+pub(super) fn unreadable(why: impl std::fmt::Display) -> Drawn {
     log::warn!("an attachment could not be read for its preview: {why}");
     Drawn::Said(copy::status::no_preview(copy::status::UNREADABLE))
 }
 
 /// A picture or a PDF page `mail_client::attachment_image` decodes; anything else is anyview's.
-fn picture(client: &Client, message: MessageId, index: usize, page: u32) -> Drawn {
+pub(super) fn picture(client: &Client, message: MessageId, index: usize, page: u32) -> Drawn {
     match client.preview().load(message, index) {
         Ok((Kind::Pdf, bytes)) => {
             match attachment_image::pdf_page(bytes, page, attachment_image::PDF_PAGE) {

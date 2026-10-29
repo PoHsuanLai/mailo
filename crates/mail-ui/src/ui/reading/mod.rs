@@ -14,7 +14,6 @@ mod images;
 mod list_post;
 mod marking;
 mod peek;
-mod route;
 pub(in crate::ui) mod selection;
 mod source;
 mod thumb;
