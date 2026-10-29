@@ -10,11 +10,12 @@
 //! attachments in base64; Graph and the usual limit count what the person attached. A [`Weight`]
 //! holds both, and [`Weight::against`] reads the one a limit means.
 
-use mail_domain::{Draft, Outgoing};
+use mail_domain::{AccountPlan, Draft};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 
 use super::pictures::{self, PictureSize};
+use super::submit;
 use crate::error::Logged;
 
 /// The limit a message is measured against when its server has said none: the 25 MB of
@@ -63,45 +64,35 @@ impl SendLimit {
     };
 }
 
-/// The largest message `account` sends: what its server said, where it said one.
-pub fn send_limit(store: &SqliteStore, account: &AccountId) -> SendLimit {
-    let plan = store
+/// The plan `account` sends by, if there is one and it reads.
+fn plan_of(store: &SqliteStore, account: &AccountId) -> Option<AccountPlan> {
+    store
         .account(account.clone())
         .or_log("the sending account could not be read")
         .flatten()
-        // A plan that does not read says nothing of how it sends: the stored limit still does.
-        .and_then(|stored| stored.plan.ok());
-    match plan.map(|plan| plan.outgoing) {
-        Some(Outgoing::Graph) => SendLimit {
-            octets: mail_runtime::graph::MAX_MESSAGE,
-            measure: Measure::Content,
-            said: Said::Graph,
-        },
-        Some(Outgoing::Nowhere) => SendLimit::USUAL,
-        // A plan that does not read still sends through the server that said what it takes.
-        Some(Outgoing::Smtp { .. } | Outgoing::Jmap) | None => store
-            .send_limit(account.clone())
-            .or_log("the sending server's size limit could not be read")
-            .flatten()
-            .map_or(SendLimit::USUAL, |octets| SendLimit {
-                octets,
-                measure: Measure::Wire,
-                said: Said::Server,
-            }),
-    }
+        // A plan that does not read says nothing of how it sends: the callers take it for SMTP's.
+        .and_then(|stored| stored.plan.ok())
+}
+
+/// The largest message `account` sends: what its server said, where it said one.
+pub fn send_limit(store: &SqliteStore, account: &AccountId) -> SendLimit {
+    // A plan that does not read still sends through the server that said what it takes.
+    let way =
+        plan_of(store, account).map_or_else(submit::unread, |plan| submit::of(&plan.outgoing));
+    let stored = store
+        .send_limit(account.clone())
+        .or_log("the sending server's size limit could not be read")
+        .flatten();
+    way.limit(stored)
 }
 
 /// Whether `account` can ask for delivery reports (RFC 3461). Graph's `sendMail` has no way to,
 /// so the composer does not offer the choice there; every other way of sending takes it, and a
 /// plan that does not read leaves the choice offered.
 pub fn can_ask_delivery_report(store: &SqliteStore, account: &AccountId) -> bool {
-    let plan = store
-        .account(account.clone())
-        .or_log("the sending account could not be read")
-        .flatten()
-        // A plan that does not read leaves the choice offered, as every other way of sending has it.
-        .and_then(|stored| stored.plan.ok());
-    !matches!(plan.map(|plan| plan.outgoing), Some(Outgoing::Graph))
+    plan_of(store, account)
+        .map_or_else(submit::unread, |plan| submit::of(&plan.outgoing))
+        .asks_delivery_reports()
 }
 
 /// How large a message is at each [`PictureSize`], both ways a limit counts.

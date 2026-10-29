@@ -6,7 +6,7 @@ use super::super::tests::opened_on;
 use crate::ui::copy;
 use crate::ui::fixtures::{Work, click, drain_seen, type_into, work};
 use crate::ui::space::{Spaces, stored};
-use crate::ui::view::SettingsPage;
+use crate::ui::view::PageId;
 use dioxus::dioxus_core::VirtualDom;
 use ds::style::appearance::theme::Theme;
 use ds::style::space::presets::PRESETS;
@@ -18,7 +18,7 @@ fn on_disk(built: &Work) -> Spaces {
 
 /// The Settings window on the Spaces page, with the first Space's page pushed.
 fn first_space(built: &Work) -> (VirtualDom, crate::ui::fixtures::Seen) {
-    let (mut dom, seen) = opened_on(built, SettingsPage::Spaces);
+    let (mut dom, seen) = opened_on(built, PageId::SPACES);
     let page = dioxus_ssr::render(&dom);
     let at = page.find("spaces-pane-open-").expect("a Space's row");
     let id: String = page[at..].chars().take_while(|c| *c != '"').collect();
@@ -29,7 +29,7 @@ fn first_space(built: &Work) -> (VirtualDom, crate::ui::fixtures::Seen) {
 #[test]
 fn the_list_names_each_space_and_offers_a_new_one() {
     let built = work();
-    let (dom, _) = opened_on(&built, SettingsPage::Spaces);
+    let (dom, _) = opened_on(&built, PageId::SPACES);
     let page = dioxus_ssr::render(&dom);
     assert!(page.contains(">Work<"), "{page}");
     assert!(page.contains(copy::controls::NEW_SPACE), "{page}");
@@ -96,7 +96,7 @@ fn rows(dom: &VirtualDom) -> usize {
 #[test]
 fn a_new_space_is_added_only_by_create_space() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Spaces);
+    let (mut dom, seen) = opened_on(&built, PageId::SPACES);
     let before = rows(&dom);
     let seen = click(&mut dom, seen.one("aria-label", copy::controls::NEW_SPACE))
         .merge(drain_seen(&mut dom));
@@ -138,7 +138,7 @@ fn a_new_space_is_added_only_by_create_space() {
 #[test]
 fn a_new_space_left_or_unnamed_is_not_added() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Spaces);
+    let (mut dom, seen) = opened_on(&built, PageId::SPACES);
     let before = rows(&dom);
     let seen = click(&mut dom, seen.one("aria-label", copy::controls::NEW_SPACE))
         .merge(drain_seen(&mut dom));
@@ -169,7 +169,7 @@ fn a_new_space_left_or_unnamed_is_not_added() {
 #[test]
 fn a_new_space_can_be_deleted_after_asking() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Spaces);
+    let (mut dom, seen) = opened_on(&built, PageId::SPACES);
     let before = rows(&dom);
     let seen = click(&mut dom, seen.one("aria-label", copy::controls::NEW_SPACE))
         .merge(drain_seen(&mut dom));

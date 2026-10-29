@@ -1,5 +1,5 @@
-//! OpenPGP as product vocabulary: which key, whose, how far it is trusted, what a draft asks
-//! for, and what reading a protected message found.
+//! OpenPGP as product vocabulary: which key, whose, how far it is trusted, and
+//! what reading a protected message found.
 //!
 //! No cryptography here. The keys themselves are parsed, made and used in `mail-mime`, where
 //! the OpenPGP implementation lives; the store keeps [`PgpKey`] rows, the OS keyring keeps the
@@ -328,34 +328,6 @@ impl SecretHeld {
         } else {
             SecretHeld::Absent
         }
-    }
-}
-
-/// What a draft asks OpenPGP to do to it when it is sent.
-///
-/// Defaulted so drafts saved before OpenPGP existed load as [`OpenPgp::None`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OpenPgp {
-    #[default]
-    None,
-    /// PGP/MIME signed (RFC 3156 §5): readable by anyone, provably from the sender.
-    Sign,
-    /// PGP/MIME encrypted (RFC 3156 §4) to every recipient and the sender.
-    Encrypt,
-    /// Both: signed, then encrypted, in one OpenPGP message (RFC 3156 §6.2).
-    SignAndEncrypt,
-}
-
-impl OpenPgp {
-    /// Whether the message is signed.
-    pub fn signs(self) -> bool {
-        matches!(self, OpenPgp::Sign | OpenPgp::SignAndEncrypt)
-    }
-
-    /// Whether the message is encrypted.
-    pub fn encrypts(self) -> bool {
-        matches!(self, OpenPgp::Encrypt | OpenPgp::SignAndEncrypt)
     }
 }
 

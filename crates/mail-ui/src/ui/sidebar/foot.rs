@@ -7,60 +7,40 @@
 //! can say what the menu lists; [`MoreMenu`] draws the button and acts on a pick.
 
 use crate::ui::actions::tip_standard;
-use crate::ui::command::{CommandId, entry_of};
+use crate::ui::command::{Acts, Command, Settings, Sidebar, TidyUp, perform};
 use crate::ui::copy;
 use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use ds::root::common::Common;
 
-/// What a row of the menu asks for.
-#[derive(Debug, Clone, PartialEq)]
-pub(super) enum Pick {
-    /// Open Tidy Up, which archives the Inbox's old read conversations.
-    TidyUp,
-    /// Open the settings window.
-    Settings,
-    /// Hide the sidebar, or show it again.
-    ToggleSidebar,
-}
-
 /// The menu's rows: Tidy Up…, Settings and the sidebar's toggle, named by whether the sidebar is pinned
 /// open (`sidebar`).
-pub(super) fn menu_items(sidebar: Shown) -> Vec<MenuItem<Pick>> {
+pub(super) fn menu_items(sidebar: Shown) -> Vec<MenuItem<&'static dyn Command>> {
     let toggle = match sidebar {
         Shown::Visible => copy::menus::HIDE_SIDEBAR,
         Shown::Hidden => copy::menus::SHOW_SIDEBAR,
     };
     vec![
-        row(
-            Pick::TidyUp,
-            CommandId::TidyUp,
-            entry_of(CommandId::TidyUp).label,
-        ),
+        row(&TidyUp, TidyUp.label()),
         MenuItem::Separator,
-        row(
-            Pick::Settings,
-            CommandId::Settings,
-            entry_of(CommandId::Settings).label,
-        )
-        .with_key(tip_standard(chordkit::StandardAction::Settings)),
-        row(Pick::ToggleSidebar, CommandId::Sidebar, toggle)
-            .with_key(tip_standard(chordkit::StandardAction::ToggleSidebar)),
+        row(&Settings, Settings.label()).with_key(tip_standard(chordkit::StandardAction::Settings)),
+        row(&Sidebar, toggle).with_key(tip_standard(chordkit::StandardAction::ToggleSidebar)),
     ]
 }
 
-/// A row for the command `id`, drawn with the icon ⌘K gives it: the foot lists the same
-/// commands, so they look alike in both. `name` is the row's words, which the sidebar's toggle
-/// changes with its state.
-fn row(pick: Pick, id: CommandId, name: &str) -> MenuItem<Pick> {
-    MenuItem::new(pick, name).with_image(MenuImage::Icon(entry_of(id).icon))
+/// A row for `command`, drawn with the icon ⌘K gives it: the foot lists the same commands, so
+/// they look alike in both. `name` is the row's words, which the sidebar's toggle changes with
+/// its state.
+fn row(command: &'static dyn Command, name: &str) -> MenuItem<&'static dyn Command> {
+    MenuItem::new(command, name).with_image(MenuImage::Icon(command.icon()))
 }
 
 /// The chevron at the foot's right and the menu it opens: quire's pull-down in its chevron face.
 #[component]
 pub(in crate::ui) fn MoreMenu(
     shell: Signal<crate::ui::view::Shell>,
+    pages: Signal<u32>,
     side_hidden: Signal<bool>,
 ) -> Element {
     let mut open = use_signal(|| Shown::Hidden);
@@ -75,7 +55,7 @@ pub(in crate::ui) fn MoreMenu(
         Vec::new()
     };
     rsx! {
-        PullDownButton::<Pick> {
+        PullDownButton::<&'static dyn Command> {
             face: PullDownFace::Chevron,
             items,
             open: Some(open()),
@@ -89,10 +69,15 @@ pub(in crate::ui) fn MoreMenu(
                 })),
                 ..Common::default()
             },
-            onpick: move |pick: Pick| match pick {
-                Pick::TidyUp => crate::ui::tidy::open(shell),
-                Pick::Settings => crate::ui::settings_window::open(),
-                Pick::ToggleSidebar => side_hidden.set(!side_hidden()),
+            onpick: move |command: &'static dyn Command| {
+                perform(
+                    command,
+                    Acts {
+                        shell,
+                        pages,
+                        side_hidden,
+                    },
+                );
             },
         }
     }

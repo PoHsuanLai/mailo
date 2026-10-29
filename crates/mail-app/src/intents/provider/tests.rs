@@ -8,6 +8,7 @@ use mail_core::Store;
 use mail_core::testing::MapSigningStore;
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
+use mail_ui::ui::ask;
 use porter_core::AccountId;
 
 fn acct_account() -> AccountId {
@@ -493,17 +494,17 @@ fn reading_gives_the_words_as_untrusted_mail_private_to_the_space() {
     assert_eq!(outcome.undo, Undoable::No);
 }
 
-/// Each thing opened, with the token it came with.
-type Opened = Arc<Mutex<Vec<(Shown, Option<String>)>>>;
+/// Each thing opened, as the URI it is handed over by, with the token it came with.
+type Opened = Arc<Mutex<Vec<(String, Option<String>)>>>;
 
 /// An opener that writes down what it is asked to show.
 fn recording() -> (Opened, Opener) {
     let opened: Opened = Arc::default();
     let seen = opened.clone();
-    let opener = Opener::new(move |shown, token| {
+    let opener = Opener::new(move |ask, token| {
         seen.lock()
             .expect("opened")
-            .push((shown.clone(), token.map(str::to_owned)));
+            .push((ask.uri(), token.map(str::to_owned)));
         Ok(())
     });
     (opened, opener)
@@ -530,7 +531,7 @@ fn opening_a_contact_writes_to_them_in_the_window() {
     assert_eq!(
         *opened.lock().expect("opened"),
         [(
-            Shown::Mailto("mailto:accounting@example.test".to_owned()),
+            "mailto:accounting@example.test".to_owned(),
             Some("launcher-token-2".to_owned())
         )]
     );
@@ -547,12 +548,17 @@ fn opening_a_contact_writes_to_them_in_the_window() {
         "100%#x@example.test",
         "o'neil@example.test",
     ] {
-        let link: mail_mime::mailto::MailtoUri =
-            super::contacts::mailto_of(odd).parse().expect("a link");
+        let link = ask::Mailto::to(odd);
         assert_eq!(
-            link.to.iter().map(|a| a.email.as_str()).collect::<Vec<_>>(),
+            link.link()
+                .to
+                .iter()
+                .map(|a| a.email.as_str())
+                .collect::<Vec<_>>(),
             [odd]
         );
+        let read = ask::Mailto::parse(&link.uri()).expect("a link");
+        assert_eq!(read.link(), link.link());
     }
 }
 
@@ -567,7 +573,7 @@ fn opening_hands_the_conversation_to_the_window_and_answers_nothing() {
         .expect("opened");
     assert_eq!(
         *opened.lock().expect("opened"),
-        [(Shown::Thread(thread_of(2)), None)]
+        [(ask::Thread(thread_of(2)).uri(), None)]
     );
     assert_eq!(outcome.undo, Undoable::No);
     assert!(
@@ -593,7 +599,7 @@ fn opening_hands_the_conversation_to_the_window_and_answers_nothing() {
     assert_eq!(
         opened.lock().expect("opened").last(),
         Some(&(
-            Shown::Thread(thread_of(3)),
+            ask::Thread(thread_of(3)).uri(),
             Some("launcher-token-1".to_owned())
         ))
     );
@@ -1007,8 +1013,8 @@ fn a_window_less_provider_is_looking_at_nothing() {
 #[cfg(not(any(target_os = "macos", windows)))]
 #[test]
 fn the_window_handoff_answers_from_inside_zbus_executor() {
-    let shown = Shown::Thread(thread_of(1));
-    let _taken: bool = zbus::block_on(async { super::handed_to_window(&shown, Some("token")) });
+    let thread = ask::Thread(thread_of(1));
+    let _taken: bool = zbus::block_on(async { super::handed_to_window(&thread, Some("token")) });
 }
 
 /// What mail hands the desktop's index is keyed as the intents key the same kinds: a conversation

@@ -117,7 +117,7 @@ fn window_contexts_printing(
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     )
     .with(printer)
 }
@@ -474,10 +474,10 @@ fn a_request_from_outside_opens_the_conversation_in_the_running_window() {
 
     let invoice = thread(&store, INBOX[1].1).id;
     queue
-        .send(mail_ui::ui::native::Request::Thread {
-            thread: invoice,
-            token: mail_ui::ui::native::ActivationToken::new("xdg-activation-1"),
-        })
+        .send(mail_ui::ui::ask::Open::new(
+            mail_ui::ui::ask::Thread(invoice),
+            mail_ui::ui::native::ActivationToken::new("xdg-activation-1"),
+        ))
         .unwrap();
     settle_until(&mut harness, |h| h.count(".reader-head h2") == 1);
     let heading = harness.text_of(".reader-head h2").unwrap_or_default();
@@ -489,9 +489,7 @@ fn a_request_from_outside_opens_the_conversation_in_the_running_window() {
     );
 
     // A request to raise the window itself changes nothing.
-    queue
-        .send(mail_ui::ui::native::Request::Activate { token: None })
-        .unwrap();
+    queue.send(mail_ui::ui::ask::Open::raise()).unwrap();
     harness.advance(ms(300));
     assert_eq!(
         harness.text_of(".reader-head h2").unwrap_or_default(),

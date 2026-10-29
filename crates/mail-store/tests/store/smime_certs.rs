@@ -157,7 +157,7 @@ fn a_draft_and_a_template_keep_what_they_ask_smime_to_do() {
         name: None,
         email: "you@example.test".to_owned(),
     }];
-    draft.smime = Smime::SignAndEncrypt;
+    draft.smime = Some(Mode::SignAndEncrypt);
     let memory = MemoryStore::new();
     for s in [&store as &dyn Store, &memory] {
         s.apply(
@@ -165,15 +165,15 @@ fn a_draft_and_a_template_keep_what_they_ask_smime_to_do() {
             &patch(vec![Change::DraftUpsert(Box::new(draft.clone()))]),
         )
         .unwrap();
-        assert_eq!(s.draft(draft.id).unwrap().smime, Smime::SignAndEncrypt);
-        assert_eq!(s.draft(draft.id).unwrap().openpgp, OpenPgp::None);
+        assert_eq!(s.draft(draft.id).unwrap().smime, Some(Mode::SignAndEncrypt));
+        assert_eq!(s.draft(draft.id).unwrap().openpgp, None);
     }
     let template = Template::from_draft(&draft, "sealed", at(1));
     for s in [&store as &dyn Store, &memory] {
         s.put_template(&template).unwrap();
         assert_eq!(
             s.template(template.id).unwrap().smime,
-            Smime::SignAndEncrypt,
+            Some(Mode::SignAndEncrypt),
             "a template kept from an encrypted draft never starts a plain one"
         );
     }

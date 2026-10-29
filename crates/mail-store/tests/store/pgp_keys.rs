@@ -208,8 +208,8 @@ fn a_draft_keeps_what_it_asks_openpgp_to_do() {
         html: None,
         attachments: Vec::new(),
         receipt: ReceiptRequest::Unrequested,
-        openpgp: OpenPgp::SignAndEncrypt,
-        smime: mail_domain::Smime::None,
+        openpgp: Some(Mode::SignAndEncrypt),
+        smime: None,
         priority: mail_domain::Priority::Normal,
         delivery: mail_domain::DeliveryReport::Unrequested,
         automatic: false,
@@ -223,6 +223,9 @@ fn a_draft_keeps_what_it_asks_openpgp_to_do() {
             &patch(vec![Change::DraftUpsert(Box::new(draft.clone()))]),
         )
         .unwrap();
-        assert_eq!(s.draft(draft.id).unwrap().openpgp, OpenPgp::SignAndEncrypt);
+        assert_eq!(
+            s.draft(draft.id).unwrap().openpgp,
+            Some(Mode::SignAndEncrypt)
+        );
     }
 }

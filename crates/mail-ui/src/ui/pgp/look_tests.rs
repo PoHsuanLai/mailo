@@ -36,7 +36,7 @@ async fn an_openpgp_message_opened_lists_what_is_attached_inside_and_saves_it_wh
     let to = Cert::from_bytes(&key.key).unwrap();
     let message = arrive(
         &store,
-        sealed(&raw, OpenPgp::SignAndEncrypt, Some(&bea), &[to], 112),
+        sealed(&raw, Mode::SignAndEncrypt, Some(&bea), &[to], 112),
     );
     let (mut dom, mut seen, looks) = reader_looking(store, secrets, message.thread);
     let page = until(&mut dom, &mut seen, |page| {
@@ -70,7 +70,7 @@ fn a_key_arriving_by_any_road_opens_a_message_again_without_the_sheet() {
     let raw = letter("marten", "the marten waits");
     let message = arrive(
         &store,
-        sealed(&raw, OpenPgp::Encrypt, None, &[key.public()], 122),
+        sealed(&raw, Mode::Encrypt, None, &[key.public()], 122),
     );
     let body = message.body.raw();
     let looks = Looks::new();

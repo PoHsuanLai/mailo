@@ -404,18 +404,10 @@ fn a_new_message_opens_here_every_way_and_a_draft_is_parked_brought_back_and_del
 #[test]
 fn a_mailto_link_opens_the_window_on_its_composer_and_sends_nothing() {
     let uri = "mailto:ada@example.test?subject=About%20the%20flight&body=Which%20gate%3F";
-    let link = mail_ui::ui::mailto_of(&[uri.to_owned()]).expect("read as a mailto link");
+    let link = mail_ui::ui::ask::Mailto::parse(uri).expect("read as a mailto link");
     let dir = tempfile::tempdir().expect("a temp dir");
     let store = super::seed::seeded(dir.path());
-    let start = mail_ui::ui::start_mailto(
-        &mail_client::Client::inline(
-            store.clone(),
-            std::sync::Arc::new(mail_core::mail::SystemClock),
-        ),
-        &link,
-        chrono::Utc::now(),
-    )
-    .expect("the link's draft is saved");
+    let start = mail_ui::ui::ask::Open::new(link, None);
     let mut harness = crate::opening::open_window(
         &store,
         crate::opening::Open {

@@ -21,7 +21,7 @@ use mail_client::Client;
 use mail_client::message::Looks;
 use mail_client::undo::Undo;
 use mail_client::unsubscribe::{Found, Outcome};
-use mail_client::{Acted, Command, Done};
+use mail_client::{Acted, Perform};
 use mail_domain::*;
 use mail_mime::Unsubscribe;
 
@@ -188,7 +188,7 @@ pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender:
     let hours = crate::ui::clock::hours();
     let motion = super::motion::motion();
     let gesture = super::motion::begin(motion);
-    let ticket = crate::ui::live::client().act(Command::Perform {
+    let ticket = crate::ui::live::client().act(Perform {
         ops,
         clock: hours,
         alone: Vec::new(),
@@ -197,11 +197,8 @@ pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender:
     let list = list.to_owned();
     super::motion::when_done(ticket, move |acted| {
         let undone: Vec<Undo> = match acted {
-            Some(Acted {
-                done: Done::Performed(done),
-                ..
-            }) => done.into_iter().map(|(.., undo)| undo).collect(),
-            _ => Vec::new(),
+            Some(Acted { done, .. }) => done.into_iter().map(|(.., undo)| undo).collect(),
+            None => Vec::new(),
         };
         let count = undone.len();
         let text = match count {

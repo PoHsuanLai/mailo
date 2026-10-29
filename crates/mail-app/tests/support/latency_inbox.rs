@@ -90,7 +90,7 @@ pub fn config(store: &Arc<SqliteStore>, dir: &std::path::Path) -> HarnessConfig 
         mail_ui::ui::view::Appearance::default(),
         None,
         Some(dirs),
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     )
     .with(printer);
     HarnessConfig::new(VIEW)

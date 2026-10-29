@@ -330,7 +330,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
     if let Command::Compose {
         to, cc, openpgp, ..
     } = &command
-        && openpgp.encrypts()
+        && openpgp.is_some_and(mail_domain::Mode::encrypts)
     {
         let addresses: Vec<String> = to.iter().chain(cc).map(|a| a.email.clone()).collect();
         let found = crate::edge::block_on(crate::edge::mail(&store).crypto().discover(&addresses));

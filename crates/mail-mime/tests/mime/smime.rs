@@ -47,7 +47,7 @@ fn opened_by(raw: &[u8], me: &[Identity], anchors: &[Cert]) -> smime::Opened {
     .expect("an S/MIME message")
 }
 
-fn sealed(mode: Smime, signer: Option<&Identity>, to: &[Cert], raw: &[u8]) -> Vec<u8> {
+fn sealed(mode: Mode, signer: Option<&Identity>, to: &[Cert], raw: &[u8]) -> Vec<u8> {
     smime::seal(
         raw,
         &Sealing {
@@ -63,7 +63,7 @@ fn sealed(mode: Smime, signer: Option<&Identity>, to: &[Cert], raw: &[u8]) -> Ve
 }
 
 fn signed_by_alice() -> Vec<u8> {
-    sealed(Smime::Sign, Some(&alice()), &[], &message(ALICE, BOB, DATE))
+    sealed(Mode::Sign, Some(&alice()), &[], &message(ALICE, BOB, DATE))
 }
 
 fn text_of(opened: &smime::Opened) -> String {
@@ -160,7 +160,7 @@ fn a_signature_by_a_doubtful_certificate_names_what_is_wrong() {
         (server, ALICE, CertProblem::NotForEmail),
     ];
     for (signer, from, problem) in cases {
-        let raw = sealed(Smime::Sign, Some(&signer), &[], &message(from, BOB, DATE));
+        let raw = sealed(Mode::Sign, Some(&signer), &[], &message(from, BOB, DATE));
         let opened = opened_by(&raw, &[], &anchors());
         assert_eq!(
             opened.verification,
@@ -176,12 +176,7 @@ fn a_signature_by_a_doubtful_certificate_names_what_is_wrong() {
 #[test]
 fn a_chain_to_nothing_trusted_is_untrusted_until_the_user_trusts_a_certificate_in_it() {
     let stranger = identity(stranger_pki(), &Person::new("Carol", &[ALICE], 13, 1003));
-    let raw = sealed(
-        Smime::Sign,
-        Some(&stranger),
-        &[],
-        &message(ALICE, BOB, DATE),
-    );
+    let raw = sealed(Mode::Sign, Some(&stranger), &[], &message(ALICE, BOB, DATE));
     let opened = opened_by(&raw, &[], &anchors());
     assert_eq!(
         opened.verification,
@@ -206,7 +201,7 @@ fn a_chain_to_nothing_trusted_is_untrusted_until_the_user_trusts_a_certificate_i
         opened.verification
     );
     let other = identity(stranger_pki(), &Person::new("Dan", &[ALICE], 14, 1004));
-    let raw = sealed(Smime::Sign, Some(&other), &[], &message(ALICE, BOB, DATE));
+    let raw = sealed(Mode::Sign, Some(&other), &[], &message(ALICE, BOB, DATE));
     let opened = opened_by(&raw, &[], std::slice::from_ref(&stranger.cert));
     assert!(
         matches!(&opened.verification, SmimeVerification::Doubtful { problems, .. } if problems == &[CertProblem::Untrusted]),
@@ -227,7 +222,7 @@ fn an_address_only_in_the_subject_counts_when_there_is_no_alternative_name() {
 #[test]
 fn an_encrypted_message_opens_for_each_recipient_and_for_the_sender() {
     let raw = sealed(
-        Smime::Encrypt,
+        Mode::Encrypt,
         None,
         &[bob().cert, alice().cert],
         &message(ALICE, BOB, DATE),
@@ -258,7 +253,7 @@ fn an_encrypted_message_opens_for_each_recipient_and_for_the_sender() {
 #[test]
 fn signed_then_encrypted_opens_to_a_good_signature() {
     let raw = sealed(
-        Smime::SignAndEncrypt,
+        Mode::SignAndEncrypt,
         Some(&alice()),
         &[bob().cert, alice().cert],
         &message(ALICE, BOB, DATE),
@@ -278,7 +273,7 @@ fn signed_then_encrypted_opens_to_a_good_signature() {
 #[test]
 fn a_message_encrypted_to_someone_else_names_who_it_is_for() {
     let raw = sealed(
-        Smime::Encrypt,
+        Mode::Encrypt,
         None,
         &[bob().cert],
         &message(ALICE, BOB, DATE),
@@ -296,7 +291,7 @@ fn a_message_encrypted_to_someone_else_names_who_it_is_for() {
 #[test]
 fn an_enveloped_message_written_as_streaming_ber_opens() {
     let raw = sealed(
-        Smime::SignAndEncrypt,
+        Mode::SignAndEncrypt,
         Some(&alice()),
         &[bob().cert],
         &message(ALICE, BOB, DATE),
@@ -783,9 +778,5 @@ fn a_plain_message_carries_no_smime() {
             }
         )
         .is_none()
-    );
-    assert_eq!(
-        sealed(Smime::None, None, &[], &message(ALICE, BOB, DATE)),
-        message(ALICE, BOB, DATE)
     );
 }

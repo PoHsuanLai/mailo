@@ -428,7 +428,7 @@ async fn auth_for(
         })
         .await
         .map_err(|e| CoreError::unread_credential(&account.address, &account.plan.auth, &e))?;
-    match crate::sync::signed_in(account, stored, secrets, saved, now).await? {
+    match crate::sync::renewed(account, stored, secrets, saved, now).await? {
         Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access.expose().to_owned())),
         // A pasted token is presented as it was given: a bearer, with no username.
         Credential::Bearer(token) => Ok(DavAuth::Bearer(token.expose().to_owned())),

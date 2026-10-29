@@ -4,11 +4,10 @@
 use crate::content::Address;
 use crate::id::{BlobId, DraftId, IdentityId, MessageId};
 use crate::message::Message;
-use crate::pgp::OpenPgp;
 use crate::priority::Priority;
+use crate::protect::{self, Mode};
 use crate::receipt::{DeliveryReport, ReceiptRequest};
 use crate::retry::Retry;
-use crate::smime::Smime;
 use chrono::{DateTime, Utc};
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
@@ -98,13 +97,13 @@ pub struct Draft {
     pub receipt: ReceiptRequest,
     /// Whether the message is signed, encrypted, or both, when it is sent. Defaulted so drafts
     /// persisted before OpenPGP existed still load, as plain.
-    #[serde(default)]
-    pub openpgp: OpenPgp,
+    #[serde(default, with = "protect::asked")]
+    pub openpgp: Option<Mode>,
     /// Whether S/MIME signs it, encrypts it, or both, when it is sent. Defaulted so drafts
     /// persisted before S/MIME existed still load, as plain. Never asked together with
     /// `openpgp`: sending refuses a draft that asks both.
-    #[serde(default)]
-    pub smime: Smime,
+    #[serde(default, with = "protect::asked")]
+    pub smime: Option<Mode>,
     /// How urgent the message says it is (`X-Priority` and `Importance`). Defaulted so drafts
     /// persisted before priorities existed still load, as Normal, which writes neither header.
     #[serde(default)]
@@ -186,8 +185,8 @@ impl Draft {
             html: None,
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: Smime::None,
+            openpgp: None,
+            smime: None,
             priority: Priority::Normal,
             delivery: DeliveryReport::Unrequested,
             automatic: false,
@@ -222,8 +221,8 @@ impl Draft {
             html: None,
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: Smime::None,
+            openpgp: None,
+            smime: None,
             priority: Priority::Normal,
             delivery: DeliveryReport::Unrequested,
             automatic: false,
@@ -256,8 +255,8 @@ impl Draft {
             html: None,
             attachments: Vec::new(),
             receipt: ReceiptRequest::Unrequested,
-            openpgp: OpenPgp::None,
-            smime: Smime::None,
+            openpgp: None,
+            smime: None,
             priority: Priority::Normal,
             delivery: DeliveryReport::Unrequested,
             automatic: false,

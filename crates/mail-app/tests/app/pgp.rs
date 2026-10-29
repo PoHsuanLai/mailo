@@ -8,6 +8,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_app::cli;
 use mail_core::compose;
 use mail_core::pgp;
+use mail_core::protect::Seal;
 use mail_core::testing::MapSigningStore;
 use mail_core::{Arrival, SigningStore};
 use mail_core::{SqliteStore, Store};
@@ -58,7 +59,7 @@ fn someone_elses(address: &str, seed: u64) -> SecretCert {
     .unwrap()
 }
 
-fn draft(store: &SqliteStore, openpgp: OpenPgp, recipients: &[&str], bcc: &[&str]) -> Draft {
+fn draft(store: &SqliteStore, openpgp: Option<Mode>, recipients: &[&str], bcc: &[&str]) -> Draft {
     sealed::draft(
         store,
         acct_account(),
@@ -330,7 +331,7 @@ mod sending {
     #[test]
     fn a_signed_send_freezes_pgp_mime_and_still_verifies_after_the_date_is_restamped() {
         let (store, _dir, secrets, key) = with_key();
-        let draft = draft(&store, OpenPgp::Sign, &[BEA], &[]);
+        let draft = draft(&store, Some(Mode::Sign), &[BEA], &[]);
         send(&store, &secrets, draft.id).unwrap();
         let sealed = frozen(&store);
         let text = String::from_utf8_lossy(&sealed);
@@ -363,17 +364,80 @@ mod sending {
         );
     }
 
+    /// The identity `seed` makes, as the composer holds it.
+    fn my_identity() -> Identity {
+        Identity {
+            id: IDENTITY,
+            account: acct_account(),
+            from: Address {
+                name: Some("Me".to_owned()),
+                email: ME.to_owned(),
+            },
+            ..mail_domain::testing::identity()
+        }
+    }
+
+    #[test]
+    fn check_names_what_stands_in_the_way_of_each_ask() {
+        let (store, _dir, secrets, _) = with_key();
+        import_public(&store, &secrets, &someone_elses(BEA, 11));
+        let identity = my_identity();
+        let check = |mode, to: &[&str], bcc: &[&str]| {
+            pgp::OpenPgp::check(&store, &draft(&store, mode, to, bcc), &identity, now())
+        };
+
+        // Nothing asked, or only S/MIME asked: not this scheme's business.
+        assert!(check(None, &["cara@example.test"], &[]).is_ok());
+        let mut smime_only = draft(&store, None, &[BEA], &[]);
+        smime_only.smime = Some(Mode::Sign);
+        assert!(pgp::OpenPgp::check(&store, &smime_only, &identity, now()).is_ok());
+
+        // Both asked.
+        let mut both = draft(&store, Some(Mode::Sign), &[BEA], &[]);
+        both.smime = Some(Mode::Sign);
+        assert!(matches!(
+            pgp::OpenPgp::check(&store, &both, &identity, now()),
+            Err(pgp::PgpError::BothProtections)
+        ));
+
+        // No key of the sender's own.
+        let (bare, _dir2) = seeded();
+        let unkeyed = draft(&bare, Some(Mode::Sign), &[BEA], &[]);
+        assert!(matches!(
+            pgp::OpenPgp::check(&bare, &unkeyed, &identity, now()),
+            Err(pgp::PgpError::NoOwnKey(address)) if address == ME
+        ));
+
+        // Bcc with encryption, and not with signing alone.
+        assert!(matches!(
+            check(Some(Mode::SignAndEncrypt), &[BEA], &["blind@example.test"]),
+            Err(pgp::PgpError::BlindRecipients(blind)) if blind == ["blind@example.test"]
+        ));
+        assert!(check(Some(Mode::Sign), &[BEA], &["blind@example.test"]).is_ok());
+
+        // A recipient with no key, named alone.
+        assert!(matches!(
+            check(Some(Mode::Encrypt), &[BEA, "cara@example.test"], &[]),
+            Err(pgp::PgpError::NoKeyFor(missing)) if missing == ["cara@example.test"]
+        ));
+
+        // Every recipient keyed.
+        assert!(check(Some(Mode::Encrypt), &[BEA], &[]).is_ok());
+        assert!(check(Some(Mode::SignAndEncrypt), &[BEA], &[]).is_ok());
+        assert!(check(Some(Mode::Sign), &[BEA], &[]).is_ok());
+    }
+
     #[test]
     fn plain_mail_from_an_identity_with_a_key_carries_its_autocrypt_header() {
         let (store, _dir) = seeded();
         let secrets = MapSigningStore::default();
-        let before = draft(&store, OpenPgp::None, &[BEA], &[]);
+        let before = draft(&store, None, &[BEA], &[]);
         send(&store, &secrets, before.id).unwrap();
         assert!(!String::from_utf8_lossy(&frozen(&store)).contains("Autocrypt:"));
         mail_store::testing::clear_outbox(&store);
 
         let key = pgp::keys::generate(&store, &secrets, ME, now()).unwrap();
-        let after = draft(&store, OpenPgp::None, &[BEA], &[]);
+        let after = draft(&store, None, &[BEA], &[]);
         send(&store, &secrets, after.id).unwrap();
         let sent = frozen(&store);
         let header = openpgp::autocrypt_of(&sent, ME).expect("an Autocrypt header for the sender");
@@ -392,7 +456,7 @@ mod sending {
         import_public(&store, &secrets, &bea);
         let draft = draft(
             &store,
-            OpenPgp::Encrypt,
+            Some(Mode::Encrypt),
             &[BEA, "cara@example.test", "dee@example.test"],
             &[],
         );
@@ -414,7 +478,7 @@ mod sending {
         }
         let draft = draft(
             &store,
-            OpenPgp::SignAndEncrypt,
+            Some(Mode::SignAndEncrypt),
             &[BEA],
             &["blind@example.test"],
         );
@@ -426,7 +490,7 @@ mod sending {
         assert!(submissions(&store).is_empty());
 
         // Signing alone names no keys, so a blind copy is fine.
-        let signed = super::draft(&store, OpenPgp::Sign, &[BEA], &["blind@example.test"]);
+        let signed = super::draft(&store, Some(Mode::Sign), &[BEA], &["blind@example.test"]);
         send(&store, &secrets, signed.id).unwrap();
         assert_eq!(submissions(&store).len(), 1);
     }
@@ -442,7 +506,7 @@ mod sending {
         import_public(&store, &secrets, &cara);
         let draft = draft(
             &store,
-            OpenPgp::SignAndEncrypt,
+            Some(Mode::SignAndEncrypt),
             &[BEA, "cara@example.test"],
             &[],
         );
@@ -508,7 +572,7 @@ mod sending {
             now(),
         )
         .unwrap();
-        let draft = draft(&store, OpenPgp::Sign, &[BEA], &[]);
+        let draft = draft(&store, Some(Mode::Sign), &[BEA], &[]);
 
         let refused = send(&store, &secrets, draft.id).unwrap_err();
         assert!(refused.contains("needs its passphrase"), "{refused}");
@@ -550,8 +614,8 @@ mod sending {
                 "body",
                 (
                     ReceiptRequest::Unrequested,
-                    OpenPgp::SignAndEncrypt,
-                    Smime::None,
+                    Some(Mode::SignAndEncrypt),
+                    None,
                 ),
                 now(),
             )
@@ -583,7 +647,7 @@ mod reading {
         openpgp::seal(
             raw.as_bytes(),
             &openpgp::Sealing {
-                mode: OpenPgp::SignAndEncrypt,
+                mode: Mode::SignAndEncrypt,
                 signer: Some(&signer),
                 recipients: std::slice::from_ref(to_key),
                 gossip: &[],
@@ -696,7 +760,7 @@ mod reading {
         let sealed = openpgp::seal(
             raw.as_bytes(),
             &openpgp::Sealing {
-                mode: OpenPgp::Sign,
+                mode: Mode::Sign,
                 signer: Some(&signer),
                 recipients: &[],
                 gossip: &[],

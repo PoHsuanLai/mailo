@@ -18,9 +18,13 @@ impl Fetcher {
     /// The server, through [`mail_client::SyncOps::folder_now`].
     #[cfg(not(test))]
     pub(in crate::ui) fn server(client: &Client) -> Self {
-        let client = client.clone();
-        // The client's own client, which is the one it lends.
+        // The client keeps this closure (it is one of its seams), so it holds the client weakly:
+        // a strong clone here would keep the client's threads running for good.
+        let client = client.downgrade();
         Self(Arc::new(move |_, account, path, _now| {
+            let client = client
+                .upgrade()
+                .ok_or_else(|| crate::ui::copy::errors::WINDOW_CLOSED.to_owned())?;
             client
                 .net()
                 .folder_now(account, path)

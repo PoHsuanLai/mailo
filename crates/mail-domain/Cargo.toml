@@ -23,6 +23,7 @@ serde.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 thiserror.workspace = true
+url = "2"
 
 [features]
 # The values a test starts from (`mail_domain::testing`): off in the program.

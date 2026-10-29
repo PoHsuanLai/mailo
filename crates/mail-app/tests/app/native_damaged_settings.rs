@@ -58,7 +58,7 @@ fn a_damaged_settings_file_is_asked_about_and_kept_aside_before_the_window_opens
         mail_ui::ui::view::Appearance::default(),
         None,
         Some(dirs.clone()),
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     )
     .with(Found(found))
     .with(DesktopSettings {

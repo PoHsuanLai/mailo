@@ -37,7 +37,7 @@ pub struct Open<'a> {
     pub root: fn() -> Element,
     pub spaces: Option<mail_ui::ui::space::Spaces>,
     pub dirs: Option<WindowDirs>,
-    pub start: mail_ui::ui::Start,
+    pub start: mail_ui::ui::ask::Open,
     pub fallback: FocusFallback,
     pub clock: Clock,
     /// Handed to the window besides the client: a recorder, say.
@@ -54,7 +54,7 @@ impl Default for Open<'_> {
             root: mail_ui::ui::native::root,
             spaces: None,
             dirs: None,
-            start: mail_ui::ui::Start::Inbox,
+            start: mail_ui::ui::ask::Open::raise(),
             fallback: FocusFallback::default(),
             clock: Clock::Virtual,
             with: None,

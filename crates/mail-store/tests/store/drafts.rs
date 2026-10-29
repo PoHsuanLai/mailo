@@ -55,8 +55,8 @@ fn full_draft(in_reply_to: Option<MessageId>) -> Draft {
         html: Some("<p>quoted</p>".to_owned()),
         attachments: vec![],
         receipt: ReceiptRequest::Requested,
-        openpgp: OpenPgp::None,
-        smime: mail_domain::Smime::None,
+        openpgp: None,
+        smime: None,
         // Not the defaults, so a column the store forgot reads back as a difference.
         priority: mail_domain::Priority::High,
         delivery: mail_domain::DeliveryReport::Requested,

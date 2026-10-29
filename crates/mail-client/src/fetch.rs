@@ -126,6 +126,10 @@ fn announce(store: &SqliteStore, ends: &[PassEnd], on: &Announce, at: DateTime<U
 }
 
 /// What fetching reaches outside the client.
+///
+/// The client keeps these for as long as it lives, so none may own a [`Client`](crate::Client):
+/// that is an `Arc` cycle, and the client's threads are never stopped. A seam that needs the
+/// client holds a [`WeakClient`](crate::WeakClient).
 #[derive(Clone)]
 pub struct Seams {
     pub pass: Pass,

@@ -5,27 +5,20 @@
 //! A message is protected one way or the other, never both — the two wrap the same content in
 //! two envelopes, and one inside the other opens for nobody. So the page holds a single
 //! [`Protection`], which cannot say "both", and one menu picks it; the draft's two fields are
-//! written from it, one of them always `None` ([`Protection::openpgp`], [`Protection::smime`]).
+//! written from it, one of them always `None` ([`Protection::fields`]).
 //! There is no second row whose choice the first would have to undo.
 
 use super::props::ChoiceRow;
 use dioxus::prelude::*;
 use ds::prelude::*;
-use mail_domain::{Draft, OpenPgp, Smime};
+use mail_domain::{Draft, Mode};
 
 use super::super::menu::{MenuItem, Right};
 use super::page::{Float, Page};
 use super::seal::SealBar;
 
-/// What a protection does to the message.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::ui) enum Mode {
-    Sign,
-    Encrypt,
-    SignAndEncrypt,
-}
-
-/// How the message is protected when it is sent.
+/// How the message is protected when it is sent: the scheme, and what it does to the message.
+/// No protection is [`Protection::None`], not a scheme asked to do nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::ui) enum Protection {
     None,
@@ -38,50 +31,28 @@ impl Protection {
     /// file could make one, and sending refuses it — is read as its OpenPGP choice, so the page
     /// shows one and saving it leaves one.
     pub(in crate::ui) fn of(draft: &Draft) -> Protection {
-        let mode = |sign, encrypt| match (sign, encrypt) {
-            (true, true) => Some(Mode::SignAndEncrypt),
-            (true, false) => Some(Mode::Sign),
-            (false, true) => Some(Mode::Encrypt),
-            (false, false) => None,
-        };
-        if let Some(mode) = mode(draft.openpgp.signs(), draft.openpgp.encrypts()) {
-            Protection::OpenPgp(mode)
-        } else if let Some(mode) = mode(draft.smime.signs(), draft.smime.encrypts()) {
-            Protection::Smime(mode)
-        } else {
-            Protection::None
+        match (draft.openpgp, draft.smime) {
+            (Some(mode), _) => Protection::OpenPgp(mode),
+            (None, Some(mode)) => Protection::Smime(mode),
+            (None, None) => Protection::None,
         }
     }
 
-    /// The draft's OpenPGP field: `None` unless OpenPGP is the protection.
-    pub(in crate::ui) fn openpgp(self) -> OpenPgp {
+    /// The draft's `(openpgp, smime)` fields: one of them always `None`.
+    pub(in crate::ui) fn fields(self) -> (Option<Mode>, Option<Mode>) {
         match self {
-            Protection::OpenPgp(Mode::Sign) => OpenPgp::Sign,
-            Protection::OpenPgp(Mode::Encrypt) => OpenPgp::Encrypt,
-            Protection::OpenPgp(Mode::SignAndEncrypt) => OpenPgp::SignAndEncrypt,
-            Protection::None | Protection::Smime(_) => OpenPgp::None,
-        }
-    }
-
-    /// The draft's S/MIME field: `None` unless S/MIME is the protection.
-    pub(in crate::ui) fn smime(self) -> Smime {
-        match self {
-            Protection::Smime(Mode::Sign) => Smime::Sign,
-            Protection::Smime(Mode::Encrypt) => Smime::Encrypt,
-            Protection::Smime(Mode::SignAndEncrypt) => Smime::SignAndEncrypt,
-            Protection::None | Protection::OpenPgp(_) => Smime::None,
+            Protection::None => (None, None),
+            Protection::OpenPgp(mode) => (Some(mode), None),
+            Protection::Smime(mode) => (None, Some(mode)),
         }
     }
 
     /// This protection with encryption taken off: a signature stays when one was asked for.
     pub(in crate::ui) fn without_encryption(self) -> Protection {
         match self {
-            Protection::OpenPgp(Mode::Sign | Mode::SignAndEncrypt) => {
-                Protection::OpenPgp(Mode::Sign)
-            }
-            Protection::Smime(Mode::Sign | Mode::SignAndEncrypt) => Protection::Smime(Mode::Sign),
-            Protection::None | Protection::OpenPgp(Mode::Encrypt) => Protection::None,
-            Protection::Smime(Mode::Encrypt) => Protection::None,
+            Protection::OpenPgp(mode) if mode.signs() => Protection::OpenPgp(Mode::Sign),
+            Protection::Smime(mode) if mode.signs() => Protection::Smime(Mode::Sign),
+            Protection::None | Protection::OpenPgp(_) | Protection::Smime(_) => Protection::None,
         }
     }
 }

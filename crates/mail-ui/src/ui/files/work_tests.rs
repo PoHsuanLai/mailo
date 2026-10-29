@@ -12,11 +12,11 @@ use mail_domain::*;
 use mail_mime::archive::maildir::INFO;
 use porter_core::AccountId;
 
-use super::work::{
-    self, Counted, Dest, Format, Looked, export_now, import_now, look, prefill, suggested,
-};
+use super::work::{self, Counted, Dest, Looked, export_now, import_now, look, prefill, suggested};
 use crate::ui::view::Shell;
-use mail_core::import::Source;
+use mail_core::export::Target;
+use mail_core::formats::{Archive, writers};
+use mail_core::import::{AppleMail, Eml, Emlx, Maildir, Mbox, Source, Thunderbird};
 
 fn now() -> DateTime<Utc> {
     Utc.timestamp_opt(1_700_000_000, 0).unwrap()
@@ -121,7 +121,7 @@ fn a_maildir_is_counted_then_imported_into_local_folders() {
     let (store, dir) = fresh_store();
     let root = a_maildir(dir.path());
     let (source, count, said) = looked_mail(&root);
-    assert_eq!(source, Source::Maildir(root.clone()));
+    assert_eq!(source, Source::new(&Maildir, root.clone()));
     assert_eq!((count, said.as_str()), (3, "Maildir, 3 messages"));
     assert!(mail_core::sync::local_accounts(&store).is_empty());
 
@@ -153,7 +153,7 @@ fn an_mbox_is_counted_then_imported_into_local_folders_once() {
     let (store, dir) = fresh_store();
     let path = an_mbox(dir.path());
     let (source, count, said) = looked_mail(&path);
-    assert_eq!(source, Source::Mbox(path.clone()));
+    assert_eq!(source, Source::new(&Mbox, path.clone()));
     assert_eq!((count, said.as_str()), (2, "mbox, 2 messages"));
 
     let done = import_now(
@@ -199,13 +199,13 @@ fn a_place_exports_in_each_format_and_reads_back_as_as_many_messages() {
         work::counted(&crate::ui::fixtures::client(&built.store), "inbox", now()),
         Counted::Some(chosen.len())
     );
-    for format in Format::ALL {
+    for format in writers() {
         let path = suggested(out.path(), "inbox", format);
         assert!(!path.exists());
         let (done, said) = export_now(
             &crate::ui::fixtures::client(&built.store),
             "inbox",
-            &format.target(path.clone()),
+            &Target::new(format, path.clone()),
             now(),
             &mut |_| {},
         )
@@ -215,7 +215,7 @@ fn a_place_exports_in_each_format_and_reads_back_as_as_many_messages() {
             "{format:?} wrote nothing at {}",
             path.display()
         );
-        assert_eq!(format.is_file(), path.is_file(), "{format:?}");
+        assert_eq!(format.slug() == "mbox", path.is_file(), "{format:?}");
         assert_eq!(
             done.written + done.absent + done.partial,
             chosen.len(),
@@ -228,29 +228,27 @@ fn a_place_exports_in_each_format_and_reads_back_as_as_many_messages() {
         );
 
         let (again, _kept) = fresh_store();
-        let source = match format {
-            // A directory of loose files is imported one at a time; the directory as a whole
-            // is not a Maildir.
-            Format::Eml => {
-                let mut read = 0;
-                for file in std::fs::read_dir(&path).unwrap() {
-                    let (source, _, _) = looked_mail(&file.unwrap().path());
-                    read += import_now(
-                        &crate::ui::fixtures::client(&again),
-                        &source,
-                        &Dest::Local,
-                        now(),
-                        &mut |_| {},
-                    )
-                    .unwrap()
-                    .total
-                    .read;
-                }
-                assert_eq!(read, done.written, "{format:?}");
-                continue;
+        // A directory of loose files is imported one at a time; the directory as a whole is
+        // not a Maildir.
+        if format.slug() == "eml" {
+            let mut read = 0;
+            for file in std::fs::read_dir(&path).unwrap() {
+                let (source, _, _) = looked_mail(&file.unwrap().path());
+                read += import_now(
+                    &crate::ui::fixtures::client(&again),
+                    &source,
+                    &Dest::Local,
+                    now(),
+                    &mut |_| {},
+                )
+                .unwrap()
+                .total
+                .read;
             }
-            _ => looked_mail(&path).0,
-        };
+            assert_eq!(read, done.written, "{format:?}");
+            continue;
+        }
+        let source = looked_mail(&path).0;
         let back = import_now(
             &crate::ui::fixtures::client(&again),
             &source,
@@ -460,22 +458,35 @@ fn imported_mail_goes_to_local_folders_or_an_imap_accounts_folder() {
 #[test]
 fn only_a_thunderbird_profile_is_said_to_bring_only_what_was_kept_offline() {
     let dir = PathBuf::from("profile");
-    let thunderbird = work::described(&Source::Thunderbird(dir.clone()), 3);
-    assert!(
-        thunderbird.contains(crate::ui::copy::status::THUNDERBIRD_OFFLINE_ONLY),
-        "{thunderbird}"
-    );
+    let thunderbird = work::described(&Source::new(&Thunderbird, dir.clone()), 3);
+    let offline = crate::ui::copy::status::source_note(Thunderbird.slug()).unwrap();
+    assert!(thunderbird.contains(offline), "{thunderbird}");
     for other in [
-        Source::AppleMail(dir.clone()),
-        Source::Emlx(dir.clone()),
-        Source::Mbox(dir.clone()),
-        Source::Maildir(dir.clone()),
-        Source::Eml(dir),
+        Source::new(&AppleMail, dir.clone()),
+        Source::new(&Emlx, dir.clone()),
+        Source::new(&Mbox, dir.clone()),
+        Source::new(&Maildir, dir.clone()),
+        Source::new(&Eml, dir),
     ] {
         let said = work::described(&other, 3);
-        assert!(
-            !said.contains(crate::ui::copy::status::THUNDERBIRD_OFFLINE_ONLY),
-            "{said}"
-        );
+        assert!(!said.contains(offline), "{said}");
+    }
+}
+
+#[test]
+fn every_format_the_sheets_offer_has_its_own_words() {
+    let kinds: Vec<_> = mail_core::formats::ARCHIVES
+        .iter()
+        .map(|format| crate::ui::copy::status::source_kind(format.slug()))
+        .collect();
+    let makes: Vec<_> = writers()
+        .map(|format| crate::ui::copy::status::export_makes(format.slug()))
+        .collect();
+    for words in [&kinds, &makes] {
+        assert!(words.iter().all(|said| !said.is_empty()), "{words:?}");
+        let mut unique = words.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), words.len(), "{words:?}");
     }
 }

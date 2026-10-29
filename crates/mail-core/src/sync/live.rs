@@ -28,18 +28,14 @@
 //! And only an account checked automatically ([`crate::offline::Every::Automatic`]): one the
 //! person set to an interval is polled at it, and one set to manually holds no connection at all.
 
+use super::access::{Access, Wait, access};
 use super::report::Failure;
-use super::{
-    Configured, Mode, clock_for, configured, imap_engine, poll_floor, pushed_folders, renewal_for,
-};
-use super::{signed_in_typed, to_sync};
+use super::run::Run;
+use super::{Configured, configured};
 use crate::error::Logged;
 use mail_domain::*;
-use mail_runtime::graph::push::{Listener, SUBSCRIPTIONS};
-use mail_runtime::{
-    AccountEngine, AccountSecrets, Cancel, ClientRegistry, Held, JmapEngine, Notify, RuntimeError,
-    Woke,
-};
+use mail_runtime::graph::push::SUBSCRIPTIONS;
+use mail_runtime::{AccountSecrets, Cancel, ClientRegistry, RuntimeError, Woke};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -73,9 +69,6 @@ pub fn extra_idle(caps: &AccountCaps) -> usize {
         .min(EXTRA_IDLE)
 }
 
-/// How long extra connections have to end their IDLE in protocol once the wait is over.
-const WIND_DOWN: Duration = Duration::from_secs(3);
-
 pub use mail_runtime::schedule::{Heard, Lost};
 
 impl From<Failure> for Lost {
@@ -88,12 +81,12 @@ impl From<Failure> for Lost {
 }
 
 /// Why waiting on the server failed, as the scheduler hears it.
-fn lost(e: &RuntimeError) -> Lost {
+pub(super) fn lost(e: &RuntimeError) -> Lost {
     Failure::of("", e).into()
 }
 
 /// Why this account cannot be waited on at all.
-fn unsupported(why: &str) -> Lost {
+pub(super) fn unsupported(why: &str) -> Lost {
     Failure::fatal(why).into()
 }
 
@@ -202,11 +195,7 @@ pub async fn listen_at(
     registry: &ClientRegistry,
     subscriptions: &str,
     account: AccountId,
-    Watch {
-        cancel,
-        hold,
-        grace,
-    }: Watch,
+    watch: Watch,
     heard: &dyn Fn(Heard),
 ) -> Result<(), Lost> {
     let account = configured(&store)
@@ -214,218 +203,44 @@ pub async fn listen_at(
         .into_iter()
         .find(|one| one.id == account)
         .ok_or_else(|| unsupported("that account is no longer configured"))?;
-    let mut waiting = Waiter::open(&store, &account, secrets, registry, subscriptions).await?;
-    let mut cancel = cancel;
-    hearing(&mut waiting, &mut cancel, hold, grace, heard).await
-}
-
-/// An engine, and what it waits with.
-enum Waiter {
-    Imap {
-        engine: Box<AccountEngine<mail_proto::backend::ImapBackend>>,
-        inbox: MailboxRef,
-        floor: Duration,
-        /// Engines for folders besides the inbox, used only where the server has no `NOTIFY`
-        /// for the main one to hear of them through. Opened lazily: building one connects to
-        /// nothing.
-        extras: Vec<(MailboxRef, AccountEngine<mail_proto::backend::ImapBackend>)>,
-    },
-    Jmap {
-        engine: Box<JmapEngine>,
-        floor: Duration,
-    },
-    /// A Graph account, through its relay.
-    Graph {
-        listener: Box<Listener>,
-        floor: Duration,
-    },
-}
-
-impl Waiter {
-    /// Sign in and build the engine for `account`, or say why it cannot be waited on.
-    async fn open(
-        store: &Arc<SqliteStore>,
-        account: &Configured,
-        secrets: Arc<dyn AccountSecrets>,
-        registry: &ClientRegistry,
-        subscriptions: &str,
-    ) -> Result<Self, Lost> {
-        if super::graph_push::relayed(store, account) {
-            return Self::relayed(store, account, secrets, registry, subscriptions).await;
-        }
-        if !pushes(account) {
-            return Err(unsupported("this account has no push to wait on"));
-        }
-        let stored = super::stored_credential(account, secrets.as_ref()).await?;
+    let run = Run {
+        store: &store,
+        secrets,
+        registry,
         // The wall clock, because a watch outlives any `now` it could be handed.
-        let now = chrono::Utc::now();
-        let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;
-        let floor = poll_floor(&account.caps.watch);
-        match &account.plan.incoming {
-            Incoming::Imap { .. } => {
-                let held = Held::new(credential);
-                let renewal = renewal_for(
-                    account,
-                    &held,
-                    secrets.clone(),
-                    registry,
-                    clock_for(Mode::Watch, now),
-                );
-                let folders = {
-                    use mail_store::Store as _;
-                    store
-                        .folders(account.id.clone())
-                        .or_log_default("the folders could not be read to watch them")
-                };
-                let others = pushed_folders(account, &folders);
-                let build = |held: Held| {
-                    let engine = imap_engine(store, account, held, secrets.clone());
-                    match &renewal {
-                        Some(renewal) => engine.with_tokens(renewal.clone()),
-                        None => engine,
-                    }
-                };
-                let extras = others
-                    .iter()
-                    .take(extra_idle(&account.caps))
-                    .map(|m| (m.clone(), build(held.clone())))
-                    .collect();
-                let engine = build(held).with_also(others);
-                let inbox = to_sync(account, &[])
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| unsupported("nothing to watch"))?;
-                Ok(Waiter::Imap {
-                    engine: Box::new(engine),
-                    inbox,
-                    floor,
-                    extras,
-                })
-            }
-            Incoming::Jmap { .. } => {
-                let mut engine = JmapEngine::new(
-                    account.id.clone(),
-                    account.plan.clone(),
-                    store.clone(),
-                    secrets,
-                )
-                .map_err(|e| lost(&e))?;
-                engine.connect().await.map_err(|e| lost(&e))?;
-                // The stored capabilities said push; the server's own session is the authority.
-                if !engine.pushes() {
-                    return Err(unsupported("the server offers no event source"));
-                }
-                Ok(Waiter::Jmap {
-                    engine: Box::new(engine),
-                    floor,
-                })
-            }
-            Incoming::Pop3 { .. } | Incoming::Graph | Incoming::Local => {
-                Err(unsupported("this account has no push to wait on"))
-            }
-        }
-    }
-
-    /// A Graph account's relay, set up as far as it is not already: see `mail_runtime::graph::push`.
-    async fn relayed(
-        store: &Arc<SqliteStore>,
-        account: &Configured,
-        secrets: Arc<dyn AccountSecrets>,
-        registry: &ClientRegistry,
-        subscriptions: &str,
-    ) -> Result<Self, Lost> {
-        let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
-            return Err(unsupported("a Graph account signs in with Microsoft"));
-        };
-        let client = mail_runtime::clients::client(registry, *issuer)
-            .ok_or_else(|| Lost::from(Failure::reauth(crate::account::no_client_id(*issuer))))?
-            .clone();
-        let listener = Listener::open(
-            account.id.clone(),
-            &account.plan,
-            store.clone(),
-            secrets,
-            client,
-            subscriptions,
-        )
-        .await
-        .map_err(|e| lost(&e))?;
-        Ok(Waiter::Graph {
-            listener: Box::new(listener),
-            floor: poll_floor(&account.caps.watch),
-        })
-    }
-
-    async fn wait(&mut self, cancel: &mut Cancel) -> Result<Woke, RuntimeError> {
-        match self {
-            Waiter::Imap {
-                engine,
-                inbox,
-                floor,
-                extras,
-            } => {
-                // Through `NOTIFY` where the server has it, the one connection hears of every
-                // folder. Without it, one connection each, up to the limit.
-                if extras.is_empty() || engine.notifies() != Notify::Absent {
-                    return engine.wait(inbox, cancel, *floor).await;
-                }
-                wait_on_each(engine, inbox, *floor, extras, cancel).await
-            }
-            Waiter::Jmap { engine, floor } => engine.wait(cancel, *floor).await,
-            Waiter::Graph { listener, floor } => listener.wait(cancel, *floor).await,
-        }
-    }
+        now: chrono::Utc::now(),
+        account: &account,
+    };
+    listen_on(
+        access(&account.plan.incoming),
+        &run,
+        subscriptions,
+        watch,
+        heard,
+    )
+    .await
 }
 
-/// [`AccountEngine::wait`] on the inbox, with every extra folder idled on a connection of its
-/// own meanwhile: whichever has news ends the wait as mail.
-///
-/// An extra that fails, or whose server ends its IDLE without news, drops out of this wait and
-/// is tried again on the next: a folder another client deleted must not end the account's push.
-async fn wait_on_each(
-    engine: &mut AccountEngine<mail_proto::backend::ImapBackend>,
-    inbox: &MailboxRef,
-    floor: Duration,
-    extras: &mut [(MailboxRef, AccountEngine<mail_proto::backend::ImapBackend>)],
-    cancel: &mut Cancel,
-) -> Result<Woke, RuntimeError> {
-    use futures_util::StreamExt;
-    use futures_util::stream::FuturesUnordered;
-
-    let (stop, stopped) = watch::channel(false);
-    let mut others: FuturesUnordered<_> = extras
-        .iter_mut()
-        .map(|(mailbox, engine)| {
-            let mut stopped = stopped.clone();
-            async move { engine.watch(mailbox, &mut stopped).await }
-        })
-        .collect();
-    let primary = engine.wait(inbox, cancel, floor);
-    tokio::pin!(primary);
-
-    let woke = loop {
-        tokio::select! {
-            woke = &mut primary => break woke,
-            Some(heard) = others.next() => match heard {
-                Ok(true) => break Ok(Woke::Mail),
-                Ok(false) => {}
-                Err(e) => log::warn!("a folder could not be watched: {e}"),
-            },
-        }
-    };
-    // Ended in protocol, so each connection stays usable; bounded, so a dead one cannot hold
-    // the wait.
-    let _ = stop.send(true);
-    let drained = async { while others.next().await.is_some() {} };
-    if tokio::time::timeout(WIND_DOWN, drained).await.is_err() {
-        log::debug!("an extra connection did not end its IDLE in time");
-    }
-    woke
+/// [`listen_at`], on the protocol it is given: wait on `run`'s account the way `access` does,
+/// and say what is heard. Split out so a test can wait with something that is not a server.
+pub(super) async fn listen_on(
+    access: &dyn Access,
+    run: &Run<'_>,
+    subscriptions: &str,
+    Watch {
+        mut cancel,
+        hold,
+        grace,
+    }: Watch,
+    heard: &dyn Fn(Heard),
+) -> Result<(), Lost> {
+    let mut waiting = access.wait(run, subscriptions).await?;
+    hearing(&mut *waiting, &mut cancel, hold, grace, heard).await
 }
 
 /// Wait, say what was heard, and wait again, until cancelled or lost.
 async fn hearing(
-    waiter: &mut Waiter,
+    waiter: &mut dyn Wait,
     cancel: &mut Cancel,
     mut hold: Option<Hold>,
     grace: Duration,
@@ -480,12 +295,110 @@ async fn rest(hold: Option<&mut Hold>, cancel: &mut Cancel) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::access::fake::{Fake, Step};
     use super::*;
+    use crate::support_tests::{account, caps};
+    use std::sync::Mutex;
 
     #[test]
     fn a_wake_is_told_as_what_it_was() {
         assert_eq!(said(Woke::Mail), Heard::Mail);
         assert_eq!(said(Woke::Due), Heard::Due);
         assert_eq!(said(Woke::Interval), Heard::Interval);
+    }
+
+    /// An account whose protocol is whatever the test hands in, so nothing is connected to.
+    fn configured_account() -> (Arc<SqliteStore>, Configured) {
+        let store = Arc::new(mail_store::testing::in_memory());
+        let plan = AccountPlan {
+            address: "ada@example.test".to_owned(),
+            incoming: Incoming::Local,
+            outgoing: Outgoing::Nowhere,
+            auth: AuthPlan::Password {
+                username: Username::SameAsAddress,
+                sasl: vec![SaslMech::Plain],
+            },
+            identities: Vec::new(),
+        };
+        let caps = caps();
+        mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
+        mail_store::testing::seed_caps(&store, account(), &caps, caps.observed_at).unwrap();
+        let one = configured(&store).unwrap().remove(0);
+        (store, one)
+    }
+
+    /// Listen on `access` for `lasting`, then cancel; returns how it ended and what it heard.
+    async fn listening(
+        access: &dyn Access,
+        grace: Duration,
+        lasting: Duration,
+    ) -> (Result<(), Lost>, Vec<Heard>) {
+        let (store, account) = configured_account();
+        let run = Run {
+            store: &store,
+            secrets: Arc::new(porter_secrets::MemorySecrets::default()),
+            registry: &ClientRegistry::default(),
+            now: chrono::Utc::now(),
+            account: &account,
+        };
+        let (stop, cancel) = watch::channel(false);
+        let seen = Mutex::new(Vec::new());
+        let heard = |h| seen.lock().unwrap().push(h);
+        let hearing = listen_on(
+            access,
+            &run,
+            "",
+            Watch {
+                cancel,
+                hold: None,
+                grace,
+            },
+            &heard,
+        );
+        let cancelling = async {
+            tokio::time::sleep(lasting).await;
+            let _ = stop.send(true);
+        };
+        let (ended, ()) = tokio::join!(hearing, cancelling);
+        (ended, seen.into_inner().unwrap())
+    }
+
+    #[tokio::test]
+    async fn a_server_announcing_mail_is_heard_once_the_wait_is_held() {
+        let fake = Fake::waiting([Step::After(Duration::from_millis(60), Woke::Mail)]);
+        let (ended, heard) =
+            listening(&fake, Duration::from_millis(20), Duration::from_millis(300)).await;
+        assert_eq!(heard, [Heard::Established, Heard::Mail], "held, then told");
+        assert_eq!(ended, Ok(()), "cancelling is not a loss");
+    }
+
+    #[tokio::test]
+    async fn a_quiet_wait_is_held_and_released_on_cancel() {
+        let fake = Fake::waiting([]);
+        let (ended, heard) =
+            listening(&fake, Duration::from_millis(20), Duration::from_millis(200)).await;
+        assert_eq!(heard, [Heard::Established], "nothing said");
+        assert_eq!(ended, Ok(()));
+    }
+
+    /// A protocol that overrides nothing it cannot do is refused before anything is waited on.
+    #[tokio::test]
+    async fn a_protocol_that_cannot_be_waited_on_is_a_loss_that_is_never_established() {
+        struct Deaf;
+        impl Access for Deaf {
+            fn pass<'a>(
+                &'a self,
+                _: &'a Run<'a>,
+                _: super::super::access::Pass<'a>,
+            ) -> super::super::access::Answer<'a, super::super::report::Done> {
+                Box::pin(std::future::ready(Ok(Default::default())))
+            }
+        }
+        let (ended, heard) =
+            listening(&Deaf, Duration::from_millis(20), Duration::from_millis(100)).await;
+        let lost = ended.expect_err("nothing to wait on");
+        assert!(matches!(lost.retry, Retry::Fatal(_)), "{lost:?}");
+        assert!(lost.why.contains("cannot be waited on"), "{}", lost.why);
+        assert!(heard.is_empty());
     }
 }

@@ -82,7 +82,7 @@ fn openssl_verifies_and_decrypts_what_this_client_sends() {
     let sealed = smime::seal(
         &message(ALICE, BOB, DATE),
         &Sealing {
-            mode: Smime::Sign,
+            mode: Mode::Sign,
             signer: Some(&alice()),
             recipients: &[],
             now: now(),
@@ -109,7 +109,7 @@ fn openssl_verifies_and_decrypts_what_this_client_sends() {
     let sealed = smime::seal(
         &message(ALICE, BOB, DATE),
         &Sealing {
-            mode: Smime::SignAndEncrypt,
+            mode: Mode::SignAndEncrypt,
             signer: Some(&alice()),
             recipients: &[bob().cert],
             now: now(),

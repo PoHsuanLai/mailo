@@ -33,13 +33,13 @@ use cms::signed_data::{
 };
 use der::asn1::{OctetString, SetOfVec};
 use der::{Any, Decode, Encode};
-use mail_domain::Smime;
+use mail_domain::Mode;
 use x509_cert::attr::Attribute;
 
 /// What to do to a message as it is sent.
 #[derive(Debug, Clone, Copy)]
 pub struct Sealing<'a> {
-    pub mode: Smime,
+    pub mode: Mode,
     /// The sender's identity. Required to sign.
     pub signer: Option<&'a Identity>,
     /// Everyone to encrypt to — every recipient *and the sender*, so the sent copy can be read.
@@ -53,11 +53,8 @@ pub struct Sealing<'a> {
 }
 
 /// `frozen` — a whole message as `crate::build` writes it — signed, encrypted, or both, as
-/// `how.mode` says. [`Smime::None`] returns it as it was.
+/// `how.mode` says.
 pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<u8>, MimeError> {
-    if how.mode == Smime::None {
-        return Ok(frozen.to_vec());
-    }
     let message = Entity::of(frozen);
     let (outer, content): (Vec<&[u8]>, Vec<&[u8]>) = fields(message.head)
         .into_iter()

@@ -205,7 +205,7 @@ fn contexts(dir: &std::path::Path) -> RootContexts {
         mail_ui::ui::view::Appearance::default(),
         None,
         None,
-        mail_ui::ui::Start::Inbox,
+        mail_ui::ui::ask::Open::raise(),
     )
 }
 
