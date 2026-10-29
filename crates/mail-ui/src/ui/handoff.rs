@@ -45,7 +45,9 @@ pub(in crate::ui) fn use_handoff(shell: Signal<Shell>, spaces: Handle) {
             };
             while let Some(open) = queue.recv().await {
                 let here = Window { shell, spaces };
-                here.arrive(&*open.ask);
+                if open.ask.arrives_first() {
+                    here.arrive(&*open.ask);
+                }
                 open.ask.run(here);
                 if let Some(window) = &window {
                     window.focus_with_token(open.token.map(ActivationToken::into_string));

@@ -14,6 +14,8 @@
 //! command line is the CLI's, and [`parse_args`] says so by answering `None`.
 
 use crate::handoff::ActivationToken;
+use crate::ui::copy::errors;
+use crate::ui::motion::{Follow, tell};
 use crate::ui::space::{Handle, SpaceId, Spaces};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
@@ -35,6 +37,12 @@ pub trait Ask: Send + Sync + std::fmt::Debug {
     /// account, and keeps the window in the Space it is in.
     fn account(&self, _client: &Client) -> Option<AccountId> {
         None
+    }
+
+    /// Whether a running window shows it (switching Space, selecting the Inbox) before `run`.
+    /// A launch always does. An ask that acts in place, wherever the window is, says no.
+    fn arrives_first(&self) -> bool {
+        true
     }
 
     /// Show it in `shell`: select the Inbox, open the conversation. The Space it is shown in is
@@ -133,7 +141,6 @@ pub fn parse_uri(uri: &str) -> Option<Arc<dyn Ask>> {
 /// A `mailto:` link is read only as a lone argument: a desktop runs the handler with exactly the
 /// link (`Exec=mailo %u`), and a link beside other words is a command line nobody's desktop wrote.
 pub fn parse_args(args: &[String]) -> Option<Result<Arc<dyn Ask>, String>> {
-    use crate::ui::copy::errors;
     if let [text] = args
         && let Some(link) = Mailto::parse(text)
     {
@@ -254,6 +261,10 @@ impl Ask for Reply {
         open_thread(shell, self.0);
     }
 
+    fn arrives_first(&self) -> bool {
+        false
+    }
+
     /// From the account the conversation is in, with its newest message answered, as the Reply
     /// key does.
     fn run(&self, window: Window) {
@@ -302,6 +313,10 @@ impl Ask for Archive {
 
     fn show(&self, shell: &mut Shell) {
         select_inbox(shell);
+    }
+
+    fn arrives_first(&self) -> bool {
+        false
     }
 
     /// As the window's own Archive does ([`crate::ui::motion::act_kind`]): the row leaves, a
@@ -434,9 +449,13 @@ impl Ask for Mailto {
                 let mut shell = window.shell;
                 if let Err(why) = shell.write().compose_id(&client, id) {
                     log::warn!("compose: {why}");
+                    tell(errors::mailto_not_opened(&why.to_string()), Follow::Nothing);
                 }
             }
-            Err(why) => log::warn!("{why}"),
+            Err(why) => {
+                log::warn!("{why}");
+                tell(errors::mailto_not_opened(&why), Follow::Nothing);
+            }
         }
     }
 }
@@ -492,11 +511,7 @@ fn select_inbox(shell: &mut Shell) {
 /// the first in order that does ([`crate::ui::space::holding`]). `None` keeps the window in the
 /// Space it is in, which is what happens when no Space shows the account: the conversation still
 /// opens in the reader there, over that Space's Inbox, whose list does not have its row.
-pub(in crate::ui) fn space_for(
-    spaces: &Spaces,
-    client: &Client,
-    ask: &dyn Ask,
-) -> Option<SpaceId> {
+pub(in crate::ui) fn space_for(spaces: &Spaces, client: &Client, ask: &dyn Ask) -> Option<SpaceId> {
     crate::ui::space::holding(spaces, &ask.account(client)?)
 }
 

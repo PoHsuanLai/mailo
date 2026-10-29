@@ -196,6 +196,11 @@ pub const ALLOW_LOGIN_ITEM: &str = "To check for mail while mailo is quit, turn 
 /// A banner's Archive for a conversation this mailbox no longer has.
 pub const NOT_ARCHIVED: &str = "That conversation could not be archived.";
 
+/// A `mailto:` link whose message could not be made or opened.
+pub fn mailto_not_opened(why: &str) -> String {
+    format!("That link\u{2019}s message could not be opened: {why}")
+}
+
 /// `mailo open` with nothing after it.
 pub const OPEN_NEEDS_THREAD: &str = "open needs a thread id: mailo open <thread>";
 
