@@ -2290,3 +2290,46 @@ fn a_flag_from_before_colours_is_red_and_a_colour_is_its_word() {
     );
     round_trip("ServerLabels::Keywords", ServerLabels::Keywords);
 }
+
+/// `Outgoing` is stored in the account plan as a `kind` tag with the SMTP server in `v`, and the
+/// ways of sending that have no server of their own are the tag alone. The tag is what stored
+/// plans say, so a refactor of the type must not move it.
+#[test]
+fn outgoing_is_stored_as_a_kind_with_its_server_in_v() {
+    let smtp = Outgoing::Smtp {
+        host: "smtp.example.test".to_owned(),
+        port: 465,
+        tls: Tls::Implicit,
+    };
+    let server = smtp
+        .server()
+        .map(|server| (server.host, server.port, server.tls));
+    assert_eq!(server, Some(("smtp.example.test", 465, Tls::Implicit)));
+    for (value, json) in [
+        (
+            smtp,
+            serde_json::json!({
+                "kind": "smtp",
+                "v": {"host": "smtp.example.test", "port": 465, "tls": "implicit"}
+            }),
+        ),
+        (Outgoing::Graph, serde_json::json!({"kind": "graph"})),
+        (Outgoing::Jmap, serde_json::json!({"kind": "jmap"})),
+        (Outgoing::Nowhere, serde_json::json!({"kind": "nowhere"})),
+    ] {
+        assert_eq!(serde_json::to_value(&value).unwrap(), json, "{value:?}");
+        assert_eq!(
+            serde_json::from_value::<Outgoing>(json).unwrap(),
+            value,
+            "{value:?}"
+        );
+    }
+}
+
+/// Only SMTP has a server of its own to open a socket to.
+#[test]
+fn only_smtp_has_a_submission_server() {
+    for outgoing in [Outgoing::Graph, Outgoing::Jmap, Outgoing::Nowhere] {
+        assert_eq!(outgoing.server(), None, "{outgoing:?}");
+    }
+}

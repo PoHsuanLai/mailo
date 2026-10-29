@@ -24,6 +24,7 @@ mod enclosed;
 mod format;
 mod modes;
 mod pictures;
+mod submit;
 mod weight;
 pub use doc::{doc_from_text, doc_of};
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
