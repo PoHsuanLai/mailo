@@ -104,7 +104,7 @@ fn a_takeout_mbox_lands_in_local_folders_threaded_labelled_and_only_once() {
     let (store, dir) = fresh_store();
     let path = write(dir.path(), "All mail.mbox", TAKEOUT.as_bytes());
     let source = import::detect(&path).unwrap();
-    assert_eq!(source, import::Source::Mbox(path.clone()));
+    assert_eq!(source, import::Source::new(&import::Mbox, path.clone()));
 
     let first = import::into_local(&store, &source, now(), &mut quiet).unwrap();
     assert_eq!((first.read, first.added, first.already), (2, 2, 0));
@@ -196,7 +196,7 @@ fn a_maildir_keeps_its_flags_and_its_folders() {
     );
 
     let source = import::detect(&root).unwrap();
-    assert_eq!(source, import::Source::Maildir(root.clone()));
+    assert_eq!(source, import::Source::new(&import::Maildir, root.clone()));
     let total = import::into_local(&store, &source, now(), &mut quiet).unwrap();
     assert_eq!(total.added, 4);
 
@@ -225,7 +225,7 @@ fn a_single_eml_is_one_message_even_in_crlf() {
         b"From: a@example.test\r\nSubject: just one\r\n\r\nhello\r\n",
     );
     let source = import::detect(&path).unwrap();
-    assert_eq!(source, import::Source::Eml(path.clone()));
+    assert_eq!(source, import::Source::new(&import::Eml, path.clone()));
     let first = import::into_local(&store, &source, now(), &mut quiet).unwrap();
     assert_eq!(first.added, 1);
     // No Message-ID: the identity is a digest that includes the bytes, so it still dedupes.
@@ -257,7 +257,10 @@ fn a_thunderbird_profile_lands_in_local_folders_once_without_its_deleted_mail() 
     );
 
     let source = import::detect(&profile).unwrap();
-    assert_eq!(source, import::Source::Thunderbird(profile.clone()));
+    assert_eq!(
+        source,
+        import::Source::new(&import::Thunderbird, profile.clone())
+    );
     let first = import::into_local(&store, &source, now(), &mut quiet).unwrap();
     assert_eq!(
         (first.read, first.added),
@@ -301,7 +304,7 @@ fn a_search_exports_to_mbox_and_reads_back_the_same_bytes() {
         &store,
         &Environment::default(),
         &chosen,
-        &export::Target::Mbox(out.clone()),
+        &export::Target::new(&export::MboxWriter, out.clone()),
         now(),
         &mut |_| {},
     )
@@ -322,7 +325,7 @@ fn a_search_exports_to_mbox_and_reads_back_the_same_bytes() {
             &store,
             &Environment::default(),
             &chosen,
-            &export::Target::Mbox(out),
+            &export::Target::new(&export::MboxWriter, out),
             now(),
             &mut |_| {}
         )
@@ -342,7 +345,7 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
         &store,
         &Environment::default(),
         &all,
-        &export::Target::Maildir(root.clone()),
+        &export::Target::new(&export::MaildirWriter, root.clone()),
         now(),
         &mut |_| {},
     )
@@ -377,7 +380,7 @@ fn everything_exports_to_a_maildir_that_imports_back_as_the_same_mail() {
         &store,
         &Environment::default(),
         &all,
-        &export::Target::Eml(emls.clone()),
+        &export::Target::new(&export::EmlWriter, emls.clone()),
         now(),
         &mut |_| {},
     )
@@ -408,9 +411,9 @@ fn every_file_an_export_writes_is_its_owner_s_alone() {
     let all = export::select(&store, "all", now()).unwrap();
     let out = dir.path().join("out");
     let targets = [
-        export::Target::Mbox(out.join("all.mbox")),
-        export::Target::Maildir(out.join("Maildir")),
-        export::Target::Eml(out.join("emls")),
+        export::Target::new(&export::MboxWriter, out.join("all.mbox")),
+        export::Target::new(&export::MaildirWriter, out.join("Maildir")),
+        export::Target::new(&export::EmlWriter, out.join("emls")),
     ];
     std::fs::create_dir(&out).unwrap();
     for target in &targets {
@@ -481,7 +484,7 @@ fn a_message_with_no_body_yet_is_skipped_and_counted() {
         .unwrap();
     let chosen = export::select(&store, "inbox", now()).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let target = export::Target::Eml(dir.path().join("out"));
+    let target = export::Target::new(&export::EmlWriter, dir.path().join("out"));
     let done = export::export(
         &store,
         &Environment::default(),
@@ -564,7 +567,7 @@ fn a_message_rebuilt_from_its_parts_is_not_exported_as_the_message_even_once_its
         .unwrap();
     let chosen = export::select(&store, "inbox", now()).unwrap();
     let dir = tempfile::tempdir().unwrap();
-    let target = export::Target::Eml(dir.path().join("out"));
+    let target = export::Target::new(&export::EmlWriter, dir.path().join("out"));
     let done = export::export(
         &store,
         &Environment::default(),
@@ -718,7 +721,7 @@ fn the_commands_parse() {
         .unwrap(),
         cli::Command::Export {
             query: "from:ada is:unread".into(),
-            target: export::Target::Mbox("out.mbox".into()),
+            target: export::Target::new(&export::MboxWriter, "out.mbox".into()),
         }
     );
     assert!(cli::parse(&args(&["export", "--mbox", "out.mbox"])).is_err());

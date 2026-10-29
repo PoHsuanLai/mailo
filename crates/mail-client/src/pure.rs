@@ -80,13 +80,16 @@ pub mod rich_text {
     };
 }
 pub mod export {
-    pub use mail_core::export::{Exported, RawHead, Target};
+    pub use mail_core::export::{Exported, RawHead, Target, usual};
 }
 pub mod folder {
     pub use mail_core::folder::Refusal;
 }
 pub mod follow_up {
     pub use mail_core::follow_up::{CHOICES, due, returned_words};
+}
+pub mod formats {
+    pub use mail_core::formats::{Writer, writer_named, writers};
 }
 pub mod import {
     pub use mail_core::import::{Destination, Imported, Source};
@@ -216,7 +219,7 @@ pub mod sync {
     }
 }
 pub mod transfer {
-    pub use mail_core::transfer::{Format, IoCause, Refusal, Seen, expand_here, look, suggested};
+    pub use mail_core::transfer::{IoCause, Refusal, Seen, expand_here, look, suggested};
 }
 pub mod trust {
     pub use mail_core::trust::{Destination, destination, spoof};

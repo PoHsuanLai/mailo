@@ -16,6 +16,8 @@
 //! fit in memory, and a batch is written every [`BATCH`] messages with a progress line.
 
 use crate::error::CoreError;
+use crate::export;
+use crate::formats::{self, Archive, Writer};
 use chrono::{DateTime, TimeDelta, Utc};
 use mail_domain::{ChangeId, MailboxRef, Patch, ProtoOp, RemoteIntent};
 use mail_mime::archive::{self, Placement, Sniffed, emlx, maildir, mbox, thunderbird};
@@ -28,20 +30,26 @@ use std::path::{Path, PathBuf};
 /// How many messages are written to the store at once.
 pub const BATCH: usize = 500;
 
-/// What a path holds.
+/// What a path holds: the format it was found to be, and where.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Source {
-    Mbox(PathBuf),
-    Maildir(PathBuf),
-    Eml(PathBuf),
-    /// One of Apple Mail's own message files.
-    Emlx(PathBuf),
-    /// Apple Mail's mailboxes: what its Export Mailbox writes (a `Name.mbox` package with an
-    /// mbox inside, or a folder of them), or its own library of `.emlx` files.
-    AppleMail(PathBuf),
-    /// A Thunderbird profile, its `Mail` or `ImapMail` directory, or one account's in them.
-    Thunderbird(PathBuf),
+pub struct Source {
+    pub archive: &'static dyn Archive,
+    pub path: PathBuf,
 }
+
+impl Source {
+    pub fn new(archive: &'static dyn Archive, path: PathBuf) -> Self {
+        Self { archive, path }
+    }
+
+    /// The messages in this source, one at a time.
+    pub fn items(&self) -> Result<Items, CoreError> {
+        self.archive.items(&self.path)
+    }
+}
+
+/// One source's messages, read one at a time.
+pub type Items = Box<dyn Iterator<Item = Result<Item, CoreError>>>;
 
 /// Where imported mail goes.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,35 +60,9 @@ pub enum Destination {
     Mailbox { account: String, folder: String },
 }
 
-/// Which format `path` is.
-///
-/// A directory with `cur`, `new` or `tmp` in it is a Maildir; one with Thunderbird's indexes or
-/// a profile's `prefs.js` is Thunderbird's; one that is or holds `.mbox` packages or `.emlx`
-/// files is Apple Mail's. A file with the extension `.emlx` is one Apple Mail message, a file that opens with
-/// a `From ` line is an mbox, and any other file is one message.
+/// Which format `path` is: the first of [`formats::ARCHIVES`] to claim it.
 pub fn detect(path: &Path) -> Result<Source, CoreError> {
-    let meta = std::fs::metadata(path).map_err(CoreError::at(&path))?;
-    if meta.is_dir() {
-        let maildir = ["cur", "new", "tmp"]
-            .iter()
-            .any(|sub| path.join(sub).is_dir());
-        return if maildir {
-            Ok(Source::Maildir(path.to_owned()))
-        } else if is_thunderbird(path) {
-            Ok(Source::Thunderbird(path.to_owned()))
-        } else if is_apple_mail(path, APPLE_DEPTH) {
-            Ok(Source::AppleMail(path.to_owned()))
-        } else {
-            Err(CoreError::NotMailFolder(path.to_owned()))
-        };
-    }
-    if has_extension(path, "emlx") {
-        return Ok(Source::Emlx(path.to_owned()));
-    }
-    Ok(match sniff(path)? {
-        Sniffed::Mbox => Source::Mbox(path.to_owned()),
-        Sniffed::Eml => Source::Eml(path.to_owned()),
-    })
+    Ok(Source::new(formats::detect(path)?, path.to_owned()))
 }
 
 /// How deep under a chosen directory Apple Mail's packages are looked for: its library keeps
@@ -238,58 +220,188 @@ impl Item {
     }
 }
 
-/// The messages in `source`, one at a time.
-pub fn items(
-    source: &Source,
-) -> Result<Box<dyn Iterator<Item = Result<Item, CoreError>>>, CoreError> {
-    match source {
-        Source::Eml(path) => {
-            let raw = std::fs::read(path).map_err(CoreError::at(&path))?;
-            Ok(Box::new(std::iter::once(Ok(Item {
+/// An mbox file: the format that opens with a `From ` line.
+#[derive(Debug)]
+pub struct Mbox;
+
+impl Archive for Mbox {
+    fn slug(&self) -> &'static str {
+        "mbox"
+    }
+
+    fn name(&self) -> &'static str {
+        "mbox"
+    }
+
+    fn claims(&self, path: &Path) -> Result<bool, CoreError> {
+        Ok(!path.is_dir() && !has_extension(path, "emlx") && sniff(path)? == Sniffed::Mbox)
+    }
+
+    fn items(&self, path: &Path) -> Result<Items, CoreError> {
+        mbox_items(path, mbox_folder(path), Mailer::Any)
+    }
+
+    fn writer(&self) -> Option<&'static dyn Writer> {
+        Some(&export::MboxWriter)
+    }
+}
+
+/// A Maildir: a directory with `cur`, `new` or `tmp` in it.
+#[derive(Debug)]
+pub struct Maildir;
+
+impl Archive for Maildir {
+    fn slug(&self) -> &'static str {
+        "maildir"
+    }
+
+    fn name(&self) -> &'static str {
+        "Maildir"
+    }
+
+    fn claims(&self, path: &Path) -> Result<bool, CoreError> {
+        Ok(["cur", "new", "tmp"]
+            .iter()
+            .any(|sub| path.join(sub).is_dir()))
+    }
+
+    fn items(&self, root: &Path) -> Result<Items, CoreError> {
+        let files = maildir_files(root)?;
+        Ok(Box::new(files.into_iter().map(|found| {
+            let raw = std::fs::read(&found.path).map_err(CoreError::at(&found.path))?;
+            Ok(Item {
                 raw: archive::crlf(&raw),
-                // One message on its own says nothing about where it was: the inbox, read.
-                placement: archive::folder_placement(None, vec![mail_domain::SystemFlag::Seen]),
-                received: None,
+                placement: maildir::placement(
+                    found.folder.as_deref(),
+                    found.sub,
+                    &found.name.flags,
+                ),
+                received: delivered_at(&found.name.unique),
                 completeness: Completeness::Whole,
-            }))))
+            })
+        })))
+    }
+
+    fn writer(&self) -> Option<&'static dyn Writer> {
+        Some(&export::MaildirWriter)
+    }
+}
+
+/// A single message file.
+#[derive(Debug)]
+pub struct Eml;
+
+impl Archive for Eml {
+    fn slug(&self) -> &'static str {
+        "eml"
+    }
+
+    fn name(&self) -> &'static str {
+        "One message file"
+    }
+
+    fn claims(&self, path: &Path) -> Result<bool, CoreError> {
+        Ok(!path.is_dir() && !has_extension(path, "emlx") && sniff(path)? == Sniffed::Eml)
+    }
+
+    fn items(&self, path: &Path) -> Result<Items, CoreError> {
+        let raw = std::fs::read(path).map_err(CoreError::at(&path))?;
+        Ok(Box::new(std::iter::once(Ok(Item {
+            raw: archive::crlf(&raw),
+            // One message on its own says nothing about where it was: the inbox, read.
+            placement: archive::folder_placement(None, vec![mail_domain::SystemFlag::Seen]),
+            received: None,
+            completeness: Completeness::Whole,
+        }))))
+    }
+
+    fn writer(&self) -> Option<&'static dyn Writer> {
+        Some(&export::EmlWriter)
+    }
+}
+
+/// A Thunderbird profile, its `Mail` or `ImapMail` directory, or one account's in them: a
+/// directory with Thunderbird's indexes or a profile's `prefs.js`.
+#[derive(Debug)]
+pub struct Thunderbird;
+
+impl Archive for Thunderbird {
+    fn slug(&self) -> &'static str {
+        "thunderbird"
+    }
+
+    fn name(&self) -> &'static str {
+        "Thunderbird profile"
+    }
+
+    fn claims(&self, path: &Path) -> Result<bool, CoreError> {
+        Ok(path.is_dir() && is_thunderbird(path))
+    }
+
+    fn items(&self, root: &Path) -> Result<Items, CoreError> {
+        let mut found = Vec::new();
+        for account in thunderbird_accounts(root)? {
+            let imap = dir_name(account.parent().unwrap_or(Path::new(".")))
+                .is_some_and(|home| home == "ImapMail");
+            thunderbird_files(&account, None, imap, &mut found)?;
         }
-        Source::Mbox(path) => mbox_items(path, mbox_folder(path), Mailer::Any),
-        Source::Maildir(root) => {
-            let files = maildir_files(root)?;
-            Ok(Box::new(files.into_iter().map(|found| {
-                let raw = std::fs::read(&found.path).map_err(CoreError::at(&found.path))?;
-                Ok(Item {
-                    raw: archive::crlf(&raw),
-                    placement: maildir::placement(
-                        found.folder.as_deref(),
-                        found.sub,
-                        &found.name.flags,
-                    ),
-                    received: delivered_at(&found.name.unique),
-                    completeness: Completeness::Whole,
-                })
-            })))
-        }
-        Source::Emlx(path) => {
-            // Where one file on its own was kept is not known: Apple Mail's flags place it.
-            Ok(Box::new(std::iter::once(emlx_item(path, None))))
-        }
-        Source::AppleMail(root) => {
-            let mut found = Vec::new();
-            let top =
-                dir_name(root).and_then(|name| emlx::folder_of_package(&name).map(str::to_owned));
-            apple_files(root, top, APPLE_DEPTH + 1, &mut found)?;
-            Ok(chained(found, Mailer::Any))
-        }
-        Source::Thunderbird(root) => {
-            let mut found = Vec::new();
-            for account in thunderbird_accounts(root)? {
-                let imap = dir_name(account.parent().unwrap_or(Path::new(".")))
-                    .is_some_and(|home| home == "ImapMail");
-                thunderbird_files(&account, None, imap, &mut found)?;
-            }
-            Ok(chained(found, Mailer::Thunderbird))
-        }
+        Ok(chained(found, Mailer::Thunderbird))
+    }
+
+    fn note(&self) -> Option<&'static str> {
+        Some(
+            "Only the mail Thunderbird kept offline is imported, so messages it left on the \
+             server are not included.",
+        )
+    }
+}
+
+/// Apple Mail's mailboxes: what its Export Mailbox writes (a `Name.mbox` package with an mbox
+/// inside, or a folder of them), or its own library of `.emlx` files.
+#[derive(Debug)]
+pub struct AppleMail;
+
+impl Archive for AppleMail {
+    fn slug(&self) -> &'static str {
+        "apple-mail"
+    }
+
+    fn name(&self) -> &'static str {
+        "Apple Mail mailboxes"
+    }
+
+    fn claims(&self, path: &Path) -> Result<bool, CoreError> {
+        Ok(path.is_dir() && is_apple_mail(path, APPLE_DEPTH))
+    }
+
+    fn items(&self, root: &Path) -> Result<Items, CoreError> {
+        let mut found = Vec::new();
+        let top = dir_name(root).and_then(|name| emlx::folder_of_package(&name).map(str::to_owned));
+        apple_files(root, top, APPLE_DEPTH + 1, &mut found)?;
+        Ok(chained(found, Mailer::Any))
+    }
+}
+
+/// One of Apple Mail's own message files.
+#[derive(Debug)]
+pub struct Emlx;
+
+impl Archive for Emlx {
+    fn slug(&self) -> &'static str {
+        "emlx"
+    }
+
+    fn name(&self) -> &'static str {
+        "Apple Mail message"
+    }
+
+    fn claims(&self, path: &Path) -> Result<bool, CoreError> {
+        Ok(!path.is_dir() && has_extension(path, "emlx"))
+    }
+
+    fn items(&self, path: &Path) -> Result<Items, CoreError> {
+        // Where one file on its own was kept is not known: Apple Mail's flags place it.
+        Ok(Box::new(std::iter::once(emlx_item(path, None))))
     }
 }
 
@@ -324,7 +436,7 @@ fn mbox_items(
     path: &Path,
     folder: Option<String>,
     mailer: Mailer,
-) -> Result<Box<dyn Iterator<Item = Result<Item, CoreError>>>, CoreError> {
+) -> Result<Items, CoreError> {
     let file = std::fs::File::open(path).map_err(CoreError::at(&path))?;
     let shown = path.display().to_string();
     let reader = mbox::Reader::new(BufReader::with_capacity(1 << 16, file));
@@ -378,7 +490,7 @@ enum Held {
 }
 
 /// The messages in every file of `found`, file after file, each opened only when reached.
-fn chained(found: Vec<Held>, mailer: Mailer) -> Box<dyn Iterator<Item = Result<Item, CoreError>>> {
+fn chained(found: Vec<Held>, mailer: Mailer) -> Items {
     Box::new(
         found
             .into_iter()
@@ -599,7 +711,7 @@ pub fn into_local(
     let account = crate::account::local(store, now)?;
     let mut total = Imported::default();
     let mut batch: Vec<Keep> = Vec::with_capacity(BATCH);
-    for item in items(source)? {
+    for item in source.items()? {
         let item = item?;
         if !item.tally(&mut total) {
             continue;
@@ -694,7 +806,7 @@ pub fn queue_uploads(
         .collect();
 
     let mut total = Imported::default();
-    for item in items(source)? {
+    for item in source.items()? {
         let item = item?;
         if !item.tally(&mut total) {
             continue;
@@ -780,7 +892,8 @@ mod tests {
 
     /// Each message's subject, with its role, labels, read state and star.
     fn read(source: &Source) -> Vec<(String, MailboxRole, Vec<String>, ReadState, Star)> {
-        items(source)
+        source
+            .items()
             .unwrap()
             .map(|item| {
                 let item = item.unwrap();
@@ -815,7 +928,7 @@ mod tests {
             mbox_of(&[("old", None)]),
         );
         let source = detect(&export).unwrap();
-        assert_eq!(source, Source::AppleMail(export.clone()));
+        assert_eq!(source, Source::new(&AppleMail, export.clone()));
         let archived = |id: &str, label: &str| {
             (
                 id.to_owned(),
@@ -844,15 +957,15 @@ mod tests {
         let package = export.join("Work.mbox");
         assert_eq!(
             detect(&package).unwrap(),
-            Source::AppleMail(package.clone())
+            Source::new(&AppleMail, package.clone())
         );
         assert_eq!(
-            read(&Source::AppleMail(package.clone()))[1],
+            read(&Source::new(&AppleMail, package.clone()))[1],
             archived("work", "Work")
         );
         let inner = package.join("mbox");
-        assert_eq!(detect(&inner).unwrap(), Source::Mbox(inner.clone()));
-        assert_eq!(read(&Source::Mbox(inner)), vec![archived("work", "Work")]);
+        assert_eq!(detect(&inner).unwrap(), Source::new(&Mbox, inner.clone()));
+        assert_eq!(read(&Source::new(&Mbox, inner)), vec![archived("work", "Work")]);
     }
 
     #[test]
@@ -863,7 +976,7 @@ mod tests {
         put(&package.join("Inner/keep"), b"");
         let by_dots = package.join("Inner").join("..");
         let source = detect(&by_dots).unwrap();
-        assert_eq!(source, Source::AppleMail(by_dots));
+        assert_eq!(source, Source::new(&AppleMail, by_dots));
         assert_eq!(read(&source)[0].2, vec!["Work".to_owned()]);
     }
 
@@ -881,7 +994,7 @@ mod tests {
             b"<plist/>",
         );
         let source = detect(&library).unwrap();
-        assert_eq!(source, Source::AppleMail(library.clone()));
+        assert_eq!(source, Source::new(&AppleMail, library.clone()));
         assert_eq!(
             read(&source),
             vec![
@@ -911,14 +1024,14 @@ mod tests {
 
         let one = messages.join("10.emlx");
         let source = detect(&one).unwrap();
-        assert_eq!(source, Source::Emlx(one.clone()));
-        let item = items(&source).unwrap().next().unwrap().unwrap();
+        assert_eq!(source, Source::new(&Emlx, one.clone()));
+        let item = source.items().unwrap().next().unwrap().unwrap();
         assert_eq!(item.received, DateTime::from_timestamp(1_699_363_251, 0));
         assert!(item.raw.ends_with(b"body\r\n"), "only the message, in CRLF");
 
         let broken = dir.path().join("broken.emlx");
         put(&broken, b"From: a@b\n\nnot an emlx");
-        let refused = items(&Source::Emlx(broken)).unwrap().next().unwrap();
+        let refused = Source::new(&Emlx, broken).items().unwrap().next().unwrap();
         assert!(matches!(refused, Err(CoreError::NotEmlx(_))), "{refused:?}");
     }
 
@@ -949,7 +1062,7 @@ mod tests {
         put(&profile.join("ImapMail/imap.example.test/Sent.msf"), b"");
 
         let source = detect(&profile).unwrap();
-        assert_eq!(source, Source::Thunderbird(profile.clone()));
+        assert_eq!(source, Source::new(&Thunderbird, profile.clone()));
         assert_eq!(
             read(&source),
             vec![
@@ -981,9 +1094,9 @@ mod tests {
         for chosen in [profile.join("Mail"), local.clone()] {
             assert_eq!(
                 detect(&chosen).unwrap(),
-                Source::Thunderbird(chosen.clone())
+                Source::new(&Thunderbird, chosen.clone())
             );
-            assert_eq!(read(&Source::Thunderbird(chosen)).len(), 2);
+            assert_eq!(read(&Source::new(&Thunderbird, chosen)).len(), 2);
         }
     }
 
@@ -998,7 +1111,7 @@ mod tests {
         let locked = account.join("Projects.sbd");
         put(&locked.join("Mailo"), mbox_of(&[("nested", None)]));
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-        let refused = items(&Source::Thunderbird(account.clone()));
+        let refused = Source::new(&Thunderbird, account.clone()).items();
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
         // Running as a user who can list it anyway proves nothing.
         if let Err(e) = refused {
@@ -1016,7 +1129,7 @@ mod tests {
             &account.join("Entw&APw-rfe.sbd/Alt&AOQ-"),
             mbox_of(&[("old", None)]),
         );
-        let labels: Vec<Vec<String>> = read(&Source::Thunderbird(dir.path().to_owned()))
+        let labels: Vec<Vec<String>> = read(&Source::new(&Thunderbird, dir.path().to_owned()))
             .into_iter()
             .map(|message| message.2)
             .collect();
@@ -1029,7 +1142,7 @@ mod tests {
         let local = dir.path().join("Mail/Local Folders");
         put(&local.join("R&D-x"), mbox_of(&[("rd", None)]));
         put(&local.join("R&D-x.msf"), b"");
-        let all = read(&Source::Thunderbird(local));
+        let all = read(&Source::new(&Thunderbird, local));
         assert_eq!(all[0].2, vec!["R&D-x".to_owned()]);
     }
 
@@ -1043,7 +1156,8 @@ mod tests {
         );
         put(&account.join("INBOX.msf"), b"");
         let mut total = Imported::default();
-        let kept: Vec<bool> = items(&Source::Thunderbird(dir.path().to_owned()))
+        let kept: Vec<bool> = Source::new(&Thunderbird, dir.path().to_owned())
+            .items()
             .unwrap()
             .map(|item| item.unwrap().tally(&mut total))
             .collect();
@@ -1054,7 +1168,7 @@ mod tests {
         put(&messages.join("1.partial.emlx"), emlx_of("a", 0));
         put(&messages.join("2.emlx"), emlx_of("b", 0));
         let mut total = Imported::default();
-        for item in items(&Source::AppleMail(dir.path().join("Messages"))).unwrap() {
+        for item in Source::new(&AppleMail, dir.path().join("Messages")).items().unwrap() {
             assert!(item.unwrap().tally(&mut total));
         }
         assert_eq!((total.read, total.partial, total.cut_off), (2, 1, 0));

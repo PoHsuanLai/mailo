@@ -1057,9 +1057,14 @@ fn parse_export(args: &[String]) -> Result<Command, String> {
             usage()
         )
     };
+    // The flag is a format's slug: `--mbox`, `--maildir`, `--eml`.
+    fn writer_of(flag: &str) -> Option<&'static dyn mail_core::formats::Writer> {
+        flag.strip_prefix("--")
+            .and_then(mail_core::formats::writer_named)
+    }
     let at = args
         .iter()
-        .position(|a| matches!(a.as_str(), "--mbox" | "--maildir" | "--eml"))
+        .position(|a| writer_of(a).is_some())
         .ok_or_else(wrong)?;
     let [flag, path] = &args[at..] else {
         return Err(wrong());
@@ -1069,12 +1074,11 @@ fn parse_export(args: &[String]) -> Result<Command, String> {
         return Err(wrong());
     }
     let path = std::path::PathBuf::from(path);
-    let target = match flag.as_str() {
-        "--mbox" => mail_core::export::Target::Mbox(path),
-        "--maildir" => mail_core::export::Target::Maildir(path),
-        _ => mail_core::export::Target::Eml(path),
-    };
-    Ok(Command::Export { query, target })
+    let writer = writer_of(flag).ok_or_else(wrong)?;
+    Ok(Command::Export {
+        query,
+        target: mail_core::export::Target::new(writer, path),
+    })
 }
 
 fn parse_folder(args: &[String]) -> Result<Command, String> {

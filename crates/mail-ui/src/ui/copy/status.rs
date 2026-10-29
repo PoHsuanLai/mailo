@@ -78,13 +78,6 @@ pub const NO_MATCHES: &str = "No matches";
 pub fn page_of(page: u32, count: u32) -> String {
     format!("Page {page} of {count}")
 }
-// What the Import sheet found at a path, before its count: "Thunderbird profile, 1 204 messages".
-pub const SOURCE_EMLX: &str = "Apple Mail message";
-pub const SOURCE_APPLE_MAIL: &str = "Apple Mail mailboxes";
-pub const SOURCE_THUNDERBIRD: &str = "Thunderbird profile";
-/// Under a Thunderbird profile on the Import sheet: an IMAP account's mail is only there if
-/// Thunderbird downloaded it.
-pub const THUNDERBIRD_OFFLINE_ONLY: &str = "Only the mail Thunderbird kept offline is imported, so messages it left on the server are not included.";
 // What an import says when it is done, beyond the count: mail the source held only a part of.
 /// Messages read from Apple Mail files whose larger attachments are stored beside them.
 pub fn import_without_attachments(count: usize) -> String {

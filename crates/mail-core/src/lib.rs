@@ -34,6 +34,7 @@ pub mod export;
 pub mod findable;
 pub mod folder;
 pub mod follow_up;
+pub mod formats;
 pub mod history;
 pub mod html_document;
 pub mod identity;

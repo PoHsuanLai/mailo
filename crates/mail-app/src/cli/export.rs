@@ -27,11 +27,11 @@ pub fn run(store: &SqliteStore, query: &str, target: &Target) -> Result<String, 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_core::export::Exported;
+    use mail_core::export::{Exported, usual};
 
     #[test]
     fn it_says_how_many_were_written_and_why_the_rest_were_not() {
-        let target = Target::Mbox("out.mbox".into());
+        let target = Target::new(usual(), "out.mbox".into());
         assert_eq!(
             said(
                 &Exported {

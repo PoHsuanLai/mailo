@@ -12,6 +12,7 @@
 
 use crate::environment::Environment;
 use crate::error::{CoreError, Logged};
+use crate::formats::{Ctx, Sink, Writer};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, Mute, PageReq, Pin, Property,
@@ -22,15 +23,22 @@ use mail_store::{SqliteStore, Store};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-/// Where the messages go.
+/// Where the messages go: a format, and the file or directory it writes.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Target {
-    /// One mbox file, mboxrd-quoted. Refused if the file exists.
-    Mbox(PathBuf),
-    /// A Maildir, created if absent; roles and labels become Maildir++ folders.
-    Maildir(PathBuf),
-    /// One `.eml` per message in a directory, created if absent.
-    Eml(PathBuf),
+pub struct Target {
+    pub writer: &'static dyn Writer,
+    pub path: PathBuf,
+}
+
+impl Target {
+    pub fn new(writer: &'static dyn Writer, path: PathBuf) -> Self {
+        Self { writer, path }
+    }
+}
+
+/// The format an export is written in unless another is chosen: an mbox.
+pub fn usual() -> &'static dyn Writer {
+    &MboxWriter
 }
 
 /// What an export did.
@@ -191,7 +199,8 @@ pub fn export(
     now: DateTime<Utc>,
     progress: &mut dyn FnMut(&Exported),
 ) -> Result<Exported, CoreError> {
-    let mut sink = Sink::open(store, env, target, now)?;
+    let ctx = Ctx { store, env, now };
+    let mut sink = target.writer.open(&target.path, &ctx)?;
     let mut done = Exported::default();
     for id in messages {
         let message = store.message(*id)?;
@@ -276,114 +285,167 @@ fn raw_of(store: &SqliteStore, message: &Message) -> Result<Option<Vec<u8>>, Cor
     }
 }
 
-/// An open destination.
-enum Sink {
-    Mbox(std::io::BufWriter<std::fs::File>),
-    Maildir {
-        root: PathBuf,
-        labels: Vec<(String, LabelId)>,
-        now: DateTime<Utc>,
-        count: u64,
-        /// This machine's name, in each file's unique name.
-        host: String,
-    },
-    Eml(PathBuf),
+/// One mbox file, mboxrd-quoted. Refused if the file exists.
+#[derive(Debug)]
+pub struct MboxWriter;
+
+impl Writer for MboxWriter {
+    fn slug(&self) -> &'static str {
+        "mbox"
+    }
+
+    fn label(&self) -> &'static str {
+        "Mbox"
+    }
+
+    fn what(&self) -> &'static str {
+        "One mbox file"
+    }
+
+    fn suggested(&self, stem: &str) -> String {
+        format!("mailo-{stem}.mbox")
+    }
+
+    fn open(&self, path: &Path, _ctx: &Ctx<'_>) -> Result<Box<dyn Sink>, CoreError> {
+        // Never over an existing file: an export that replaced someone's archive with a
+        // search that matched three messages would be the worst kind of success.
+        let file = create_private(path).map_err(|source| CoreError::NotCreated {
+            path: path.to_owned(),
+            source,
+        })?;
+        Ok(Box::new(MboxSink(std::io::BufWriter::new(file))))
+    }
 }
 
-impl Sink {
-    fn open(
-        store: &SqliteStore,
-        env: &Environment,
-        target: &Target,
-        now: DateTime<Utc>,
-    ) -> Result<Self, CoreError> {
-        match target {
-            Target::Mbox(path) => {
-                // Never over an existing file: an export that replaced someone's archive with a
-                // search that matched three messages would be the worst kind of success.
-                let file = create_private(path).map_err(|source| CoreError::NotCreated {
-                    path: path.clone(),
-                    source,
-                })?;
-                Ok(Sink::Mbox(std::io::BufWriter::new(file)))
-            }
-            Target::Maildir(root) => {
-                make_maildir(root)?;
-                Ok(Sink::Maildir {
-                    root: root.clone(),
-                    labels: crate::query::known_labels(store),
-                    now,
-                    count: 0,
-                    host: host(env),
-                })
-            }
-            Target::Eml(dir) => {
-                std::fs::create_dir_all(dir).map_err(CoreError::at(dir))?;
-                Ok(Sink::Eml(dir.clone()))
-            }
-        }
-    }
+struct MboxSink(std::io::BufWriter<std::fs::File>);
 
+impl Sink for MboxSink {
     fn write(&mut self, message: &Message, raw: &[u8]) -> Result<(), CoreError> {
-        match self {
-            Sink::Mbox(out) => mbox::write(out, &mbox::envelope_of(raw, Some(message.date)), raw)
-                .map_err(CoreError::from),
-            Sink::Maildir {
-                root,
-                labels,
-                now,
-                count,
-                host,
-            } => {
-                *count += 1;
-                let dir = match folder_of(message, labels) {
-                    Some(folder) => {
-                        let dir = root.join(maildir::dir_of_folder(&folder));
-                        make_maildir(&dir)?;
-                        // Maildir++ marks a folder with this empty file.
-                        let marker = dir.join("maildirfolder");
-                        if !marker.exists() {
-                            create_private(&marker).map_err(CoreError::at(&marker))?;
-                        }
-                        dir
-                    }
-                    None => root.clone(),
-                };
-                let unique = maildir::unique(&maildir::Unique {
-                    secs: now.timestamp(),
-                    micros: now.timestamp_subsec_micros(),
-                    pid: std::process::id(),
-                    count: *count,
-                    host: host.as_str(),
-                });
-                let name = maildir::name(&unique, &maildir::flags_of(&flags_of(message)));
-                // Written in `tmp` and renamed into `cur`, as the spec says: a reader never sees
-                // half a message under a finished name.
-                let tmp = dir.join("tmp").join(&unique);
-                create_private(&tmp)
-                    .and_then(|mut out| out.write_all(&mail_mime::archive::lf(raw)))
-                    .map_err(CoreError::at(&tmp))?;
-                let cur = dir.join("cur").join(&name);
-                std::fs::rename(&tmp, &cur).map_err(CoreError::at(&cur))
-            }
-            Sink::Eml(dir) => {
-                let id = message.id.to_string();
-                let file = dir.join(format!(
-                    "{}-{}.eml",
-                    message.date.format("%Y%m%d-%H%M%S"),
-                    &id[..8.min(id.len())]
-                ));
-                let mut out = create_private(&file).map_err(CoreError::at(&file))?;
-                out.write_all(raw).map_err(CoreError::at(&file))
-            }
-        }
+        mbox::write(&mut self.0, &mbox::envelope_of(raw, Some(message.date)), raw)
+            .map_err(CoreError::from)
     }
 
-    fn finish(self) -> Result<(), CoreError> {
-        match self {
-            Sink::Mbox(mut out) => out.flush().map_err(CoreError::from),
-            Sink::Maildir { .. } | Sink::Eml(_) => Ok(()),
-        }
+    fn finish(mut self: Box<Self>) -> Result<(), CoreError> {
+        self.0.flush().map_err(CoreError::from)
+    }
+}
+
+/// A Maildir, created if absent; roles and labels become Maildir++ folders.
+#[derive(Debug)]
+pub struct MaildirWriter;
+
+impl Writer for MaildirWriter {
+    fn slug(&self) -> &'static str {
+        "maildir"
+    }
+
+    fn label(&self) -> &'static str {
+        "Maildir"
+    }
+
+    fn what(&self) -> &'static str {
+        "A Maildir folder per place"
+    }
+
+    fn suggested(&self, stem: &str) -> String {
+        format!("mailo-{stem}")
+    }
+
+    fn open(&self, path: &Path, ctx: &Ctx<'_>) -> Result<Box<dyn Sink>, CoreError> {
+        make_maildir(path)?;
+        Ok(Box::new(MaildirSink {
+            root: path.to_owned(),
+            labels: crate::query::known_labels(ctx.store),
+            now: ctx.now,
+            count: 0,
+            host: host(ctx.env),
+        }))
+    }
+}
+
+struct MaildirSink {
+    root: PathBuf,
+    labels: Vec<(String, LabelId)>,
+    now: DateTime<Utc>,
+    count: u64,
+    /// This machine's name, in each file's unique name.
+    host: String,
+}
+
+impl Sink for MaildirSink {
+    fn write(&mut self, message: &Message, raw: &[u8]) -> Result<(), CoreError> {
+        self.count += 1;
+        let dir = match folder_of(message, &self.labels) {
+            Some(folder) => {
+                let dir = self.root.join(maildir::dir_of_folder(&folder));
+                make_maildir(&dir)?;
+                // Maildir++ marks a folder with this empty file.
+                let marker = dir.join("maildirfolder");
+                if !marker.exists() {
+                    create_private(&marker).map_err(CoreError::at(&marker))?;
+                }
+                dir
+            }
+            None => self.root.clone(),
+        };
+        let unique = maildir::unique(&maildir::Unique {
+            secs: self.now.timestamp(),
+            micros: self.now.timestamp_subsec_micros(),
+            pid: std::process::id(),
+            count: self.count,
+            host: self.host.as_str(),
+        });
+        let name = maildir::name(&unique, &maildir::flags_of(&flags_of(message)));
+        // Written in `tmp` and renamed into `cur`, as the spec says: a reader never sees
+        // half a message under a finished name.
+        let tmp = dir.join("tmp").join(&unique);
+        create_private(&tmp)
+            .and_then(|mut out| out.write_all(&mail_mime::archive::lf(raw)))
+            .map_err(CoreError::at(&tmp))?;
+        let cur = dir.join("cur").join(&name);
+        std::fs::rename(&tmp, &cur).map_err(CoreError::at(&cur))
+    }
+}
+
+/// One `.eml` per message in a directory, created if absent.
+#[derive(Debug)]
+pub struct EmlWriter;
+
+impl Writer for EmlWriter {
+    fn slug(&self) -> &'static str {
+        "eml"
+    }
+
+    fn label(&self) -> &'static str {
+        ".eml"
+    }
+
+    fn what(&self) -> &'static str {
+        "One .eml file per message"
+    }
+
+    fn suggested(&self, stem: &str) -> String {
+        format!("mailo-{stem}-eml")
+    }
+
+    fn open(&self, path: &Path, _ctx: &Ctx<'_>) -> Result<Box<dyn Sink>, CoreError> {
+        std::fs::create_dir_all(path).map_err(CoreError::at(path))?;
+        Ok(Box::new(EmlSink(path.to_owned())))
+    }
+}
+
+struct EmlSink(PathBuf);
+
+impl Sink for EmlSink {
+    fn write(&mut self, message: &Message, raw: &[u8]) -> Result<(), CoreError> {
+        let id = message.id.to_string();
+        let file = self.0.join(format!(
+            "{}-{}.eml",
+            message.date.format("%Y%m%d-%H%M%S"),
+            &id[..8.min(id.len())]
+        ));
+        let mut out = create_private(&file).map_err(CoreError::at(&file))?;
+        out.write_all(raw).map_err(CoreError::at(&file))
     }
 }
 
