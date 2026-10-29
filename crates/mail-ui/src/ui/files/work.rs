@@ -15,6 +15,7 @@ use mail_client::transfer::{self, IoCause, Refusal, Seen};
 use mail_domain::{Filter, MailboxRole, Star};
 use porter_core::AccountId;
 
+use crate::ui::copy;
 use crate::ui::view::{Shell, Source as Listed};
 use mail_client::export::{Exported, Target};
 use mail_client::import::{Destination, Imported, Source};
@@ -57,8 +58,9 @@ pub(in crate::ui) fn look(path: &Path) -> Looked {
 /// What the sheet says of a source it found: its kind and message count, and for a Thunderbird
 /// profile that only what Thunderbird kept offline can be imported.
 pub(in crate::ui) fn described(source: &Source, count: usize) -> String {
-    let said = format!("{}, {}", source.archive.name(), messages(count));
-    match source.archive.note() {
+    let slug = source.archive.slug();
+    let said = format!("{}, {}", copy::status::source_kind(slug), messages(count));
+    match copy::status::source_note(slug) {
         Some(note) => format!("{said}. {note}"),
         None => said,
     }

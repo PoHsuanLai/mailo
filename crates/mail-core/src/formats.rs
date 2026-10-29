@@ -19,9 +19,6 @@ pub trait Archive: Debug + Sync {
     /// The format's stable name: `mbox`, `maildir`.
     fn slug(&self) -> &'static str;
 
-    /// What the Import sheet calls a source of this format.
-    fn name(&self) -> &'static str;
-
     /// Whether `path` is of this format. Where two formats could claim a path, the earlier in
     /// [`ARCHIVES`] wins.
     fn claims(&self, path: &Path) -> Result<bool, CoreError>;
@@ -33,11 +30,6 @@ pub trait Archive: Debug + Sync {
     fn writer(&self) -> Option<&'static dyn Writer> {
         None
     }
-
-    /// What the sheet adds when it has found a source of this format.
-    fn note(&self) -> Option<&'static str> {
-        None
-    }
 }
 
 /// A format mail is written to.
@@ -45,11 +37,8 @@ pub trait Writer: Debug + Sync {
     /// The format's stable name: the command line's `--mbox`, `--maildir`, `--eml`.
     fn slug(&self) -> &'static str;
 
-    /// The Export sheet's segment for this format.
+    /// The format's proper name.
     fn label(&self) -> &'static str;
-
-    /// What the sheet says an export in this format makes.
-    fn what(&self) -> &'static str;
 
     /// The name an export of the search `stem` is suggested, before anything is checked to be
     /// free.

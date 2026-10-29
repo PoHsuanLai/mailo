@@ -229,10 +229,6 @@ impl Archive for Mbox {
         "mbox"
     }
 
-    fn name(&self) -> &'static str {
-        "mbox"
-    }
-
     fn claims(&self, path: &Path) -> Result<bool, CoreError> {
         Ok(!path.is_dir() && !has_extension(path, "emlx") && sniff(path)? == Sniffed::Mbox)
     }
@@ -253,10 +249,6 @@ pub struct Maildir;
 impl Archive for Maildir {
     fn slug(&self) -> &'static str {
         "maildir"
-    }
-
-    fn name(&self) -> &'static str {
-        "Maildir"
     }
 
     fn claims(&self, path: &Path) -> Result<bool, CoreError> {
@@ -296,10 +288,6 @@ impl Archive for Eml {
         "eml"
     }
 
-    fn name(&self) -> &'static str {
-        "One message file"
-    }
-
     fn claims(&self, path: &Path) -> Result<bool, CoreError> {
         Ok(!path.is_dir() && !has_extension(path, "emlx") && sniff(path)? == Sniffed::Eml)
     }
@@ -330,10 +318,6 @@ impl Archive for Thunderbird {
         "thunderbird"
     }
 
-    fn name(&self) -> &'static str {
-        "Thunderbird profile"
-    }
-
     fn claims(&self, path: &Path) -> Result<bool, CoreError> {
         Ok(path.is_dir() && is_thunderbird(path))
     }
@@ -347,13 +331,6 @@ impl Archive for Thunderbird {
         }
         Ok(chained(found, Mailer::Thunderbird))
     }
-
-    fn note(&self) -> Option<&'static str> {
-        Some(
-            "Only the mail Thunderbird kept offline is imported, so messages it left on the \
-             server are not included.",
-        )
-    }
 }
 
 /// Apple Mail's mailboxes: what its Export Mailbox writes (a `Name.mbox` package with an mbox
@@ -364,10 +341,6 @@ pub struct AppleMail;
 impl Archive for AppleMail {
     fn slug(&self) -> &'static str {
         "apple-mail"
-    }
-
-    fn name(&self) -> &'static str {
-        "Apple Mail mailboxes"
     }
 
     fn claims(&self, path: &Path) -> Result<bool, CoreError> {
@@ -389,10 +362,6 @@ pub struct Emlx;
 impl Archive for Emlx {
     fn slug(&self) -> &'static str {
         "emlx"
-    }
-
-    fn name(&self) -> &'static str {
-        "Apple Mail message"
     }
 
     fn claims(&self, path: &Path) -> Result<bool, CoreError> {
@@ -432,11 +401,7 @@ enum Mailer {
 }
 
 /// The messages in the mbox at `path`, placed in `folder`.
-fn mbox_items(
-    path: &Path,
-    folder: Option<String>,
-    mailer: Mailer,
-) -> Result<Items, CoreError> {
+fn mbox_items(path: &Path, folder: Option<String>, mailer: Mailer) -> Result<Items, CoreError> {
     let file = std::fs::File::open(path).map_err(CoreError::at(&path))?;
     let shown = path.display().to_string();
     let reader = mbox::Reader::new(BufReader::with_capacity(1 << 16, file));
@@ -965,7 +930,10 @@ mod tests {
         );
         let inner = package.join("mbox");
         assert_eq!(detect(&inner).unwrap(), Source::new(&Mbox, inner.clone()));
-        assert_eq!(read(&Source::new(&Mbox, inner)), vec![archived("work", "Work")]);
+        assert_eq!(
+            read(&Source::new(&Mbox, inner)),
+            vec![archived("work", "Work")]
+        );
     }
 
     #[test]
@@ -1168,7 +1136,10 @@ mod tests {
         put(&messages.join("1.partial.emlx"), emlx_of("a", 0));
         put(&messages.join("2.emlx"), emlx_of("b", 0));
         let mut total = Imported::default();
-        for item in Source::new(&AppleMail, dir.path().join("Messages")).items().unwrap() {
+        for item in Source::new(&AppleMail, dir.path().join("Messages"))
+            .items()
+            .unwrap()
+        {
             assert!(item.unwrap().tally(&mut total));
         }
         assert_eq!((total.read, total.partial, total.cut_off), (2, 1, 0));

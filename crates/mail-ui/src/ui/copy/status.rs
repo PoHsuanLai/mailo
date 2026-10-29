@@ -78,6 +78,40 @@ pub const NO_MATCHES: &str = "No matches";
 pub fn page_of(page: u32, count: u32) -> String {
     format!("Page {page} of {count}")
 }
+/// What the Import sheet calls a source of the format `slug` (`Archive::slug`), before its count:
+/// "Thunderbird profile, 1 204 messages".
+pub fn source_kind(slug: &str) -> &'static str {
+    match slug {
+        "maildir" => "Maildir",
+        "eml" => "One message file",
+        "emlx" => "Apple Mail message",
+        "apple-mail" => "Apple Mail mailboxes",
+        "thunderbird" => "Thunderbird profile",
+        "mbox" => "mbox",
+        // A format the registry gained without words here: the test over `ARCHIVES` fails first.
+        _ => "",
+    }
+}
+/// Under a source on the Import sheet: what its format leaves out. A Thunderbird profile's IMAP
+/// mail is only there if Thunderbird downloaded it.
+pub fn source_note(slug: &str) -> Option<&'static str> {
+    match slug {
+        "thunderbird" => Some(
+            "Only the mail Thunderbird kept offline is imported, so messages it left on the server are not included.",
+        ),
+        _ => None,
+    }
+}
+/// What the Export sheet says an export in the format `slug` (`Writer::slug`) makes.
+pub fn export_makes(slug: &str) -> &'static str {
+    match slug {
+        "maildir" => "A Maildir folder per place",
+        "eml" => "One .eml file per message",
+        "mbox" => "One mbox file",
+        // A format the registry gained without words here: the test over `writers()` fails first.
+        _ => "",
+    }
+}
 // What an import says when it is done, beyond the count: mail the source held only a part of.
 /// Messages read from Apple Mail files whose larger attachments are stored beside them.
 pub fn import_without_attachments(count: usize) -> String {

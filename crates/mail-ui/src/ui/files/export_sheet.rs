@@ -78,10 +78,9 @@ pub(super) fn ExportSheet(shell: Signal<Shell>) -> Element {
     };
     let busy = phase.read().running();
     let can_run = count.is_some() && !busy && !target_path.trim().is_empty();
-    let formats: Vec<Choice<&'static dyn Writer>> = writers()
-        .map(|one| Choice::new(one, one.label()))
-        .collect();
-    let what = format().what();
+    let formats: Vec<Choice<&'static dyn Writer>> =
+        writers().map(|one| Choice::new(one, one.label())).collect();
+    let what = crate::ui::copy::status::export_makes(format().slug());
     let start = {
         let target_path = target_path.clone();
         move |_| {

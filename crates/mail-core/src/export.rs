@@ -298,10 +298,6 @@ impl Writer for MboxWriter {
         "Mbox"
     }
 
-    fn what(&self) -> &'static str {
-        "One mbox file"
-    }
-
     fn suggested(&self, stem: &str) -> String {
         format!("mailo-{stem}.mbox")
     }
@@ -321,8 +317,12 @@ struct MboxSink(std::io::BufWriter<std::fs::File>);
 
 impl Sink for MboxSink {
     fn write(&mut self, message: &Message, raw: &[u8]) -> Result<(), CoreError> {
-        mbox::write(&mut self.0, &mbox::envelope_of(raw, Some(message.date)), raw)
-            .map_err(CoreError::from)
+        mbox::write(
+            &mut self.0,
+            &mbox::envelope_of(raw, Some(message.date)),
+            raw,
+        )
+        .map_err(CoreError::from)
     }
 
     fn finish(mut self: Box<Self>) -> Result<(), CoreError> {
@@ -341,10 +341,6 @@ impl Writer for MaildirWriter {
 
     fn label(&self) -> &'static str {
         "Maildir"
-    }
-
-    fn what(&self) -> &'static str {
-        "A Maildir folder per place"
     }
 
     fn suggested(&self, stem: &str) -> String {
@@ -418,10 +414,6 @@ impl Writer for EmlWriter {
 
     fn label(&self) -> &'static str {
         ".eml"
-    }
-
-    fn what(&self) -> &'static str {
-        "One .eml file per message"
     }
 
     fn suggested(&self, stem: &str) -> String {
