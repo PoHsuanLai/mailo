@@ -174,3 +174,41 @@ fn a_socket_server_carries_its_transport_security() {
         Tls::StartTlsRequired
     );
 }
+
+/// The host mail is served from is read from a JMAP session URL as a URL: without its port, user
+/// part or brackets, in lower case, and not at all from text that is no URL.
+#[test]
+fn served_from_reads_a_session_url_as_a_url() {
+    let jmap = |session: &str| Incoming::Jmap {
+        session: session.to_owned(),
+        auth: mail_domain::HttpAuth::Basic,
+    };
+    let cases = [
+        (
+            "https://mail.example.test/.well-known/jmap",
+            Some("mail.example.test"),
+        ),
+        (
+            "https://ada:pw@mail.example.test:8443/jmap",
+            Some("mail.example.test"),
+        ),
+        (
+            "https://Mail.Example.Test/jmap?x=1#top",
+            Some("mail.example.test"),
+        ),
+        ("https://[2001:db8::1]:8443/jmap", Some("2001:db8::1")),
+        ("mail.example.test/jmap", None),
+        ("", None),
+    ];
+    for (session, want) in cases {
+        assert_eq!(jmap(session).served_from().as_deref(), want, "{session:?}");
+    }
+    let imap = Incoming::Imap {
+        host: "imap.example.test".to_owned(),
+        port: 993,
+        tls: Tls::Implicit,
+    };
+    assert_eq!(imap.served_from().as_deref(), Some("imap.example.test"));
+    assert_eq!(Incoming::Graph.served_from(), None);
+    assert_eq!(Incoming::Local.served_from(), None);
+}
