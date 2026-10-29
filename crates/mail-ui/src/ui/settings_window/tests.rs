@@ -412,14 +412,8 @@ async fn without_a_login_item_there_is_no_switch() {
 /// Each page, by the sidebar's row, and a line only that page draws.
 const PAGES: &[(PageId, &str)] = &[
     (PageId::GENERAL, "Search server"),
-    (
-        PageId::ACCOUNTS,
-        crate::ui::copy::controls::ADD_ACCOUNT,
-    ),
-    (
-        PageId::CONTACTS,
-        crate::ui::copy::controls::NEW_CONTACT,
-    ),
+    (PageId::ACCOUNTS, crate::ui::copy::controls::ADD_ACCOUNT),
+    (PageId::CONTACTS, crate::ui::copy::controls::NEW_CONTACT),
     (PageId::SIGNATURES, "id=\"signatures-pane\""),
     (PageId::SPACES, crate::ui::copy::controls::NEW_SPACE),
     (PageId::COMPOSING, "Check spelling"),
@@ -556,7 +550,7 @@ async fn an_account_picked_in_the_list_is_kept_for_the_page_that_picked_it() {
     let window = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     let seen = click(
         &mut dom,
-        window.one("aria-label", PageId::ACCOUNTS.name()),
+        window.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
     let account = |row: &crate::ui::data::AccountRow| format!("accounts-pane-open-{}", row.id);
@@ -574,7 +568,7 @@ async fn an_account_picked_in_the_list_is_kept_for_the_page_that_picked_it() {
     // Another page of the same layout has a choice of its own, the first by default.
     let _ = click(
         &mut dom,
-        window.one("aria-label", PageId::VACATION.name()),
+        window.one("aria-label", crate::ui::copy::titles::VACATION_REPLY),
     )
     .merge(drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
@@ -586,7 +580,7 @@ async fn an_account_picked_in_the_list_is_kept_for_the_page_that_picked_it() {
     // And the first keeps what it was given.
     let _ = click(
         &mut dom,
-        window.one("aria-label", PageId::ACCOUNTS.name()),
+        window.one("aria-label", crate::ui::copy::titles::ACCOUNTS),
     )
     .merge(drain_seen(&mut dom));
     let page = dioxus_ssr::render(&dom);
