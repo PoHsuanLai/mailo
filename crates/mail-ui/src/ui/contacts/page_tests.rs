@@ -5,13 +5,13 @@ use super::key_of;
 use crate::ui::copy;
 use crate::ui::fixtures::{click, drain_seen, type_into, work};
 use crate::ui::settings_window::tests::opened_on;
-use crate::ui::view::SettingsPage;
+use crate::ui::view::PageId;
 use mail_core::Store;
 
 #[test]
 fn a_contact_is_made_edited_and_deleted_from_its_page() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Contacts);
+    let (mut dom, seen) = opened_on(&built, PageId::CONTACTS);
     let seen = click(&mut dom, seen.one("id", super::NEW_ROW)).merge(drain_seen(&mut dom));
     let seen = type_into(&mut dom, seen.one("id", "contact-name"), "Grace Hopper").merge(seen);
     let seen = type_into(
@@ -75,7 +75,7 @@ fn a_contact_is_made_edited_and_deleted_from_its_page() {
 #[test]
 fn a_group_is_made_and_given_members_from_its_page() {
     let built = work();
-    let (mut dom, seen) = opened_on(&built, SettingsPage::Contacts);
+    let (mut dom, seen) = opened_on(&built, PageId::CONTACTS);
     let before = built.store.groups().unwrap().len();
     let seen =
         click(&mut dom, seen.one("id", "contacts-pane-new-group")).merge(drain_seen(&mut dom));

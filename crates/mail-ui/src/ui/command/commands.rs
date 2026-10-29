@@ -573,7 +573,7 @@ impl Command for OpenContacts {
     }
 
     fn run(&self, _acts: Acts) {
-        crate::ui::settings_window::open_at(crate::ui::view::SettingsPage::Contacts);
+        crate::ui::settings_window::open_at(crate::ui::view::PageId::CONTACTS);
     }
 }
 
