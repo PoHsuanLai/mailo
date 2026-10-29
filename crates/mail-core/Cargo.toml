@@ -27,9 +27,10 @@ keyring = ["mail-runtime/keyring"]
 # On Linux, the account secrets in the Secret Service through oo7 (`mail-runtime`'s `oo7`).
 oo7 = ["mail-runtime/oo7"]
 # The desktop's notification service and the clicks on what it shows (`notify/desktop.rs`,
-# `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface. Without
-# it a watch announces through whatever `Notifier` it is handed.
-desktop = ["dep:notify-rust", "dep:zbus"]
+# `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface; on
+# macOS mail-appkit's banners instead. Without it a watch announces through whatever `Notifier`
+# it is handed.
+desktop = ["dep:notify-rust", "dep:zbus", "dep:mail-appkit"]
 # A PDF attachment's pages for the preview (`preview.rs`), by pdfrum. Without it a PDF has no
 # preview ("could not be read") and everything else previews as before.
 pdf = ["dep:pdfrum"]
@@ -84,11 +85,6 @@ psl = "2"
 # Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that
 # may be a message or a thread, and only the store can say which.
 uuid = { workspace = true }
-# Desktop notifications for new mail (`notify/desktop.rs`), one API over each platform's own: the
-# freedesktop interface on the session bus (through zbus, already in the lock through the
-# keyring's Secret Service store), `NSUserNotificationCenter` on macOS (mac-notification-sys) and
-# toasts on Windows (tauri-winrt-notification). MIT OR Apache-2.0, and so are both backends.
-notify-rust = { version = "4.18", optional = true }
 # `mailo contacts sync` takes a URL and hands it to the CardDAV client, which speaks `url`.
 url = "2"
 # A typed password is overwritten when it is dropped (`password.rs`). Already in the lock through
@@ -111,6 +107,20 @@ pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"], 
 # lock through notify-rust, at this version and with these (its default) features. MIT.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus = { version = "5.19", optional = true }
+
+# Desktop notifications for new mail (`notify/desktop.rs`), one API over each platform's own: the
+# freedesktop interface on the session bus (through zbus, already in the lock through the
+# keyring's Secret Service store) and toasts on Windows (tauri-winrt-notification). MIT OR
+# Apache-2.0, and so are both backends. Not on macOS: notify-rust's backend there
+# (mac-notification-sys) waits on a thread per banner and polls the centre for each to go, which
+# never ends for a banner nobody clears; the banners are posted by mail-appkit instead.
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+notify-rust = { version = "4.18", optional = true }
+
+# `NSUserNotificationCenter` banners and the one delegate that hears their clicks
+# (`notify/desktop.rs`).
+[target.'cfg(target_os = "macos")'.dependencies]
+mail-appkit = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The values a test starts from (`mail_domain::testing`): the program never has them.

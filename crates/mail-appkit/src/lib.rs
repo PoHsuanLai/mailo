@@ -1,6 +1,8 @@
 //! What AppKit tells a running mailo that winit does not pass on: a URL the system opens with it
 //! (`mailto:`, `mailo:thread/…`) and a click on its Dock icon while it runs. And the one other
-//! thing mailo asks of the system that only an unsafe call reaches: its login item ([`login`]).
+//! thing mailo asks of the system that only an unsafe call reaches: its login item ([`login`]),
+//! and the banners it posts to the notification centre and the one delegate that hears their
+//! clicks ([`banner`]).
 //!
 //! winit never registers an application delegate (its AppKit docs say so and show this very
 //! pattern), so mailo may. Writing one takes `unsafe` (`objc2::define_class!`), which the rest of
@@ -12,6 +14,7 @@
 
 #![cfg(target_os = "macos")]
 
+pub mod banner;
 mod delegate;
 pub mod login;
 mod urls;
