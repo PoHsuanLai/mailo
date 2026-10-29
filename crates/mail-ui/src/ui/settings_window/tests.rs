@@ -276,9 +276,20 @@ async fn an_account_s_switch_in_notifications_mutes_and_unmutes_it() {
         .expect("the fixture has an account");
     let (mut dom, seen) = opened_on(&built, PageId::NOTIFICATIONS);
     assert!(stored(&built).notifications.muted_accounts.is_empty());
-    // The switch carries its own label (its `aria-checked` is set before it), so it is the one
-    // element labelled with the address.
-    let switch = seen.one("aria-label", &address);
+    // A row and its switch both carry the address: the switch is the checkable one in it.
+    let switch = seen.after("aria-label", &address, "aria-checked")[0];
+    // The switch sits in a settings row titled with the address, as every other switch does,
+    // so it lines up at the row's end rather than alone at the page's start.
+    let page = dioxus_ssr::render(&dom);
+    let title = page
+        .find(&format!("ds-field-row-title\">{address}<"))
+        .expect("a row titled with the address");
+    let rest = &page[title + 1..];
+    let next_row = rest.find("ds-field-row-title").unwrap_or(rest.len());
+    assert!(
+        rest.find("role=\"switch\"").is_some_and(|at| at < next_row),
+        "the row holds the switch"
+    );
     click(&mut dom, switch);
     assert_eq!(
         stored(&built).notifications.muted_accounts,

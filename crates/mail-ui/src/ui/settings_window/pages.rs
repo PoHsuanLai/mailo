@@ -422,21 +422,24 @@ fn MutedAccounts(mut failed: Signal<Option<String>>) -> Element {
                 let address = row.address.to_lowercase();
                 let on = !muted.contains(&address);
                 rsx! {
-                    Toggle {
+                    FieldRow {
                         key: "{address}",
-                        label: row.address.clone(),
-                        value: if on { Check::On } else { Check::Off },
-                        onchange: move |next| {
-                            let address = address.clone();
-                            let changed = crate::ui::prefs::change(move |settings| {
-                                let list = &mut settings.notifications.muted_accounts;
-                                list.retain(|kept| *kept != address);
-                                if next == Check::Off {
-                                    list.push(address);
-                                }
-                            });
-                            failed.set(changed.err());
-                        },
+                        label: TextLine::from(row.address.clone()),
+                        Toggle {
+                            label: row.address.clone(),
+                            value: if on { Check::On } else { Check::Off },
+                            onchange: move |next| {
+                                let address = address.clone();
+                                let changed = crate::ui::prefs::change(move |settings| {
+                                    let list = &mut settings.notifications.muted_accounts;
+                                    list.retain(|kept| *kept != address);
+                                    if next == Check::Off {
+                                        list.push(address);
+                                    }
+                                });
+                                failed.set(changed.err());
+                            },
+                        }
                     }
                 }
             }
