@@ -1,9 +1,8 @@
 //! The search bar's rows over the reference fixture, what its commands do, and the pages its
 //! screenshots are taken from. How the bar itself behaves is `bar_tests.rs`.
 
-use super::items::{CommandId, Pick, chips, complete_syntax, interpret, rows_of, search_now};
+use super::items::{Pick, chips, complete_syntax, interpret, rows_of, search_now};
 use super::*;
-use crate::ui::bin::Bin;
 use crate::ui::fixtures::work;
 use crate::ui::menu::Right;
 use crate::ui::view::Shell;
@@ -190,54 +189,54 @@ fn dana_is_marked_in_the_persons_name() {
     assert_eq!(marked, "Dana", "the person's name marks {marked:?}");
 }
 
-/// Every command the panel offers, by the id it is dispatched on and the key its row carries.
-/// A command added to the panel is added here, and a label renamed changes nothing in this
-/// table.
-const EVERY_COMMAND: &[(CommandId, &str)] = &[
-    (CommandId::Compose, "action:compose"),
-    (CommandId::FromTemplate, "action:from-template"),
-    (CommandId::ForwardAttached, "action:forward-attached"),
-    (CommandId::ReplyList, "action:reply-list"),
-    (CommandId::Redirect, "action:redirect"),
-    (CommandId::Again, "action:edit-as-new"),
-    (CommandId::ApplyRules, "action:apply-rules"),
-    (CommandId::Print, "action:print"),
-    (CommandId::Sync, "action:sync"),
-    (CommandId::Empty(Bin::Trash), "action:empty-trash"),
-    (CommandId::Empty(Bin::Spam), "action:empty-spam"),
-    (CommandId::TidyUp, "action:tidy-up"),
-    (CommandId::Sidebar, "action:sidebar"),
-    (CommandId::Conversations, "action:conversations"),
-    (CommandId::AddAccount, "action:add-account"),
-    (CommandId::Import, "action:import"),
-    (CommandId::Export, "action:export"),
-    (CommandId::Contacts(Cards::Open), "action:contacts"),
-    (CommandId::Contacts(Cards::Import), "action:import-contacts"),
-    (CommandId::Contacts(Cards::Export), "action:export-contacts"),
-    (CommandId::NewView, "action:new-view"),
-    (CommandId::Settings, "action:settings"),
+/// Every command the panel offers, by the key its row carries. A command added to the panel is
+/// added here, and a label renamed changes nothing in this table.
+const EVERY_COMMAND: &[&str] = &[
+    "action:compose",
+    "action:from-template",
+    "action:forward-attached",
+    "action:reply-list",
+    "action:redirect",
+    "action:edit-as-new",
+    "action:apply-rules",
+    "action:print",
+    "action:sync",
+    "action:empty-trash",
+    "action:empty-spam",
+    "action:tidy-up",
+    "action:sidebar",
+    "action:conversations",
+    "action:add-account",
+    "action:import",
+    "action:export",
+    "action:contacts",
+    "action:import-contacts",
+    "action:export-contacts",
+    "action:new-view",
+    "action:settings",
 ];
 
-/// Each row the panel draws for a command carries its id's key, and that key reads back as
-/// that id, whichever way the row is worded: as one of the Actions and as the top hit.
+/// Each row the panel draws for a command carries its key, and that key reads back as that
+/// command, whichever way the row is worded: as one of the Actions and as the top hit.
 #[test]
-fn every_palette_row_is_run_by_its_id() {
-    use super::items::{ENTRIES, action_key};
-    use mail_core::search::{ActionHit, Command};
-    let listed: Vec<(CommandId, String)> = ENTRIES
+fn every_palette_row_is_run_by_its_command() {
+    use super::commands::COMMANDS;
+    use super::items::action_key;
+    use mail_core::search::{ActionHit, Command as Words};
+    let listed: Vec<String> = COMMANDS
         .iter()
-        .map(|entry| (entry.id, action_key(entry)))
+        .map(|command| action_key(*command))
         .collect();
-    let want: Vec<(CommandId, String)> = EVERY_COMMAND
-        .iter()
-        .map(|(id, key)| (*id, (*key).to_owned()))
-        .collect();
-    assert_eq!(listed, want, "the panel's commands and this table differ");
+    assert_eq!(
+        listed, EVERY_COMMAND,
+        "the panel's commands and this table differ"
+    );
     let keymap = conventional(Platform::MacOs);
-    for (id, key) in EVERY_COMMAND {
+    for command in COMMANDS {
+        let key = action_key(*command);
         let hit = ActionHit {
-            command: Command {
-                label: super::items::entry_of(*id).label.to_owned(),
+            command: Words {
+                label: command.label().to_owned(),
             },
             score: 0,
             indices: Vec::new(),
@@ -262,12 +261,12 @@ fn every_palette_row_is_run_by_its_id() {
             let rows = rows_of(&results, &HashMap::new(), "", &keymap);
             assert_eq!(
                 rows.iter().map(|row| row.key.as_str()).collect::<Vec<_>>(),
-                [*key],
+                [key.as_str()],
                 "{key} as {name}"
             );
             assert_eq!(
-                interpret(&results, key),
-                Some(Pick::Action(*id)),
+                interpret(&results, &key),
+                Some(Pick::Action(*command)),
                 "{key} as {name}"
             );
         }
@@ -277,9 +276,9 @@ fn every_palette_row_is_run_by_its_id() {
 /// Two commands with one label would be one row the matcher cannot tell apart.
 #[test]
 fn no_two_commands_share_a_label() {
-    let labels: Vec<&str> = super::items::ENTRIES
+    let labels: Vec<&str> = super::commands::COMMANDS
         .iter()
-        .map(|entry| entry.label)
+        .map(|command| command.label())
         .collect();
     let mut sorted = labels.clone();
     sorted.sort_unstable();
@@ -287,21 +286,31 @@ fn no_two_commands_share_a_label() {
     assert_eq!(sorted.len(), labels.len(), "{labels:?}");
 }
 
-/// A button that runs the command `id`, as Enter on its row in the menu does.
+/// A button that runs `command`, as Enter on its row in the menu does.
 #[component]
-fn Runs(id: CommandId) -> Element {
+fn Runs(command: &'static dyn Command) -> Element {
     let shell = use_signal(|| Shell {
         bar: Bar::Open(crate::ui::view::BarOpen::over(String::new())),
         ..Shell::default()
     });
     let pages = use_signal(|| 1u32);
-    let mut side_hidden = use_signal(|| false);
-    // Named by its id, not a fixed word: the fixture sees only attributes the template fills in.
-    let name = format!("run {id:?}");
+    let side_hidden = use_signal(|| false);
+    // Named by its command, not a fixed word: the fixture sees only attributes the template fills
+    // in.
+    let name = format!("run {command:?}");
     rsx! {
         button {
             "aria-label": name,
-            onclick: move |_| run_action(shell, pages, &mut side_hidden, id),
+            onclick: move |_| {
+                perform(
+                    command,
+                    Acts {
+                        shell,
+                        pages,
+                        side_hidden,
+                    },
+                );
+            },
         }
     }
 }
@@ -311,13 +320,16 @@ fn Runs(id: CommandId) -> Element {
 async fn settings_opens_the_settings_window() {
     use crate::ui::settings_window::SettingsWindows;
     use crate::ui::settings_window::tests::Asked;
-    let id = CommandId::Settings;
+    let command: &'static dyn Command = &Settings;
     crate::ui::fixtures::dispatching();
     let asked = Arc::new(Asked::default());
-    let mut dom = VirtualDom::new_with_props(Runs, RunsProps { id })
+    let mut dom = VirtualDom::new_with_props(Runs, RunsProps { command })
         .with_root_context(SettingsWindows(asked.clone()));
     let seen = crate::ui::fixtures::rebuild_into(&mut dom);
-    crate::ui::fixtures::click(&mut dom, seen.one("aria-label", &format!("run {id:?}")));
+    crate::ui::fixtures::click(
+        &mut dom,
+        seen.one("aria-label", &format!("run {command:?}")),
+    );
     assert_eq!(asked.asks().len(), 1, "{:?}", asked.asks());
 }
 

@@ -28,7 +28,6 @@ crates/mail-ui/src/ui/add_account/mod.rs 1
 crates/mail-ui/src/ui/add_account/provider.rs 2
 crates/mail-ui/src/ui/command/bar.rs 1
 crates/mail-ui/src/ui/command/items.rs 2
-crates/mail-ui/src/ui/command/mod.rs 2
 crates/mail-ui/src/ui/command/spotlight.rs 1
 crates/mail-ui/src/ui/command/templates.rs 1
 crates/mail-ui/src/ui/compose/attach.rs 3
