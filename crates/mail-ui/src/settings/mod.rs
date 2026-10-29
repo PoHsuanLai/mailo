@@ -22,10 +22,10 @@ mod words;
 pub use notices::{Notices, Shows};
 pub use words::{
     BadgeCounts, BrandLogos, CopyMyself, DeleteMeans, EraseAfter, GroupByDate, JunkOrder,
-    JunkSwitch, JunkTreat, LabelChips, LoadRemoteImages, MarkRead, MarkReadDelay, MessageFormat,
-    NewMail, NotifyFor, NotifyPlaces, NotifySound, PreferPlainText, Protect, ProviderMarks,
-    ReadReceipts, RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch, SignatureAboveQuote,
-    Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
+    JunkSwitch, JunkTreat, KeepCalendar, LabelChips, LoadRemoteImages, MarkRead, MarkReadDelay,
+    MessageFormat, NewMail, NotifyFor, NotifyPlaces, NotifySound, PreferPlainText, Protect,
+    ProviderMarks, ReadReceipts, RelayKind, RemoveUnedited, ReplySameFormat, ServerSearch,
+    SignatureAboveQuote, Snippets, Spelling, TextZoom, UndoSend, WhileQuit, ZoomStep,
 };
 
 use ds::prelude::Word;
@@ -603,6 +603,27 @@ fn url_with_host(text: &str) -> Option<url::Url> {
     url.host_str().is_some().then_some(url)
 }
 
+/// `calendar.*`: the calendar invitations go to.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, ds_settings::SettingsSchema)]
+#[serde(default)]
+#[settings(file = "mailo/settings.toml", domain = "calendar", page = page())]
+pub struct CalendarSettings {
+    #[settings(
+        label = "Update my calendar",
+        help = "When you answer an invitation, change the event if it is already in your calendar.",
+        section = "Calendar"
+    )]
+    pub keep_in_step: KeepCalendar,
+    /// The calendar "Add to Calendar" uses, by the id its store gives it. Empty is the store's
+    /// first calendar that takes events; so is an id the store no longer has.
+    #[settings(
+        label = "Calendar for invitations",
+        help = "Where Add to Calendar puts an event.",
+        section = "Calendar"
+    )]
+    pub default: String,
+}
+
 /// `mailo/settings.toml`, whole.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -617,6 +638,7 @@ pub struct MailSettings {
     pub privacy: PrivacySettings,
     pub mailboxes: MailboxSettings,
     pub junk: JunkSettings,
+    pub calendar: CalendarSettings,
 }
 
 impl SettingsDoc for MailSettings {
@@ -637,6 +659,7 @@ pub fn schema() -> Schema {
         PrivacySettings::schema(),
         MailboxSettings::schema(),
         JunkSettings::schema(),
+        CalendarSettings::schema(),
     ]
     .into_iter()
     .flat_map(|schema| schema.key)

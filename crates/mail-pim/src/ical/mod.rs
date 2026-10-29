@@ -9,11 +9,14 @@
 //!
 //! Not a calendar: nothing here expands a recurrence, stores an event or talks to a server.
 
+mod keep;
 mod read;
 mod reply;
 mod rrule;
+mod write;
 mod zone;
 
+pub use keep::{Proposing, Standing, counter, stored};
 pub use read::{MAX_CALENDAR_BYTES, parse};
 pub use reply::{Answering, reply};
 pub use rrule::{Recurrence, RepeatEnd, RepeatUnit, Repeats};

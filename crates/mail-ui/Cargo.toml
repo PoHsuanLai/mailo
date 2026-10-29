@@ -33,6 +33,8 @@ porter-capability.workspace = true
 porter-sheet.workspace = true
 porter-wire.workspace = true
 porter-provider.workspace = true
+# `CalendarStore`, which the window's calendar seam (`calendar.rs`) is built over.
+porter-calendar.workspace = true
 porter-client-inproc.workspace = true
 # `Secrets`, the seam porter's service is built over; no store feature, so no keyring and no zbus.
 porter-secrets.workspace = true

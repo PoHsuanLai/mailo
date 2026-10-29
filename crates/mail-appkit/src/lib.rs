@@ -6,6 +6,9 @@
 //! pattern), so mailo may. Writing one takes `unsafe` (`objc2::define_class!`), which the rest of
 //! the workspace forbids, hence this crate: a callback in, a safe function out. Empty off macOS.
 //!
+//! [`EventKit`] is the same crate's other piece: the calendar store porter's `CalendarStore` names,
+//! over EventKit, whose Objective-C calls are all `unsafe` to make.
+//!
 //! Two functions because they have different deadlines. [`hear_urls`] must run before the event
 //! loop does, or the URL a cold launch carries is gone before anyone listens; [`hear_reopen`]
 //! needs `NSApplication`, which winit makes only when its event loop is created.
@@ -13,8 +16,10 @@
 #![cfg(target_os = "macos")]
 
 mod delegate;
+mod eventkit;
 pub mod login;
 mod urls;
 
 pub use delegate::hear_reopen;
+pub use eventkit::EventKit;
 pub use urls::hear_urls;

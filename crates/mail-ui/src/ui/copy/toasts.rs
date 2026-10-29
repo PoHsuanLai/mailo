@@ -130,3 +130,31 @@ pub fn not_forwarded_as_attachment(why: &str) -> String {
 pub fn added_to_contacts(name: &str) -> String {
     format!("Added {name} to Contacts.")
 }
+
+// A calendar invitation and the calendar.
+pub fn added_to_calendar(calendar: &str) -> String {
+    format!("Added to {calendar}")
+}
+
+pub fn handed_to_calendar_app() -> String {
+    "Opened in your calendar app".to_owned()
+}
+
+pub fn removed_from_calendar(calendar: &str) -> String {
+    format!("Removed from {calendar}")
+}
+pub const NOT_IN_CALENDAR: &str = "It wasn’t in your calendar.";
+pub const PROPOSAL_SENT: &str = "Proposal queued for the organiser.";
+
+/// An answer queued, and the calendar kept in step.
+pub fn answered_and_calendar(said: &str, calendar: &str) -> String {
+    format!("{said}. {calendar}")
+}
+
+pub fn updated_in_calendar(calendar: &str) -> String {
+    format!("Updated in {calendar}.")
+}
+
+pub fn taken_out_of_calendar(calendar: &str) -> String {
+    format!("Removed from {calendar}.")
+}

@@ -27,12 +27,15 @@ mail-domain.workspace = true
 mail-store.workspace = true
 # What the calls it makes for a caller take and hand back (`calls`).
 mail-mime.workspace = true
+mail-pim.workspace = true
 mail-runtime.workspace = true
 mail-proto.workspace = true
 reqwest = { version = "0.12", default-features = false }
 uuid.workspace = true
 porter-core.workspace = true
 porter-provider.workspace = true
+# The calendar store's values an invitation's event is handed back in (`Invite`).
+porter-calendar.workspace = true
 chrono.workspace = true
 log.workspace = true
 thiserror.workspace = true

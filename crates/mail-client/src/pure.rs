@@ -95,7 +95,10 @@ pub mod import {
     pub use mail_core::import::{Destination, Imported, Source};
 }
 pub mod invite {
-    pub use mail_core::invite::{Answered, repeats_words, say_when};
+    pub use mail_core::invite::{
+        Answered, Followed, InviteState, add, calendars, follow_answer, follow_cancellation, pick,
+        repeats_words, say_when,
+    };
 }
 pub mod ipc {
     pub use mail_core::ipc::agent;

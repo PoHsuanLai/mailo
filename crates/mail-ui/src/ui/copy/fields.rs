@@ -263,3 +263,20 @@ pub fn route_problem(problem: crate::settings::RouteProblem) -> &'static str {
         }
     }
 }
+/// Settings › General: which calendar Add to Calendar uses.
+pub const CALENDAR_FOR_INVITATIONS: &str = "Calendar for invitations";
+/// The first of the calendar choices: whichever calendar takes events first.
+pub const FIRST_CALENDAR: &str = "First available";
+/// The proposed time's field: its label and the shape it is written in.
+pub const NEW_TIME: &str = "New time";
+pub const NEW_TIME_EXAMPLE: &str = "2026-11-02 14:30";
+/// The card of an attendee's proposed time, and of a request for the latest version.
+pub const PROPOSAL_NOTE: &str = "Proposes another time.";
+pub const REFRESH_NOTE: &str = "Asks for the latest version.";
+/// The tags at the head of those cards.
+pub const PROPOSAL_TAG: &str = "Proposal";
+pub const REFRESH_TAG: &str = "Refresh";
+/// Settings › General's calendar row, before the calendars are listed: a calendar was chosen.
+pub const CHOSEN_CALENDAR: &str = "Chosen";
+/// The placeholder of the note beside an answer or a proposed time (its label is [`NOTE`]).
+pub const NOTE_PLACEHOLDER: &str = "Add a note (optional)";

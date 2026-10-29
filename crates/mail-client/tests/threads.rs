@@ -1,6 +1,9 @@
 //! A client's threads end with the client: the last clone dropped leaves none of its `mailo-*`
 //! threads behind. This binary holds one test, so every `mailo-*` thread of the process is a
 //! client's.
+//!
+//! Threads are read by name from `/proc/self/task`, which only Linux has; CI runs it there.
+#![cfg(target_os = "linux")]
 
 use mail_client::{Client, ClientConfig};
 use mail_store::testing::in_memory;

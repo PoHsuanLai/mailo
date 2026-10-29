@@ -205,13 +205,15 @@ fn every_schema_key_is_on_one_page_or_left_to_detent_on_purpose() {
             | super::pages::Line::DefaultMail
             | super::pages::Line::Vips
             | super::pages::Line::RelayKey
-            | super::pages::Line::MutedAccounts => None,
+            | super::pages::Line::MutedAccounts
+            | super::pages::Line::Calendar => None,
         })
         .collect();
     let left = [
         "window.provider_marks",
         "reading.trusted_image_senders",
         "notifications.muted_accounts",
+        "calendar.default",
     ];
     for key in crate::settings::schema().key {
         let path = key.path.0.as_str();

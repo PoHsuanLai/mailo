@@ -181,6 +181,12 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
         Some(handlers) => config.with_context(handlers),
         None => config,
     };
+    // The calendar invitations are added to: EventKit on a Mac, the default calendar application
+    // elsewhere. A test's window has none, so no test reaches a real calendar.
+    let config = match crate::calendar::platform() {
+        Some(calendars) => config.with_context(calendars),
+        None => config,
+    };
     // Another program's ask to open a conversation here (a banner's click, `mailo open`). On
     // macOS one that comes with no main window open opens one again, as the Dock icon does.
     let config = match crate::handoff::serve(&profile) {

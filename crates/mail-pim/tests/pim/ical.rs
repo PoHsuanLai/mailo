@@ -375,15 +375,9 @@ fn a_higher_sequence_is_an_update_and_a_cancel_is_a_cancellation() {
     // A request whose event says it is cancelled is a cancellation too.
     let cancelled = WEB.replace("STATUS:CONFIRMED", "STATUS:CANCELLED");
     assert_eq!(read_invite(&cancelled).kind, Kind::Cancelled);
-    // Methods that are not invitations to show.
-    for method in ["REFRESH", "COUNTER", "DECLINECOUNTER"] {
-        let text = WEB.replace("METHOD:REQUEST", &format!("METHOD:{method}"));
-        assert_eq!(
-            summarise(&ical::parse(&text).unwrap(), ME),
-            None,
-            "{method}"
-        );
-    }
+    // A method that is not an invitation to show.
+    let text = WEB.replace("METHOD:REQUEST", "METHOD:DECLINECOUNTER");
+    assert_eq!(summarise(&ical::parse(&text).unwrap(), ME), None);
 }
 
 /// An organiser moving one occurrence of a series: the request carries only that occurrence.
@@ -850,4 +844,140 @@ fn a_calendar_written_out_property_by_property_reads_back_the_same() {
     }
     written.push_str("END:VEVENT\r\nEND:VCALENDAR\r\n");
     assert_eq!(ical::parse(&written).unwrap(), calendar);
+}
+
+#[test]
+fn a_stored_event_drops_the_method_and_carries_the_readers_answer() {
+    let calendar = ical::parse(WEB).unwrap();
+    let event = calendar.main_event().unwrap();
+    let text = ical::stored(
+        &calendar,
+        event,
+        Some(ical::Standing {
+            address: "ME@example.test",
+            answer: PartStat::Accepted,
+        }),
+        "-//mailo//mailo test//EN",
+    );
+    let back = ical::parse(&text).unwrap();
+    assert_eq!(back.method, Method::Unstated, "a file, not a message");
+    assert_eq!(back.events.len(), 1);
+    let kept = &back.events[0];
+    assert_eq!(kept.uid, event.uid);
+    assert_eq!(kept.summary, event.summary);
+    assert_eq!(kept.start, event.start);
+    assert_eq!(kept.location, event.location);
+    assert_eq!(kept.description, event.description);
+    // Only the reader's line changed, and it is no longer asking.
+    let answers: Vec<(&str, PartStat, Rsvp)> = kept
+        .attendees
+        .iter()
+        .map(|a| (a.party.email.as_str(), a.answer, a.rsvp))
+        .collect();
+    assert_eq!(
+        answers,
+        [
+            ("ada@example.test", PartStat::Accepted, Rsvp::Requested),
+            ("me@example.test", PartStat::Accepted, Rsvp::NotRequested),
+            ("charles@example.test", PartStat::Tentative, Rsvp::Requested),
+        ]
+    );
+    // The reminder is the sender's, not the reader's: it stays out of their calendar.
+    assert!(!text.contains("VALARM"));
+}
+
+#[test]
+fn a_stored_event_with_no_answer_is_the_invitation_as_it_was() {
+    let calendar = ical::parse(DESKTOP).unwrap();
+    let event = calendar.main_event().unwrap();
+    let text = ical::stored(&calendar, event, None, "-//mailo//mailo test//EN");
+    let back = ical::parse(&text).unwrap();
+    assert_eq!(back.events[0].attendees, event.attendees);
+    // Its zone travels with it, once.
+    assert_eq!(text.matches("BEGIN:VTIMEZONE").count(), 1);
+}
+
+#[test]
+fn a_stored_series_keeps_its_changed_occurrences() {
+    let calendar = ical::parse(ONE_OCCURRENCE).unwrap();
+    let event = calendar.main_event().unwrap();
+    let text = ical::stored(&calendar, event, None, "-//mailo//mailo test//EN");
+    let back = ical::parse(&text).unwrap();
+    assert_eq!(back.events.len(), calendar.events.len());
+}
+
+#[test]
+fn a_counter_proposal_echoes_the_event_and_carries_the_new_time_in_utc() {
+    let calendar = ical::parse(WEB).unwrap();
+    let event = calendar.main_event().unwrap();
+    let text = ical::counter(
+        event,
+        &ical::Proposing {
+            attendee: "me@example.test",
+            start: at("2026-10-03T09:00:00Z"),
+            end: at("2026-10-03T10:00:00Z"),
+            comment: Some("Friday suits me better"),
+            at: at("2026-09-24T08:30:00Z"),
+            product: "-//mailo//mailo test//EN",
+        },
+    )
+    .unwrap();
+    let back = ical::parse(&text).unwrap();
+    assert_eq!(back.method, Method::Counter);
+    let proposal = &back.events[0];
+    assert_eq!(proposal.uid, event.uid);
+    assert_eq!(proposal.sequence, event.sequence);
+    assert_eq!(proposal.organizer, event.organizer);
+    assert_eq!(
+        proposal.start,
+        Some(Moment::Utc(at("2026-10-03T09:00:00Z")))
+    );
+    assert_eq!(
+        proposal.end,
+        Some(End::At(Moment::Utc(at("2026-10-03T10:00:00Z"))))
+    );
+    assert_eq!(proposal.attendees.len(), 1);
+    assert_eq!(proposal.attendees[0].party.email, "me@example.test");
+    assert_eq!(proposal.comment.as_deref(), Some("Friday suits me better"));
+
+    // The organiser's client reads it as a proposal for the time it carries.
+    let seen = summarise(&back, &["ada@example.test"]).unwrap();
+    assert_eq!(seen.kind, Kind::Counter);
+    assert_eq!(seen.me, Me::Organiser);
+}
+
+#[test]
+fn a_counter_needs_an_organiser_and_an_attendee_it_lists() {
+    let calendar = ical::parse(WEB).unwrap();
+    let event = calendar.main_event().unwrap();
+    let proposing = |attendee| ical::Proposing {
+        attendee,
+        start: at("2026-10-03T09:00:00Z"),
+        end: at("2026-10-03T10:00:00Z"),
+        comment: None,
+        at: at("2026-09-24T08:30:00Z"),
+        product: "-//mailo//mailo test//EN",
+    };
+    assert!(matches!(
+        ical::counter(event, &proposing("stranger@example.test")),
+        Err(PimError::Unanswerable(_))
+    ));
+    let mut headless = event.clone();
+    headless.organizer = None;
+    assert!(matches!(
+        ical::counter(&headless, &proposing("me@example.test")),
+        Err(PimError::Unanswerable(_))
+    ));
+}
+
+#[test]
+fn a_refresh_and_a_counter_are_shown_as_what_they_ask() {
+    let message = |method: &str| {
+        let text = WEB.replace("METHOD:REQUEST", &format!("METHOD:{method}"));
+        summarise(&ical::parse(&text).unwrap(), &["ada@example.test"]).unwrap()
+    };
+    assert_eq!(message("REFRESH").kind, Kind::Refresh);
+    assert_eq!(message("COUNTER").kind, Kind::Counter);
+    let declined = WEB.replace("METHOD:REQUEST", "METHOD:DECLINECOUNTER");
+    assert!(summarise(&ical::parse(&declined).unwrap(), ME).is_none());
 }

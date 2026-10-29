@@ -19,7 +19,7 @@ mod draw;
 
 /// The card for an invitation, which Peek draws for a calendar file as well.
 pub(in crate::ui) use card::card_of;
-use card::{CHIPS, Card, Stand};
+use card::{CHIPS, Calendar, Card, Stand};
 pub(in crate::ui) use draw::Invitation;
 
 use chrono::{DateTime, Utc};
@@ -121,6 +121,8 @@ fn toast_text(said: &str) -> String {
     }
 }
 
+#[cfg(test)]
+mod calendar_tests;
 #[cfg(test)]
 pub(in crate::ui) mod card_tests;
 #[cfg(test)]

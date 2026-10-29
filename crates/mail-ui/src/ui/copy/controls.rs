@@ -188,3 +188,14 @@ pub const APPLY_WITHOUT_SENDING: &str = "Apply Without Sending";
 
 /// The relay key row: take the kept key out of the keyring.
 pub const FORGET_KEY: &str = "Forget Key";
+// The reader: a calendar invitation and the calendar.
+/// Puts the invitation's event in the calendar.
+pub const ADD_TO_CALENDAR: &str = "Add to Calendar";
+/// Takes a cancelled event out of the calendar.
+pub const REMOVE_FROM_CALENDAR: &str = "Remove from Calendar";
+/// Opens the row that proposes another time to the organiser.
+pub const PROPOSE_NEW_TIME: &str = "Propose New Time";
+/// Sends the proposed time.
+pub const SEND_PROPOSAL: &str = "Send Proposal";
+/// Settings › General: lists the calendars to pick from (the system may ask for access first).
+pub const CHOOSE_CALENDAR: &str = "Choose\u{2026}";

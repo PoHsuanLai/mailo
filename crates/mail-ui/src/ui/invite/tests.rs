@@ -74,7 +74,7 @@ pub(super) fn request(sequence: u32) -> String {
 
 /// A message from Ada carrying `calendar` as the alternative calendar servers send, in its own
 /// thread. Returns the thread and the message.
-fn put(store: &SqliteStore, calendar: &str, method: &str) -> (ThreadId, MessageId) {
+pub(super) fn put(store: &SqliteStore, calendar: &str, method: &str) -> (ThreadId, MessageId) {
     let rfc = format!("{}@example.test", uuid::Uuid::new_v4());
     let bytes = format!(
         "From: Ada Lovelace <ada@example.test>\r\nTo: {ME}\r\n\
@@ -147,12 +147,12 @@ fn put(store: &SqliteStore, calendar: &str, method: &str) -> (ThreadId, MessageI
     (store.message(id).unwrap().thread, id)
 }
 
-fn far() -> chrono::DateTime<chrono::Utc> {
+pub(super) fn far() -> chrono::DateTime<chrono::Utc> {
     chrono::Utc::now() + chrono::TimeDelta::days(365)
 }
 
 /// Every submission waiting in the outbox, as its frozen bytes.
-fn submissions(store: &SqliteStore) -> Vec<String> {
+pub(super) fn submissions(store: &SqliteStore) -> Vec<String> {
     store
         .outbox_due(acct_account(), far())
         .unwrap()
@@ -168,7 +168,7 @@ fn submissions(store: &SqliteStore) -> Vec<String> {
 
 /// What is queued for the server beyond flags: opening a conversation marks it read, which is
 /// not an answer.
-fn outbox(store: &SqliteStore) -> usize {
+pub(super) fn outbox(store: &SqliteStore) -> usize {
     store
         .outbox_due(acct_account(), far())
         .unwrap()
@@ -178,23 +178,23 @@ fn outbox(store: &SqliteStore) -> usize {
 }
 
 #[derive(Clone)]
-struct Saves(std::path::PathBuf);
+pub(super) struct Saves(pub(super) std::path::PathBuf);
 
 /// The `n`th segment of the card's Accept / Maybe / Decline control: quire's segments carry no
 /// label of their own, so each is found as the nth after the group's.
-fn answer(seen: &Seen, n: usize) -> dioxus_core::ElementId {
+pub(super) fn answer(seen: &Seen, n: usize) -> dioxus_core::ElementId {
     seen.after("aria-label", "Answer", "aria-pressed")[n]
 }
 
 #[component]
-fn Open(thread: ThreadId) -> Element {
+pub(super) fn Open(thread: ThreadId) -> Element {
     let shell = use_signal(Shell::default);
     let saves = use_context::<Saves>();
     use_context_provider(|| SaveDir(saves.0.clone()));
     rsx! { ds::prelude::Ds { appearance: ds::prelude::Appearance::default(), material: ds::prelude::Material::Window, Reader { thread, shell } } }
 }
 
-fn markup(dom: &VirtualDom) -> String {
+pub(super) fn markup(dom: &VirtualDom) -> String {
     dioxus_ssr::render(dom).replace("&#39;", "'")
 }
 

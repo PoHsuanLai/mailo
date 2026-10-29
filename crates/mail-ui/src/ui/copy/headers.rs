@@ -71,3 +71,5 @@ pub const PEOPLE: &str = "People";
 pub const GROUPS: &str = "Groups";
 pub const ADDRESSES: &str = "Addresses";
 pub const MEMBERS: &str = "Members";
+/// Settings › General's third group.
+pub const CALENDAR: &str = "Calendar";

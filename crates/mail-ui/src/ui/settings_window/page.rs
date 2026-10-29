@@ -82,6 +82,10 @@ impl Page for General {
                     Line::Key("mailboxes.erase_spam"),
                 ],
             },
+            Section {
+                title: Some(copy::headers::CALENDAR),
+                lines: &[Line::Calendar, Line::Key("calendar.keep_in_step")],
+            },
         ]
     }
 }

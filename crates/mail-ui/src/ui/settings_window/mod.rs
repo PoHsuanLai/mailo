@@ -34,6 +34,7 @@
 
 mod account;
 mod accounts;
+mod calendar;
 mod keys;
 mod offline;
 mod page;

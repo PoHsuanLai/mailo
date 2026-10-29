@@ -11,6 +11,7 @@
 //! handler ([`mail_handler`]), another program's ask to open a conversation ([`handoff`]) and the
 //! settings files found damaged at launch ([`damage`]).
 
+pub mod calendar;
 pub mod damage;
 pub mod handoff;
 pub mod launcher;

@@ -22,6 +22,10 @@ const ALLOWED: &[(&str, &str)] = &[
         "reads a typed `2026-10-08 09:00`",
     ),
     (
+        "mail-ui/src/calendar/flow.rs",
+        "reads a typed `2026-11-02 14:30`, the new time Propose New Time takes",
+    ),
+    (
         "mail-core/src/rules/server.rs",
         "reads a typed vacation instant",
     ),

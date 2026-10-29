@@ -58,7 +58,11 @@ the least exercised.
 
 - Contacts: a local address book, vCard import and export, and CardDAV sync.
 - Calendar invitations in mail: shown in the reader, answered on request with an iTIP `REPLY`,
-  and saved as `.ics`. There is no CalDAV sync and no calendar view; mailo is not a calendar.
+  saved as `.ics`, added to a calendar, and countered with a proposed new time (`COUNTER`).
+  Add to Calendar goes to EventKit on a Mac and to the default calendar application elsewhere; an
+  answer then updates an event already in the calendar, and a cancellation can take it out
+  (Settings › General › Calendar). Nothing touches a calendar until a button is pressed. There is
+  no CalDAV sync and no calendar view; mailo is not a calendar.
 
 ## Install
 

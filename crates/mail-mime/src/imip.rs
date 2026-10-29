@@ -85,8 +85,10 @@ pub struct CalendarReply<'a> {
     pub subject: &'a str,
     /// What a person reading the answer in a mail program sees.
     pub text: &'a str,
-    /// The `METHOD:REPLY` calendar object.
+    /// The calendar object, whose `METHOD` is `method`.
     pub calendar: &'a str,
+    /// The part's `method` parameter: `REPLY` for an answer, `COUNTER` for a proposed time.
+    pub method: &'a str,
     /// Names the message. Its `Message-ID` and MIME boundary are derived from it, so the same
     /// inputs build the same bytes.
     pub id: DraftId,
@@ -94,8 +96,8 @@ pub struct CalendarReply<'a> {
 }
 
 /// The message answering the invitation in `original`: a `multipart/alternative` of the text
-/// and a `text/calendar; method=REPLY` part (RFC 6047 §2.4), to the organiser alone, in reply
-/// to the invitation's message.
+/// and a `text/calendar; method=REPLY` (or `COUNTER`) part (RFC 6047 §2.4), to the organiser
+/// alone, in reply to the invitation's message.
 pub fn calendar_reply(original: &[u8], reply: &CalendarReply<'_>) -> Result<Posting, MimeError> {
     let to = crate::build::mailbox(&reply.to.email);
     if !to.contains('@') {
@@ -117,7 +119,7 @@ pub fn calendar_reply(original: &[u8], reply: &CalendarReply<'_>) -> Result<Post
         .unwrap_or("localhost");
     let message_id = format!("{}@{domain}", reply.id).to_ascii_lowercase();
     let calendar = ContentType::new("text/calendar")
-        .attribute("method", "REPLY")
+        .attribute("method", reply.method)
         .attribute("charset", "UTF-8");
     let parts = vec![
         MimePart::new("text/plain", reply.text.to_owned()),

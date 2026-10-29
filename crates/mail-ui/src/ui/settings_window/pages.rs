@@ -4,7 +4,7 @@
 //! schema, drawn by its kind ([`super::keys`]) as detent draws it, the row that opens the trusted senders, or the row
 //! that sets the default mail application. A key is on a page once it is named there, and the
 //! tests hold every key of the schema to being named or left to detent on purpose (the provider
-//! marks). The help the schema gives each key is detent's; the pages draw no captions.
+//! marks, and the calendar's id, which the pop-up sets). The help the schema gives each key is detent's; the pages draw no captions.
 //!
 //! The trusted senders are a page of Privacy's own, as System Settings pushes a list it keeps: a
 //! row per sender with its Remove. The pages are quire's `PaneStack`, its path each page's own.
@@ -46,6 +46,8 @@ pub(in crate::ui) enum Line {
     /// The schema's text key at this path, holding a folder: drawn as the folder, with Choose…
     /// to pick another in the system's dialog, and Use Downloads to go back to the default.
     Folder(&'static str),
+    /// Which calendar Add to Calendar uses (`calendar.default`), listed on request.
+    Calendar,
 }
 
 /// A group of a page: its header, when it has one, and its rows in the order drawn.
@@ -205,6 +207,7 @@ fn Groups(
                             },
                             Line::DefaultMail => rsx! { crate::ui::default_mail::DefaultMailRow {} },
                             Line::MutedAccounts => rsx! { MutedAccounts { failed } },
+                            Line::Calendar => rsx! { super::calendar::CalendarRow {} },
                             Line::RelayKey => rsx! { RelayKey { failed } },
                             Line::Address(path) => match key_at(path) {
                                 Some(spec) => rsx! {

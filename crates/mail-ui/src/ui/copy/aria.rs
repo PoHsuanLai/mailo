@@ -201,3 +201,5 @@ pub fn remove_member(who: &str) -> String {
 pub fn photo_of(name: &str) -> String {
     format!("Photo of {name}")
 }
+/// The invitation card's Cancel while a new time is being written.
+pub const CANCEL_PROPOSAL: &str = "Cancel proposal";
