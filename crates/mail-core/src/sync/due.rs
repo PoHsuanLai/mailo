@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::offline::{Every, Kept};
-use mail_domain::{Incoming, WatchMode};
+use mail_domain::WatchMode;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 
@@ -58,7 +58,7 @@ pub fn intervals_with(store: &SqliteStore, kept: &Kept) -> Vec<(AccountId, Durat
     super::configured(store)
         .or_log_default("the accounts could not be read")
         .into_iter()
-        .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
+        .filter(|account| account.plan.incoming.caps().has_server)
         .filter(|account| !super::paused(store, account.id.clone()))
         .map(|account| {
             let wants = chosen(&account.caps.watch, kept.every_of(&account.id));

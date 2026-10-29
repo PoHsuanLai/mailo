@@ -576,15 +576,12 @@ impl<B: Backend> AccountEngine<B> {
 
     /// Where the incoming server lives. `None` for an account that keeps its mail here.
     fn incoming(&self) -> Option<(&str, u16, Tls)> {
-        match &self.plan.incoming {
-            Incoming::Imap { host, port, tls } => Some((host, *port, *tls)),
-            Incoming::Pop3 {
-                host, port, tls, ..
-            } => Some((host, *port, *tls)),
-            // No socket to open for Graph or JMAP: both are HTTPS. JMAP has an engine of its
-            // own (`crate::jmap::JmapEngine`); an `AccountEngine` built for one connects nowhere.
-            Incoming::Local | Incoming::Graph | Incoming::Jmap { .. } => None,
-        }
+        // No socket to open for Graph or JMAP: both are HTTPS. JMAP has an engine of its own
+        // (`crate::jmap::JmapEngine`); an `AccountEngine` built for one connects nowhere.
+        self.plan
+            .incoming
+            .server()
+            .map(|server| (server.host, server.port, server.tls))
     }
 
     /// Open a connection to the incoming server.
@@ -818,24 +815,17 @@ impl<B: Backend> AccountEngine<B> {
         outcome
     }
 
-    /// Where the submission server lives, for an account that submits over SMTP.
-    fn outgoing(&self) -> Option<(&str, u16, Tls)> {
-        match &self.plan.outgoing {
-            Outgoing::Smtp { host, port, tls } => Some((host, *port, *tls)),
-            Outgoing::Graph | Outgoing::Jmap | Outgoing::Nowhere => None,
-        }
-    }
-
     /// A backend that can submit exactly one message for this account.
     ///
     /// Built per submission rather than held, because it closes over the credential and a
     /// long-lived copy of a password is a copy waiting to be logged. The closure is the only
     /// thing that holds it; `SmtpBackend` itself never sees it.
     async fn submitter(&self) -> Result<SmtpBackend, RuntimeError> {
-        let (host, port, tls) = self.outgoing().ok_or_else(|| {
+        let server = self.plan.outgoing.server().ok_or_else(|| {
             RuntimeError::UnsupportedIo("this account does not submit over SMTP".to_owned())
         })?;
-        let (host, ehlo) = (host.to_owned(), self.plan.ehlo_or("mailo.invalid"));
+        let (port, tls) = (server.port, server.tls);
+        let (host, ehlo) = (server.host.to_owned(), self.plan.ehlo_or("mailo.invalid"));
         let (username, sasl) = (self.plan.username(), self.plan.sasl());
         // Most providers authenticate submission with the same secret as retrieval, which is
         // what `AuthPlan` means by covering both directions. A separate outgoing secret is
@@ -926,22 +916,24 @@ impl<B: Backend> AccountEngine<B> {
                 "submit() called with something other than a submission".to_owned(),
             ));
         };
-        if self.plan.outgoing == Outgoing::Nowhere {
-            return Err(RuntimeError::NoServer("send from"));
-        }
-        // Submitted by `crate::jmap::JmapEngine`, which holds the session this needs. Handing it
-        // to Graph below — the fallthrough for "not SMTP" — would post it to the wrong company.
-        if self.plan.outgoing == Outgoing::Jmap {
-            return Err(RuntimeError::UnsupportedIo(
-                "a JMAP account sends through its JMAP engine".to_owned(),
-            ));
-        }
+        // Every way of sending is named here, so a way added to `Outgoing` that is not is an
+        // error to compile, not a message posted to the wrong company.
+        let outgoing = match &self.plan.outgoing {
+            Outgoing::Nowhere => return Err(RuntimeError::NoServer("send from")),
+            // Submitted by `crate::jmap::JmapEngine`, which holds the session this needs.
+            Outgoing::Jmap => {
+                return Err(RuntimeError::UnsupportedIo(
+                    "a JMAP account sends through its JMAP engine".to_owned(),
+                ));
+            }
+            Outgoing::Graph => {
+                let message = self.leaving_bytes(raw, leaving)?;
+                return self.submit_to_graph(&message, rcpt_to).await;
+            }
+            Outgoing::Smtp { host, port, tls } => (host.to_owned(), *port, *tls),
+        };
         let message = self.leaving_bytes(raw, leaving)?;
         let resent = mail_mime::is_resent(&message);
-        let Some((host, port, tls)) = self.outgoing() else {
-            return self.submit_to_graph(&message, rcpt_to).await;
-        };
-        let outgoing = (host.to_owned(), port, tls);
         let posting = Posting {
             mail_from: mail_from.clone(),
             rcpt_to: rcpt_to.clone(),
@@ -1620,7 +1612,7 @@ impl<B: Backend> AccountEngine<B> {
     /// an account with no folders that nothing complained about. Said once, plainly, and
     /// nothing stored: the folders and roles already held stay.
     fn listed_inbox(&self, listed: &[mail_domain::Folder]) -> Result<(), RuntimeError> {
-        let has_one = matches!(self.plan.incoming, Incoming::Imap { .. } | Incoming::Graph);
+        let has_one = self.plan.incoming.caps().folder_tree;
         let inbox = listed
             .iter()
             .any(|f| f.special == Some(mail_domain::SpecialUse::Inbox));
@@ -1636,7 +1628,7 @@ impl<B: Backend> AccountEngine<B> {
     /// morning would otherwise show no folders until tomorrow, and refuse to rename or delete
     /// any, so a sync pass asks as soon as it finds the list empty.
     pub fn folders_unlisted(&self) -> bool {
-        matches!(self.plan.incoming, Incoming::Imap { .. } | Incoming::Graph)
+        self.plan.incoming.caps().folder_tree
             && self
                 .store
                 .folders(self.account.clone())
@@ -1653,7 +1645,7 @@ impl<B: Backend> AccountEngine<B> {
         now: DateTime<Utc>,
     ) -> Result<bool, RuntimeError> {
         // A Graph account reads through `self.graph`, and keeps no copy there.
-        if !matches!(self.plan.incoming, Incoming::Imap { .. }) || self.graph.is_some() {
+        if !self.plan.incoming.caps().writes_mailboxes || self.graph.is_some() {
             return Ok(false);
         }
         // Nor does Gmail ([`crate::server_drafts::keeps_copies`]), whose EXPUNGE may archive.

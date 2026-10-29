@@ -479,7 +479,7 @@ fn seal_act(mut page: Signal<Page>, desk: Desk, folding: Folding, act: BarAct) {
             let client = crate::ui::live::client();
             match client.stored().draft(page.peek().draft) {
                 Ok(stored) => super::settings_window::open_account(stored.account),
-                Err(_) => super::settings_window::open_at(crate::ui::view::SettingsPage::Accounts),
+                Err(_) => super::settings_window::open_at(crate::ui::view::PageId::ACCOUNTS),
             }
         }
         BarAct::LookUp(addresses) => {

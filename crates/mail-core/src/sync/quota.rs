@@ -1,17 +1,17 @@
-//! How much of one account's storage its server says is used, signed in as a sync signs in: an
-//! IMAP engine with a fresh credential kept fresh, or a JMAP engine.
+//! How much of one account's storage its server says is used, signed in as a sync signs in by
+//! the account's protocol ([`super::access`]).
 //!
 //! IMAP reads it from `QUOTA` (RFC 9208), JMAP from `Quota/get` (RFC 9425). Microsoft Graph
 //! keeps a mailbox's size behind the reports API, which needs an administrator's consent, and
 //! POP3 and local folders have nothing to say: for those, and for a server that keeps no quota,
 //! there is none.
 
-use super::{configured, signed_in_imap};
+use super::access::access;
+use super::run::Run;
+use super::{configured, pass_error};
 use crate::error::CoreError;
-use mail_domain::Incoming;
 use mail_proto::Storage;
 use porter_core::AccountId;
-use tokio::sync::watch;
 
 impl crate::mail::SyncOps<'_> {
     /// `account`'s storage as its server counts it: `None` where the server keeps no quota or
@@ -24,30 +24,16 @@ impl crate::mail::SyncOps<'_> {
             .into_iter()
             .find(|a| a.id == account)
             .ok_or(CoreError::AccountGone)?;
-        let failed = |e: mail_runtime::RuntimeError| {
-            CoreError::context("the server did not say how much storage is used", e)
+        let run = Run {
+            store,
+            secrets,
+            registry: &registry,
+            now,
+            account: &account,
         };
-        match &account.plan.incoming {
-            Incoming::Imap { .. } => {
-                let (_tx, mut cancel) = watch::channel(false);
-                let mut engine = signed_in_imap(store, &account, secrets, &registry, now).await?;
-                engine.quota_imap(&mut cancel).await.map_err(failed)
-            }
-            Incoming::Jmap { .. } => {
-                let mut engine = mail_runtime::JmapEngine::new(
-                    account.id,
-                    account.plan.clone(),
-                    store.clone(),
-                    secrets,
-                )?;
-                engine.quota_jmap().await.map_err(failed)
-            }
-            Incoming::Graph | Incoming::Pop3 { .. } | Incoming::Local => Ok(None),
-        }
+        access(&account.plan.incoming)
+            .quota(&run)
+            .await
+            .map_err(pass_error)
     }
-}
-
-/// Whether an account's server can say how much storage is used: IMAP and JMAP.
-pub fn has_quota(incoming: &Incoming) -> bool {
-    matches!(incoming, Incoming::Imap { .. } | Incoming::Jmap { .. })
 }

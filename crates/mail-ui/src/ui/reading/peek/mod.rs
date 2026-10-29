@@ -14,7 +14,11 @@
 mod link;
 mod own;
 mod part;
+mod previewer;
 pub(in crate::ui) use part::sweep_left_open;
+// anyview asks which parts mailo draws itself.
+#[cfg(feature = "anyview")]
+pub(super) use previewer::{HEAD, mailo_draws};
 
 use dioxus::prelude::*;
 use ds::prelude::Keys;

@@ -20,7 +20,7 @@ use crate::ui::view::{Shell, Source as Listed};
 use mail_client::export::{Exported, Target};
 use mail_client::import::{Destination, Imported, Source};
 
-pub(in crate::ui) use mail_client::transfer::{Format, expand_here, suggested};
+pub(in crate::ui) use mail_client::transfer::{expand_here, suggested};
 
 /// What a typed path holds, as the sheet says it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,18 +58,11 @@ pub(in crate::ui) fn look(path: &Path) -> Looked {
 /// What the sheet says of a source it found: its kind and message count, and for a Thunderbird
 /// profile that only what Thunderbird kept offline can be imported.
 pub(in crate::ui) fn described(source: &Source, count: usize) -> String {
-    let kind = match source {
-        Source::Mbox(_) => "mbox",
-        Source::Maildir(_) => "Maildir",
-        Source::Eml(_) => "One message file",
-        Source::Emlx(_) => copy::status::SOURCE_EMLX,
-        Source::AppleMail(_) => copy::status::SOURCE_APPLE_MAIL,
-        Source::Thunderbird(_) => copy::status::SOURCE_THUNDERBIRD,
-    };
-    let said = format!("{kind}, {}", messages(count));
-    match source {
-        Source::Thunderbird(_) => format!("{said}. {}", copy::status::THUNDERBIRD_OFFLINE_ONLY),
-        _ => said,
+    let slug = source.archive.slug();
+    let said = format!("{}, {}", copy::status::source_kind(slug), messages(count));
+    match copy::status::source_note(slug) {
+        Some(note) => format!("{said}. {note}"),
+        None => said,
     }
 }
 
@@ -267,15 +260,6 @@ pub(in crate::ui) fn import_then_send(
         ),
     };
     Ok(sent)
-}
-
-/// The segment's name for a way of writing an export.
-pub(in crate::ui) fn format_label(format: Format) -> &'static str {
-    match format {
-        Format::Mbox => "Mbox",
-        Format::Maildir => "Maildir",
-        Format::Eml => ".eml",
-    }
 }
 
 /// What the export field opens with: the search being shown, or else the place's name in the

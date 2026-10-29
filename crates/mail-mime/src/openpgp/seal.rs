@@ -17,7 +17,7 @@ use super::keys::{Cert, live, newest, timestamp};
 use super::{Rng, Unlocking, pgp_error};
 use crate::MimeError;
 use chrono::{DateTime, Utc};
-use mail_domain::{OpenPgp, PreferEncrypt};
+use mail_domain::{Mode, PreferEncrypt};
 use pgp::composed::{
     ArmorOptions, DetachedSignature, MessageBuilder, SignedPublicKey, SignedPublicSubKey,
     SignedSecretKey, SubpacketConfig,
@@ -30,7 +30,7 @@ use pgp::types::{KeyDetails, Password, SigningKey};
 /// What to do to a message as it is sent.
 #[derive(Debug, Clone, Copy)]
 pub struct Sealing<'a> {
-    pub mode: OpenPgp,
+    pub mode: Mode,
     /// The sender's secret key and its passphrase. Required to sign.
     pub signer: Option<&'a Unlocking>,
     /// Everyone to encrypt to — every recipient *and the sender*, so the sent copy can be read.
@@ -60,7 +60,7 @@ const PROTECTED: &[&str] = &[
 ];
 
 /// `frozen` — a whole message as `crate::build` writes it — signed, encrypted, or both, as
-/// `how.mode` says. [`OpenPgp::None`] returns it as it was.
+/// `how.mode` says.
 pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<u8>, MimeError> {
     let message = Entity::of(frozen);
     let (outer, content): (Vec<&[u8]>, Vec<&[u8]>) = fields(message.head)
@@ -72,15 +72,14 @@ pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<
         .collect();
     let boundary = boundary(how.boundary_prefix, rng);
     match how.mode {
-        OpenPgp::None => Ok(frozen.to_vec()),
-        OpenPgp::Sign => {
+        Mode::Sign => {
             let signer = how.signer.ok_or(MimeError::NoSigningKey)?;
             let entity =
                 crlf(&[content.concat(), b"\r\n".to_vec(), message.body.to_vec()].concat());
             let signature = detached(&entity, signer, how.now, rng)?;
             Ok(signed(&outer, &entity, &signature, &boundary))
         }
-        OpenPgp::Encrypt | OpenPgp::SignAndEncrypt => {
+        Mode::Encrypt | Mode::SignAndEncrypt => {
             if how.recipients.is_empty() {
                 return Err(MimeError::NoRecipientKeys);
             }

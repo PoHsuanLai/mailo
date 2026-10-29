@@ -12,7 +12,7 @@ use crate::ui::app::Frame;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::space::{Recall, Spaces};
 use crate::ui::style::STYLE;
-use crate::ui::view::{SettingsPage, Shell};
+use crate::ui::view::{PageId, Shell};
 use dioxus::prelude::*;
 use ds::base::spawner::Spawner;
 use ds::components::app::spaces::{Switched, use_spaces};
@@ -116,20 +116,19 @@ fn SettingsShell() -> Element {
         // Escape with the keyboard outside the Accounts pane (on the window itself, or the
         // sidebar) still goes back from an account's page; inside it the pane's stack took it.
         let pushed = !shell.read().accounts_pane.path.is_root();
-        if key == "Escape" && pushed && shell.read().settings == Some(SettingsPage::Accounts) {
+        if key == "Escape" && pushed && shell.read().settings == Some(PageId::ACCOUNTS) {
             super::account::back(shell);
         }
         let space_pushed = !shell.read().spaces_pane.is_root();
-        if key == "Escape" && space_pushed && shell.read().settings == Some(SettingsPage::Spaces) {
+        if key == "Escape" && space_pushed && shell.read().settings == Some(PageId::SPACES) {
             super::spaces::back(shell, handle);
         }
         let card_pushed = !shell.read().contacts_pane.is_root();
-        if key == "Escape" && card_pushed && shell.read().settings == Some(SettingsPage::Contacts) {
+        if key == "Escape" && card_pushed && shell.read().settings == Some(PageId::CONTACTS) {
             crate::ui::contacts::page::back(shell);
         }
         let reply_pushed = !shell.read().vacation_pane.is_root();
-        if key == "Escape" && reply_pushed && shell.read().settings == Some(SettingsPage::Vacation)
-        {
+        if key == "Escape" && reply_pushed && shell.read().settings == Some(PageId::VACATION) {
             crate::ui::rules::vacation_back(shell);
         }
     };

@@ -15,9 +15,8 @@
 use crate::content::Address;
 use crate::draft::{Draft, PendingAttachment, SendState};
 use crate::id::{DraftId, IdentityId, TemplateId};
-use crate::pgp::OpenPgp;
+use crate::protect::{self, Mode};
 use crate::receipt::ReceiptRequest;
-use crate::smime::Smime;
 use chrono::{DateTime, Utc};
 use porter_core::AccountId;
 use serde::{Deserialize, Serialize};
@@ -49,11 +48,11 @@ pub struct Template {
     /// Whether messages started from it are signed or encrypted, as the draft it was kept from
     /// asked. Defaulted so templates kept before OpenPGP existed load as plain; carried so a
     /// template kept from an encrypted draft never starts a plain one.
-    #[serde(default)]
-    pub openpgp: OpenPgp,
+    #[serde(default, with = "protect::asked")]
+    pub openpgp: Option<Mode>,
     /// The same for S/MIME, carried for the same reason.
-    #[serde(default)]
-    pub smime: Smime,
+    #[serde(default, with = "protect::asked")]
+    pub smime: Option<Mode>,
     pub updated: DateTime<Utc>,
 }
 
@@ -159,8 +158,8 @@ mod tests {
                 cid: None,
             }],
             receipt: ReceiptRequest::Requested,
-            openpgp: OpenPgp::SignAndEncrypt,
-            smime: Smime::Sign,
+            openpgp: Some(Mode::SignAndEncrypt),
+            smime: Some(Mode::Sign),
             priority: crate::priority::Priority::High,
             delivery: crate::receipt::DeliveryReport::Requested,
             automatic: false,
@@ -186,8 +185,8 @@ mod tests {
         assert_eq!(kept.html, original.html);
         assert_eq!(kept.attachments, original.attachments);
         assert_eq!(kept.receipt, ReceiptRequest::Requested);
-        assert_eq!(kept.openpgp, OpenPgp::SignAndEncrypt);
-        assert_eq!(kept.smime, Smime::Sign);
+        assert_eq!(kept.openpgp, Some(Mode::SignAndEncrypt));
+        assert_eq!(kept.smime, Some(Mode::Sign));
         assert_eq!(kept.identity, original.identity);
         assert_eq!(kept.account, original.account);
         assert_eq!(kept.updated, at(9));
@@ -203,10 +202,10 @@ mod tests {
         assert_eq!(started.receipt, ReceiptRequest::Requested);
         assert_eq!(
             started.openpgp,
-            OpenPgp::SignAndEncrypt,
+            Some(Mode::SignAndEncrypt),
             "never silently plain"
         );
-        assert_eq!(started.smime, Smime::Sign, "never silently plain");
+        assert_eq!(started.smime, Some(Mode::Sign), "never silently plain");
         // Said of the one message the template was kept from, not of every message it starts.
         assert_eq!(started.priority, crate::priority::Priority::Normal);
         assert_eq!(

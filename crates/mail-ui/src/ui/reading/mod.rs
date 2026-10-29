@@ -14,7 +14,6 @@ mod images;
 mod list_post;
 mod marking;
 mod peek;
-mod route;
 pub(in crate::ui) mod selection;
 mod source;
 mod thumb;
@@ -82,7 +81,7 @@ fn mark_read(client: &Client, thread: ThreadId, only: Option<MessageId>) {
     let Some(op) = op else {
         return;
     };
-    let ticket = super::live::client().act(mail_client::Command::Perform {
+    let ticket = super::live::client().act(mail_client::Perform {
         ops: vec![(thread, op)],
         clock: super::clock::hours(),
         alone,

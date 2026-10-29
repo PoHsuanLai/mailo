@@ -1,7 +1,7 @@
 use super::*;
 
 /// The menu's rows as a person reads them.
-fn read(rows: &[MenuItem<Pick>]) -> Vec<(String, bool)> {
+fn read(rows: &[MenuItem<&'static dyn Command>]) -> Vec<(String, bool)> {
     rows.iter()
         .map(|row| match row {
             MenuItem::Item { title, key, .. } => (title.clone(), key.is_some()),
@@ -32,12 +32,12 @@ fn the_menu_holds_exactly_tidy_up_settings_and_the_sidebar_toggle() {
             "{toggle}"
         );
     }
-    let picks: Vec<Pick> = menu_items(Shown::Visible)
+    let picks: Vec<&str> = menu_items(Shown::Visible)
         .into_iter()
         .filter_map(|row| match row {
-            MenuItem::Item { value, .. } => Some(value),
+            MenuItem::Item { value, .. } => Some(value.key()),
             _ => None,
         })
         .collect();
-    assert_eq!(picks, [Pick::TidyUp, Pick::Settings, Pick::ToggleSidebar]);
+    assert_eq!(picks, ["tidy-up", "settings", "sidebar"]);
 }

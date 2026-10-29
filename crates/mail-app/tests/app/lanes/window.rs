@@ -144,19 +144,65 @@ struct Shared {
     dialogs: Dialogs,
     saves: SaveDir,
     login: Arc<LoginItem>,
+    clients: Clients,
+}
+
+/// Every client a lane's windows opened, held weakly: a window that is gone takes its client with
+/// it, and [`Clients::gone`] says whether it did. A client that outlives its window keeps its
+/// threads (`mailo-read-*`, `mailo-act`, `mailo-clock`, ...) for the rest of the run, so a run of
+/// many lanes ends with hundreds of them competing for the machine.
+#[derive(Clone, Default)]
+pub struct Clients(Arc<Mutex<Vec<mail_client::WeakClient>>>);
+
+impl Clients {
+    fn open(&self, store: Arc<SqliteStore>) -> mail_client::Client {
+        let client = mail_client::Client::open(store, mail_client::ClientConfig::default());
+        held(&self.0).push(client.downgrade());
+        client
+    }
+
+    /// How many of the clients are still alive.
+    pub fn alive(&self) -> usize {
+        held(&self.0)
+            .iter()
+            .filter(|client| client.upgrade().is_some())
+            .count()
+    }
+
+    /// Wait for every client to be gone, and fail naming how many are not.
+    pub fn gone(&self) {
+        let deadline = Instant::now() + super::settle::WAIT_BOUND;
+        while self.alive() > 0 && Instant::now() < deadline {
+            std::thread::sleep(ms(10));
+        }
+        assert_eq!(
+            self.alive(),
+            0,
+            "a window was dropped and its client was not: something it gave the client holds a \
+             strong clone of it (an Arc cycle), so the client's threads never stop"
+        );
+    }
+}
+
+/// Dropped last, after the window's harness: a lane that leaves its client running fails here.
+struct NoClientLeft(Clients);
+
+impl Drop for NoClientLeft {
+    fn drop(&mut self) {
+        if !std::thread::panicking() {
+            self.0.gone();
+        }
+    }
 }
 
 impl Shared {
     fn contexts(&self) -> RootContexts {
         mail_ui::ui::native::contexts(
-            mail_client::Client::open(
-                Arc::clone(&self.store),
-                mail_client::ClientConfig::default(),
-            ),
+            self.clients.open(Arc::clone(&self.store)),
             mail_ui::ui::view::Appearance::default(),
             None,
             Some(self.dirs.clone()),
-            mail_ui::ui::Start::Inbox,
+            mail_ui::ui::ask::Open::raise(),
         )
         .with(self.configured.clone())
         .with(self.dialogs.clone())
@@ -179,9 +225,16 @@ pub struct Window {
     /// How far [`Window::jump`] has moved the wall clock past the harness's, in seconds.
     jumped: Arc<AtomicI64>,
     dir: tempfile::TempDir,
+    /// Last, so it is dropped after the harness and the clients it held.
+    _left: NoClientLeft,
 }
 
 impl Window {
+    /// The clients this window opened (and the Settings windows it opened).
+    pub fn clients(&self) -> Clients {
+        self.shared.clients.clone()
+    }
+
     /// The window over the seeded store, which `seed` adds to first, first rows drawn.
     pub fn open(seed: impl FnOnce(&SqliteStore)) -> Window {
         Window::open_at(chrono::Utc::now(), seed)
@@ -234,7 +287,9 @@ impl Window {
             config: dir.path().join("config"),
             state: dir.path().join("state"),
         };
+        let clients = Clients::default();
         let shared = Shared {
+            clients: clients.clone(),
             store: Arc::clone(&store),
             dirs,
             configured: Configured::default(),
@@ -270,6 +325,7 @@ impl Window {
             clock,
             jumped,
             dir,
+            _left: NoClientLeft(clients),
         };
         window.until("the inbox's rows are drawn", |h| {
             h.count(".list .ds-thread") > 0

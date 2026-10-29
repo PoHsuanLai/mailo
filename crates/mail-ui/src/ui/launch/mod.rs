@@ -114,7 +114,7 @@ pub(super) struct Opening {
     pub look: Appearance,
     pub spaces: Spaces,
     pub dirs: Option<WindowDirs>,
-    pub start: super::Start,
+    pub start: super::ask::Open,
     pub icons: Loaded,
     /// Where brand logos are cached, when there is a cache directory.
     pub brand: Option<super::brand::BrandCache>,
@@ -130,7 +130,7 @@ pub fn run(
     look: Appearance,
     spaces: Spaces,
     dirs: Option<WindowDirs>,
-    start: super::Start,
+    start: super::ask::Open,
 ) -> Result<(), ds_blitz::LaunchError> {
     let _ = PROFILE.set(program.profile.clone());
     let _ = WATCHING_HERE.set(program.resident.watching_here);
@@ -241,7 +241,7 @@ pub(super) fn ShellRoot() -> Element {
 /// the first window asked: what it carries in from outside comes through the hand-off's queue.
 #[component]
 pub(super) fn ReopenedRoot() -> Element {
-    use_context_provider(|| super::Start::Inbox);
+    use_context_provider(super::ask::Open::raise);
     use_context_provider(gate::Found::default);
     rsx! { ShellRoot {} }
 }

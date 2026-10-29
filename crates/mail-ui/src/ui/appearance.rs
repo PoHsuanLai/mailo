@@ -5,7 +5,7 @@
 //! (`mail_client::places`), never in the mail database. A cosmetic choice must not be a write
 //! to the file that holds someone's mail, or be able to fail a migration.
 //!
-//! The look of the window is the desktop's, not mailo's: theme, accent, motion and typeface are
+//! The look of the window is the desktop's, not mailo's: theme, accent, motion and Look are
 //! `quire/appearance.toml`, the one file the shell and detent read and write too, and the
 //! window follows it live (`launch::DesktopSettings`). mailo keeps no appearance file of its own
 //! and writes none. Three older files are still read from mailo's own directory:

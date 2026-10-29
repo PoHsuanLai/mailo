@@ -104,7 +104,7 @@ impl AccountRow {
     /// Whether this is local folders: mail kept on this computer, never synced, never sent from.
     /// The same test as [`mail_client::sync::local_accounts`].
     pub(in crate::ui) fn is_local(&self) -> bool {
-        matches!(self.plan.incoming, Incoming::Local)
+        !self.plan.incoming.caps().has_server
     }
 
     /// The account's name as the window writes it: the description the person gave it, else

@@ -10,7 +10,8 @@ use mail_domain::{
     Filter, MailboxRef, PageReq, Property, Query, RemoteRef, Sort, SortDir, SyncCursor, ThreadId,
 };
 use mail_ui::ui::appearance::WindowDirs;
-use mail_ui::ui::native::{ActivationToken, Request, Requests};
+use mail_ui::ui::ask::{Inbox, Open, Thread};
+use mail_ui::ui::native::{ActivationToken, Requests};
 use mail_ui::ui::space::{self, Mail};
 use porter_core::AccountId;
 use tokio::sync::mpsc::UnboundedSender;
@@ -82,8 +83,8 @@ fn dinner(store: &SqliteStore) -> ThreadId {
 
 /// The window over both accounts, with two Spaces: "Work" over `work` and "Home" over `home`,
 /// the window in Work; and the queue a click's request is pushed into.
-fn two_spaces(work: Vec<AccountId>, home: Vec<AccountId>) -> (Window, UnboundedSender<Request>) {
-    let (requests, queue): (Requests, UnboundedSender<Request>) = Requests::local();
+fn two_spaces(work: Vec<AccountId>, home: Vec<AccountId>) -> (Window, UnboundedSender<Open>) {
+    let (requests, queue): (Requests, UnboundedSender<Open>) = Requests::local();
     let window = Window::open_with(chrono::Utc::now(), with_home, move |dir, contexts| {
         let look = ds::prelude::SpaceLook::default;
         let spaces = space::built(
@@ -133,10 +134,7 @@ fn a_click_moves_the_window_to_the_space_that_holds_the_messages_account() {
 
     let thread = dinner(&window.store);
     queue
-        .send(Request::Thread {
-            thread,
-            token: ActivationToken::new("click-1"),
-        })
+        .send(Open::new(Thread(thread), ActivationToken::new("click-1")))
         .expect("the window's queue");
     window.until("the reader shows the home conversation", |h| {
         h.text_of(".reader-head h2")
@@ -157,10 +155,7 @@ fn a_click_stays_in_the_space_the_window_is_in_when_it_holds_the_account() {
     let (mut window, queue) = two_spaces(vec![account(), home()], vec![home()]);
     let thread = dinner(&window.store);
     queue
-        .send(Request::Thread {
-            thread,
-            token: None,
-        })
+        .send(Open::new(Thread(thread), None))
         .expect("the window's queue");
     window.until("the reader shows the home conversation", |h| {
         h.text_of(".reader-head h2")
@@ -184,10 +179,7 @@ fn a_summarys_click_shows_its_accounts_inbox_in_the_space_that_holds_it() {
         h.count(".reader-head h2") == 1
     });
     queue
-        .send(Request::Inbox {
-            account: home(),
-            token: None,
-        })
+        .send(Open::new(Inbox(home()), None))
         .expect("the window's queue");
     window.until("the window is in Home", |h| {
         h.text_of(".ds-space-head")

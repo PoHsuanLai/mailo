@@ -16,7 +16,7 @@
 
 use crate::config::read_json;
 use crate::error::CoreError;
-use mail_domain::{AccountPlan, Filter, Incoming, LabelId};
+use mail_domain::{Filter, LabelId};
 use mail_runtime::{Searched, Unsaid};
 use porter_core::AccountId;
 use std::path::Path;
@@ -43,15 +43,6 @@ struct Stored {
 /// written: mail-app keeps the switch (`search.server_automatically`) and read this once.
 pub fn load(dir: &Path) -> Automatic {
     read_json::<Stored>(dir, FILE_NAME).automatic
-}
-
-/// Whether an account has a server to search: IMAP, JMAP, or Microsoft Graph. POP3 has one
-/// mailbox and no search, and local folders have no server.
-pub fn searchable(plan: &AccountPlan) -> bool {
-    matches!(
-        plan.incoming,
-        Incoming::Imap { .. } | Incoming::Jmap { .. } | Incoming::Graph
-    )
 }
 
 /// The search line `input` as a server is asked it, on an account whose labels are `labels`.

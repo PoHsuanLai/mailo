@@ -22,7 +22,7 @@ use porter_core::AccountId;
 /// Every call here may block: it runs on the caller's thread and waits for a reader or the
 /// writer, behind whatever an ingest or a long query holds. So none is made from a frame being
 /// drawn, nor from a handler on the thread that draws; what a frame shows is a query
-/// ([`crate::Query`]) and what a press changes is a command ([`crate::Command`]).
+/// ([`crate::Query`]) and what a press changes is an act ([`crate::Act`]).
 #[derive(Clone, Copy, Debug)]
 pub struct Stored<'a>(&'a Client);
 

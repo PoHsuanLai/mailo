@@ -263,7 +263,7 @@ fn use_storage(account: AccountId, waiting: Signal<Vec<(AccountId, Need)>>) -> O
             .is_some_and(|row| {
                 !waits
                     && row.syncing != mail_client::Syncing::Paused
-                    && mail_client::sync::has_quota(&row.plan.incoming)
+                    && row.plan.incoming.caps().has_quota
             })
             .then(crate::ui::live::try_client)
             .flatten();

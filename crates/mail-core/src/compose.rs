@@ -6,7 +6,10 @@
 //! the moment the user pressed the key would lose the message on a train.
 
 use crate::error::{CoreError, Logged, TimeError};
+use crate::pgp::OpenPgp;
+use crate::protect::Seal;
 use crate::rich_text::plain_to_flowed;
+use crate::smime::Smime;
 use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
@@ -21,6 +24,7 @@ mod enclosed;
 mod format;
 mod modes;
 mod pictures;
+mod submit;
 mod weight;
 pub use doc::{doc_from_text, doc_of};
 pub use enclosed::{Carry, ENCLOSED, draft_forward_attached, eml_name, rebuilt};
@@ -263,7 +267,7 @@ pub fn sending_accounts(store: &SqliteStore) -> Vec<(String, AccountId)> {
     // always was, and only a plan that says Local is left out.
     let keeps_locally = |plan: &Result<AccountPlan, mail_store::StoreError>| {
         plan.as_ref()
-            .is_ok_and(|plan| matches!(plan.incoming, Incoming::Local))
+            .is_ok_and(|plan| !plan.incoming.caps().has_server)
     };
     accounts
         .into_iter()
@@ -877,7 +881,7 @@ pub fn new_message(
         recipients,
         subject,
         body,
-        (receipt, OpenPgp::None, Smime::None),
+        (receipt, None, None),
         now,
     )
 }
@@ -892,7 +896,7 @@ pub fn new_sealed_message(
     [to, cc, bcc]: [&[Address]; 3],
     subject: &str,
     body: &str,
-    (receipt, openpgp, smime): (ReceiptRequest, OpenPgp, Smime),
+    (receipt, openpgp, smime): (ReceiptRequest, Option<Mode>, Option<Mode>),
     now: DateTime<Utc>,
 ) -> Result<Composed, CoreError> {
     let account = account_for(store, from)?;
@@ -911,14 +915,9 @@ pub fn new_sealed_message(
         save(store, &draft)?;
     }
     let mut refused = None;
-    if draft.openpgp != OpenPgp::None || draft.smime != Smime::None {
+    if draft.openpgp.is_some() || draft.smime.is_some() {
         let identity = identity_of(store, draft.account.clone(), Some(draft.identity))?;
-        refused = crate::pgp::check(store, &draft, &identity, now)
-            .map_err(CoreError::from)
-            .and_then(|()| {
-                crate::smime::check(store, &draft, &identity, now).map_err(CoreError::from)
-            })
-            .err();
+        refused = crate::protect::check_both(store, &draft, &identity, now).err();
     }
     Ok(Composed { draft, refused })
 }
@@ -1080,7 +1079,7 @@ pub fn keep_on_server(
     let Some(mailbox) = drafts_on_server(store, &draft.account) else {
         return Ok(false);
     };
-    if draft.openpgp.encrypts() || draft.smime.encrypts() {
+    if draft.openpgp.is_some_and(Mode::encrypts) || draft.smime.is_some_and(Mode::encrypts) {
         // Asked to be encrypted after a copy was kept: the copy in the clear goes, and the
         // upload still waiting with it, which would have put the plaintext there.
         mail_runtime::server_drafts::queue_drop(store, &draft, mailbox, now)?;
@@ -1101,7 +1100,7 @@ fn drafts_on_server(store: &SqliteStore, account: &AccountId) -> Option<MailboxR
     let plan = stored
         .plan
         .or_log("the plan of the account a draft is on could not be read")?;
-    if !matches!(plan.incoming, Incoming::Imap { .. } | Incoming::Jmap { .. }) {
+    if !plan.incoming.caps().server_drafts {
         return None;
     }
     let caps = stored
@@ -1478,7 +1477,7 @@ pub fn queue(
 ///
 /// The keyring is read only for a draft that asks to be signed or encrypted; `ask` is asked only
 /// when that key is passphrase-protected. The OpenPGP work happens here, as the bytes are
-/// frozen, so what the outbox holds is already signed and encrypted — see `pgp::send`.
+/// frozen, so what the outbox holds is already signed and encrypted — see `protect::Seal`.
 pub fn queue_with(
     store: &SqliteStore,
     secrets: &dyn mail_runtime::SigningStore,
@@ -1567,11 +1566,10 @@ fn queue_inner(
 
     let mut post = posting(&draft, &identity, parent.as_ref(), &parts)?;
     // Before anything is taken back or queued, so a send OpenPGP or S/MIME refuses (no key for a
-    // recipient, no passphrase, both asked at once) leaves the draft as it was. S/MIME is checked
-    // first so a draft asking both is refused before OpenPGP seals anything.
-    crate::smime::check(store, &draft, &identity, now)?;
-    post.message = crate::pgp::outgoing(store, secrets, ask, &draft, &identity, post.message, now)?;
-    post.message = crate::smime::outgoing(store, secrets, &draft, &identity, post.message, now)?;
+    // recipient, no passphrase, both asked at once) leaves the draft as it was.
+    crate::protect::check_both(store, &draft, &identity, now)?;
+    post.message = OpenPgp::outgoing(store, secrets, ask, &draft, &identity, post.message, now)?;
+    post.message = Smime::outgoing(store, secrets, ask, &draft, &identity, post.message, now)?;
     let raw = store.blobs().put(&post.message)?;
 
     let queued = store.enqueue(
@@ -1832,8 +1830,8 @@ mod server_copy_tests {
     fn a_draft_that_asks_to_be_encrypted_is_not_put_on_the_server_in_the_clear() {
         let (store, draft) = writing(imap(), with_drafts());
         for (openpgp, smime) in [
-            (OpenPgp::Encrypt, Smime::None),
-            (OpenPgp::None, Smime::SignAndEncrypt),
+            (Some(Mode::Encrypt), None),
+            (None, Some(Mode::SignAndEncrypt)),
         ] {
             save(
                 &store,
@@ -1864,7 +1862,7 @@ mod server_copy_tests {
         save(
             &store,
             &Draft {
-                openpgp: OpenPgp::Encrypt,
+                openpgp: Some(Mode::Encrypt),
                 ..draft.clone()
             },
         )

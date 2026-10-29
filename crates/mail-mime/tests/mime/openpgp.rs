@@ -7,7 +7,7 @@
 use crate::support::{self, addr, sender};
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{
-    Coverage, Draft, Encryption, KeySource, KeyTrust, OpenPgp, PreferEncrypt, Verification,
+    Coverage, Draft, Encryption, KeySource, KeyTrust, Mode, PreferEncrypt, Verification,
 };
 use mail_mime::openpgp::{
     self, Cert, Keys, KnownCert, Protection, ReadKey, Sealing, SecretCert, Unlocking, wkd,
@@ -84,7 +84,7 @@ fn decrypting(reader: &SecretCert) -> Keys {
     }
 }
 
-fn sealing<'a>(mode: OpenPgp, signer: Option<&'a Unlocking>, to: &'a [Cert]) -> Sealing<'a> {
+fn sealing<'a>(mode: Mode, signer: Option<&'a Unlocking>, to: &'a [Cert]) -> Sealing<'a> {
     Sealing {
         mode,
         signer,
@@ -164,7 +164,7 @@ fn a_signed_message_is_pgp_mime_with_the_content_as_its_first_part() {
     let signer = open_key(&me);
     let sealed = openpgp::seal(
         &built("Lunch", "see you at noon"),
-        &sealing(OpenPgp::Sign, Some(&signer), &[]),
+        &sealing(Mode::Sign, Some(&signer), &[]),
         &mut rng(7),
     )
     .unwrap();
@@ -219,7 +219,7 @@ fn restamping_the_date_after_signing_leaves_the_signature_good() {
     let signer = open_key(&me);
     let sealed = openpgp::seal(
         &built("Later", "scheduled"),
-        &sealing(OpenPgp::Sign, Some(&signer), &[]),
+        &sealing(Mode::Sign, Some(&signer), &[]),
         &mut rng(9),
     )
     .unwrap();
@@ -241,7 +241,7 @@ fn a_changed_signed_body_is_a_bad_signature() {
     let signer = open_key(&me);
     let sealed = openpgp::seal(
         &built("Pay", "send 10 to account 1"),
-        &sealing(OpenPgp::Sign, Some(&signer), &[]),
+        &sealing(Mode::Sign, Some(&signer), &[]),
         &mut rng(11),
     )
     .unwrap();
@@ -264,7 +264,7 @@ fn a_signature_by_a_key_not_held_names_the_key() {
     let signer = open_key(&stranger);
     let sealed = openpgp::seal(
         &built("Hello", "who am I"),
-        &sealing(OpenPgp::Sign, Some(&signer), &[]),
+        &sealing(Mode::Sign, Some(&signer), &[]),
         &mut rng(13),
     )
     .unwrap();
@@ -285,7 +285,7 @@ fn an_encrypted_message_round_trips_through_build_and_parse_with_its_subject_pro
     let to = [bea.public(), me.public()];
     let sealed = openpgp::seal(
         &built("Secret plans", "meet at the usual place"),
-        &sealing(OpenPgp::SignAndEncrypt, Some(&signer), &to),
+        &sealing(Mode::SignAndEncrypt, Some(&signer), &to),
         &mut rng(17),
     )
     .unwrap();
@@ -337,7 +337,7 @@ fn encrypted_only_to_someone_else_says_so_and_names_their_keys() {
     let to = [other.public()];
     let sealed = openpgp::seal(
         &built("Not yours", "private"),
-        &sealing(OpenPgp::Encrypt, None, &to),
+        &sealing(Mode::Encrypt, None, &to),
         &mut rng(20),
     )
     .unwrap();
@@ -356,7 +356,7 @@ fn a_locked_key_needs_its_passphrase_to_decrypt() {
     let to = [mine.public()];
     let sealed = openpgp::seal(
         &built("Locked", "behind a passphrase"),
-        &sealing(OpenPgp::Encrypt, None, &to),
+        &sealing(Mode::Encrypt, None, &to),
         &mut rng(23),
     )
     .unwrap();
@@ -393,7 +393,7 @@ fn a_locked_key_needs_its_passphrase_to_decrypt() {
     };
     let refused = openpgp::seal(
         &built("x", "y"),
-        &sealing(OpenPgp::Sign, Some(&signer), &[]),
+        &sealing(Mode::Sign, Some(&signer), &[]),
         &mut rng(24),
     );
     assert_eq!(refused, Err(MimeError::KeyLocked(mine.fingerprint())));
@@ -406,7 +406,7 @@ fn a_signed_part_beside_an_unsigned_footer_covers_only_part() {
     let signer = open_key(&me);
     let sealed = openpgp::seal(
         &built("List post", "signed words"),
-        &sealing(OpenPgp::Sign, Some(&signer), &[]),
+        &sealing(Mode::Sign, Some(&signer), &[]),
         &mut rng(26),
     )
     .unwrap();
@@ -460,7 +460,7 @@ fn inline_pgp_in_a_plain_text_body_is_read() {
     let to = [me.public()];
     let sealed = openpgp::seal(
         &built("Inline", "hidden words"),
-        &sealing(OpenPgp::Encrypt, None, &to),
+        &sealing(Mode::Encrypt, None, &to),
         &mut rng(28),
     )
     .unwrap();
@@ -542,7 +542,7 @@ fn gossip_travels_inside_the_encryption_and_is_taken_off_what_is_shown() {
     let sealed = openpgp::seal(
         &built("Group", "to both of you"),
         &Sealing {
-            mode: OpenPgp::SignAndEncrypt,
+            mode: Mode::SignAndEncrypt,
             signer: Some(&signer),
             recipients: &to,
             gossip: &gossip,
@@ -593,7 +593,7 @@ fn encrypting_needs_a_key_to_encrypt_to_and_signing_a_key_to_sign_with() {
     assert_eq!(
         openpgp::seal(
             &built("x", "y"),
-            &sealing(OpenPgp::Encrypt, None, &[]),
+            &sealing(Mode::Encrypt, None, &[]),
             &mut rng(36)
         ),
         Err(MimeError::NoRecipientKeys)
@@ -601,14 +601,9 @@ fn encrypting_needs_a_key_to_encrypt_to_and_signing_a_key_to_sign_with() {
     assert_eq!(
         openpgp::seal(
             &built("x", "y"),
-            &sealing(OpenPgp::Sign, None, &[]),
+            &sealing(Mode::Sign, None, &[]),
             &mut rng(37)
         ),
         Err(MimeError::NoSigningKey)
-    );
-    let plain = built("x", "y");
-    assert_eq!(
-        openpgp::seal(&plain, &sealing(OpenPgp::None, None, &[]), &mut rng(38)).unwrap(),
-        plain
     );
 }

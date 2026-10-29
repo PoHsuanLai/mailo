@@ -11,7 +11,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::Client;
 use mail_client::fetch::{Body as BodyState, BodyEffect, BodyEvent};
-use mail_domain::{Incoming, MessageId, Retry};
+use mail_domain::{MessageId, Retry};
 use porter_core::AccountId;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -195,12 +195,7 @@ pub(super) fn fetches_on_open(client: &Client, account: AccountId) -> bool {
         .ok()
         .flatten()
         .and_then(|stored| stored.plan.ok())
-        .is_some_and(|plan| opens_with_fetch(&plan.incoming))
-}
-
-/// IMAP and Graph fetch one message on their own; the rest wait for a sync.
-pub(super) fn opens_with_fetch(incoming: &Incoming) -> bool {
-    matches!(incoming, Incoming::Imap { .. } | Incoming::Graph)
+        .is_some_and(|plan| plan.incoming.caps().fetches_one)
 }
 
 /// Fetch a part still on the server, then write it into `dir`.

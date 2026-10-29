@@ -13,13 +13,16 @@ pub mod live;
 pub mod report;
 pub mod watcher;
 
+mod access;
 mod body;
 pub use body::fetch_body_with;
 mod jmap;
 mod quota;
+mod run;
 mod search;
 
 use crate::error::{CoreError, Logged};
+use access::{Pass, access};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
@@ -31,8 +34,8 @@ use mail_runtime::{
 };
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
-pub use quota::has_quota;
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
+use run::Run;
 pub use search::search_server_with;
 use std::sync::Arc;
 use tokio::sync::watch;
@@ -179,7 +182,7 @@ pub fn local_accounts(store: &SqliteStore) -> Vec<AccountId> {
     configured(store)
         .or_log_default("the accounts could not be read")
         .into_iter()
-        .filter(|account| matches!(account.plan.incoming, Incoming::Local))
+        .filter(|account| !account.plan.incoming.caps().has_server)
         .map(|account| account.id)
         .collect()
 }
@@ -351,7 +354,7 @@ fn pick(store: &SqliteStore, scope: &Scope<'_>) -> Result<Vec<Configured>, CoreE
     // saying so on every pass would be noise about something that is working as intended.
     Ok(configured(store)?
         .into_iter()
-        .filter(|account| !matches!(account.plan.incoming, Incoming::Local))
+        .filter(|account| account.plan.incoming.caps().has_server)
         .filter(|account| !paused(store, account.id.clone()))
         .filter(|a| (scope.due)(a.id.clone()))
         .map(|a| Configured {
@@ -404,7 +407,14 @@ async fn pass_over(
     // between runs for no reason the user could see.
     Ok(
         futures_util::future::join_all(accounts.iter().map(|account| async {
-            let result = one(store, account, secrets.clone(), registry, now, mode, &hooks).await;
+            let run = Run {
+                store,
+                secrets: secrets.clone(),
+                registry,
+                now,
+                account,
+            };
+            let result = one(&run, mode, &hooks).await;
             let end = ended(account, result, hooks.cancel.get(&account.id).cloned());
             remember(store, &end, now);
             end
@@ -464,20 +474,20 @@ fn ended(
 /// backend, so an OAuth account fetched mail until its first token expired and then failed on
 /// every pass afterwards with an authentication error — while the refresh token that would have
 /// fixed it sat unused in the same keyring entry.
-pub(crate) async fn signed_in(
+pub(crate) async fn renewed(
     account: &Configured,
     credential: Credential,
     secrets: &dyn AccountSecrets,
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Credential, CoreError> {
-    signed_in_typed(account, credential, secrets, registry, now)
+    renewed_typed(account, credential, secrets, registry, now)
         .await
         .map_err(pass_error)
 }
 
-/// [`signed_in`], with what to do about a failure kept beside what to say about it.
-async fn signed_in_typed(
+/// [`renewed`], with what to do about a failure kept beside what to say about it.
+async fn renewed_typed(
     account: &Configured,
     credential: Credential,
     secrets: &dyn AccountSecrets,
@@ -534,7 +544,7 @@ pub(crate) async fn stored_credential(
 /// What keeps an OAuth account's tokens fresh for as long as its engine runs.
 ///
 /// `None` for a password account and for one this installation has no client id for: the first
-/// has nothing to renew, and [`signed_in`] has already said what is wrong with the second.
+/// has nothing to renew, and [`renewed`] has already said what is wrong with the second.
 ///
 /// `clock` is where it reads the time. A watch reads the wall clock, because it outlives any
 /// `now` it could be handed; a single pass uses the instant it was given, like everything else
@@ -569,15 +579,15 @@ fn clock_for(mode: Mode, now: chrono::DateTime<chrono::Utc>) -> Now {
     }
 }
 
-async fn one(
-    store: &Arc<SqliteStore>,
-    account: &Configured,
-    secrets: Arc<dyn AccountSecrets>,
-    registry: &ClientRegistry,
-    now: chrono::DateTime<chrono::Utc>,
-    mode: Mode,
-    hooks: &Hooks<'_>,
-) -> Result<Done, Failure> {
+async fn one(run: &Run<'_>, mode: Mode, hooks: &Hooks<'_>) -> Result<Done, Failure> {
+    let Run {
+        store,
+        registry,
+        now,
+        account,
+        ..
+    } = *run;
+    let secrets = run.secrets.clone();
     let cancel = hooks.cancel.get(&account.id).cloned();
     let emitting = |progress| {
         if let Some(sink) = hooks.progress {
@@ -586,26 +596,14 @@ async fn one(
     };
     let emit: Emit<'_> = Some(&emitting);
     say(emit, Progress::Connecting);
-    let stored = stored_credential(account, secrets.as_ref()).await?;
-    let credential = signed_in_typed(account, stored, secrets.as_ref(), registry, now).await?;
     // Not fatal to the pass: an account that cannot send can still receive. And a token for
     // sending alone is sending's (`mail_runtime::sending`): what it could not have is said on
     // the outbox, when there is something to send, and never asks this account to sign in or
     // wait. The one an account reading through Graph receives with is this pass's to report.
-    let sending = sending_token_typed(account, secrets.as_ref(), registry, now)
+    let sending = sending_token(account, secrets.as_ref(), registry, now)
         .await
         .err()
         .filter(|_| !mail_runtime::sending::sending_alone(&account.plan));
-    // The credential goes into a cell rather than into the session factory, so a token renewed
-    // an hour into a watch reaches the next connection.
-    let held = Held::new(credential);
-    let renewal = renewal_for(
-        account,
-        &held,
-        secrets.clone(),
-        registry,
-        clock_for(mode, now),
-    );
 
     let folders = {
         use mail_store::Store as _;
@@ -613,65 +611,24 @@ async fn one(
             .folders(account.id.clone())
             .map_err(|e| Failure::of("", &e))?
     };
+    let access = access(&account.plan.incoming);
     let mailboxes = to_sync(account, &folders);
     // Nothing cancels a one-shot CLI sync, but the loop requires a receiver. The window hands in
     // the real one, which is what lets the same engine serve it unchanged.
     let (_tx, quiet) = watch::channel(false);
     let mut cancel = cancel.unwrap_or(quiet);
 
-    let report = match &account.plan.incoming {
-        // `pick` leaves these out before asking for a credential; nothing to do if one
-        // arrives here anyway.
-        Incoming::Local => Ok(Done::default()),
-        Incoming::Pop3 { .. } => {
-            let mut engine = pop3_engine(store, account, &held, secrets)?
-                .downloading_since(account.window.since(now));
-            if let Some(source) = renewal {
-                engine = engine.with_tokens(source);
-            }
-            let passed = pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await;
-            match passed {
-                Ok(mut done) => {
-                    let removing = Removing {
-                        store,
-                        account,
-                        now,
-                    };
-                    remove_copies(&mut engine, &removing, &mut cancel, &mut done).await;
-                    Ok(done)
-                }
-                failed => failed,
-            }
-        }
-        Incoming::Imap { .. } => {
-            let mut engine = imap_engine(store, account, held, secrets)
-                .downloading_since(account.window.since(now));
-            if let Some(source) = renewal {
-                engine = engine.with_tokens(source);
-            }
-            pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await
-        }
-        Incoming::Graph => {
-            let mut engine = graph_engine(store, account, secrets)
-                .map_err(|e| Failure::fatal(e.to_string()))?
-                .downloading_since(account.window.since(now));
-            if let Some(source) = renewal {
-                engine = engine.with_tokens(source);
-            }
-            pass(&mut engine, &mailboxes, account, &mut cancel, now, emit).await
-        }
-        // HTTPS rather than a socket, so an engine of its own; the same pass, the same wait.
-        Incoming::Jmap { .. } => {
-            let mut engine = mail_runtime::JmapEngine::new(
-                account.id.clone(),
-                account.plan.clone(),
-                store.clone(),
-                secrets,
-            )
-            .map_err(|e| Failure::of("", &e))?;
-            jmap::drive(&mut engine, account, &mut cancel, now, emit).await
-        }
-    };
+    let report = access
+        .pass(
+            run,
+            Pass {
+                mode,
+                mailboxes,
+                cancel: &mut cancel,
+                emit,
+            },
+        )
+        .await;
     report.map(|mut done| {
         if let Some(failure) = sending {
             done.trouble(None, failure.retry, failure.why);
@@ -749,18 +706,6 @@ async fn sending_token(
     secrets: &dyn AccountSecrets,
     registry: &ClientRegistry,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<(), CoreError> {
-    sending_token_typed(account, secrets, registry, now)
-        .await
-        .map_err(pass_error)
-}
-
-/// [`sending_token`], with what to do about a failure kept beside what to say about it.
-async fn sending_token_typed(
-    account: &Configured,
-    secrets: &dyn AccountSecrets,
-    registry: &ClientRegistry,
-    now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), Failure> {
     let AuthPlan::OAuth { issuer, .. } = &account.plan.auth else {
         return Ok(());
@@ -798,67 +743,30 @@ pub async fn check_sign_in(
         .into_iter()
         .find(|account| account.address == address)
         .ok_or_else(|| CoreError::UnknownAccount(address.clone()))?;
-    let (host, login) = match (&account.plan.incoming, &account.plan.auth) {
-        (Incoming::Pop3 { host, .. } | Incoming::Imap { host, .. }, AuthPlan::Password { .. }) => {
-            (host.clone(), username_for(&account.plan))
-        }
-        _ => return Ok(()),
-    };
-    let held = Held::new(
-        stored_credential(&account, secrets.as_ref())
-            .await
-            .map_err(pass_error)?,
-    );
-    let (_tx, mut cancel) = watch::channel(false);
-    let asked = match &account.plan.incoming {
-        Incoming::Pop3 { .. } => {
-            let mut engine = pop3_engine(store, &account, &held, secrets).map_err(pass_error)?;
-            engine.refresh_caps(&mut cancel, now).await
-        }
-        _ => {
-            let mut engine = imap_engine(store, &account, held, secrets);
-            engine.refresh_caps(&mut cancel, now).await
-        }
-    };
-    match asked {
-        Ok(_) => Ok(()),
-        Err(mail_runtime::RuntimeError::Proto(mail_proto::ProtoError::AuthRejected(said))) => {
-            let hint = if login.contains('@') {
-                " Some servers want the user name without the part after the @.".to_owned()
-            } else {
-                String::new()
-            };
-            Err(CoreError::SignInRefused {
-                host,
-                login,
-                said,
-                hint,
-            })
-        }
-        Err(other) => Err(CoreError::ServerUnreachable {
-            host,
-            why: other.to_string(),
-        }),
+    if account.plan.incoming.host().is_none()
+        || !matches!(account.plan.auth, AuthPlan::Password { .. })
+    {
+        return Ok(());
     }
+    // Only a password is tried, so no client id is asked for.
+    let registry = ClientRegistry::default();
+    let run = Run {
+        store,
+        secrets,
+        registry: &registry,
+        now,
+        account: &account,
+    };
+    access(&account.plan.incoming).check_sign_in(&run).await
 }
 
 /// The incoming server's name and port when its connections are to be upgraded with STARTTLS
 /// (STLS for POP3) before anything is signed in; `None` for implicit TLS or no server.
 fn starttls_for(plan: &AccountPlan) -> Option<(String, u16)> {
-    match &plan.incoming {
-        Incoming::Imap {
-            host,
-            port,
-            tls: Tls::StartTlsRequired,
-        }
-        | Incoming::Pop3 {
-            host,
-            port,
-            tls: Tls::StartTlsRequired,
-            ..
-        } => Some((host.clone(), *port)),
-        _ => None,
-    }
+    plan.incoming
+        .server()
+        .filter(|server| server.tls == Tls::StartTlsRequired)
+        .map(|server| (server.host.to_owned(), server.port))
 }
 
 /// An engine for a POP3 account, signed in with the password `held` holds.
@@ -998,43 +906,25 @@ pub async fn fetch_part_with(
         .into_iter()
         .find(|a| a.id == owner)
         .ok_or(CoreError::MessageAccountGone)?;
-    if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
+    if !account.plan.incoming.caps().writes_mailboxes {
         return Err(CoreError::OnlyImapLeavesAttachments);
     }
     let (_tx, mut cancel) = watch::channel(false);
-    let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
+    let run = Run {
+        store,
+        secrets,
+        registry,
+        now,
+        account: &account,
+    };
+    let mut engine = access::imap::signed_engine(&run, Mode::Once)
+        .await
+        .map_err(pass_error)?;
     engine
         .fetch_part(message, section, &mut cancel)
         .await
         .map(|_| ())
         .map_err(|e| CoreError::cannot("download the attachment", e))
-}
-
-/// An IMAP engine for `account`, signed in with a fresh credential and kept fresh.
-async fn signed_in_imap(
-    store: &Arc<SqliteStore>,
-    account: &Configured,
-    secrets: Arc<dyn AccountSecrets>,
-    registry: &ClientRegistry,
-    now: chrono::DateTime<chrono::Utc>,
-) -> Result<AccountEngine<ImapBackend>, CoreError> {
-    let stored = stored_credential(account, secrets.as_ref())
-        .await
-        .map_err(pass_error)?;
-    let credential = signed_in(account, stored, secrets.as_ref(), registry, now).await?;
-    let held = Held::new(credential);
-    let renewal = renewal_for(
-        account,
-        &held,
-        secrets.clone(),
-        registry,
-        clock_for(Mode::Once, now),
-    );
-    let mut engine = imap_engine(store, account, held, secrets);
-    if let Some(source) = renewal {
-        engine = engine.with_tokens(source);
-    }
-    Ok(engine)
 }
 
 /// [`SyncOps::drain`](crate::SyncOps), with the secret store named, so a test can run it.
@@ -1049,11 +939,20 @@ pub async fn drain_with(
         .into_iter()
         .find(|a| a.id == account)
         .ok_or(CoreError::AccountGone)?;
-    if !matches!(account.plan.incoming, Incoming::Imap { .. }) {
+    if !account.plan.incoming.caps().writes_mailboxes {
         return Err(CoreError::OnlyImapUploads);
     }
     let (_tx, mut cancel) = watch::channel(false);
-    let mut engine = signed_in_imap(store, &account, secrets, registry, now).await?;
+    let run = Run {
+        store,
+        secrets,
+        registry,
+        now,
+        account: &account,
+    };
+    let mut engine = access::imap::signed_engine(&run, Mode::Once)
+        .await
+        .map_err(pass_error)?;
     Ok(engine.drain_outbox(&mut cancel, now).await?)
 }
 
@@ -1393,81 +1292,51 @@ pub async fn folder_now_with(
         .into_iter()
         .find(|a| a.id == account)
         .ok_or(CoreError::NoSuchAccount)?;
-    match account.plan.incoming {
-        Incoming::Pop3 { .. } => return Err(CoreError::Pop3OneMailbox),
-        Incoming::Local => {
-            return Err(CoreError::LocalNoServerToFetch {
-                address: account.address,
-            });
-        }
-        Incoming::Imap { .. } | Incoming::Graph => {}
-        // Every pass fetches the whole account, and a folder's mail arrives with its label.
-        Incoming::Jmap { .. } => {
-            return Err(CoreError::FoldersAreLabelsWhole {
-                address: account.address,
-            });
-        }
+    let access = access(&account.plan.incoming);
+    let run = Run {
+        store: &store,
+        secrets,
+        registry,
+        now,
+        account: &account,
+    };
+    if !account.plan.incoming.caps().fetches_one {
+        // Not a pass that failed: a request there is nothing to fetch for.
+        return Err(pass_error(access::refusal(&run, "fetch one folder")));
     }
     if account.caps.labels == ServerLabels::Supported {
         return Err(CoreError::FoldersAreLabels {
             address: account.address,
         });
     }
+    let done = access.folder_now(&run, path).await;
+    Ok(ended(&account, done, None))
+}
+
+/// Fetch `path` on `engine`, which is signed in and reachable: the part of
+/// [`folder_now_with`] every protocol that can fetch one folder shares.
+async fn fetch_folder<B: mail_proto::Backend>(
+    engine: &mut AccountEngine<B>,
+    run: &Run<'_>,
+    path: &str,
+) -> Result<Done, Failure> {
     let mailbox = MailboxRef {
-        account: account.id.clone(),
+        account: run.account.id.clone(),
         path: path.to_owned(),
     };
-    let done = async {
-        let stored = stored_credential(&account, secrets.as_ref()).await?;
-        let credential = signed_in_typed(&account, stored, secrets.as_ref(), registry, now).await?;
-        let (_tx, mut cancel) = watch::channel(false);
-        let held = Held::new(credential);
-        let renewal = renewal_for(
-            &account,
-            &held,
-            secrets.clone(),
-            registry,
-            clock_for(Mode::Once, now),
-        );
-        let mut done = Done::default();
-        if account.plan.incoming == Incoming::Graph {
-            sending_token_typed(&account, secrets.as_ref(), registry, now).await?;
-            let mut engine = graph_engine(&store, &account, secrets.clone())
-                .map_err(|e| Failure::fatal(e.to_string()))?;
-            if let Some(source) = renewal {
-                engine = engine.with_tokens(source);
-            }
-            one_mailbox(
-                &mut engine,
-                &mailbox,
-                account.keep,
-                &mut cancel,
-                now,
-                &mut done,
-                None,
-            )
-            .await?;
-            return Ok(done);
-        }
-        let mut engine = imap_engine(&store, &account, held, secrets.clone());
-        if let Some(source) = renewal {
-            engine = engine.with_tokens(source);
-        }
-        engine.reachable().await.map_err(|e| Failure::of("", &e))?;
-        one_mailbox(
-            &mut engine,
-            &mailbox,
-            account.keep,
-            &mut cancel,
-            now,
-            &mut done,
-            None,
-        )
-        .await?;
-        Ok(done)
-    }
-    .await;
-    Ok(ended(&account, done, None))
+    let (_tx, mut cancel) = watch::channel(false);
+    let mut done = Done::default();
+    one_mailbox(
+        engine,
+        &mailbox,
+        run.account.keep,
+        &mut cancel,
+        run.now,
+        &mut done,
+        None,
+    )
+    .await?;
+    Ok(done)
 }
 
 /// The mailboxes the next pass would fetch, per account, by address.
@@ -1490,7 +1359,13 @@ pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<Stri
         .collect()
 }
 
-/// Which mailboxes a pass should fetch, in the order it should fetch them.
+/// Which mailboxes a pass should fetch, in the order it should fetch them: the protocol's say
+/// (`Access::mailboxes`).
+fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
+    access(&account.plan.incoming).mailboxes(account, folders)
+}
+
+/// Which mailboxes most protocols fetch, in the order they should be fetched: IMAP, POP3 and Graph.
 ///
 /// The inbox first and always, then `Sent` where the server named one.
 ///
@@ -1508,18 +1383,7 @@ pub fn mailboxes_by_account(store: &SqliteStore) -> Result<Vec<(String, Vec<Stri
 /// (see [`followed`]), in the order the store lists them. Not on one whose folders are labels:
 /// there a folder is a label on mail already fetched from the inbox and Sent, and fetching it
 /// again as a mailbox would fetch the account's mail once per label.
-fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
-    match account.plan.incoming {
-        Incoming::Local => return Vec::new(),
-        // One mailbox, the whole account: JMAP reports changes across every mailbox at once.
-        Incoming::Jmap { .. } => {
-            return vec![MailboxRef {
-                account: account.id.clone(),
-                path: JMAP_ALL.to_owned(),
-            }];
-        }
-        Incoming::Imap { .. } | Incoming::Pop3 { .. } | Incoming::Graph => {}
-    }
+fn inbox_and_sent(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
     let mut out = vec![MailboxRef {
         account: account.id.clone(),
         path: "INBOX".to_owned(),
@@ -1537,10 +1401,8 @@ fn to_sync(account: &Configured, folders: &[Folder]) -> Vec<MailboxRef> {
             path: path.to_owned(),
         });
     }
-    let folders_are_folders = matches!(
-        account.plan.incoming,
-        Incoming::Imap { .. } | Incoming::Graph
-    ) && account.caps.labels != ServerLabels::Supported;
+    let folders_are_folders =
+        account.plan.incoming.caps().folder_tree && account.caps.labels != ServerLabels::Supported;
     if folders_are_folders {
         for folder in folders
             .iter()

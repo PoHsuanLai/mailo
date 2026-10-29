@@ -75,9 +75,10 @@ impl Query for Accounts {
                     .inspect_err(|why| log::warn!("an account's plan could not be read: {why}"))
                     .ok();
                 let incoming = plan.as_ref().map(|plan| &plan.incoming);
-                let local = matches!(incoming, Some(Incoming::Local));
-                let mailboxes = match incoming {
-                    Some(Incoming::Pop3 { .. } | Incoming::Local) => Mailboxes::One {
+                let caps = incoming.map(Incoming::caps);
+                let local = caps.is_some_and(|caps| !caps.has_server);
+                let mailboxes = match caps {
+                    Some(caps) if !caps.lists_folders => Mailboxes::One {
                         labels: or_none(store.labels(account.id.clone()), "labels"),
                     },
                     _ => Mailboxes::Many {
