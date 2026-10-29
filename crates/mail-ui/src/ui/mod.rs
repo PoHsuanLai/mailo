@@ -129,7 +129,7 @@ pub mod native {
     pub use super::follow_up::Notices;
     pub use super::launch::DesktopSettings;
     pub use super::launch::gate::{Found, found as damaged_files};
-    pub use super::launch::native::{contexts, live_root, root};
+    pub use super::launch::native::{contexts, contexts_passing, live_root, root};
     pub use super::original::{Browse, Consent, Fetch, FetchImage, Got, Original};
     pub use super::pasted_image::ClipboardImage;
     pub use super::pick::{Ask as DialogAsk, Dialogs};
