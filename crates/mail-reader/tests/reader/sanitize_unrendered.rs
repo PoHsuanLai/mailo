@@ -6,7 +6,7 @@
 //! here is HTML a sender wrote, set against the text a browser shows for it; the sanitized
 //! markup, under both policies, must show the same text, no more and no less.
 
-use mail_mime::{SanitizePolicy, sanitize};
+use mail_reader::{SanitizePolicy, sanitize};
 
 struct Sample {
     name: &'static str,

@@ -23,7 +23,7 @@ has to remember to read again after a write.
 ## Crates
 
 ```
-mail-domain  mime  proto  pim            (pure)
+mail-domain  mime  reader  proto  pim   (pure)
 mail-store → mail-runtime → mail-core    (I/O)
 mail-client  → mail-core, mail-store, mail-domain, tokio, notify   (no dioxus, no ds)
 mail-ui      → mail-client, the pure crates, dioxus, ds            (the window)

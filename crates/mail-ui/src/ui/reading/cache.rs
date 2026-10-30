@@ -17,7 +17,7 @@ use mail_client::Client;
 use mail_client::message::{FIRST_PAGE, Frames, Key, Looks, Sent, ahead};
 use mail_client::query::Conversation;
 use mail_domain::{Message, ThreadId, ThreadSummary};
-use mail_mime::SanitizePolicy;
+use mail_reader::SanitizePolicy;
 
 use crate::ui::view::Shell;
 
@@ -113,7 +113,7 @@ pub(in crate::ui) fn use_warming(shell: Signal<Shell>, threads: Memo<Vec<ThreadS
 mod tests {
     use super::*;
     use mail_core::Store;
-    use mail_mime::RemoteImages;
+    use mail_reader::RemoteImages;
 
     #[test]
     fn warming_a_conversation_makes_opening_it_a_lookup() {

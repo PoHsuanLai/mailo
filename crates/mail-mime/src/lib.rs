@@ -1,40 +1,34 @@
-//! MIME parsing, building, and HTML sanitization. Pure: bytes in, domain values out.
+//! MIME parsing and building. Pure: bytes in, domain values out.
 //!
 //! Its own crate because these are not protocol machines — they have no [`IoNeed`] and no
-//! state — and because `mail-app` must be able to sanitize without depending on `mail-proto`.
+//! state — and because `mail-app` must be able to read and build messages without depending on `mail-proto`.
+//! What a parsed message shows (sanitizing, blocks, the printed page) is `mail-reader`'s.
 //!
 //! [`IoNeed`]: https://docs.rs/mailo-proto
 
 pub mod auth;
 pub mod bimi;
-pub mod block;
 pub mod build;
 mod charset;
 pub mod error;
+mod flowed;
 pub mod graph;
 pub mod imip;
 pub mod inline;
 pub mod mailto;
 pub mod mdn;
 pub mod parse;
-pub mod print;
 pub mod reconstruct;
-pub mod sanitize;
-pub mod script;
 pub mod stamp;
 pub mod unsubscribe;
 
 pub use auth::{AuthResults, Check, Receiver, Verdict, authentication_results};
-pub use block::{
-    Action, Align, Block, Delsp, Dir, Document, Flowed, ImgSrc, Inlined, LINK_REL, LINK_TARGET,
-    Limits, ListKind, ParaStyle, Reached, RunStyle, SafeUrl, Shape, Span, TextColor, TextSize,
-    from_html, from_text, is_mapped, mapped_tags, unflow,
-};
 pub use build::{
     Disclosure, Posting, Resending, base64_len, build, draft_copy, draft_message_id, posting,
     resent,
 };
 pub use error::{MimeError, NotHttpsUrl, NotMailto, RecordError, UnsafeUrl};
+pub use flowed::{Delsp, Flowed, unflow};
 pub use graph::{GraphBody, GraphDraft, GraphImportance, graph_draft};
 pub use imip::{CalendarPart, CalendarReply, calendar_part, calendar_reply};
 pub use inline::{
@@ -45,10 +39,7 @@ pub use mdn::{
     Human, OriginalHeaders, ReceiptAsk, Reporting, ReturnPath, Words, receipt, receipt_asked,
 };
 pub use parse::{Parsed, ParsedPart, RemotePart, parse, parse_reconstructed};
-pub use print::{Labels, Options, Pages, Remote, Sheet, escape_html, print_with, remote_images};
 pub use reconstruct::{decode_part, left_on_server, reconstruct, sections_for};
-pub use sanitize::{RemoteImages, SafeHtml, SanitizePolicy, Styles, sanitize};
-pub use script::{Script, script_of};
 pub use stamp::{is_resent, restamp, with_blind};
 pub use unsubscribe::{
     HttpsUrl, ListHeaders, ListId, Mailto, ONE_CLICK, Unsubscribe, list_headers,

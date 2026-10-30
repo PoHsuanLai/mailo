@@ -4,7 +4,7 @@
 //! carries a class or an id, and a `style` only says what the composer set, each from its fixed
 //! few ([`ParaStyle`] and [`RunStyle`]): the reader's client styles the rest of the mail.
 
-use mail_mime::{Align, ParaStyle, RunStyle, SafeUrl};
+use mail_reader::{Align, ParaStyle, RunStyle, SafeUrl};
 
 use super::{ListTag, block_text, list_end, same_list, written_depths};
 use crate::doc::{Check, Doc, Layout, Level, Mark, Node, Object, ParaKind, Run};

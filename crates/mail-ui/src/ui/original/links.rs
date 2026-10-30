@@ -4,7 +4,7 @@
 //! only reports the click), so a stranger's page is never loaded into the reader. The click
 //! reaches mailo, which opens the address in the system browser, the way a link in the Reader
 //! view opens: `http`, `https` and `mailto` only, through the same check the Reader view's links
-//! are built with ([`mail_mime::SafeUrl::link`]: no other scheme, no control or bidi characters,
+//! are built with ([`mail_reader::SafeUrl::link`]: no other scheme, no control or bidi characters,
 //! and without the query parameters that only tell the sender who clicked). Anything else
 //! (`file:`, `javascript:`, a `data:` document) does nothing.
 //!
@@ -24,7 +24,7 @@
 
 use ds::prelude::Point;
 use ds_blitz::{FrameImageClick, FrameLink, FrameLinkHover, FrameLinkMenu, FrameLinks, HoverPhase};
-use mail_mime::SafeUrl;
+use mail_reader::SafeUrl;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::sync::watch;
 

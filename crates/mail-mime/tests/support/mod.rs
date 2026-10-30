@@ -1,7 +1,5 @@
 //! What the tests of `mail-mime` share, declared once: the draft, sender and parent a built
-//! message starts from, and the walkers the block tests read a document with.
-
-pub mod block;
+//! message starts from.
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::new_account_id;

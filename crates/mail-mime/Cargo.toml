@@ -7,9 +7,9 @@ rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Email messages in and out: MIME parsing and building, HTML sanitizing for display, and read receipts."
+description = "Email messages in and out: MIME parsing and building, authentication results, unsubscribe headers, and read receipts."
 readme = "README.md"
-keywords = ["email", "mime", "sanitize", "mdn", "bimi"]
+keywords = ["email", "mime", "mdn", "bimi"]
 categories = ["email", "parser-implementations", "encoding"]
 
 # Published as mailo-mime; used in code as `mail_mime`, as the workspace always has.
@@ -24,19 +24,12 @@ thiserror.workspace = true
 # and in RFC 2047 encoded-words alike — is decoded as if it were UTF-8, which is to say lost.
 mail-parser = { version = "0.11", features = ["full_encoding"] }
 mail-builder = "1"
-ammonia = "4"
-# The tokenizer ammonia and the renderer already use: the reader frame's kept CSS is read with it.
-cssparser = "0.38"
 base64 = "0.22"
-# Already here through ammonia. Parses the URLs in `List-Unsubscribe`, which are untrusted.
+# Parses the URLs in `List-Unsubscribe`, which are untrusted.
 url = "2"
 # Raw 8-bit headers (see `charset.rs`): decoding by label, and guessing when there is none.
 encoding_rs = "0.8"
 chardetng = "1"
-# Pinned to ammonia 4.2's own html5ever, deliberately: the block parser reads the sanitizer's
-# output, so it must tokenize it with the same parser that produced it. If an ammonia bump
-# moves this, move this line in the same commit.
-html5ever = "0.40"
 
 [dev-dependencies]
 uuid.workspace = true
@@ -44,7 +37,6 @@ uuid.workspace = true
 mail-domain = { workspace = true, features = ["testing"] }
 chrono.workspace = true
 proptest = "1"
-html5ever = "0.40"
 
 [lints]
 workspace = true

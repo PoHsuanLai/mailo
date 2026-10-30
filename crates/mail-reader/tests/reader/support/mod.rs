@@ -1,0 +1,51 @@
+//! What the tests of `mail-reader` share, declared once: the walkers the block tests read a
+//! document with, and the message a printed page starts from.
+
+pub mod block;
+
+use chrono::{DateTime, TimeZone, Utc};
+use mail_domain::id::new_account_id;
+use mail_domain::{
+    Address, BlobId, Body, MailboxRole, Message, MessageId, MessageKey, ReadState, Star, ThreadId,
+};
+pub fn addr(name: Option<&str>, email: &str) -> Address {
+    Address {
+        name: name.map(str::to_owned),
+        email: email.to_owned(),
+    }
+}
+
+/// Sunday 2026-03-15, 12:00 UTC: when a draft was last edited and its parent arrived.
+pub fn at() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 3, 15, 12, 0, 0).unwrap()
+}
+
+/// The message a reply answers: "Lunch" from Ada, with these `references` and Message-ID.
+pub fn parent(references: Vec<String>, rfc_message_id: Option<&str>) -> Message {
+    Message {
+        id: MessageId::generate(),
+        thread: ThreadId::generate(),
+        account: new_account_id(),
+        key: MessageKey::Rfc("parent@example.test".to_owned()),
+        date: at(),
+        from: addr(Some("Ada"), "ada@example.test"),
+        reply_to: Vec::new(),
+        to: vec![addr(None, "me@example.test")],
+        cc: Vec::new(),
+        bcc: Vec::new(),
+        subject: "Lunch".to_owned(),
+        in_reply_to: Some("mid@example.test".to_owned()),
+        references,
+        rfc_message_id: rfc_message_id.map(str::to_owned),
+        read: ReadState::Unread,
+        star: Star::Unstarred,
+        flag: mail_domain::Hue::Red,
+        mailbox: MailboxRole::Inbox,
+        labels: Vec::new(),
+        body: Body::Present {
+            text: Some("original".to_owned()),
+            raw: BlobId::generate(),
+        },
+        attachments: Vec::new(),
+    }
+}

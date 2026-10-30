@@ -60,10 +60,10 @@ fn flowed_table() {
             doc_of(vec![Node::Object(Object::QuotedMessage {
                 who: "Ada Lovelace".to_owned(),
                 when: "Wed, 07 Oct 2026 at 21:02".to_owned(),
-                body: vec![mail_mime::Block::Paragraph {
-                    spans: vec![mail_mime::Span::Text("See you there.".to_owned())],
-                    dir: mail_mime::Dir::Auto,
-                    style: mail_mime::ParaStyle::default(),
+                body: vec![mail_reader::Block::Paragraph {
+                    spans: vec![mail_reader::Span::Text("See you there.".to_owned())],
+                    dir: mail_reader::Dir::Auto,
+                    style: mail_reader::ParaStyle::default(),
                 }],
             })]),
             "On Wed, 07 Oct 2026 at 21:02, Ada Lovelace wrote:\n> See you there.\n".into(),

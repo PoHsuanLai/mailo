@@ -6,7 +6,7 @@
 //! [`Op::InsertNodes`]: one insert of text cannot restore an object or a second paragraph.
 //! [`Op::Seq`] is several of these applied as one inverse.
 
-use mail_mime::{Align, SafeUrl, TextColor, TextSize};
+use mail_reader::{Align, SafeUrl, TextColor, TextSize};
 
 mod delete;
 mod nodes;

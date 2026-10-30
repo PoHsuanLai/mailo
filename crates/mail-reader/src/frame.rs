@@ -1,16 +1,14 @@
 //! One message body as the sandboxed frame shows it: sanitized html in a document of the
 //! reader's own, or a plain-text message's lines.
 //!
-//! A pure function of the stored body, the sanitize policy and, for a message OpenPGP or S/MIME
-//! opened, the body it opened to. [`super::Frames`] remembers the answers.
+//! A pure function of the parsed body, the sanitize policy and, for a message OpenPGP or S/MIME
+//! opened, the body it opened to. Whoever renders often keeps the answers; this keeps none.
 //!
 //! What a reply quotes of the message it answers is folded behind a small toggle in the
-//! document itself ([`super::quote`]), so the reader keeps no state for it.
+//! document itself ([`crate::quote`]), so the reader keeps no state for it.
 
-use crate::error::Logged;
+use crate::{SanitizePolicy, escape_html};
 use mail_domain::{Body, Message};
-use mail_mime::{SanitizePolicy, escape_html};
-use mail_store::SqliteStore;
 
 /// What the reader displays for one message body in its sandboxed frame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,26 +88,26 @@ pub enum Source {
     Opened,
 }
 
-/// Render a message body into its sandboxed frame, every time, saying what it rendered from —
+/// A message body as its sandboxed frame shows it, every time, saying what it was made from:
 /// asked once, here, so a seal opened while it renders cannot leave a cache believing the
 /// plaintext is the blob's.
 ///
-/// `unsealed` is the body OpenPGP or S/MIME opened `message` to, when it has been opened. The
-/// reader goes through [`super::Frames::rendered`], which remembers the answer; this is the work
-/// itself, for the cache to call and for a measurement that must not hit it.
-pub fn render(
-    store: &SqliteStore,
+/// `unsealed` is the body OpenPGP or S/MIME opened `message` to, when it has been opened.
+/// `stored` is the parsed body of the stored bytes, asked for only when nothing was opened:
+/// reading those bytes is the caller's, so this takes the answer and does no reading.
+pub fn frame_of(
     message: &Message,
     policy: SanitizePolicy,
     prefer: Prefer,
     unsealed: &dyn Fn(&Message) -> Option<mail_mime::Parsed>,
+    stored: &dyn Fn(&Message) -> Option<mail_mime::Parsed>,
 ) -> (FrameBody, Source) {
     match &message.body {
         Body::Absent => (FrameBody::NotFetched, Source::Stored),
         Body::Present { text, .. } => {
             let (parsed, source) = match unsealed(message) {
                 Some(opened) => (Some(opened), Source::Opened),
-                None => (parse_body(store, message), Source::Stored),
+                None => (stored(message), Source::Stored),
             };
             let Some(parsed) = parsed else {
                 return (plain_frame(text.as_deref().unwrap_or("")), source);
@@ -142,21 +140,11 @@ fn chosen_frame(
     }
 }
 
-fn parse_body(store: &SqliteStore, message: &Message) -> Option<mail_mime::Parsed> {
-    let raw = message.body.raw()?;
-    // A reader, not the writer: a sync's ingest holds the writer for a whole batch.
-    let bytes = store
-        .blobs()
-        .get(raw)
-        .or_log("a message's bytes could not be read")?;
-    mail_mime::parse(&bytes).ok()
-}
-
 fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) -> FrameBody {
-    let safe = mail_mime::sanitize(html, policy);
+    let safe = crate::sanitize(html, policy);
     let blocked_remote = safe.blocked_remote() > 0;
     let fetches = safe.remote_fetches().to_vec();
-    let folded = super::quote::fold_html(safe.as_str());
+    let folded = crate::quote::fold_html(safe.as_str());
     let (embedded, inline) =
         mail_mime::embed_inline_listed(&folded, &parsed.attachments, mail_mime::INLINE_BUDGET);
     FrameBody::Present {
@@ -237,14 +225,14 @@ fn html_sheet() -> String {
          h2 {{ font-size: 1.3em; line-height: 1.25; margin: .9em 0 .35em; }} \
          h3 {{ font-size: 1.15em; margin: .8em 0 .3em; }} h4 {{ font-size: 1em; margin: .7em 0 .3em; }} \
          a {{ color: {FRAME_LINK}; }} {} {}",
-        super::quote::stylesheet(FRAME_INK_SOFT),
+        crate::quote::stylesheet(FRAME_INK_SOFT),
         found_sheet()
     )
 }
 
 /// The class of the element a frame's words are read in, inside its `<body>` ([`frame_document`]).
 /// The sanitizer keeps a sender's markup from carrying it and a sender's stylesheet from naming it
-/// (`mail_mime::sanitize`: no class, id or selector of the sender's starts `mailo-`).
+/// (`crate::sanitize`: no class, id or selector of the sender's starts `mailo-`).
 const INSET_CLASS: &str = "mailo-inset";
 
 /// The inset's style (padding 18px, the reader's `--s-18`, the gutter its header and every other
@@ -272,7 +260,7 @@ fn plain_sheet() -> String {
          overflow-wrap: anywhere; }} {} \
          @media (prefers-color-scheme: dark) {{ body {{ color: {FRAME_INK_DARK}; }} \
          details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }} {}",
-        super::quote::stylesheet(FRAME_INK_SOFT),
+        crate::quote::stylesheet(FRAME_INK_SOFT),
         found_sheet()
     )
 }
@@ -295,7 +283,7 @@ fn plain_frame(text: &str) -> FrameBody {
         html: frame_document(
             &plain_sheet(),
             None,
-            &super::quote::fold_plain(text, escape_html),
+            &crate::quote::fold_plain(text, escape_html),
         ),
         blocked_remote: false,
         fetches: Vec::new(),
@@ -312,7 +300,7 @@ mod tests {
     /// win over its white; and the base stylesheet leaves an image's size to its attributes.
     #[test]
     fn the_sender_s_body_style_is_the_frame_s_body() {
-        let safe = mail_mime::sanitize(
+        let safe = crate::sanitize(
             "<body bgcolor=\"#f3f1ec\" style=\"padding:0\"><p>Hi</p></body>",
             SanitizePolicy::FRAME,
         );
@@ -338,7 +326,7 @@ mod tests {
             assert!(!stylesheet.contains("padding: 18px"), "{stylesheet}");
             assert!(!stylesheet.contains("margin: 18px"), "{stylesheet}");
         }
-        let raw = include_str!("../../tests/fixtures/flush-notice.eml");
+        let raw = include_str!("../tests/fixtures/flush-notice.eml");
         let parsed = mail_mime::parse(raw.as_bytes()).expect("the notice parses");
         let html = parsed.html.as_deref().expect("its HTML part");
         let body = html_frame(html, &parsed, SanitizePolicy::FRAME);

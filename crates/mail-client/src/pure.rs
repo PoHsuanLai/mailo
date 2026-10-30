@@ -98,9 +98,8 @@ pub mod mail {
 }
 pub mod message {
     pub use mail_core::message::{
-        Bodies, FIRST_PAGE, FOUND_CURRENT, FOUND_MARK, FrameBody, Frames, INLINE_BYTES, Invited,
-        Key, Looks, Offer, Opening, Prefer, Protection, Receipt, Scheme, Sealed, Sent, Tried,
-        ahead,
+        Bodies, FIRST_PAGE, Frames, INLINE_BYTES, Invited, Key, Looks, Offer, Opening, Protection,
+        Receipt, Scheme, Sealed, Sent, Tried, ahead,
     };
 }
 pub mod notify {

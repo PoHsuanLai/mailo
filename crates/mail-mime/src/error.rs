@@ -55,7 +55,7 @@ impl Retryable for RecordError {
 #[error("not a mailto: URI")]
 pub struct NotMailto;
 
-/// Text that is not a link this crate will keep: see [`SafeUrl`](crate::SafeUrl).
+/// Text that is not a link this crate will keep: what `mail-reader`'s `SafeUrl` refuses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("not an http, https or mailto link that is safe to show")]
 pub struct UnsafeUrl;

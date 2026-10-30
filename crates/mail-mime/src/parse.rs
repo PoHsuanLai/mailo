@@ -1,7 +1,7 @@
 //! RFC 5322 / MIME bytes to domain values.
 
 use crate::MimeError;
-use crate::block::{Delsp, Flowed};
+use crate::flowed::{Delsp, Flowed};
 use chrono::{DateTime, Utc};
 use mail_domain::{Address, Inline, normalize_id};
 use mail_parser::{HeaderName, HeaderValue, Message, MessageParser, MimeHeaders, PartType};
@@ -60,14 +60,14 @@ pub struct Parsed {
     /// parameters, and they do not describe the body. [`Flowed::Fixed`] when
     /// there is no text part.
     pub flowed: Flowed,
-    /// Raw, unsanitized. Sanitization happens at render time; see [`crate::sanitize`].
+    /// Raw, unsanitized. Sanitization happens at render time; see `mail-reader`'s `sanitize`.
     pub html: Option<String>,
     pub attachments: Vec<ParsedPart>,
     /// The body's `Content-Language` (its own part's, else the message's), as written: a list
-    /// of language tags, `None` when neither says. A hint for [`crate::script`].
+    /// of language tags, `None` when neither says. A hint for `mail-reader`'s `script`.
     pub content_language: Option<String>,
     /// The `charset` the body's part was sent in (else the message's), as written, before the
-    /// body was decoded to [`Self::text`] or [`Self::html`]. A hint for [`crate::script`]: Big5
+    /// body was decoded to [`Self::text`] or [`Self::html`]. A hint for `mail-reader`'s `script`: Big5
     /// and Shift_JIS say more about a text's script than its code points do.
     pub charset: Option<String>,
 }

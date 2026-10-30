@@ -13,7 +13,7 @@ use std::path::Path;
 const ALLOWED: &[(&str, &str)] = &[
     ("mail-core/src/when.rs", "the one writer: time_of_day"),
     (
-        "mail-mime/src/print.rs",
+        "mail-reader/src/print.rs",
         "below mail-core, so it cannot call time_of_day; told the clock as a bool, and \
          mail-core's print tests hold the two to the same words",
     ),

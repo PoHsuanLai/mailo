@@ -6,11 +6,12 @@
 
 use super::heaviness::{self, Signals};
 use super::html;
-use super::kind::{Document, Flowed, Shape};
+use super::kind::{Document, Shape};
 use super::machine;
 use super::text;
-use crate::parse::ParsedPart;
 use crate::sanitize::{RemoteImages, SafeHtml};
+use mail_mime::Flowed;
+use mail_mime::ParsedPart;
 
 /// Lower sanitized HTML to blocks.
 ///

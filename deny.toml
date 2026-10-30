@@ -43,7 +43,7 @@ confidence-threshold = 0.9
 # per-crate would be busywork — the crates arrive under it by several unrelated routes, and the
 # versions churn:
 #
-#   cssparser 0.38, cssparser-macros, dtoa-short   ← ammonia ← mail-mime (the sanitizer)
+#   cssparser 0.38, cssparser-macros, dtoa-short   ← ammonia ← mail-reader (the sanitizer)
 #   cssparser 0.37                                 ← ds-lint (quire's stylesheet lint, a dev-dependency)
 #   nucleo-matcher                                 ← mail-core (the menus' fuzzy match)
 #   option-ext                                     ← dirs
@@ -95,7 +95,7 @@ allow = ["bzip2-1.0.6"]
 # (the reader's Original view), into a separate document with no scripts, no shared DOM and no
 # shared cascade. A parser differential there can at worst change markup inside the frame; it
 # cannot reach the window's own document, which is what this ban protects. Nothing in mailo
-# parses mail with 0.39, and nothing may: mail-mime's sanitizer stays on ammonia's html5ever.
+# parses mail with 0.39, and nothing may: mail-reader's sanitizer stays on ammonia's html5ever.
 [[bans.deny]]
 name = "markup5ever_rcdom"
 reason = "Unsupported test DOM on html5ever 0.39; parsing ammonia 0.40 output with it is the mutation-XSS route this parser refused."

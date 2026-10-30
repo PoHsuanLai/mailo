@@ -44,7 +44,7 @@ const EMBEDDABLE: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/we
 
 /// Replace `cid:` references in `html` with the bytes of the matching parts.
 ///
-/// Runs on **sanitized** HTML, after `crate::sanitize`. That order is deliberate: the sanitizer
+/// Runs on **sanitized** HTML, after `mail-reader`'s `sanitize`. That order is deliberate: the sanitizer
 /// decides which URLs survive at all, and this only rewrites ones it already allowed. Running it
 /// first would mean handing the sanitizer a `data:` URI to re-judge, and feeding it something it
 /// did not see in the original message.
