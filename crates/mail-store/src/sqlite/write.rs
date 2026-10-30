@@ -14,7 +14,7 @@ use mail_domain::{
     Message, MessageId, Patch, RemoteRef, ThreadId, ThreadSummary, UidValidity,
 };
 use porter_core::AccountId;
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 use std::collections::BTreeSet;
 
 /// A message joining a label. Written both when a message arrives and when a label is added.
@@ -390,6 +390,10 @@ impl SqliteStore {
     }
 
     /// Rebuild the materialized summary for `thread`, or drop it if the thread is now empty.
+    ///
+    /// A summary that comes out as the one already stored is not written: an upsert rewrites the
+    /// row and every index on it even when no column changes, and the commit wakes everything
+    /// watching the summaries.
     pub(super) fn refresh_summary(&self, thread: ThreadId) -> Result<(), StoreError> {
         // The writer, not a reader: this runs inside `write_patch`'s transaction and has to
         // see the rows it has just written.
@@ -436,7 +440,18 @@ impl SqliteStore {
                      mute=excluded.mute, follow_up=excluded.follow_up,
                      sort_subject=excluded.sort_subject, sort_sender=excluded.sort_sender,
                      size=excluded.size, unread=excluded.unread, starred=excluded.starred,
-                     flag=excluded.flag",
+                     flag=excluded.flag
+                 WHERE (subject, snippet, from_name, from_email, participants, recipients,
+                        last_date, message_count, read, star, mailboxes, labels, attachments,
+                        snooze, pin, mute, follow_up, sort_subject, sort_sender, size, unread,
+                        starred, flag)
+                     IS NOT (excluded.subject, excluded.snippet, excluded.from_name,
+                        excluded.from_email, excluded.participants, excluded.recipients,
+                        excluded.last_date, excluded.message_count, excluded.read,
+                        excluded.star, excluded.mailboxes, excluded.labels,
+                        excluded.attachments, excluded.snooze, excluded.pin, excluded.mute,
+                        excluded.follow_up, excluded.sort_subject, excluded.sort_sender,
+                        excluded.size, excluded.unread, excluded.starred, excluded.flag)",
             )?
             .execute(params![
                 s.id.to_string(),
@@ -471,7 +486,7 @@ impl SqliteStore {
     /// Write a local patch, atomically, and rebuild whatever summaries it disturbed.
     pub(super) fn write_patch(&self, patch: &Patch) -> Result<(), StoreError> {
         let db = self.connection();
-        let tx = db.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&db, TransactionBehavior::Immediate)?;
         let mut touched = BTreeSet::new();
         for change in &patch.changes {
             if let Some(t) = self.write_change(change)? {
@@ -543,7 +558,7 @@ impl SqliteStore {
         ingest: Ingest,
     ) -> Result<Vec<Change>, StoreError> {
         let db = self.touch(Topics::SUMMARIES | Topics::LABELS | Topics::CONTACTS);
-        let tx = db.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&db, TransactionBehavior::Immediate)?;
         let mut changes: Vec<Change> = Vec::new();
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
 
@@ -613,28 +628,44 @@ impl SqliteStore {
         }
 
         // 3. Flag-only updates, far cheaper than refetching a message.
+        //
+        //    Only what differs from what is held is written. A pass hands over the flags of every
+        //    message in the mailbox, nearly all of them what they were last time, and writing
+        //    those back rewrote every summary they belong to, and woke everything watching them,
+        //    for nothing.
         for (remote, read, star) in &ingest.flags {
-            if let Some(id) = self.message_by_remote(account.clone(), remote)? {
-                self.write_change(&Change::MessageRead(id, *read))?;
-                self.write_change(&Change::MessageStar(id, *star))?;
-                changes.push(Change::MessageRead(id, *read));
-                changes.push(Change::MessageStar(id, *star));
-                if let Some(t) = self.thread_of(id)? {
-                    touched.insert(t);
-                }
+            let Some(held) = self.held_flags(account.clone(), remote)? else {
+                continue;
+            };
+            let mut differs = false;
+            if held.read != to_json("ReadState", read)? {
+                let change = Change::MessageRead(held.id, *read);
+                self.write_change(&change)?;
+                changes.push(change);
+                differs = true;
+            }
+            if held.star != to_json("Star", star)? {
+                let change = Change::MessageStar(held.id, *star);
+                self.write_change(&change)?;
+                changes.push(change);
+                differs = true;
+            }
+            if differs {
+                touched.insert(held.thread);
             }
         }
 
         // 3a. Flag colours, where the server keeps keywords. Where it does not, the list is
         //     empty and the colour held here stands.
         for (remote, hue) in &ingest.flag_colors {
-            if let Some(id) = self.message_by_remote(account.clone(), remote)? {
-                let change = Change::MessageFlag(id, *hue);
+            let Some(held) = self.held_flags(account.clone(), remote)? else {
+                continue;
+            };
+            if held.flag != to_json("Hue", hue)? {
+                let change = Change::MessageFlag(held.id, *hue);
                 self.write_change(&change)?;
                 changes.push(change);
-                if let Some(t) = self.thread_of(id)? {
-                    touched.insert(t);
-                }
+                touched.insert(held.thread);
             }
         }
 
@@ -671,6 +702,7 @@ impl SqliteStore {
             if let Some(keyed) = &keyed {
                 held.retain(|label| keyed.iter().any(|(id, _)| id == label));
             }
+            let before = changes.len();
             for label in wanted.iter().filter(|l| !held.contains(l)) {
                 let change = Change::MessageLabel(id, *label, Membership::In);
                 self.write_change(&change)?;
@@ -681,7 +713,9 @@ impl SqliteStore {
                 self.write_change(&change)?;
                 changes.push(change);
             }
-            if let Some(t) = self.thread_of(id)? {
+            if changes.len() > before
+                && let Some(t) = self.thread_of(id)?
+            {
                 touched.insert(t);
             }
         }
@@ -751,11 +785,16 @@ impl SqliteStore {
         // `UIDVALIDITY`, `UIDNEXT` and `HIGHESTMODSEQ` were destroyed milliseconds after the
         // survey recorded them, on every pass, for ever.
         if let Some(cursor) = &ingest.cursor {
+            // Rewritten when the cursor moved, or when the time it was last written has grown
+            // stale: `synced_at` is read as progress, so a pass that finds nothing new still has
+            // to say it ran, but once a minute says that as well as once a pass.
             self.connection().execute(
                 "INSERT INTO sync_state (account, mailbox, cursor, synced_at)
                  VALUES (?1, ?2, ?3, datetime('now'))
                  ON CONFLICT(account, mailbox) DO UPDATE SET
-                     cursor=excluded.cursor, synced_at=excluded.synced_at",
+                     cursor=excluded.cursor, synced_at=excluded.synced_at
+                 WHERE sync_state.cursor IS NOT excluded.cursor
+                     OR sync_state.synced_at < datetime('now', '-60 seconds')",
                 params![
                     account.to_string(),
                     ingest.mailbox.path,
@@ -778,7 +817,7 @@ impl SqliteStore {
         filed: &[(RemoteRef, MailboxRole)],
     ) -> Result<Patch, StoreError> {
         let db = self.touch(Topics::SUMMARIES);
-        let tx = db.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&db, TransactionBehavior::Immediate)?;
         let mut changes: Vec<Change> = Vec::new();
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
         for (remote, role) in filed {
@@ -820,7 +859,7 @@ impl SqliteStore {
         import: Import,
     ) -> Result<Patch, StoreError> {
         let db = self.touch(Topics::SUMMARIES | Topics::LABELS | Topics::CONTACTS);
-        let tx = db.unchecked_transaction()?;
+        let tx = Transaction::new_unchecked(&db, TransactionBehavior::Immediate)?;
         let mut changes: Vec<Change> = Vec::new();
         let mut touched: BTreeSet<ThreadId> = BTreeSet::new();
 
@@ -929,6 +968,40 @@ impl SqliteStore {
             .optional()?;
         found
             .map(|t| uuid("MessageId", &t).map(MessageId::from_uuid))
+            .transpose()
+    }
+
+    /// What is held of the message at `remote`, as far as a flag update needs to compare it: its
+    /// id and thread, and its read state, star and colour as stored, which is the text
+    /// [`to_json`] makes of the value, so equal values compare equal as text.
+    fn held_flags(
+        &self,
+        account: AccountId,
+        remote: &RemoteRef,
+    ) -> Result<Option<HeldFlags>, StoreError> {
+        let (acct, mailbox, uidvalidity, uid, uidl) = remote_key(account, remote);
+        let found: Option<(String, String, String, String, String)> = self
+            .reader()
+            .prepare_cached(
+                "SELECT m.id, m.thread, m.read, m.star, m.flag
+                 FROM remote_map r JOIN messages m ON m.id = r.message
+                 WHERE r.account=?1 AND r.mailbox=?2
+                 AND r.uidvalidity IS ?3 AND r.uid IS ?4 AND r.uidl IS ?5",
+            )?
+            .query_row(params![acct, mailbox, uidvalidity, uid, uidl], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+            })
+            .optional()?;
+        found
+            .map(|(id, thread, read, star, flag)| {
+                Ok(HeldFlags {
+                    id: MessageId::from_uuid(uuid("MessageId", &id)?),
+                    thread: ThreadId::from_uuid(uuid("ThreadId", &thread)?),
+                    read,
+                    star,
+                    flag,
+                })
+            })
             .transpose()
     }
 
@@ -1269,4 +1342,13 @@ impl SqliteStore {
         }
         Ok(out)
     }
+}
+
+/// A message's flags as the store holds them: see [`SqliteStore::held_flags`].
+struct HeldFlags {
+    id: MessageId,
+    thread: ThreadId,
+    read: String,
+    star: String,
+    flag: String,
 }
