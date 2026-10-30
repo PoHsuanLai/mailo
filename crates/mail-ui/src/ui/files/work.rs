@@ -216,7 +216,7 @@ pub(in crate::ui) fn import_now(
         .transfer()
         .import_into(source, &into.destination(), now, progress)
         .map_err(|why| why.to_string())?;
-    let said = crate::said::import::said(&total, &into.destination())
+    let said = mail_os::said::import::said(&total, &into.destination())
         .trim()
         .to_owned();
     Ok(Done {
@@ -366,7 +366,7 @@ pub(in crate::ui) fn export_now(
         client
             .export()
             .export(&client.net().environment(), &chosen, target, now, progress)?;
-    let said = crate::said::export::said(&done, target)
+    let said = mail_os::said::export::said(&done, target)
         .lines()
         .collect::<Vec<_>>()
         .join(" ");

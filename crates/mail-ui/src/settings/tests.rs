@@ -981,3 +981,9 @@ fn the_junk_settings_start_filtering_sparing_and_trusting_the_server_before_the_
         .expect("junk.order");
     assert_eq!(order.default, toml::Value::String("before".to_owned()));
 }
+
+/// A program that starts itself at login is the person's to choose.
+#[test]
+fn checking_mail_when_quit_is_off_until_the_person_turns_it_on() {
+    assert_eq!(super::WhileQuit::default(), super::WhileQuit::Off);
+}

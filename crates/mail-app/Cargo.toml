@@ -107,6 +107,8 @@ mail-store.workspace = true
 mail-client.workspace = true
 # The window, over the client.
 mail-ui.workspace = true
+# The launcher's count and the words the command line prints, which the window shares.
+mail-os.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
 mail-mime = { workspace = true, features = ["openpgp", "smime"] }
 mail-proto.workspace = true

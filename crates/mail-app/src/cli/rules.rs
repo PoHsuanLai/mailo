@@ -11,8 +11,8 @@ use mail_core::rules::server::{
 };
 use mail_core::rules::{AccountRules, RulesCmd, RulesDone, RunProgress};
 use mail_domain::{AfterMatch, Rule, RuleAction, RuleState, Vacation};
+use mail_os::said::rules::said;
 use mail_proto::sieve::Takeover;
-use mail_ui::said::rules::said;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 

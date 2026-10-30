@@ -3,7 +3,7 @@
 use super::SqliteStore;
 use mail_core::error::CoreError;
 use mail_core::export::{self, Target};
-use mail_ui::said::export::said;
+use mail_os::said::export::said;
 
 /// `mailo export QUERY… --mbox FILE | --maildir DIR | --eml DIR`: what matches is counted on
 /// stderr, then progress every hundred, then the answer.

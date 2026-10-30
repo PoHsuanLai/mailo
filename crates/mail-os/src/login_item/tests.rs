@@ -35,8 +35,8 @@ impl LoginItem for Recorder {
 #[test]
 fn on_registers_the_login_item_and_off_unregisters_it() {
     let item = Recorder::default();
-    assert_eq!(apply(&item, WhileQuit::On), Ok(Some(Registered::Done)));
-    assert_eq!(apply(&item, WhileQuit::Off), Ok(None));
+    assert_eq!(apply(&item, true), Ok(Some(Registered::Done)));
+    assert_eq!(apply(&item, false), Ok(None));
     assert_eq!(
         *item.asked.lock().unwrap_or_else(|e| e.into_inner()),
         ["register", "unregister"]
@@ -50,18 +50,13 @@ fn what_the_system_refused_comes_back_in_its_words() {
         ..Recorder::default()
     };
     assert_eq!(
-        apply(&item, WhileQuit::On),
+        apply(&item, true),
         Err("Operation not permitted".to_owned())
     );
     assert_eq!(
-        apply(&item, WhileQuit::Off),
+        apply(&item, false),
         Err("Operation not permitted".to_owned())
     );
-}
-
-#[test]
-fn it_is_off_until_the_person_turns_it_on() {
-    assert_eq!(WhileQuit::default(), WhileQuit::Off);
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]

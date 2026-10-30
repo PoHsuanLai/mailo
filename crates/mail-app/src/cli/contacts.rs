@@ -9,7 +9,7 @@ use super::SqliteStore;
 use mail_core::Mail;
 use mail_core::contacts::{self, BookSync, How, Synced};
 use mail_core::error::CoreError;
-use mail_ui::said::contacts::imported;
+use mail_os::said::contacts::imported;
 use std::fmt::Write as _;
 use std::path::PathBuf;
 

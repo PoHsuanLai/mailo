@@ -18,10 +18,15 @@ FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus 
 # core that knows neither.
 CORE=(mail-core mail-client)
 FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek mail-appkit)
+# `mail-os` is the app layer's OS integration (the launcher's count, the login item, the mail-link
+# handler, what an operation says): it does no drawing, so it may never reach the toolkit or the
+# renderer, nor `mail-ui`, which would pull both in. The window and the command line share it.
+OS=(mail-os)
+FORBIDDEN_OS=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek mail-ui)
 fail=0
 
 # A name `cargo tree` does not know prints nothing, which would read as a boundary that holds.
-for crate in "${PURE[@]}" "${CORE[@]}" mail-store mail-runtime; do
+for crate in "${PURE[@]}" "${CORE[@]}" "${OS[@]}" mail-store mail-runtime; do
   if ! cargo tree -p "$crate" --depth 0 >/dev/null 2>&1; then
     echo "no package named $crate: update the names in this script"
     exit 1
@@ -57,6 +62,21 @@ if [ "$core_fail" -eq 0 ]; then
 fi
 fail=$((fail | core_fail))
 
+os_fail=0
+for crate in "${OS[@]}"; do
+  for dep in "${FORBIDDEN_OS[@]}"; do
+    if cargo tree -p "$crate" -i "$dep" 2>/dev/null | grep -q .; then
+      echo "LEAK: $crate depends on $dep"
+      cargo tree -p "$crate" -i "$dep" 2>/dev/null | head -20
+      os_fail=1
+    fi
+  done
+done
+if [ "$os_fail" -eq 0 ]; then
+  echo "os boundary holds: ${OS[*]} reach none of ${FORBIDDEN_OS[*]}"
+fi
+fail=$((fail | os_fail))
+
 # `mail-store` and `mail-runtime` sit between the pure crates and the core, and draw nothing either:
 # anyview, which peeks at a file and draws a card, is `mail-ui`'s alone (its `anyview` feature).
 lower_fail=0
@@ -85,8 +105,8 @@ if grep -rnE '\banyview_(core|peek)\b' crates --include='*.rs' \
 fi
 
 # The window (`mail-ui`'s `ui`) and the terminal (`mail-app`'s `cli`) never name each other: what
-# they share is `mail-core`'s (or, for the settings files and the words of a finished import, the
-# top of `mail-ui`). A path into `mail_ui::ui` from the terminal, or through `crate::cli` from the
+# they share is `mail-core`'s (or, for the settings files, `mail-ui`'s top, and the words of a
+# finished import, `mail-os`). A path into `mail_ui::ui` from the terminal, or through `crate::cli` from the
 # window, is a helper that belongs in `mail-core` (or, if it is truly neither's, nowhere yet).
 # `super::` and the crate's own name are caught too, as they reach the other side the same way.
 if grep -rnE "\bmail_ui::ui\b" crates/mail-app/src/cli/; then

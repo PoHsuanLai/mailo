@@ -544,7 +544,7 @@ impl From<mail_client::server_search::Automatic> for ServerSearch {
 }
 
 /// `sync.while_quit`: whether `mailo watch` is started at login, so mail is checked, and new mail
-/// said, while mailo is not running (`crate::login_item`). Off until the person turns it on: a
+/// said, while mailo is not running (`mail_os::login_item`). Off until the person turns it on: a
 /// program that starts itself at login is theirs to choose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, Word)]
 #[serde(rename_all = "snake_case")]

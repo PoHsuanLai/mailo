@@ -11,7 +11,7 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use super::{SqliteStore, Store};
-use mail_ui::said::invite::{said, word};
+use mail_os::said::invite::{said, word};
 
 /// `mailo invite …`.
 #[derive(Debug, Clone, PartialEq, Eq)]

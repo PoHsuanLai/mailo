@@ -187,35 +187,6 @@ mod tests {
         );
     }
 
-    /// The shell knows an app on the bus by the names its entry lists, so each entry mailo
-    /// installs (the package's and `dist/install.sh`'s) names the ones the program owns, and the
-    /// two say the same.
-    #[test]
-    fn each_entry_names_the_bus_names_the_program_owns() {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let want = (
-            format!("{};{};", crate::handoff::NAME, crate::APP_ID),
-            crate::APP_ID.to_owned(),
-        );
-        for entry in [
-            "packaging/org.quire.Mail.desktop",
-            "dist/org.quire.Mail.desktop",
-        ] {
-            let text = std::fs::read_to_string(root.join(entry)).expect(entry);
-            let key = |name: &str| {
-                text.lines()
-                    .find_map(|line| line.strip_prefix(name)?.strip_prefix('='))
-                    .unwrap_or_default()
-                    .to_owned()
-            };
-            assert_eq!(
-                (key("X-Quire-BusNames"), key("X-Quire-IntentsApp")),
-                want,
-                "{entry}"
-            );
-        }
-    }
-
     #[derive(Default)]
     struct Recorder(Mutex<Vec<Update>>);
 

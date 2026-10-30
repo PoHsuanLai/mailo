@@ -7,7 +7,7 @@
 
 use ds::prelude::{Point, Px};
 use ds_harness::{Harness, Input};
-use mail_ui::launcher::{Badge, Launcher, Unread};
+use mail_os::launcher::{Badge, Launcher, Unread};
 use mail_ui::ui::copy;
 use std::sync::{Arc, Mutex};
 

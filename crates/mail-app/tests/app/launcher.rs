@@ -11,7 +11,7 @@ use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_ui::launcher::Unread;
+use mail_os::launcher::Unread;
 use porter_core::AccountId;
 
 fn acct_work() -> AccountId {

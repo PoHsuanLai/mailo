@@ -56,7 +56,7 @@ pub struct Resident {
 }
 
 /// What keeps the Dock's count with the badge the window found.
-pub type KeepBadge = Arc<dyn Fn(Arc<dyn crate::launcher::Badge>) + Send + Sync>;
+pub type KeepBadge = Arc<dyn Fn(Arc<dyn mail_os::launcher::Badge>) + Send + Sync>;
 
 impl std::fmt::Debug for Resident {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

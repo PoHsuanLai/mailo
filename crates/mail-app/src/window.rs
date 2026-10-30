@@ -54,7 +54,7 @@ pub fn open(
                 }
             })
                 as std::sync::Arc<
-                    dyn Fn(std::sync::Arc<dyn mail_ui::launcher::Badge>) + Send + Sync,
+                    dyn Fn(std::sync::Arc<dyn mail_os::launcher::Badge>) + Send + Sync,
                 >
         }),
     };

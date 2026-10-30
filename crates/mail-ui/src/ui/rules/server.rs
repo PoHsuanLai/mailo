@@ -141,5 +141,5 @@ pub(in crate::ui) fn put(
     reach(&row.plan)?;
     let account = configured(client, row, now);
     let pushed = push(client, &account, now)?;
-    Ok(crate::said::rules::said(&account.address, &pushed))
+    Ok(mail_os::said::rules::said(&account.address, &pushed))
 }

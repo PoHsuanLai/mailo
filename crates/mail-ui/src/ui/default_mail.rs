@@ -1,7 +1,7 @@
 //! Making mailo the application that opens email links: the question asked once at launch, and
 //! Settings › General's row, which always says which application it is now and offers it again.
 //!
-//! Both read the root context [`MailHandlers`] (`crate::mail_handler`): the system's in the
+//! Both read the root context [`MailHandlers`] (`mail_os::mail_handler`): the system's in the
 //! launched window, a fake in the tests. Without one (a test that hands none, a platform where
 //! mailo cannot be chosen from inside, a `mailo` that is not an installed app) neither is drawn.
 //!
@@ -10,7 +10,6 @@
 //! ([`FILE_NAME`]), beside Today's file. It waits for an account, so a first run's Add Account is
 //! not interrupted by it.
 
-use crate::mail_handler::{Handler, Made, MailHandlers};
 use crate::ui::appearance::WindowDirs;
 use crate::ui::copy;
 use crate::ui::press::on_primary;
@@ -21,6 +20,7 @@ use ds::components::overlays::alert_model::{AlertButton, AlertRole, AlertStyle};
 use ds::prelude::*;
 use ds::root::common::Common;
 use ds::style::tokens::control_size::ControlSize;
+use mail_os::mail_handler::{Handler, Made, MailHandlers};
 use std::path::Path;
 
 /// Settings' Make Default button.
