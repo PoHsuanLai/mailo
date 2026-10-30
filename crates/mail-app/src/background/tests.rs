@@ -58,3 +58,14 @@ fn the_app_s_lock_is_the_watch_s_own_and_refuses_a_second_holder() {
     let second = step(mail_core::ipc::watching::claim_at(&agent));
     assert!(matches!(second, Step::Wait), "{second:?}");
 }
+
+#[test]
+fn a_watch_that_keeps_panicking_is_left_down_longer_each_time_up_to_five_minutes() {
+    let mut wait = Duration::ZERO;
+    let mut waits = Vec::new();
+    for _ in 0..9 {
+        wait = revive_after(wait);
+        waits.push(wait.as_secs());
+    }
+    assert_eq!(waits, [5, 10, 20, 40, 80, 160, 300, 300, 300]);
+}

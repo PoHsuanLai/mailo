@@ -1084,3 +1084,38 @@ fn the_relay_key_is_kept_in_the_keyring() {
         "an empty key forgets it"
     );
 }
+
+/// A change that has a bug in it.
+struct Breaks;
+
+impl mail_client::Act for Breaks {
+    type Done = ();
+
+    fn run(self, _: &SqliteStore) {
+        panic!("a bug in a change");
+    }
+}
+
+/// A change that does nothing and says so.
+struct Fine;
+
+impl mail_client::Act for Fine {
+    type Done = u8;
+
+    fn run(self, _: &SqliteStore) -> u8 {
+        7
+    }
+}
+
+#[test]
+fn a_change_that_panics_is_not_done_and_the_next_one_still_is() {
+    let (store, _dir) = on_disk();
+    let client = client(&store);
+
+    assert!(
+        done(client.act(Breaks)).is_none(),
+        "the ticket says not done"
+    );
+    let next = done(client.act(Fine)).expect("the act thread went on");
+    assert_eq!(next.done, 7);
+}
