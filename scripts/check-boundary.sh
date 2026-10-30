@@ -14,7 +14,7 @@ PURE=(mailo-domain mailo-mime mailo-proto mailo-pim)
 FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus ds-desktop zbus anyview-core anyview-peek)
 # `mail-core` is the I/O-capable core: it may use tokio and the network, which the PURE
 # crates may not. What it may never reach is anything that draws, the window's toolkit or the
-# renderer under it, so that the two front-ends (`mail-ui`, and `mail-app`'s `cli`) sit over one
+# renderer under it, so that the two front-ends (`mail-ui`, and `mail-cli`) sit over one
 # core that knows neither.
 CORE=(mail-core mail-client)
 FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek mail-appkit)
@@ -104,17 +104,30 @@ if grep -rnE '\banyview_(core|peek)\b' crates --include='*.rs' \
   fail=1
 fi
 
-# The window (`mail-ui`'s `ui`) and the terminal (`mail-app`'s `cli`) never name each other: what
-# they share is `mail-core`'s (or, for the settings files, `mail-ui`'s top, and the words of a
-# finished import, `mail-os`). A path into `mail_ui::ui` from the terminal, or through `crate::cli` from the
-# window, is a helper that belongs in `mail-core` (or, if it is truly neither's, nowhere yet).
-# `super::` and the crate's own name are caught too, as they reach the other side the same way.
-if grep -rnE "\bmail_ui::ui\b" crates/mail-app/src/cli/; then
-  echo "crates/mail-app/src/cli must not name the window (mail_ui::ui): move the shared helper to mail-core"
+# The window (`mail-ui`'s `ui`) and the terminal (`mail-cli`) never name each other: what
+# they share is `mail-core`'s (or, for the settings files, the top of `mail-ui`, and the words of a
+# finished import, `mail-os`). A path into `mail_ui::ui` from the terminal is a helper that belongs in
+# `mail-core` (or, if it is truly neither's, nowhere yet). The window cannot name the terminal at
+# all: `mail-ui` has no `mail-cli` in its Cargo.toml, and `mail-cli` and `mail-intents` hold no
+# dioxus, ds-*, blitz or quire (below). `mail-cli` and `mail-intents` do not depend on each other
+# either: `mailo intents` is dispatched by `mail-app`.
+if grep -rnE "\bmail_ui::ui\b" crates/mail-cli/src/; then
+  echo "crates/mail-cli/src must not name the window (mail_ui::ui): move the shared helper to mail-core"
   fail=1
 fi
-if grep -rnE "(crate|super|mail_app)::cli\b" crates/mail-ui/src/ui/; then
-  echo "crates/mail-ui/src/ui must not name the command line (crate::cli): move the shared helper to mail-core"
+dep_names() { # <crate> <pattern>: the crate's [dependencies] lines (dev aside) that match
+  awk '/^\[/ { dev = ($0 ~ /dev-dependencies/) } !dev && /^[A-Za-z]/' "crates/$1/Cargo.toml" | grep -E "$2"
+}
+for crate in mail-cli mail-intents mail-edge; do
+  if dep_names "$crate" '^(dioxus|ds[-_]|blitz|quire|anyview)'; then
+    echo "crates/$crate/Cargo.toml names the window's toolkit (dioxus, ds-*, blitz, quire): the command line, the intents and the edge draw nothing"
+    fail=1
+  fi
+done
+if dep_names mail-cli '^mail-(intents|app)[ .=]' || dep_names mail-intents '^mail-(cli|app)[ .=]' \
+  || dep_names mail-edge '^mail-(cli|intents|ui|client|app)[ .=]' \
+  || dep_names mail-ui '^mail-(cli|intents|edge|app)[ .=]'; then
+  echo "mail-cli, mail-intents, mail-edge and mail-ui must not depend on each other or on mail-app: mail-app is the process over them"
   fail=1
 fi
 
@@ -183,7 +196,7 @@ if grep -rnE 'Result<.*, *String>' crates/mail-core/src --include='*.rs' \
   fail=1
 fi
 
-# The libraries start no runtime and read no environment. The application (`mail-app`'s `edge`)
+# The libraries start no runtime and read no environment. The application (`mail-edge`)
 # owns the one tokio runtime and waits on `async` work there; `mail-core`, `mail-runtime` and
 # `mail-store` hand every operation that waits on a network or the keyring back as a future, and
 # take what they need (the secrets, the environment, the clock) from the `Mail` handle.
@@ -199,11 +212,11 @@ library_code() { # <dir>...: "file:line: text" for every non-comment, non-test l
 }
 if library_code crates/mail-core/src crates/mail-runtime/src crates/mail-store/src \
   | grep -E 'new_current_thread|new_multi_thread|Runtime::new\(|runtime::Builder::new|OnceLock<.*Runtime>'; then
-  echo "a library builds a tokio runtime: make the function async and let mail-app's edge (crates/mail-app/src/edge.rs) wait on it"
+  echo "a library builds a tokio runtime: make the function async and let mail-edge (crates/mail-edge/src/lib.rs) wait on it"
   fail=1
 fi
 if library_code crates/mail-core/src | grep -E '\bblock_on\('; then
-  echo "mail-core blocks on a future: make the function async and let mail-app's edge wait on it"
+  echo "mail-core blocks on a future: make the function async and let mail-edge wait on it"
   fail=1
 fi
 # The desktop notification adapter (`notify/desktop.rs`, behind the `desktop` feature) asks for the
@@ -213,35 +226,35 @@ if library_code crates/mail-core/src | grep -vE '^crates/mail-core/src/notify/de
   echo "mail-core reads the environment: take it from mail_core::Environment, which mail-app builds in main"
   fail=1
 fi
-# And no terminal: the command line is `mail-app`'s `cli`. `mail-core` returns typed outcomes
+# And no terminal: the command line is `mail-cli`. `mail-core` returns typed outcomes
 # that the cli words, takes a credential as a parameter or a callback instead of asking a person
 # at a tty, and prints nothing (it logs with `log::`). So no `print!`/`println!`/`eprint!`/
 # `eprintln!`, no `writeln!`/`write!` to stdout or stderr, no `rpassword`, no `/dev/tty`.
 if library_code crates/mail-core/src \
   | grep -E '\b(e?print(ln)?!)\(|std::io::(stdout|stderr)\(|io::(stdout|stderr)\(|rpassword|/dev/tty'; then
-  echo "mail-core touches the terminal: return a typed outcome and let mail-app's cli word and print it (log:: is fine)"
+  echo "mail-core touches the terminal: return a typed outcome and let mail-cli word and print it (log:: is fine)"
   fail=1
 fi
 if grep -nE '^[[:space:]]*rpassword' crates/mail-core/Cargo.toml; then
-  echo "mail-core depends on rpassword: prompting a person is mail-app's cli"
+  echo "mail-core depends on rpassword: prompting a person is mail-cli"
   fail=1
 fi
 
-# `mail-app` reaches the logic through `mail-core`'s `Mail` handle. It still names `mail-runtime`
-# and `mail-store` directly in many places (the store is the window's own model, and the signing
-# keys, places and engines are used by the window); that is a ratchet, not a clean line: the
-# counts below may go down and never up. Lines naming the crate, tests included.
-# crates/mail-app/src/edge.rs is the one place that builds the handle.
-# scripts/app-lower-crate-uses.txt holds "<crate> <count>".
-while read -r lower allowed; do
-  [ -z "$lower" ] && continue
-  case "$lower" in \#*) continue ;; esac
-  now=$(grep -rE "\b${lower}\b" crates/mail-app/src crates/mail-app/tests --include='*.rs' | wc -l)
+# The app-side crates (`mail-app`, `mail-cli`, `mail-intents`, `mail-edge`) reach the logic through
+# `mail-core`'s `Mail` handle. They still name `mail-runtime` and `mail-store` directly in many
+# places (the store is the window's own model, and the signing keys, places and engines are used by
+# the window); that is a ratchet, not a clean line: the counts below may go down and never up.
+# Lines naming the crate, tests included. crates/mail-edge/src/lib.rs is the one place that builds
+# the handle. scripts/app-lower-crate-uses.txt holds "<app crate> <lower crate> <count>".
+while read -r app lower allowed; do
+  [ -z "$app" ] && continue
+  case "$app" in \#*) continue ;; esac
+  now=$(grep -rE "\b${lower}\b" "crates/$app/src" "crates/$app/tests" --include='*.rs' 2>/dev/null | wc -l)
   if [ "$now" -gt "$allowed" ]; then
-    echo "mail-app names $lower on $now lines, over the $allowed in scripts/app-lower-crate-uses.txt: go through mail_core (add the call there) instead"
+    echo "$app names $lower on $now lines, over the $allowed in scripts/app-lower-crate-uses.txt: go through mail_core (add the call there) instead"
     fail=1
   elif [ "$now" -lt "$allowed" ]; then
-    echo "mail-app names $lower on only $now lines: lower the $allowed in scripts/app-lower-crate-uses.txt to $now"
+    echo "$app names $lower on only $now lines: lower the $allowed in scripts/app-lower-crate-uses.txt to $now"
     fail=1
   fi
 done < scripts/app-lower-crate-uses.txt
@@ -299,18 +312,18 @@ fi
 # `mail-store` is the only crate that speaks SQL. Above it the store is a typed API (accounts,
 # identities, labels, blobs, lookups by `Message-ID`, ...), and a test that needs a row no path of
 # the program writes asks `mail_store::testing`. So `rusqlite` is not a dependency of `mail-core`,
-# `mail-runtime` or `mail-app` (dev-dependencies included), and the store's connection, which is
+# `mail-runtime` or any app-side crate (dev-dependencies included), and the store's connection, which is
 # private to it, is not reached for by name: `.connection()`, `.reader()`, and the testing
 # `raw_connection` that only `mail-store`'s own tests use. Comment lines are not
 # code and are not counted.
-for crate in mail-core mail-runtime mail-app; do
+for crate in mail-core mail-runtime mail-app mail-cli mail-intents mail-edge; do
   if grep -nE '^[[:space:]]*rusqlite[[:space:]]*=' "crates/$crate/Cargo.toml"; then
     echo "crates/$crate/Cargo.toml: $crate must not depend on rusqlite: ask the store (mail_store), or mail_store::testing in a test"
     fail=1
   fi
 done
 if grep -rnE '\brusqlite\b|\.connection\(\)|\.reader\(\)|\braw_connection\b' \
-  crates/mail-core crates/mail-runtime crates/mail-app --include='*.rs' \
+  crates/mail-core crates/mail-runtime crates/mail-app crates/mail-cli crates/mail-intents crates/mail-edge --include='*.rs' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "SQL above mail-store: add the typed call to mail_store (or a seeding helper to mail_store::testing) instead"
   fail=1

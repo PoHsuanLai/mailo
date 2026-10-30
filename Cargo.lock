@@ -5125,33 +5125,27 @@ dependencies = [
  "ds-lint",
  "ds-settings",
  "ds-shell",
- "futures-util",
  "image",
  "latchkey",
  "log",
+ "mail-cli",
  "mail-client",
  "mail-core",
+ "mail-edge",
+ "mail-intents",
  "mail-os",
  "mail-runtime",
  "mail-store",
  "mail-ui",
  "mailo-domain",
  "mailo-mime",
- "mailo-pim",
- "mailo-proto",
  "pdfrum",
  "porter-core",
- "porter-provider",
  "porter-secrets",
  "rand 0.8.8",
- "rpassword",
- "serde",
- "serde_json",
  "tempfile",
  "tokio",
- "toml",
  "uuid",
- "zbus",
 ]
 
 [[package]]
@@ -5171,6 +5165,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ccbc27cb02a58a311a404769a22f5abf63fe3173b290d80be7c534f9c7023151"
 dependencies = [
  "gethostname",
+]
+
+[[package]]
+name = "mail-cli"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "image",
+ "log",
+ "mail-client",
+ "mail-core",
+ "mail-edge",
+ "mail-os",
+ "mail-runtime",
+ "mail-store",
+ "mail-ui",
+ "mailo-domain",
+ "mailo-mime",
+ "mailo-pim",
+ "mailo-proto",
+ "porter-core",
+ "porter-provider",
+ "porter-secrets",
+ "rand 0.8.8",
+ "rpassword",
+ "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -5242,6 +5264,38 @@ dependencies = [
  "uuid",
  "zbus",
  "zeroize",
+]
+
+[[package]]
+name = "mail-edge"
+version = "0.1.0"
+dependencies = [
+ "mail-core",
+ "mail-store",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "mail-intents"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "futures-util",
+ "log",
+ "mail-client",
+ "mail-core",
+ "mail-edge",
+ "mail-store",
+ "mail-ui",
+ "mailo-domain",
+ "porter-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "toml",
+ "uuid",
+ "zbus",
 ]
 
 [[package]]

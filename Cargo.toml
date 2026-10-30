@@ -11,7 +11,10 @@ members = [
   "crates/mail-client",
   "crates/mail-appkit",
   "crates/mail-os",
+  "crates/mail-edge",
   "crates/mail-ui",
+  "crates/mail-cli",
+  "crates/mail-intents",
   "crates/mail-app",
 ]
 
@@ -35,6 +38,9 @@ mail-appkit = { path = "crates/mail-appkit" }
 mail-client = { path = "crates/mail-client" }
 mail-os = { path = "crates/mail-os" }
 mail-ui = { path = "crates/mail-ui" }
+mail-edge = { path = "crates/mail-edge" }
+mail-cli = { path = "crates/mail-cli" }
+mail-intents = { path = "crates/mail-intents" }
 mail-core   = { path = "crates/mail-core", default-features = false }
 mail-domain = { package = "mailo-domain", path = "crates/mail-domain", version = "0.1.0" }
 mail-mime   = { package = "mailo-mime", path = "crates/mail-mime", version = "0.1.0", default-features = false }

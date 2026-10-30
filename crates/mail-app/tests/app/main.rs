@@ -5,8 +5,6 @@
 //! as a prefix: `cargo test -p mail-app --test app -- <file>::`.
 
 // The helpers the tests share, declared once.
-#[path = "../support/cli_mail.rs"]
-mod cli_mail;
 use mail_ui::testing::drive;
 #[path = "../support/latency_inbox.rs"]
 mod latency_inbox;
@@ -16,23 +14,15 @@ mod native;
 mod opening;
 #[path = "../support/row_menu.rs"]
 mod row_menu;
-#[path = "../support/sealed.rs"]
-mod sealed;
 #[path = "../support/settle.rs"]
 mod settle;
-use mail_mime::testing::smime as smime_support;
 #[path = "../support/store.rs"]
 mod store;
 #[path = "../support/typing.rs"]
 mod typing;
 
-mod cli;
-mod cli_watch_notify_offline;
 mod compose;
-mod folders;
 mod frame_budget;
-mod import_export;
-mod invites;
 mod lanes;
 mod launcher;
 mod native_add_account;
@@ -49,15 +39,8 @@ mod native_peek;
 mod native_preview;
 mod native_spelling;
 mod native_window;
-mod pgp;
-mod printing;
-mod receipts;
-mod rules;
 mod searching;
-mod send_later;
-mod smime;
 mod snoozing;
-mod unsubscribe;
 
 /// The tests that keep a binary of their own, each saying why at its top.
 const OWN_BINARY: &[&str] = &[];

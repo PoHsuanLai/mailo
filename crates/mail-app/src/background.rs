@@ -29,6 +29,7 @@
 //! [`Schedule::Watch`]: mail_core::schedule::Schedule::Watch
 //! [`Daemon::Holding`]: mail_core::schedule::Daemon::Holding
 
+use mail_cli::exec::AGAIN;
 use mail_core::SqliteStore;
 use mail_core::ipc::watching::{Refused, Watching};
 use mail_core::schedule::End;
@@ -79,10 +80,6 @@ pub fn step<W>(claimed: Result<W, Refused>) -> Step<W> {
         }
     }
 }
-
-/// How long the app waits before asking for the lock again, and before starting the watch again
-/// after it ended on an error.
-pub const AGAIN: Duration = Duration::from_secs(60);
 
 /// How long the watch is left down after its first panic, and the most it is left down for as
 /// each one after it doubles the wait.
@@ -170,8 +167,8 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
         // A panic in the watch ends this run of it, not the thread: the lock is the process's
         // and stays held, so the same claim is used again and nothing is claimed twice.
         let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mail = crate::edge::mail(store);
-            crate::edge::block_on(mail.sync().watch_until(
+            let mail = mail_edge::mail(store);
+            mail_edge::block_on(mail.sync().watch_until(
                 Some(&notifier),
                 mail_core::sync::watcher::Live {
                     whom: &|| notifier.whom(),
@@ -188,7 +185,7 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
             Ok(Err(why)) => {
                 log::warn!(
                     "checking for mail stopped: {}",
-                    crate::cli::remedy::error(why)
+                    mail_cli::remedy::error(why)
                 );
                 std::thread::sleep(AGAIN);
             }

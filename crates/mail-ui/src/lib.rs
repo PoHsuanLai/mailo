@@ -20,6 +20,6 @@ pub mod ui;
 
 /// The desktop entry's name (`packaging/org.quire.Mail.desktop`), which notifications name too:
 /// the window's app id (the Wayland `app_id` and X11 `WM_CLASS`, so the desktop matches the window
-/// to its entry), and the app the desktop's intent router knows (`mail_app::intents::APP`), so the
+/// to its entry), and the app the desktop's intent router knows (`mail_intents::APP`), so the
 /// scope a launcher starts the window in names it.
 pub const APP_ID: &str = "org.quire.Mail";

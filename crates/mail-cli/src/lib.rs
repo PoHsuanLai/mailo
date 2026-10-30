@@ -1,0 +1,2338 @@
+//! The command line over the store.
+//!
+//! A CLI can be driven from a test where a window cannot. The window calls the same `Store`
+//! methods.
+
+use chrono::Local;
+use mail_core::account::{Receive, Setup};
+use mail_core::when::Stamp;
+use mail_core::{Mail, SqliteStore, Store};
+use mail_domain::*;
+use porter_core::AccountId;
+use std::fmt::Write as _;
+
+mod account;
+pub mod attach;
+pub mod compose;
+pub mod contacts;
+pub mod discover;
+pub mod exec;
+pub mod export;
+mod folder;
+mod icons;
+pub mod import;
+pub mod invite;
+pub mod offline;
+pub mod pgp;
+pub mod receipt;
+pub mod remedy;
+pub mod rules;
+mod search;
+pub mod session;
+pub mod settings;
+pub mod smime;
+pub mod snooze;
+pub mod sync;
+pub mod template;
+pub mod unsubscribe;
+mod usage;
+
+/// What the user asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Command {
+    /// Threads in a mailbox, newest first.
+    List { mailbox: MailboxRole, limit: u32 },
+    /// One thread and its messages.
+    Show { thread: ThreadId },
+    /// Full-text search across every account.
+    Search { needle: String, limit: u32 },
+    /// Unread counts per mailbox.
+    Status,
+    /// Configure an account from its address.
+    ///
+    /// `manual` is `Some` when the user named the servers themselves, which is the only way to
+    /// reach a host the preset table has never heard of.
+    AccountAdd {
+        address: String,
+        manual: Option<Setup>,
+        /// The address belongs to a managed Microsoft 365 tenant on its own domain, which is
+        /// the one thing the preset table cannot work out for itself.
+        microsoft: bool,
+        /// `--send graph`: send through Microsoft Graph, for a tenant with SMTP AUTH off.
+        graph: bool,
+        /// How a Microsoft account reads: `Usual` (through Graph, or as an account already here
+        /// does) unless `--receive` or `--send` names it; IMAP for every other account.
+        receive: Receive,
+        /// `--yes`: servers found by discovery may be used without asking. Without it they are
+        /// shown and asked about on a terminal, and refused anywhere else.
+        consent: Consent,
+    },
+    /// What discovery finds for an address, printed and not acted on.
+    AccountDiscover { address: String },
+    /// Remove an account and everything kept of it here; without `--yes`, only say what that
+    /// would take.
+    AccountRemove { address: String, consent: Consent },
+    /// Configured accounts, and what each still needs.
+    AccountList,
+    /// Folders on every account, or on the one named.
+    FolderList { account: Option<String> },
+    /// Create, rename, delete, or follow a folder on one account, by its address.
+    Folder { account: String, work: FolderWork },
+    /// Fetch every configured account's provider icon again.
+    IconsRefresh,
+    /// Set or clear the signature on an account. The text is read from stdin.
+    Signature {
+        address: String,
+        clear: bool,
+        text: String,
+    },
+    /// Fetch mail for every configured account, and drain the outbox.
+    Sync,
+    /// Fetch one folder of one account now, followed or not: `sync --folder <account> <path>`.
+    SyncFolder { account: String, path: String },
+    /// Start a reply to a message. The body is read from stdin.
+    Reply {
+        message: MessageId,
+        scope: ReplyScope,
+        body: String,
+    },
+    /// Queue a draft for delivery on the next sync, or, with `at`, not before the time it names
+    /// (in the words `snooze` takes).
+    Send { draft: DraftId, at: Option<String> },
+    /// Take back a send that has not left yet, and make it an editable draft again.
+    Unsend { draft: DraftId },
+    /// Keep a draft as a template.
+    TemplateSave { draft: DraftId, name: String },
+    /// Every template.
+    TemplateList,
+    /// Start a new draft from a template, to `to` instead of the template's own `To` when given.
+    TemplateUse {
+        template: TemplateId,
+        to: Vec<Address>,
+    },
+    /// Delete a template.
+    TemplateDelete { template: TemplateId },
+    /// Every draft, and where it got to.
+    Drafts,
+    /// Delete a draft.
+    Discard { draft: DraftId },
+    /// Pin a conversation, or unpin it if it is already pinned.
+    Pin { thread: ThreadId },
+    /// Conversations kept in view.
+    ListPinned { limit: u32 },
+    /// Conversations that are put off, and not yet due.
+    ListSnoozed { limit: u32 },
+    /// Put a conversation off until later.
+    Snooze { thread: ThreadId, when: String },
+    /// Bring a snoozed conversation back now.
+    Wake { thread: ThreadId },
+    /// File a conversation in Archive, from a terminal (a banner's Archive button asks the window
+    /// instead, where the Undo is).
+    Archive { thread: ThreadId },
+    /// The attachments on a message.
+    Attachments { message: MessageId },
+    /// Write one attachment to a directory.
+    Save {
+        message: MessageId,
+        index: usize,
+        dir: std::path::PathBuf,
+    },
+    /// Forward a message. The covering note is read from stdin.
+    ///
+    /// Recipients are given on the command line because a forward has none of its own: nothing
+    /// in the original says who it should go to next, and guessing would be inventing one.
+    Forward {
+        message: MessageId,
+        to: Vec<Address>,
+        body: String,
+        /// `--attached` carries the message itself as an attachment, not its text.
+        carry: mail_core::compose::Carry,
+    },
+    /// Put a file on a draft.
+    Attach {
+        draft: DraftId,
+        path: std::path::PathBuf,
+    },
+    /// Take one back off, by the number `attached` prints.
+    Detach { draft: DraftId, index: usize },
+    /// What a draft is carrying.
+    Attached { draft: DraftId },
+    /// Keep fetching until stopped, announcing new mail unless told not to. With `wait`
+    /// (`--wait`), one that finds another watch running waits to take over when that one ends,
+    /// rather than ending itself.
+    Watch { notify: WatchNotify, wait: bool },
+    /// `--help`: the usage, on stdout.
+    Help,
+    /// `--version`: the program's name and version.
+    Version,
+    /// Answer the desktop's intent router for as long as the session lasts.
+    Intents,
+    /// `--write-schema <dir>`: write `mailo.settings.toml`, the schema the desktop's Settings
+    /// app draws mailo's page from (quire design/22 section 9.2).
+    WriteSchema { dir: std::path::PathBuf },
+    /// Turn new-mail notifications on or off, or say which they are.
+    Notify {
+        set: Option<mail_core::notify::Setting>,
+    },
+    /// Keep an account's mail offline in full, or not, or say where each account stands.
+    Offline {
+        address: Option<String>,
+        set: Option<mail_core::offline::Keep>,
+    },
+    /// Run the daemon, or stop the one that is running.
+    Daemon { stop: bool },
+    /// Reach the daemon, starting one if none is listening.
+    Ping,
+    /// A message that answers nothing. `from` names the sending account when there is a choice.
+    Compose {
+        from: Option<String>,
+        to: Vec<Address>,
+        cc: Vec<Address>,
+        bcc: Vec<Address>,
+        subject: String,
+        body: String,
+        /// `--request-receipt`: ask the recipients to confirm they displayed it.
+        receipt: ReceiptRequest,
+        /// `--sign`, `--encrypt`, or both: what OpenPGP does to it when it is sent.
+        openpgp: Option<Mode>,
+        /// The same with `--smime`: what S/MIME does to it instead.
+        smime: Option<Mode>,
+    },
+    /// S/MIME certificates: list, import, export, delete, trust, and one message's status.
+    Smime(smime::SmimeCommand),
+    /// OpenPGP keys: list, make, import, export, delete, look up, verify.
+    Pgp(pgp::PgpCommand),
+    /// Answer a message's request for a read receipt: send one, or decline.
+    Receipt {
+        message: MessageId,
+        answer: ReceiptAnswer,
+    },
+    /// Leave the mailing list a message, or the newest list message in a thread, came through.
+    ///
+    /// A uuid rather than a typed id: it may be either a message or a thread, and only the
+    /// store can say which. See [`mail_core::unsubscribe::find`].
+    Unsubscribe {
+        target: uuid::Uuid,
+        step: UnsubscribeStep,
+    },
+    /// The address book: autocomplete, hand edits, vCard files and CardDAV.
+    Contacts(contacts::Contacts),
+    /// A calendar invitation: show it, answer it, or save it as an `.ics` file.
+    Invite(invite::InviteCommand),
+    /// Mail from an mbox, a Maildir, an `.eml`, Apple Mail's mailboxes or `.emlx` files, or a
+    /// Thunderbird profile, kept locally or uploaded into a mailbox.
+    Import {
+        path: std::path::PathBuf,
+        into: mail_core::import::Destination,
+    },
+    /// Messages chosen as `search` chooses them, written to files.
+    Export {
+        query: String,
+        target: mail_core::export::Target,
+    },
+    /// A message, or a whole thread, as a printable HTML document.
+    ///
+    /// A uuid for the same reason as [`Command::Unsubscribe`]: it may name either.
+    Print {
+        target: uuid::Uuid,
+        out: PrintTo,
+        pages: mail_mime::Pages,
+    },
+    /// What to do with mail as it arrives.
+    Rules(mail_core::rules::RulesCmd),
+    /// An away reply, run by the server.
+    Vacation(mail_core::rules::server::VacationCmd),
+    /// Rules on the server, over ManageSieve.
+    Sieve(mail_core::rules::server::SieveCmd),
+}
+
+/// Where `mailo print` puts the document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrintTo {
+    /// No `--out`: standard output when that is a pipe or a file, and a file in the current
+    /// directory when it is a terminal, where a page of HTML would only scroll past. Only
+    /// `main` can tell which, so it replaces this before running; [`run`] treats it as
+    /// [`PrintTo::Stdout`].
+    Unsaid,
+    /// `--out -`, or no `--out` with standard output redirected.
+    Stdout,
+    /// `--out FILE`: that file, as asked.
+    File(std::path::PathBuf),
+    /// A new file in this directory, named from the subject, never over an existing one.
+    Into(std::path::PathBuf),
+}
+
+/// `print <id> [--out FILE] [--page-per-message]`, options in any order.
+fn parse_print(args: &[String]) -> Result<Command, String> {
+    let raw = args
+        .first()
+        .ok_or_else(|| format!("print needs a thread or message id\n\n{}", usage()))?;
+    let target = raw
+        .parse()
+        .map_err(|_| format!("{raw:?} is not a thread or message id"))?;
+    let mut out = PrintTo::Unsaid;
+    let mut pages = mail_mime::Pages::Flow;
+    let mut rest = args[1..].iter();
+    while let Some(option) = rest.next() {
+        match option.as_str() {
+            "--out" => {
+                let path = rest.next().ok_or_else(|| {
+                    "--out needs a file name, or - for standard output".to_owned()
+                })?;
+                out = if path == "-" {
+                    PrintTo::Stdout
+                } else {
+                    PrintTo::File(std::path::PathBuf::from(path))
+                };
+            }
+            "--page-per-message" => pages = mail_mime::Pages::PerMessage,
+            other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+        }
+    }
+    Ok(Command::Print { target, out, pages })
+}
+
+/// Whether `unsubscribe` acts or only says what it would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnsubscribeStep {
+    /// `--show`: list the ways out and which one would be taken.
+    Show,
+    /// Take the preferred way out.
+    Act,
+}
+
+/// Whether one `mailo watch` announces new mail.
+///
+/// The flag can only silence: turning notifications on for one run while the setting says off
+/// would be a second way to say what `notify on` already says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WatchNotify {
+    /// As `mailo notify` last said, which is on until someone says otherwise.
+    AsSet,
+    /// `--no-notify`.
+    Never,
+}
+
+/// `watch`'s options, each at most once and in any order.
+fn parse_watch(args: &[String]) -> Result<Command, String> {
+    let (mut notify, mut wait) = (WatchNotify::AsSet, false);
+    for arg in args {
+        match arg.as_str() {
+            "--no-notify" if notify == WatchNotify::AsSet => notify = WatchNotify::Never,
+            "--wait" if !wait => wait = true,
+            other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+        }
+    }
+    Ok(Command::Watch { notify, wait })
+}
+
+/// Parse arguments, or explain what was wrong.
+///
+/// Returns `Err` with usage rather than exiting, so the parser is testable and the binary owns
+/// the only call to `std::process::exit`.
+pub fn parse(args: &[String]) -> Result<Command, String> {
+    let Some(verb) = args.first().map(String::as_str) else {
+        return Err(usage());
+    };
+    match verb {
+        "list" => {
+            // Not a `MailboxRole`: "snoozed" is a predicate over threads rather than a folder
+            // any of them is in, which is what `filter.rs` means by predicates over mirrors.
+            if matches!(args.get(1).map(String::as_str), Some("snoozed")) {
+                return Ok(Command::ListSnoozed {
+                    limit: parse_limit(args.get(2))?,
+                });
+            }
+            if matches!(args.get(1).map(String::as_str), Some("pinned")) {
+                return Ok(Command::ListPinned {
+                    limit: parse_limit(args.get(2))?,
+                });
+            }
+            let mailbox = match args.get(1).map(String::as_str) {
+                None | Some("inbox") => MailboxRole::Inbox,
+                Some("archive") => MailboxRole::Archive,
+                Some("sent") => MailboxRole::Sent,
+                Some("drafts") => MailboxRole::Drafts,
+                Some("trash") => MailboxRole::Trash,
+                Some("spam") => MailboxRole::Spam,
+                Some(other) => return Err(format!("unknown mailbox {other:?}\n\n{}", usage())),
+            };
+            Ok(Command::List {
+                mailbox,
+                limit: parse_limit(args.get(2))?,
+            })
+        }
+        "show" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("show needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            Ok(Command::Show {
+                thread: ThreadId::from_uuid(uuid),
+            })
+        }
+        "search" => {
+            let needle = args
+                .get(1..)
+                .filter(|rest| !rest.is_empty())
+                .map(|rest| rest.join(" "))
+                .ok_or_else(|| format!("search needs something to look for\n\n{}", usage()))?;
+            Ok(Command::Search { needle, limit: 20 })
+        }
+        "reply" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("reply needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            // `--all` rather than a separate verb: it is the same operation with a wider
+            // audience, and two verbs would be two code paths for one question.
+            let scope = match args.get(2).map(String::as_str) {
+                None => ReplyScope::Sender,
+                Some("--all") => ReplyScope::All,
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            Ok(Command::Reply {
+                message: MessageId::from_uuid(uuid),
+                scope,
+                // Filled in by the caller, which owns stdin. Parsing stays pure.
+                body: String::new(),
+            })
+        }
+        "send" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("send needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            // `--at` takes the rest of the line, as `snooze` does: "2026-09-25 09:00" is two
+            // words, and quoting it would be one more thing to remember.
+            let at = match args.get(2).map(String::as_str) {
+                None => None,
+                Some("--at") => {
+                    let when = args[3..].join(" ");
+                    if when.trim().is_empty() {
+                        return Err(format!(
+                            "--at needs a time: mailo send {raw} --at tomorrow\n\n{}",
+                            usage()
+                        ));
+                    }
+                    Some(when)
+                }
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            Ok(Command::Send {
+                draft: DraftId::from_uuid(uuid),
+                at,
+            })
+        }
+        "unsend" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("unsend needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            Ok(Command::Unsend {
+                draft: DraftId::from_uuid(uuid),
+            })
+        }
+        "template" => parse_template(&args[1..]),
+        "forward" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("forward needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            let to = match (args.get(2).map(String::as_str), args.get(3)) {
+                (Some("--to"), Some(list)) => mail_core::compose::addresses::parse_addresses(list)?,
+                (Some("--to"), None) => {
+                    return Err(format!("--to needs an address\n\n{}", usage()));
+                }
+                (None, _) => {
+                    // A forward with nobody to send it to would be a draft the CLI cannot finish
+                    // and no command can repair.
+                    return Err(format!(
+                        "forward needs recipients: mailo forward {raw} --to someone@example.com\n\n{}",
+                        usage()
+                    ));
+                }
+                (Some(other), _) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            if to.is_empty() {
+                return Err("--to had no addresses in it".to_owned());
+            }
+            let carry = match args.get(4).map(String::as_str) {
+                None => mail_core::compose::Carry::Inline,
+                Some("--attached") if args.len() == 5 => mail_core::compose::Carry::Attached,
+                Some(other) => {
+                    return Err(format!("unknown option {other:?}\n\n{}", usage()));
+                }
+            };
+            Ok(Command::Forward {
+                message: MessageId::from_uuid(uuid),
+                to,
+                // Filled in by the caller, which owns stdin. Parsing stays pure.
+                body: String::new(),
+                carry,
+            })
+        }
+        "unsubscribe" => {
+            let raw = args.get(1).ok_or_else(|| {
+                format!("unsubscribe needs a thread or message id\n\n{}", usage())
+            })?;
+            let target = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread or message id"))?;
+            let step = match args.get(2).map(String::as_str) {
+                None => UnsubscribeStep::Act,
+                Some("--show") => UnsubscribeStep::Show,
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            Ok(Command::Unsubscribe { target, step })
+        }
+        "contacts" => contacts::parse(&args[1..]).map(Command::Contacts),
+        "print" => parse_print(&args[1..]),
+        "invite" => invite::parse(&args[1..]).map(Command::Invite),
+        "rules" => rules::parse(&args[1..]).map(Command::Rules),
+        "vacation" => rules::parse_vacation(&args[1..]).map(Command::Vacation),
+        "sieve" => rules::parse_sieve(&args[1..]).map(Command::Sieve),
+        "pgp" => pgp::parse(&args[1..])
+            .map(Command::Pgp)
+            .map_err(|e| e.to_string()),
+        "smime" => smime::parse(&args[1..])
+            .map(Command::Smime)
+            .map_err(|e| e.to_string()),
+        "watch" => parse_watch(&args[1..]),
+        "notify" => match args.get(1).map(String::as_str) {
+            None => Ok(Command::Notify { set: None }),
+            Some("on") => Ok(Command::Notify {
+                set: Some(mail_core::notify::Setting::On),
+            }),
+            Some("off") => Ok(Command::Notify {
+                set: Some(mail_core::notify::Setting::Off),
+            }),
+            Some(other) => Err(format!(
+                "notify takes on or off, not {other:?}\n\n{}",
+                usage()
+            )),
+        },
+        "offline" => {
+            let set = match args.get(2).map(String::as_str) {
+                None => None,
+                Some("on") => Some(mail_core::offline::Keep::Everything),
+                Some("off") => Some(mail_core::offline::Keep::Bodies),
+                Some(other) => {
+                    return Err(format!(
+                        "offline takes on or off, not {other:?}\n\n{}",
+                        usage()
+                    ));
+                }
+            };
+            if args.len() > 3 {
+                return Err(format!(
+                    "offline takes an account and on or off\n\n{}",
+                    usage()
+                ));
+            }
+            Ok(Command::Offline {
+                address: args.get(1).cloned(),
+                set,
+            })
+        }
+        "daemon" => match args.get(1).map(String::as_str) {
+            None => Ok(Command::Daemon { stop: false }),
+            Some("--stop") => Ok(Command::Daemon { stop: true }),
+            Some(other) => Err(format!("unknown option {other:?}\n\n{}", usage())),
+        },
+        "ping" => Ok(Command::Ping),
+        "--help" | "-h" | "help" => Ok(Command::Help),
+        "--version" | "-V" => Ok(Command::Version),
+        // The desktop's entry points: the router and packaging run them, so they work and the
+        // usage leaves them out.
+        "intents" => Ok(Command::Intents),
+        "--write-schema" => match &args[1..] {
+            [dir] => Ok(Command::WriteSchema { dir: dir.into() }),
+            _ => Err(format!("--write-schema takes one directory\n\n{}", usage())),
+        },
+        "attach" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("attach needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            let path = args.get(2).ok_or_else(|| {
+                format!(
+                    "attach needs a file: mailo attach {raw} ./report.pdf\n\n{}",
+                    usage()
+                )
+            })?;
+            Ok(Command::Attach {
+                draft: DraftId::from_uuid(uuid),
+                path: std::path::PathBuf::from(path),
+            })
+        }
+        "detach" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("detach needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            let index = args
+                .get(2)
+                .ok_or_else(|| {
+                    format!(
+                        "detach needs a number, as `attached` prints it\n\n{}",
+                        usage()
+                    )
+                })?
+                .parse()
+                .map_err(|_| "that isn't an attachment number".to_owned())?;
+            Ok(Command::Detach {
+                draft: DraftId::from_uuid(uuid),
+                index,
+            })
+        }
+        "attached" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("attached needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            Ok(Command::Attached {
+                draft: DraftId::from_uuid(uuid),
+            })
+        }
+        "compose" => {
+            // A flag loop rather than fixed positions: three options, two of them optional, and
+            // the order someone types them in is not something to have an opinion about.
+            let mut from = None;
+            let (mut to, mut cc, mut bcc) = (Vec::new(), Vec::new(), Vec::new());
+            let mut subject = String::new();
+            let mut receipt = ReceiptRequest::Unrequested;
+            let (mut sign, mut encrypt, mut smime) = (false, false, false);
+            let mut rest = args[1..].iter();
+            while let Some(flag) = rest.next() {
+                let missing = format!("{flag} needs a value\n\n{}", usage());
+                match flag.as_str() {
+                    // Both word orders: a flag refused for its word order is a flag nobody finds.
+                    "--request-receipt" | "--receipt-request" => {
+                        receipt = ReceiptRequest::Requested;
+                    }
+                    "--sign" => sign = true,
+                    "--encrypt" => encrypt = true,
+                    "--smime" => smime = true,
+                    "--from" => {
+                        from = Some(rest.next().ok_or(missing)?.clone());
+                    }
+                    "--to" => {
+                        to = mail_core::compose::addresses::parse_addresses(
+                            rest.next().ok_or(missing)?,
+                        )?;
+                    }
+                    "--cc" => {
+                        cc = mail_core::compose::addresses::parse_addresses(
+                            rest.next().ok_or(missing)?,
+                        )?;
+                    }
+                    "--bcc" => {
+                        bcc = mail_core::compose::addresses::parse_addresses(
+                            rest.next().ok_or(missing)?,
+                        )?;
+                    }
+                    "--subject" => {
+                        subject = rest.next().ok_or(missing)?.clone();
+                    }
+                    other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+                }
+            }
+            if to.is_empty() {
+                // A draft with nobody to send it to is one no command can finish.
+                return Err(format!(
+                    "compose needs recipients: mailo compose --to someone@example.com\n\n{}",
+                    usage()
+                ));
+            }
+            Ok(Command::Compose {
+                from,
+                to,
+                cc,
+                bcc,
+                subject,
+                // Filled in by the caller, which owns stdin. Parsing stays pure.
+                body: String::new(),
+                receipt,
+                openpgp: match (sign, encrypt, smime) {
+                    (_, _, true) | (false, false, _) => None,
+                    (true, false, false) => Some(Mode::Sign),
+                    (false, true, false) => Some(Mode::Encrypt),
+                    (true, true, false) => Some(Mode::SignAndEncrypt),
+                },
+                smime: match (sign, encrypt, smime) {
+                    (_, _, false) => None,
+                    (false, false, true) => {
+                        return Err(format!(
+                            "--smime says how to --sign or --encrypt; give one of them too\n\n{}",
+                            usage()
+                        ));
+                    }
+                    (true, false, true) => Some(Mode::Sign),
+                    (false, true, true) => Some(Mode::Encrypt),
+                    (true, true, true) => Some(Mode::SignAndEncrypt),
+                },
+            })
+        }
+        "receipt" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("receipt needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            let answer = match args.get(2).map(String::as_str) {
+                None => ReceiptAnswer::Sent,
+                Some("--decline") => ReceiptAnswer::Declined,
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            if let Some(extra) = args.get(3) {
+                return Err(format!("unexpected {extra:?}\n\n{}", usage()));
+            }
+            Ok(Command::Receipt {
+                message: MessageId::from_uuid(uuid),
+                answer,
+            })
+        }
+        "pin" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("pin needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            Ok(Command::Pin {
+                thread: ThreadId::from_uuid(uuid),
+            })
+        }
+        "snooze" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("snooze needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            // The rest of the line, joined: "next tuesday" and "2026-09-25 14:30" are two words
+            // and quoting them would be a thing to remember for no reason.
+            let when = args[2..].join(" ");
+            if when.trim().is_empty() {
+                return Err(format!(
+                    "snooze needs a time: mailo snooze {raw} tomorrow\n\n{}",
+                    usage()
+                ));
+            }
+            Ok(Command::Snooze {
+                thread: ThreadId::from_uuid(uuid),
+                when,
+            })
+        }
+        "archive" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("archive needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            Ok(Command::Archive {
+                thread: ThreadId::from_uuid(uuid),
+            })
+        }
+        "wake" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("wake needs a thread id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a thread id"))?;
+            Ok(Command::Wake {
+                thread: ThreadId::from_uuid(uuid),
+            })
+        }
+        "attachments" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("attachments needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            Ok(Command::Attachments {
+                message: MessageId::from_uuid(uuid),
+            })
+        }
+        "save" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("save needs a message id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a message id"))?;
+            let index = args
+                .get(2)
+                .ok_or_else(|| format!("save needs the attachment's number\n\n{}", usage()))?
+                .parse::<usize>()
+                .map_err(|_| {
+                    "the attachment's number comes from `mailo attachments <message-id>`".to_owned()
+                })?;
+            // The current directory by default, which is where someone running a command
+            // expects a file to land.
+            let dir = args
+                .get(3)
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            Ok(Command::Save {
+                message: MessageId::from_uuid(uuid),
+                index,
+                dir,
+            })
+        }
+        "drafts" => Ok(Command::Drafts),
+        "discard" => {
+            let raw = args
+                .get(1)
+                .ok_or_else(|| format!("discard needs a draft id\n\n{}", usage()))?;
+            let uuid = raw
+                .parse()
+                .map_err(|_| format!("{raw:?} is not a draft id"))?;
+            Ok(Command::Discard {
+                draft: DraftId::from_uuid(uuid),
+            })
+        }
+        "status" => Ok(Command::Status),
+        "signature" => {
+            let address = args
+                .get(1)
+                .ok_or_else(|| {
+                    format!(
+                        "signature needs an address: mailo signature you@example.com\n\n{}",
+                        usage()
+                    )
+                })?
+                .to_lowercase();
+            let clear = match args.get(2).map(String::as_str) {
+                None => false,
+                Some("--clear") => true,
+                Some(other) => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+            };
+            Ok(Command::Signature {
+                address,
+                clear,
+                // Filled in by the caller, which owns stdin. Parsing stays pure.
+                text: String::new(),
+            })
+        }
+        "sync" => match &args[1..] {
+            [] => Ok(Command::Sync),
+            [flag, account, path] if flag == "--folder" => Ok(Command::SyncFolder {
+                account: account.clone(),
+                path: path.clone(),
+            }),
+            _ => Err(format!(
+                "usage: mailo sync [--folder <account> <path>]\n\n{}",
+                usage()
+            )),
+        },
+        "import" => parse_import(&args[1..]),
+        "export" => parse_export(&args[1..]),
+        "folder" => parse_folder(&args[1..]),
+        "icons" => match args.get(1).map(String::as_str) {
+            Some("refresh") if args.len() == 2 => Ok(Command::IconsRefresh),
+            Some("refresh") => Err(format!("icons refresh takes no arguments\n\n{}", usage())),
+            _ => Err(format!(
+                "unknown icons command. Use: mailo icons refresh\n\n{}",
+                usage()
+            )),
+        },
+        "account" => match args.get(1).map(String::as_str) {
+            Some("add") => {
+                let address = args
+                    .get(2)
+                    .ok_or_else(|| format!("account add needs an address\n\n{}", usage()))?;
+                let rest = &args[3..];
+                let microsoft = rest.iter().any(|a| a == "--microsoft");
+                let consent = if rest.iter().any(|a| a == "--yes") {
+                    Consent::Given
+                } else {
+                    Consent::Ask
+                };
+                let mut graph = false;
+                let mut send_named = false;
+                // Named, or left to the default below.
+                let mut receive_named: Option<Receive> = None;
+                let mut others: Vec<String> = Vec::new();
+                let mut words = rest.iter().filter(|a| *a != "--microsoft" && *a != "--yes");
+                while let Some(word) = words.next() {
+                    if word == "--receive" {
+                        receive_named = match words.next().map(String::as_str) {
+                            Some("graph") => Some(Receive::Graph),
+                            Some("imap") => Some(Receive::Imap),
+                            other => {
+                                return Err(format!(
+                                    "--receive takes imap or graph, not {other:?}\n\n{}",
+                                    usage()
+                                ));
+                            }
+                        };
+                        if !microsoft {
+                            return Err(format!(
+                                "--receive is for a Microsoft 365 account; add --microsoft\n\n{}",
+                                usage()
+                            ));
+                        }
+                        continue;
+                    }
+                    if word != "--send" {
+                        others.push(word.clone());
+                        continue;
+                    }
+                    send_named = true;
+                    graph = match words.next().map(String::as_str) {
+                        Some("graph") => true,
+                        Some("smtp") => false,
+                        other => {
+                            return Err(format!(
+                                "--send takes smtp or graph, not {other:?}\n\n{}",
+                                usage()
+                            ));
+                        }
+                    };
+                    if !microsoft {
+                        return Err(format!(
+                            "--send is for a Microsoft 365 account; add --microsoft\n\n{}",
+                            usage()
+                        ));
+                    }
+                }
+                // A work or school account reads through Graph unless it is told otherwise, as
+                // Thunderbird and Evolution set Microsoft 365 up: `--receive imap` keeps IMAP, and
+                // so does naming how it sends, which is a choice only an IMAP account has.
+                let receive = match (receive_named, send_named) {
+                    (Some(named), _) => named,
+                    (None, true) => Receive::Imap,
+                    (None, false) if microsoft => Receive::Usual,
+                    (None, false) => Receive::Imap,
+                };
+                // Reading through Graph leaves no IMAP sign-in for SMTP to borrow: the one token
+                // is Graph's, so the account sends through Graph as well.
+                if receive == Receive::Graph {
+                    if send_named && !graph {
+                        return Err(format!(
+                            "--receive graph sends through Graph too; drop --send smtp\n\n{}",
+                            usage()
+                        ));
+                    }
+                    graph = true;
+                }
+                if microsoft && !others.is_empty() {
+                    return Err(format!(
+                        "--microsoft already knows the servers; drop the other options\n\n{}",
+                        usage()
+                    ));
+                }
+                Ok(Command::AccountAdd {
+                    address: address.clone(),
+                    manual: parse_manual(&others)?,
+                    microsoft,
+                    graph,
+                    receive,
+                    consent,
+                })
+            }
+            Some("discover") => match &args[2..] {
+                [address] => Ok(Command::AccountDiscover {
+                    address: address.clone(),
+                }),
+                _ => Err(format!("account discover takes one address\n\n{}", usage())),
+            },
+            Some("remove") => match &args[2..] {
+                [address] if address != "--yes" => Ok(Command::AccountRemove {
+                    address: address.clone(),
+                    consent: Consent::Ask,
+                }),
+                [address, yes] | [yes, address] if yes == "--yes" && address != "--yes" => {
+                    Ok(Command::AccountRemove {
+                        address: address.clone(),
+                        consent: Consent::Given,
+                    })
+                }
+                _ => Err(format!(
+                    "account remove takes one address, and --yes to remove it\n\n{}",
+                    usage()
+                )),
+            },
+            None | Some("list") => Ok(Command::AccountList),
+            Some(other) => Err(format!("unknown account command {other:?}\n\n{}", usage())),
+        },
+        other => Err(format!("unknown command {other:?}\n\n{}", usage())),
+    }
+}
+
+/// `folder list [account]`, `folder new|rename|delete|subscribe|unsubscribe <account> …`.
+///
+/// Every change names its account. A folder name means nothing without one, and guessing the
+/// account for something that deletes is not a default worth having.
+/// `mailo template save|list|use|delete`.
+fn parse_template(args: &[String]) -> Result<Command, String> {
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let usage_for = |shape: &str| format!("usage: mailo template {shape}\n\n{}", usage());
+    let id = |raw: &str, what: &str| -> Result<uuid::Uuid, String> {
+        raw.parse()
+            .map_err(|_| format!("{raw:?} is not a {what} id"))
+    };
+    match words.as_slice() {
+        [] | ["list"] => Ok(Command::TemplateList),
+        // The rest of the line is the name, so it needs no quotes.
+        ["save", draft, name @ ..] => Ok(Command::TemplateSave {
+            draft: DraftId::from_uuid(id(draft, "draft")?),
+            name: name.join(" "),
+        }),
+        ["use", template] => Ok(Command::TemplateUse {
+            template: TemplateId::from_uuid(id(template, "template")?),
+            to: Vec::new(),
+        }),
+        ["use", template, "--to", list] => {
+            let to = mail_core::compose::addresses::parse_addresses(list)?;
+            if to.is_empty() {
+                return Err("--to had no addresses in it".to_owned());
+            }
+            Ok(Command::TemplateUse {
+                template: TemplateId::from_uuid(id(template, "template")?),
+                to,
+            })
+        }
+        ["delete", template] => Ok(Command::TemplateDelete {
+            template: TemplateId::from_uuid(id(template, "template")?),
+        }),
+        ["save", ..] => Err(usage_for("save <draft-id> [name]")),
+        ["use", ..] => Err(usage_for("use <template-id> [--to a@b[,c@d]]")),
+        ["delete", ..] => Err(usage_for("delete <template-id>")),
+        ["list", ..] => Err(usage_for("list")),
+        [other, ..] => Err(format!("unknown template command {other:?}\n\n{}", usage())),
+    }
+}
+
+/// `import PATH [--to-mailbox ACCOUNT FOLDER]`.
+fn parse_import(args: &[String]) -> Result<Command, String> {
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        [path] => Ok(Command::Import {
+            path: (*path).into(),
+            into: mail_core::import::Destination::Local,
+        }),
+        [path, "--to-mailbox", account, folder] | ["--to-mailbox", account, folder, path] => {
+            Ok(Command::Import {
+                path: (*path).into(),
+                into: mail_core::import::Destination::Mailbox {
+                    account: (*account).to_owned(),
+                    folder: (*folder).to_owned(),
+                },
+            })
+        }
+        _ => Err(format!(
+            "import takes a file or a folder of mail, and optionally --to-mailbox ACCOUNT FOLDER\n\n{}",
+            usage()
+        )),
+    }
+}
+
+/// `export QUERY... --mbox FILE | --maildir DIR | --eml DIR`.
+fn parse_export(args: &[String]) -> Result<Command, String> {
+    let wrong = || {
+        format!(
+            "export takes what to export, then one of --mbox FILE, --maildir DIR or --eml DIR\n\n{}",
+            usage()
+        )
+    };
+    // The flag is a format's slug: `--mbox`, `--maildir`, `--eml`.
+    fn writer_of(flag: &str) -> Option<&'static dyn mail_core::formats::Writer> {
+        flag.strip_prefix("--")
+            .and_then(mail_core::formats::writer_named)
+    }
+    let at = args
+        .iter()
+        .position(|a| writer_of(a).is_some())
+        .ok_or_else(wrong)?;
+    let [flag, path] = &args[at..] else {
+        return Err(wrong());
+    };
+    let query = args[..at].join(" ");
+    if query.trim().is_empty() {
+        return Err(wrong());
+    }
+    let path = std::path::PathBuf::from(path);
+    let writer = writer_of(flag).ok_or_else(wrong)?;
+    Ok(Command::Export {
+        query,
+        target: mail_core::export::Target::new(writer, path),
+    })
+}
+
+fn parse_folder(args: &[String]) -> Result<Command, String> {
+    let words: Vec<&str> = args.iter().map(String::as_str).collect();
+    let usage_for = |shape: &str| format!("usage: mailo folder {shape}\n\n{}", usage());
+    let work = match words.as_slice() {
+        [] | ["list"] => return Ok(Command::FolderList { account: None }),
+        ["list", account] => {
+            return Ok(Command::FolderList {
+                account: Some((*account).to_owned()),
+            });
+        }
+        ["new", account, name] => (
+            account,
+            FolderWork::Create {
+                path: (*name).to_owned(),
+            },
+        ),
+        ["rename", account, from, to] => (
+            account,
+            FolderWork::Rename {
+                from: (*from).to_owned(),
+                to: (*to).to_owned(),
+            },
+        ),
+        ["delete", account, name] => (
+            account,
+            FolderWork::Delete {
+                path: (*name).to_owned(),
+                non_empty: NonEmpty::Refuse,
+            },
+        ),
+        ["delete", account, name, "--with-messages"] => (
+            account,
+            FolderWork::Delete {
+                path: (*name).to_owned(),
+                non_empty: NonEmpty::Allow,
+            },
+        ),
+        [verb @ ("subscribe" | "unsubscribe"), account, name] => (
+            account,
+            FolderWork::Subscribe {
+                path: (*name).to_owned(),
+                subscription: if *verb == "subscribe" {
+                    Subscription::Subscribed
+                } else {
+                    Subscription::Unsubscribed
+                },
+            },
+        ),
+        ["list", ..] => return Err(usage_for("list [account]")),
+        ["new", ..] => return Err(usage_for("new <account> <name>")),
+        ["rename", ..] => return Err(usage_for("rename <account> <old> <new>")),
+        ["delete", ..] => return Err(usage_for("delete <account> <name> [--with-messages]")),
+        ["subscribe" | "unsubscribe", ..] => {
+            return Err(usage_for("subscribe|unsubscribe <account> <name>"));
+        }
+        [other, ..] => return Err(format!("unknown folder command {other:?}\n\n{}", usage())),
+    };
+    let (account, work) = work;
+    Ok(Command::Folder {
+        account: (*account).to_owned(),
+        work,
+    })
+}
+
+/// Whether the user has already agreed: to use what discovery finds, or to remove an account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Consent {
+    /// `--yes`.
+    Given,
+    /// Show it and ask, or refuse where nobody can be asked.
+    Ask,
+}
+
+/// `--imap HOST[:PORT] | --pop3 HOST[:PORT]`, then `--smtp HOST[:PORT] [--login NAME]`, or `None`
+/// when none were given.
+///
+/// All or nothing: naming only the incoming server would leave the account unable to send, and
+/// silently defaulting the other half to a guessed hostname is how mail goes to a server the
+/// user never chose.
+fn parse_manual(args: &[String]) -> Result<Option<Setup>, String> {
+    if args.is_empty() {
+        return Ok(None);
+    }
+    if args.iter().any(|a| a == "--jmap") {
+        return parse_jmap(args).map(Some);
+    }
+    let (mut imap, mut pop3, mut smtp, mut login) = (None, None, None, None);
+    let mut rest = args.iter();
+    while let Some(flag) = rest.next() {
+        let value = rest
+            .next()
+            .ok_or_else(|| format!("{flag} needs a value\n\n{}", usage()))?;
+        match flag.as_str() {
+            "--imap" => imap = Some(host_port(value, 993)?),
+            "--pop3" => pop3 = Some(host_port(value, 995)?),
+            "--smtp" => smtp = Some(host_port(value, 465)?),
+            "--login" => login = Some(value.clone()),
+            other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
+        }
+    }
+    if imap.is_some() && pop3.is_some() {
+        return Err(format!(
+            "an account reads mail over IMAP or over POP3, not both; pick one\n\n{}",
+            usage()
+        ));
+    }
+    match (imap, pop3, smtp) {
+        (Some((imap_host, imap_port)), None, Some((smtp_host, smtp_port))) => {
+            Ok(Some(Setup::Imap(mail_domain::presets::Manual {
+                imap_host,
+                imap_port,
+                smtp_host,
+                smtp_port,
+                login,
+            })))
+        }
+        (None, Some((pop3_host, pop3_port)), Some((smtp_host, smtp_port))) => {
+            Ok(Some(Setup::Pop3(mail_domain::presets::ManualPop3 {
+                pop3_host,
+                pop3_port,
+                smtp_host,
+                smtp_port,
+                login,
+            })))
+        }
+        (None, None, None) => Err(format!(
+            "--login needs --imap (or --pop3) and --smtp too\n\n{}",
+            usage()
+        )),
+        _ => Err(format!(
+            "manual setup needs --smtp and one of --imap or --pop3; mailo can't \
+             set up an account that only receives or only sends\n\n{}",
+            usage()
+        )),
+    }
+}
+
+/// `--jmap [URL] [--login NAME]`, in either order.
+///
+/// The URL is optional because RFC 8620 says where a domain keeps its session; it is taken to
+/// be the word after `--jmap` when that word is not itself an option.
+fn parse_jmap(args: &[String]) -> Result<Setup, String> {
+    let (mut session, mut login) = (None, None);
+    let mut rest = args.iter().peekable();
+    while let Some(flag) = rest.next() {
+        match flag.as_str() {
+            "--jmap" => {
+                if let Some(url) = rest.next_if(|w| !w.starts_with("--")) {
+                    if !url.starts_with("https://") && !url.starts_with("http://") {
+                        return Err(format!(
+                            "--jmap takes the session URL, e.g. https://jmap.example.com/.well-known/jmap,                              not {url:?}
+
+{}",
+                            usage()
+                        ));
+                    }
+                    session = Some(url.clone());
+                }
+            }
+            "--login" => {
+                login = Some(
+                    rest.next()
+                        .ok_or_else(|| {
+                            format!(
+                                "--login needs a value
+
+{}",
+                                usage()
+                            )
+                        })?
+                        .clone(),
+                );
+            }
+            other => {
+                return Err(format!(
+                    "--jmap names the one server that both receives and sends; {other:?} does                      not go with it
+
+{}",
+                    usage()
+                ));
+            }
+        }
+    }
+    Ok(Setup::Jmap {
+        session,
+        login,
+        auth: mail_domain::HttpAuth::Basic,
+    })
+}
+
+/// `host` or `host:port`, with `default` when no port is given.
+fn host_port(raw: &str, default: u16) -> Result<(String, u16), String> {
+    match raw.rsplit_once(':') {
+        Some((host, port)) => {
+            let port: u16 = port
+                .parse()
+                .map_err(|_| format!("{port:?} is not a port number"))?;
+            if host.is_empty() {
+                return Err(format!("{raw:?} has no hostname"));
+            }
+            Ok((host.to_owned(), port))
+        }
+        None if raw.is_empty() => Err("a server name can't be empty".to_owned()),
+        None => Ok((raw.to_owned(), default)),
+    }
+}
+
+fn parse_limit(raw: Option<&String>) -> Result<u32, String> {
+    match raw {
+        None => Ok(20),
+        Some(text) => text
+            .parse()
+            .map_err(|_| format!("{text:?} is not a number of rows")),
+    }
+}
+
+pub fn usage() -> String {
+    "\
+usage: mailo <command>
+
+  list [inbox|archive|sent|drafts|trash|spam|snoozed|pinned] [limit]
+  show <thread-id>          prints each message's id, for `reply`
+  search <words...>          from:ada to:bob subject:lunch is:unread is:starred
+                             in:archive has:attachment before:2026-01-01
+                             after:2025-12-25 -from:newsletter, or a quoted phrase;
+                             the best few first, marked top, then newest first
+  reply <message-id> [--all]  compose a reply; the body is read from stdin
+  forward <message-id> --to a@b[,c@d] [--attached]
+                             forward it; the covering note is read from stdin.
+                             --attached carries the message itself as an attachment
+  compose --to a@b[,c@d] [--cc …] [--bcc …] [--subject S] [--from address]
+          [--request-receipt] [--sign] [--encrypt] [--smime]
+                             a new message; the body is read from stdin. --sign and
+                             --encrypt use OpenPGP (PGP/MIME), or S/MIME with --smime
+  pgp keys                    the OpenPGP keys held, yours and your correspondents'
+  pgp generate <address>      make a key for one of your identities
+  pgp import <file>           import keys, public or secret, armored or binary
+  pgp export <fingerprint|address> [--secret]
+                             print a key; --secret prints its secret half, with a warning
+  pgp delete <fingerprint|address> [--with-secret]
+  pgp lookup <address>        ask the address's domain for its key (Web Key Directory)
+  pgp verify <fingerprint>    mark a key as checked with its owner
+  smime list                  the S/MIME certificates held, yours and your correspondents'
+  smime import <file>         import your identity (.p12/.pfx, asks its password) or a
+                             certificate (PEM or DER)
+  smime export <fingerprint|address>
+                             print a certificate, PEM
+  smime delete <fingerprint|address> [--with-secret]
+  smime trust <fingerprint>   trust a certificate, and what it issued; `untrust` undoes it
+  smime show <message-id>     what a message's S/MIME signature and encryption say
+  receipt <message-id> [--decline]
+                             send the read receipt a message asks for, or
+                             decline to; `show` says which messages ask
+  invite <message-id>         the calendar invitation a message carries
+  invite <message-id> accept|tentative|decline [--comment TEXT]
+                             answer it; the reply goes to the organiser at the next sync
+  invite <message-id> --ics FILE
+                             save the event as an .ics file for any calendar
+  attach <draft-id> <path>    put a file on a draft
+  attached <draft-id>         what it is carrying
+  detach <draft-id> <n>       take one back off
+  send <draft-id> [--at <when>]
+                             queue a draft for the next sync; --at holds it until
+                             then, in the words snooze takes (tomorrow, +2h,
+                             2026-09-25 09:00 …)
+  unsend <draft-id>           take back a send that has not left; a draft again
+  template save <draft-id> [name]
+                             keep a draft to start messages from; local only
+  template list
+  template use <template-id> [--to a@b[,c@d]]
+                             a new draft from it; prints the draft's id
+  template delete <template-id>
+  snooze <thread-id> <when>   put it off: later, tonight, tomorrow, weekend,
+                             monday…sunday, +2h, +3d, or a date like 2026-09-25
+  archive <thread-id>         file it in Archive
+  wake <thread-id>            bring a snoozed conversation back now
+  pin <thread-id>             keep it in view, or unpin it again
+  attachments <message-id>    what is attached to a message
+  save <message-id> <n> [dir] write one of them out (default: here)
+  unsubscribe <thread-or-message-id> [--show]
+                             leave the list it came through: one-click where the
+                             list offers it, else a queued message; --show only lists
+                             the ways out. A web page is printed, not opened
+  print <thread-or-message-id> [--out FILE] [--page-per-message]
+                             a printable HTML document: to stdout when piped, else a
+                             new file here named from the subject; --out - for stdout
+  contacts [words]            the best-matching contacts, as a recipient field offers them
+  contacts add <address> [name]
+  contacts remove <address>
+  contacts import <file.vcf>  vCard 2.1, 3.0 or 4.0, as phones and webmail export them
+  contacts export [file.vcf]  as vCard 4.0; to stdout when no file is named
+  contacts sync [url] [--account address] [--user login]
+                             sync a CardDAV address book (every one synced before, when
+                             no url is given). With --user, set MAILO_PASSWORD; without,
+                             the account's own sign-in is presented
+  rules [list] [--account A]  every rule, in the order it runs
+  rules add NAME <search words…> [--label L] [--folder PATH] [--archive] [--trash]
+            [--spam] [--read] [--unread] [--star] [--notify] [--forward ADDRESS]
+            [--reply TEMPLATE] [--stop] [--account A]
+                             run on each sync over new inbox mail the search matches;
+                             --stop keeps later rules from seeing it. Join conditions
+                             with OR for any of them
+  rules remove|enable|disable NAME [--account A]
+  rules run NAME [--in FOLDER] [--batch N] [--account A]
+                             run a rule now over the mail already here, or in one
+                             folder; it forwards, replies and notifies only as mail
+                             arrives
+  sieve [status] [--account A]
+                             what the server's ManageSieve runs, and whether it is
+                             what this client would put there
+  sieve push [--account A] [--replace-active]
+                             install the rules the server can run, and the vacation
+                             reply, as the active script. Refuses to switch off a
+                             script made elsewhere unless --replace-active
+  vacation [show] [--account A]
+  vacation on --subject S --body-file FILE [--days N] [--from DATE] [--until DATE]
+              [--account A]  an away reply, run by the server; --until is the day
+                             you are back (DATE is 2026-10-08 or 2026-10-08T09:00)
+  vacation off [--account A]
+  drafts                      drafts and where each one got to
+  discard <draft-id>          delete a draft
+  status
+  account [list]
+  signature <address> [--clear]
+                             set it from stdin, or take it off
+  account add <address> [--yes]
+                             (set MAILO_PASSWORD for a password account). An unknown
+                             domain is looked up and its servers shown for
+                             confirmation first; --yes accepts them
+  account discover <address> what that lookup finds, without adding anything
+  account remove <address> [--yes]
+                             what removing it takes from this computer; --yes removes
+                             it, its mail here and its saved sign-in
+  account add <address> --imap HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
+                             for a server with no preset
+  account add <address> --pop3 HOST[:PORT] --smtp HOST[:PORT] [--login NAME]
+                             the same, for a server that offers only POP3
+  account add <address> --jmap [URL] [--login NAME]
+                             a JMAP server (RFC 8620): at the session URL given, or found at
+                             https://<domain>/.well-known/jmap and confirmed first. Set
+                             MAILO_PASSWORD, or MAILO_JMAP_TOKEN for a bearer token.
+  account add <address> --microsoft [--receive imap] [--send smtp|graph]
+                             a work or school Microsoft 365 mailbox on its own domain,
+                             read and sent through Microsoft Graph; --receive imap reads
+                             over IMAP instead, sending over SMTP, or through Graph with
+                             --send graph
+  sync                       fetch mail and send anything queued
+  sync --folder <account> <path>
+                             fetch one folder now, followed or not
+  import <path> [--to-mailbox <account> <folder>]
+                             mail from an mbox (Google Takeout's too), a Maildir,
+                             one .eml, Apple Mail's mailboxes (an export or its .emlx
+                             files) or a Thunderbird profile, kept in \"local folders\"
+                             on this computer, or uploaded into a folder on an IMAP
+                             account. Running it again adds nothing already there
+  export <search|inbox|sent|all…> --mbox FILE | --maildir DIR | --eml DIR
+                             write the messages a search finds; bodies not yet
+                             downloaded are skipped and counted
+  folder [list] [account]    every folder the server lists
+  folder new <account> <name>
+  folder rename <account> <old> <new>
+  folder delete <account> <name> [--with-messages]
+                             refuses a folder that holds mail unless told; on Gmail
+                             this removes a label and deletes no message
+  folder subscribe|unsubscribe <account> <name>
+  icons refresh              fetch each account's provider icon again
+  watch [--no-notify] [--wait]
+                             keep fetching until stopped (IDLE where offered, else
+                             polling); notifies of new unread inbox mail unless
+                             --no-notify or `notify off`; with --wait, one that finds
+                             another watch running takes over when it ends
+  notify [on|off]            turn new-mail notifications on or off (default on)
+  offline [<account> [on|off]]
+                             keep every attachment of an account here too, fetched
+                             a few each sync, largest last (default off); alone,
+                             how much of each account is here
+  daemon [--stop]            run the background daemon, or stop it
+  ping                       reach the daemon, starting one if none is running
+
+options, before the command:
+  --profile <id-or-name>     run over that profile's mail instead of the default's
+  -h, --help                 this list
+  -V, --version              the version of mailo
+"
+    .to_owned()
+}
+
+/// What `--version` prints: the program's name and the version it was built as.
+pub fn version() -> String {
+    format!("mailo {}\n", env!("CARGO_PKG_VERSION"))
+}
+
+/// Run a command over `mail`, returning what to print.
+///
+/// Returns a `String` rather than printing, so tests assert on output instead of capturing
+/// stdout. The handle carries what the commands read besides the store: the environment (a
+/// password or a passphrase given there), the secrets, the OAuth clients and the time. The binary
+/// builds it with [`mail_edge::mail`], whose clients are the ones `main` installed
+/// ([`mail_core::OAuthClients::here`], this installation's files); a test's handle has the ones the
+/// test hands it, and none when it hands none, so no test opens a real sign-in and waits.
+pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
+    let store: &SqliteStore = mail.store();
+    let now = mail.now();
+    // What the process was started with: the commands that take a password or a passphrase from
+    // the environment read it here, and the library reads nothing itself.
+    let env = mail.environment().clone();
+    // The person's clock, which every time of day this writes follows: `main` decided it.
+    let clock = env.hours;
+    // The Profile's own keys: the handle was built over its keyring service.
+    let signing = mail.signing();
+    match command {
+        Command::List { mailbox, limit } => {
+            // `mailbox_filter::for_role`, not `Filter::InMailbox`: the shell and the command list the
+            // same mailbox, and two spellings of "the inbox" is how one of them keeps showing
+            // what the other has put away.
+            let page = store
+                .threads(
+                    &list_query(mail_core::mailbox_filter::for_role(*mailbox), *limit),
+                    now,
+                )
+                .map_err(|e| e.to_string())?;
+            if page.items.is_empty() {
+                return Ok(format!("no threads in {}\n", mailbox));
+            }
+            Ok(render_list(&page.items, clock))
+        }
+        Command::Show { thread } => {
+            let loaded = store.thread(*thread).map_err(|e| e.to_string())?;
+            let mut out = format!("{}\n", loaded.summary.subject);
+            let _ = writeln!(
+                out,
+                "{} message(s), {}",
+                loaded.summary.message_count,
+                if loaded.summary.read == ReadState::Unread {
+                    "unread"
+                } else {
+                    "read"
+                }
+            );
+            for id in &loaded.messages {
+                let message = store.message(*id).map_err(|e| e.to_string())?;
+                // The id is here because `reply` needs one and nothing else prints it: the
+                // sequence `list` → `show` → `reply` was unusable without opening the database
+                // by hand. Found by running the three in order rather than each on its own.
+                let _ = writeln!(
+                    out,
+                    "\n--- {} <{}>  {}\n    {}",
+                    message.from.name.as_deref().unwrap_or(""),
+                    message.from.email,
+                    mail_core::when::stamp(message.date, &Local, Stamp::Full, clock),
+                    message.id
+                );
+                // Asked here rather than only in a window, so a request is never answered by
+                // default: whoever reads the message is told it asks and how to answer.
+                if let Ok(state) = mail_core::receipt::state(store, &message) {
+                    out.push_str(&receipt::describe(&state, message.id));
+                }
+                // Likewise an invitation: said, with how to answer, and never answered for them.
+                if let Ok(state) = mail_core::invite::state(store, &message) {
+                    out.push_str(&invite::describe(&state, message.id, clock));
+                }
+                // OpenPGP: the signature checked and the encryption opened now, as it is shown,
+                // never before. The decrypted text is printed and kept nowhere.
+                let protected = mail_core::pgp::open_message(
+                    store,
+                    signing.as_ref(),
+                    &message,
+                    &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
+                    now,
+                );
+                let opened_text = match protected {
+                    Ok(Some(protected)) => {
+                        out.push_str(&pgp::describe(&protected));
+                        protected.shown.and_then(|parsed| parsed.text)
+                    }
+                    Ok(None) => None,
+                    Err(e) => {
+                        let _ = writeln!(out, "    OpenPGP: {e}");
+                        None
+                    }
+                };
+                // S/MIME likewise, when OpenPGP found nothing to open.
+                let opened_text = match opened_text {
+                    Some(text) => Some(text),
+                    None => {
+                        match mail_core::smime::open_message(store, signing.as_ref(), &message, now)
+                        {
+                            Ok(Some(protected)) => {
+                                out.push_str(&smime::describe(&protected));
+                                protected.shown.and_then(|parsed| parsed.text)
+                            }
+                            Ok(None) => None,
+                            Err(e) => {
+                                let _ = writeln!(out, "    S/MIME: {e}");
+                                None
+                            }
+                        }
+                    }
+                };
+                if let Some(text) = opened_text {
+                    let _ = writeln!(out, "{}", text.trim_end());
+                    continue;
+                }
+                match message.body.text() {
+                    Some(text) => {
+                        let _ = writeln!(out, "{}", text.trim_end());
+                    }
+                    // Normal during a first sync, not an error: headers arrive before bodies.
+                    None => {
+                        let _ = writeln!(out, "(body not fetched yet)");
+                    }
+                }
+            }
+            Ok(out)
+        }
+        Command::Search { needle, limit } => {
+            // Shared with the window's search box, which is the point: the two had separate
+            // answers to "which label is called this", and one of them was "none, ever".
+            let labels = mail_core::query::known_labels(store);
+            let accounts = mail_core::query::known_accounts(store);
+            let known = mail_core::query::Known {
+                labels: &labels,
+                accounts: &accounts,
+            };
+            Ok(search::search(store, needle, *limit, &known, now, clock))
+        }
+        // Dispatched in main: it needs an async runtime and the store by Arc, which would make
+        // this function untestable without one.
+        Command::Sync | Command::SyncFolder { .. } => {
+            Err("sync is dispatched before this point".to_owned())
+        }
+        Command::Import { .. } | Command::Export { .. } => {
+            Err("import and export are dispatched before this point".to_owned())
+        }
+        Command::Watch { .. } => Err("watch is dispatched before this point".to_owned()),
+        Command::Intents => Err("intents is dispatched before this point".to_owned()),
+        Command::Help | Command::Version => {
+            Err("help and version are dispatched before this point".to_owned())
+        }
+        // Dispatched in main: it needs the network, an async runtime and a terminal to ask on.
+        Command::AccountDiscover { .. } => {
+            Err("account discover is dispatched before this point".to_owned())
+        }
+        // Dispatched in main, which owns the environment the config directory comes from.
+        Command::Notify { .. } => Err("notify is dispatched before this point".to_owned()),
+        // Dispatched in main before the store opens: the schema needs nowhere but `dir`.
+        Command::WriteSchema { .. } => {
+            Err("--write-schema is dispatched before this point".to_owned())
+        }
+        Command::Offline { .. } => Err("offline is dispatched before this point".to_owned()),
+        Command::Daemon { .. } | Command::Ping => {
+            Err("the daemon commands are dispatched before this point".to_owned())
+        }
+        Command::Reply {
+            message,
+            scope,
+            body,
+        } => mail_core::compose::draft_reply(store, *message, *scope, body, now)
+            .map(|draft| compose::replied(&draft))
+            .map_err(remedy::error),
+        // The terminal is asked for a passphrase only if the draft is signed or encrypted with a
+        // protected key.
+        Command::Send { draft, at: None } => mail_core::compose::send_with(
+            store,
+            signing.as_ref(),
+            &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
+            *draft,
+            now,
+        )
+        .map(|(draft, post)| compose::queued(&draft, &post))
+        .map_err(remedy::error),
+        Command::Send {
+            draft,
+            at: Some(when),
+        } => mail_core::compose::send_later_with(
+            store,
+            signing.as_ref(),
+            &|fingerprint| pgp::terminal_passphrase(&env, fingerprint),
+            *draft,
+            when,
+            now,
+        )
+        .map(|held| compose::scheduled(&held, now, &Local, clock))
+        .map_err(remedy::error),
+        Command::Unsend { draft } => mail_core::compose::unsend(store, *draft, now)
+            .map(|back| compose::unsent(&back))
+            .map_err(remedy::error),
+        Command::TemplateSave { draft, name } => {
+            mail_core::template::save(store, *draft, name, now)
+                .map(|kept| template::saved(&kept))
+                .map_err(remedy::error)
+        }
+        Command::TemplateList => mail_core::template::all(store)
+            .map(|all| template::listed(&all))
+            .map_err(remedy::error),
+        Command::TemplateUse { template, to } => {
+            mail_core::template::start(store, *template, to, now)
+                .map(|draft| template::started(&draft))
+                .map_err(remedy::error)
+        }
+        Command::TemplateDelete { template } => mail_core::template::delete(store, *template)
+            .map(|name| format!("deleted template {name:?}\n"))
+            .map_err(remedy::error),
+        Command::Drafts => mail_core::compose::drafts(store)
+            .map(|all| compose::drafts(&all, now, clock))
+            .map_err(remedy::error),
+        Command::ListSnoozed { limit } => {
+            let page = store
+                .threads(
+                    &list_query(mail_core::mailbox_filter::pending_snooze(), *limit),
+                    now,
+                )
+                .map_err(|e| e.to_string())?;
+            if page.items.is_empty() {
+                return Ok("nothing is snoozed\n".to_owned());
+            }
+            Ok(render_list(&page.items, clock))
+        }
+        Command::ListPinned { limit } => {
+            let page = store
+                .threads(&list_query(Filter::Pinned, *limit), now)
+                .map_err(|e| e.to_string())?;
+            if page.items.is_empty() {
+                return Ok("nothing is pinned\n".to_owned());
+            }
+            Ok(render_list(&page.items, clock))
+        }
+        Command::Pin { thread } => mail_core::snooze::pin(store, *thread, now)
+            .map(snooze::pinned)
+            .map_err(remedy::error),
+        Command::Snooze { thread, when } => mail_core::snooze::snooze(store, *thread, when, now)
+            .map(|at| snooze::snoozed(at, clock))
+            .map_err(remedy::error),
+        Command::Archive { thread } => {
+            match mail_core::act::perform(store, *thread, mail_domain::Op::Archive) {
+                Some(_) => Ok(snooze::archived()),
+                None => Err("that conversation could not be archived".to_owned()),
+            }
+        }
+        Command::Wake { thread } => mail_core::snooze::wake(store, *thread, now)
+            .map(|()| snooze::woke())
+            .map_err(remedy::error),
+        Command::Attachments { message } => mail_core::attach::list(store, *message)
+            .map(|listed| attach::listing(&listed))
+            .map_err(remedy::error),
+        Command::Save {
+            message,
+            index,
+            dir,
+        } => mail_core::attach::save(store, *message, *index, dir)
+            .map(|path| format!("wrote {}\n", path.display()))
+            .map_err(remedy::error),
+        Command::Forward {
+            message,
+            to,
+            body,
+            carry,
+        } => mail_core::compose::forward(store, *message, to, body, *carry, now)
+            .map(|draft| compose::forwarded(&draft))
+            .map_err(remedy::error),
+        Command::Attach { draft, path } => {
+            mail_core::compose::attach_file(store, *draft, path, now)
+                .map(|draft| {
+                    format!(
+                        "attached {}; {} now carries {} file(s)\n",
+                        path.display(),
+                        draft.id,
+                        draft.attachments.len()
+                    )
+                })
+                .map_err(remedy::error)
+        }
+        Command::Detach { draft, index } => mail_core::compose::detach(store, *draft, *index, now)
+            .map(|draft| {
+                format!(
+                    "{} now carries {} file(s)\n",
+                    draft.id,
+                    draft.attachments.len()
+                )
+            })
+            .map_err(remedy::error),
+        Command::Attached { draft } => mail_core::compose::attachments_of(store, *draft)
+            .map(|files| compose::attached(&files))
+            .map_err(remedy::error),
+        Command::Compose {
+            from,
+            to,
+            cc,
+            bcc,
+            subject,
+            body,
+            receipt,
+            openpgp,
+            smime,
+        } => mail_core::compose::new_sealed_message(
+            store,
+            from.as_deref(),
+            [to, cc, bcc],
+            subject,
+            body,
+            (*receipt, *openpgp, *smime),
+            now,
+        )
+        .map(|made| compose::composed(&made))
+        .map_err(remedy::error),
+        Command::Smime(command) => smime::run(
+            store,
+            signing.as_ref(),
+            &|| smime::terminal_password(&env),
+            command,
+            now,
+        )
+        .map_err(remedy::error),
+        Command::Pgp(pgp::PgpCommand::Lookup { .. }) => {
+            Err("pgp lookup is dispatched before this point".to_owned())
+        }
+        Command::Pgp(command) => {
+            pgp::run(store, signing.as_ref(), command, now).map_err(remedy::error)
+        }
+        Command::Receipt { message, answer } => {
+            mail_core::receipt::answer(store, *message, *answer, now)
+                .map(|settled| receipt::answered(&settled))
+                .map_err(remedy::error)
+        }
+        Command::Unsubscribe { target, step } => {
+            let found = mail_core::unsubscribe::find(store, *target).map_err(remedy::error)?;
+            let described = unsubscribe::describe(&found);
+            if *step == UnsubscribeStep::Show {
+                return Ok(described);
+            }
+            let http = mail_core::unsubscribe::client().map_err(|e| e.to_string())?;
+            let outcome =
+                mail_edge::block_on(mail_core::unsubscribe::perform(store, &found, &http, now))
+                    .map_err(remedy::error)?;
+            Ok(format!("{described}\n{}", unsubscribe::report(&outcome)))
+        }
+        Command::Contacts(command) => {
+            mail_edge::block_on(contacts::run(mail, command)).map_err(remedy::error)
+        }
+        Command::Print { target, out, pages } => {
+            let printed =
+                mail_core::html_document::document(store, *target, &Local, now, *pages, clock)
+                    .map_err(remedy::error)?;
+            match out {
+                PrintTo::Unsaid | PrintTo::Stdout => Ok(printed.html),
+                PrintTo::File(path) => std::fs::write(path, &printed.html)
+                    .map(|()| format!("wrote {}\n", path.display()))
+                    .map_err(|e| format!("{}: {e}", path.display())),
+                PrintTo::Into(dir) => mail_core::html_document::write_into(dir, &printed)
+                    .map(|path| format!("wrote {}\n", path.display()))
+                    .map_err(remedy::error),
+            }
+        }
+        Command::Invite(command) => invite::run(store, command, now, clock).map_err(remedy::error),
+        Command::Rules(rules) => rules::run(store, rules, now).map_err(remedy::error),
+        Command::Vacation(vacation) => {
+            mail_edge::block_on(rules::run_vacation(mail, vacation)).map_err(remedy::error)
+        }
+        Command::Sieve(sieve) => {
+            mail_edge::block_on(rules::run_sieve(mail, sieve)).map_err(remedy::error)
+        }
+        Command::Discard { draft } => mail_core::compose::discard(store, *draft)
+            .map(|subject| format!("discarded {subject:?}\n"))
+            .map_err(remedy::error),
+        Command::AccountAdd {
+            address,
+            manual,
+            microsoft,
+            graph,
+            receive,
+            consent: _,
+        } => mail_edge::block_on(mail.accounts().add(
+            mail_core::account::Requested {
+                address,
+                manual: manual.as_ref(),
+                microsoft: *microsoft,
+                graph: *graph,
+                receive: *receive,
+            },
+            &account::announce_sign_in,
+        ))
+        .map(|added| account::added(&added))
+        .map_err(remedy::error),
+        Command::AccountList => mail_edge::block_on(mail.accounts().list())
+            .map(|accounts| account::listed(&accounts))
+            .map_err(remedy::error),
+        Command::AccountRemove { address, consent } => account::remove(
+            mail,
+            mail_core::config::config_dir().as_deref(),
+            address,
+            *consent,
+        ),
+        Command::FolderList { account } => {
+            let id = account
+                .as_deref()
+                .map(|address| account_named(store, address))
+                .transpose()?;
+            mail_core::folder::list(store, id)
+                .map(|accounts| folder::listing(&accounts))
+                .map_err(remedy::error)
+        }
+        Command::Folder { account, work } => {
+            let id = account_named(store, account)?;
+            mail_core::folder::change(store, id, work.clone(), now)
+                .map(|_| folder::said(work, account))
+                .map_err(|e| e.to_string())
+        }
+        Command::IconsRefresh => {
+            let Some(root) = mail_core::config::cache_dir() else {
+                return Err("no home directory, so there is nowhere to keep an icon".to_owned());
+            };
+            let providers =
+                mail_core::provider::icon::providers_of(store).map_err(remedy::error)?;
+            if providers.is_empty() {
+                return Ok("no accounts. Add one with: mailo account add <address>\n".to_owned());
+            }
+            let results = mail_edge::block_on(mail_core::provider::icon::refresh(
+                &root.join("providers"),
+                &providers,
+            ));
+            for (provider, result) in &results {
+                if let Err(err) = result
+                    && !matches!(err, mail_core::provider::icon::IconError::Unmapped)
+                {
+                    log::warn!(
+                        "provider icon: {}: {err}",
+                        mail_core::provider::icon::file_stem(*provider)
+                    );
+                }
+            }
+            Ok(icons::report(&results))
+        }
+        Command::Signature {
+            address,
+            clear,
+            text,
+        } => {
+            let account = account_named(store, address)?;
+            mail_core::compose::set_signature(
+                store,
+                account,
+                if *clear { None } else { Some(text.as_str()) },
+            )
+            .map(|change| compose::signature(&change))
+            .map_err(remedy::error)
+        }
+        Command::Status => {
+            let mut out = String::new();
+            for role in MailboxRole::ALL {
+                // What the window's place lists: Archive is what is not in the inbox too.
+                let place = mail_core::mailbox_filter::for_role(role);
+                let total = store.count(&place, now).map_err(|e| e.to_string())?;
+                let unread = store
+                    .count(&mail_core::mailbox_filter::unread_in(place), now)
+                    .map_err(|e| e.to_string())?;
+                if total > 0 {
+                    let _ = writeln!(out, "{:<8} {:>5} total  {:>5} unread", role, total, unread);
+                }
+            }
+            if out.is_empty() {
+                out.push_str("no mail yet\n");
+            }
+            Ok(out)
+        }
+    }
+}
+
+fn list_query(filter: Filter, limit: u32) -> Query {
+    Query {
+        filter,
+        sort: Sort {
+            property: Property::Date,
+            dir: SortDir::Desc,
+        },
+        page: PageReq { after: None, limit },
+    }
+}
+
+/// The account whose address is `address`.
+///
+/// By address because that is what the user knows: an account id is a uuid nothing prints except
+/// `account list`, and asking someone to copy one to set a signature is asking them not to.
+/// `mailo sync --folder <account> <path>`: fetch one folder now, by the account's address.
+///
+/// Beside `run` rather than in it, like `sync`: it needs the store by `Arc` and a runtime.
+pub fn sync_folder(
+    store: std::sync::Arc<SqliteStore>,
+    account: &str,
+    path: &str,
+) -> Result<String, String> {
+    let id = account_named(&store, account)?;
+    let mail = mail_edge::mail(&store);
+    let end = mail_edge::block_on(mail.sync().folder_now(id, path)).map_err(remedy::error)?;
+    sync::folder_text(&end, path)
+}
+
+fn account_named(store: &SqliteStore, address: &str) -> Result<AccountId, String> {
+    store
+        .account_by_address(&address.to_lowercase())
+        .ok()
+        .flatten()
+        .map(|account| account.id)
+        .ok_or_else(|| {
+            format!("no account for {address:?}. `mailo account list` says which there are.")
+        })
+}
+
+fn render_list(items: &[ThreadSummary], clock: mail_core::when::Clock) -> String {
+    let mut out = String::new();
+    for summary in items {
+        let _ = writeln!(
+            out,
+            "{} {} {:<28.28} {:<40.40} {}",
+            if summary.read == ReadState::Unread {
+                "*"
+            } else {
+                " "
+            },
+            mail_core::when::stamp(summary.last_date, &Local, Stamp::Row, clock),
+            summary.from.shown(),
+            summary.subject,
+            summary.id
+        );
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| (*w).to_owned()).collect()
+    }
+
+    #[test]
+    fn the_simple_verbs_parse_to_their_command() {
+        let cases: [(&str, &[&str], Command); 3] = [
+            (
+                "list defaults to the inbox",
+                &["list"],
+                Command::List {
+                    mailbox: MailboxRole::Inbox,
+                    limit: 20,
+                },
+            ),
+            // So `mailo search lunch on friday` is one phrase rather than a parse error.
+            (
+                "search joins its words",
+                &["search", "lunch", "on", "friday"],
+                Command::Search {
+                    needle: "lunch on friday".to_owned(),
+                    limit: 20,
+                },
+            ),
+            (
+                "icons refresh",
+                &["icons", "refresh"],
+                Command::IconsRefresh,
+            ),
+        ];
+        for (name, words, want) in cases {
+            assert_eq!(parse(&args(words)), Ok(want), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_usage_names_every_command() {
+        // A command that works but is undocumented is a command nobody uses.
+        const CASES: &[(&str, &str)] = &[
+            (
+                "list",
+                "list [inbox|archive|sent|drafts|trash|spam|snoozed|pinned]",
+            ),
+            ("show", "show <thread-id>"),
+            ("search", "search <words...>"),
+            ("reply", "reply <message-id> [--all]"),
+            ("forward", "forward <message-id> --to"),
+            ("compose", "compose --to"),
+            ("send", "send <draft-id> [--at <when>]"),
+            ("unsend", "unsend <draft-id>"),
+            ("template save", "template save <draft-id>"),
+            ("template use", "template use <template-id>"),
+            ("drafts", "\n  drafts "),
+            ("discard", "discard <draft-id>"),
+            ("status", "\n  status\n"),
+            ("sync", "\n  sync "),
+            ("sync one folder", "sync --folder <account> <path>"),
+            (
+                "folder delete",
+                "folder delete <account> <name> [--with-messages]",
+            ),
+            ("icons", "icons refresh"),
+            ("watch", "watch [--no-notify] [--wait]"),
+            ("unsubscribe", "unsubscribe <thread-or-message-id>"),
+            ("receipt", "receipt <message-id> [--decline]"),
+            ("jmap", "account add <address> --jmap"),
+        ];
+        let text = usage();
+        for (name, needle) in CASES {
+            assert!(
+                text.contains(needle),
+                "usage does not mention {name} ({needle:?}):\n{text}"
+            );
+        }
+    }
+
+    #[test]
+    fn help_and_version_are_commands_of_their_own() {
+        for words in [&["--help"][..], &["-h"], &["help"]] {
+            assert_eq!(parse(&args(words)), Ok(Command::Help), "{words:?}");
+        }
+        for words in [&["--version"][..], &["-V"]] {
+            assert_eq!(parse(&args(words)), Ok(Command::Version), "{words:?}");
+        }
+        assert_eq!(version(), format!("mailo {}\n", env!("CARGO_PKG_VERSION")));
+        let text = usage();
+        assert!(text.contains("-h, --help"), "{text}");
+        assert!(text.contains("-V, --version"), "{text}");
+    }
+
+    #[test]
+    fn the_desktops_entry_points_work_and_the_usage_leaves_them_out() {
+        // The router and packaging run these; a person reading the list has no use for them.
+        assert_eq!(parse(&args(&["intents"])), Ok(Command::Intents));
+        assert_eq!(
+            parse(&args(&["--write-schema", "out"])),
+            Ok(Command::WriteSchema { dir: "out".into() })
+        );
+        let text = usage();
+        assert!(!text.contains("intents"), "{text}");
+        assert!(!text.contains("--write-schema"), "{text}");
+    }
+
+    #[test]
+    fn sync_takes_one_folder_or_none() {
+        let args = |words: &[&str]| words.iter().map(|w| (*w).to_owned()).collect::<Vec<_>>();
+        assert_eq!(parse(&args(&["sync"])), Ok(Command::Sync));
+        assert_eq!(
+            parse(&args(&[
+                "sync",
+                "--folder",
+                "me@example.test",
+                "Projects/2026"
+            ])),
+            Ok(Command::SyncFolder {
+                account: "me@example.test".to_owned(),
+                path: "Projects/2026".to_owned(),
+            })
+        );
+        for wrong in [
+            &["sync", "--folder"][..],
+            &["sync", "--folder", "me@example.test"],
+            &["sync", "Projects/2026"],
+        ] {
+            let said = parse(&args(wrong)).unwrap_err();
+            assert!(said.contains("sync [--folder <account> <path>]"), "{said}");
+        }
+    }
+
+    #[test]
+    fn account_remove_asks_unless_told_yes() {
+        let remove = |consent| Command::AccountRemove {
+            address: "me@example.test".to_owned(),
+            consent,
+        };
+        let cases: Vec<(&[&str], Command)> = vec![
+            (
+                &["account", "remove", "me@example.test"],
+                remove(Consent::Ask),
+            ),
+            (
+                &["account", "remove", "me@example.test", "--yes"],
+                remove(Consent::Given),
+            ),
+            (
+                &["account", "remove", "--yes", "me@example.test"],
+                remove(Consent::Given),
+            ),
+        ];
+        for (words, expect) in cases {
+            assert_eq!(parse(&args(words)).unwrap(), expect, "{words:?}");
+        }
+        for wrong in [
+            &["account", "remove"][..],
+            &["account", "remove", "a@example.test", "b@example.test"],
+            &["account", "remove", "--yes"],
+        ] {
+            let said = parse(&args(wrong)).unwrap_err();
+            assert!(said.contains("account remove takes one address"), "{said}");
+        }
+    }
+
+    #[test]
+    fn the_folder_verbs_parse_to_the_work_they_name() {
+        let work = |account: &str, work: FolderWork| Command::Folder {
+            account: account.to_owned(),
+            work,
+        };
+        let cases: Vec<(&[&str], Command)> = vec![
+            (&["folder"], Command::FolderList { account: None }),
+            (&["folder", "list"], Command::FolderList { account: None }),
+            (
+                &["folder", "list", "me@example.test"],
+                Command::FolderList {
+                    account: Some("me@example.test".to_owned()),
+                },
+            ),
+            (
+                &["folder", "new", "me@example.test", "Paid bills"],
+                work(
+                    "me@example.test",
+                    FolderWork::Create {
+                        path: "Paid bills".to_owned(),
+                    },
+                ),
+            ),
+            (
+                &["folder", "rename", "me@example.test", "Work", "工作"],
+                work(
+                    "me@example.test",
+                    FolderWork::Rename {
+                        from: "Work".to_owned(),
+                        to: "工作".to_owned(),
+                    },
+                ),
+            ),
+            (
+                &["folder", "delete", "me@example.test", "Old"],
+                work(
+                    "me@example.test",
+                    FolderWork::Delete {
+                        path: "Old".to_owned(),
+                        non_empty: NonEmpty::Refuse,
+                    },
+                ),
+            ),
+            (
+                &[
+                    "folder",
+                    "delete",
+                    "me@example.test",
+                    "Old",
+                    "--with-messages",
+                ],
+                work(
+                    "me@example.test",
+                    FolderWork::Delete {
+                        path: "Old".to_owned(),
+                        non_empty: NonEmpty::Allow,
+                    },
+                ),
+            ),
+            (
+                &["folder", "subscribe", "me@example.test", "Lists"],
+                work(
+                    "me@example.test",
+                    FolderWork::Subscribe {
+                        path: "Lists".to_owned(),
+                        subscription: Subscription::Subscribed,
+                    },
+                ),
+            ),
+            (
+                &["folder", "unsubscribe", "me@example.test", "Lists"],
+                work(
+                    "me@example.test",
+                    FolderWork::Subscribe {
+                        path: "Lists".to_owned(),
+                        subscription: Subscription::Unsubscribed,
+                    },
+                ),
+            ),
+        ];
+        for (words, want) in cases {
+            assert_eq!(parse(&args(words)).unwrap(), want, "{words:?}");
+        }
+    }
+
+    #[test]
+    fn a_folder_command_missing_a_part_says_which_shape_it_wanted() {
+        const CASES: &[(&[&str], &str)] = &[
+            // Every change names its account; a name without one means nothing.
+            (&["folder", "new", "Receipts"], "new <account> <name>"),
+            (
+                &["folder", "rename", "me@example.test", "Work"],
+                "rename <account>",
+            ),
+            (&["folder", "delete", "me@example.test"], "delete <account>"),
+            // Deleting mail is said in full or not at all.
+            (
+                &["folder", "delete", "me@example.test", "Old", "--force"],
+                "--with-messages",
+            ),
+            (&["folder", "subscribe"], "subscribe|unsubscribe"),
+            (
+                &["folder", "list", "a@example.test", "b@example.test"],
+                "list [account]",
+            ),
+            (
+                &["folder", "move", "me@example.test", "Old"],
+                "unknown folder command",
+            ),
+        ];
+        for (words, hint) in CASES {
+            let error = parse(&args(words)).unwrap_err();
+            assert!(error.contains(hint), "{words:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn bad_input_explains_itself_rather_than_panicking() {
+        // Each error starts with the sentence that says what was wrong; the usage follows it.
+        const CASES: &[(&str, &[&str], &str)] = &[
+            ("nothing at all", &[], "usage: mailo <command>"),
+            ("an unknown verb", &["wat"], "unknown command \"wat\""),
+            (
+                "an unknown mailbox",
+                &["list", "nowhere"],
+                "unknown mailbox \"nowhere\"",
+            ),
+            ("show with no id", &["show"], "show needs a thread id"),
+            (
+                "show with a bad id",
+                &["show", "not-a-uuid"],
+                "\"not-a-uuid\" is not a thread id",
+            ),
+            (
+                "a limit that is not a number",
+                &["list", "inbox", "many"],
+                "\"many\" is not a number of rows",
+            ),
+            (
+                "search for nothing",
+                &["search"],
+                "search needs something to look for",
+            ),
+            (
+                "icons with no command",
+                &["icons"],
+                "unknown icons command. Use: mailo icons refresh",
+            ),
+            (
+                "icons refresh with an argument",
+                &["icons", "refresh", "now"],
+                "icons refresh takes no arguments",
+            ),
+        ];
+        for (name, words, said) in CASES {
+            let err = parse(&args(words)).expect_err(name);
+            assert!(err.starts_with(said), "{name}: {err}");
+        }
+    }
+}

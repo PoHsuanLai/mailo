@@ -1,0 +1,60 @@
+[package]
+name = "mail-cli"
+# The app side: I/O and policy, not a library for others.
+publish = false
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The `mailo` command line: its words, what each command does, and what `mailo watch` keeps"
+repository = "https://github.com/PoHsuanLai/mailo"
+authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
+
+# The terminal front end, over `mail-core`. It words nothing of the window and draws nothing: no
+# dioxus, no ds-*, no blitz, no quire here. What it takes from `mail-ui` is the settings files and
+# the words of a finished import, the top of that crate and not its `ui` (`scripts/check-boundary.sh`);
+# they leave `mail-ui` when the settings do. It does not name `mail-intents` either: `mailo intents`
+# is dispatched by `mail-app`.
+
+[dependencies]
+mail-core = { workspace = true, features = ["desktop", "pdf", "keyring"] }
+mail-domain.workspace = true
+mail-store.workspace = true
+mail-client.workspace = true
+mail-edge.workspace = true
+mail-os.workspace = true
+mail-ui.workspace = true
+mail-mime = { workspace = true, features = ["openpgp", "smime"] }
+mail-proto.workspace = true
+mail-pim.workspace = true
+porter-core.workspace = true
+porter-provider.workspace = true
+porter-secrets.workspace = true
+chrono.workspace = true
+log.workspace = true
+# The folder Open writes a part into before the system opens it: made fresh for each run, named so
+# no one can guess it, and only its owner's.
+tempfile = "3"
+# Already a dependency of every id type. Named here because `mailo unsubscribe` takes an id that
+# may be a message or a thread, and only the store can say which.
+uuid = { workspace = true }
+
+# A passphrase asked on the Windows console with echo off (`pgp.rs`, `ask_tty`), where there is
+# no `/dev/tty` and no `stty` to do it with. Apache-2.0.
+[target.'cfg(windows)'.dependencies]
+rpassword = "7"
+
+[dev-dependencies]
+mail-domain = { workspace = true, features = ["testing"] }
+mail-store = { workspace = true, features = ["testing"] }
+mail-core = { workspace = true, features = ["testing"] }
+mail-mime = { workspace = true, features = ["testing"] }
+mail-runtime.workspace = true
+porter-secrets = { workspace = true, features = ["testing"] }
+image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "gif", "webp"] }
+rand = "0.8"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net", "io-util", "sync"] }
+uuid = { workspace = true }
+
+[lints]
+workspace = true
