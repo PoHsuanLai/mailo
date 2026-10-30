@@ -1304,9 +1304,9 @@ const LANDED_ON_MASTER: [(u32, &str); 40] = [
     ),
 ];
 
-/// The migrations this branch adds, 0041 to 0053. They land together with this table, so they
+/// The migrations this branch adds, 0041 to 0054. They land together with this table, so they
 /// join the ones above from here on: once they are on master they are as fixed as those.
-const LANDED_WITH_THIS_BRANCH: [(u32, &str); 13] = [
+const LANDED_WITH_THIS_BRANCH: [(u32, &str); 14] = [
     (
         41,
         "5fb56462cc1bf3ca45b41b68ba8a03f91e6af456e2dcebdc7e24dd3e95ba8a14",
@@ -1358,6 +1358,10 @@ const LANDED_WITH_THIS_BRANCH: [(u32, &str); 13] = [
     (
         53,
         "24cac33578a81e4804103d291ce63c9eeeea45739353295b543409ea77d790d2",
+    ),
+    (
+        54,
+        "d6af62e80880b3be3a9f8d1f5150d5d4f0ff7ec84d6c25d47fd1caee5a5ce195",
     ),
 ];
 

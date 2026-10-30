@@ -41,6 +41,9 @@ pub struct MemoryStore {
     inner: RefCell<Inner>,
 }
 
+/// A message that could not be read, and when it was last tried.
+type Tried = (mail_domain::RemoteRef, DateTime<Utc>);
+
 #[derive(Debug)]
 struct Inner {
     /// Accounts that have appeared in a write. `enqueue` refuses a resolved operation for an
@@ -81,6 +84,10 @@ struct Inner {
     sync: BTreeMap<(AccountId, String), SyncCursor>,
     /// When each mailbox with a cursor was last swept, as `sync_state` holds it.
     swept: BTreeMap<(AccountId, String), Swept>,
+    /// How far each mailbox with a cursor is held in full, as `sync_state.held_through` holds it.
+    held_through: BTreeMap<(AccountId, String), SyncCursor>,
+    /// When each message that could not be read was last tried, as the `unreadable` table holds.
+    unreadable: BTreeMap<(AccountId, String), Vec<Tried>>,
     /// Every mailbox the server listed, by account and path.
     folders: BTreeMap<(AccountId, String), mail_domain::Folder>,
     /// What the user answered each message's read-receipt request. Dropped with the message,
@@ -172,6 +179,8 @@ impl Default for Inner {
             pending: Vec::new(),
             sync: BTreeMap::new(),
             swept: BTreeMap::new(),
+            held_through: BTreeMap::new(),
+            unreadable: BTreeMap::new(),
             folders: BTreeMap::new(),
             receipts: BTreeMap::new(),
             invites: BTreeMap::new(),
@@ -335,6 +344,83 @@ impl Store for MemoryStore {
             .borrow_mut()
             .mark_swept(mailbox, |s| s.expunges = Some(at));
         Ok(())
+    }
+
+    fn held_through(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError> {
+        Ok(self
+            .inner
+            .borrow()
+            .held_through
+            .get(&(mailbox.account.clone(), mailbox.path.clone()))
+            .cloned())
+    }
+
+    fn mark_held_through(
+        &self,
+        mailbox: &MailboxRef,
+        through: &SyncCursor,
+    ) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        let key = (mailbox.account.clone(), mailbox.path.clone());
+        // Only a mailbox that has a cursor, as the column lives on its `sync_state` row.
+        if inner.sync.contains_key(&key) {
+            inner.held_through.insert(key, through.clone());
+        }
+        Ok(())
+    }
+
+    fn unreadable_since(
+        &self,
+        mailbox: &MailboxRef,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<mail_domain::RemoteRef>, StoreError> {
+        Ok(self
+            .inner
+            .borrow()
+            .unreadable
+            .get(&(mailbox.account.clone(), mailbox.path.clone()))
+            .into_iter()
+            .flatten()
+            .filter(|(_, tried)| *tried >= since)
+            .map(|(remote, _)| remote.clone())
+            .collect())
+    }
+
+    fn mark_unreadable(
+        &self,
+        mailbox: &MailboxRef,
+        remotes: &[mail_domain::RemoteRef],
+        at: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        let mut inner = self.inner.borrow_mut();
+        let tried = inner
+            .unreadable
+            .entry((mailbox.account.clone(), mailbox.path.clone()))
+            .or_default();
+        for remote in remotes {
+            tried.retain(|(held, _)| held != remote);
+            tried.push((remote.clone(), at));
+        }
+        Ok(())
+    }
+
+    fn server_sizes_at(
+        &self,
+        account: AccountId,
+        remotes: &[mail_domain::RemoteRef],
+    ) -> Result<Vec<(mail_domain::RemoteRef, u64)>, StoreError> {
+        let inner = self.inner.borrow();
+        Ok(inner
+            .held_at(account, remotes)
+            .into_iter()
+            .filter_map(|(remote, message)| {
+                inner
+                    .server_sizes
+                    .get(&message)
+                    .filter(|size| **size > 0)
+                    .map(|size| (remote, *size))
+            })
+            .collect())
     }
 
     fn put_caps(

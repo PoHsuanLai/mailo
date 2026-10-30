@@ -136,6 +136,7 @@ impl SqliteStore {
         let id = account.to_string();
         db.execute("DELETE FROM remote_map WHERE account = ?1", params![id])?;
         db.execute("DELETE FROM sync_state WHERE account = ?1", params![id])?;
+        db.execute("DELETE FROM unreadable WHERE account = ?1", params![id])?;
         tx.commit()?;
         Ok(())
     }

@@ -46,10 +46,11 @@ pub fn assemble(
     .map(|assembled| assembled.ingest)
 }
 
-/// What [`assemble_as`] made of a batch: the ingest, and how many arrivals were not messages.
+/// What [`assemble_as`] made of a batch: the ingest, and which arrivals were not messages.
 struct Assembled {
     ingest: Ingest,
-    unreadable: usize,
+    /// The addresses of the arrivals that could not be read.
+    unreadable: Vec<RemoteRef>,
 }
 
 /// Where a batch of bytes came from, which decides what in them may be believed.
@@ -73,7 +74,7 @@ fn assemble_as(
 ) -> Result<Assembled, RuntimeError> {
     let Destination { mailbox, role } = into;
     let mut parsed = Vec::new();
-    let mut unreadable = 0;
+    let mut unreadable = Vec::new();
     for arrival in arrivals {
         let fields = match provenance {
             Provenance::Wire => mail_mime::parse(&arrival.raw),
@@ -89,7 +90,7 @@ fn assemble_as(
                     "a message in {} could not be read and was skipped: {why}",
                     mailbox.path
                 );
-                unreadable += 1;
+                unreadable.push(arrival.remote);
                 continue;
             }
         };
@@ -633,6 +634,9 @@ pub struct Absorbed {
     /// Arrivals that could not be read as messages, and were skipped (and logged). A pass says
     /// how many, because its cursor has moved past them and nothing will fetch them again.
     pub unreadable: usize,
+    /// Where each of them is on the server, so a pass can leave them be for a while rather than
+    /// ask for the same bytes again.
+    pub skipped: Vec<RemoteRef>,
 }
 
 /// [`absorb_into`], saying how many arrivals were not messages: what a pass absorbs through,
@@ -667,7 +671,11 @@ pub fn absorb_counted(
         )?
     };
     let patch = store.ingest(account, ingest).map_err(RuntimeError::Store)?;
-    Ok(Absorbed { patch, unreadable })
+    Ok(Absorbed {
+        patch,
+        unreadable: unreadable.len(),
+        skipped: unreadable,
+    })
 }
 
 /// Absorb messages rebuilt from their sections, reading which parts were left on the server.
