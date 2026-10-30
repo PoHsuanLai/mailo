@@ -1,6 +1,6 @@
 //! Notifications through the platform's own notification service: by `notify-rust`, the
 //! freedesktop.org `org.freedesktop.Notifications` interface on the session bus on Linux and the
-//! BSDs and toasts on Windows; by `mail-appkit`, the notification centre on macOS.
+//! BSDs and toasts on Windows; by the app's `Posts`, the notification centre on macOS.
 //!
 //! Silent when there is nothing to talk to. A headless machine, an SSH session and a test run
 //! have no session bus, and a watch that fetches mail must not stop, or even complain on every
@@ -23,8 +23,8 @@
 //! The one action offered is `default`, the key a server invokes when the bubble itself is clicked.
 //!
 //! What each platform does not do:
-//! - macOS: only the window hears a click ([`Desktop::connect_in_window`], which installs the
-//!   delegate): the click is delivered on the application's main run loop, which winit's is, and
+//! - macOS: only the window hears a click (the app installs the delegate there and hands what it
+//!   hears to [`heard`]): the click is delivered on the application's main run loop, which winit's is, and
 //!   `mailo watch` is a command in a terminal with none. A banner is posted and forgotten: no
 //!   thread waits on it and nothing polls the centre for it to go (waiting on each, as
 //!   `notify-rust` does, costs a thread and a timer that reads every delivered banner twice a
@@ -49,7 +49,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use super::click::{Clicked, Clicks};
 
 /// What hears a click: on Linux the one listener, on Windows a bound on the threads that wait. On
-/// macOS the delegate `mail-appkit` holds, which nothing here keeps a handle to.
+/// macOS the delegate the app holds, which nothing here keeps a handle to.
 #[cfg(all(unix, not(target_os = "macos")))]
 type Hearing = Clicks;
 #[cfg(windows)]
@@ -61,6 +61,9 @@ pub struct Desktop {
     reach: Reach,
     #[cfg(not(target_os = "macos"))]
     hearing: Hearing,
+    /// macOS: what posts the banners, which is the app's.
+    #[cfg(target_os = "macos")]
+    banners: std::sync::Arc<dyn super::banner::Posts>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,27 +74,24 @@ enum Reach {
 
 impl Desktop {
     /// Find the notification service, or remember that there is none.
+    #[cfg(not(target_os = "macos"))]
     pub fn connect() -> Self {
         let reach = reach();
         Desktop {
             reach,
-            #[cfg(not(target_os = "macos"))]
             hearing: hearing(reach),
         }
     }
 
-    /// As [`connect`](Self::connect), for the window: the process that runs the application's
-    /// main run loop. On macOS that is what lets a click on a banner be heard, by the one
-    /// delegate this installs (the first time; later calls leave it be); everywhere else it is
-    /// the same as `connect`.
-    pub fn connect_in_window() -> Self {
-        #[cfg(target_os = "macos")]
-        {
-            // False when a delegate is installed already, or there is no centre: either way
-            // there is nothing more to do.
-            let _ = mail_appkit::banner::hear_banners(heard);
+    /// The notification centre, posted to by `banners`. Whoever should hear the clicks installs
+    /// the delegate for them and hands each to [`heard`]; a process with no run loop to deliver
+    /// them on (`mailo watch`) posts all the same.
+    #[cfg(target_os = "macos")]
+    pub fn connect(banners: std::sync::Arc<dyn super::banner::Posts>) -> Self {
+        Desktop {
+            reach: reach(),
+            banners,
         }
-        Self::connect()
     }
 }
 
@@ -113,8 +113,8 @@ fn hearing(_: Reach) -> Hearing {
 
 /// A click on a banner, from the one delegate: start what it asks for.
 #[cfg(target_os = "macos")]
-fn heard(click: mail_appkit::banner::Activation) {
-    use mail_appkit::banner::Pressed;
+pub fn heard(click: super::banner::Click) {
+    use super::banner::Pressed;
     let action = match &click.pressed {
         Pressed::Content | Pressed::Main => Some(super::banner::CONTENT),
         Pressed::More(id) => Some(id.as_str()),
@@ -207,7 +207,7 @@ impl Desktop {
         }
         // Posted, not waited on: the click is heard by the delegate, from what the banner carries.
         // No bundle identifier means no centre to post to, and nothing to say about that.
-        mail_appkit::banner::show(&banner(notification, sound));
+        self.banners.post(&banner(notification, sound));
     }
 }
 
@@ -410,8 +410,8 @@ fn platform(out: &mut notify_rust::Notification, n: &Notification, sound: Sound)
 /// conversation offers Open as its main button, with Archive and Reply among its further ones. What
 /// a click needs to know comes back with it ([`super::banner::info`]).
 #[cfg(target_os = "macos")]
-fn banner(n: &Notification, sound: Sound) -> mail_appkit::banner::Banner {
-    let mut out = mail_appkit::banner::Banner {
+fn banner(n: &Notification, sound: Sound) -> super::banner::Banner {
+    let mut out = super::banner::Banner {
         title: n.summary.clone(),
         body: n.body.clone(),
         sound: sound_name(sound).map(str::to_owned),
@@ -486,6 +486,45 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    use std::sync::Arc;
+
+    /// On macOS the banner goes to what the app handed in, and to nothing else: a test posts to
+    /// a recorder and never to the notification centre.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_banner_is_posted_by_the_poster_the_app_handed_in() {
+        use super::super::banner::{Banner, Posts};
+        use std::sync::Mutex;
+
+        #[derive(Debug, Default)]
+        struct Recorder(Mutex<Vec<Banner>>);
+        impl Posts for Recorder {
+            fn post(&self, banner: &Banner) {
+                if let Ok(mut posted) = self.0.lock() {
+                    posted.push(banner.clone());
+                }
+            }
+        }
+
+        let recorder = Arc::new(Recorder::default());
+        let desktop = Desktop::connect(recorder.clone());
+        desktop.show_with(
+            &Notification {
+                account: mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(1)),
+                summary: "Ada".to_owned(),
+                body: "lunch".to_owned(),
+                opens: Opens::Thread(mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(2))),
+                reply: true,
+            },
+            Sound::Silent,
+        );
+        let posted = recorder.0.lock().map(|p| p.clone()).unwrap_or_default();
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].title, "Ada");
+        assert_eq!(posted[0].main_button.as_deref(), Some("Open"));
+        assert_eq!(posted[0].sound, None);
+    }
 
     // Only Windows reads a response (Linux listens in `click`, macOS in `banner`), so the click
     // test, the one user of this id, runs there.

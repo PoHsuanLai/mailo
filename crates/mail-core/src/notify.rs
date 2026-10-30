@@ -15,7 +15,7 @@
 //! copied on arrival: it shows in a message's open reader, and nowhere a locked screen can read.
 
 #[cfg(all(feature = "desktop", any(target_os = "macos", test)))]
-mod banner;
+pub mod banner;
 #[cfg(all(unix, not(target_os = "macos"), feature = "desktop"))]
 pub mod click;
 #[cfg(feature = "desktop")]

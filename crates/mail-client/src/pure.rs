@@ -120,6 +120,14 @@ pub mod notify {
     #[cfg(feature = "desktop")]
     pub mod desktop {
         pub use mail_core::notify::desktop::Desktop;
+        /// What the app hands the macOS notification centre's banners through, and the click it
+        /// hears back.
+        #[cfg(target_os = "macos")]
+        pub use mail_core::notify::desktop::heard;
+    }
+    #[cfg(all(feature = "desktop", target_os = "macos"))]
+    pub mod banner {
+        pub use mail_core::notify::banner::{Banner, Click, Posts, Pressed};
     }
 }
 pub mod offline {

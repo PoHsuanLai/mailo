@@ -5208,7 +5208,6 @@ dependencies = [
  "interprocess",
  "latchkey",
  "log",
- "mail-appkit",
  "mail-runtime",
  "mail-store",
  "mailo-domain",

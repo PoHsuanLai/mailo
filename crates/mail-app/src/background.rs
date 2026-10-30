@@ -144,7 +144,7 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
     // The app runs for days: what is said, whose mail, in which mailboxes, with which sound, and
     // how the junk filter behaves are each read as they are used, so Settings is followed from
     // the next pass and not from the next start.
-    let desktop = mail_core::notify::desktop::Desktop::connect_in_window();
+    let desktop = mail_ui::desktop::connect_in_window();
     let notifier = mail_ui::settings::Notices::new(
         Box::new(move |notification, sound| desktop.show_with(notification, sound)),
         mail_ui::settings::person_root(),

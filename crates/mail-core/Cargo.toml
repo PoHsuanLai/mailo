@@ -28,9 +28,9 @@ keyring = ["mail-runtime/keyring"]
 oo7 = ["mail-runtime/oo7"]
 # The desktop's notification service and the clicks on what it shows (`notify/desktop.rs`,
 # `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface; on
-# macOS mail-appkit's banners instead. Without it a watch announces through whatever `Notifier`
-# it is handed.
-desktop = ["dep:notify-rust", "dep:zbus", "dep:mail-appkit"]
+# macOS the banners are the app's, handed in through `notify::banner::Posts`. Without it a watch
+# announces through whatever `Notifier` it is handed.
+desktop = ["dep:notify-rust", "dep:zbus"]
 # A PDF attachment's pages for the preview (`preview.rs`), by pdfrum. Without it a PDF has no
 # preview ("could not be read") and everything else previews as before.
 pdf = ["dep:pdfrum"]
@@ -113,14 +113,9 @@ zbus = { version = "5.19", optional = true }
 # keyring's Secret Service store) and toasts on Windows (tauri-winrt-notification). MIT OR
 # Apache-2.0, and so are both backends. Not on macOS: notify-rust's backend there
 # (mac-notification-sys) waits on a thread per banner and polls the centre for each to go, which
-# never ends for a banner nobody clears; the banners are posted by mail-appkit instead.
+# never ends for a banner nobody clears; the app posts them instead (`notify::banner::Posts`).
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 notify-rust = { version = "4.18", optional = true }
-
-# `NSUserNotificationCenter` banners and the one delegate that hears their clicks
-# (`notify/desktop.rs`).
-[target.'cfg(target_os = "macos")'.dependencies]
-mail-appkit = { workspace = true, optional = true }
 
 [dev-dependencies]
 # The values a test starts from (`mail_domain::testing`): the program never has them.

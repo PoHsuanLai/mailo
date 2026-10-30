@@ -12,6 +12,50 @@ use super::{DEFAULT_ACTION, Notification, Opens, act_for};
 use mail_domain::ThreadId;
 use porter_core::AccountId;
 use std::collections::HashMap;
+use std::fmt::Debug;
+
+/// A banner to post, as the app's notification centre is handed it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Banner {
+    pub title: String,
+    pub body: String,
+    /// A system sound's name; `None` for none.
+    pub sound: Option<String>,
+    /// The title of the banner's main button, if it has one.
+    pub main_button: Option<String>,
+    /// Further buttons, `(key, title)`, offered with the main one.
+    pub more_buttons: Vec<(String, String)>,
+    /// Text that comes back, as it was, with the click ([`info`]).
+    pub info: Vec<(String, String)>,
+}
+
+/// Where a banner is posted. The notification centre is the app's to reach (it takes platform
+/// calls this crate does not make), so the app hands in what posts, and the one that hears the
+/// clicks calls [`super::desktop::heard`].
+pub trait Posts: Debug + Send + Sync {
+    /// Post `banner` and do not wait for it. Nothing to say when there is no centre to post to.
+    fn post(&self, banner: &Banner);
+}
+
+/// What the person pressed on a banner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pressed {
+    /// The banner itself.
+    Content,
+    /// Its main button.
+    Main,
+    /// One of the further buttons, by its key.
+    More(String),
+    /// Anything else (an inline reply, or nothing the banner offered).
+    Other,
+}
+
+/// A click on a banner: what was pressed, and the text the banner was posted with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Click {
+    pub pressed: Pressed,
+    pub info: HashMap<String, String>,
+}
 
 /// The `userInfo` key of what the banner opens: `thread:<id>` or `inbox:<account>`.
 const OPENS: &str = "mailo.opens";
