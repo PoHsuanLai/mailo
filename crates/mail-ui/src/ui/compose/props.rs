@@ -26,7 +26,6 @@ use mail_client::Client;
 
 use dioxus::prelude::*;
 
-use super::super::data::account_rows;
 use super::super::menu::{
     Floating, MenuItem, MenuKey, Right, Tile, anchor_at, menu_items, menu_key,
 };
@@ -241,7 +240,7 @@ fn FromRow(page: Signal<Page>, shell: Signal<Shell>) -> Element {
     let chosen = page.read().identity;
     let open = page.read().float == Float::From;
     let identities = offered(&client, &page.read());
-    let rows = account_rows(&client);
+    let rows = super::super::data::use_account_rows()();
     let marks = shell.read().appearance.marks;
     let account_of =
         |identity: &mail_domain::Identity| rows.iter().find(|row| row.id == identity.account);

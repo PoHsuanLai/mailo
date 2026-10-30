@@ -99,20 +99,15 @@ pub(super) fn Attachments(
     message: MessageId,
     body: Option<BlobId>,
     rows: Vec<AttachmentRow>,
+    // The address of the account the message is in, as the reader has it from the accounts the
+    // client keeps read: what a sign-in and a failed download name.
+    account: String,
     shell: Signal<Shell>,
 ) -> Element {
     let downloads: Downloads = use_signal(HashMap::new);
     let toasts = use_hook(try_consume_context::<ds::stack::toast_hub::ToastHub>);
-    let client = crate::ui::live::use_client();
     let looks = super::use_looks();
     let reauth = try_consume_context::<Reauth>();
-    let account = use_hook(|| {
-        client
-            .stored()
-            .message(message)
-            .map(|m| fetch::account_address(&client, m.account))
-            .unwrap_or_default()
-    });
     let mut menu = use_signal(|| None::<Held>);
     let mut picked = use_signal(|| None::<(Pick, Part)>);
     let parts: Vec<Part> = rows

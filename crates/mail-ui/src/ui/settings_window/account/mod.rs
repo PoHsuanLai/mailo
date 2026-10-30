@@ -28,7 +28,7 @@ mod words;
 use crate::ui::appearance::WindowDirs;
 use crate::ui::common::Problem;
 use crate::ui::copy;
-use crate::ui::data::{AccountRow, account_rows};
+use crate::ui::data::{AccountRow, use_account_rows};
 use crate::ui::fetching::{Need, Needing, use_needs};
 use crate::ui::pgp::keys::Whose;
 use crate::ui::press::on_primary;
@@ -147,12 +147,9 @@ fn seams() -> Seams {
     try_consume_context::<Seams>().unwrap_or_else(Seams::none)
 }
 
-/// The account's row, read from the client. `None` once it is gone.
-pub(super) fn row_of(account: &AccountId) -> Option<AccountRow> {
-    let client = crate::ui::live::try_client()?;
-    account_rows(&client)
-        .into_iter()
-        .find(|row| row.id == *account)
+/// The account's row, from the accounts the client keeps read. `None` once it is gone.
+pub(super) fn row_of(rows: &[AccountRow], account: &AccountId) -> Option<AccountRow> {
+    rows.iter().find(|row| row.id == *account).cloned()
 }
 
 /// Move the page to `step`.
@@ -256,10 +253,14 @@ fn sign_in(address: &str, account: &AccountId, need: Need) {
 /// Not asked of an account that waits for the person to sign in again (that would be a sign-in
 /// attempt for nothing, each time the page opens), nor of one whose syncing is paused: a paused
 /// account is left alone by every connection mailo makes.
-fn use_storage(account: AccountId, waiting: Signal<Vec<(AccountId, Need)>>) -> Option<Storage> {
+fn use_storage(
+    account: AccountId,
+    rows: Memo<Vec<AccountRow>>,
+    waiting: Signal<Vec<(AccountId, Need)>>,
+) -> Option<Storage> {
     let read = use_resource(use_reactive!(|account| {
         let waits = waiting.read().iter().any(|(id, _)| *id == account);
-        let asked = row_of(&account)
+        let asked = row_of(&rows.read(), &account)
             .is_some_and(|row| {
                 !waits
                     && row.syncing != mail_client::Syncing::Paused
@@ -280,8 +281,9 @@ pub(super) fn AccountPage(shell: Signal<Shell>, account: AccountId) -> Element {
     let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
     // Whether the account waits for the person: the first window knows, and says so to this one.
     let waiting = use_needs();
-    let storage = use_storage(account.clone(), waiting);
-    let row = row_of(&account);
+    let rows = use_account_rows();
+    let storage = use_storage(account.clone(), rows, waiting);
+    let row = row_of(&rows.read(), &account);
     // Removed from elsewhere while the page was shown: the pane goes back to the list.
     let gone = row.is_none();
     use_effect(use_reactive!(|gone| {

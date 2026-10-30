@@ -18,7 +18,7 @@ use mail_client::prelude::SigningStore;
 use mail_domain::{Fingerprint, PgpKey, SecretHeld};
 use std::path::{Path, PathBuf};
 
-use super::super::data::account_rows;
+use super::super::data::AccountRow;
 use super::certs::CertJob;
 use super::{Seams, short, who};
 use mail_client::pgp::WithSecret;
@@ -37,11 +37,10 @@ pub(in crate::ui) fn ordered(keys: Vec<PgpKey>) -> Vec<PgpKey> {
 
 /// The addresses of the user's sending accounts that have no key of their own yet: what
 /// Generate is offered for.
-pub(in crate::ui) fn keyless(client: &Client) -> Vec<String> {
-    account_rows(client)
-        .into_iter()
+pub(in crate::ui) fn keyless(client: &Client, rows: &[AccountRow]) -> Vec<String> {
+    rows.iter()
         .filter(|row| !row.is_local())
-        .map(|row| row.address)
+        .map(|row| row.address.clone())
         .filter(|address| matches!(client.pgp().own_key(address), Ok(None)))
         .collect()
 }

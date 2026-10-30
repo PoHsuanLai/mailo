@@ -30,7 +30,7 @@ use ds::prelude::*;
 use ds::root::common::Common;
 
 use super::common::Told;
-use super::data::{AccountRow, account_rows};
+use super::data::AccountRow;
 use super::files::{Phase, run};
 use crate::ui::copy;
 use crate::ui::view::{RulesAt, Shell};
@@ -70,8 +70,7 @@ pub(super) fn back(mut shell: Signal<Shell>) {
 /// The page: the list at its root, a rule's page or the vacation reply's over it.
 #[component]
 pub(in crate::ui) fn RulesPage(shell: Signal<Shell>) -> Element {
-    let client = crate::ui::live::client();
-    let rows = account_rows(&client);
+    let rows = super::data::use_account_rows()();
     let chosen = shell.read().rules.account.clone();
     let account = chosen
         .and_then(|id| rows.iter().find(|row| row.id == id))

@@ -96,9 +96,28 @@ fn mail_over(reach: Option<&Reach>, store: Arc<SqliteStore>) -> Mail {
     }
 }
 
+/// How long a [`Mail`] made for [`Net`] is reused. Making one reads `settings.toml` twice and
+/// opens a keyring handle, and a caller asks for several in a row. What it holds from the
+/// settings (the junk filter's policy) is only for a sync pass, which makes its own, so this is
+/// the longest a change to them waits to be seen by the rest.
+const MAIL_KEPT: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl Net<'_> {
     fn mail(&self) -> Mail {
-        mail_over(self.0.reached().get(), self.0.store_arc())
+        // A client not yet told how to reach servers makes one each time, so it keeps nothing
+        // that a later `Client::reach` would have to replace.
+        if self.0.reached().get().is_none() {
+            return mail_over(None, self.0.store_arc());
+        }
+        let mut kept = self.0.mail_kept().lock();
+        if let Some((made, mail)) = kept.as_ref()
+            && made.elapsed() < MAIL_KEPT
+        {
+            return mail.clone();
+        }
+        let mail = mail_over(self.0.reached().get(), self.0.store_arc());
+        *kept = Some((std::time::Instant::now(), mail.clone()));
+        mail
     }
 
     /// Where account secrets are kept: the program's keyring, or none for a client never told.

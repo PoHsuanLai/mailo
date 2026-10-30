@@ -185,6 +185,7 @@ fn SpaceList(shell: Signal<Shell>, handle: Handle) -> Element {
 /// A Space's page: its name, colour and theme, the accounts it shows, and Delete Space….
 #[component]
 fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
+    let accounts_now = crate::ui::data::use_account_rows();
     let mut deleting = use_signal(|| Deleting::Showing);
     let mut named = use_signal(|| Named::Named);
     let held = handle.spaces();
@@ -197,7 +198,7 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
     let look = one.look.clone();
     let shown = one.payload.accounts.clone();
     let several = spaces.count() > 1;
-    let rows: Vec<ListItem<String>> = accounts()
+    let rows: Vec<ListItem<String>> = accounts(&accounts_now.read())
         .into_iter()
         .map(|(account, label)| {
             let on = shown.contains(&account);
@@ -302,6 +303,7 @@ fn SpacePage(shell: Signal<Shell>, handle: Handle, space: SpaceId) -> Element {
 /// has, drafted here, then Create Space, which adds it once it has a name. Back drops it.
 #[component]
 fn NewSpacePage(shell: Signal<Shell>, handle: Handle) -> Element {
+    let accounts_now = crate::ui::data::use_account_rows();
     let mut draft = use_signal(|| drafted(&handle.spaces().peek()));
     let Some(made) = draft() else {
         return rsx! {};
@@ -312,7 +314,7 @@ fn NewSpacePage(shell: Signal<Shell>, handle: Handle) -> Element {
         Named::Named
     };
     let shown = made.payload.accounts.clone();
-    let rows: Vec<ListItem<String>> = accounts()
+    let rows: Vec<ListItem<String>> = accounts(&accounts_now.read())
         .into_iter()
         .map(|(account, label)| {
             let on = shown.contains(&account);
