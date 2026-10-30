@@ -29,10 +29,12 @@ impl<'a> Blobs<'a> {
     /// Store `bytes`, returning the id to reference them by. Identical bytes are stored once
     /// and share an id.
     pub fn put(&self, bytes: &[u8]) -> Result<BlobId, StoreError> {
+        // The file, if there is one, is written before the writer is taken: its fsync is the
+        // slow part, and nobody else's write should wait on it.
+        let files = self.store.files();
+        let staged = files.stage(bytes)?;
         // A body or an attachment: what a message shows.
-        self.store
-            .files()
-            .put(&self.store.touch(crate::Topics::SUMMARIES), bytes)
+        files.record(&self.store.touch(crate::Topics::SUMMARIES), &staged, bytes)
     }
 
     /// The bytes behind `id`.
@@ -65,6 +67,14 @@ enum Found {
     File(String),
 }
 
+/// A blob whose file, if it has one, is in place and whose row is not yet written.
+pub(crate) struct Staged {
+    hash: String,
+    /// Where its file is, relative to the root; `None` for one small enough to live in its row.
+    path: Option<String>,
+    size: i64,
+}
+
 /// The blob store rooted at a directory.
 #[derive(Debug, Clone)]
 pub(crate) struct BlobStore {
@@ -77,50 +87,83 @@ impl BlobStore {
         Self { root: root.into() }
     }
 
-    /// Store `bytes`, returning the id to reference them by.
+    /// Put the file for a large blob in place, if it is not already, and return what
+    /// [`BlobStore::record`] needs. Takes no lock: an fsync of a large attachment must not hold
+    /// up every other writer.
     ///
-    /// Idempotent: storing identical bytes twice returns the first id and writes nothing, so
-    /// re-fetching a message after a `UIDVALIDITY` reset does not duplicate its attachments.
-    pub(crate) fn put(&self, db: &Connection, bytes: &[u8]) -> Result<BlobId, StoreError> {
+    /// The file is looked for whether or not a row names it, so a file that went missing is
+    /// written again by the next put of the same bytes instead of staying lost. Two puts of the
+    /// same bytes at once may both write: each writes its own temporary file and renames it onto
+    /// the same name, and a rename replaces atomically with identical content, so whichever lands
+    /// last leaves the same file and a reader never sees a half-written one.
+    pub(crate) fn stage(&self, bytes: &[u8]) -> Result<Staged, StoreError> {
         let hash = blake3::hash(bytes).to_hex().to_string();
-
-        if let Some(existing) = self.lookup(db, &hash)? {
-            return Ok(existing);
-        }
-
-        let id = BlobId::generate();
-        let size = bytes.len() as i64;
-
-        if bytes.len() <= INLINE_MAX {
-            db.prepare_cached(
-                "INSERT INTO blobs (id, hash, size, path, inline, created_at)
-                 VALUES (?1, ?2, ?3, NULL, ?4, datetime('now'))",
-            )
-            .map_err(StoreError::db)?
-            .execute(params![id.to_string(), hash, size, bytes])
-            .map_err(StoreError::db)?;
+        let path = if bytes.len() <= INLINE_MAX {
+            None
         } else {
             // Two-character fan-out: a flat directory with 100k attachments is slow to list
             // on every filesystem that matters.
             let rel = format!("{}/{}", &hash[..2], &hash[2..]);
             let full = self.root.join(&rel);
-            let dir = full.parent().expect("join always yields a parent");
-            fs::create_dir_all(dir).map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
-            // Write-then-rename: a crash mid-write must not leave a truncated file sitting at
-            // the name its hash promises.
-            // Its owner's alone, as the message it came out of is.
-            crate::file::write_atomic(&full, bytes, Some(0o600))
-                .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
+            if !full.is_file() {
+                let dir = full.parent().expect("join always yields a parent");
+                fs::create_dir_all(dir)
+                    .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
+                // Write-then-rename: a crash mid-write must not leave a truncated file sitting
+                // at the name its hash promises. Its owner's alone, as the message it came out
+                // of is.
+                crate::file::write_atomic(&full, bytes, Some(0o600))
+                    .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
+            }
+            Some(rel)
+        };
+        Ok(Staged {
+            hash,
+            path,
+            size: bytes.len() as i64,
+        })
+    }
 
-            db.prepare_cached(
-                "INSERT INTO blobs (id, hash, size, path, inline, created_at)
-                 VALUES (?1, ?2, ?3, ?4, NULL, datetime('now'))",
-            )
-            .map_err(StoreError::db)?
-            .execute(params![id.to_string(), hash, size, rel])
-            .map_err(StoreError::db)?;
+    /// Record a staged blob's row, returning the id to reference it by. Short: it is the part
+    /// that needs the writer.
+    ///
+    /// Idempotent: bytes already recorded return the first id and write nothing, so re-fetching
+    /// a message after a `UIDVALIDITY` reset does not duplicate its attachments.
+    pub(crate) fn record(
+        &self,
+        db: &Connection,
+        staged: &Staged,
+        bytes: &[u8],
+    ) -> Result<BlobId, StoreError> {
+        if let Some(existing) = self.lookup(db, &staged.hash)? {
+            return Ok(existing);
         }
+        let id = BlobId::generate();
+        match &staged.path {
+            None => db
+                .prepare_cached(
+                    "INSERT INTO blobs (id, hash, size, path, inline, created_at)
+                     VALUES (?1, ?2, ?3, NULL, ?4, datetime('now'))",
+                )
+                .map_err(StoreError::db)?
+                .execute(params![id.to_string(), staged.hash, staged.size, bytes]),
+            Some(rel) => db
+                .prepare_cached(
+                    "INSERT INTO blobs (id, hash, size, path, inline, created_at)
+                     VALUES (?1, ?2, ?3, ?4, NULL, datetime('now'))",
+                )
+                .map_err(StoreError::db)?
+                .execute(params![id.to_string(), staged.hash, staged.size, rel]),
+        }
+        .map_err(StoreError::db)?;
         Ok(id)
+    }
+
+    /// Stage and record in one go, for a test that has a connection and no store.
+    #[cfg(test)]
+    fn put(&self, db: &Connection, bytes: &[u8]) -> Result<BlobId, StoreError> {
+        let staged = self.stage(bytes)?;
+        self.record(db, &staged, bytes)
     }
 
     /// Read the bytes behind `id`.
