@@ -4,13 +4,13 @@
 //! do: read and write the keyring, and write what arriving mail taught to the store. Nothing
 //! here decrypts anything — mail is decrypted when the reader opens it, never as it arrives.
 
-use crate::error::Failure;
 use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
 use mail_crypto::openpgp::{AutocryptHeader, SecretCert, autocrypt_of};
 use mail_domain::autocrypt::{self, Sighting, effective_date};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::{Fingerprint, KeySource};
+use mail_net::Failure;
 use mail_store::Store;
 use porter_core::AccountId;
 

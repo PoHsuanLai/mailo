@@ -8,7 +8,6 @@
 mod fixture;
 #[path = "../jmap_fake/mod.rs"]
 mod jmap_fake;
-mod tls_fixture;
 
 mod assemble;
 mod bimi;
@@ -44,7 +43,6 @@ mod submission_end_to_end;
 mod tokens;
 mod two_accounts;
 mod unsubscribe;
-mod wkd;
 
 /// The tests that keep a binary of their own, each saying why at its top.
 const OWN_BINARY: &[&str] = &["tls_provider.rs"];

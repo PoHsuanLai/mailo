@@ -9,10 +9,11 @@
 use crate::fixture::now;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_net::testing::memory_transport;
 use mail_proto::backend::ImapBackend;
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
 use mail_runtime::engine::Dial;
-use mail_runtime::testing::{memory_secrets, memory_transport};
+use mail_runtime::testing::memory_secrets;
 use mail_runtime::{AccountEngine, IDLE_REARM, RuntimeError, Woke};
 use mail_store::SqliteStore;
 use porter_core::stream::{ByteStream, DuplexEnd};

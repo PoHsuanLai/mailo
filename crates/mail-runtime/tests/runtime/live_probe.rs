@@ -23,8 +23,9 @@
 //! skips — the fake-server tests are what the suite actually depends on.
 
 use mail_domain::Tls;
+use mail_net::Transport;
 use mail_proto::{Pop3Command, Pop3Session};
-use mail_runtime::{Transport, drive};
+use mail_runtime::drive;
 use tokio::sync::watch;
 
 /// `HOST[:PORT]` of a POP3 server with implicit TLS; 995 when no port is given.

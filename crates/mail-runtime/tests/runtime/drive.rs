@@ -5,9 +5,10 @@
 //! only assert my own assumptions back at me.
 
 use mail_domain::{Retry, Retryable, Tls};
+use mail_net::Transport;
 use mail_proto::{IoNeed, IoReady, Machine, Progress, ProtoError, Refusal};
 use mail_runtime::drive::{QUIET, WIND_DOWN};
-use mail_runtime::{RuntimeError, Transport, drive};
+use mail_runtime::{RuntimeError, drive};
 use porter_client::AuthenticatedStream;
 use porter_core::stream::{ByteStream, DuplexEnd, duplex};
 use std::time::Duration;

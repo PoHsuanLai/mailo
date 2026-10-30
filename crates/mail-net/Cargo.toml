@@ -1,0 +1,68 @@
+[package]
+name = "mail-net"
+# The app side: I/O, not a library for others.
+publish = false
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# The wire: sockets, TLS, DNS and the HTTP clients, and the lookups that are one fetch. It names
+# no store and no secret; `scripts/check-boundary.sh` holds it to that.
+[dependencies]
+porter-core.workspace = true
+porter-provider.workspace = true
+porter-discover.workspace = true
+porter-http.workspace = true
+# The direct-connection client behind that seam (discovery and the token exchanges).
+porter-http-reqwest.workspace = true
+# A porter relay's byte stream (`AuthenticatedStream`), which `Transport::relayed` wraps and the
+# in-memory transport of `testing` is built on. Its `dbus` feature stays off: no zbus.
+porter-client.workspace = true
+mail-domain.workspace = true
+mail-proto.workspace = true
+mail-mime.workspace = true
+# The Web Key Directory's URLs and the answer's key (`wkd.rs`).
+mail-crypto = { workspace = true, features = ["openpgp"] }
+thiserror.workspace = true
+log.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+tokio-rustls = "0.26"
+# TCP keepalive on the sockets this crate opens (`transport.rs`): tokio has no setter for it.
+# MIT OR Apache-2.0, already in the tree through tokio, at its version.
+socket2 = "0.6"
+# IMAP COMPRESS=DEFLATE (RFC 4978): raw DEFLATE on the connection, see `transport::Deflate`.
+flate2 = "1"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+rustls-pki-types = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
+url = "2"
+# A Camo relay's signature on an image URL (`remote_image/route.rs`); both already in the tree.
+hmac = "0.12"
+sha1 = "0.10"
+base64 = "0.22"
+# The system resolver, for `porter_discover::Dns` (SRV and MX, RFC 6186) and BIMI's TXT lookups
+# (`lookup.rs`). MIT OR Apache-2.0; the system resolver's configuration, over tokio. Its
+# DNS-over-TLS/HTTPS features stay off.
+hickory-resolver = "0.26"
+# The operating system's certificate authorities, beside the bundled roots, for the servers an
+# account is set up with (`roots.rs`). Apache-2.0 OR ISC OR MIT; reads the platform's bundle (on
+# Linux the files OpenSSL would, found by `openssl-probe`, also permissive).
+rustls-native-certs = "0.8"
+
+[features]
+# Nothing is on by default.
+default = []
+# What a test swaps in at this crate's seams (`testing`): an in-memory transport and the TLS
+# listeners the tests of the HTTPS lookups stand up. Off in the program.
+testing = []
+
+[dev-dependencies]
+mail-net = { path = ".", features = ["testing"] }
+tokio = { version = "1", features = ["full", "test-util"] }
+chrono.workspace = true
+rand = "0.8"
+
+[lints]
+workspace = true

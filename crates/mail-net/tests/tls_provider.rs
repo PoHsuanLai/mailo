@@ -6,7 +6,7 @@
 //! nothing.
 
 use mail_domain::Tls;
-use mail_runtime::Transport;
+use mail_net::Transport;
 use tokio::io::AsyncReadExt;
 use tokio::net::TcpListener;
 

@@ -3,8 +3,11 @@
 # when a count rises, and when it falls until this file says so. A new line either propagates its
 # error, records it where the person sees it, logs it (`Logged::or_log`), or says why ignoring it
 # is right. Format: "<crate> <pattern> <lines>".
-mail-runtime let_underscore 4
-mail-runtime ok 21
+mail-net let_underscore 2
+mail-net ok 4
+mail-net unwrap_or_default 0
+mail-runtime let_underscore 2
+mail-runtime ok 17
 mail-runtime unwrap_or_default 13
 mail-core let_underscore 0
 mail-core ok 31

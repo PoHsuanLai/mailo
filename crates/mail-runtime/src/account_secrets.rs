@@ -21,8 +21,8 @@
 //! Signing keys are not here: they are mailo's own (`signing_store.rs`).
 
 use crate::RuntimeError;
-use crate::error::Failure;
 use mail_domain::Retry;
+use mail_net::Failure;
 use porter_core::{AccountId, Credential, SecretKey};
 use porter_secrets::{Secrets, SecretsError};
 use std::future::Future;

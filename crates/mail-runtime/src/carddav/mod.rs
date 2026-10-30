@@ -23,8 +23,8 @@ pub use group::{Unwritten, group_card};
 pub use sync::{How, Synced, sync};
 
 use crate::RuntimeError;
-use crate::error::Failure;
 use mail_domain::{Retry, Retryable};
+use mail_net::Failure;
 use reqwest::{Method, StatusCode};
 use std::fmt;
 use std::time::Duration;
@@ -125,7 +125,7 @@ impl From<CardDavFailure> for RuntimeError {
 ///
 /// A builder so a test can add a root it trusts and point a name at a local listener.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    crate::roots::trusting_system(reqwest::Client::builder())
+    mail_net::roots::trusting_system(reqwest::Client::builder())
         .timeout(TIMEOUT)
         .connect_timeout(Duration::from_secs(15))
         .https_only(true)
@@ -343,7 +343,7 @@ async fn exchange(
         header(reqwest::header::LOCATION),
         header(reqwest::header::ETAG),
     );
-    let body = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
+    let body = mail_net::http::text_up_to(response, mail_net::http::MAX_DOCUMENT)
         .await
         .map_err(|e| unreachable(&e))?;
     Ok(Raw {

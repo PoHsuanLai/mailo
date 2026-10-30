@@ -6,7 +6,7 @@
 //! since a domain that moved its directory leaves the old one empty rather than gone. HTTPS
 //! only, redirects included: a key fetched in the clear could be anyone's.
 
-use crate::RuntimeError;
+use crate::NetError;
 use crate::error::Failure;
 use mail_crypto::openpgp::Cert;
 use mail_crypto::openpgp::wkd::{WkdUrls, key_from_answer, urls};
@@ -37,17 +37,17 @@ pub fn client_builder() -> reqwest::ClientBuilder {
 }
 
 /// [`client_builder`], built.
-pub fn client() -> Result<reqwest::Client, RuntimeError> {
+pub fn client() -> Result<reqwest::Client, NetError> {
     client_builder()
         .build()
-        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))
+        .map_err(|e| NetError::Connect(Failure::new("cannot build an HTTP client", e)))
 }
 
 /// `address`'s key from its domain's Web Key Directory. `Ok(None)` when neither method has
 /// one; an error only when the address cannot be looked up at all.
-pub async fn lookup(http: &reqwest::Client, address: &str) -> Result<Option<Cert>, RuntimeError> {
+pub async fn lookup(http: &reqwest::Client, address: &str) -> Result<Option<Cert>, NetError> {
     let places = urls(address).ok_or_else(|| {
-        RuntimeError::UnsupportedIo(format!("{address:?} is not an address to look up"))
+        NetError::Unsupported(format!("{address:?} is not an address to look up"))
     })?;
     Ok(fetch(http, &places, address).await)
 }

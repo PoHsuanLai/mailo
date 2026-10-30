@@ -57,20 +57,20 @@ impl fmt::Debug for SystemDns {
 }
 
 impl SystemDns {
-    pub fn new() -> Result<Self, crate::RuntimeError> {
+    pub fn new() -> Result<Self, crate::NetError> {
         let mut builder = hickory_resolver::TokioResolver::builder_tokio()
-            .map_err(|e| crate::RuntimeError::Connect(Failure::new("no DNS configuration", e)))?;
+            .map_err(|e| crate::NetError::Connect(Failure::new("no DNS configuration", e)))?;
         builder.options_mut().timeout = PER_REQUEST;
         builder.options_mut().attempts = 1;
         builder
             .build()
             .map(SystemDns)
-            .map_err(|e| crate::RuntimeError::Connect(Failure::new("cannot start a resolver", e)))
+            .map_err(|e| crate::NetError::Connect(Failure::new("cannot start a resolver", e)))
     }
 
     /// The TXT records at `name`, each one's strings joined as RFC 7208 §3.3 joins SPF's. A
     /// string that is not UTF-8 is read lossily: every record read from TXT here is ASCII.
-    pub(crate) async fn txt_records(&self, name: &str) -> Result<Vec<String>, Miss> {
+    pub async fn txt_records(&self, name: &str) -> Result<Vec<String>, Miss> {
         use hickory_resolver::proto::rr::RData;
         let lookup = self.0.txt_lookup(name).await.map_err(dns_miss)?;
         Ok(lookup

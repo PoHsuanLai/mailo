@@ -38,7 +38,6 @@ mod vacation;
 
 pub use client::{Auth, Client, find_session, safe_url};
 
-use crate::error::Failure;
 use crate::{AccountSecrets, RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
@@ -46,6 +45,7 @@ use mail_domain::{
     Incoming, JMAP_ALL, JmapEmailId, MailboxRef, MailboxRole, MessageId, MoveExt, RemoteRef,
     Retryable, ServerLabels, ServerThreads, Supported, SyncCursor, WatchMode,
 };
+use mail_net::Failure;
 use mail_proto::jmap::{Identity, Mailboxes};
 use mail_store::{SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -104,7 +104,7 @@ impl JmapEngine {
             plan,
             store,
             secrets,
-            http: crate::http::http_client()?,
+            http: mail_net::http::http_client()?,
             client: None,
             mailboxes: None,
             identities: None,

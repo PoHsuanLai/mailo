@@ -17,9 +17,9 @@ use crate::RuntimeError;
 use crate::SecretTrouble;
 use crate::authorize::exchange_failure;
 use crate::clients;
-use crate::error::Failure;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Incoming, Outgoing, Retry, Retryable};
+use mail_net::Failure;
 use porter_core::{AccountId, Credential, GrantedScopes, SecretKey, SecretPurpose, SecretText};
 use porter_ids::UnixSeconds;
 use porter_oauth::{is_due, redeem_scope, refresh_scoped_detailed};
@@ -241,7 +241,7 @@ pub(crate) async fn refresh(
     now: DateTime<Utc>,
 ) -> Result<Credential, RuntimeError> {
     let endpoints = clients::endpoints(client)?;
-    let http = crate::http::oauth_http();
+    let http = mail_net::http::oauth_http();
     let presented = SecretText::new(refresh_token);
     let scope = (!scopes.is_empty()).then(|| scopes.join(" "));
     let tokens = refresh_scoped_detailed(&http, &endpoints, client, &presented, scope.as_deref())

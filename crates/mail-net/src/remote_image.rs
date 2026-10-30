@@ -21,7 +21,7 @@
 //! through a relay, or through a proxy. Whichever it is, the image's URL is checked as above
 //! first, and what comes back is shown by the same rule.
 
-use crate::RuntimeError;
+use crate::NetError;
 use crate::error::Failure;
 use std::time::Duration;
 use tokio::runtime::Handle;
@@ -86,7 +86,7 @@ pub struct ImageFetcher {
 
 impl ImageFetcher {
     /// A fetcher whose fetches go by `route`, on `runtime`.
-    pub fn new(runtime: Handle, route: Route) -> Result<Self, RuntimeError> {
+    pub fn new(runtime: Handle, route: Route) -> Result<Self, NetError> {
         let builder = reqwest::Client::builder()
             .timeout(Duration::from_secs(20))
             .connect_timeout(Duration::from_secs(10))
@@ -99,7 +99,7 @@ impl ImageFetcher {
             // the URL and each redirect are still checked by name and address.
             Route::Proxy { url } => builder
                 .proxy(reqwest::Proxy::all(url.as_str()).map_err(|e| {
-                    RuntimeError::Connect(Failure::new("the proxy is not one to use", e))
+                    NetError::Connect(Failure::new("the proxy is not one to use", e))
                 })?)
                 .https_only(true)
                 .redirect(follow_public()),
@@ -117,7 +117,7 @@ impl ImageFetcher {
         };
         let client = builder
             .build()
-            .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))?;
+            .map_err(|e| NetError::Connect(Failure::new("cannot build an HTTP client", e)))?;
         Ok(ImageFetcher {
             client,
             route,

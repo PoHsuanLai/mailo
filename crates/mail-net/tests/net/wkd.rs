@@ -5,9 +5,11 @@
 //! listener. The URLs are the ones `mail_crypto::openpgp::wkd::urls` derives, with the
 //! listener's port added — a directory on port 443 is not something a test can open.
 
-use crate::tls_fixture::{NOT_FOUND, hang_up, header, ok, read_request, reply, root, serve_tls};
 use chrono::{TimeZone, Utc};
 use mail_crypto::openpgp::{self, SecretCert, wkd};
+use mail_net::testing::tls::{
+    NOT_FOUND, hang_up, header, ok, read_request, reply, root, serve_tls,
+};
 use rand::SeedableRng;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
@@ -56,7 +58,7 @@ async fn directory(
 
 /// The client `mailo pgp lookup` uses, trusting the fixture and resolving the test names to `to`.
 fn client(to: SocketAddr) -> reqwest::Client {
-    mail_runtime::wkd::client_builder()
+    mail_net::wkd::client_builder()
         .add_root_certificate(root())
         .resolve("wkd.test", to)
         .resolve("openpgpkey.wkd.test", to)
@@ -95,7 +97,7 @@ async fn the_advanced_method_is_asked_first_at_the_drafts_path() {
     let served = joe.public().to_bytes();
     let (addr, seen) =
         directory(move |host, _| (host == "openpgpkey.wkd.test").then(|| served.clone())).await;
-    let found = mail_runtime::wkd::fetch(
+    let found = mail_net::wkd::fetch(
         &client(addr),
         &at_port("Joe.Doe@wkd.test", addr.port()),
         "Joe.Doe@wkd.test",
@@ -121,7 +123,7 @@ async fn the_direct_method_answers_when_the_advanced_one_has_nothing() {
     let joe = key_for("joe@wkd.test", 2);
     let served = joe.public().to_bytes();
     let (addr, seen) = directory(move |host, _| (host == "wkd.test").then(|| served.clone())).await;
-    let found = mail_runtime::wkd::fetch(
+    let found = mail_net::wkd::fetch(
         &client(addr),
         &at_port("joe@wkd.test", addr.port()),
         "joe@wkd.test",
@@ -146,7 +148,7 @@ async fn an_advanced_host_that_does_not_answer_falls_back_to_the_direct_one() {
     let (addr, seen) = directory(move |_, _| Some(served.clone())).await;
     // `openpgpkey.direct-only.test` hangs up before a handshake: the advanced host is not there.
     let (gone, tried) = hang_up().await;
-    let found = mail_runtime::wkd::fetch(
+    let found = mail_net::wkd::fetch(
         &client(addr),
         &at_ports("joe@direct-only.test", gone.port(), addr.port()),
         "joe@direct-only.test",
@@ -170,7 +172,7 @@ async fn a_directory_without_the_addresss_key_finds_nothing() {
     let other = key_for("other@wkd.test", 4);
     let served = other.public().to_bytes();
     let (addr, seen) = directory(move |_, _| Some(served.clone())).await;
-    let found = mail_runtime::wkd::fetch(
+    let found = mail_net::wkd::fetch(
         &client(addr),
         &at_port("joe@wkd.test", addr.port()),
         "joe@wkd.test",
@@ -181,7 +183,7 @@ async fn a_directory_without_the_addresss_key_finds_nothing() {
 
     let (addr, _) = directory(|_, _| None).await;
     assert!(
-        mail_runtime::wkd::fetch(
+        mail_net::wkd::fetch(
             &client(addr),
             &at_port("joe@wkd.test", addr.port()),
             "joe@wkd.test"
@@ -201,7 +203,7 @@ async fn a_plain_http_url_is_never_fetched() {
         direct_host: "wkd.test".to_owned(),
     };
     assert!(
-        mail_runtime::wkd::fetch(&client(addr), &urls, "joe@wkd.test")
+        mail_net::wkd::fetch(&client(addr), &urls, "joe@wkd.test")
             .await
             .is_none()
     );
@@ -213,9 +215,9 @@ async fn a_plain_http_url_is_never_fetched() {
 
 #[tokio::test]
 async fn something_that_is_not_an_address_is_not_looked_up() {
-    let http = mail_runtime::wkd::client().unwrap();
+    let http = mail_net::wkd::client().unwrap();
     assert!(
-        mail_runtime::wkd::lookup(&http, "not an address")
+        mail_net::wkd::lookup(&http, "not an address")
             .await
             .is_err()
     );

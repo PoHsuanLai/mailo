@@ -4,7 +4,7 @@
 //! is the part that needs a socket and randomness, which porter-oauth takes as arguments.
 
 use crate::RuntimeError;
-use crate::error::Failure;
+use mail_net::Failure;
 use porter_core::Credential;
 use porter_ids::UnixSeconds;
 use porter_oauth::{
@@ -140,7 +140,7 @@ pub async fn sign_in_told(
             LoopbackFault::TimedOut => SignInFault::TimedOut,
             other => SignInFault::Unfinished(other),
         })?;
-    let http = crate::http::oauth_http();
+    let http = mail_net::http::oauth_http();
     let tokens = exchange_code_scoped_detailed(
         &http,
         &endpoints,
@@ -251,7 +251,7 @@ pub async fn whoami(
             ))));
         }
     };
-    let http = crate::http::http_client()?;
+    let http = mail_net::http::http_client()?;
     let answer = http
         .get(url)
         .bearer_auth(token)
@@ -260,7 +260,7 @@ pub async fn whoami(
         .map_err(|e| RuntimeError::Connect(Failure::new("reading who signed in", e)))?;
     let status = answer.status();
     // Who signed in is a few hundred bytes of JSON.
-    let body = crate::http::body_up_to(answer, 1024 * 1024)
+    let body = mail_net::http::body_up_to(answer, 1024 * 1024)
         .await
         .map_err(|e| RuntimeError::Connect(Failure::new("reading who signed in", e)))?;
     if !status.is_success() {

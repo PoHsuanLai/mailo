@@ -81,6 +81,7 @@ pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, OAuthClients, RuleOps,
     SyncOps, SystemClock,
 };
+pub use mail_net::{Transport, remote_image};
 /// An account's storage as its server counts it ([`SyncOps::quota`]).
 pub use mail_proto::Storage;
 /// The doubles at the runtime's seams, for a front end's tests: an in-memory transport, secrets,
@@ -93,8 +94,8 @@ pub use mail_runtime::wanted;
 /// through mail-core alone.
 pub use mail_runtime::{
     AccountSecrets, Arrival, ClientRegistry, Destination, KeyringSigningStore, Logged, NoKeyring,
-    Searched, ServerHits, SigningStore, Transport, absorb, absorb_into, assemble, fetch,
-    graph::push::RelayRefused, off_runtime, remote_image, schedule, sieve::Pushed,
+    Searched, ServerHits, SigningStore, absorb, absorb_into, assemble, fetch,
+    graph::push::RelayRefused, off_runtime, schedule, sieve::Pushed,
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{AccountPrefs, SqliteStore, Store, StoreError, Syncing};

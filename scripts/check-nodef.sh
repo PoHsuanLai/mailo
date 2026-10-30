@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-for crate in mailo-domain mailo-mime mailo-crypto mailo-archive mailo-pim mailo-editor mail-store mailo-proto mail-runtime mail-core mail-appkit; do
+for crate in mailo-domain mailo-mime mailo-crypto mailo-archive mailo-pim mailo-editor mail-store mailo-proto mail-net mail-runtime mail-core mail-appkit; do
   echo "nodef: $crate"
   cargo check -p "$crate" --no-default-features
 done
@@ -26,7 +26,7 @@ cargo check -p mailo-mime --no-default-features --tests
 
 # Each crate's test doubles (`testing`) build with nothing else on: the runtime's without the
 # platform keyring and the bus, and the others' without whatever the workspace turns on for them.
-for crate in mailo-domain mail-store mail-runtime mail-core; do
+for crate in mailo-domain mail-store mail-net mail-runtime mail-core; do
   echo "nodef: $crate --features testing"
   cargo check -p "$crate" --no-default-features --features testing
 done

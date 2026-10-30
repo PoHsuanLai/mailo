@@ -6,12 +6,12 @@
 //! found on the server.
 
 use super::{AccountEngine, first_stored};
-use crate::error::Failure;
 use crate::search::{SERVER_HITS, Searched, ServerHits};
 use crate::tokens::{AfterRefusal, Token, refused_fresh};
 use crate::{Cancel, RuntimeError, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{Filter, LabelId, MailboxRef, ProtoOp, RemoteRef, Retry, Retryable};
+use mail_net::Failure;
 use mail_proto::backend::{Found, ImapBackend};
 use mail_proto::search::imap::{ImapCtx, ImapPlan};
 use mail_proto::search::{Asked, graph, imap};

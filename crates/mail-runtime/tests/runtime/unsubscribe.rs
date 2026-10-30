@@ -1,12 +1,12 @@
 //! One-click unsubscribe against a list server in this process.
 //!
 //! No network. The "list server" is a `TcpListener` behind TLS with the certificate
-//! `tls_fixture` serves, and the client is told to trust that certificate and to resolve those names to the listener.
+//! `mail_net::testing::tls` serves, and the client is told to trust that certificate and to resolve those names to the listener.
 //! Everything else about the client is what `mailo unsubscribe` uses.
 
-use crate::tls_fixture::{hang_up, header, read_request, reply, root, serve_tls};
 use mail_domain::{Retry, Retryable};
 use mail_mime::HttpsUrl;
+use mail_net::testing::tls::{hang_up, header, read_request, reply, root, serve_tls};
 use mail_runtime::unsubscribe::{self, UnsubscribeFailure};
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};

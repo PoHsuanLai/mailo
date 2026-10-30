@@ -14,8 +14,9 @@
 //! ```
 
 use mail_domain::{SaslMech, Tls};
+use mail_net::Transport;
 use mail_proto::{Access, ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{Transport, drive};
+use mail_runtime::drive;
 use porter_core::Credential;
 use porter_core::SecretText;
 use tokio::sync::watch;

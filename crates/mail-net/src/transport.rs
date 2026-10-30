@@ -4,7 +4,7 @@
 //! turns those into syscalls. Keeping it small and boring is the point — the protocol machines
 //! carry the complexity precisely so that this does not have to.
 
-use crate::RuntimeError;
+use crate::NetError;
 use crate::deflate::Deflate;
 use crate::error::{Failure, within};
 use mail_domain::Tls;
@@ -27,7 +27,7 @@ const READ_CHUNK: usize = 16 * 1024;
 /// The longest a connection may take to open: the TCP handshake, and the TLS one after it, each.
 ///
 /// A server that is up answers both in well under a second; one that has not answered in this
-/// long is not there, and the attempt fails as [`RuntimeError::Stalled`] rather than waiting on
+/// long is not there, and the attempt fails as [`NetError::Stalled`] rather than waiting on
 /// the kernel's own limit, which is minutes.
 pub const OPENING: Duration = Duration::from_secs(30);
 
@@ -129,11 +129,11 @@ impl Transport {
     /// own upgrade command and then calls [`Transport::upgrade`]. There is deliberately no
     /// opportunistic mode — an upgrade that may silently not happen is one an attacker chooses
     /// for you.
-    pub async fn connect(host: &str, port: u16, tls: Tls) -> Result<Self, RuntimeError> {
+    pub async fn connect(host: &str, port: u16, tls: Tls) -> Result<Self, NetError> {
         let tcp = within(OPENING, "connecting", async {
             TcpStream::connect((host, port))
                 .await
-                .map_err(|e| RuntimeError::Connect(Failure::new(format!("{host}:{port}"), e)))
+                .map_err(|e| NetError::Connect(Failure::new(format!("{host}:{port}"), e)))
         })
         .await?;
         // Mail is request/response and latency-sensitive; waiting to coalesce a 20-byte command
@@ -152,16 +152,16 @@ impl Transport {
     /// (`Accounts::open_authenticated`). The relay owns TLS and the sign-in, so [`Transport::upgrade`]
     /// has nothing to do on it, and the machine driven over it must not authenticate (the IMAP
     /// session without a `LOGIN`, the SMTP and ManageSieve ones `relayed`).
-    pub fn relayed(stream: AuthenticatedStream) -> Result<Self, RuntimeError> {
+    pub fn relayed(stream: AuthenticatedStream) -> Result<Self, NetError> {
         let stream = match stream {
             #[cfg(unix)]
             AuthenticatedStream::Fd(fd) => {
                 let socket = std::os::unix::net::UnixStream::from(fd);
                 socket
                     .set_nonblocking(true)
-                    .map_err(|e| RuntimeError::Io(Failure::new("the relay's socket", e)))?;
+                    .map_err(|e| NetError::Io(Failure::new("the relay's socket", e)))?;
                 let socket = tokio::net::UnixStream::from_std(socket)
-                    .map_err(|e| RuntimeError::Io(Failure::new("the relay's socket", e)))?;
+                    .map_err(|e| NetError::Io(Failure::new("the relay's socket", e)))?;
                 Stream::Relay(socket)
             }
             AuthenticatedStream::Memory(end) => Stream::Memory(end),
@@ -170,7 +170,7 @@ impl Transport {
     }
 
     /// Upgrade a plaintext connection after the protocol's `STARTTLS`/`STLS` was accepted.
-    pub async fn upgrade(&mut self, host: &str) -> Result<(), RuntimeError> {
+    pub async fn upgrade(&mut self, host: &str) -> Result<(), NetError> {
         match std::mem::replace(&mut self.stream, Stream::Upgrading) {
             Stream::Plain(tcp) => {
                 self.stream = Stream::Tls(Box::new(Self::wrap(tcp, host).await?));
@@ -181,25 +181,22 @@ impl Transport {
             #[cfg(unix)]
             other @ Stream::Relay(_) => {
                 self.stream = other;
-                Err(RuntimeError::Tls(Failure::said(RELAYED)))
+                Err(NetError::Tls(Failure::said(RELAYED)))
             }
             other @ Stream::Memory(_) => {
                 self.stream = other;
-                Err(RuntimeError::Tls(Failure::said(RELAYED)))
+                Err(NetError::Tls(Failure::said(RELAYED)))
             }
             // Upgrading twice is a bug in the caller, not a condition to tolerate silently.
             // Put the stream back so the error does not also destroy the connection.
             other => {
                 self.stream = other;
-                Err(RuntimeError::Tls(Failure::said("already upgraded")))
+                Err(NetError::Tls(Failure::said("already upgraded")))
             }
         }
     }
 
-    pub(crate) async fn wrap(
-        tcp: TcpStream,
-        host: &str,
-    ) -> Result<TlsStream<TcpStream>, RuntimeError> {
+    pub async fn wrap(tcp: TcpStream, host: &str) -> Result<TlsStream<TcpStream>, NetError> {
         // Here rather than in `connect`, because `upgrade` builds a session too and this is
         // the one place that touches rustls at all.
         install_crypto_provider();
@@ -209,13 +206,13 @@ impl Transport {
             .with_root_certificates(crate::roots::server_roots())
             .with_no_client_auth();
         let name = rustls_pki_types::ServerName::try_from(host.to_owned()).map_err(|_| {
-            RuntimeError::Tls(Failure::said(format!("{host} is not a valid server name")))
+            NetError::Tls(Failure::said(format!("{host} is not a valid server name")))
         })?;
         within(OPENING, "securing the connection", async {
             TlsConnector::from(Arc::new(config))
                 .connect(name, tcp)
                 .await
-                .map_err(|e| RuntimeError::Tls(Failure::new(host.to_string(), e)))
+                .map_err(|e| NetError::Tls(Failure::new(host.to_string(), e)))
         })
         .await
     }
@@ -225,7 +222,7 @@ impl Transport {
     /// Returns `None` for needs that produce nothing to feed back — a write or a flush — so the
     /// caller keeps consuming its list rather than inventing an [`IoReady`] the machine never
     /// asked for.
-    pub async fn satisfy(&mut self, need: &IoNeed) -> Result<Option<IoReady>, RuntimeError> {
+    pub async fn satisfy(&mut self, need: &IoNeed) -> Result<Option<IoReady>, NetError> {
         match need {
             IoNeed::Write(bytes) => {
                 self.write_all(bytes).await?;
@@ -237,7 +234,7 @@ impl Transport {
                 if !leftover.is_empty() {
                     self.inflated = deflate
                         .inflate(leftover)
-                        .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
+                        .map_err(|e| NetError::Io(Failure::caused(e)))?;
                 }
                 self.deflate = Some(deflate);
                 Ok(None)
@@ -269,19 +266,19 @@ impl Transport {
         }
     }
 
-    async fn write_all(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
+    async fn write_all(&mut self, bytes: &[u8]) -> Result<(), NetError> {
         match &mut self.deflate {
             Some(deflate) => {
                 let squeezed = deflate
                     .compress(bytes)
-                    .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
+                    .map_err(|e| NetError::Io(Failure::caused(e)))?;
                 self.write_raw(&squeezed).await
             }
             None => self.write_raw(bytes).await,
         }
     }
 
-    async fn write_raw(&mut self, bytes: &[u8]) -> Result<(), RuntimeError> {
+    async fn write_raw(&mut self, bytes: &[u8]) -> Result<(), NetError> {
         match &mut self.stream {
             Stream::Plain(s) => s.write_all(bytes).await,
             Stream::Tls(s) => s.write_all(bytes).await,
@@ -289,15 +286,13 @@ impl Transport {
             Stream::Relay(s) => s.write_all(bytes).await,
             Stream::Memory(s) => ByteStream::write_all(s, bytes).await,
             Stream::Upgrading => {
-                return Err(RuntimeError::Tls(Failure::said(
-                    "transport used mid-upgrade",
-                )));
+                return Err(NetError::Tls(Failure::said("transport used mid-upgrade")));
             }
         }
-        .map_err(|e| RuntimeError::Io(Failure::caused(e)))
+        .map_err(|e| NetError::Io(Failure::caused(e)))
     }
 
-    async fn flush(&mut self) -> Result<(), RuntimeError> {
+    async fn flush(&mut self) -> Result<(), NetError> {
         match &mut self.stream {
             Stream::Plain(s) => s.flush().await,
             Stream::Tls(s) => s.flush().await,
@@ -305,15 +300,13 @@ impl Transport {
             Stream::Relay(s) => s.flush().await,
             Stream::Memory(_) => Ok(()),
             Stream::Upgrading => {
-                return Err(RuntimeError::Tls(Failure::said(
-                    "transport used mid-upgrade",
-                )));
+                return Err(NetError::Tls(Failure::said("transport used mid-upgrade")));
             }
         }
-        .map_err(|e| RuntimeError::Io(Failure::caused(e)))
+        .map_err(|e| NetError::Io(Failure::caused(e)))
     }
 
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, RuntimeError> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, NetError> {
         if self.deflate.is_none() {
             return self.read_raw(buf).await;
         }
@@ -327,7 +320,7 @@ impl Transport {
             if let Some(deflate) = &mut self.deflate {
                 self.inflated = deflate
                     .inflate(&raw[..n])
-                    .map_err(|e| RuntimeError::Io(Failure::caused(e)))?;
+                    .map_err(|e| NetError::Io(Failure::caused(e)))?;
             }
         }
         let n = buf.len().min(self.inflated.len());
@@ -336,7 +329,7 @@ impl Transport {
         Ok(n)
     }
 
-    async fn read_raw(&mut self, buf: &mut [u8]) -> Result<usize, RuntimeError> {
+    async fn read_raw(&mut self, buf: &mut [u8]) -> Result<usize, NetError> {
         match &mut self.stream {
             Stream::Plain(s) => s.read(buf).await,
             Stream::Tls(s) => s.read(buf).await,
@@ -344,11 +337,9 @@ impl Transport {
             Stream::Relay(s) => s.read(buf).await,
             Stream::Memory(s) => ByteStream::read(s, buf).await,
             Stream::Upgrading => {
-                return Err(RuntimeError::Tls(Failure::said(
-                    "transport used mid-upgrade",
-                )));
+                return Err(NetError::Tls(Failure::said("transport used mid-upgrade")));
             }
         }
-        .map_err(|e| RuntimeError::Io(Failure::caused(e)))
+        .map_err(|e| NetError::Io(Failure::caused(e)))
     }
 }

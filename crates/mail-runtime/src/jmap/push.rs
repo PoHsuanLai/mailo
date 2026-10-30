@@ -9,9 +9,9 @@
 
 use super::JmapEngine;
 use crate::engine::wait::due_alarm;
-use crate::error::Failure;
 use crate::{Cancel, RuntimeError, Woke};
 use chrono::Utc;
+use mail_net::Failure;
 use mail_proto::jmap::{EventKind, EventStream, StateChange};
 use std::time::Duration;
 
@@ -86,7 +86,7 @@ impl JmapEngine {
         let synced = self.cursor()?;
         // Its own client: the shared one times a request out after thirty seconds, and a stream
         // is one request that lasts as long as it is useful.
-        let http = crate::roots::trusting_system(reqwest::Client::builder())
+        let http = mail_net::roots::trusting_system(reqwest::Client::builder())
             .connect_timeout(Duration::from_secs(30))
             .build()
             .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))?;

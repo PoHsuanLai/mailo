@@ -3,7 +3,7 @@
 //! One place, because a request with no timeout is a setup command that hangs forever and a sync
 //! pass that never returns. (Discovery's client is [`crate::lookup`]'s: https only, and shorter.)
 
-use crate::RuntimeError;
+use crate::NetError;
 use crate::error::Failure;
 use porter_http_reqwest::ReqwestHttp;
 use std::time::Duration;
@@ -13,7 +13,7 @@ const HTTP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The shared client: built once, since reading the system's roots is not cheap and a pass
 /// asks for it every few seconds. A clone shares its connections.
-pub fn http_client() -> Result<reqwest::Client, RuntimeError> {
+pub fn http_client() -> Result<reqwest::Client, NetError> {
     static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     if let Some(client) = CLIENT.get() {
         return Ok(client.clone());
@@ -21,7 +21,7 @@ pub fn http_client() -> Result<reqwest::Client, RuntimeError> {
     let client = crate::roots::trusting_system(reqwest::Client::builder())
         .timeout(HTTP_TIMEOUT)
         .build()
-        .map_err(|e| RuntimeError::Connect(Failure::new("cannot build an HTTP client", e)))?;
+        .map_err(|e| NetError::Connect(Failure::new("cannot build an HTTP client", e)))?;
     Ok(CLIENT.get_or_init(|| client).clone())
 }
 

@@ -1,16 +1,16 @@
 //! Brand logo lookup against DNS answered from a table and a web server in this process.
 //!
 //! No network. DNS is a [`Table`] that counts what it is asked. The web server is a
-//! `TcpListener` behind TLS with the certificate `tls_fixture` serves (it names `wkd.test`),
+//! `TcpListener` behind TLS with the certificate `mail_net::testing::tls` serves (it names `wkd.test`),
 //! and the client is told to trust it and to resolve `wkd.test` to the listener. The
 //! records point at `https://wkd.test:<port>/…`. The mark certificates come from a throwaway
 //! authority (`mail_crypto::testing::bimi`).
 
-use crate::tls_fixture::{NOT_FOUND, ok, read_request, reply, root, serve_tls};
+use mail_net::testing::tls::{NOT_FOUND, ok, read_request, reply, root, serve_tls};
 
 use mail_crypto::testing::bimi::{LOGO, Mark, authority, now, pem};
+use mail_net::lookup::Miss;
 use mail_runtime::bimi::{Cached, Lookup, NoLogo, Txt, cached, find, logo};
-use mail_runtime::lookup::Miss;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};

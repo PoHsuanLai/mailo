@@ -15,7 +15,7 @@
 //! account signed in with `MAILO_OAUTH_CLIENT_ID` could not be renewed an hour later otherwise.
 
 use crate::RuntimeError;
-use crate::error::Failure;
+use mail_net::Failure;
 use porter_core::{EndpointUrl, SecretText};
 use porter_oauth::ClientRegistry;
 use porter_provider::{

@@ -1,15 +1,15 @@
 //! CardDAV against a server in this process.
 //!
-//! No network. The "server" is a `TcpListener` behind TLS with the certificate `tls_fixture`
+//! No network. The "server" is a `TcpListener` behind TLS with the certificate `mail_net::testing::tls`
 //! serves, at `dav.test`, and the client is told to trust it and to resolve that name to the
 //! listener. It keeps an address book in memory and answers the requests RFC 6352,
 //! RFC 6578 and RFC 6764 describe — well-known redirect, principal, home set, `sync-collection`
 //! with tokens, `addressbook-multiget` and an etag `PROPFIND` — from that book, so a test can
 //! change a card between syncs and watch the change arrive.
 
-use crate::tls_fixture::{header, read_request, reply, root, serve_tls};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::{Retry, Retryable};
+use mail_net::testing::tls::{header, read_request, reply, root, serve_tls};
 use mail_runtime::RuntimeError;
 use mail_runtime::carddav::{self, CardDavFailure, Dav, DavAuth, How};
 use mail_store::{AddressBook, Edit, GroupHome, GroupId, MemoryStore, Origin, Store};

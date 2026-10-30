@@ -19,8 +19,9 @@
 //! developer has not started a daemon is a test people learn to ignore.
 
 use mail_domain::{SaslMech, Tls};
+use mail_net::Transport;
 use mail_proto::{Authentication, SignIn, SmtpSession, Submission};
-use mail_runtime::{Transport, drive};
+use mail_runtime::drive;
 use porter_core::Credential;
 use porter_core::SecretText;
 use tokio::sync::watch;

@@ -546,7 +546,8 @@ pub enum TimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_runtime::{Failure, RuntimeError};
+    use mail_net::Failure;
+    use mail_runtime::RuntimeError;
     use porter_secrets::SecretsError;
 
     fn read_failed(why: SecretsError) -> RuntimeError {

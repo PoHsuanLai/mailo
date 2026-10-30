@@ -5,9 +5,10 @@
 //! connections a push needs — one to learn what the server's Sieve can do, one to install a
 //! script written for exactly that.
 
-use crate::{Cancel, RuntimeError, Transport, drive};
+use crate::{Cancel, RuntimeError, drive};
 use chrono::{DateTime, Utc};
 use mail_domain::{Rule, Vacation};
+use mail_net::Transport;
 use mail_proto::sieve::{
     Compiled, Endpoint, Places, SieveAuthentication, SieveJob, SieveLogin, SieveOutcome,
     SieveSession, Takeover, compile,

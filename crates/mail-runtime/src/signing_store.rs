@@ -16,11 +16,11 @@
 pub(crate) mod stored;
 
 use crate::RuntimeError;
-use crate::error::Failure;
 use keyring_chunked::{ChunkedStore, Limit};
 use keyring_core::CredentialStore;
 use keyring_core::api::CredentialStoreApi;
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
+use mail_net::Failure;
 use std::sync::Arc;
 #[cfg(any(feature = "keyring", test))]
 use std::sync::Mutex;
@@ -344,7 +344,7 @@ pub(crate) mod scenario {
     }
 
     fn failed(e: std::io::Error) -> RuntimeError {
-        RuntimeError::Secrets(crate::Failure::new("the scenario secrets directory", e))
+        RuntimeError::Secrets(mail_net::Failure::new("the scenario secrets directory", e))
     }
 
     pub(crate) fn read(dir: &Path, name: &str) -> Result<Option<String>, RuntimeError> {

@@ -5,9 +5,9 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait (`CONTRIBUTING.md`, "Time").
 
-use crate::error::{Failure, Logged};
+use crate::error::Logged;
 use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
-use crate::{AccountSecrets, Cancel, RuntimeError, Transport, drive, drive_within};
+use crate::{AccountSecrets, Cancel, RuntimeError, drive, drive_within};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, BlobId, Condstore, FetchSince, Incoming, MailboxRef, MailboxRole,
@@ -15,6 +15,8 @@ use mail_domain::{
     SyncCursor, SystemFlag, Tls, UidValidity, WatchMode,
 };
 use mail_mime::Posting;
+use mail_net::Failure;
+use mail_net::Transport;
 use mail_proto::backend::SmtpBackend;
 use mail_proto::{Authentication, Backend, Moved, ProtoOutcome, SignIn, Submission};
 use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
@@ -562,7 +564,7 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// Open every connection to the incoming server with `dial` instead of a socket: a test's
-    /// server in memory (`mail_runtime::testing::memory_transport`), which a paused clock can be
+    /// server in memory (`mail_net::testing::memory_transport`), which a paused clock can be
     /// run against where a loopback socket cannot.
     pub fn with_dial(mut self, dial: Dial) -> Self {
         self.dial = Some(dial);
@@ -589,7 +591,7 @@ impl<B: Backend> AccountEngine<B> {
             .ok_or(RuntimeError::NoServer("connect to"))?;
         match &self.dial {
             Some(dial) => dial().await,
-            None => Transport::connect(host, port, tls).await,
+            None => Ok(Transport::connect(host, port, tls).await?),
         }
     }
 
@@ -1017,7 +1019,7 @@ impl<B: Backend> AccountEngine<B> {
             kept.transport.satisfy(&mail_proto::IoNeed::Read).await
         };
         // The answer is not needed: the connection closes when `kept` goes, said or not.
-        let _ = crate::error::within(SAYING_GOODBYE, "saying goodbye", goodbye).await;
+        let _ = mail_net::within(SAYING_GOODBYE, "saying goodbye", goodbye).await;
     }
 
     /// Close the connection to the incoming server the last operation finished on, saying
@@ -1038,7 +1040,7 @@ impl<B: Backend> AccountEngine<B> {
             kept.transport.satisfy(&mail_proto::IoNeed::Read).await
         };
         // The answer is not needed: the connection closes when `kept` goes, said or not.
-        let _ = crate::error::within(SAYING_GOODBYE, "saying goodbye", goodbye).await;
+        let _ = mail_net::within(SAYING_GOODBYE, "saying goodbye", goodbye).await;
     }
 
     /// The bytes a submission hands the server: frozen when the user pressed send, so a draft
@@ -1152,7 +1154,7 @@ impl<B: Backend> AccountEngine<B> {
                 "sending through Graph needs a Microsoft sign-in, not a password",
             )));
         };
-        let http = crate::http::http_client()?;
+        let http = mail_net::http::http_client()?;
         crate::graph::send_mime(&http, &self.graph_url, access.expose(), message, rcpt_to).await?;
         Ok(ProtoOutcome::Submitted { remote: None })
     }

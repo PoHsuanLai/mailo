@@ -14,11 +14,11 @@
 
 use mail_crypto::smime::{Cert, read_certs};
 use mail_mime::AuthResults;
+pub use mail_net::lookup::SystemDns;
 /// What a front end needs to ask for a logo: the lookup's seams, the cache's reader and the HTTP
 /// client builder, and the system resolver to fill the DNS seam with.
 pub use mail_runtime::bimi::{Cached, Lookup, Shared, cached, client_builder, shared};
 use mail_runtime::bimi::{Txt, logo};
-pub use mail_runtime::lookup::SystemDns;
 use std::path::Path;
 
 /// Whether brand logos are shown. Off unless someone turned it on.

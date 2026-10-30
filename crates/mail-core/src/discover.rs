@@ -2,7 +2,7 @@
 //!
 //! What a domain's servers are, and where to look, is `porter-discover`'s, and which provider an
 //! address belongs to is porter's provider files' (`matching`): [`providers`] ships them. The
-//! lookup runs over mailo's own resolver and HTTP client (`mail_runtime::lookup`, which
+//! lookup runs over mailo's own resolver and HTTP client (`mail_net::lookup`, which
 //! implements the two seams `porter-discover` asks through). This is the part between porter's
 //! answer and the account: [`map`] turns it into mailo's [`Found`] (an account plan and where it
 //! came from), and a miss into a typed [`Failed`]. Saying what was found, and getting a yes before
@@ -531,17 +531,14 @@ pub async fn lookup(address: &str, now: DateTime<Utc>) -> Result<Found, CoreErro
 
 /// [`lookup`], with the reason a miss was left typed.
 pub async fn search(address: &str, now: DateTime<Utc>) -> Result<Found, Failed> {
-    let http = mail_runtime::lookup::http();
-    let dns = mail_runtime::lookup::SystemDns::new().map_err(|e| Failed::Broken(e.to_string()))?;
-    match tokio::time::timeout(mail_runtime::lookup::TOTAL, run(&http, &dns, address, now)).await {
+    let http = mail_net::lookup::http();
+    let dns = mail_net::lookup::SystemDns::new().map_err(|e| Failed::Broken(e.to_string()))?;
+    match tokio::time::timeout(mail_net::lookup::TOTAL, run(&http, &dns, address, now)).await {
         Ok(found) => found,
         Err(_) => Err(Failed::Unreachable {
             address: address.to_owned(),
             retry: Retry::Now,
-            why: format!(
-                "no answer in {} seconds",
-                mail_runtime::lookup::TOTAL.as_secs()
-            ),
+            why: format!("no answer in {} seconds", mail_net::lookup::TOTAL.as_secs()),
         }),
     }
 }

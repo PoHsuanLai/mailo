@@ -14,7 +14,8 @@ use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
 use mail_editor::{FORWARDED, plain_to_flowed};
 use mail_mime::posting;
-use mail_runtime::{Failure, RuntimeError};
+use mail_net::Failure;
+use mail_runtime::RuntimeError;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 

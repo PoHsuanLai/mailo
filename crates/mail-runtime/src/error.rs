@@ -1,83 +1,8 @@
 //! Runtime failures.
 
 use mail_domain::{Retry, Retryable};
-use std::fmt;
+use mail_net::{Failure, NetError};
 use std::time::Duration;
-
-/// What a failure carries as its cause, kept as the error it was rather than as its text.
-pub type Source = Box<dyn std::error::Error + Send + Sync + 'static>;
-
-/// What went wrong outside the protocol, in words, with the error underneath when there is one.
-///
-/// Reads as `doing: cause` (just `doing` or just the cause when the other is absent), the way
-/// the text always read; a caller that wants the cause itself walks [`std::error::Error::source`]
-/// rather than parsing the sentence.
-#[derive(Debug)]
-pub struct Failure {
-    doing: String,
-    source: Option<Source>,
-}
-
-impl Failure {
-    /// What was being done, and the error that stopped it.
-    pub fn new(doing: impl Into<String>, source: impl Into<Source>) -> Self {
-        Self {
-            doing: doing.into(),
-            source: Some(source.into()),
-        }
-    }
-
-    /// A failure with no cause beneath it, only words.
-    pub fn said(words: impl Into<String>) -> Self {
-        Self {
-            doing: words.into(),
-            source: None,
-        }
-    }
-
-    /// An error with nothing to say about what was being done.
-    pub fn caused(source: impl Into<Source>) -> Self {
-        Self {
-            doing: String::new(),
-            source: Some(source.into()),
-        }
-    }
-
-    /// The same failure with something more said after it, as an issuer says why it refused.
-    pub(crate) fn add_detail(&mut self, said: &str) {
-        *self = Failure::said(format!("{self}: {said}"));
-    }
-}
-
-impl fmt::Display for Failure {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match (self.doing.is_empty(), &self.source) {
-            (_, None) => f.write_str(&self.doing),
-            (true, Some(source)) => write!(f, "{source}"),
-            (false, Some(source)) => write!(f, "{}: {source}", self.doing),
-        }
-    }
-}
-
-impl std::error::Error for Failure {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source
-            .as_deref()
-            .map(|source| source as &(dyn std::error::Error + 'static))
-    }
-}
-
-impl From<String> for Failure {
-    fn from(words: String) -> Self {
-        Failure::said(words)
-    }
-}
-
-impl From<&str> for Failure {
-    fn from(words: &str) -> Self {
-        Failure::said(words)
-    }
-}
 
 /// Something went wrong outside the protocol machines.
 #[derive(Debug, thiserror::Error)]
@@ -181,21 +106,17 @@ impl Retryable for RuntimeError {
     }
 }
 
-/// `work`, or [`RuntimeError::Stalled`] once `limit` has passed without it finishing.
-///
-/// The one way a network await in this crate is bounded, so that running out of time is always
-/// the same typed error, which [`Retryable::retry`] answers with a reconnect.
-pub(crate) async fn within<T>(
-    limit: Duration,
-    doing: &'static str,
-    work: impl std::future::Future<Output = Result<T, RuntimeError>>,
-) -> Result<T, RuntimeError> {
-    tokio::time::timeout(limit, work).await.unwrap_or_else(|_| {
-        Err(RuntimeError::Stalled {
-            doing,
-            after: limit,
-        })
-    })
+/// A failure on the wire is the runtime's failure of the same kind.
+impl From<NetError> for RuntimeError {
+    fn from(error: NetError) -> Self {
+        match error {
+            NetError::Connect(why) => RuntimeError::Connect(why),
+            NetError::Tls(why) => RuntimeError::Tls(why),
+            NetError::Io(why) => RuntimeError::Io(why),
+            NetError::Stalled { doing, after } => RuntimeError::Stalled { doing, after },
+            NetError::Unsupported(why) => RuntimeError::UnsupportedIo(why),
+        }
+    }
 }
 
 /// A JMAP method's refusal is a protocol failure like any other, classified where its type is

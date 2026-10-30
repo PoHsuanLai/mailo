@@ -2,7 +2,7 @@
 
 use super::{IconError, MAX_BYTES};
 use crate::provider::Provider;
-use mail_runtime::http::BodyError;
+use mail_net::http::BodyError;
 use std::time::Duration;
 
 /// The icon address for `provider`.
@@ -67,7 +67,7 @@ pub(crate) async fn fetch(
         return Err(IconError::Status(response.status().as_u16()));
     }
     let said = response.content_length();
-    mail_runtime::http::body_up_to(response, MAX_BYTES)
+    mail_net::http::body_up_to(response, MAX_BYTES)
         .await
         .map_err(|err| match err {
             BodyError::TooLarge(_) => IconError::TooLarge {

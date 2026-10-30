@@ -5,9 +5,9 @@
 
 use crate::RuntimeError;
 use crate::account_secrets::AccountSecrets;
-use crate::error::Failure;
 use crate::signing_store::SigningStore;
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
+use mail_net::Failure;
 use porter_core::{AccountId, Credential, SecretKey};
 use std::future::Future;
 use std::pin::Pin;

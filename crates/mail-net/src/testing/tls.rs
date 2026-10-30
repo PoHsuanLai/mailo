@@ -1,6 +1,6 @@
 //! The HTTPS servers the tests here stand up, all on one certificate.
 //!
-//! `tests/fixtures/tls/` holds a self-signed certificate, valid until 2126, for every name a test
+//! `fixtures/tls/` holds a self-signed certificate, valid until 2126, for every name a test
 //! points at a local listener: `example.test`, `wkd.test`, `openpgpkey.wkd.test`,
 //! `direct-only.test`, `openpgpkey.direct-only.test`, `unsubscribe.test`, `plain.test` and
 //! `dav.test`. A client trusts it through [`root`] and resolves those names to the listener.
@@ -13,8 +13,8 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_rustls::server::TlsStream;
 
-const CERT: &[u8] = include_bytes!("../fixtures/tls/cert.pem");
-const KEY: &[u8] = include_bytes!("../fixtures/tls/key.pem");
+const CERT: &[u8] = include_bytes!("../../fixtures/tls/cert.pem");
+const KEY: &[u8] = include_bytes!("../../fixtures/tls/key.pem");
 
 /// The certificate, for a client to trust.
 pub fn root() -> reqwest::Certificate {

@@ -26,7 +26,7 @@ FORBIDDEN_OS=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview
 fail=0
 
 # A name `cargo tree` does not know prints nothing, which would read as a boundary that holds.
-for crate in "${PURE[@]}" "${CORE[@]}" "${OS[@]}" mail-store mail-runtime; do
+for crate in "${PURE[@]}" "${CORE[@]}" "${OS[@]}" mail-store mail-net mail-runtime; do
   if ! cargo tree -p "$crate" --depth 0 >/dev/null 2>&1; then
     echo "no package named $crate: update the names in this script"
     exit 1
@@ -77,10 +77,11 @@ if [ "$os_fail" -eq 0 ]; then
 fi
 fail=$((fail | os_fail))
 
-# `mail-store` and `mail-runtime` sit between the pure crates and the core, and draw nothing either:
-# anyview, which peeks at a file and draws a card, is `mail-ui`'s alone (its `anyview` feature).
+# `mail-store`, `mail-net` and `mail-runtime` sit between the pure crates and the core, and draw
+# nothing either: anyview, which peeks at a file and draws a card, is `mail-ui`'s alone (its
+# `anyview` feature).
 lower_fail=0
-for crate in mail-store mail-runtime; do
+for crate in mail-store mail-net mail-runtime; do
   for dep in anyview-core anyview-peek; do
     if cargo tree -p "$crate" -i "$dep" 2>/dev/null | grep -q .; then
       echo "LEAK: $crate depends on $dep"
@@ -90,7 +91,7 @@ for crate in mail-store mail-runtime; do
   done
 done
 if [ "$lower_fail" -eq 0 ]; then
-  echo "anyview boundary holds: mail-store and mail-runtime reach neither anyview-core nor anyview-peek"
+  echo "anyview boundary holds: mail-store, mail-net and mail-runtime reach neither anyview-core nor anyview-peek"
 fi
 fail=$((fail | lower_fail))
 
@@ -139,7 +140,7 @@ fi
 # the SQL migrations, which are applied
 # files and not edited. Words are matched in lower case; a capitalised one is caught in comments.
 UI_WORDS='sidebar|toast|toolbar|dialog|modal|popover|tooltip|pane|button|sheet'
-LOWER_CRATES=(crates/mail-core crates/mail-client crates/mail-store/src crates/mail-store/tests crates/mail-runtime)
+LOWER_CRATES=(crates/mail-core crates/mail-client crates/mail-store/src crates/mail-store/tests crates/mail-net crates/mail-runtime)
 if grep -rnE "\\b($UI_WORDS)s?\\b" "${LOWER_CRATES[@]}" --include='*.rs' \
   | grep -vE '^crates/mail-core/src/notify(/|\.rs)|openxmlformats-officedocument'; then
   echo "a crate below the window names a part of the window: say what happened and let mail-ui word it"
@@ -197,7 +198,7 @@ if grep -rnE 'Result<.*, *String>' crates/mail-core/src --include='*.rs' \
 fi
 
 # The libraries start no runtime and read no environment. The application (`mail-edge`)
-# owns the one tokio runtime and waits on `async` work there; `mail-core`, `mail-runtime` and
+# owns the one tokio runtime and waits on `async` work there; `mail-core`, `mail-net`, `mail-runtime` and
 # `mail-store` hand every operation that waits on a network or the keyring back as a future, and
 # take what they need (the secrets, the environment, the clock) from the `Mail` handle.
 # So no library source builds a runtime or blocks on one, and `mail-core` reads no variable and
@@ -210,7 +211,7 @@ library_code() { # <dir>...: "file:line: text" for every non-comment, non-test l
       $0 !~ /^[[:space:]]*\/\// { print f ":" NR ": " $0 }' "$file"
   done < <(find "$@" -name '*.rs' ! -name 'tests.rs' ! -name '*_tests.rs' ! -path '*/tests/*')
 }
-if library_code crates/mail-core/src crates/mail-runtime/src crates/mail-store/src \
+if library_code crates/mail-core/src crates/mail-net/src crates/mail-runtime/src crates/mail-store/src \
   | grep -E 'new_current_thread|new_multi_thread|Runtime::new\(|runtime::Builder::new|OnceLock<.*Runtime>'; then
   echo "a library builds a tokio runtime: make the function async and let mail-edge (crates/mail-edge/src/lib.rs) wait on it"
   fail=1
@@ -316,14 +317,14 @@ fi
 # private to it, is not reached for by name: `.connection()`, `.reader()`, and the testing
 # `raw_connection` that only `mail-store`'s own tests use. Comment lines are not
 # code and are not counted.
-for crate in mail-core mail-runtime mail-app mail-cli mail-intents mail-edge; do
+for crate in mail-core mail-net mail-runtime mail-app mail-cli mail-intents mail-edge; do
   if grep -nE '^[[:space:]]*rusqlite[[:space:]]*=' "crates/$crate/Cargo.toml"; then
     echo "crates/$crate/Cargo.toml: $crate must not depend on rusqlite: ask the store (mail_store), or mail_store::testing in a test"
     fail=1
   fi
 done
 if grep -rnE '\brusqlite\b|\.connection\(\)|\.reader\(\)|\braw_connection\b' \
-  crates/mail-core crates/mail-runtime crates/mail-app crates/mail-cli crates/mail-intents crates/mail-edge --include='*.rs' \
+  crates/mail-core crates/mail-net crates/mail-runtime crates/mail-app crates/mail-cli crates/mail-intents crates/mail-edge --include='*.rs' \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*//'; then
   echo "SQL above mail-store: add the typed call to mail_store (or a seeding helper to mail_store::testing) instead"
   fail=1
@@ -333,19 +334,35 @@ fi
 # platform keyring, the desktop's extras, the Secret Service or the test doubles. `mail-crypto`'s
 # halves and `mail-core`'s `desktop` and `pdf` are the defaults a plain user expects; the rest the
 # program names. (`mail-app` is the program: its own `quire-desktop` default is its build's choice.)
-for crate in mail-domain mail-mime mail-crypto mail-archive mail-pim mail-editor mail-store mail-proto mail-runtime mail-core; do
+for crate in mail-domain mail-mime mail-crypto mail-archive mail-pim mail-editor mail-store mail-proto mail-net mail-runtime mail-core; do
   if grep -E '^default[[:space:]]*=' "crates/$crate/Cargo.toml" | grep -E 'quire-desktop|keyring|oo7|testing'; then
     echo "crates/$crate/Cargo.toml: a library's default features must not include quire-desktop, keyring, oo7 or testing"
     fail=1
   fi
 done
 
+# The wire and the secrets know no store: `mail-net` (connections, TLS, DNS, HTTP) and `mail-secrets`
+# (the keyrings and the sign-in tokens) sit beside `mail-store`, not over it, and that is a fact of
+# their Cargo.toml: `cargo tree -i mail-store` from either names no such dependency.
+beside_fail=0
+for crate in mail-net; do
+  if cargo tree -p "$crate" -i mail-store 2>/dev/null | grep -q .; then
+    echo "LEAK: $crate depends on mail-store"
+    cargo tree -p "$crate" -i mail-store 2>/dev/null | head -20
+    beside_fail=1
+  fi
+done
+if [ "$beside_fail" -eq 0 ]; then
+  echo "store boundary holds: mail-net reaches no mail-store"
+fi
+fail=$((fail | beside_fail))
+
 # The window names no store: `mail-ui`'s dependencies, dev-dependencies aside (which seed a store as
-# a fixture for its tests), hold no `mail-core`, `mail-store` or `mail-runtime`. Everything it knows
+# a fixture for its tests), hold no `mail-core`, `mail-store`, `mail-net` or `mail-runtime`. Everything it knows
 # of mail comes from `mail-client`.
-if awk '/^\[/ { dev = ($0 ~ /dev-dependencies/) } !dev && /^(mail-core|mail-store|mail-runtime)[ .=]/' \
+if awk '/^\[/ { dev = ($0 ~ /dev-dependencies/) } !dev && /^(mail-core|mail-store|mail-net|mail-runtime)[ .=]/' \
   crates/mail-ui/Cargo.toml | grep -q .; then
-  echo "crates/mail-ui/Cargo.toml names mail-core, mail-store or mail-runtime outside its dev-dependencies: go through mail-client"
+  echo "crates/mail-ui/Cargo.toml names mail-core, mail-store, mail-net or mail-runtime outside its dev-dependencies: go through mail-client"
   fail=1
 fi
 
