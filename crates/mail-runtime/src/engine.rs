@@ -303,13 +303,6 @@ impl Default for Schedule {
     }
 }
 
-/// When each part of the schedule last ran.
-#[derive(Debug, Clone, Copy, Default)]
-struct LastRun {
-    flags: Option<DateTime<Utc>>,
-    expunges: Option<DateTime<Utc>>,
-}
-
 /// Drives one account.
 pub struct AccountEngine<B: Backend> {
     plan: AccountPlan,
@@ -318,7 +311,6 @@ pub struct AccountEngine<B: Backend> {
     store: Arc<SqliteStore>,
     secrets: Arc<dyn AccountSecrets>,
     schedule: Schedule,
-    last: LastRun,
     /// Where [`Outgoing::Graph`] posts. Graph's own address, except under test.
     graph_url: String,
     /// Keeps an OAuth account's tokens fresh between and within passes. `None` for a password
@@ -461,7 +453,6 @@ impl<B: Backend> AccountEngine<B> {
             store,
             secrets,
             schedule: Schedule::default(),
-            last: LastRun::default(),
             graph_url: crate::graph::SEND_MAIL.to_owned(),
             tokens: None,
             graph: None,
@@ -2508,7 +2499,11 @@ impl<B: Backend> AccountEngine<B> {
             return Ok(report);
         }
 
-        if due(self.last.flags, self.schedule.flags, now) {
+        // From the store and not from this engine: an engine lives for one pass, and what it
+        // remembered was always nothing, so every pass swept everything.
+        let swept = self.store.swept(mailbox)?;
+
+        if due(swept.flags, self.schedule.flags, now) {
             // No modseq means a full flag fetch: either the server has no CONDSTORE, or its
             // HIGHESTMODSEQ was seen not to advance, which Dovecot 2.0.18 did while EXISTS
             // climbed. Trusting a frozen modseq would mean never seeing another flag change.
@@ -2525,15 +2520,15 @@ impl<B: Backend> AccountEngine<B> {
             {
                 Ok(ProtoOutcome::Ingested(ingest)) => {
                     self.store.ingest(self.account.clone(), *ingest)?;
-                    self.last.flags = Some(now);
+                    self.store.mark_flags_swept(mailbox, now)?;
                 }
-                Ok(_) => self.last.flags = Some(now),
+                Ok(_) => self.store.mark_flags_swept(mailbox, now)?,
                 Err(RuntimeError::Cancelled) => return Ok(report),
                 Err(e) => report.needs_attention.push(e.to_string()),
             }
         }
 
-        if due(self.last.expunges, self.schedule.expunges, now) {
+        if due(swept.expunges, self.schedule.expunges, now) {
             let since = self.resync_from(mailbox);
             match self
                 .run(
@@ -2571,7 +2566,7 @@ impl<B: Backend> AccountEngine<B> {
                         })
                         .collect();
                     self.store.ingest(self.account.clone(), *ingest)?;
-                    self.last.expunges = Some(now);
+                    self.store.mark_expunges_swept(mailbox, now)?;
                 }
                 Ok(ProtoOutcome::Ingested(mut ingest)) => {
                     // The backend can only say what still exists. What we *hold* is the store's
@@ -2579,9 +2574,9 @@ impl<B: Backend> AccountEngine<B> {
                     // empty and a message deleted on another device never disappeared.
                     ingest.gone = self.vanished(mailbox)?;
                     self.store.ingest(self.account.clone(), *ingest)?;
-                    self.last.expunges = Some(now);
+                    self.store.mark_expunges_swept(mailbox, now)?;
                 }
-                Ok(_) => self.last.expunges = Some(now),
+                Ok(_) => self.store.mark_expunges_swept(mailbox, now)?,
                 Err(RuntimeError::Cancelled) => return Ok(report),
                 Err(e) => report.needs_attention.push(e.to_string()),
             }

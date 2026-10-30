@@ -594,6 +594,8 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE messages DROP COLUMN size;
              ALTER TABLE messages DROP COLUMN flag;
              ALTER TABLE thread_summary DROP COLUMN flag;
+             ALTER TABLE sync_state DROP COLUMN flags_swept_at;
+             ALTER TABLE sync_state DROP COLUMN expunges_swept_at;
              DELETE FROM schema_version WHERE version >= 12;",
     )
     .expect("un-apply the migrations");

@@ -35,6 +35,7 @@ pub mod rules;
 mod smime;
 mod sql;
 mod sqlite;
+mod swept;
 mod term;
 #[cfg(feature = "testing")]
 pub mod testing;
@@ -59,6 +60,7 @@ pub use passes::{PassFailed, Passes};
 pub use sql::{SqlFilter, SqlValue, compile};
 pub use sqlite::SqliteStore;
 pub use sqlite::{Freed, Kept, MessageRow};
+pub use swept::Swept;
 pub use term::Term;
 
 pub use error::StoreError;
@@ -380,6 +382,24 @@ pub trait Store {
     /// Written by every [`Store::ingest`]; nothing read it back until CONDSTORE needed the
     /// `HIGHESTMODSEQ` it had been recording all along.
     fn cursor(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError>;
+
+    /// When each scheduled sweep of this mailbox last finished.
+    ///
+    /// Kept here and not in the engine because the engine is built afresh for every pass, so what
+    /// it remembered was always nothing and every pass swept everything. A mailbox that has no
+    /// cursor yet has not been swept.
+    fn swept(&self, mailbox: &MailboxRef) -> Result<Swept, StoreError>;
+
+    /// The flag sweep of this mailbox finished at `at`. Does nothing for a mailbox that has no
+    /// cursor yet: it is swept again until it has one, which is the safe way to be wrong.
+    fn mark_flags_swept(&self, mailbox: &MailboxRef, at: DateTime<Utc>) -> Result<(), StoreError>;
+
+    /// The sweep for deletions in this mailbox finished at `at`. As [`Store::mark_flags_swept`].
+    fn mark_expunges_swept(
+        &self,
+        mailbox: &MailboxRef,
+        at: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
 
     /// What the server turned out to support, so the next run starts from fact not guess.
     ///

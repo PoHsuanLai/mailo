@@ -668,7 +668,7 @@ impl Drop for Pinned<'_> {
 }
 
 use crate::contact::{AddressBook, Contact, Origin};
-use crate::{OutboxEntry, Settle, Store, Term, sql};
+use crate::{OutboxEntry, Settle, Store, Swept, Term, sql};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, Cursor, Draft, DraftId, Filter, Ingest, MailboxRef, Message, MessageId, OutboxId,
@@ -1075,6 +1075,57 @@ impl Store for SqliteStore {
             )
             .optional()?;
         text.map(|t| row::json("SyncCursor", &t)).transpose()
+    }
+
+    fn swept(&self, mailbox: &MailboxRef) -> Result<Swept, StoreError> {
+        let row: Option<(Option<String>, Option<String>)> = self
+            .reader()
+            .query_row(
+                "SELECT flags_swept_at, expunges_swept_at FROM sync_state
+                 WHERE account = ?1 AND mailbox = ?2",
+                rusqlite::params![mailbox.account.to_string(), mailbox.path],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let Some((flags, expunges)) = row else {
+            return Ok(Swept::default());
+        };
+        Ok(Swept {
+            flags: flags
+                .map(|text| row::time("sync_state.flags_swept_at", &text))
+                .transpose()?,
+            expunges: expunges
+                .map(|text| row::time("sync_state.expunges_swept_at", &text))
+                .transpose()?,
+        })
+    }
+
+    fn mark_flags_swept(&self, mailbox: &MailboxRef, at: DateTime<Utc>) -> Result<(), StoreError> {
+        self.connection().execute(
+            "UPDATE sync_state SET flags_swept_at = ?3 WHERE account = ?1 AND mailbox = ?2",
+            rusqlite::params![
+                mailbox.account.to_string(),
+                mailbox.path,
+                row::from_time(at)
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn mark_expunges_swept(
+        &self,
+        mailbox: &MailboxRef,
+        at: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        self.connection().execute(
+            "UPDATE sync_state SET expunges_swept_at = ?3 WHERE account = ?1 AND mailbox = ?2",
+            rusqlite::params![
+                mailbox.account.to_string(),
+                mailbox.path,
+                row::from_time(at)
+            ],
+        )?;
+        Ok(())
     }
 
     fn put_caps(
