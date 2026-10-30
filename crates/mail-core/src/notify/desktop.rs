@@ -1,6 +1,6 @@
-//! Notifications through the platform's own notification service, by `notify-rust`: the
+//! Notifications through the platform's own notification service: by `notify-rust`, the
 //! freedesktop.org `org.freedesktop.Notifications` interface on the session bus on Linux and the
-//! BSDs, the notification centre on macOS, toasts on Windows.
+//! BSDs and toasts on Windows; by the app's `Posts`, the notification centre on macOS.
 //!
 //! Silent when there is nothing to talk to. A headless machine, an SSH session and a test run
 //! have no session bus, and a watch that fetches mail must not stop, or even complain on every
@@ -11,10 +11,11 @@
 //! account's inbox, started with the activation token the server minted
 //! for the click so the compositor lets the window take focus. On Linux one listener for the whole
 //! process hears the server's `ActivationToken`, `ActionInvoked` and `NotificationClosed`
-//! ([`super::click`]); on Windows each notification shown is waited on by the thread that showed
-//! it, and what the service answers goes through [`answer`], a pure function of the answer and
-//! what the notification opens. `mailo open` hands the thread to a window already running, if
-//! there is one, before it opens one of its own.
+//! ([`super::click`]); on macOS one delegate for the whole process hears every click, and what a
+//! click needs rides in the banner itself ([`super::banner`]); on Windows each notification shown
+//! is waited on by the thread that showed it, and what the service answers goes through
+//! [`answer`], a pure function of the answer and what the notification opens. `mailo open` hands
+//! the thread to a window already running, if there is one, before it opens one of its own.
 //!
 //! On Linux, what a click opens also rides along in the hints, for any other listener:
 //! `x-mailo-thread` (a thread id, absent on a summary, which opens the inbox) and
@@ -22,43 +23,47 @@
 //! The one action offered is `default`, the key a server invokes when the bubble itself is clicked.
 //!
 //! What each platform does not do:
-//! - macOS: only the window hears a click ([`Desktop::connect_in_window`]): the click is delivered
-//!   on the application's main run loop, which winit's is, and `mailo watch` is a command in a
-//!   terminal with none, where waiting would block that thread for good. So a banner the watch
-//!   shows opens nothing when clicked, and one the window shows (a follow-up coming back) opens its
-//!   conversation through `mailo open`, which hands it to the running window. The notification
-//!   names the installed `mailo.app` when there is one, else the system's default sender.
+//! - macOS: only the window hears a click (the app installs the delegate there and hands what it
+//!   hears to [`heard`]): the click is delivered on the application's main run loop, which winit's is, and
+//!   `mailo watch` is a command in a terminal with none. A banner is posted and forgotten: no
+//!   thread waits on it and nothing polls the centre for it to go (waiting on each, as
+//!   `notify-rust` does, costs a thread and a timer that reads every delivered banner twice a
+//!   second for as long as one stays up, which for a banner nobody clears is for ever). A
+//!   banner the watch shows opens its conversation when clicked all the same, if the window is
+//!   running, which hears it. The banner names this application, so a program with no bundle
+//!   identifier (a bare binary run from a terminal) shows none.
 //! - Windows: toasts are shown as Windows PowerShell's. A toast names its sender by an
 //!   application user model id, and one that no Start menu shortcut registers shows nothing at
 //!   all, so the registered PowerShell id is the one that always works. No activation token: it
 //!   is a Wayland and X11 notion.
 
 use super::{Act, Notification, Notifier, Opens, Sound};
-#[cfg(any(windows, target_os = "macos"))]
+#[cfg(windows)]
 use notify_rust::NotificationResponse;
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
 use std::sync::Arc;
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(all(unix, not(target_os = "macos")))]
 use super::click::{Clicked, Clicks};
 
-/// What hears a click: on Linux the one listener, elsewhere a bound on the threads that wait.
+/// What hears a click: on Linux the one listener, on Windows a bound on the threads that wait. On
+/// macOS the delegate the app holds, which nothing here keeps a handle to.
 #[cfg(all(unix, not(target_os = "macos")))]
 type Hearing = Clicks;
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
 type Hearing = Arc<Waiting>;
 
 /// The platform's notification service, if there is one to reach.
 #[derive(Debug, Clone)]
 pub struct Desktop {
     reach: Reach,
+    #[cfg(not(target_os = "macos"))]
     hearing: Hearing,
-    /// macOS: whether this process runs the main run loop a click is delivered on (the window
-    /// does; `mailo watch`, a command in a terminal, does not).
+    /// macOS: what posts the banners, which is the app's.
     #[cfg(target_os = "macos")]
-    run_loop: bool,
+    banners: std::sync::Arc<dyn super::banner::Posts>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -69,30 +74,23 @@ enum Reach {
 
 impl Desktop {
     /// Find the notification service, or remember that there is none.
+    #[cfg(not(target_os = "macos"))]
     pub fn connect() -> Self {
         let reach = reach();
         Desktop {
             reach,
             hearing: hearing(reach),
-            #[cfg(target_os = "macos")]
-            run_loop: false,
         }
     }
 
-    /// As [`connect`](Self::connect), for the window: the process that runs the application's
-    /// main run loop. On macOS that is what lets a click on a banner be heard; everywhere else
-    /// it is the same as `connect`.
-    pub fn connect_in_window() -> Self {
-        #[cfg(target_os = "macos")]
-        {
-            Desktop {
-                run_loop: true,
-                ..Self::connect()
-            }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            Self::connect()
+    /// The notification centre, posted to by `banners`. Whoever should hear the clicks installs
+    /// the delegate for them and hands each to [`heard`]; a process with no run loop to deliver
+    /// them on (`mailo watch`) posts all the same.
+    #[cfg(target_os = "macos")]
+    pub fn connect(banners: std::sync::Arc<dyn super::banner::Posts>) -> Self {
+        Desktop {
+            reach: reach(),
+            banners,
         }
     }
 }
@@ -108,9 +106,23 @@ fn hearing(reach: Reach) -> Hearing {
     }
 }
 
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
 fn hearing(_: Reach) -> Hearing {
     Arc::default()
+}
+
+/// A click on a banner, from the one delegate: start what it asks for.
+#[cfg(target_os = "macos")]
+pub fn heard(click: super::banner::Click) {
+    use super::banner::Pressed;
+    let action = match &click.pressed {
+        Pressed::Content | Pressed::Main => Some(super::banner::CONTENT),
+        Pressed::More(id) => Some(id.as_str()),
+        Pressed::Other => None,
+    };
+    if let Some(launch) = super::banner::launch(action, &click.info) {
+        start(launch, None);
+    }
 }
 
 /// On Linux, whether a notification server answers on the session bus. Asked once, off any
@@ -123,12 +135,9 @@ fn reach() -> Reach {
     }
 }
 
-/// On macOS, the notification centre is always there; which application it names is chosen once.
+/// On macOS, the notification centre is always there.
 #[cfg(target_os = "macos")]
 fn reach() -> Reach {
-    let sender = notify_rust::get_bundle_identifier_or_default("mailo");
-    // Already chosen, by an earlier `connect` in this process, is the same choice.
-    let _ = notify_rust::set_application(&sender);
     Reach::Service
 }
 
@@ -139,9 +148,9 @@ fn reach() -> Reach {
 
 /// Wait for what the user does with `$shown`, and start the window if they clicked it.
 ///
-/// A macro rather than a function because the D-Bus handle and the toast handle share
-/// `wait_for_response` but not a type, and `notify-rust` does not export the toast's by name.
-#[cfg(any(windows, target_os = "macos"))]
+/// A macro rather than a function because `notify-rust` does not export the toast handle's type
+/// by name.
+#[cfg(windows)]
 macro_rules! wait_on {
     ($shown:expr, $notification:expr, $waiting:expr) => {{
         // Past the bound the notification is still shown; only its click opens nothing.
@@ -167,18 +176,17 @@ impl Notifier for Desktop {
 impl Desktop {
     /// [`show`](Notifier::show) with `sound`: what a notifier that reads the person's settings as
     /// each is said ([`super::Interest`]) chooses.
+    #[cfg(not(target_os = "macos"))]
     pub fn show_with(&self, notification: &Notification, sound: Sound) {
         if self.reach == Reach::Nowhere {
             return;
         }
         let notification = notification.clone();
         let hearing = self.hearing.clone();
-        #[cfg(target_os = "macos")]
-        let run_loop = self.run_loop;
         // On a thread of its own, because a notification service that is slow to answer — or
         // registered and wedged — holds the call for its whole timeout, and this is called
-        // between passes of a loop that fetches mail for every account on one thread. The same
-        // thread then waits for the click, where the platform lets it.
+        // between passes of a loop that fetches mail for every account on one thread. On Windows
+        // the same thread then waits for the click.
         std::thread::spawn(move || {
             let Ok(shown) = built(&notification, sound).show() else {
                 return;
@@ -187,34 +195,40 @@ impl Desktop {
             hearing.show(shown.id(), notification.opens.clone(), notification.reply);
             #[cfg(windows)]
             wait_on!(shown, notification, hearing);
-            // On macOS only the window hears a click (the module's notes say why); `shown` sends
-            // the notification when it is dropped, so there it simply goes.
-            #[cfg(target_os = "macos")]
-            if run_loop {
-                wait_on!(shown, notification, hearing);
-            }
         });
+    }
+
+    /// [`show`](Notifier::show) with `sound`: what a notifier that reads the person's settings as
+    /// each is said ([`super::Interest`]) chooses.
+    #[cfg(target_os = "macos")]
+    pub fn show_with(&self, notification: &Notification, sound: Sound) {
+        if self.reach == Reach::Nowhere {
+            return;
+        }
+        // Posted, not waited on: the click is heard by the delegate, from what the banner carries.
+        // No bundle identifier means no centre to post to, and nothing to say about that.
+        self.banners.post(&banner(notification, sound));
     }
 }
 
-/// At most this many notifications are waited on for a click at once (Windows: one thread each). A service should say when
-/// each one closes, but one that never does must not make a week-long watch grow a thread and a
-/// bus connection for every notification it ever showed; past the bound a notification is still
-/// shown, and a click on it opens nothing until an earlier one closes.
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+/// At most this many notifications are waited on for a click at once, one thread each. A service
+/// should say when each one closes, but one that never does must not make a week-long watch grow
+/// a thread for every notification it ever showed; past the bound a notification is still shown,
+/// and a click on it opens nothing until an earlier one closes.
+#[cfg(windows)]
 pub const REMEMBERED: usize = 64;
 
 /// A count of the notifications being waited on, bounded by [`REMEMBERED`].
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
 #[derive(Debug, Default)]
 pub struct Waiting(AtomicUsize);
 
 /// One place among the [`Waiting`], given back when it is dropped.
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
 #[derive(Debug)]
 pub struct Place<'a>(&'a Waiting);
 
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
 impl Waiting {
     /// A place to wait in, or `None` when [`REMEMBERED`] are already waiting.
     pub fn enter(&self) -> Option<Place<'_>> {
@@ -242,7 +256,7 @@ impl Waiting {
     }
 }
 
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(windows)]
 impl Drop for Place<'_> {
     fn drop(&mut self) {
         self.0.0.fetch_sub(1, Ordering::AcqRel);
@@ -290,9 +304,9 @@ impl Launch {
 }
 
 /// What follows from the service's answer about a notification that opens `opens` and offers
-/// a Reply button when `reply`: a program to start for a click on the notification or on a button it offered, and
-/// nothing for a close or for any other action.
-#[cfg(any(windows, target_os = "macos"))]
+/// a Reply button when `reply`: a program to start for a click on the notification or on a button
+/// it offered, and nothing for a close or for any other action.
+#[cfg(windows)]
 pub fn answer(response: &NotificationResponse, opens: &Opens, reply: bool) -> Option<Launch> {
     let act = match response {
         NotificationResponse::Default => Some(Act::Open),
@@ -344,6 +358,7 @@ fn start(launch: Launch, token: Option<&str>) {
 }
 
 /// The notification as this platform's service is handed it.
+#[cfg(not(target_os = "macos"))]
 fn built(n: &Notification, sound: Sound) -> notify_rust::Notification {
     let mut out = notify_rust::Notification::new();
     out.appname("mailo").summary(&n.summary);
@@ -381,25 +396,42 @@ fn platform(out: &mut notify_rust::Notification, n: &Notification, sound: Sound)
     }
 }
 
-/// macOS and Windows show the body as text. On macOS a banner about one conversation offers
-/// Open, Archive and Reply as the notification centre's options, Open first because a click on
-/// the options' button itself is read as the first of them. A Windows toast would draw each as a
-/// button of its own, so it has none, and a click on a toast is its own activation.
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+/// Windows shows the body as text. A toast would draw each button as one of its own, so it has
+/// none, and a click on a toast is its own activation.
+#[cfg(windows)]
 fn platform(out: &mut notify_rust::Notification, n: &Notification, sound: Sound) {
     out.body(&n.body);
-    #[cfg(target_os = "macos")]
-    if matches!(n.opens, Opens::Thread(_)) {
-        out.action(super::DEFAULT_ACTION, "Open");
-        buttons(out, n);
-    }
     if let Some(name) = sound_name(sound) {
         out.sound_name(name);
     }
 }
 
+/// The banner as the notification centre is handed it: the text as text, and a banner about one
+/// conversation offers Open as its main button, with Archive and Reply among its further ones. What
+/// a click needs to know comes back with it ([`super::banner::info`]).
+#[cfg(target_os = "macos")]
+fn banner(n: &Notification, sound: Sound) -> super::banner::Banner {
+    let mut out = super::banner::Banner {
+        title: n.summary.clone(),
+        body: n.body.clone(),
+        sound: sound_name(sound).map(str::to_owned),
+        info: super::banner::info(n),
+        ..Default::default()
+    };
+    if matches!(n.opens, Opens::Thread(_)) {
+        out.main_button = Some("Open".to_owned());
+        out.more_buttons
+            .push((super::ARCHIVE_ACTION.to_owned(), "Archive".to_owned()));
+        if n.reply {
+            out.more_buttons
+                .push((super::REPLY_ACTION.to_owned(), "Reply".to_owned()));
+        }
+    }
+    out
+}
+
 /// The Archive and Reply buttons a banner about one conversation offers.
-#[cfg(any(target_os = "macos", all(unix, not(target_os = "macos"))))]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn buttons(out: &mut notify_rust::Notification, n: &Notification) {
     if matches!(n.opens, Opens::Thread(_)) {
         out.action(super::ARCHIVE_ACTION, "Archive");
@@ -454,15 +486,54 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(target_os = "macos")]
+    use std::sync::Arc;
 
-    // Only Windows reads a response (Linux listens in `click`), so the click test, the one user
-    // of this id, runs there.
-    #[cfg(any(windows, target_os = "macos"))]
+    /// On macOS the banner goes to what the app handed in, and to nothing else: a test posts to
+    /// a recorder and never to the notification centre.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_banner_is_posted_by_the_poster_the_app_handed_in() {
+        use super::super::banner::{Banner, Posts};
+        use std::sync::Mutex;
+
+        #[derive(Debug, Default)]
+        struct Recorder(Mutex<Vec<Banner>>);
+        impl Posts for Recorder {
+            fn post(&self, banner: &Banner) {
+                if let Ok(mut posted) = self.0.lock() {
+                    posted.push(banner.clone());
+                }
+            }
+        }
+
+        let recorder = Arc::new(Recorder::default());
+        let desktop = Desktop::connect(recorder.clone());
+        desktop.show_with(
+            &Notification {
+                account: mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(1)),
+                summary: "Ada".to_owned(),
+                body: "lunch".to_owned(),
+                opens: Opens::Thread(mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(2))),
+                reply: true,
+            },
+            Sound::Silent,
+        );
+        let posted = recorder.0.lock().map(|p| p.clone()).unwrap_or_default();
+        assert_eq!(posted.len(), 1);
+        assert_eq!(posted[0].title, "Ada");
+        assert_eq!(posted[0].main_button.as_deref(), Some("Open"));
+        assert_eq!(posted[0].sound, None);
+    }
+
+    // Only Windows reads a response (Linux listens in `click`, macOS in `banner`), so the click
+    // test, the one user of this id, runs there.
+    #[cfg(windows)]
     fn thread(n: u128) -> Opens {
         Opens::Thread(mail_domain::ThreadId::from_uuid(uuid::Uuid::from_u128(n)))
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     fn inbox() -> Opens {
         Opens::Inbox(mail_domain::id::account_id_from_uuid(
             uuid::Uuid::from_u128(0xacc),
@@ -558,7 +629,7 @@ mod tests {
         assert_eq!(escape("lunch on friday"), "lunch on friday");
     }
 
-    #[cfg(any(windows, target_os = "macos"))]
+    #[cfg(windows)]
     #[test]
     fn a_click_on_the_notification_opens_what_it_was_about_and_nothing_else_does() {
         use notify_rust::CloseReason;
@@ -631,7 +702,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    #[cfg(windows)]
     #[test]
     fn a_service_that_never_says_closed_cannot_grow_the_waiting_without_end() {
         let waiting = Waiting::default();
@@ -647,7 +718,7 @@ mod tests {
         assert_eq!(waiting.len(), REMEMBERED);
     }
 
-    #[cfg(not(all(unix, not(target_os = "macos"))))]
+    #[cfg(windows)]
     #[test]
     fn every_place_given_back_leaves_nothing_waiting() {
         let waiting = Waiting::default();
