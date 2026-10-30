@@ -1,13 +1,7 @@
 //! What the tests of `mail-mime` share, declared once: the draft, sender and parent a built
-//! message starts from, the walkers the block tests read a document with, and the throwaway
-//! certificate authorities.
-//!
-//! The authorities live in `mail_mime::testing`, which `mail-runtime`'s and `mail-app`'s tests
-//! use too.
+//! message starts from, and the walkers the block tests read a document with.
 
 pub mod block;
-#[cfg(feature = "smime")]
-pub use mail_mime::testing::{bimi, smime};
 
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::id::new_account_id;

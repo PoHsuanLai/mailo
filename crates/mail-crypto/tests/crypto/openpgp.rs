@@ -6,13 +6,14 @@
 
 use crate::support::{self, addr, sender};
 use chrono::{DateTime, TimeZone, Utc};
+use mail_crypto::CryptoError;
+use mail_crypto::openpgp::{
+    self, Cert, Keys, KnownCert, Protection, ReadKey, Sealing, SecretCert, Unlocking, wkd,
+};
 use mail_domain::{
     Coverage, Draft, Encryption, KeySource, KeyTrust, Mode, PreferEncrypt, Verification,
 };
-use mail_mime::openpgp::{
-    self, Cert, Keys, KnownCert, Protection, ReadKey, Sealing, SecretCert, Unlocking, wkd,
-};
-use mail_mime::{Disclosure, MimeError, build, parse, restamp};
+use mail_mime::{Disclosure, build, parse, restamp};
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 
@@ -396,7 +397,7 @@ fn a_locked_key_needs_its_passphrase_to_decrypt() {
         &sealing(Mode::Sign, Some(&signer), &[]),
         &mut rng(24),
     );
-    assert_eq!(refused, Err(MimeError::KeyLocked(mine.fingerprint())));
+    assert_eq!(refused, Err(CryptoError::KeyLocked(mine.fingerprint())));
 }
 
 #[test]
@@ -596,7 +597,7 @@ fn encrypting_needs_a_key_to_encrypt_to_and_signing_a_key_to_sign_with() {
             &sealing(Mode::Encrypt, None, &[]),
             &mut rng(36)
         ),
-        Err(MimeError::NoRecipientKeys)
+        Err(CryptoError::NoRecipientKeys)
     );
     assert_eq!(
         openpgp::seal(
@@ -604,6 +605,6 @@ fn encrypting_needs_a_key_to_encrypt_to_and_signing_a_key_to_sign_with() {
             &sealing(Mode::Sign, None, &[]),
             &mut rng(37)
         ),
-        Err(MimeError::NoSigningKey)
+        Err(CryptoError::NoSigningKey)
     );
 }

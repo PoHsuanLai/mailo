@@ -181,7 +181,9 @@ Published libraries (each package is named `mailo-*`; its folder keeps the `crat
 | Crate | For |
 | --- | --- |
 | `mailo-domain` (`crates/mail-domain`) | The vocabulary: accounts, messages, folders, rules, drafts, identifiers. Pure data and functions. |
-| `mailo-mime` (`crates/mail-mime`) | Parsing and building MIME, HTML sanitising, OpenPGP and S/MIME (behind features), iMIP, `mailto:`. |
+| `mailo-mime` (`crates/mail-mime`) | Parsing and building MIME, HTML sanitising, iMIP, `mailto:`. |
+| `mailo-crypto` (`crates/mail-crypto`) | OpenPGP and S/MIME (behind features), and the mark-certificate check behind BIMI logos: bytes in, values out. |
+| `mailo-archive` (`crates/mail-archive`) | mbox, Maildir, `.emlx`, Thunderbird and Takeout archives, read and written without touching a file. |
 | `mailo-proto` (`crates/mail-proto`) | Sans-I/O protocol machines for IMAP, POP3, SMTP, ManageSieve, and JMAP's requests and responses: bytes in, "what I need next" out. |
 | `mailo-pim` (`crates/mail-pim`) | vCard, iCalendar invitations and the WebDAV/CardDAV conversation, as text in and values out. |
 | `mailo-editor` (`crates/mail-editor`) | The composer's rich-text document as pure edits: operations, undo, markdown shortcuts, slash commands, and writers to HTML and `format=flowed`. |

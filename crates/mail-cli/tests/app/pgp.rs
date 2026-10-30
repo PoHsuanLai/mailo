@@ -12,9 +12,9 @@ use mail_core::protect::Seal;
 use mail_core::testing::MapSigningStore;
 use mail_core::{Arrival, SigningStore};
 use mail_core::{SqliteStore, Store};
+use mail_crypto::openpgp::{self, Keys, SecretCert, Unlocking};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
-use mail_mime::openpgp::{self, Keys, SecretCert, Unlocking};
 use rand::SeedableRng;
 use std::sync::Arc;
 

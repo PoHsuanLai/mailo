@@ -10,8 +10,8 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use mail_core::SqliteStore;
 use mail_core::testing::MapSigningStore;
+use mail_crypto::smime::{Cert, Identity, Sealing};
 use mail_domain::*;
-use mail_mime::smime::{Cert, Identity, Sealing};
 
 use super::tests::{ME, arrive, lines, reader, reader_looking, seals, shows, until};
 use super::{Said, Tone, doubt, said_smime};
@@ -32,7 +32,7 @@ fn bea() -> Identity {
 
 /// The user's identity as a PKCS#12 file, locked with [`PASSWORD`].
 pub(super) fn identity_file() -> Vec<u8> {
-    mail_mime::smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap()
+    mail_crypto::smime::write_pkcs12(&me(), PASSWORD, &mut rng(1)).unwrap()
 }
 
 /// The user's identity imported, its private key in `secrets`.
@@ -74,7 +74,7 @@ fn letter(word: &str, text: &str) -> String {
 
 /// `raw` sealed by `signer`'s client as `mode`, to `to`.
 fn sealed(raw: &str, mode: Mode, signer: &Identity, to: &[Cert]) -> Vec<u8> {
-    mail_mime::smime::seal(
+    mail_crypto::smime::seal(
         raw.as_bytes(),
         &Sealing {
             mode,

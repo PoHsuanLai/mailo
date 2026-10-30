@@ -27,7 +27,9 @@ mail-domain.workspace = true
 mail-proto.workspace = true
 mail-store.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
-mail-mime = { workspace = true, features = ["openpgp", "smime"] }
+mail-mime.workspace = true
+mail-crypto = { workspace = true, features = ["openpgp", "smime"] }
+mail-archive.workspace = true
 mail-pim.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
@@ -152,7 +154,7 @@ porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"
 # The throwaway mark verifying authority `tests/runtime/bimi.rs` builds its certificates with.
-mail-mime = { workspace = true, features = ["testing"] }
+mail-crypto = { workspace = true, features = ["testing"] }
 
 [lints]
 workspace = true

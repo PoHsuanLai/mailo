@@ -1,8 +1,7 @@
 //! S/MIME on bytes: messages sealed and opened again, and messages built by
 //! hand the way other clients write them — BER, opaque signed-data, triple DES, AES-GCM, SHA-1 —
-//! against a throwaway certificate authority made in `support::smime`.
+//! against a throwaway certificate authority made in `mail_crypto::testing::smime`.
 
-use crate::support::smime::*;
 use cms::content_info::{CmsVersion, ContentInfo};
 use cms::enveloped_data::{
     EncryptedContentInfo, EnvelopedData, KeyTransRecipientInfo, RecipientIdentifier, RecipientInfo,
@@ -13,9 +12,10 @@ use cms::signed_data::{
 };
 use der::asn1::SetOfVec;
 use der::{Any, Decode, Encode};
+use mail_crypto::CryptoError;
+use mail_crypto::smime::{self, Cert, Identity, Keys, Sealing};
+use mail_crypto::testing::smime::*;
 use mail_domain::*;
-use mail_mime::MimeError;
-use mail_mime::smime::{self, Cert, Identity, Keys, Sealing};
 use spki::AlgorithmIdentifierOwned;
 
 const ALICE: &str = "alice@example.test";
@@ -739,7 +739,7 @@ fn an_identity_round_trips_through_pkcs12_and_a_wrong_password_is_named() {
     );
     assert!(matches!(
         smime::read_pkcs12(&file, "wrong"),
-        Err(MimeError::WrongPassword)
+        Err(CryptoError::WrongPassword)
     ));
     assert!(smime::read_pkcs12(b"not a pfx", "x").is_err());
     // What the keyring keeps reads back as the same key.

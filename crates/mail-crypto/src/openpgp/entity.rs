@@ -3,8 +3,8 @@
 //! A signature covers exact bytes, so this works on the bytes themselves rather than on a
 //! parsed tree that has already decoded, re-folded or normalized them away.
 
-pub(crate) use crate::stamp::fields;
-use crate::stamp::split_head;
+pub(crate) use mail_mime::stamp::fields;
+use mail_mime::stamp::split_head;
 
 /// Deepest nesting walked when looking for a signed or encrypted part. Real mail nests a few
 /// levels; a message nested thousands deep is an attack on the stack, not a message.

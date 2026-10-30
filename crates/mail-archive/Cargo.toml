@@ -1,0 +1,29 @@
+[package]
+name = "mailo-archive"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Mail at rest in files: mbox, Maildir, Apple Mail .emlx, Thunderbird and Google Takeout, read and written as pure bytes-in, values-out code."
+readme = "README.md"
+keywords = ["email", "mbox", "maildir", "emlx", "takeout"]
+categories = ["email", "parser-implementations"]
+
+# Published as mailo-archive; used in code as `mail_archive`, as the workspace always has.
+[lib]
+name = "mail_archive"
+
+[dependencies]
+mail-domain.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# The values a test starts from (`mail_domain::testing`): the program never has them.
+mail-domain = { workspace = true, features = ["testing"] }
+
+[lints]
+workspace = true

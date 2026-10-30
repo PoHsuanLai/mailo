@@ -3,6 +3,8 @@ resolver = "3"
 members = [
   "crates/mail-domain",
   "crates/mail-mime",
+  "crates/mail-crypto",
+  "crates/mail-archive",
   "crates/mail-proto",
   "crates/mail-pim",
   "crates/mail-editor",
@@ -44,6 +46,8 @@ mail-cli = { path = "crates/mail-cli" }
 mail-intents = { path = "crates/mail-intents" }
 mail-core   = { path = "crates/mail-core", default-features = false }
 mail-domain = { package = "mailo-domain", path = "crates/mail-domain", version = "0.1.0" }
+mail-archive = { package = "mailo-archive", path = "crates/mail-archive", version = "0.1.0" }
+mail-crypto = { package = "mailo-crypto", path = "crates/mail-crypto", version = "0.1.0", default-features = false }
 mail-mime   = { package = "mailo-mime", path = "crates/mail-mime", version = "0.1.0", default-features = false }
 mail-pim    = { package = "mailo-pim", path = "crates/mail-pim", version = "0.1.0" }
 mail-editor = { package = "mailo-editor", path = "crates/mail-editor", version = "0.1.0" }
@@ -58,7 +62,7 @@ mail-store  = { path = "crates/mail-store" }
 #
 # porter-secrets is where account secrets live. Its stores are features, chosen per
 # target in mail-runtime's own Cargo.toml: `oo7` on Linux, `keyring` on macOS and Windows. It
-# enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -proto and -pim
+# enters mail-runtime, the I/O crate, and no pure crate: mail-domain, -mime, -crypto, -archive, -proto and -pim
 # stay free of zbus and tokio (`scripts/check-boundary.sh`).
 porter-core = { git = "https://github.com/PoHsuanLai/porter", rev = "f406782b90b67f62f0f14ec5e78aec8992b5d709" }
 porter-provider = { git = "https://github.com/PoHsuanLai/porter", rev = "f406782b90b67f62f0f14ec5e78aec8992b5d709" }
@@ -173,7 +177,10 @@ opt-level = 2
 [profile.dev.package.mailo-mime]
 opt-level = 2
 
-# S/MIME (`mail-mime::smime`) generates RSA keys in its tests and derives PKCS#12 keys with
+[profile.dev.package.mailo-crypto]
+opt-level = 2
+
+# S/MIME (`mail-crypto::smime`) generates RSA keys in its tests and derives PKCS#12 keys with
 # 100 000 rounds of SHA-256. Unoptimised, a 2048-bit key takes tens of seconds and a PKCS#12 file
 # several; built optimised even in dev, a fraction of a second. Pure arithmetic crates with their
 # own tests, so nothing is lost by not stepping through them.

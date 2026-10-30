@@ -3,6 +3,8 @@
 //! account's absence from everything that talks to a server.
 
 use chrono::{DateTime, TimeZone, Utc};
+use mail_archive::maildir::INFO;
+use mail_archive::mbox;
 use mail_cli as cli;
 use mail_core::ClientRegistry;
 use mail_core::Environment;
@@ -13,8 +15,6 @@ use mail_core::sync;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
-use mail_mime::archive::maildir::INFO;
-use mail_mime::archive::mbox;
 use porter_core::{AccountId, Credential, SecretKey};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

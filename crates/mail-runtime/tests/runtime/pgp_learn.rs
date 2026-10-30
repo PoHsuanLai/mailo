@@ -5,9 +5,9 @@
 
 use crate::fixture::{acct_account, store};
 use chrono::{DateTime, TimeZone, Utc};
+use mail_crypto::openpgp::{self, SecretCert};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
-use mail_mime::openpgp::{self, SecretCert};
 use mail_runtime::testing::MapSigningStore;
 use mail_runtime::{Arrival, assemble, pgp};
 use mail_store::{SqliteStore, Store};

@@ -1,7 +1,7 @@
 //! S/MIME's effects: private keys in and out of the OS keyring, the operating system's trust
 //! anchors, and correspondents' certificates learnt from their signed mail.
 //!
-//! The cryptography is `mail_mime::smime`'s and is pure. What happens here is what it cannot do:
+//! The cryptography is `mail_crypto::smime`'s and is pure. What happens here is what it cannot do:
 //! read and write the keyring, read the system's certificate bundle, and write to the store what
 //! arriving mail taught. Nothing here decrypts anything — mail is decrypted when the reader opens
 //! it, never as it arrives.
@@ -9,9 +9,9 @@
 use crate::error::Failure;
 use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
+use mail_crypto::smime::{self, Cert, Keys, PrivateKey};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::{CertFingerprint, CertProblem, CertSource, SmimeVerification};
-use mail_mime::smime::{self, Cert, Keys, PrivateKey};
 use mail_store::Store;
 use porter_core::AccountId;
 use std::sync::OnceLock;

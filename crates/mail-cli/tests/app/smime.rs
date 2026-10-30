@@ -1,7 +1,7 @@
 //! S/MIME from the user's side: identities imported and forgotten, drafts sent
 //! signed and encrypted, protected mail opened when it is read — against a real store, with the
 //! keyring a [`MapSigningStore`] so the user's own is never touched, and every certificate and key
-//! made by the throwaway authority in `mail_mime::testing::smime`.
+//! made by the throwaway authority in `mail_crypto::testing::smime`.
 
 use crate::sealed::{self, to};
 use crate::smime_support;
@@ -14,9 +14,9 @@ use mail_core::smime;
 use mail_core::testing::MapSigningStore;
 use mail_core::{Arrival, SigningStore};
 use mail_core::{SqliteStore, Store};
+use mail_crypto::smime::{self as cms_smime, Cert, Sealing};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::*;
-use mail_mime::smime::{self as cms_smime, Cert, Sealing};
 use smime_support::*;
 use std::sync::Arc;
 
@@ -206,7 +206,7 @@ mod identities {
             panic!("{held:?}");
         };
         assert_eq!(
-            mail_mime::smime::PrivateKey::from_pkcs8_pem(&pem).unwrap(),
+            mail_crypto::smime::PrivateKey::from_pkcs8_pem(&pem).unwrap(),
             me().key
         );
     }

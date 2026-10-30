@@ -2,7 +2,7 @@
 //!
 //! Handles PGP/MIME (RFC 3156) — `multipart/encrypted` and `multipart/signed`, at the top or,
 //! for a signature, nested inside something else — and inline PGP in a plain-text message as a
-//! read-only fallback. What comes back is a whole message again, ready for [`crate::parse`]:
+//! read-only fallback. What comes back is a whole message again, ready for [`mail_mime::parse`]:
 //! the decrypted or signed content under the original header, with any protected headers from
 //! inside the encrypted part in place of the outer ones.
 
@@ -44,7 +44,7 @@ impl Candidate<'_> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opened {
     /// The message as the reader should show it: decrypted, or with the signature part taken
-    /// off, under the original header. Parse it with [`crate::parse`]. Not to be stored: this
+    /// off, under the original header. Parse it with [`mail_mime::parse`]. Not to be stored: this
     /// is the decrypted content, and it is kept nowhere by this crate.
     pub message: Vec<u8>,
     pub encryption: Encryption,
@@ -113,10 +113,10 @@ fn encrypted_payload(raw: &[u8]) -> Option<Vec<u8>> {
     if kind.is("multipart/encrypted", PGP_ENCRYPTED) {
         let children = top.children();
         let payload = children.get(1)?;
-        return Some(crate::reconstruct::decode_part(payload.raw, b""));
+        return Some(mail_mime::decode_part(payload.raw, b""));
     }
     if kind.mime == "text/plain" {
-        let text = crate::reconstruct::decode_part(raw, b"");
+        let text = mail_mime::decode_part(raw, b"");
         return armored_block(&text, BEGIN_MESSAGE).map(|(_, block, _)| block.to_vec());
     }
     None
@@ -266,7 +266,7 @@ fn verify_signed(
     let children = entity.children();
     let (signed, signature) = (children.first()?, children.get(1)?);
     let data = crlf(signed.raw);
-    let armored = crate::reconstruct::decode_part(signature.raw, b"");
+    let armored = mail_mime::decode_part(signature.raw, b"");
     let signatures: Vec<(usize, Signature)> =
         match DetachedSignature::from_reader_many(&armored[..]) {
             Ok((found, _)) => found
@@ -372,7 +372,7 @@ fn judge(
 /// Inline PGP in a plain-text body: an armored `PGP MESSAGE` decrypted in place, or a
 /// cleartext-signed block checked. Text outside the block makes the coverage partial.
 fn inline(raw: &[u8], top: Entity<'_>, keys: &Keys) -> Option<Opened> {
-    let text = crate::reconstruct::decode_part(raw, b"");
+    let text = mail_mime::decode_part(raw, b"");
     if let Some((before, block, after)) = armored_block(&text, BEGIN_MESSAGE) {
         let coverage = coverage_of(before, after);
         return Some(match decrypt(block, keys) {

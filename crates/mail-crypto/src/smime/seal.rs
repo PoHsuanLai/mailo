@@ -17,7 +17,7 @@ use super::cert::Cert;
 use super::keys::Identity;
 use super::sign::DigestAlg;
 use super::smime_error;
-use crate::MimeError;
+use crate::CryptoError;
 use crate::openpgp::Rng;
 use crate::openpgp::entity::{Entity, crlf, field_name, fields, is_content_field};
 use chrono::{DateTime, Utc};
@@ -52,9 +52,9 @@ pub struct Sealing<'a> {
     pub boundary_prefix: &'a str,
 }
 
-/// `frozen` — a whole message as `crate::build` writes it — signed, encrypted, or both, as
+/// `frozen` — a whole message as `mail_mime::build` writes it — signed, encrypted, or both, as
 /// `how.mode` says.
-pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<u8>, MimeError> {
+pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<u8>, CryptoError> {
     let message = Entity::of(frozen);
     let (outer, content): (Vec<&[u8]>, Vec<&[u8]>) = fields(message.head)
         .into_iter()
@@ -66,13 +66,13 @@ pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<
     let mut entity = crlf(&[content.concat(), b"\r\n".to_vec(), message.body.to_vec()].concat());
     if how.mode.signs() {
         let signer = how.signer.ok_or_else(|| {
-            MimeError::Smime("there is no S/MIME identity to sign with".to_owned())
+            CryptoError::Smime("there is no S/MIME identity to sign with".to_owned())
         })?;
         entity = signed(&entity, signer, how.now, how.boundary_prefix, rng)?;
     }
     if how.mode.encrypts() {
         if how.recipients.is_empty() {
-            return Err(MimeError::Smime(
+            return Err(CryptoError::Smime(
                 "there is no certificate to encrypt to".to_owned(),
             ));
         }
@@ -111,7 +111,7 @@ fn signed(
     now: DateTime<Utc>,
     boundary_prefix: &str,
     rng: &mut impl Rng,
-) -> Result<Vec<u8>, MimeError> {
+) -> Result<Vec<u8>, CryptoError> {
     let digest = signer.key.digest();
     let signature = signed_data(entity, signer, digest, now)?;
     let boundary = boundary(boundary_prefix, rng);
@@ -137,7 +137,7 @@ fn signed(
     Ok(out)
 }
 
-fn attribute(oid: const_oid::ObjectIdentifier, value: Any) -> Result<Attribute, MimeError> {
+fn attribute(oid: const_oid::ObjectIdentifier, value: Any) -> Result<Attribute, CryptoError> {
     let mut values = SetOfVec::new();
     values
         .insert(value)
@@ -145,14 +145,14 @@ fn attribute(oid: const_oid::ObjectIdentifier, value: Any) -> Result<Attribute, 
     Ok(Attribute { oid, values })
 }
 
-fn any<T: Encode>(value: &T) -> Result<Any, MimeError> {
+fn any<T: Encode>(value: &T) -> Result<Any, CryptoError> {
     let der = value.to_der().map_err(|e| smime_error("an attribute", e))?;
     Any::from_der(&der).map_err(|e| smime_error("an attribute", e))
 }
 
 /// The S/MIME capabilities attribute (RFC 8551 §2.5.2): what this client reads, strongest first,
 /// so a correspondent replying encrypted picks something it can open.
-fn capabilities() -> Result<Any, MimeError> {
+fn capabilities() -> Result<Any, CryptoError> {
     let preferred: Vec<spki::AlgorithmIdentifierOwned> = [
         asn1::AES256_GCM,
         asn1::AES128_GCM,
@@ -174,7 +174,7 @@ fn signed_data(
     signer: &Identity,
     digest: DigestAlg,
     now: DateTime<Utc>,
-) -> Result<Vec<u8>, MimeError> {
+) -> Result<Vec<u8>, CryptoError> {
     let content_digest = digest.hash(entity);
     let since = std::time::Duration::from_secs(u64::try_from(now.timestamp()).unwrap_or(0));
     // UTCTime through 2049, GeneralizedTime after (RFC 5652 §11.3).
@@ -236,7 +236,7 @@ fn signed_data(
 }
 
 /// `value` as the content of a ContentInfo of type `kind`, DER.
-fn wrap<T: Encode>(kind: const_oid::ObjectIdentifier, value: &T) -> Result<Vec<u8>, MimeError> {
+fn wrap<T: Encode>(kind: const_oid::ObjectIdentifier, value: &T) -> Result<Vec<u8>, CryptoError> {
     ContentInfo {
         content_type: kind,
         content: any(value)?,
@@ -246,7 +246,11 @@ fn wrap<T: Encode>(kind: const_oid::ObjectIdentifier, value: &T) -> Result<Vec<u
 }
 
 /// The `application/pkcs7-mime` enveloped-data entity holding `entity`.
-fn enveloped(entity: &[u8], recipients: &[Cert], rng: &mut impl Rng) -> Result<Vec<u8>, MimeError> {
+fn enveloped(
+    entity: &[u8],
+    recipients: &[Cert],
+    rng: &mut impl Rng,
+) -> Result<Vec<u8>, CryptoError> {
     // Each recipient needs its own draw from the generator for its key wrapping, and the builder
     // holds each one's until it is built; the content key and IV come from `rng` itself.
     let mut draws: Vec<rand::rngs::StdRng> = Vec::with_capacity(recipients.len());
@@ -260,7 +264,7 @@ fn enveloped(entity: &[u8], recipients: &[Cert], rng: &mut impl Rng) -> Result<V
             .map_err(|e| smime_error("encrypting", e))?;
     for (cert, draw) in recipients.iter().zip(draws.iter_mut()) {
         let public = cert.rsa_public().ok_or_else(|| {
-            MimeError::Smime(format!(
+            CryptoError::Smime(format!(
                 "the certificate for {} has no RSA key, and mail is only encrypted to RSA here",
                 cert.emails().join(", ")
             ))

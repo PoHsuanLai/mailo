@@ -162,8 +162,9 @@ rand = "0.8"
 # names, so the tree holds one pdfrum.
 pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"] }
 # The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with.
-# The OpenPGP and S/MIME halves are features of the library; the tests that seal mail use both.
-mail-mime = { workspace = true, features = ["openpgp", "smime", "testing"] }
+# The throwaway certificate authority the window's S/MIME tests build their fixtures with.
+mail-crypto = { workspace = true, features = ["testing"] }
+mail-mime.workspace = true
 # A watch's scratch directory (`background/tests.rs`).
 tempfile = "3"
 chrono.workspace = true

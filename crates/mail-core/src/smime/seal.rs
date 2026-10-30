@@ -19,9 +19,9 @@ use crate::message::{Protection, Scheme};
 use crate::pgp::Ask;
 use crate::protect::Seal;
 use chrono::{DateTime, Utc};
+use mail_crypto::smime::{self, Cert, Identity as Signer, Sealing};
 use mail_domain::*;
 use mail_mime::Parsed;
-use mail_mime::smime::{self, Cert, Identity as Signer, Sealing};
 use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 

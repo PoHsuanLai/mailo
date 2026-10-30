@@ -1,6 +1,6 @@
 //! Web Key Directory lookup: an address's key, asked of the address's own domain over HTTPS.
 //!
-//! Where to ask is `mail_mime::openpgp::wkd::urls`; this does the asking. The advanced method
+//! Where to ask is `mail_crypto::openpgp::wkd::urls`; this does the asking. The advanced method
 //! first, then the direct method — the draft says to fall back when the `openpgpkey` host does
 //! not exist, and a host that exists but has no key for the address is treated the same way,
 //! since a domain that moved its directory leaves the old one empty rather than gone. HTTPS
@@ -8,8 +8,8 @@
 
 use crate::RuntimeError;
 use crate::error::Failure;
-use mail_mime::openpgp::Cert;
-use mail_mime::openpgp::wkd::{WkdUrls, key_from_answer, urls};
+use mail_crypto::openpgp::Cert;
+use mail_crypto::openpgp::wkd::{WkdUrls, key_from_answer, urls};
 use reqwest::redirect::Policy;
 use std::time::Duration;
 

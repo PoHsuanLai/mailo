@@ -12,6 +12,7 @@
 //! `X-Gmail-Labels` header, or an mbox `Status` header.
 
 pub mod emlx;
+mod error;
 pub mod maildir;
 pub mod mbox;
 pub mod takeout;
@@ -238,3 +239,7 @@ mod tests {
         assert_eq!(crlf(&lf(b"x\r\ny\r\n")), b"x\r\ny\r\n");
     }
 }
+
+#[doc = include_str!("../README.md")]
+#[cfg(doctest)]
+pub struct ReadmeDoctests;

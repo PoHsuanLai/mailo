@@ -281,7 +281,7 @@ fn build(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Keep {
     pub raw: Vec<u8>,
-    pub placement: mail_mime::archive::Placement,
+    pub placement: mail_archive::Placement,
 }
 
 /// What [`keep`] did with a batch.
@@ -339,7 +339,7 @@ pub fn sent(
     at: DateTime<Utc>,
 ) -> Result<Option<MessageId>, RuntimeError> {
     let placement =
-        mail_mime::archive::Placement::new(MailboxRole::Sent, vec![SystemFlag::Seen], Vec::new());
+        mail_archive::Placement::new(MailboxRole::Sent, vec![SystemFlag::Seen], Vec::new());
     let (kept, _) = prepare(store, account.clone(), vec![Keep { raw, placement }], at)?;
     let Some(first) = kept.first() else {
         return Ok(None);

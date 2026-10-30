@@ -9,7 +9,7 @@
 mod cli_mail;
 #[path = "../support/sealed.rs"]
 mod sealed;
-use mail_mime::testing::smime as smime_support;
+use mail_crypto::testing::smime as smime_support;
 // The account the window's tests use too (`mail-app/tests/support/store.rs`).
 #[path = "../support/store.rs"]
 mod store;

@@ -14,11 +14,11 @@ use crate::environment::Environment;
 use crate::error::{CoreError, Logged};
 use crate::formats::{Ctx, Sink, Writer};
 use chrono::{DateTime, Utc};
+use mail_archive::{maildir, mbox};
 use mail_domain::{
     Body, Filter, LabelId, MailboxRole, MatchCtx, Message, MessageId, Mute, PageReq, Pin, Property,
     Query, Snooze, Sort, SortDir, SystemFlag, ThreadSummary,
 };
-use mail_mime::archive::{maildir, mbox};
 use mail_store::{SqliteStore, Store};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -396,7 +396,7 @@ impl Sink for MaildirSink {
         // half a message under a finished name.
         let tmp = dir.join("tmp").join(&unique);
         create_private(&tmp)
-            .and_then(|mut out| out.write_all(&mail_mime::archive::lf(raw)))
+            .and_then(|mut out| out.write_all(&mail_archive::lf(raw)))
             .map_err(CoreError::at(&tmp))?;
         let cur = dir.join("cur").join(&name);
         std::fs::rename(&tmp, &cur).map_err(CoreError::at(&cur))

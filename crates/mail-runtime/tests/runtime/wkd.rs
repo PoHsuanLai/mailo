@@ -2,12 +2,12 @@
 //!
 //! No network. The "directory" is a `TcpListener` behind TLS with the certificate `tls_fixture`
 //! serves, and the client is told to trust that certificate and to resolve the test names to the
-//! listener. The URLs are the ones `mail_mime::openpgp::wkd::urls` derives, with the
+//! listener. The URLs are the ones `mail_crypto::openpgp::wkd::urls` derives, with the
 //! listener's port added — a directory on port 443 is not something a test can open.
 
 use crate::tls_fixture::{NOT_FOUND, hang_up, header, ok, read_request, reply, root, serve_tls};
 use chrono::{TimeZone, Utc};
-use mail_mime::openpgp::{self, SecretCert, wkd};
+use mail_crypto::openpgp::{self, SecretCert, wkd};
 use rand::SeedableRng;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};

@@ -24,7 +24,10 @@ mail-client.workspace = true
 mail-edge.workspace = true
 mail-os.workspace = true
 mail-ui.workspace = true
-mail-mime = { workspace = true, features = ["openpgp", "smime"] }
+mail-mime.workspace = true
+# OpenPGP and S/MIME, and the mbox and Maildir the import and export read and write.
+mail-crypto = { workspace = true, features = ["openpgp", "smime"] }
+mail-archive.workspace = true
 mail-proto.workspace = true
 mail-pim.workspace = true
 porter-core.workspace = true
@@ -48,7 +51,7 @@ rpassword = "7"
 mail-domain = { workspace = true, features = ["testing"] }
 mail-store = { workspace = true, features = ["testing"] }
 mail-core = { workspace = true, features = ["testing"] }
-mail-mime = { workspace = true, features = ["testing"] }
+mail-crypto = { workspace = true, features = ["testing"] }
 mail-runtime.workspace = true
 porter-secrets = { workspace = true, features = ["testing"] }
 image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "gif", "webp"] }

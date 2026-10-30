@@ -3,7 +3,7 @@
 //!
 //! The pieces mirror OpenPGP's (`crate::pgp`): [`certs`] imports, exports, trusts and forgets
 //! certificates and identities; [`read`] opens a message when the reader shows it; [`send`]
-//! seals an outgoing one as Send is pressed. The cryptography is `mail_mime::smime`'s, the
+//! seals an outgoing one as Send is pressed. The cryptography is `mail_crypto::smime`'s, the
 //! keyring and the system's trust anchors are `mail_runtime::smime`'s, and this module decides
 //! which certificates to use.
 //!
@@ -18,8 +18,8 @@ pub use certs::{Imported, cert_for, own_cert};
 pub use read::{Protected, open_bytes, open_message};
 pub use seal::Smime;
 
+use mail_crypto::CryptoError;
 use mail_domain::CertFingerprint;
-use mail_mime::MimeError;
 use mail_runtime::RuntimeError;
 use mail_store::StoreError;
 
@@ -80,7 +80,7 @@ pub enum SmimeError {
     )]
     NoPassword,
     #[error("{0}")]
-    Mime(#[from] MimeError),
+    Crypto(#[from] CryptoError),
     #[error("{0}")]
     Runtime(#[from] RuntimeError),
     #[error("store: {0}")]

@@ -29,8 +29,9 @@ use crate::error::Logged;
 use crate::http::BodyError;
 use crate::lookup::{Miss, SystemDns};
 use chrono::{DateTime, Utc};
-use mail_mime::bimi::{self, BimiRecord, MarkProblem, vmc};
-use mail_mime::smime::Cert;
+use mail_crypto::smime::Cert;
+use mail_crypto::vmc::{self, MarkProblem};
+use mail_mime::bimi::{self, BimiRecord};
 use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
@@ -239,15 +240,15 @@ pub async fn find<D: Txt + Sync>(lookup: &Lookup<'_, D>, domain: &str) -> Result
         return Err(NoLogo::Declined);
     };
     let pem = fetch(lookup.http, &evidence, MAX_EVIDENCE).await?;
-    let certified = match bimi::verified_logo(&pem, &domain, lookup.anchors, lookup.now) {
+    let certified = match vmc::verified_logo(&pem, &domain, lookup.anchors, lookup.now) {
         Err(MarkProblem::NotForDomain) if !same => {
-            bimi::verified_logo(&pem, &org, lookup.anchors, lookup.now)
+            vmc::verified_logo(&pem, &org, lookup.anchors, lookup.now)
         }
         other => other,
     }
     .map_err(NoLogo::Evidence)?;
     let fetched = fetch(lookup.http, &location, vmc::MAX_SVG).await?;
-    if !bimi::same_logo(&fetched, &certified) {
+    if !vmc::same_logo(&fetched, &certified) {
         return Err(NoLogo::NotTheCertified);
     }
     Ok(certified)
