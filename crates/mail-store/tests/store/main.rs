@@ -6,6 +6,7 @@
 
 mod account_prefs;
 mod accounts;
+mod blobs;
 mod cards;
 mod changes;
 mod checkpoint;
