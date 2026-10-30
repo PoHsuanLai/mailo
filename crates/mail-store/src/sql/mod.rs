@@ -40,22 +40,62 @@ pub struct SqlFilter {
 ///
 /// `now` resolves [`Filter::SnoozeDue`]; it is never read from the clock here.
 pub fn compile(filter: &Filter, now: DateTime<Utc>) -> SqlFilter {
+    compile_knowing(filter, now, &|_| false)
+}
+
+/// A mailbox or a label, as [`compile_knowing`] is asked about it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Member<'a> {
+    /// A mailbox, by its role's name.
+    Mailbox(&'a str),
+    /// A label, by its id.
+    Label(&'a str),
+}
+
+/// The most threads a mailbox or a label can be in and still be where a list starts from, when
+/// [`compile_knowing`] is asked. Past it the date order is the better start: a page of a mailbox
+/// that big is found in the first rows of it, and sorting its members would cost all of them.
+pub const FEW_TO_LIST: i64 = 500;
+
+/// The same for a count, which has no page to stop at and so reads every thread it counts:
+/// starting from the members costs one lookup apiece, where walking the summaries costs a probe
+/// of the membership for each of them, members or not. Measured to cross at about five thousand
+/// of forty thousand.
+pub const FEW_TO_COUNT: i64 = 5_000;
+
+/// [`compile`], told which mailboxes and labels hold few enough threads (`few`: see
+/// [`FEW_TO_LIST`] and [`FEW_TO_COUNT`]) to be where the search starts.
+///
+/// SQLite keeps no count per value, so it cannot tell Drafts from the Inbox and starts from the
+/// order of the list either way, walking every summary until the page is full: right for the
+/// Inbox, and for Drafts a walk of the whole store. For a member that few threads are in the
+/// membership index is searched first instead, and the summaries are found from what it holds.
+pub fn compile_knowing(
+    filter: &Filter,
+    now: DateTime<Utc>,
+    few: &dyn Fn(Member<'_>) -> bool,
+) -> SqlFilter {
     let mut params = Vec::new();
-    let where_clause = predicate(filter, now, &mut params);
+    let where_clause = predicate(filter, now, &mut params, few);
     SqlFilter {
         where_clause,
         params,
     }
 }
 
-fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) -> String {
+fn predicate(
+    filter: &Filter,
+    now: DateTime<Utc>,
+    params: &mut Vec<SqlValue>,
+    few: &dyn Fn(Member<'_>) -> bool,
+) -> String {
     match filter {
         Filter::All => "(1=1)".to_owned(),
         Filter::Nothing => "(1=0)".to_owned(),
-        Filter::And(children) => combine(children, "AND", "(1=1)", now, params),
-        Filter::Or(children) => combine(children, "OR", "(1=0)", now, params),
+        Filter::And(children) => combine(children, "AND", "(1=1)", now, params, few),
+        Filter::Or(children) => combine(children, "OR", "(1=0)", now, params, few),
         Filter::Not(inner) => {
-            let child = predicate(inner, now, params);
+            let child = predicate(inner, now, params, few);
             format!("(NOT {child})")
         }
         Filter::Account(id) => {
@@ -64,7 +104,13 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
         }
         Filter::InMailbox(role) => {
             params.push(SqlValue::Text(role.as_str().to_owned()));
-            "(EXISTS (SELECT 1 FROM json_each(ts.mailboxes) WHERE value = ?))".to_owned()
+            if few(Member::Mailbox(role.as_str())) {
+                "(ts.thread IN (SELECT tm.thread FROM thread_mailbox tm WHERE tm.mailbox = ?))"
+            } else {
+                "(EXISTS (SELECT 1 FROM thread_mailbox tm \
+                    WHERE tm.thread = ts.thread AND tm.mailbox = ?))"
+            }
+            .to_owned()
         }
         Filter::Read(state) => {
             params.push(SqlValue::Text(stored_json(state)));
@@ -75,8 +121,15 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
             "(ts.star = ?)".to_owned()
         }
         Filter::HasLabel(id) => {
-            params.push(SqlValue::Text(id.to_string()));
-            "(EXISTS (SELECT 1 FROM json_each(ts.labels) WHERE value = ?))".to_owned()
+            let label = id.to_string();
+            params.push(SqlValue::Text(label.clone()));
+            if few(Member::Label(&label)) {
+                "(ts.thread IN (SELECT tl.thread FROM thread_label tl WHERE tl.label = ?))"
+            } else {
+                "(EXISTS (SELECT 1 FROM thread_label tl \
+                    WHERE tl.thread = ts.thread AND tl.label = ?))"
+            }
+            .to_owned()
         }
         // Uncorrelated, for the reason `fts::predicate` gives: the subquery names no outer row,
         // so SQLite runs it once — a search of `remote_map_identity` on its leading
@@ -130,7 +183,7 @@ fn predicate(filter: &Filter, now: DateTime<Utc>, params: &mut Vec<SqlValue>) ->
         }
         Filter::Text(m) => fts::predicate(m, params),
         Filter::Date(range) => date_predicate(range, params),
-        Filter::NewerThan(_) | Filter::OlderThan(_) => predicate(&filter.at(now), now, params),
+        Filter::NewerThan(_) | Filter::OlderThan(_) => predicate(&filter.at(now), now, params, few),
         // `Attachments::None` is `{"kind":"none"}`; `Present` carries a count under `v`.
         Filter::HasAttachment => {
             params.push(SqlValue::Text("none".to_owned()));
@@ -233,6 +286,7 @@ fn combine(
     empty: &str,
     now: DateTime<Utc>,
     params: &mut Vec<SqlValue>,
+    few: &dyn Fn(Member<'_>) -> bool,
 ) -> String {
     if children.is_empty() {
         return empty.to_owned();
@@ -244,7 +298,7 @@ fn combine(
             clause.push_str(op);
             clause.push(' ');
         }
-        clause.push_str(&predicate(child, now, params));
+        clause.push_str(&predicate(child, now, params, few));
     }
     clause.push(')');
     clause

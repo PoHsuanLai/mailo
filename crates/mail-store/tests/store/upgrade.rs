@@ -1064,6 +1064,49 @@ const CASES: &[Case] = &[
             );
         },
     },
+    Case {
+        // Every summary already in the store has to be in the membership tables the lists now
+        // search, or a mailbox's list and its unread badge would lose every thread that was
+        // there before the upgrade.
+        migration: "0055_thread_membership",
+        from: 54,
+        seed: |db| {
+            seed(db);
+            db.execute(
+                "INSERT INTO thread_summary (thread, account, subject, snippet, from_name,
+                     from_email, participants, recipients, last_date, message_count, read, star,
+                     mailboxes, labels, attachments, snooze, pin)
+                 VALUES (?1, ?2, 's', '', NULL, 'a@b.test', '[]', '[]', '2023-01-01T00:00:00Z', 1,
+                     '\"read\"', '\"unstarred\"', '[\"inbox\",\"sent\"]', ?3, '{}', '{}', '{}')",
+                [
+                    THREAD,
+                    ACCOUNT,
+                    "[\"00000000-0000-4000-8000-0000000000b1\"]",
+                ],
+            )
+            .unwrap();
+        },
+        check: |open| {
+            let store = open();
+            let db = store.raw_connection();
+            let rows = |sql: &str| -> Vec<String> {
+                db.prepare(sql)
+                    .unwrap()
+                    .query_map([], |r| r.get(0))
+                    .unwrap()
+                    .map(Result::unwrap)
+                    .collect()
+            };
+            assert_eq!(
+                rows("SELECT mailbox FROM thread_mailbox ORDER BY mailbox"),
+                ["inbox", "sent"]
+            );
+            assert_eq!(
+                rows("SELECT label FROM thread_label"),
+                ["00000000-0000-4000-8000-0000000000b1"]
+            );
+        },
+    },
 ];
 
 fn imap(mailbox: &str, uid: u32) -> mail_domain::RemoteRef {
@@ -1304,9 +1347,9 @@ const LANDED_ON_MASTER: [(u32, &str); 40] = [
     ),
 ];
 
-/// The migrations this branch adds, 0041 to 0054. They land together with this table, so they
+/// The migrations this branch adds, 0041 to 0055. They land together with this table, so they
 /// join the ones above from here on: once they are on master they are as fixed as those.
-const LANDED_WITH_THIS_BRANCH: [(u32, &str); 14] = [
+const LANDED_WITH_THIS_BRANCH: [(u32, &str); 15] = [
     (
         41,
         "5fb56462cc1bf3ca45b41b68ba8a03f91e6af456e2dcebdc7e24dd3e95ba8a14",
@@ -1362,6 +1405,10 @@ const LANDED_WITH_THIS_BRANCH: [(u32, &str); 14] = [
     (
         54,
         "d6af62e80880b3be3a9f8d1f5150d5d4f0ff7ec84d6c25d47fd1caee5a5ce195",
+    ),
+    (
+        55,
+        "c9bc3789498c6933692ef01b65eb4fd5c4d608db62aba2ade72bca11f52bfefc",
     ),
 ];
 
