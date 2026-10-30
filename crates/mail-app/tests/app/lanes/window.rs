@@ -122,10 +122,10 @@ impl LoginItem {
     }
 }
 
-impl mail_ui::login_item::LoginItem for LoginItem {
-    fn register(&self) -> Result<mail_ui::login_item::Registered, String> {
+impl mail_os::login_item::LoginItem for LoginItem {
+    fn register(&self) -> Result<mail_os::login_item::Registered, String> {
         held(&self.0).push("register");
-        Ok(mail_ui::login_item::Registered::Done)
+        Ok(mail_os::login_item::Registered::Done)
     }
 
     fn unregister(&self) -> Result<(), String> {
@@ -207,7 +207,7 @@ impl Shared {
         .with(self.configured.clone())
         .with(self.dialogs.clone())
         .with(self.saves.clone())
-        .with(mail_ui::login_item::LoginItems(self.login.clone()))
+        .with(mail_os::login_item::LoginItems(self.login.clone()))
     }
 }
 

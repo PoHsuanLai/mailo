@@ -182,7 +182,7 @@ fn Groups(
     // "Check for mail when quit" is drawn only where the window has a login item to keep it:
     // the launched app's on macOS and Windows (`login_item::platform`). Elsewhere the switch
     // would say what nothing does.
-    let keeps = try_consume_context::<crate::login_item::LoginItems>().is_some();
+    let keeps = try_consume_context::<mail_os::login_item::LoginItems>().is_some();
     let onedit = move |(path, value): (String, toml::Value)| {
         let changed = crate::ui::prefs::change_key(&path, value);
         if changed.is_ok() && path == crate::settings::WHILE_QUIT {
@@ -258,20 +258,22 @@ fn Groups(
     }
 }
 
-/// Hand "Check for mail when quit", as it now stands, to the login item (`crate::login_item`)
+/// Hand "Check for mail when quit", as it now stands, to the login item (`mail_os::login_item`)
 /// off the thread that draws, since `launchctl`, SMAppService and `reg` take their time, and put
 /// in `login` what came of it when there is something to say. A window with no login item
 /// changes the setting alone.
 fn follow_login_item(mut login: Signal<Option<(&'static str, String)>>) {
-    use crate::login_item::{LoginItems, apply};
+    use mail_os::login_item::{LoginItems, apply};
     let Some(items) = try_consume_context::<LoginItems>() else {
         return;
     };
     let wanted = crate::ui::prefs::current().sync.while_quit;
     spawn(async move {
-        let applied = tokio::task::spawn_blocking(move || apply(&*items.0, wanted))
-            .await
-            .unwrap_or_else(|e| Err(e.to_string()));
+        let applied = tokio::task::spawn_blocking(move || {
+            apply(&*items.0, wanted == crate::settings::WhileQuit::On)
+        })
+        .await
+        .unwrap_or_else(|e| Err(e.to_string()));
         login.set(said_of(applied, wanted));
     });
 }
@@ -283,11 +285,11 @@ fn follow_login_item(mut login: Signal<Option<(&'static str, String)>>) {
 /// is checked when it is not. One turned off that the system would not let go of stays off: the
 /// person said off, and the message says the login item may still run.
 fn said_of(
-    applied: Result<Option<crate::login_item::Registered>, String>,
+    applied: Result<Option<mail_os::login_item::Registered>, String>,
     wanted: crate::settings::WhileQuit,
 ) -> Option<(&'static str, String)> {
-    use crate::login_item::Registered;
     use crate::settings::WhileQuit;
+    use mail_os::login_item::Registered;
     match (applied, wanted) {
         (Ok(Some(Registered::NeedsApproval)), _) => Some((
             copy::titles::ALLOW_LOGIN_ITEM,

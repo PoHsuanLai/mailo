@@ -112,16 +112,6 @@ pub fn export_makes(slug: &str) -> &'static str {
         _ => "",
     }
 }
-// What an import says when it is done, beyond the count: mail the source held only a part of.
-/// Messages read from Apple Mail files whose larger attachments are stored beside them.
-pub fn import_without_attachments(count: usize) -> String {
-    format!("{count} without the attachments Apple Mail keeps beside them")
-}
-/// Thunderbird messages of which only a part was downloaded, and that were not imported.
-pub fn import_cut_off(count: usize) -> String {
-    format!("{count} left out: Thunderbird kept only part of them")
-}
-
 pub const LOADING: &str = "Loading…";
 pub const NOT_DOWNLOADED: &str = "Not downloaded yet";
 pub const NO_PREVIEW: &str = "No preview for this file";

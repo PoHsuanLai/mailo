@@ -308,15 +308,15 @@ impl LoginRecorder {
     }
 }
 
-impl crate::login_item::LoginItem for LoginRecorder {
-    fn register(&self) -> Result<crate::login_item::Registered, String> {
+impl mail_os::login_item::LoginItem for LoginRecorder {
+    fn register(&self) -> Result<mail_os::login_item::Registered, String> {
         if let Ok(mut asked) = self.asked.lock() {
             asked.push("register");
         }
         if self.refuse {
             Err("Operation not permitted".to_owned())
         } else {
-            Ok(crate::login_item::Registered::Done)
+            Ok(mail_os::login_item::Registered::Done)
         }
     }
 
@@ -334,7 +334,7 @@ fn general_with_login(built: &Work, item: Arc<LoginRecorder>) -> (VirtualDom, Se
     let mut dom = VirtualDom::new(settings_root)
         .with_root_context(crate::ui::fixtures::client(&built.store))
         .with_root_context(built.dirs.clone())
-        .with_root_context(crate::login_item::LoginItems(item));
+        .with_root_context(mail_os::login_item::LoginItems(item));
     let seen = rebuild_into(&mut dom).merge(drain_seen(&mut dom));
     (dom, seen)
 }

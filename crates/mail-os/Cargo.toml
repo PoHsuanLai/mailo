@@ -1,0 +1,41 @@
+[package]
+name = "mail-os"
+# The window's seams with the operating system, drawing nothing: not a library for others.
+publish = false
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "mailo's seams with the operating system: the launcher's unread count, the login item, the mail-link handler, and what an operation says of itself"
+repository = "https://github.com/PoHsuanLai/mailo"
+authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
+
+# The app layer's OS integration. It must reach no dioxus, ds, blitz or quire: what it does is not
+# drawing, and a crate that lacks the dependency is the boundary (`scripts/check-boundary.sh`).
+[dependencies]
+mail-client.workspace = true
+mail-domain.workspace = true
+mail-proto.workspace = true
+
+# The unread count on the launcher entry (`launcher/session.rs`): one signal on the session bus.
+# Already in the lock through notify-rust and the keyring's Secret Service store, at this version
+# and with these (its default) features. MIT.
+[target.'cfg(not(any(target_os = "macos", windows)))'.dependencies]
+zbus = "5.19"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The login item's `SMAppService` call, which needs `unsafe`: the one crate allowed it.
+mail-appkit.workspace = true
+objc2 = "0.6"
+# `NSWorkspace`'s mailto: handler and the request to change it (`mail_handler`), which hears its
+# answer in a block.
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSBundle", "NSURL", "NSError", "NSFileManager"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSDockTile", "NSWorkspace", "block2"] }
+# The main queue, where the Dock tile's count is drawn when it is said on another thread
+# (`launcher/dock.rs`). Already in the lock through winit and objc2's crates, with these (its
+# default) features. Zlib OR Apache-2.0 OR MIT.
+dispatch2 = "0.3"
+
+[lints]
+workspace = true

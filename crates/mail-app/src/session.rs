@@ -19,7 +19,7 @@
 use chrono::{DateTime, Utc};
 use mail_core::Store;
 use mail_core::scope::Scope;
-use mail_ui::launcher::{Badge, Unread};
+use mail_os::launcher::{Badge, Unread};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -67,7 +67,7 @@ where
     if cfg!(target_os = "macos") {
         return None;
     }
-    let launcher = mail_ui::launcher::platform()?;
+    let launcher = mail_os::launcher::platform()?;
     Some(keep_the_badge(store, file, launcher.0, EVERY).map(|_| ()))
 }
 
@@ -127,7 +127,7 @@ pub fn keep_the_badge_over(
     keep_the_badge(store, file, badge, EVERY).map(|_| ())
 }
 
-/// The filter the launcher counts with: [`mail_ui::launcher::filter_over`] over the mailboxes
+/// The filter the launcher counts with: [`mail_os::launcher::filter_over`] over the mailboxes
 /// the accounts' servers list as followed, when `places` counts them.
 pub fn filter<S: Store + ?Sized>(
     store: &S,
@@ -138,7 +138,7 @@ pub fn filter<S: Store + ?Sized>(
         mail_core::notify::Places::Inbox => Vec::new(),
         mail_core::notify::Places::Followed => store.followed_folders()?,
     };
-    Ok(mail_ui::launcher::filter_over(&followed, scope, places))
+    Ok(mail_os::launcher::filter_over(&followed, scope, places))
 }
 
 /// Count them, as `places` says. One indexed query (`Store::count`), made off the thread that
