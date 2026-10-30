@@ -118,11 +118,14 @@ async fn ask(
     from: &str,
     dir: &std::path::Path,
 ) -> Option<Vec<u8>> {
-    let dns = mail_client::bimi::SystemDns::new().ok()?;
-    let http = mail_client::bimi::client_builder().build().ok()?;
+    // Building the resolver and the client blocks, so it is not done on the window's thread; the
+    // first lookup waits for it and the rest find it built.
+    let shared = tokio::task::spawn_blocking(mail_client::bimi::shared)
+        .await
+        .ok()??;
     let lookup = Lookup {
-        dns: &dns,
-        http: &http,
+        dns: &shared.dns,
+        http: &shared.http,
         anchors,
         now: chrono::Utc::now(),
     };

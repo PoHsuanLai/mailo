@@ -32,8 +32,8 @@ pub mod auth {
 }
 pub mod bimi {
     pub use mail_core::bimi::{
-        Cached, Lookup, Setting, SystemDns, anchors, brand_logo, cached, client_builder, domain_of,
-        load,
+        Cached, Lookup, Setting, Shared, SystemDns, anchors, brand_logo, cached, client_builder,
+        domain_of, load, shared,
     };
 }
 pub mod compose {
