@@ -48,6 +48,7 @@ mod sort_indexes;
 mod sort_orders;
 mod sqlite_capabilities;
 mod support;
+mod sweep;
 mod templates;
 mod two_writers;
 mod upgrade;
