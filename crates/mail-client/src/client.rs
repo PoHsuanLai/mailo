@@ -191,8 +191,10 @@ impl Client {
             threads.push(spawn("mailo-act", move || {
                 // Every command given is applied, even once the client is stopping: a change the
                 // person made is not dropped because the caller stopped the client after it.
+                // A job that panics leaves its ticket unanswered (what it held to answer with is
+                // dropped as it unwinds), which says it was not done, and the next job runs.
                 for job in asked {
-                    job(&shared.store);
+                    survive("a change", || job(&shared.store));
                 }
             }));
         }
@@ -305,7 +307,9 @@ impl Client {
             });
             // A thread that has gone leaves the ticket unanswered, which says the command was
             // not done.
-            let _ = acts.send(job);
+            if acts.send(job).is_err() {
+                log::error!("a change was not made: the thread that makes them has stopped");
+            }
         }
         ticket
     }
@@ -525,6 +529,25 @@ fn readers(store: &SqliteStore) -> usize {
     store.reader_count().saturating_sub(1).max(1)
 }
 
+/// Run `work` for one of the client's threads, and say what it came to: `None` when it panicked,
+/// which is logged. A thread that lets a panic unwind is gone for good, and what it did for the
+/// client (applying the person's changes, hearing commits) stops without a word, so each pass of
+/// its loop is run through this and the next one goes on.
+pub(crate) fn survive<T>(what: &str, work: impl FnOnce() -> T) -> Option<T> {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)) {
+        Ok(done) => Some(done),
+        Err(panicked) => {
+            let why = panicked
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_owned())
+                .or_else(|| panicked.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "no reason given".to_owned());
+            log::error!("{what} panicked: {why}");
+            None
+        }
+    }
+}
+
 pub(crate) fn spawn(name: &str, run: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name(name.to_owned())
@@ -713,7 +736,7 @@ impl Shared {
                     Err(RecvTimeoutError::Disconnected) => return,
                 }
             }
-            self.invalidate(topics);
+            survive("marking what changed", || self.invalidate(topics));
         }
     }
 }

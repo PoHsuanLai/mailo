@@ -95,7 +95,7 @@ fn look(shared: &Shared, written: &Receiver<()>, watched: bool, mut seen: Option
         if shared.stopping() {
             return;
         }
-        let now = store.data_version();
+        let now = crate::client::survive("looking at the store", || store.data_version()).flatten();
         let moved = now.is_some() && now != seen;
         // Having heard a write, look again soon rather than at the next look when this look
         // could not tell: the writer was busy and answered nothing, or the write was heard
@@ -107,7 +107,7 @@ fn look(shared: &Shared, written: &Receiver<()>, watched: bool, mut seen: Option
         };
         if moved {
             seen = now;
-            shared.invalidate(Topics::ALL);
+            crate::client::survive("marking what changed", || shared.invalidate(Topics::ALL));
         }
     }
 }
