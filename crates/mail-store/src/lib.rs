@@ -58,7 +58,7 @@ pub use offline::{Offline, RemotePart};
 pub use opened::OPENED_KEPT;
 pub use passes::{PassFailed, Passes};
 pub use sql::{SqlFilter, SqlValue, compile};
-pub use sqlite::{Checkpoint, SqliteStore};
+pub use sqlite::{BlobsSwept, Checkpoint, SqliteStore};
 pub use sqlite::{Freed, Kept, MessageRow};
 pub use swept::Swept;
 pub use term::Term;

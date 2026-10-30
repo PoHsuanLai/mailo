@@ -148,7 +148,7 @@ const PROSE: [&str; 3] = ["body_text", "snippet", "fts_text"];
 /// Every ordinary table: not SQLite's own, not a virtual (full-text search) table, and not one of
 /// a virtual table's shadow tables (`messages_fts_data` and the like), whose text is the
 /// messages' again. Matched by name here, not by `LIKE`, whose `_` is a wildcard.
-fn tables(db: &Connection) -> Result<Vec<String>, StoreError> {
+pub(super) fn tables(db: &Connection) -> Result<Vec<String>, StoreError> {
     let mut stmt =
         db.prepare("SELECT name, coalesce(sql, '') FROM sqlite_master WHERE type = 'table'")?;
     let all = stmt
@@ -184,7 +184,7 @@ fn kept_tables(all: &[(String, String)]) -> Vec<String> {
 }
 
 /// `SELECT` of every column of `table` the scan reads.
-fn select(db: &Connection, table: &str) -> Result<String, StoreError> {
+pub(super) fn select(db: &Connection, table: &str) -> Result<String, StoreError> {
     let mut stmt = db.prepare("SELECT name FROM pragma_table_info(?1)")?;
     let columns: Vec<String> = stmt
         .query_map([table], |r| r.get::<_, String>(0))?
@@ -216,13 +216,13 @@ fn is_blob(db: &Connection, id: &str) -> Result<bool, StoreError> {
 
 /// Whether a scan goes on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Scan {
+pub(super) enum Scan {
     Go,
     Stop,
 }
 
 /// Hand every text value of every row `stmt` returns to `seen`, until it says stop.
-fn each_text(
+pub(super) fn each_text(
     stmt: &mut rusqlite::Statement<'_>,
     params: impl rusqlite::Params,
     mut seen: impl FnMut(&str) -> Scan,
@@ -243,7 +243,7 @@ fn each_text(
 }
 
 /// Every lowercase hyphenated UUID in `text`, the way ids are stored.
-fn uuids(text: &str) -> impl Iterator<Item = String> + '_ {
+pub(super) fn uuids(text: &str) -> impl Iterator<Item = String> + '_ {
     const LEN: usize = 36;
     let bytes = text.as_bytes();
     (0..bytes.len().saturating_sub(LEN - 1)).filter_map(move |start| {

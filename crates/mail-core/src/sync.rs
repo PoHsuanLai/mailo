@@ -439,7 +439,28 @@ async fn pass_over(
     store
         .checkpoint(mail_store::Checkpoint::Passive)
         .or_log("the log could not be folded back after a pass");
+    sweep_blobs_later(store);
     Ok(ends)
+}
+
+/// Take back the stored bytes nothing names any more, if a day has gone by since anyone did.
+///
+/// After a pass because that is when the database has just been written to and is about to be
+/// quiet, and on a thread of its own because it reads every table, which is no work for the
+/// threads the network waits on, let alone the window's. Not waited for: a pass is not over any
+/// later for it, and a sweep that did not finish is found again by the next. The time is the
+/// clock's, not the pass's, because the rows it judges by are stamped by it.
+fn sweep_blobs_later(store: &Arc<SqliteStore>) {
+    // Without a runtime to lend a thread (a test driving a pass by hand) there is nothing to do.
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let store = Arc::clone(store);
+    runtime.spawn_blocking(move || {
+        store
+            .sweep_blobs_daily(chrono::Utc::now())
+            .or_log("the stored bytes nothing names could not be swept");
+    });
 }
 
 /// How long a kept pass outcome is left as it is when the next pass ends the same way. Only the
