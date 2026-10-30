@@ -296,10 +296,7 @@ pub(super) fn resolve(client: &Client, thread: ThreadId, kind: OpKind) -> Option
 
 #[cfg(test)]
 fn apply(client: &Client, thread: ThreadId, op: Op) -> bool {
-    client
-        .acting()
-        .perform(thread, op, mail_client::when::Clock::H24)
-        .is_some()
+    client.acting().perform(thread, op).is_some()
 }
 
 #[cfg(test)]

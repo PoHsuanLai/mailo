@@ -1,7 +1,7 @@
 //! Attachments on a received message, and getting them back out.
 //!
 //! `mail-runtime` writes every attachment to its own blob at ingest and `Message::attachments`
-//! has named them ever since. Nothing read that: no command listed them, no pane showed them,
+//! has named them ever since. Nothing read that: no command listed them, nothing on screen showed them,
 //! and there was no way at all to get a file out of a message. A mail client people are sent
 //! PDFs through is not one that can only display text.
 //!
@@ -212,7 +212,7 @@ pub fn list(store: &SqliteStore, message: MessageId) -> Result<Vec<Listed>, Core
 ///
 /// The folder the desktop names (`XDG_DOWNLOAD_DIR` on Linux, the system's Downloads folder on
 /// macOS and Windows), `~/Downloads` when it names none, and the working directory as a last
-/// resort. Deliberately not a file chooser: a dialog is a
+/// resort. Deliberately not a file chooser: a chooser is a
 /// dependency that pulls a toolkit in behind it, and every client that offers one also has a
 /// default that most saves actually use. The path is reported afterwards, which is the part
 /// that matters — a file saved somewhere the user cannot name is a file they have lost.

@@ -151,7 +151,7 @@ fn private_files(path: &Path) -> Result<(), StoreError> {
 
 /// How many read-only connections to open beside the writer.
 ///
-/// Three: the window's list, whatever the reader pane is showing, and a sync pass asking what it
+/// Three: the window's list, whatever the reader is showing, and a sync pass asking what it
 /// already holds. More would be file handles against a mailbox that belongs to one person.
 const READERS: usize = 3;
 

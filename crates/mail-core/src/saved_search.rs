@@ -29,7 +29,7 @@ pub struct Draft {
     /// What the view's list sorts by, and which way.
     pub property: Property,
     pub dir: SortDir,
-    /// Conversations, or a message to a row. Not a field of the sheet: the list's Organise by
+    /// Conversations, or a message to a row. Not something the person edits: the list's Organise by
     /// Conversation sets it, and an edit keeps what it was.
     pub threading: Threading,
 }

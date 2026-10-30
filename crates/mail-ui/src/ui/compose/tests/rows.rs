@@ -382,7 +382,7 @@ async fn delete_draft_can_be_taken_back() {
         })
         .unwrap_or_else(|| panic!("nothing to take back"));
     for part in &entry {
-        assert!(mail_core::act::take_back(&store, part), "{}", part.said);
+        assert!(mail_core::act::take_back(&store, part), "{part:?}");
     }
     let back = store
         .draft(draft.id)

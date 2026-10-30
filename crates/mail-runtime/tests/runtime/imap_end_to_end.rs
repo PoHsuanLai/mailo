@@ -1172,7 +1172,7 @@ mod round_trip {
         (id, messages)
     }
 
-    /// Star the newest thread locally, exactly as a hover button does.
+    /// Star the newest thread locally, exactly as the window does.
     fn star(store: &SqliteStore, caps: &AccountCaps) -> ThreadId {
         act(store, caps, Op::SetStar(Star::Starred))
     }
@@ -1389,7 +1389,7 @@ mod archiving {
         }
     }
 
-    /// Archive the newest thread, exactly as the hover button does.
+    /// Archive the newest thread, exactly as the window does.
     async fn archive(it: &mut Fixture, caps: &AccountCaps, cancel: &mut mail_runtime::Cancel) {
         let page = it
             .store

@@ -4,7 +4,7 @@
 //! Modelled on [`super::fetch_part_with`]. It differs in what it returns. A part download reports
 //! prose; this reports a [`Retry`] beside the prose, so the reader can offer "try again" for a
 //! dropped connection and "sign in again" for a rejected credential, which are different
-//! buttons.
+//! choices.
 //!
 //! IMAP and Graph address one message by its own reference, so those work. POP3 does not: a
 //! message is `RETR`ed by a number that only the session which listed it can resolve, and a

@@ -250,13 +250,8 @@ fn deleting_now_erases_once_the_move_has_landed() {
     mail_store::testing::seed_caps(&store, account(), &caps, chrono::Utc::now()).unwrap();
     // Message 1 was in Trash already; Delete moves message 3 there now.
     assert!(sweep(&store, &policy, day(0)).is_empty());
-    let undo = crate::act::perform(
-        &store,
-        thread(3),
-        mail_domain::Op::Trash,
-        crate::when::Clock::H24,
-    )
-    .expect("moved to Trash");
+    let undo =
+        crate::act::perform(&store, thread(3), mail_domain::Op::Trash).expect("moved to Trash");
     mark_deleted(&store, &[undo], day(0));
     assert!(
         sweep(&store, &policy, day(0)).is_empty(),

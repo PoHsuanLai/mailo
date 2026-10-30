@@ -233,8 +233,8 @@ impl Query for Pins {
     }
 }
 
-/// The drafts of some accounts, every kind: what Drafts lists, and from which Scheduled and the
-/// sidebar's wish to draw it are told. A draft written, sent, held or taken back changes it.
+/// The drafts of some accounts, every kind: what Drafts lists, and from which Scheduled and
+/// whatever shows a count of it are told. A draft written, sent, held or taken back changes it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DraftsOf(pub Vec<AccountId>);
 

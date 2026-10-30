@@ -2,6 +2,10 @@
 //!
 //! Case: One short sentence, sentence case ("Moved to Archive.").
 
+use chrono::{DateTime, TimeZone, Utc};
+use mail_client::when::{Clock, Stamp, stamp};
+use mail_domain::{FollowUp, Membership, Mute, Op, Pin, ReadState, Snooze, Star};
+
 /// A message's one-time code, put on the clipboard by Copy Code.
 pub const CODE_COPIED: &str = "Code copied";
 
@@ -129,4 +133,89 @@ pub fn not_forwarded_as_attachment(why: &str) -> String {
 /// Add to Contacts made a card.
 pub fn added_to_contacts(name: &str) -> String {
     format!("Added {name} to Contacts.")
+}
+
+/// What one operation did, in words: "Archived". A time in it is written as `clock` says.
+pub fn performed<Tz: TimeZone>(op: &Op, zone: &Tz, clock: Clock) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let when = |at: DateTime<Utc>| stamp(at, zone, Stamp::Weekday, clock);
+    match op {
+        Op::Archive => "Archived".to_owned(),
+        Op::Trash => "Moved to Trash".to_owned(),
+        Op::Restore => "Moved to Inbox".to_owned(),
+        Op::Spam => "Marked as spam".to_owned(),
+        Op::SetRead(ReadState::Read) => "Marked read".to_owned(),
+        Op::SetRead(ReadState::Unread) => "Marked unread".to_owned(),
+        Op::SetStar(Star::Starred) => "Starred".to_owned(),
+        Op::SetStar(Star::Unstarred) => "Unstarred".to_owned(),
+        Op::Flag(hue) => format!("Flagged {hue}"),
+        Op::Label(_, Membership::In) => "Labelled".to_owned(),
+        Op::Label(_, Membership::Out) => "Label removed".to_owned(),
+        Op::SetSnooze(Snooze::Until(at)) => format!("Snoozed until {}", when(*at)),
+        Op::SetSnooze(Snooze::Inactive) => "Back in the inbox".to_owned(),
+        Op::SetPin(Pin::Rank(_)) => "Pinned".to_owned(),
+        Op::SetPin(Pin::Unpinned) => "Unpinned".to_owned(),
+        Op::SetMute(Mute::Muted) => "Muted".to_owned(),
+        Op::SetMute(Mute::Unmuted) => "Unmuted".to_owned(),
+        Op::SetFollowUp(FollowUp::Until { at, .. }) => {
+            format!("Reminder set for {} if no reply", when(*at))
+        }
+        Op::SetFollowUp(FollowUp::Returned { .. }) => "No reply yet".to_owned(),
+        Op::SetFollowUp(FollowUp::Inactive) => "Reminder cleared".to_owned(),
+        Op::File(_) => "Moved to folder".to_owned(),
+        Op::Copy(_) => "Copied to folder".to_owned(),
+        Op::Destroy => "Deleted forever".to_owned(),
+    }
+}
+
+/// What one gesture did to `count` conversations: "Archived · 3 conversations". One
+/// conversation is said as [`performed`] says it.
+pub fn performed_on<Tz: TimeZone>(op: &Op, count: usize, zone: &Tz, clock: Clock) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let one = performed(op, zone, clock);
+    if count == 1 {
+        one
+    } else {
+        format!("{one} · {count} conversations")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_gesture_on_several_conversations_counts_them() {
+        assert_eq!(performed_on(&Op::Archive, 1, &Utc, Clock::H24), "Archived");
+        assert_eq!(
+            performed_on(&Op::Archive, 3, &Utc, Clock::H24),
+            "Archived · 3 conversations"
+        );
+        assert_eq!(
+            performed_on(&Op::Trash, 2, &Utc, Clock::H24),
+            "Moved to Trash · 2 conversations"
+        );
+    }
+
+    #[test]
+    fn an_operation_is_said_as_what_it_did() {
+        let at = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
+        type Make = fn(DateTime<Utc>) -> Op;
+        const CASES: &[(Make, &str)] = &[
+            (|_| Op::Archive, "Archived"),
+            (|_| Op::Trash, "Moved to Trash"),
+            (|_| Op::SetStar(Star::Starred), "Starred"),
+            (
+                |at| Op::SetSnooze(Snooze::Until(at)),
+                "Snoozed until Thu 09:00",
+            ),
+        ];
+        for (make, want) in CASES {
+            assert_eq!(performed(&make(at), &Utc, Clock::H24), *want);
+        }
+    }
 }

@@ -25,7 +25,7 @@ pub fn unread_in(place: Filter) -> Filter {
 pub fn for_role(role: MailboxRole) -> Filter {
     match role {
         // A snoozed conversation is *away* until its instant passes; that is the whole of what
-        // snoozing means, and a client that leaves it in the list has a button that does
+        // snoozing means, and a client that leaves it in the list has a snooze that does
         // nothing. Only the inbox hides them — Archive and Search still show everything,
         // because a thread you snoozed is not a thread you lost.
         MailboxRole::Inbox => Filter::And(vec![

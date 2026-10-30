@@ -83,8 +83,8 @@ impl PartialEq for dyn Writer {
 
 impl Eq for dyn Writer {}
 
-/// Every format, in the order they are tried when a path is looked at and the order the Export
-/// sheet offers those that can be written. The files are told apart by their first bytes and
+/// Every format, in the order they are tried when a path is looked at and the order an export
+/// offers those that can be written. The files are told apart by their first bytes and
 /// their extension; the directories are tried Maildir, Thunderbird, Apple Mail, as a directory
 /// with `cur`, `new` or `tmp` in it is a Maildir whatever else it holds.
 pub const ARCHIVES: &[&dyn Archive] = &[&Mbox, &Maildir, &Eml, &Thunderbird, &AppleMail, &Emlx];

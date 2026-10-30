@@ -173,7 +173,7 @@ fn html_frame(html: &str, parsed: &mail_mime::Parsed, policy: SanitizePolicy) ->
 const FRAME_FONT: &str = "\"Inter\", system-ui, sans-serif";
 
 /// The document inside a frame cannot read the window's tokens, so the values the window's rules
-/// name are written here once, as named constants, and the sheets below are built from them: the
+/// name are written here once, as named constants, and the stylesheets below are built from them: the
 /// message text's size and line height (`--fs-reading`, 1.65), the code face and size
 /// (`--font-code`, `--fs-meta`) and the quote bar (2 px, `--ink-soft`). The light colours are the
 /// light scheme's `--ink`, `--ink-soft` and `--surface`.
@@ -199,8 +199,8 @@ pub const FOUND_MARK: &str = "data-mailo-find";
 /// [`FOUND_MARK`]'s value on the match ⌘F is on.
 pub const FOUND_CURRENT: &str = "current";
 
-/// How ⌘F's marks are drawn, over whatever the sender's sheets say of `mark`: the find colour
-/// under the text's own ink, the match it is on stronger. Both frames' sheets end with it.
+/// How ⌘F's marks are drawn, over whatever the sender's stylesheets say of `mark`: the find colour
+/// under the text's own ink, the match it is on stronger. Both frames' stylesheets end with it.
 fn found_sheet() -> String {
     format!(
         "mark[{FOUND_MARK}] {{ background: {FRAME_FOUND} !important; color: {FRAME_INK} !important; }} \
@@ -208,11 +208,11 @@ fn found_sheet() -> String {
     )
 }
 
-/// What an HTML message's document starts from before the sender's own sheets: a browser's
+/// What an HTML message's document starts from before the sender's own stylesheets: a browser's
 /// defaults, as a mail client's are, with quotes, code and headings drawn as the composer draws
 /// them, so a message written here reads as it was written, with nothing wider than the frame where Blitz can say so
 /// (a table's own percentage `max-width` does not hold a fixed-width table nested in an
-/// auto-width one: what such a newsletter lays out wider than the pane the reader then draws
+/// auto-width one: what such a newsletter lays out wider than the area the reader then draws
 /// smaller, `mail-app`'s `reading/fit.rs`). Neither rule
 /// that does so makes a table cell narrower than a browser would: a long word wraps only where a
 /// line overflows (`break-word`, not `anywhere`, which lets a cell squeeze "iOS" to a letter a
@@ -237,13 +237,13 @@ fn html_sheet() -> String {
          h2 {{ font-size: 1.3em; line-height: 1.25; margin: .9em 0 .35em; }} \
          h3 {{ font-size: 1.15em; margin: .8em 0 .3em; }} h4 {{ font-size: 1em; margin: .7em 0 .3em; }} \
          a {{ color: {FRAME_LINK}; }} {} {}",
-        super::quote::sheet(FRAME_INK_SOFT),
+        super::quote::stylesheet(FRAME_INK_SOFT),
         found_sheet()
     )
 }
 
 /// The class of the element a frame's words are read in, inside its `<body>` ([`frame_document`]).
-/// The sanitizer keeps a sender's markup from carrying it and a sender's sheet from naming it
+/// The sanitizer keeps a sender's markup from carrying it and a sender's stylesheet from naming it
 /// (`mail_mime::sanitize`: no class, id or selector of the sender's starts `mailo-`).
 const INSET_CLASS: &str = "mailo-inset";
 
@@ -261,7 +261,7 @@ const INSET_STYLE: &str = "display:block!important;box-sizing:border-box!importa
     width:auto!important;max-width:none!important;min-width:0!important;float:none!important;\
     position:static!important;margin:0!important;border:0!important;padding:18px!important";
 
-/// A plain-text message's sheet: its lines as written, on no ground of their own, so the
+/// A plain-text message's stylesheet: its lines as written, on no ground of their own, so the
 /// reader's shows through, in the reader's ink for the scheme the window is in (a frame's
 /// document takes the window's scheme). The inset is on the element ([`INSET_STYLE`]).
 fn plain_sheet() -> String {
@@ -272,20 +272,20 @@ fn plain_sheet() -> String {
          overflow-wrap: anywhere; }} {} \
          @media (prefers-color-scheme: dark) {{ body {{ color: {FRAME_INK_DARK}; }} \
          details.mailo-quote > summary {{ color: {FRAME_INK_DARK}; }} }} {}",
-        super::quote::sheet(FRAME_INK_SOFT),
+        super::quote::stylesheet(FRAME_INK_SOFT),
         found_sheet()
     )
 }
 
-/// A frame's whole document: `sheet`, then `body` (markup already safe to show) in the inset
+/// A frame's whole document: `stylesheet`, then `body` (markup already safe to show) in the inset
 /// ([`INSET_CLASS`]), in a `<body>` carrying `body_style`, the sender's own body colours and
 /// style, when there are any.
-fn frame_document(sheet: &str, body_style: Option<&str>, body: &str) -> String {
+fn frame_document(stylesheet: &str, body_style: Option<&str>, body: &str) -> String {
     let styled = body_style
         .map(|style| format!(" style=\"{}\"", escape_html(style)))
         .unwrap_or_default();
     format!(
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{sheet}</style></head>\
+        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><style>{stylesheet}</style></head>\
          <body{styled}><div class=\"{INSET_CLASS}\" style=\"{INSET_STYLE}\">{body}</div></body></html>"
     )
 }
@@ -308,8 +308,8 @@ fn plain_frame(text: &str) -> FrameBody {
 mod tests {
     use super::*;
 
-    /// The sender's `<body>` colours reach the frame's own body, after the base sheet, so they
-    /// win over its white; and the base sheet leaves an image's size to its attributes.
+    /// The sender's `<body>` colours reach the frame's own body, after the base stylesheet, so they
+    /// win over its white; and the base stylesheet leaves an image's size to its attributes.
     #[test]
     fn the_sender_s_body_style_is_the_frame_s_body() {
         let safe = mail_mime::sanitize(
@@ -328,15 +328,15 @@ mod tests {
     }
 
     /// Every message's words sit in the frame's own inset, 18 px in in an HTML frame and a
-    /// plain one alike, and a sender can neither carry the inset's class nor name it in a sheet:
+    /// plain one alike, and a sender can neither carry the inset's class nor name it in a stylesheet:
     /// a notice's `<body style="margin:0;padding:0">` (the owner's sample's) keeps its ground on
     /// the body and loses nothing of the gutter.
     #[test]
     fn the_words_sit_in_an_inset_the_sender_cannot_reach() {
         assert!(INSET_STYLE.contains("padding:18px!important"));
-        for sheet in [html_sheet(), plain_sheet()] {
-            assert!(!sheet.contains("padding: 18px"), "{sheet}");
-            assert!(!sheet.contains("margin: 18px"), "{sheet}");
+        for stylesheet in [html_sheet(), plain_sheet()] {
+            assert!(!stylesheet.contains("padding: 18px"), "{stylesheet}");
+            assert!(!stylesheet.contains("margin: 18px"), "{stylesheet}");
         }
         let raw = include_str!("../../tests/fixtures/flush-notice.eml");
         let parsed = mail_mime::parse(raw.as_bytes()).expect("the notice parses");
@@ -381,16 +381,19 @@ mod tests {
 
     /// Nothing a sender sizes small in a table is squeezed past what a browser draws: a word
     /// is broken only where its line overflows, and an icon in a cell keeps its size while a
-    /// large image still shrinks to the frame (a Teams mail's "iOS" button drew its label a letter
+    /// large image still shrinks to the frame (a Teams mail's "iOS" link drew its label a letter
     /// a line, with no icon).
     #[test]
     fn the_sheet_keeps_a_table_cell_as_wide_as_a_browser_would() {
-        let sheet = html_sheet();
-        assert!(sheet.contains("overflow-wrap: break-word;"), "{sheet}");
-        assert!(!sheet.contains("anywhere"), "{sheet}");
+        let stylesheet = html_sheet();
         assert!(
-            sheet.contains("img { max-width: max(100%, 64px); }"),
-            "{sheet}"
+            stylesheet.contains("overflow-wrap: break-word;"),
+            "{stylesheet}"
+        );
+        assert!(!stylesheet.contains("anywhere"), "{stylesheet}");
+        assert!(
+            stylesheet.contains("img { max-width: max(100%, 64px); }"),
+            "{stylesheet}"
         );
     }
 
@@ -480,13 +483,13 @@ mod tests {
     /// Either frame draws ⌘F's marks over the sender's own `mark`, the current one apart.
     #[test]
     fn both_sheets_draw_the_marks_find_puts_in() {
-        for sheet in [html_sheet(), plain_sheet()] {
+        for stylesheet in [html_sheet(), plain_sheet()] {
             assert!(
-                sheet.ends_with(&found_sheet())
+                stylesheet.ends_with(&found_sheet())
                     && found_sheet()
                         .contains("mark[data-mailo-find] { background: #ffe066 !important;")
                     && found_sheet().contains("mark[data-mailo-find=\"current\"]"),
-                "{sheet}"
+                "{stylesheet}"
             );
         }
     }

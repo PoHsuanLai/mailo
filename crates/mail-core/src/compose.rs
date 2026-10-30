@@ -1022,7 +1022,7 @@ pub fn reflow_stored(store: &SqliteStore) -> Result<usize, CoreError> {
 /// Delete a draft.
 ///
 /// There was no way to do this anywhere in the application. The composer's "Discard" only closed
-/// the pane without saving — which for a draft that had never been saved is the same thing, and
+/// the composer without saving — which for a draft that had never been saved is the same thing, and
 /// for every other draft is not: a reply is persisted the moment it is created, and one opened
 /// from the drafts list came off disk, so "Discard" left it sitting in Drafts for ever. Drafts
 /// could be made and never unmade.

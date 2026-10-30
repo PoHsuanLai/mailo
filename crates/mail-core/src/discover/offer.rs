@@ -41,7 +41,7 @@ pub fn typed_domain(typed: &str) -> Option<String> {
 }
 
 /// The two searches' answers read together. When both answer, what the autoconfig named is the
-/// offer, as it was the first of the two the old sheet showed.
+/// offer, as it was the first of the two the old form showed.
 pub fn settle(found: Result<Found, Failed>, jmap: Option<String>) -> Looked {
     match (found, jmap) {
         (Ok(found), _) => Looked::Found(Box::new(found)),

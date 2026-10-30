@@ -1,7 +1,7 @@
-//! The add-account sheet's draft: what the person has typed or switched on the step on screen,
+//! The add-account flow's draft: what the person has typed or switched on the step on screen,
 //! and the conversation between that and porter's `SheetView` / `SheetInput`.
 //!
-//! The sheet is controlled: the service says what to show (a [`SheetView`]) and the window owns
+//! The flow is controlled: the service says what to show (a [`SheetView`]) and the window owns
 //! every value a step shows (what is typed, the cursor, the switches) in a [`Draft`]. Everything
 //! here is a function of a view, a draft and an [`Action`]: [`shown`] takes the view the service
 //! sent, [`acted`] takes what the person did and says what, if anything, the service is told.
@@ -112,7 +112,7 @@ pub enum Awaiting {
     View,
 }
 
-/// The sheet on screen: what the service last said to draw, and what the person has done on it.
+/// The flow on screen: what the service last said to draw, and what the person has done on it.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Sheet {
     pub view: Option<SheetView>,
@@ -142,20 +142,20 @@ pub enum Action {
 /// What the window must do besides draw.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Out {
-    /// Open this page in the person's browser: the sheet was shown a browser step, and shown the
+    /// Open this page in the person's browser: the flow was shown a browser step, and shown the
     /// same page again (the machine's answer to "Open Again") it is opened again. The service
     /// opens none; the host opens a page it is shown.
     OpenPage(WebUrl),
 }
 
-/// `sheet` once the service shows `view`, and what the window must do about it.
-pub fn shown(sheet: Sheet, view: SheetView) -> (Sheet, Vec<Out>) {
+/// `flow` once the service shows `view`, and what the window must do about it.
+pub fn shown(flow: Sheet, view: SheetView) -> (Sheet, Vec<Out>) {
     let out = match &view {
         SheetView::BrowserWait { url, .. } => vec![Out::OpenPage(url.clone())],
         _ => Vec::new(),
     };
-    let draft = match &sheet.view {
-        Some(before) => drafted(&sheet.draft, before, &view),
+    let draft = match &flow.view {
+        Some(before) => drafted(&flow.draft, before, &view),
         None => fresh(&view),
     };
     (
@@ -226,14 +226,14 @@ fn fields_of(specs: &[FieldSpec], kept: &[FieldDraft]) -> Vec<FieldDraft> {
         .collect()
 }
 
-/// `sheet` after `action`, and the input the service is told, if the action is one. An action that
+/// `flow` after `action`, and the input the service is told, if the action is one. An action that
 /// does not belong to the step on screen changes nothing.
-pub fn acted(sheet: Sheet, action: Action) -> (Sheet, Option<SheetInput>) {
+pub fn acted(flow: Sheet, action: Action) -> (Sheet, Option<SheetInput>) {
     let Sheet {
         view,
         draft,
         awaiting,
-    } = sheet;
+    } = flow;
     let (draft, input) = match &view {
         Some(view) => act(view, draft, action),
         None => (draft, None),
@@ -255,9 +255,9 @@ pub fn acted(sheet: Sheet, action: Action) -> (Sheet, Option<SheetInput>) {
     )
 }
 
-/// Whether porter's sheet tries a sign-in again after `fault`: not after a refusal by the
+/// Whether porter's flow tries a sign-in again after `fault`: not after a refusal by the
 /// organisation or a missing client id, which asking again does not change (its `retryable`).
-/// A retry it would not answer is never sent: the sheet would wait for a view that never comes,
+/// A retry it would not answer is never sent: the flow would wait for a view that never comes,
 /// and drop every press after it, Back and all.
 pub fn retries(fault: SignInFault) -> bool {
     !matches!(fault, SignInFault::Forbidden | SignInFault::NeedsClientId)
@@ -516,8 +516,8 @@ mod tests {
     }
 
     /// What `kind` holds in the draft, as text; a secret is not text.
-    fn text_of(sheet: &Sheet, kind: FieldKind) -> String {
-        match &sheet
+    fn text_of(flow: &Sheet, kind: FieldKind) -> String {
+        match &flow
             .draft
             .fields
             .iter()
@@ -530,15 +530,12 @@ mod tests {
         }
     }
 
-    fn kinds(sheet: &Sheet) -> Vec<FieldKind> {
-        sheet.draft.fields.iter().map(|field| field.kind).collect()
+    fn kinds(flow: &Sheet) -> Vec<FieldKind> {
+        flow.draft.fields.iter().map(|field| field.kind).collect()
     }
 
-    fn type_in(sheet: Sheet, kind: FieldKind, text: &str) -> (Sheet, Option<SheetInput>) {
-        acted(
-            sheet,
-            Action::Type(kind, FieldValue::Plain(text.to_owned())),
-        )
+    fn type_in(flow: Sheet, kind: FieldKind, text: &str) -> (Sheet, Option<SheetInput>) {
+        acted(flow, Action::Type(kind, FieldValue::Plain(text.to_owned())))
     }
 
     #[test]
@@ -672,25 +669,25 @@ mod tests {
 
     #[test]
     fn submit_sends_every_field_once_and_empties_the_secret() {
-        let sheet = showing(form());
-        let (sheet, _) = acted(
-            sheet,
+        let flow = showing(form());
+        let (flow, _) = acted(
+            flow,
             Action::Type(
                 FieldKind::Address,
                 FieldValue::Plain(" ada@example.test ".to_owned()),
             ),
         );
         // Required fields first: the empty password stops it.
-        let (sheet, input) = acted(sheet, Action::Submit);
+        let (flow, input) = acted(flow, Action::Submit);
         assert_eq!(input, None);
-        let (sheet, _) = acted(
-            sheet,
+        let (flow, _) = acted(
+            flow,
             Action::Type(
                 FieldKind::Password,
                 FieldValue::Secret(SecretText::new("pw")),
             ),
         );
-        let (sheet, input) = acted(sheet, Action::Submit);
+        let (flow, input) = acted(flow, Action::Submit);
         let Some(SheetInput::Submit(answers)) = input else {
             panic!("{input:?}");
         };
@@ -700,29 +697,29 @@ mod tests {
             FieldValue::Plain("ada@example.test".to_owned())
         );
         assert_eq!(answers[1].value, FieldValue::Secret(SecretText::new("pw")));
-        assert_eq!(sheet.awaiting, Awaiting::View);
+        assert_eq!(flow.awaiting, Awaiting::View);
         assert!(
-            !format!("{sheet:?}").contains("\"pw\""),
+            !format!("{flow:?}").contains("\"pw\""),
             "the draft kept the password"
         );
         // A second press before the service has answered is not a second answer.
-        let (_, again) = acted(sheet, Action::Submit);
+        let (_, again) = acted(flow, Action::Submit);
         assert_eq!(again, None);
     }
 
     #[test]
     fn a_new_view_of_the_same_step_keeps_what_is_not_secret_and_a_refusal_counts_the_attempt() {
-        let sheet = showing(form());
-        let (sheet, _) = acted(
-            sheet,
+        let flow = showing(form());
+        let (flow, _) = acted(
+            flow,
             Action::Type(
                 FieldKind::Password,
                 FieldValue::Secret(SecretText::new("pw")),
             ),
         );
-        let (sheet, input) = acted(sheet, Action::Submit);
+        let (flow, input) = acted(flow, Action::Submit);
         assert!(matches!(input, Some(SheetInput::Submit(_))));
-        let SheetView::SignIn(view) = sheet.view.clone().unwrap() else {
+        let SheetView::SignIn(view) = flow.view.clone().unwrap() else {
             unreachable!()
         };
         let refused = SheetView::SignIn(SignInView {
@@ -732,22 +729,22 @@ mod tests {
             }),
             ..view
         });
-        let (sheet, _) = shown(sheet, refused);
-        assert_eq!(sheet.draft.submits, Submits(1));
+        let (flow, _) = shown(flow, refused);
+        assert_eq!(flow.draft.submits, Submits(1));
         assert_eq!(
-            text_of(&sheet, FieldKind::Address),
+            text_of(&flow, FieldKind::Address),
             "ada@example.test",
             "what is not secret stays"
         );
         assert_eq!(
-            sheet.draft.fields[1].value,
+            flow.draft.fields[1].value,
             FieldValue::Secret(SecretText::new("")),
             "the secret is gone"
         );
         // A different step starts clean.
-        let (sheet, _) = shown(sheet, review());
-        assert!(sheet.draft.fields.is_empty());
-        assert_eq!(sheet.draft.choices.len(), 2);
+        let (flow, _) = shown(flow, review());
+        assert!(flow.draft.fields.is_empty());
+        assert_eq!(flow.draft.choices.len(), 2);
     }
 
     #[test]
@@ -758,40 +755,40 @@ mod tests {
             provider: id("google"),
             url: url.clone(),
         };
-        let (sheet, out) = shown(Sheet::default(), view.clone());
+        let (flow, out) = shown(Sheet::default(), view.clone());
         assert_eq!(out, [Out::OpenPage(url.clone())]);
-        let (sheet, _) = acted(sheet, Action::Copied);
-        assert_eq!(sheet.draft.copied, CopyMark::Copied);
+        let (flow, _) = acted(flow, Action::Copied);
+        assert_eq!(flow.draft.copied, CopyMark::Copied);
         // "Open Again" answers with the same page shown again: opened again, and the copy mark kept.
-        let (sheet, input) = acted(sheet, Action::OpenAgain);
+        let (flow, input) = acted(flow, Action::OpenAgain);
         assert_eq!(input, Some(SheetInput::OpenAgain));
-        assert_eq!(sheet.awaiting, Awaiting::View);
-        let (sheet, out) = shown(sheet, view);
+        assert_eq!(flow.awaiting, Awaiting::View);
+        let (flow, out) = shown(flow, view);
         assert_eq!(out, [Out::OpenPage(url)]);
-        assert_eq!(sheet.awaiting, Awaiting::Nothing);
-        assert_eq!(sheet.draft.copied, CopyMark::Copied);
+        assert_eq!(flow.awaiting, Awaiting::Nothing);
+        assert_eq!(flow.draft.copied, CopyMark::Copied);
         // A different step starts clean.
-        let (sheet, out) = shown(
-            sheet,
+        let (flow, out) = shown(
+            flow,
             SheetView::Working {
                 provider: id("google"),
                 row: None,
             },
         );
         assert!(out.is_empty());
-        assert_eq!(sheet.draft.copied, CopyMark::Idle);
+        assert_eq!(flow.draft.copied, CopyMark::Idle);
     }
 
     #[test]
     fn a_protocol_pick_refits_the_form_at_once_jmap_drops_outgoing_and_pop3_moves_the_ports() {
-        let sheet = showing(servers());
-        assert_eq!(text_of(&sheet, FieldKind::Port), "993");
-        assert_eq!(text_of(&sheet, FieldKind::OutgoingPort), "465");
+        let flow = showing(servers());
+        assert_eq!(text_of(&flow, FieldKind::Port), "993");
+        assert_eq!(text_of(&flow, FieldKind::OutgoingPort), "465");
 
         // IMAP to POP3: the same fields, the ports follow, the guessed host follows.
-        let (pop3, input) = type_in(sheet.clone(), FieldKind::Protocol, "pop3");
+        let (pop3, input) = type_in(flow.clone(), FieldKind::Protocol, "pop3");
         assert_eq!(input, None, "a pick is not sent: the form changes here");
-        assert_eq!(kinds(&pop3), kinds(&sheet));
+        assert_eq!(kinds(&pop3), kinds(&flow));
         assert_eq!(text_of(&pop3, FieldKind::Port), "995");
         assert_eq!(text_of(&pop3, FieldKind::OutgoingPort), "465");
         assert_eq!(text_of(&pop3, FieldKind::Server), "pop.example.test");
@@ -810,11 +807,11 @@ mod tests {
 
         // And back to IMAP: the outgoing fields return, the ports are the usual ones again.
         let (imap, _) = type_in(jmap, FieldKind::Protocol, "imap");
-        assert_eq!(kinds(&imap), kinds(&sheet));
+        assert_eq!(kinds(&imap), kinds(&flow));
         assert_eq!(text_of(&imap, FieldKind::Port), "993");
 
         // A port the person typed is theirs and stays through a pick.
-        let (typed_port, _) = type_in(sheet, FieldKind::Port, "1993");
+        let (typed_port, _) = type_in(flow, FieldKind::Port, "1993");
         let (picked, _) = type_in(typed_port, FieldKind::Protocol, "pop3");
         assert_eq!(text_of(&picked, FieldKind::Port), "1993");
         assert_eq!(text_of(&picked, FieldKind::OutgoingPort), "465");
@@ -822,31 +819,31 @@ mod tests {
 
     #[test]
     fn a_form_with_a_wrong_port_is_not_sent_and_mending_it_sends_every_field_once() {
-        let sheet = showing(servers());
-        assert_eq!(problem_of(&specs(&sheet), &sheet.draft), None);
+        let flow = showing(servers());
+        assert_eq!(problem_of(&specs(&flow), &flow.draft), None);
 
-        let (sheet, _) = type_in(sheet, FieldKind::Port, "99999");
-        let problem = problem_of(&specs(&sheet), &sheet.draft).expect("the port is marked");
+        let (flow, _) = type_in(flow, FieldKind::Port, "99999");
+        let problem = problem_of(&specs(&flow), &flow.draft).expect("the port is marked");
         assert_eq!(
             (problem.field, problem.problem),
             (FieldKind::Port, ProblemKind::Invalid)
         );
-        let (sheet, input) = acted(sheet, Action::Submit);
+        let (flow, input) = acted(flow, Action::Submit);
         assert_eq!(input, None, "nothing is sent while a field cannot be right");
-        assert_eq!(sheet.awaiting, Awaiting::Nothing);
+        assert_eq!(flow.awaiting, Awaiting::Nothing);
 
-        let (sheet, _) = type_in(sheet, FieldKind::Port, "993");
-        let (sheet, input) = acted(sheet, Action::Submit);
+        let (flow, _) = type_in(flow, FieldKind::Port, "993");
+        let (flow, input) = acted(flow, Action::Submit);
         let Some(SheetInput::Submit(answers)) = input else {
             panic!("{input:?}");
         };
         assert_eq!(answers.len(), 8);
-        assert_eq!(sheet.awaiting, Awaiting::View);
+        assert_eq!(flow.awaiting, Awaiting::View);
     }
 
     /// The form on screen, as the service sent it.
-    fn specs(sheet: &Sheet) -> Vec<FieldSpec> {
-        match sheet.view.as_ref() {
+    fn specs(flow: &Sheet) -> Vec<FieldSpec> {
+        match flow.view.as_ref() {
             Some(SheetView::SignIn(form)) => form.fields.clone(),
             other => panic!("not the form: {other:?}"),
         }
@@ -854,25 +851,25 @@ mod tests {
 
     #[test]
     fn a_session_url_that_is_not_https_and_a_missing_server_are_not_sent() {
-        let (sheet, _) = type_in(showing(servers()), FieldKind::Protocol, "jmap");
-        let (sheet, _) = type_in(
-            sheet,
+        let (flow, _) = type_in(showing(servers()), FieldKind::Protocol, "jmap");
+        let (flow, _) = type_in(
+            flow,
             FieldKind::SessionUrl,
             "http://jmap.example.test/session",
         );
-        let (sheet, input) = acted(sheet, Action::Submit);
+        let (flow, input) = acted(flow, Action::Submit);
         assert_eq!(input, None);
-        let (sheet, _) = type_in(
-            sheet,
+        let (flow, _) = type_in(
+            flow,
             FieldKind::SessionUrl,
             "https://jmap.example.test/session",
         );
-        let (_, input) = acted(sheet, Action::Submit);
+        let (_, input) = acted(flow, Action::Submit);
         assert!(matches!(input, Some(SheetInput::Submit(_))), "{input:?}");
 
         // A required field left empty is not sent either.
-        let (sheet, _) = type_in(showing(servers()), FieldKind::Server, "");
-        let (_, input) = acted(sheet, Action::Submit);
+        let (flow, _) = type_in(showing(servers()), FieldKind::Server, "");
+        let (_, input) = acted(flow, Action::Submit);
         assert_eq!(input, None);
     }
 }

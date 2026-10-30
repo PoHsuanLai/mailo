@@ -597,7 +597,6 @@ fn deleted(
 ) -> Result<mail_client::undo::Undo, mail_client::prelude::CoreError> {
     life::discard(client, stored.id)?;
     Ok(mail_client::undo::Undo {
-        said: crate::ui::copy::toasts::DRAFT_DELETED.to_owned(),
         thread: None,
         account: stored.account.clone(),
         forward: Patch {
@@ -625,8 +624,11 @@ fn forget(mut shell: Signal<Shell>, desk: Desk, draft: DraftId, undo: mail_clien
     if shell.peek().composing.as_ref().map(|open| open.draft) == Some(draft) {
         shell.write().close_composer();
     }
-    let said = undo.said.clone();
-    crate::ui::motion::record(shell, vec![undo], said);
+    crate::ui::motion::record(
+        shell,
+        vec![undo],
+        crate::ui::copy::toasts::DRAFT_DELETED.to_owned(),
+    );
 }
 
 /// Delete the stored draft `draft`, as Drafts' row menu does, and offer it back. Its composer

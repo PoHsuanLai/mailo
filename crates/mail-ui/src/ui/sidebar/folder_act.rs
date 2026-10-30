@@ -103,7 +103,6 @@ pub(in crate::ui) fn perform(
         .change(account.clone(), work.clone(), chrono::Utc::now())?;
     let said = told(&work, delimiter);
     let undo = reverse_folder(&work).map(|_| Undo {
-        said: said.clone(),
         thread: None,
         account,
         forward: applied.forward,

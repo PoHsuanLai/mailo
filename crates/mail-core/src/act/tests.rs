@@ -1,6 +1,5 @@
 use super::*;
 use crate::support_tests::{account, at, caps, message};
-use crate::when::Clock;
 use mail_store::testing::{clear_outbox, in_memory, seed_account, seed_caps};
 
 /// A store whose server files into named folders, holding one message in the inbox, and a label
@@ -57,14 +56,14 @@ fn a_copy_is_taken_back_only_while_it_is_still_waiting_for_the_server() {
             .all(|m| m.labels.contains(&projects))
     };
 
-    let waiting = perform(&store, thread, Op::Copy(projects), Clock::H24).expect("copied");
+    let waiting = perform(&store, thread, Op::Copy(projects)).expect("copied");
     assert_eq!(copies_queued(&store), 1);
     assert!(in_projects(&store));
     assert!(take_back(&store, &waiting), "refused while it was waiting");
     assert!(!in_projects(&store));
     assert_eq!(copies_queued(&store), 0, "still queued after its undo");
 
-    let sent = perform(&store, thread, Op::Copy(projects), Clock::H24).expect("copied again");
+    let sent = perform(&store, thread, Op::Copy(projects)).expect("copied again");
     // The server took it: nothing waits.
     clear_outbox(&store);
     assert!(

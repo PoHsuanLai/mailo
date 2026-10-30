@@ -307,11 +307,7 @@ fn archive_all_takes_the_senders_inbox_and_nothing_else() {
     let second = put(&store, "weekly@rust.test", ONE_CLICK, Held::Body);
     let other = put(&store, "quiet@example.test", NO_WAY_OUT, Held::Body);
 
-    let undone = archive_from(
-        &crate::ui::fixtures::client(&store),
-        "weekly@rust.test",
-        mail_core::when::Clock::H24,
-    );
+    let undone = archive_from(&crate::ui::fixtures::client(&store), "weekly@rust.test");
     let archived: Vec<ThreadId> = undone.iter().filter_map(|undo| undo.thread).collect();
     assert!(
         archived.contains(&first) && archived.contains(&second),

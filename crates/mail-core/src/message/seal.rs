@@ -3,7 +3,7 @@
 //!
 //! What was found is kept with the count of key changes it was found under
 //! ([`crate::pgp::epoch`], which S/MIME's moves too): once the keys or certificates change —
-//! from the sheet, the command line, or a certificate learnt from arriving mail — the next
+//! from the window, the command line, or a certificate learnt from arriving mail — the next
 //! opening asks again, and nothing has to remember to clear it. The decrypted body lives in that
 //! memory and nowhere else; it is never written down.
 //!
@@ -159,7 +159,7 @@ impl Looks {
 
     /// Whether the body `message` was opened to may load remote content: not when it was
     /// decrypted from S/MIME encryption that did not prove it unchanged
-    /// ([`SmimeEncryption::Decrypted`]), whatever the reader's settings or buttons say.
+    /// ([`SmimeEncryption::Decrypted`]), whatever the reader's settings or controls say.
     ///
     /// A message holding an `application/pkcs7-mime` part loads nothing remote until it is
     /// opened: the reader asks this and then, separately, for the body

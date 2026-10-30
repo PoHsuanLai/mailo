@@ -63,7 +63,7 @@ struct Inner {
     labels: BTreeMap<LabelId, Label>,
     drafts: BTreeMap<DraftId, Draft>,
     templates: BTreeMap<TemplateId, Template>,
-    /// Saved views, by id, each with its place in the sidebar.
+    /// Saved views, by id, each with its place among them.
     views: BTreeMap<mail_domain::ViewId, (i64, mail_domain::View)>,
     /// When each conversation was last opened: History.
     opened: BTreeMap<ThreadId, DateTime<Utc>>,

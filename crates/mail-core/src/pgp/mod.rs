@@ -22,7 +22,7 @@ use mail_store::{SqliteStore, Store, StoreError};
 /// Asked for the passphrase of the user's key with this fingerprint, when a protected key has
 /// to sign or decrypt. `None` is "not given": the send is refused or the message stays locked.
 ///
-/// The command line asks on the terminal; the window asks in a dialog; a test
+/// The command line asks on the terminal; the window asks in the window; a test
 /// answers from a table. Nothing is asked for a key that has no passphrase.
 pub type Ask<'a> = &'a dyn Fn(Fingerprint) -> Option<String>;
 

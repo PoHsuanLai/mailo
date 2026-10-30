@@ -23,7 +23,7 @@
 //! own, and answers [`Request::Ping`]. A window learns what the watch stored from the store's
 //! file, not from here (`super::door`). [`Request::SyncNow`] is a person asking for their mail now,
 //! and is answered with a pass of every account on the watch's own scheduler
-//! ([`Watching::asked`]): a request that is refused, or heard and dropped, is a Sync button that
+//! ([`Watching::asked`]): a request that is refused, or heard and dropped, is a Sync that
 //! does nothing. [`Request::Shutdown`] is refused: a watch is stopped by its unit or by Ctrl-C.
 
 use super::door::{self, Answer};

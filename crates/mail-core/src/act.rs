@@ -293,26 +293,14 @@ pub fn caps_here(
 
 /// Apply one resolved operation: locally, and to the server when it has a server half.
 ///
-/// Returns what it takes to undo it, which the window keeps for the toast and ⌘Z. The toast's
-/// words write a time as `clock` says.
-pub fn perform(
-    store: &SqliteStore,
-    thread: ThreadId,
-    op: Op,
-    clock: crate::when::Clock,
-) -> Option<Undo> {
-    perform_on(store, thread, Target::Threads(vec![thread]), op, clock)
+/// Returns what it takes to undo it, which the caller keeps to take it back.
+pub fn perform(store: &SqliteStore, thread: ThreadId, op: Op) -> Option<Undo> {
+    perform_on(store, thread, Target::Threads(vec![thread]), op)
 }
 
 /// [`perform`], on `target` within `thread`: the conversation whole, or some of its messages,
 /// as opening one message of a list of single messages reads that message and not the rest.
-pub fn perform_on(
-    store: &SqliteStore,
-    thread: ThreadId,
-    target: Target,
-    op: Op,
-    clock: crate::when::Clock,
-) -> Option<Undo> {
+pub fn perform_on(store: &SqliteStore, thread: ThreadId, target: Target, op: Op) -> Option<Undo> {
     let loaded = store
         .thread(thread)
         .or_log("the conversation to act on could not be read")?;
@@ -386,7 +374,6 @@ pub fn perform_on(
         crate::junk::learn(store, &taught, judged).or_log("the junk filter could not learn");
     }
     Some(Undo {
-        said: crate::undo::said(&op, &chrono::Local, clock),
         thread: Some(thread),
         account,
         forward: applied.forward,

@@ -98,6 +98,27 @@ if grep -rnE "(crate|super|mail_app)::cli\b" crates/mail-ui/src/ui/; then
   fail=1
 fi
 
+# The crates below the window name no part of it: what a sidebar, a toast, a sheet or a button
+# shows is the window's to decide, so a lower crate says what happened and what a count is of,
+# never where or how it is drawn. Comments are held to it too, and a word that is a domain term
+# somewhere (a stylesheet, a window of time) is rephrased there, not listed. Left out: `notify/`,
+# where "toast" is the operating system's own word, the one MIME type that ends in `.sheet`, and
+# the SQL migrations, which are applied
+# files and not edited. Words are matched in lower case; a capitalised one is caught in comments.
+UI_WORDS='sidebar|toast|toolbar|dialog|modal|popover|tooltip|pane|button|sheet'
+LOWER_CRATES=(crates/mail-core crates/mail-client crates/mail-store/src crates/mail-store/tests crates/mail-runtime)
+if grep -rnE "\\b($UI_WORDS)s?\\b" "${LOWER_CRATES[@]}" --include='*.rs' \
+  | grep -vE '^crates/mail-core/src/notify(/|\.rs)|openxmlformats-officedocument'; then
+  echo "a crate below the window names a part of the window: say what happened and let mail-ui word it"
+  fail=1
+fi
+CAPS='Sidebar|Toast|Toolbar|Dialog|Modal|Popover|Tooltip|Pane|Button|Sheet'
+if grep -rnE "^[^:]+:[0-9]+:[[:space:]]*//.*\\b($CAPS)s?\\b" "${LOWER_CRATES[@]}" --include='*.rs' \
+  | grep -vE '^crates/mail-core/src/notify(/|\.rs)'; then
+  echo "a crate below the window names a part of the window in a comment: say what happened and let mail-ui word it"
+  fail=1
+fi
+
 # `mail-core` returns values for a front-end to word, not the words of a terminal. Two habits
 # still stand in the way, and each is held by an allowlist of the files that have not been
 # converted yet: a file is listed to be fixed, never to be excused, and a line comes off the

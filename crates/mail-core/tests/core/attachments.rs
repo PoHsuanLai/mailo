@@ -476,8 +476,8 @@ mod where_it_goes {
 
     #[test]
     fn saving_twice_keeps_both_rather_than_overwriting() {
-        // The reader's Save button is one click and can be clicked again. `free_path` already
-        // refuses to overwrite; this is the property that button depends on. Into a directory
+        // Saving is one request and can be made again. `free_path` already refuses to
+        // overwrite; this is the property that a second request depends on. Into a directory
         // not made yet, which saving makes.
         let store = store();
         let dir = tempfile::tempdir().unwrap();

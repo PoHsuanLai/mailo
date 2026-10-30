@@ -19,7 +19,7 @@ use std::time::Duration;
 
 /// How long the whole request may take, redirects included.
 ///
-/// Short, because someone pressed a button and is waiting on it, and a list server that has not
+/// Short, because someone asked and is waiting on it, and a list server that has not
 /// answered in ten seconds is not going to.
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 
