@@ -34,8 +34,6 @@ pub trait Act: Send + 'static {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Perform {
     pub ops: Vec<(ThreadId, Op)>,
-    /// How the words that say what was done write a time.
-    pub clock: mail_core::when::Clock,
     /// Conversations whose op reaches only the one message named, not the conversation whole:
     /// a message opened alone from a list that shows a message to a row.
     pub alone: Vec<(ThreadId, MessageId)>,
@@ -53,7 +51,6 @@ impl Act for Perform {
     fn run(self, store: &SqliteStore) -> Performed {
         let Perform {
             ops,
-            clock,
             alone,
             then_erase,
         } = self;
@@ -64,7 +61,7 @@ impl Act for Perform {
                     Some((_, message)) => Target::Messages(vec![*message]),
                     None => Target::Threads(vec![thread]),
                 };
-                mail_core::act::perform_on(store, thread, target, op.clone(), clock)
+                mail_core::act::perform_on(store, thread, target, op.clone())
                     .map(|undo| (thread, op, undo))
             })
             .collect();

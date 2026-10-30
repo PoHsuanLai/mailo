@@ -178,8 +178,8 @@ pub trait Store {
     fn threads(&self, query: &Query, now: DateTime<Utc>)
     -> Result<Page<ThreadSummary>, StoreError>;
 
-    /// How many threads match, without loading them. Sidebar badges need this; loading every
-    /// row to count it is how a mail client becomes unusable.
+    /// How many threads match, without loading them. A count of each place needs this;
+    /// loading every row to count it is how a mail client becomes unusable.
     fn count(&self, filter: &Filter, now: DateTime<Utc>) -> Result<u64, StoreError>;
 
     /// Index terms that begin with `prefix`, most frequent first, at most `limit`.
@@ -635,13 +635,13 @@ pub trait Store {
     /// in an id is not reported as done.
     fn delete_template(&self, id: TemplateId) -> Result<(), StoreError>;
 
-    /// Every saved view, in the sidebar's order: the order they were first kept, then by id.
+    /// Every saved view, in the order they were first kept, then by id.
     ///
     /// Views are the user's, not an account's: one view can list mail from every account.
     fn views(&self) -> Result<Vec<View>, StoreError>;
 
     /// Keep a view, replacing any with the same id. A new view goes last; a view kept again
-    /// keeps its place in the sidebar.
+    /// keeps its place.
     ///
     /// Not through [`Store::apply`], like a template: a view is a way of looking at mail, not
     /// an edit of any.

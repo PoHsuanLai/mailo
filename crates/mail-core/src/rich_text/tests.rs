@@ -184,9 +184,9 @@ fn round_trip(doc: &Doc) -> Doc {
 }
 
 /// `from_html` turns a paragraph (or list item, or quote) whose text is one short link into
-/// a button, which keeps the label and the URL and drops the styles. Neighbouring anchors to
-/// the same URL count as one link.
-fn buttonized(kind: ParaKind, runs: &[Run]) -> bool {
+/// a call-to-action link, which keeps the label and the URL and drops the styles. Neighbouring
+/// anchors to the same URL count as one link.
+fn is_call_to_action(kind: ParaKind, runs: &[Run]) -> bool {
     if matches!(
         kind,
         ParaKind::Heading(_) | ParaKind::Code | ParaKind::Todo(_)
@@ -279,8 +279,8 @@ fn canon(doc: &Doc) -> Vec<Canon> {
 }
 
 fn canon_para(kind: ParaKind, runs: &[Run], layout: Layout) -> Option<Canon> {
-    let button = buttonized(kind, runs);
-    let styled = !matches!(kind, ParaKind::Code) && !button;
+    let call = is_call_to_action(kind, runs);
+    let styled = !matches!(kind, ParaKind::Code) && !call;
     let mut kept: Vec<CanonRun> = Vec::new();
     for run in runs.iter().filter(|run| !run.text.is_empty()) {
         let bits = if styled {
@@ -317,10 +317,10 @@ fn canon_para(kind: ParaKind, runs: &[Run], layout: Layout) -> Option<Canon> {
     kept.retain(|run| !run.text.is_empty());
     let (align, depth) = match kind {
         ParaKind::Code => (Align::Left, 0),
-        // A button keeps only its label and link: a paragraph's indent goes with its alignment,
-        // and an item's or a quote's depth is the lists or quotes around it.
-        ParaKind::Paragraph if button => (Align::Left, 0),
-        _ if button => (Align::Left, layout.depth),
+        // A call-to-action link keeps only its label and link: a paragraph's indent goes with its
+        // alignment, and an item's or a quote's depth is the lists or quotes around it.
+        ParaKind::Paragraph if call => (Align::Left, 0),
+        _ if call => (Align::Left, layout.depth),
         _ => (layout.align, layout.depth),
     };
     (!kept.is_empty()).then(|| Canon {
@@ -366,7 +366,7 @@ fn html_doc_strategy() -> impl Strategy<Value = Doc> {
 }
 
 /// The document the recorded seed (`n = 2`) was drawn from: a numbered item whose whole
-/// text is one bold, italic link, which `from_html` makes a button.
+/// text is one bold, italic link, which `from_html` makes a call-to-action link.
 fn sample_marked_doc(n: usize) -> Doc {
     let words = ["Hello", "world", "字甲", "a b", "code"];
     let count = 1 + (n % 4);
@@ -426,13 +426,13 @@ proptest! {
 }
 
 #[test]
-fn the_recorded_seed_is_a_lone_link_that_becomes_a_button() {
+fn the_recorded_seed_is_a_lone_link_that_becomes_a_call_to_action_link() {
     let doc = sample_marked_doc(2);
     let Some(Node::Para { kind, runs, .. }) = doc.nodes.last() else {
         panic!("the sample ends in a paragraph");
     };
     assert_eq!(*kind, ParaKind::Numbered);
-    assert!(buttonized(*kind, runs), "{runs:?}");
+    assert!(is_call_to_action(*kind, runs), "{runs:?}");
     let back = round_trip(&doc);
     let Some(Node::Para { kind, runs, .. }) = back.nodes.last() else {
         panic!("the round trip ends in a paragraph: {back:?}");
@@ -441,6 +441,9 @@ fn the_recorded_seed_is_a_lone_link_that_becomes_a_button() {
     assert_eq!(runs.len(), 1);
     assert_eq!(runs[0].text, "code");
     assert_eq!(runs[0].marks.link, Some(url()), "the link survives");
-    assert!(!runs[0].marks.has(Mark::Bold), "the button drops the bold");
+    assert!(
+        !runs[0].marks.has(Mark::Bold),
+        "the call-to-action link drops the bold"
+    );
     assert_eq!(canon(&back), canon(&doc));
 }

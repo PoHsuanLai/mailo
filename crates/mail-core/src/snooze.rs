@@ -367,7 +367,7 @@ mod snoozing {
     #[test]
     fn tonight_after_the_evening_is_tomorrow_evening() {
         // 22:00 in Taipei, which is 14:00 UTC. The alternative is a snooze into the past, which
-        // `Filter::SnoozeDue` would make due immediately — a button that appears to do nothing.
+        // `Filter::SnoozeDue` would make due immediately — a snooze that appears to do nothing.
         let late = Utc.with_ymd_and_hms(2026, 9, 22, 14, 0, 0).unwrap();
         let got = snooze_until("tonight", late, &taipei()).unwrap();
         assert_eq!(

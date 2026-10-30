@@ -21,7 +21,7 @@ use mail_runtime::{Searched, Unsaid};
 use porter_core::AccountId;
 use std::path::Path;
 
-/// Whether a search shown in the list is asked of the server without the button being pressed.
+/// Whether a search shown in the list is asked of the server without being asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Automatic {

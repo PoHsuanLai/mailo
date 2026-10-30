@@ -418,7 +418,7 @@ mod tests {
     }
 
     /// A Sync asked for at the watch's door was refused, so a window that left fetching to the
-    /// watch had a button that did nothing. Now each ask is a manual pass of every account, on
+    /// watch had a Sync that did nothing. Now each ask is a manual pass of every account, on
     /// the watch's own scheduler.
     #[tokio::test]
     async fn an_ask_at_the_door_starts_a_pass_of_every_account() {

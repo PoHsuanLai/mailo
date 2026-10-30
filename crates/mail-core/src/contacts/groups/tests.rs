@@ -146,7 +146,7 @@ fn to_offers_a_group_by_a_word_of_its_name_and_not_one_of_nobody() {
     assert_eq!(
         listed(&store, "fam").unwrap().len(),
         3,
-        "the sheet lists them all"
+        "the listing has them all"
     );
 }
 

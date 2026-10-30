@@ -1,6 +1,4 @@
-use super::{DEPTH, Undo, UndoStack, reverse_intent, said, said_of};
-use crate::when::Clock;
-use chrono::{TimeZone, Utc};
+use super::{DEPTH, Undo, UndoStack, reverse_intent};
 use mail_domain::id::new_account_id;
 use mail_domain::*;
 
@@ -168,7 +166,6 @@ fn the_stack_forgets_the_oldest_past_its_depth() {
     let threads: Vec<ThreadId> = (0..DEPTH + 3).map(|_| ThreadId::generate()).collect();
     for thread in &threads {
         stack.push(Undo {
-            said: "Archived".to_owned(),
             thread: Some(*thread),
             account: account.clone(),
             forward: patch(vec![]),
@@ -191,12 +188,11 @@ fn the_stack_forgets_the_oldest_past_its_depth() {
 
 #[test]
 fn a_handle_takes_back_its_own_entry_and_only_once() {
-    // The toast holds the handle of the op it named. A later op pushed on top must not be what
-    // its tab takes back.
+    // A caller holds the handle of the op it named. A later op pushed on top must not be what
+    // that handle takes back.
     let mut stack = UndoStack::default();
     let account = new_account_id();
     let entry = |thread| Undo {
-        said: "Archived".to_owned(),
         thread: Some(thread),
         account: account.clone(),
         forward: patch(vec![]),
@@ -219,7 +215,6 @@ fn one_gesture_on_several_conversations_is_one_entry() {
     let mut stack = UndoStack::default();
     let account = new_account_id();
     let entry = |thread| Undo {
-        said: "Archived".to_owned(),
         thread: Some(thread),
         account: account.clone(),
         forward: patch(vec![]),
@@ -247,37 +242,6 @@ fn one_gesture_on_several_conversations_is_one_entry() {
 }
 
 #[test]
-fn a_toast_for_several_counts_them() {
-    assert_eq!(said_of(&Op::Archive, 1, &Utc, Clock::H24), "Archived");
-    assert_eq!(
-        said_of(&Op::Archive, 3, &Utc, Clock::H24),
-        "Archived · 3 conversations"
-    );
-    assert_eq!(
-        said_of(&Op::Trash, 2, &Utc, Clock::H24),
-        "Moved to Trash · 2 conversations"
-    );
-}
-
-#[test]
-fn the_toast_says_what_happened() {
-    let at = Utc.with_ymd_and_hms(2026, 9, 24, 9, 0, 0).unwrap();
-    type Make = fn(chrono::DateTime<Utc>) -> Op;
-    const CASES: &[(Make, &str)] = &[
-        (|_| Op::Archive, "Archived"),
-        (|_| Op::Trash, "Moved to Trash"),
-        (|_| Op::SetStar(Star::Starred), "Starred"),
-        (
-            |at| Op::SetSnooze(Snooze::Until(at)),
-            "Snoozed until Thu 09:00",
-        ),
-    ];
-    for (make, want) in CASES {
-        assert_eq!(said(&make(at), &Utc, Clock::H24), *want);
-    }
-}
-
-#[test]
 fn mail_deleted_forever_is_forgotten_by_the_stack() {
     // A move to Trash of a message later deleted forever cannot be taken back: the message is
     // gone. Its part goes, an entry left with no part goes, and the rest stays as it was.
@@ -285,7 +249,6 @@ fn mail_deleted_forever_is_forgotten_by_the_stack() {
     let account = new_account_id();
     let (gone, kept) = (MessageId::generate(), MessageId::generate());
     let trashed = |m: MessageId| Undo {
-        said: "Moved to Trash".to_owned(),
         thread: Some(ThreadId::generate()),
         account: account.clone(),
         forward: patch(vec![Change::MessageMailbox(m, MailboxRole::Trash)]),

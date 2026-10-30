@@ -483,7 +483,6 @@ fn a_command_is_done_off_the_callers_thread_and_says_its_generation() {
 
     let acted = done(client.act(mail_client::Perform {
         ops: vec![(mail_domain::ThreadId::generate(), mail_domain::Op::Archive)],
-        clock: mail_core::when::Clock::H24,
         alone: Vec::new(),
         then_erase: false,
     }))
@@ -835,7 +834,6 @@ fn what_reads_the_clock_is_read_again_when_a_snooze_ends_with_nobody_asking() {
         &store,
         thread,
         mail_domain::Op::SetSnooze(mail_domain::Snooze::Until(ends)),
-        mail_core::when::Clock::H24,
     )
     .expect("snoozed");
     assert_eq!(client.next_clock(), Some(ends));

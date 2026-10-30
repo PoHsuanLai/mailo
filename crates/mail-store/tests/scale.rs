@@ -260,7 +260,7 @@ fn top_hits_of_a_common_word_cost_less_than_listing_it() {
 
 #[test]
 fn an_unread_count_does_not_read_the_mailbox() {
-    // Every sidebar badge runs this each time a commit touches the conversations. A count that
+    // Every count of a place runs this each time a commit touches the conversations. A count that
     // scans is a count that makes the whole window pause each time a message arrives.
     let (store, _dir) = store();
     fill(&store, 10_000);

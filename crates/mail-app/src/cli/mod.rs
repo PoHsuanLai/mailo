@@ -1715,7 +1715,7 @@ pub fn run(mail: &Mail, command: &Command) -> Result<String, String> {
             .map(|at| snooze::snoozed(at, clock))
             .map_err(remedy::error),
         Command::Archive { thread } => {
-            match mail_core::act::perform(store, *thread, mail_domain::Op::Archive, clock) {
+            match mail_core::act::perform(store, *thread, mail_domain::Op::Archive) {
                 Some(_) => Ok(snooze::archived()),
                 None => Err("that conversation could not be archived".to_owned()),
             }

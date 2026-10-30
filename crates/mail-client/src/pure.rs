@@ -233,7 +233,7 @@ pub mod trust {
     pub use mail_core::trust::{Destination, destination, spoof};
 }
 pub mod undo {
-    pub use mail_core::undo::{Resend, Undo, UndoHandle, UndoStack, reverse_folder, said_of};
+    pub use mail_core::undo::{Resend, Undo, UndoHandle, UndoStack, reverse_folder};
 }
 pub mod unsubscribe {
     pub use mail_core::unsubscribe::{Found, Outcome, client};

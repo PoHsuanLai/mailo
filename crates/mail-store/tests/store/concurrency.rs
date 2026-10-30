@@ -70,7 +70,7 @@ fn a_sync_writing_while_the_window_reads_does_not_deadlock() {
         let (store, stop, reads) = (store.clone(), stop.clone(), reads.clone());
         std::thread::spawn(move || {
             while !stop.load(Ordering::SeqCst) {
-                // Exactly what the list pane does, plus what a badge does.
+                // Exactly what the list does, plus what a badge does.
                 let _ = store.threads(&query(Filter::All, 50), at(0)).unwrap();
                 let _ = store.count(&Filter::All, at(0)).unwrap();
                 reads.fetch_add(1, Ordering::SeqCst);

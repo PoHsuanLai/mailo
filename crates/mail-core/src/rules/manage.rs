@@ -1,4 +1,4 @@
-//! Managing an account's rules from a sheet rather than a command: listed, written, moved,
+//! Managing an account's rules from the window rather than a command: listed, written, moved,
 //! switched, deleted, and run over the mail already here.
 //!
 //! What `mailo rules` does, asked a function at a time. Every refusal is a value ([`SaveError`],
@@ -426,7 +426,7 @@ pub fn conversations(store: &SqliteStore, account: AccountId, now: DateTime<Utc>
 /// Run `rule` over the mail already here, as `mailo rules run` does, reporting how many
 /// conversations it has been through.
 ///
-/// A switched-off rule runs too: asking is the switch. Blocking; a sheet calls it off the thread
+/// A switched-off rule runs too: asking is the switch. Blocking; the window calls it off the thread
 /// that draws.
 pub fn run(
     store: &SqliteStore,

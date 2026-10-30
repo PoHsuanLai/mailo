@@ -288,7 +288,7 @@ fn an_announcement_is_the_ordinary_banner_whatever_code_the_message_carries() {
     assert_eq!(seen[2].summary, "ada@example.test");
     assert!(
         seen.iter().all(|n| !n.summary.contains("771204")),
-        "a code read from a body is not on the banner"
+        "a code read from a body is not on the notification"
     );
 }
 
