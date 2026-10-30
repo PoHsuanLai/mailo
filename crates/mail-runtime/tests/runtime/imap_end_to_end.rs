@@ -545,7 +545,21 @@ fn engine(port: u16, dir: tempfile::TempDir) -> Fixture {
 fn engine_with(port: u16, dir: tempfile::TempDir, caps: AccountCaps) -> Fixture {
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
     mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
+    let engine = engine_over(port, store.clone(), caps);
+    Fixture {
+        store,
+        engine,
+        _dir: dir,
+    }
+}
 
+/// An engine wired to the server on `port` over a store that already holds the account, as the
+/// next pass's engine is: built afresh, remembering nothing but what the store does.
+fn engine_over(
+    port: u16,
+    store: Arc<SqliteStore>,
+    caps: AccountCaps,
+) -> AccountEngine<ImapBackend> {
     let secrets = MemorySecrets::default();
     mail_runtime::block_on(secrets.put(
         &SecretKey {
@@ -574,18 +588,13 @@ fn engine_with(port: u16, dir: tempfile::TempDir, caps: AccountCaps) -> Fixture 
             ImapSession::new(auth.clone(), all)
         }),
     );
-    let engine = AccountEngine::new(
+    AccountEngine::new(
         acct_account(),
         plan(port),
         backend,
-        store.clone(),
-        Arc::new(secrets),
-    );
-    Fixture {
         store,
-        engine,
-        _dir: dir,
-    }
+        Arc::new(secrets),
+    )
 }
 
 fn count(store: &SqliteStore) -> u64 {
@@ -1134,6 +1143,63 @@ async fn a_sweep_removes_what_was_deleted_elsewhere_and_nothing_else() {
             );
         }
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_sweep_is_not_repeated_by_the_next_pass_before_it_is_due() {
+    // The engine is built afresh for every pass, so the schedule has to live in the store: the
+    // engine's own memory of when it last swept was always empty, and every pass listed every
+    // flag and every UID in every mailbox.
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, _present) = serve_full(seen.clone(), Fault::None).await;
+    let mut it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Absent),
+    );
+    let (_tx, mut cancel) = watch::channel(false);
+    it.engine
+        .sync(&inbox(), &mut cancel, now(), 200)
+        .await
+        .unwrap();
+
+    let swept_on_a_fresh_engine = |at: chrono::DateTime<chrono::Utc>| {
+        let store = it.store.clone();
+        let seen = seen.clone();
+        async move {
+            let mut engine = engine_over(port, store, caps_with(Condstore::Absent));
+            let (_tx, mut cancel) = watch::channel(false);
+            seen.lock().unwrap().commands.clear();
+            engine.sweep(&inbox(), &mut cancel, at).await.unwrap();
+            let commands = seen.lock().unwrap().commands.clone();
+            let flags = commands.iter().any(|c| c.starts_with("UID FETCH 1:*"));
+            let expunges = commands.iter().any(|c| c.starts_with("UID SEARCH"));
+            (flags, expunges)
+        }
+    };
+
+    let start = now() + chrono::TimeDelta::try_hours(2).unwrap();
+    let seconds = |n| chrono::TimeDelta::try_seconds(n).unwrap();
+    assert_eq!(
+        swept_on_a_fresh_engine(start).await,
+        (true, true),
+        "never swept"
+    );
+    assert_eq!(
+        swept_on_a_fresh_engine(start + seconds(60)).await,
+        (false, false),
+        "a fresh engine swept again within the interval"
+    );
+    assert_eq!(
+        swept_on_a_fresh_engine(start + seconds(121)).await,
+        (true, false),
+        "flags are due after 120 seconds, deletions are not"
+    );
+    assert_eq!(
+        swept_on_a_fresh_engine(start + seconds(901)).await,
+        (true, true),
+        "deletions are due after 900 seconds"
+    );
 }
 
 /// A user's action, all the way to the server and back.
