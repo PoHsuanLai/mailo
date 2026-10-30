@@ -89,7 +89,14 @@ impl Inner {
             if let (Some(cursor), Some(path)) = (self.sync.remove(&key), rename(&key.1)) {
                 self.sync.insert((account.clone(), path.clone()), cursor);
                 if let Some(swept) = self.swept.remove(&key) {
-                    self.swept.insert((account.clone(), path), swept);
+                    self.swept.insert((account.clone(), path.clone()), swept);
+                }
+                if let Some(held) = self.held_through.remove(&key) {
+                    self.held_through
+                        .insert((account.clone(), path.clone()), held);
+                }
+                if let Some(tried) = self.unreadable.remove(&key) {
+                    self.unreadable.insert((account.clone(), path), tried);
                 }
             }
         }
@@ -152,6 +159,9 @@ impl Inner {
             .retain(|r| !(r.account == account && r.mailbox == path));
         self.sync.remove(&(account.clone(), path.to_owned()));
         self.swept.remove(&(account.clone(), path.to_owned()));
+        self.held_through
+            .remove(&(account.clone(), path.to_owned()));
+        self.unreadable.remove(&(account.clone(), path.to_owned()));
         self.forget_destroyed_in(account, path);
         for message in held.mapped {
             if !self.remotes.iter().any(|r| r.message == message) {

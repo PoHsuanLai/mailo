@@ -131,6 +131,7 @@ impl SqliteStore {
             ("remote_map", "mailbox"),
             ("destroyed", "mailbox"),
             ("sync_state", "mailbox"),
+            ("unreadable", "mailbox"),
         ] {
             let names: Vec<String> = {
                 let db = self.connection();
@@ -271,6 +272,10 @@ impl SqliteStore {
         )?;
         self.connection().execute(
             "DELETE FROM sync_state WHERE account = ?1 AND mailbox = ?2",
+            params![account.to_string(), path],
+        )?;
+        self.connection().execute(
+            "DELETE FROM unreadable WHERE account = ?1 AND mailbox = ?2",
             params![account.to_string(), path],
         )?;
         self.forget_destroyed_in(account, path)?;
