@@ -2,7 +2,7 @@
 # vocabulary the desktop's intent router reads. Installed as
 # `$XDG_DATA_DIRS/quire/intents/org.quire.Mail.toml` beside the D-Bus service file that starts
 # `mailo intents`, which answers `org.quire.IntentProvider1` for every action named here
-# (`crates/mail-app/src/intents`). Every field is written; names carry the app's prefix `mail.`.
+# (`crates/mail-intents/src`). Every field is written; names carry the app's prefix `mail.`.
 #
 # A conversation is `mail.thread`, keyed by its id; a draft is `mail.draft`; a person in the
 # address book is `mail.contact`, keyed by their address. Subjects and bodies are written by other
@@ -12,7 +12,7 @@
 # the sink the router checks.
 #
 # Conversations and contacts are `indexed`: while the window runs it pushes the recent
-# conversations and the address book to the router's index (`crates/mail-app/src/intents/index.rs`),
+# conversations and the address book to the router's index (`crates/mail-intents/src/index.rs`),
 # so the launcher finds them as the person types without starting mailo, and opens one by the
 # kind's `.open` action. Drafts are not: they are found from the window. Mail's own search box is
 # the way to search what the mail says.

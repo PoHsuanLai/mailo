@@ -189,8 +189,11 @@ Not published, app-side: `mail-store` (SQLite, FTS5, the outbox), `mail-runtime`
 sockets), `mail-core` (everything the application does, with no window or terminal),
 `mail-client` (the one door to mail: values already read, kept read as the store changes, and the
 calls the window makes), `mail-ui` (the window, with no store in its dependencies), `mail-appkit`
-(macOS only: the one place that needs `unsafe`, for the AppKit delegate) and `mail-app` (the
-`mailo` binary: it makes the client and hands it to the window, and holds the command line).
+(macOS only: the one place that needs `unsafe`, for the AppKit delegate), `mail-edge` (the
+process's runtime, environment and Profile, as `mail-core` is handed them), `mail-cli` (the command
+line), `mail-intents` (what the desktop's intent router asks of mailo over D-Bus) and `mail-app` (the
+`mailo` binary: it makes the client and hands it to the window, and starts the command line or the
+intents provider).
 
 ## Contributing
 

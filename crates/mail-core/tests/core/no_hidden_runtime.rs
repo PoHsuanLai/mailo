@@ -1,8 +1,8 @@
 //! The libraries start no runtime and read no environment.
 //!
 //! `scripts/check-boundary.sh` holds the same line for the gate; this is the copy a plain
-//! `cargo test -p mail-core` runs. The application owns the one tokio runtime (`mail-app`'s
-//! `edge`); `mail-core`, `mail-runtime` and `mail-store` give back futures, and `mail-core` is
+//! `cargo test -p mail-core` runs. The application owns the one tokio runtime (`mail-edge`
+//! crate); `mail-core`, `mail-runtime` and `mail-store` give back futures, and `mail-core` is
 //! handed the environment ([`mail_core::Environment`]) instead of reading it.
 
 use crate::support::sources;
@@ -59,7 +59,7 @@ fn no_library_builds_or_blocks_on_a_runtime_of_its_own() {
     assert!(
         hits.is_empty(),
         "a library waits on a future itself instead of returning it; the application's edge \
-         (crates/mail-app/src/edge.rs) is where that is done:\n{}",
+         (crates/mail-edge/src/lib.rs) is where that is done:\n{}",
         hits.join("\n")
     );
 }

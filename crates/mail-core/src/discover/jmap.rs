@@ -1,6 +1,6 @@
 //! `account add <address> --jmap` with no URL: the domain's `/.well-known/jmap` (RFC 8620 §2.2),
 //! found without a credential. Confirmed before one is sent by the command line
-//! (`mail_app::cli::discover`).
+//! (`mail_cli::discover`).
 
 use crate::error::CoreError;
 

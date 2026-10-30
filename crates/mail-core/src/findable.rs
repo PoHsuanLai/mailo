@@ -2,7 +2,7 @@
 //! and the people in the address book, each as a title, a subtitle and the words that find it.
 //!
 //! A desktop's launcher searches as the person types, and cannot start mail for every key. So the
-//! front end hands a copy of these to the desktop while it runs (`mail_app::intents::index`), and
+//! front end hands a copy of these to the desktop while it runs (`mail_intents::index`), and
 //! the desktop matches them itself. Mail's own search box stays the way to search the words of the
 //! mail: nothing here carries a body or a snippet.
 //!

@@ -40,10 +40,10 @@ fn main() {
         environment.program = mail_core::Program::of_executable(&exe);
     }
     environment.hours = mail_app::edge::clock();
-    mail_app::edge::install_environment(environment);
+    mail_edge::install_environment(environment);
     // The OAuth clients it signs in as: porter's files and mailo's earlier one. Chosen here and
     // handed down, so no library and no test reads them for itself.
-    mail_app::edge::install_clients(mail_core::OAuthClients::here());
+    mail_edge::install_clients(mail_core::OAuthClients::here());
 
     // No arguments opens the window, and `open <thread>` opens it on a conversation; anything
     // else is the CLI. One binary because they are one application over one store, and a
@@ -63,7 +63,7 @@ fn main() {
     let command = if start.is_some() {
         None
     } else {
-        match mail_app::cli::parse(&args) {
+        match mail_cli::parse(&args) {
             Ok(command) => Some(command),
             Err(message) => {
                 eprintln!("{message}");
@@ -72,9 +72,9 @@ fn main() {
         }
     };
 
-    let command = match mail_app::cli::exec::prepare(command) {
-        Ok(mail_app::cli::exec::Prepared::Finished) => return,
-        Ok(mail_app::cli::exec::Prepared::Run(command)) => command,
+    let command = match mail_cli::exec::prepare(command) {
+        Ok(mail_cli::exec::Prepared::Finished) => return,
+        Ok(mail_cli::exec::Prepared::Run(command)) => command,
         Err(message) => {
             eprintln!("{message}");
             std::process::exit(1);
@@ -127,7 +127,7 @@ fn main() {
     {
         return;
     }
-    mail_app::edge::install_profile(chosen);
+    mail_edge::install_profile(chosen);
     if let Err(e) = std::fs::create_dir_all(&dirs.blobs) {
         eprintln!("cannot create {}: {e}", dirs.blobs.display());
         std::process::exit(1);
@@ -157,10 +157,16 @@ fn main() {
     }
 
     let store = std::sync::Arc::new(store);
-    // Every command is the cli's: the steps that wait on the network or end the process live in
-    // `cli::exec`. No command is the window.
+    // Every command is the cli's but `intents`: the steps that wait on the network or end the
+    // process live in `mail_cli::exec`. No command is the window.
     if let Some(command) = command {
-        if let Err(message) = mail_app::cli::exec::execute(store, command) {
+        let done = match command {
+            // The one command that is the intents' and not the cli's: the process is where the
+            // two meet.
+            mail_cli::Command::Intents => mail_app::intents::serve(store),
+            command => mail_cli::exec::execute(store, command),
+        };
+        if let Err(message) = done {
             eprintln!("{message}");
             std::process::exit(1);
         }

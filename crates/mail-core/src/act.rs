@@ -3,7 +3,7 @@
 //!
 //! One operation is applied locally and, when the account has a server, queued for it; what it
 //! returns is the [`Undo`] that reverses both. The window (`mail_ui::ui`) and the intents
-//! provider (`mail_app::intents`) are two front-ends over this, so a conversation archived by
+//! provider (`mail_intents`) are two front-ends over this, so a conversation archived by
 //! either is archived the same way: the same patch, the same queued work for the server, the
 //! same undo.
 
