@@ -80,6 +80,46 @@ pub fn client_builder() -> reqwest::ClientBuilder {
         }))
 }
 
+/// The resolver and the HTTP client a logo lookup asks with, built once per process.
+#[derive(Debug)]
+pub struct Shared {
+    pub dns: SystemDns,
+    pub http: reqwest::Client,
+}
+
+/// The process's [`Shared`], built on first use. Building reads the resolver's configuration
+/// and sets up TLS, which blocks, so a caller on a thread that must not wait runs this on one
+/// that may. One that could not be built is tried again next time, not remembered.
+pub fn shared() -> Option<&'static Shared> {
+    static SHARED: std::sync::OnceLock<Shared> = std::sync::OnceLock::new();
+    built_once(&SHARED, || {
+        let dns = match SystemDns::new() {
+            Ok(dns) => dns,
+            Err(e) => {
+                log::warn!("brand logos: no resolver: {e}");
+                return None;
+            }
+        };
+        let http = match client_builder().build() {
+            Ok(http) => http,
+            Err(e) => {
+                log::warn!("brand logos: no HTTP client: {e}");
+                return None;
+            }
+        };
+        Some(Shared { dns, http })
+    })
+}
+
+/// What is in `cell`, building it with `build` if nothing is yet.
+fn built_once<T>(cell: &std::sync::OnceLock<T>, build: impl FnOnce() -> Option<T>) -> Option<&T> {
+    if let Some(value) = cell.get() {
+        return Some(value);
+    }
+    let value = build()?;
+    Some(cell.get_or_init(|| value))
+}
+
 /// What a lookup is done with.
 #[derive(Debug)]
 pub struct Lookup<'a, D> {
@@ -285,7 +325,9 @@ pub fn normalise(domain: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalise;
+    use super::{built_once, normalise};
+    use std::cell::Cell;
+    use std::sync::OnceLock;
 
     #[test]
     fn only_a_dns_name_is_looked_up() {
@@ -306,5 +348,28 @@ mod tests {
         for (domain, want) in cases {
             assert_eq!(normalise(domain).as_deref(), *want, "{domain:?}");
         }
+    }
+
+    /// The second ask finds what the first built, and builds nothing.
+    #[test]
+    fn what_is_built_once_is_not_built_again() {
+        let cell = OnceLock::new();
+        let builds = Cell::new(0);
+        let build = || {
+            builds.set(builds.get() + 1);
+            Some(String::from("built"))
+        };
+        let first = built_once(&cell, build);
+        let second = built_once(&cell, build);
+        assert!(std::ptr::eq(first.unwrap(), second.unwrap()));
+        assert_eq!(builds.get(), 1);
+    }
+
+    /// A build that failed is tried again on the next ask, not remembered.
+    #[test]
+    fn a_failed_build_is_tried_again() {
+        let cell: OnceLock<u8> = OnceLock::new();
+        assert!(built_once(&cell, || None).is_none());
+        assert_eq!(built_once(&cell, || Some(7)), Some(&7));
     }
 }
