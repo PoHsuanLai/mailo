@@ -9,7 +9,8 @@ use mail_domain::folder::{FolderContents, FolderCtx, plan};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{AccountEngine, AccountSecrets};
+use mail_runtime::AccountEngine;
+use mail_secrets::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{Credential, SecretKey, SecretPurpose};
@@ -127,7 +128,7 @@ fn open(dir: &tempfile::TempDir) -> Arc<SqliteStore> {
 fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
     let secrets = MemorySecrets::default();
     let password = Credential::Password(SecretText::new("s3cr3t".to_owned()));
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &SecretKey {
             account: acct_account(),
             purpose: SecretPurpose::IncomingPassword,

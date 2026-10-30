@@ -6,9 +6,12 @@
 mail-net let_underscore 2
 mail-net ok 4
 mail-net unwrap_or_default 0
+mail-secrets let_underscore 0
+mail-secrets ok 2
+mail-secrets unwrap_or_default 2
 mail-runtime let_underscore 2
-mail-runtime ok 17
-mail-runtime unwrap_or_default 13
+mail-runtime ok 15
+mail-runtime unwrap_or_default 11
 mail-core let_underscore 0
 mail-core ok 31
 mail-core unwrap_or_default 16

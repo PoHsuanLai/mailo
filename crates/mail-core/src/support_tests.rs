@@ -42,8 +42,8 @@ pub fn caps() -> AccountCaps {
 
 /// [`account`]'s incoming password, kept in `secrets`.
 pub fn with_password(secrets: &porter_secrets::MemorySecrets, password: &str) {
-    use mail_runtime::AccountSecrets as _;
-    mail_runtime::block_on(secrets.put(
+    use mail_secrets::AccountSecrets as _;
+    mail_secrets::block_on(secrets.put(
         &porter_core::SecretKey {
             account: account(),
             purpose: porter_core::SecretPurpose::IncomingPassword,

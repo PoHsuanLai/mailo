@@ -13,12 +13,10 @@ porter-ids.workspace = true
 porter-provider.workspace = true
 # CardDAV's request bodies and `207 Multi-Status` replies, as text.
 dav-proto.workspace = true
-porter-oauth = { workspace = true, features = ["io"] }
-# The trait the account secrets are filed through. The stores behind it are the `keyring` feature's.
-porter-secrets.workspace = true
 mail-domain.workspace = true
 mail-proto.workspace = true
 mail-net.workspace = true
+mail-secrets.workspace = true
 mail-store.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
 mail-mime.workspace = true
@@ -30,8 +28,6 @@ thiserror.workspace = true
 log.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
 blake3 = "1"
-# The PKCE verifier and state of a sign-in (porter-oauth takes its randomness as arguments).
-rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "charset", "http2"] }
 url = "2"
 # Push for a Graph account (`graph/push.rs`): the WebSocket to the relay, over the TLS this crate
@@ -41,15 +37,11 @@ url = "2"
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
 futures-util = { version = "0.3", default-features = false, features = ["std", "sink"] }
 base64 = "0.22"
+# A random WebSocket key (`graph/push.rs`).
+rand = "0.8"
 serde = { workspace = true }
 serde_json = "1"
 uuid = { workspace = true }
-# The keyring's common API, with no store of its own; each platform's store is named below, under
-# its target. It serves the signing keys mailo keeps in its own store (`signing_store.rs`), which
-# are not account secrets: those go through porter-secrets.
-keyring-core = "1"
-# A value too long for one entry (the Credential Manager's 2560 bytes) kept in several.
-keyring-chunked.workspace = true
 # The registered domain of a host, for BIMI's organisational domain.
 psl = "2"
 # Brand logos (`bimi/`): an SVG drawn to pixels off the thread that draws the window. resvg
@@ -64,60 +56,21 @@ roxmltree = "0.21"
 # An S/MIME private key on its way to and from the keyring is wiped after. Already in the tree.
 zeroize = "1"
 
-# Where secrets are kept, per platform, behind the `keyring` and `oo7` features. All MIT OR
-# Apache-2.0.
-#
-# Account secrets (porter-secrets, `account_secrets.rs`): on Linux `Oo7Secrets`, the Secret Service
-# through oo7 and no daemon of ours (the `oo7` feature); on macOS and Windows `KeyringSecrets`, the
-# login keychain and the Credential Manager, which chunks what the Credential Manager cannot hold
-# (the `keyring` feature). One store per platform, chosen in `account_secrets.rs` and nowhere else.
-#
-# The signing keys (`signing_store.rs`), over keyring-core, at the features `keyring` 4 chose on
-# each.
-#
-# Linux and the BSDs: the Secret Service (GNOME Keyring, KWallet, KeePassXC) over zbus.
-[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
-zbus-secret-service-keyring-store = { version = "1", features = ["crypto-rust"], optional = true }
-
-# macOS: the login keychain.
-[target.'cfg(target_os = "macos")'.dependencies]
-apple-native-keyring-store = { version = "1", features = ["keychain"], optional = true }
-# The per-user directories macOS and Windows name (`places.rs`). Linux keeps the XDG rule it has
-# always followed, spelled out there, so the directories it already uses cannot move.
-dirs = "6"
 # The quarantine mark on files written out of a message (`quarantine.rs`). Already in the tree.
+[target.'cfg(target_os = "macos")'.dependencies]
 xattr = "1"
-
-# Windows: the Credential Manager. Its entries hold at most 2560 bytes, which a Microsoft token
-# or a signing key outgrows; `keyring-chunked` (`signing_store.rs`) is why that does not matter there.
-[target.'cfg(windows)'.dependencies]
-windows-native-keyring-store = { version = "1", optional = true }
-dirs = "6"
 
 [features]
 # Nothing is on by default: a headless or third-party user of this crate pays for what it names.
-# `mail-app` names `keyring`, so the shipped binary has it.
+# The platform keyrings are `mail-secrets`' features, and `mail-app` names them there.
 default = []
-# The platform's keyrings (the Secret Service over zbus on Linux and the BSDs, the login keychain on
-# macOS, the Credential Manager on Windows): `KeyringSigningStore` over them, and on macOS and
-# Windows `PlatformSecrets`. Without it they are present but empty, answering every call as
-# unavailable, and a caller keeps its secrets in an `AccountSecrets` and a `SigningStore` of its own.
-keyring = [
-    "porter-secrets/keyring",
-    "dep:zbus-secret-service-keyring-store",
-    "dep:apple-native-keyring-store",
-    "dep:windows-native-keyring-store",
-]
-# Linux: the account secrets in the Secret Service through oo7 (`Oo7Secrets`). Its own feature
-# because macOS and Windows have no use for oo7 or the bus it brings; `mail-app` names it under
-# `cfg(target_os = "linux")`. Without it, on Linux, `PlatformSecrets` holds nothing.
-oo7 = ["porter-secrets/oo7"]
-# What a test swaps in at this crate's seams (`testing`): an in-memory transport, account secrets
-# and signing store. Off in the program.
-testing = ["porter-secrets/testing", "mail-net/testing"]
+# What a test swaps in at this crate's seams and below it: the in-memory transport of `mail-net`
+# and the account secrets and signing store of `mail-secrets`. Off in the program.
+testing = ["mail-secrets/testing", "mail-net/testing"]
 
 [dev-dependencies]
 porter-capability.workspace = true
+porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 # The relay stream and the DEFLATE the drive and compression tests build their far ends with.
 porter-client.workspace = true
 flate2 = "1"
@@ -125,7 +78,6 @@ flate2 = "1"
 mail-store = { workspace = true, features = ["testing"] }
 # Its own tests use the doubles it exports.
 mail-runtime = { path = ".", features = ["testing"] }
-porter-secrets = { workspace = true, features = ["testing", "keyring"] }
 # `test-util` for the tests that wait out a deadline on a paused clock (`tests/runtime/drive.rs`).
 tokio = { version = "1", features = ["full", "test-util"] }
 tempfile = "3"

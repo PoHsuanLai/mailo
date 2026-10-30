@@ -1,7 +1,8 @@
 # Lines in the app-side crates (src and tests) that name a lower crate directly instead of going
 # through mail_core. A ratchet (scripts/check-boundary.sh): it fails when a count rises, and when it
 # falls until this file says so. Format: "<app crate> <lower crate as written in Rust> <lines>".
-mail-app mail_runtime 8
+mail-app mail_runtime 6
+mail-app mail_secrets 2
 mail-app mail_store 27
 mail-cli mail_runtime 4
 mail-cli mail_store 29

@@ -28,13 +28,14 @@
 use crate::engine::wait::due_alarm;
 use crate::error::Logged;
 use crate::graph::{detail, refusal_text, retry_after, segment};
-use crate::tokens::{self, GraphReach};
-use crate::{AccountSecrets, Cancel, IDLE_REARM, RuntimeError, Woke};
+use crate::{Cancel, IDLE_REARM, RuntimeError, Woke};
 use base64::Engine as _;
 use chrono::{DateTime, TimeDelta, Utc};
 use futures_util::{SinkExt, StreamExt};
 use mail_domain::{AccountPlan, Retry};
 use mail_net::{Failure, within};
+use mail_secrets::AccountSecrets;
+use mail_secrets::tokens::{self, GraphReach};
 use mail_store::{GraphPush, Registered, SqliteStore, Subscribed};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText};
 use porter_provider::ClientEntry;
@@ -773,9 +774,9 @@ impl Listener {
         match self.secrets.get(&secret_key(self.account.clone())).await {
             Ok(Credential::ApiKey(secret)) => Ok(Some(Zeroizing::new(secret.expose().to_owned()))),
             Ok(_) => Ok(None),
-            Err(e) => match crate::SecretTrouble::of(&e) {
-                crate::SecretTrouble::Absent => Ok(None),
-                crate::SecretTrouble::Unreachable(_) => Err(e),
+            Err(e) => match mail_secrets::SecretTrouble::of(&e) {
+                mail_secrets::SecretTrouble::Absent => Ok(None),
+                mail_secrets::SecretTrouble::Unreachable(_) => Err(e.into()),
             },
         }
     }

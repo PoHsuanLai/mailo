@@ -218,8 +218,8 @@ pub fn list(store: &SqliteStore, message: MessageId) -> Result<Vec<Listed>, Core
 /// that matters — a file saved somewhere the user cannot name is a file they have lost.
 pub fn downloads_dir() -> PathBuf {
     downloads_from(
-        mail_runtime::places::downloads_named().as_deref(),
-        mail_runtime::places::home()
+        mail_secrets::places::downloads_named().as_deref(),
+        mail_secrets::places::home()
             .as_deref()
             .map(std::path::Path::as_os_str),
     )

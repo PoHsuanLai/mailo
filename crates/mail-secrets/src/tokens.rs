@@ -13,7 +13,7 @@
 //! in the account's secrets where [`TokenSource::current`] reads it.
 
 use crate::AccountSecrets;
-use crate::RuntimeError;
+use crate::CredentialError;
 use crate::SecretTrouble;
 use crate::authorize::exchange_failure;
 use crate::clients;
@@ -29,7 +29,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use zeroize::Zeroizing;
 
-type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, RuntimeError>> + Send + 'a>>;
+type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, CredentialError>> + Send + 'a>>;
 
 /// Where a source reads the time.
 ///
@@ -60,29 +60,11 @@ pub enum AfterRefusal {
     /// be refused for the same reason, and asking for it is a loop against the issuer.
     ///
     /// Nor is it the user's to fix by signing in again: the issuer has just stood by the grant,
-    /// and a new sign-in mints the same token. See [`refused_fresh`].
+    /// and a new sign-in mints the same token. Whoever holds the error says so (`refused_fresh`, in the engines' crate).
     StillRefused,
     /// What was refused is not a token this source renews, a password: its refusal is the
     /// user's to answer.
     NotRenewable,
-}
-
-/// A server's refusal of a token the issuer has just issued, said as what it is.
-///
-/// The rule every engine follows after [`TokenSource::after_refusal`]: a refusal of the token it
-/// minted ([`AfterRefusal::TryAgain`], then refused), or of one it minted earlier
-/// ([`AfterRefusal::StillRefused`]), is not [`Retry::NeedsReauth`]. The issuer is the authority
-/// on the sign-in and has just renewed it, so asking the user to sign in again sends them
-/// round a loop that mints the same token: a Microsoft 365 mailbox with IMAP or SMTP switched
-/// off answers every token with `NO AUTHENTICATE failed.`, and read as a refused credential it
-/// asked for a sign-in straight after one had succeeded. Anything that is not a refused
-/// credential passes through as it was.
-pub fn refused_fresh(error: RuntimeError) -> RuntimeError {
-    if matches!(error.retry(), Retry::NeedsReauth) {
-        RuntimeError::RefusedFresh(Box::new(error))
-    } else {
-        error
-    }
 }
 
 /// Where an engine gets the credential it presents.
@@ -239,7 +221,7 @@ pub(crate) async fn refresh(
     refresh_token: &str,
     scopes: &[String],
     now: DateTime<Utc>,
-) -> Result<Credential, RuntimeError> {
+) -> Result<Credential, CredentialError> {
     let endpoints = clients::endpoints(client)?;
     let http = mail_net::http::oauth_http();
     let presented = SecretText::new(refresh_token);
@@ -283,7 +265,7 @@ pub async fn renew(
     credential: Credential,
     secrets: &dyn AccountSecrets,
     now: DateTime<Utc>,
-) -> Result<Credential, RuntimeError> {
+) -> Result<Credential, CredentialError> {
     let Some(refresh_token) = due_refresh(&credential, now) else {
         return Ok(credential);
     };
@@ -307,7 +289,7 @@ async fn renew_incoming(
     refresh_token: &str,
     secrets: &dyn AccountSecrets,
     now: DateTime<Utc>,
-) -> Result<Credential, RuntimeError> {
+) -> Result<Credential, CredentialError> {
     let renewed = refresh(client, refresh_token, scopes, now).await?;
     // Both entries, because `account add` wrote both. The sync path reads `IncomingPassword`
     // and the browser flow is what writes `OAuthRefresh`; leaving either stale is the same
@@ -371,7 +353,7 @@ pub async fn graph_token(
     reach: GraphReach,
     secrets: &dyn AccountSecrets,
     now: DateTime<Utc>,
-) -> Result<Credential, RuntimeError> {
+) -> Result<Credential, CredentialError> {
     let held = kept_graph(secrets, account.clone()).await?;
     let refresh_token = match held {
         Some(held @ Credential::OAuth { .. }) => match due_refresh(&held, now) {
@@ -389,7 +371,7 @@ pub async fn graph_token(
 async fn graph_refresh(
     secrets: &dyn AccountSecrets,
     account: AccountId,
-) -> Result<Zeroizing<String>, RuntimeError> {
+) -> Result<Zeroizing<String>, CredentialError> {
     match kept_graph(secrets, account.clone()).await? {
         Some(Credential::OAuth { refresh, .. }) => Ok(Zeroizing::new(refresh.expose().to_owned())),
         _ => sign_in_refresh(secrets, account).await,
@@ -405,7 +387,7 @@ async fn graph_refresh(
 async fn kept_graph(
     secrets: &dyn AccountSecrets,
     account: AccountId,
-) -> Result<Option<Credential>, RuntimeError> {
+) -> Result<Option<Credential>, CredentialError> {
     let key = SecretKey {
         account,
         purpose: SecretPurpose::OutgoingPassword,
@@ -435,7 +417,7 @@ async fn mint_graph(
     refresh_token: &str,
     secrets: &dyn AccountSecrets,
     now: DateTime<Utc>,
-) -> Result<Credential, RuntimeError> {
+) -> Result<Credential, CredentialError> {
     let minted = refresh(client, refresh_token, &reach.scopes(), now).await?;
     secrets
         .put(
@@ -453,7 +435,7 @@ async fn mint_graph(
 async fn sign_in_refresh(
     secrets: &dyn AccountSecrets,
     account: AccountId,
-) -> Result<Zeroizing<String>, RuntimeError> {
+) -> Result<Zeroizing<String>, CredentialError> {
     match secrets
         .get(&SecretKey {
             account,
@@ -465,12 +447,12 @@ async fn sign_in_refresh(
         Credential::Password(_)
         | Credential::ApiKey(_)
         | Credential::Bearer(_)
-        | Credential::KeyPair { .. } => Err(RuntimeError::Secrets(Failure::said(
+        | Credential::KeyPair { .. } => Err(CredentialError::Secrets(Failure::said(
             "sending through Graph needs a Microsoft sign-in",
         ))),
         // A kind this build does not know is not read as "no sign-in" (which asks the person to
         // sign in again and writes over it): the account waits for a build that knows it.
-        _ => Err(RuntimeError::Connect(Failure::said(
+        _ => Err(CredentialError::connect(Failure::said(
             "the credential kept for this account is of a kind this build does not know",
         ))),
     }
@@ -558,7 +540,7 @@ impl OAuthTokens {
         self.held.clone()
     }
 
-    async fn ahead_of(&self, token: Token) -> Result<(), RuntimeError> {
+    async fn ahead_of(&self, token: Token) -> Result<(), CredentialError> {
         // Whoever waited here finds the token the one before renewed, no longer due.
         let _turn = self.renewing.lock().await;
         let token = self.which(token);
@@ -585,7 +567,7 @@ impl OAuthTokens {
         }
     }
 
-    async fn after_refused(&self, token: Token) -> Result<AfterRefusal, RuntimeError> {
+    async fn after_refused(&self, token: Token) -> Result<AfterRefusal, CredentialError> {
         let _turn = self.renewing.lock().await;
         let token = self.which(token);
         self.refused(token)?;
@@ -635,7 +617,7 @@ impl OAuthTokens {
         &self,
         refresh_token: &str,
         now: DateTime<Utc>,
-    ) -> Result<Credential, RuntimeError> {
+    ) -> Result<Credential, CredentialError> {
         let renewed = renew_incoming(
             self.account.clone(),
             &self.client,
@@ -657,8 +639,8 @@ impl OAuthTokens {
     fn judge(
         &self,
         token: Token,
-        outcome: Result<Credential, RuntimeError>,
-    ) -> Result<Credential, RuntimeError> {
+        outcome: Result<Credential, CredentialError>,
+    ) -> Result<Credential, CredentialError> {
         let e = match outcome {
             Ok(credential) => return Ok(credential),
             Err(e) => e,
@@ -675,18 +657,18 @@ impl OAuthTokens {
             Token::Incoming => spent.refused_incoming = Some(why.clone()),
             Token::Sending => spent.refused_sending = Some(why.clone()),
         }
-        Err(RuntimeError::Secrets(Failure::said(why)))
+        Err(CredentialError::Secrets(Failure::said(why)))
     }
 
     /// The refusal already heard for `token`, if there was one, so it is not asked again.
-    fn refused(&self, token: Token) -> Result<(), RuntimeError> {
+    fn refused(&self, token: Token) -> Result<(), CredentialError> {
         let spent = self.spent();
         let refused = match token {
             Token::Incoming => &spent.refused_incoming,
             Token::Sending => &spent.refused_sending,
         };
         match refused {
-            Some(why) => Err(RuntimeError::Secrets(Failure::said(why.clone()))),
+            Some(why) => Err(CredentialError::Secrets(Failure::said(why.clone()))),
             None => Ok(()),
         }
     }
@@ -764,27 +746,28 @@ mod tests {
         fn get<'a>(
             &'a self,
             _: &'a SecretKey,
-        ) -> Pin<Box<dyn Future<Output = Result<Credential, RuntimeError>> + Send + 'a>> {
-            let why = RuntimeError::Secrets(Failure::caused((self.0)()));
+        ) -> Pin<Box<dyn Future<Output = Result<Credential, CredentialError>> + Send + 'a>>
+        {
+            let why = CredentialError::Secrets(Failure::caused((self.0)()));
             Box::pin(async move { Err(why) })
         }
         fn put<'a>(
             &'a self,
             _: &'a SecretKey,
             _: &'a Credential,
-        ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
+        ) -> Pin<Box<dyn Future<Output = Result<(), CredentialError>> + Send + 'a>> {
             Box::pin(async { Ok(()) })
         }
         fn forget<'a>(
             &'a self,
             _: &'a SecretKey,
-        ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
+        ) -> Pin<Box<dyn Future<Output = Result<(), CredentialError>> + Send + 'a>> {
             Box::pin(async { Ok(()) })
         }
         fn forget_account<'a>(
             &'a self,
             _: &'a AccountId,
-        ) -> Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + 'a>> {
+        ) -> Pin<Box<dyn Future<Output = Result<(), CredentialError>> + Send + 'a>> {
             Box::pin(async { Ok(()) })
         }
     }

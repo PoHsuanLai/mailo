@@ -21,11 +21,11 @@ authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 # reaches the platform's keyring is default: that is `keyring` (and `oo7`), which the program that
 # wants it names.
 default = ["desktop", "pdf"]
-# The platform's secret stores for account secrets and signing keys, in mail-runtime. Without it
+# The platform's secret stores for account secrets and signing keys, in mail-secrets. Without it
 # the caller hands in its own `AccountSecrets` and `SigningStore`.
-keyring = ["mail-runtime/keyring"]
-# On Linux, the account secrets in the Secret Service through oo7 (`mail-runtime`'s `oo7`).
-oo7 = ["mail-runtime/oo7"]
+keyring = ["mail-secrets/keyring"]
+# On Linux, the account secrets in the Secret Service through oo7 (`mail-secrets`' `oo7`).
+oo7 = ["mail-secrets/oo7"]
 # The desktop's notification service and the clicks on what it shows (`notify/desktop.rs`,
 # `notify/click.rs`): notify-rust, and zbus for the signals notify-rust does not surface; on
 # macOS the banners are the app's, handed in through `notify::banner::Posts`. Without it a watch
@@ -34,8 +34,8 @@ desktop = ["dep:notify-rust", "dep:zbus"]
 # A PDF attachment's pages for the preview (`preview.rs`), by pdfrum. Without it a PDF has no
 # preview ("could not be read") and everything else previews as before.
 pdf = ["dep:pdfrum"]
-# The doubles a front end's tests swap in (`mail_core::testing`, mail-runtime's): off in the program.
-testing = ["mail-runtime/testing"]
+# The doubles a front end's tests swap in (`mail_core::testing`, mail-secrets'): off in the program.
+testing = ["mail-runtime/testing", "mail-secrets/testing"]
 
 [dependencies]
 porter-core.workspace = true
@@ -59,6 +59,7 @@ mail-proto.workspace = true
 mail-pim.workspace = true
 mail-editor.workspace = true
 mail-net.workspace = true
+mail-secrets.workspace = true
 mail-runtime.workspace = true
 serde.workspace = true
 serde_json = "1"

@@ -154,7 +154,7 @@ its anchor over (`Picked<T>`), and pdfrum moved to the rev quire's pinned block 
 the desktop jail, or shell-host's headless KWin), with a private bus, a scratch HOME and a fake IMAP server (`scripts/live-imapd.py`, which pushes a
 message dropped into `$MAILO_EXTRA_MAIL` to whoever is idling). Credentials in a scenario are
 plain files in the scratch tree: a debug build reads `MAILO_TEST_SECRETS_DIR` instead of the
-keyring (`mail-runtime/src/secrets.rs`, compiled out of release builds).
+keyring (`mail-secrets/src/signing_store.rs`, compiled out of release builds).
 
 - `a-dark-mode.sh`: the desktop's appearance file changes, a running window turns dark.
 - `b-new-mail.sh`: a message arrives; a banner and a badge.

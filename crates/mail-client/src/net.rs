@@ -137,9 +137,9 @@ impl Net<'_> {
         match self.signing().get(&SigningKeyRef::privacy_relay()) {
             Ok(SigningSecret::Relay(key)) => Ok(Some(key).filter(|key| !key.is_empty())),
             Ok(_) => Ok(None),
-            Err(why) => match mail_runtime::SecretTrouble::of(&why) {
-                mail_runtime::SecretTrouble::Absent => Ok(None),
-                mail_runtime::SecretTrouble::Unreachable(said) => Err(said.to_owned()),
+            Err(why) => match mail_secrets::SecretTrouble::of(&why) {
+                mail_secrets::SecretTrouble::Absent => Ok(None),
+                mail_secrets::SecretTrouble::Unreachable(said) => Err(said.to_owned()),
             },
         }
     }

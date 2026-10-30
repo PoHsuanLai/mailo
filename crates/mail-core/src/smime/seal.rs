@@ -22,7 +22,7 @@ use chrono::{DateTime, Utc};
 use mail_crypto::smime::{self, Cert, Identity as Signer, Sealing};
 use mail_domain::*;
 use mail_mime::Parsed;
-use mail_runtime::SigningStore;
+use mail_secrets::SigningStore;
 use mail_store::SqliteStore;
 
 /// S/MIME, as a way of protecting a message.

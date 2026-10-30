@@ -2,11 +2,12 @@
 //! ([`mail_proto::backend::Quota`]) on a connection of its own, signed in as every walk is.
 
 use super::AccountEngine;
-use crate::tokens::{AfterRefusal, Token, refused_fresh};
+use crate::error::refused_fresh;
 use crate::{Cancel, RuntimeError, drive};
 use mail_domain::{Retry, Retryable};
 use mail_proto::Storage;
 use mail_proto::backend::ImapBackend;
+use mail_secrets::tokens::{AfterRefusal, Token};
 
 impl AccountEngine<ImapBackend> {
     /// The account's storage as the server counts it: `None` when the server offers no quota.

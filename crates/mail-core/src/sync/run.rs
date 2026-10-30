@@ -2,7 +2,7 @@
 
 use super::report::Failure;
 use super::{Configured, Mode, clock_for, renewal_for, renewed_typed, stored_credential};
-use mail_runtime::{AccountSecrets, ClientRegistry, Held, TokenSource};
+use mail_secrets::{AccountSecrets, ClientRegistry, Held, TokenSource};
 use mail_store::SqliteStore;
 use std::sync::Arc;
 

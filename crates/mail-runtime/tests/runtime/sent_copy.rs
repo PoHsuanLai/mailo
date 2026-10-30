@@ -12,7 +12,8 @@ use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{AccountEngine, AccountSecrets};
+use mail_runtime::AccountEngine;
+use mail_secrets::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -232,7 +233,7 @@ fn compose(smtp: u16, imap: u16, sent_folder: bool) -> Sending {
         Some("Me"),
     );
     let secrets = MemorySecrets::default();
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &SecretKey {
             account: acct_account(),
             purpose: SecretPurpose::IncomingPassword,

@@ -15,7 +15,7 @@
 
 pub(crate) mod stored;
 
-use crate::RuntimeError;
+use crate::CredentialError;
 use keyring_chunked::{ChunkedStore, Limit};
 use keyring_core::CredentialStore;
 use keyring_core::api::CredentialStoreApi;
@@ -31,9 +31,9 @@ use stored::Stored;
 /// A trait because the tests must not touch the user's real keyring, and because a headless
 /// machine may have no keyring at all.
 pub trait SigningStore: Send + Sync {
-    fn get(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError>;
-    fn put(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError>;
-    fn forget(&self, key: &SigningKeyRef) -> Result<(), RuntimeError>;
+    fn get(&self, key: &SigningKeyRef) -> Result<SigningSecret, CredentialError>;
+    fn put(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), CredentialError>;
+    fn forget(&self, key: &SigningKeyRef) -> Result<(), CredentialError>;
 }
 
 /// The keyring service mailo's signing keys are filed under when nothing says otherwise: the one
@@ -52,12 +52,12 @@ pub(crate) fn signing_entry_name(key: &SigningKeyRef) -> String {
     }
 }
 
-pub(crate) fn signing_secret(stored: Stored) -> Result<SigningSecret, RuntimeError> {
+pub(crate) fn signing_secret(stored: Stored) -> Result<SigningSecret, CredentialError> {
     match stored {
         Stored::OpenPgp(armored) => Ok(SigningSecret::OpenPgp(armored)),
         Stored::SmimeKey(pem) => Ok(SigningSecret::SmimeKey(pem)),
         Stored::RelayKey(key) => Ok(SigningSecret::Relay(key)),
-        Stored::Password(_) | Stored::OAuth { .. } => Err(RuntimeError::Secrets(Failure::said(
+        Stored::Password(_) | Stored::OAuth { .. } => Err(CredentialError::Secrets(Failure::said(
             "the keyring entry holds an account's credential, not a signing key",
         ))),
     }
@@ -131,49 +131,49 @@ impl KeyringSigningStore {
 }
 
 impl SigningStore for KeyringSigningStore {
-    fn get(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+    fn get(&self, key: &SigningKeyRef) -> Result<SigningSecret, CredentialError> {
         let name = signing_entry_name(key);
         off_runtime(|| read_with(self.slots.as_ref(), &name))
     }
 
-    fn put(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError> {
+    fn put(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), CredentialError> {
         let (name, stored) = (signing_entry_name(key), stored_signing(value));
         off_runtime(|| write_with(self.slots.as_ref(), &name, &stored))
     }
 
-    fn forget(&self, key: &SigningKeyRef) -> Result<(), RuntimeError> {
+    fn forget(&self, key: &SigningKeyRef) -> Result<(), CredentialError> {
         let name = signing_entry_name(key);
         off_runtime(|| self.slots.delete(&name))
     }
 }
 
-fn read_with(slots: &dyn Slots, name: &str) -> Result<SigningSecret, RuntimeError> {
+fn read_with(slots: &dyn Slots, name: &str) -> Result<SigningSecret, CredentialError> {
     let stored = slots
         .read(name)?
-        .ok_or_else(|| RuntimeError::Secrets(Failure::said("no such signing key")))?;
+        .ok_or_else(|| CredentialError::Secrets(Failure::said("no such signing key")))?;
     signing_secret(decode(&stored)?)
 }
 
-fn write_with(slots: &dyn Slots, name: &str, value: &Stored) -> Result<(), RuntimeError> {
+fn write_with(slots: &dyn Slots, name: &str, value: &Stored) -> Result<(), CredentialError> {
     let encoded = serde_json::to_string(value)
-        .map_err(|e| RuntimeError::Secrets(Failure::new("cannot encode signing key", e)))?;
+        .map_err(|e| CredentialError::Secrets(Failure::new("cannot encode signing key", e)))?;
     slots.write(name, &encoded)
 }
 
 /// An entry's JSON as [`Stored`], the shape every earlier build wrote.
-pub(crate) fn decode(text: &str) -> Result<Stored, RuntimeError> {
+pub(crate) fn decode(text: &str) -> Result<Stored, CredentialError> {
     serde_json::from_str(text)
-        .map_err(|e| RuntimeError::Secrets(Failure::new("stored credential is unreadable", e)))
+        .map_err(|e| CredentialError::Secrets(Failure::new("stored credential is unreadable", e)))
 }
 
 /// The platform's entries, by name: a value read, written or removed whole, whatever the
 /// platform holds in one entry. The keyring in the program, a map or a directory in the tests.
 pub(crate) trait Slots {
     /// The value in `name`, or `None` when there is no such entry.
-    fn read(&self, name: &str) -> Result<Option<String>, RuntimeError>;
-    fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError>;
+    fn read(&self, name: &str) -> Result<Option<String>, CredentialError>;
+    fn write(&self, name: &str, value: &str) -> Result<(), CredentialError>;
     /// Remove `name`. An entry that is already gone is not an error.
-    fn delete(&self, name: &str) -> Result<(), RuntimeError>;
+    fn delete(&self, name: &str) -> Result<(), CredentialError>;
 }
 
 /// What the head entry of a value in parts holds, before the count. Frozen: a Windows keyring
@@ -210,7 +210,7 @@ impl std::fmt::Debug for StoreSlots {
 }
 
 impl Slots for StoreSlots {
-    fn read(&self, name: &str) -> Result<Option<String>, RuntimeError> {
+    fn read(&self, name: &str) -> Result<Option<String>, CredentialError> {
         match self
             .store
             .build(&self.service, name, None)
@@ -223,7 +223,7 @@ impl Slots for StoreSlots {
         }
     }
 
-    fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
+    fn write(&self, name: &str, value: &str) -> Result<(), CredentialError> {
         self.store
             .build(&self.service, name, None)
             .map_err(refused)?
@@ -231,7 +231,7 @@ impl Slots for StoreSlots {
             .map_err(refused)
     }
 
-    fn delete(&self, name: &str) -> Result<(), RuntimeError> {
+    fn delete(&self, name: &str) -> Result<(), CredentialError> {
         match self
             .store
             .build(&self.service, name, None)
@@ -273,7 +273,7 @@ impl Keyring {
 }
 
 impl Slots for Keyring {
-    fn read(&self, name: &str) -> Result<Option<String>, RuntimeError> {
+    fn read(&self, name: &str) -> Result<Option<String>, CredentialError> {
         #[cfg(debug_assertions)]
         if let Some(dir) = scenario::dir() {
             return scenario::read(&dir, &self.scenario_name(name));
@@ -281,7 +281,7 @@ impl Slots for Keyring {
         on_store(|store| StoreSlots::new(store, self.service.clone(), LIMIT).read(name))
     }
 
-    fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
+    fn write(&self, name: &str, value: &str) -> Result<(), CredentialError> {
         #[cfg(debug_assertions)]
         if let Some(dir) = scenario::dir() {
             return scenario::write(&dir, &self.scenario_name(name), value);
@@ -289,7 +289,7 @@ impl Slots for Keyring {
         on_store(|store| StoreSlots::new(store, self.service.clone(), LIMIT).write(name, value))
     }
 
-    fn delete(&self, name: &str) -> Result<(), RuntimeError> {
+    fn delete(&self, name: &str) -> Result<(), CredentialError> {
         #[cfg(debug_assertions)]
         if let Some(dir) = scenario::dir() {
             return scenario::delete(&dir, &self.scenario_name(name));
@@ -306,7 +306,7 @@ impl Slots for Keyring {
 /// binary a person installs has no way to keep a password in a file.
 #[cfg(debug_assertions)]
 pub(crate) mod scenario {
-    use crate::RuntimeError;
+    use crate::CredentialError;
     use std::path::{Path, PathBuf};
 
     /// `MAILO_TEST_SECRETS_DIR` when it is set. Otherwise, under a test harness, a directory of
@@ -343,11 +343,11 @@ pub(crate) mod scenario {
         dir.join(name.replace([':', '#', '/'], "_"))
     }
 
-    fn failed(e: std::io::Error) -> RuntimeError {
-        RuntimeError::Secrets(mail_net::Failure::new("the scenario secrets directory", e))
+    fn failed(e: std::io::Error) -> CredentialError {
+        CredentialError::Secrets(mail_net::Failure::new("the scenario secrets directory", e))
     }
 
-    pub(crate) fn read(dir: &Path, name: &str) -> Result<Option<String>, RuntimeError> {
+    pub(crate) fn read(dir: &Path, name: &str) -> Result<Option<String>, CredentialError> {
         match std::fs::read_to_string(file(dir, name)) {
             Ok(value) => Ok(Some(value)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -355,12 +355,12 @@ pub(crate) mod scenario {
         }
     }
 
-    pub(crate) fn write(dir: &Path, name: &str, value: &str) -> Result<(), RuntimeError> {
+    pub(crate) fn write(dir: &Path, name: &str, value: &str) -> Result<(), CredentialError> {
         std::fs::create_dir_all(dir).map_err(failed)?;
         std::fs::write(file(dir, name), value).map_err(failed)
     }
 
-    pub(crate) fn delete(dir: &Path, name: &str) -> Result<(), RuntimeError> {
+    pub(crate) fn delete(dir: &Path, name: &str) -> Result<(), CredentialError> {
         match std::fs::remove_file(file(dir, name)) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -369,8 +369,8 @@ pub(crate) mod scenario {
     }
 }
 
-fn refused(e: keyring_core::Error) -> RuntimeError {
-    RuntimeError::Secrets(Failure::caused(e))
+fn refused(e: keyring_core::Error) -> CredentialError {
+    CredentialError::Secrets(Failure::caused(e))
 }
 
 /// `call` on the platform's store, opened on first use and kept.
@@ -381,13 +381,13 @@ fn refused(e: keyring_core::Error) -> RuntimeError {
 /// [`Kept`] says.
 #[cfg(feature = "keyring")]
 fn on_store<T>(
-    call: impl Fn(Arc<CredentialStore>) -> Result<T, RuntimeError>,
-) -> Result<T, RuntimeError> {
+    call: impl Fn(Arc<CredentialStore>) -> Result<T, CredentialError>,
+) -> Result<T, CredentialError> {
     static OPENED: Kept<CredentialStore> = Kept::new();
     OPENED.run(
         || {
             open().map_err(|e| {
-                RuntimeError::Secrets(Failure::new("no keyring to keep signing keys in", e))
+                CredentialError::Secrets(Failure::new("no keyring to keep signing keys in", e))
             })
         },
         call,
@@ -422,8 +422,8 @@ impl<S: ?Sized> Kept<S> {
 
     fn open(
         &self,
-        open: &impl Fn() -> Result<Arc<S>, RuntimeError>,
-    ) -> Result<Arc<S>, RuntimeError> {
+        open: &impl Fn() -> Result<Arc<S>, CredentialError>,
+    ) -> Result<Arc<S>, CredentialError> {
         let store = open()?;
         *self.slot() = Some(store.clone());
         Ok(store)
@@ -439,9 +439,9 @@ impl<S: ?Sized> Kept<S> {
 
     fn run<T>(
         &self,
-        open: impl Fn() -> Result<Arc<S>, RuntimeError>,
-        call: impl Fn(Arc<S>) -> Result<T, RuntimeError>,
-    ) -> Result<T, RuntimeError> {
+        open: impl Fn() -> Result<Arc<S>, CredentialError>,
+        call: impl Fn(Arc<S>) -> Result<T, CredentialError>,
+    ) -> Result<T, CredentialError> {
         let held = self.slot().clone();
         let kept = held.is_some();
         let store = match held {
@@ -467,8 +467,8 @@ impl<S: ?Sized> Kept<S> {
 
 /// Whether `error` is the store not answering, rather than an answer about an entry.
 #[cfg(any(feature = "keyring", test))]
-fn unreachable(error: &RuntimeError) -> bool {
-    let RuntimeError::Secrets(failure) = error else {
+fn unreachable(error: &CredentialError) -> bool {
+    let CredentialError::Secrets(failure) = error else {
         return false;
     };
     matches!(
@@ -516,9 +516,9 @@ compile_error!("mailo keeps signing keys in the platform keyring, and knows none
 /// in whatever [`SigningStore`] the caller hands in, or not at all.
 #[cfg(not(feature = "keyring"))]
 fn on_store<T>(
-    _: impl Fn(Arc<CredentialStore>) -> Result<T, RuntimeError>,
-) -> Result<T, RuntimeError> {
-    Err(RuntimeError::Secrets(Failure::said(
+    _: impl Fn(Arc<CredentialStore>) -> Result<T, CredentialError>,
+) -> Result<T, CredentialError> {
+    Err(CredentialError::Secrets(Failure::said(
         "this build has no platform keyring to keep signing keys in",
     )))
 }
@@ -545,11 +545,11 @@ mod tests {
     use mail_domain::signing::SigningKeyId;
 
     /// keyring-core's `error` as a store call hands it on.
-    fn said(error: keyring_core::Error) -> RuntimeError {
+    fn said(error: keyring_core::Error) -> CredentialError {
         refused(error)
     }
 
-    fn gone() -> RuntimeError {
+    fn gone() -> CredentialError {
         said(keyring_core::Error::PlatformFailure(Box::new(
             std::io::Error::other("the daemon left the bus"),
         )))
@@ -593,7 +593,9 @@ mod tests {
         let missing = kept.run(open, |_| Err::<(), _>(said(keyring_core::Error::NoEntry)));
         assert!(missing.is_err());
         let refused = kept.run(open, |_| {
-            Err::<(), _>(RuntimeError::Secrets(Failure::said("no such signing key")))
+            Err::<(), _>(CredentialError::Secrets(Failure::said(
+                "no such signing key",
+            )))
         });
         assert!(refused.is_err());
         assert_eq!(opens.load(Ordering::SeqCst), 1, "opened once, never again");
@@ -640,11 +642,11 @@ mod tests {
     type Mem = std::sync::Mutex<std::collections::BTreeMap<String, String>>;
 
     impl Slots for StartsRuntime {
-        fn read(&self, name: &str) -> Result<Option<String>, RuntimeError> {
+        fn read(&self, name: &str) -> Result<Option<String>, CredentialError> {
             tokio::runtime::Runtime::new().unwrap().block_on(async {});
             Ok(self.0.lock().unwrap().get(name).cloned())
         }
-        fn write(&self, name: &str, value: &str) -> Result<(), RuntimeError> {
+        fn write(&self, name: &str, value: &str) -> Result<(), CredentialError> {
             tokio::runtime::Runtime::new().unwrap().block_on(async {});
             self.0
                 .lock()
@@ -652,7 +654,7 @@ mod tests {
                 .insert(name.to_owned(), value.to_owned());
             Ok(())
         }
-        fn delete(&self, name: &str) -> Result<(), RuntimeError> {
+        fn delete(&self, name: &str) -> Result<(), CredentialError> {
             tokio::runtime::Runtime::new().unwrap().block_on(async {});
             self.0.lock().unwrap().remove(name);
             Ok(())

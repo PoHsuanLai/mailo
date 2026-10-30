@@ -20,7 +20,7 @@
 //!
 //! Signing keys are not here: they are mailo's own (`signing_store.rs`).
 
-use crate::RuntimeError;
+use crate::CredentialError;
 use mail_domain::Retry;
 use mail_net::Failure;
 use porter_core::{AccountId, Credential, SecretKey};
@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Handle;
 
-type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, RuntimeError>> + Send + 'a>>;
+type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, CredentialError>> + Send + 'a>>;
 
 /// A store of account secrets, held as a trait object.
 ///
@@ -51,12 +51,12 @@ pub trait AccountSecrets: Send + Sync {
 
 /// Every secret failure is `Secrets`, with porter's error kept underneath it: what it asks of the
 /// person is [`SecretTrouble::of`]'s to say, not this conversion's.
-fn refused(why: SecretsError) -> RuntimeError {
-    RuntimeError::Secrets(Failure::caused(why))
+fn refused(why: SecretsError) -> CredentialError {
+    CredentialError::Secrets(Failure::caused(why))
 }
 
 /// What a failure to read an account's secret asks of the person. Decided here and nowhere else:
-/// every caller that reads a credential, and [`RuntimeError`]'s own retry, asks this.
+/// every caller that reads a credential, and [`CredentialError`]'s own retry, asks this.
 ///
 /// Only a credential that is not there is a sign-in to ask for. A keyring that is locked or does
 /// not answer holds a credential that may be perfectly good, and asking the person to sign in
@@ -77,10 +77,16 @@ const KEYRING_WAIT: Duration = Duration::from_secs(60);
 
 impl SecretTrouble {
     /// What `error`, from reading a secret, asks of the person.
-    pub fn of(error: &RuntimeError) -> Self {
-        let RuntimeError::Secrets(failure) = error else {
-            return SecretTrouble::Absent;
-        };
+    pub fn of(error: &CredentialError) -> Self {
+        match error {
+            CredentialError::Secrets(failure) => Self::of_failure(failure),
+            _ => SecretTrouble::Absent,
+        }
+    }
+
+    /// What `failure`, the store's, asks of the person. For a caller that holds the failure
+    /// inside an error of its own.
+    pub fn of_failure(failure: &Failure) -> Self {
         let porter = std::error::Error::source(failure)
             .and_then(|source| source.downcast_ref::<SecretsError>());
         match porter {

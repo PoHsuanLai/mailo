@@ -6,7 +6,7 @@
 
 use crate::support::{account, caps, now, with_password};
 use mail_domain::*;
-use mail_runtime::ClientRegistry;
+use mail_secrets::ClientRegistry;
 use mail_store::{SqliteStore, Store};
 use porter_secrets::MemorySecrets;
 use std::io::{BufRead as _, BufReader, Write as _};

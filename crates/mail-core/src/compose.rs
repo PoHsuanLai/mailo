@@ -15,7 +15,7 @@ use mail_domain::*;
 use mail_editor::{FORWARDED, plain_to_flowed};
 use mail_mime::posting;
 use mail_net::Failure;
-use mail_runtime::RuntimeError;
+use mail_secrets::CredentialError;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 
@@ -1306,23 +1306,23 @@ pub fn send(
 /// signed or encrypted is refused rather than looked up in a keyring this function was not given.
 struct NoKeys;
 
-impl mail_runtime::SigningStore for NoKeys {
-    fn get(&self, _: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+impl mail_secrets::SigningStore for NoKeys {
+    fn get(&self, _: &SigningKeyRef) -> Result<SigningSecret, CredentialError> {
         Err(Self::refusal())
     }
 
-    fn put(&self, _: &SigningKeyRef, _: &SigningSecret) -> Result<(), RuntimeError> {
+    fn put(&self, _: &SigningKeyRef, _: &SigningSecret) -> Result<(), CredentialError> {
         Err(Self::refusal())
     }
 
-    fn forget(&self, _: &SigningKeyRef) -> Result<(), RuntimeError> {
+    fn forget(&self, _: &SigningKeyRef) -> Result<(), CredentialError> {
         Err(Self::refusal())
     }
 }
 
 impl NoKeys {
-    fn refusal() -> RuntimeError {
-        RuntimeError::Secrets(Failure::said("no signing keys are available to this send"))
+    fn refusal() -> CredentialError {
+        CredentialError::Secrets(Failure::said("no signing keys are available to this send"))
     }
 }
 
@@ -1388,7 +1388,7 @@ impl SendError {
 /// for its passphrase named.
 pub fn send_with(
     store: &SqliteStore,
-    secrets: &dyn mail_runtime::SigningStore,
+    secrets: &dyn mail_secrets::SigningStore,
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     now: DateTime<Utc>,
@@ -1418,7 +1418,7 @@ pub fn send_later(
 /// [`send_later`], with the keyring and the passphrase prompt named, as [`send_with`] has them.
 pub fn send_later_with(
     store: &SqliteStore,
-    secrets: &dyn mail_runtime::SigningStore,
+    secrets: &dyn mail_secrets::SigningStore,
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     phrase: &str,
@@ -1475,7 +1475,7 @@ pub fn queue(
 /// frozen, so what the outbox holds is already signed and encrypted — see `protect::Seal`.
 pub fn queue_with(
     store: &SqliteStore,
-    secrets: &dyn mail_runtime::SigningStore,
+    secrets: &dyn mail_secrets::SigningStore,
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,
@@ -1490,7 +1490,7 @@ pub fn queue_with(
 /// not draw, unless `pictures` is [`PictureSize::Actual`].
 pub fn queue_sized(
     store: &SqliteStore,
-    secrets: &dyn mail_runtime::SigningStore,
+    secrets: &dyn mail_secrets::SigningStore,
     ask: crate::pgp::Ask<'_>,
     draft: DraftId,
     leaves: Leaves,
@@ -1502,7 +1502,7 @@ pub fn queue_sized(
 
 fn queue_inner(
     store: &SqliteStore,
-    secrets: &dyn mail_runtime::SigningStore,
+    secrets: &dyn mail_secrets::SigningStore,
     ask: crate::pgp::Ask<'_>,
     (draft, pictures): (DraftId, PictureSize),
     leaves: Leaves,

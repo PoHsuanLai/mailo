@@ -11,7 +11,8 @@ use chrono::{DateTime, TimeZone, Utc};
 use jmap_fake::{Fake, PASSWORD, USER};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, JmapEngine, Searched, SyncReport, Woke};
+use mail_runtime::{JmapEngine, Searched, SyncReport, Woke};
+use mail_secrets::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -55,7 +56,7 @@ async fn setup() -> Setup {
         SecretPurpose::IncomingPassword,
         SecretPurpose::OutgoingPassword,
     ] {
-        mail_runtime::block_on(secrets.put(
+        mail_secrets::block_on(secrets.put(
             &SecretKey {
                 account: acct_account(),
                 purpose,
@@ -508,7 +509,7 @@ async fn a_push_with_a_new_state_wakes_the_watch() {
 async fn a_refused_password_stops_the_pass_and_says_so() {
     let mut s = setup().await;
     let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &SecretKey {
             account: acct_account(),
             purpose: SecretPurpose::IncomingPassword,

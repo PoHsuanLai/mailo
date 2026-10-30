@@ -95,7 +95,7 @@ fn install_crypto_provider() {
 /// Have the kernel probe `tcp` when it has been quiet for [`KEEPALIVE_IDLE`].
 ///
 /// Best effort: a system that refuses the option still has the read deadlines in
-/// [`crate::drive`], so the failure is only logged.
+/// the drive loop (`mail_runtime::drive`), so the failure is only logged.
 fn keep_alive(tcp: &TcpStream) {
     let probes = socket2::TcpKeepalive::new().with_time(KEEPALIVE_IDLE);
     // Fifteen seconds between probes once probing has begun. Not settable everywhere; where it

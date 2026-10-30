@@ -84,18 +84,20 @@ pub use mail::{
 pub use mail_net::{Transport, remote_image};
 /// An account's storage as its server counts it ([`SyncOps::quota`]).
 pub use mail_proto::Storage;
-/// The doubles at the runtime's seams, for a front end's tests: an in-memory transport, secrets,
-/// signing store and OAuth clients that sign in nowhere.
-#[cfg(feature = "testing")]
-pub use mail_runtime::testing;
 /// What the window tells the body pass it is reading and fetching, so the pass does not repeat it.
 pub use mail_runtime::wanted;
 /// The runtime types mail-core's API hands out and takes: re-exported, so a front end goes
 /// through mail-core alone.
 pub use mail_runtime::{
-    AccountSecrets, Arrival, ClientRegistry, Destination, KeyringSigningStore, Logged, NoKeyring,
-    Searched, ServerHits, SigningStore, absorb, absorb_into, assemble, fetch,
-    graph::push::RelayRefused, off_runtime, schedule, sieve::Pushed,
+    Arrival, Destination, Logged, Searched, ServerHits, absorb, absorb_into, assemble, fetch,
+    graph::push::RelayRefused, schedule, sieve::Pushed,
+};
+/// The doubles at the credentials' seams, for a front end's tests: secrets,
+/// signing store and OAuth clients that sign in nowhere.
+#[cfg(feature = "testing")]
+pub use mail_secrets::testing;
+pub use mail_secrets::{
+    AccountSecrets, ClientRegistry, KeyringSigningStore, NoKeyring, SigningStore, off_runtime,
 };
 /// The store a front end opens and hands to mail-core.
 pub use mail_store::{AccountPrefs, SqliteStore, Store, StoreError, Syncing};

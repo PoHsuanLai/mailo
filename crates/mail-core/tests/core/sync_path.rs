@@ -15,7 +15,7 @@ use mail_core::sync::report::PassEnd;
 use mail_core::{account, sync};
 use mail_domain::id::{account_id_from_uuid, new_account_id};
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -244,7 +244,7 @@ async fn a_whole_pass_against_a_real_server_lands_mail_and_reports_what_it_fetch
 /// a client's own endpoints are for.
 mod renewing_an_expired_sign_in {
     use super::*;
-    use mail_runtime::clients;
+    use mail_secrets::clients;
     use porter_core::EndpointUrl;
     use porter_provider::{ClientEntry, IssuerEndpoints};
     use std::io::{Read as _, Write as _};
@@ -368,7 +368,7 @@ mod renewing_an_expired_sign_in {
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         // Two hours past expiry, which is where every OAuth account ended up an hour after it
         // was added and stayed forever.
-        mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
+        mail_secrets::block_on(secrets.put(&key(), &token(-120))).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
         let _ = crate::blocking::run_with(
@@ -389,7 +389,7 @@ mod renewing_an_expired_sign_in {
             "the stored refresh token was not the one spent: {asked:?}"
         );
 
-        match mail_runtime::block_on(secrets.get(&key())).unwrap() {
+        match mail_secrets::block_on(secrets.get(&key())).unwrap() {
             Credential::OAuth {
                 access,
                 refresh,
@@ -421,7 +421,7 @@ mod renewing_an_expired_sign_in {
         // failing an hour later by a different route.
         let store = oauth_account();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-        mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
+        mail_secrets::block_on(secrets.put(&key(), &token(-120))).unwrap();
         let (ends, _seen) = token_endpoint(RENEWED);
 
         let _ = crate::blocking::run_with(
@@ -432,7 +432,7 @@ mod renewing_an_expired_sign_in {
             sync::report::Hooks::default(),
         );
 
-        let stored = mail_runtime::block_on(secrets.get(&SecretKey {
+        let stored = mail_secrets::block_on(secrets.get(&SecretKey {
             account: account(),
             purpose: SecretPurpose::OAuthRefresh,
         }))
@@ -449,7 +449,7 @@ mod renewing_an_expired_sign_in {
         // the issuer, and issuers rate-limit that.
         let store = oauth_account();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-        mail_runtime::block_on(secrets.put(&key(), &token(45))).unwrap();
+        mail_secrets::block_on(secrets.put(&key(), &token(45))).unwrap();
         let (ends, seen) = token_endpoint(RENEWED);
 
         let _ = crate::blocking::run_with(
@@ -466,7 +466,7 @@ mod renewing_an_expired_sign_in {
             seen.lock().unwrap()
         );
         assert_eq!(
-            mail_runtime::block_on(secrets.get(&key())).unwrap(),
+            mail_secrets::block_on(secrets.get(&key())).unwrap(),
             token(45),
             "and left alone"
         );
@@ -486,8 +486,8 @@ mod renewing_an_expired_sign_in {
         .plan;
         store.set_account_plan(account(), &plan).unwrap();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-        mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
-        mail_runtime::block_on(secrets.put(
+        mail_secrets::block_on(secrets.put(&key(), &token(-120))).unwrap();
+        mail_secrets::block_on(secrets.put(
             &SecretKey {
                 account: account(),
                 purpose: SecretPurpose::OAuthRefresh,
@@ -542,7 +542,7 @@ mod renewing_an_expired_sign_in {
         );
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
         for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-            mail_runtime::block_on(secrets.put(
+            mail_secrets::block_on(secrets.put(
                 &SecretKey {
                     account: account(),
                     purpose,
@@ -584,7 +584,7 @@ mod renewing_an_expired_sign_in {
         // nothing to renew it with.
         let store = configured(1, caps());
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-        mail_runtime::block_on(secrets.put(
+        mail_secrets::block_on(secrets.put(
             &key(),
             &Credential::Password(SecretText::new("hunter2".to_owned())),
         ))
@@ -609,7 +609,7 @@ mod renewing_an_expired_sign_in {
         // client at hand is an empty registry, handed in on purpose.
         let store = oauth_account();
         let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-        mail_runtime::block_on(secrets.put(&key(), &token(-120))).unwrap();
+        mail_secrets::block_on(secrets.put(&key(), &token(-120))).unwrap();
 
         let out = crate::blocking::run_with(
             store,
@@ -1204,7 +1204,7 @@ mod both_accounts_at_once {
         // opens a socket — and a test of concurrency with one participant proves nothing.
         let secrets = MemorySecrets::default();
         with_password(&secrets, "s3cr3t-pass");
-        mail_runtime::block_on(secrets.put(
+        mail_secrets::block_on(secrets.put(
             &SecretKey {
                 account: other_account(),
                 purpose: SecretPurpose::IncomingPassword,

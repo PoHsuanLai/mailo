@@ -8,7 +8,7 @@
 use mail_core::CoreError;
 use mail_core::sync::{self, live, report::Hooks, report::PassEnd};
 use mail_domain::MessageId;
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::future::Future;

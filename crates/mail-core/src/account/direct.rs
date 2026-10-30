@@ -14,11 +14,11 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use mail_domain::AuthPlan;
 use mail_domain::presets::{self, Preset};
-use mail_runtime::authorize::{SignInFault, identity_scopes, sign_in_told, whoami};
+use mail_secrets::authorize::{SignInFault, identity_scopes, sign_in_told, whoami};
 
 /// Where the issuer is asked whose account signed in; the real endpoints by default.
-pub use mail_runtime::authorize::Profiles;
-use mail_runtime::{AccountSecrets, ClientRegistry};
+pub use mail_secrets::authorize::Profiles;
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_provider::Issuer;
 
@@ -305,7 +305,7 @@ mod tests {
         );
         assert_eq!(
             microsoft.last().map(String::as_str),
-            Some(mail_runtime::authorize::MICROSOFT_PROFILE_SCOPE)
+            Some(mail_secrets::authorize::MICROSOFT_PROFILE_SCOPE)
         );
         // The resource a code is redeemed for is the first one named: still the mail one.
         assert_eq!(

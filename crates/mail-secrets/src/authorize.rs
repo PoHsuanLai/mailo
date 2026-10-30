@@ -3,8 +3,8 @@
 //! The rules (the authorize URL, what a redirect may be, the exchange) are porter-oauth's; this
 //! is the part that needs a socket and randomness, which porter-oauth takes as arguments.
 
-use crate::RuntimeError;
-use mail_net::Failure;
+use crate::CredentialError;
+use mail_net::{Failure, NetError};
 use porter_core::Credential;
 use porter_ids::UnixSeconds;
 use porter_oauth::{
@@ -20,16 +20,16 @@ const WAIT: Duration = Duration::from_secs(300);
 /// What a failed exchange with an issuer means. Only the issuer's own refusal is `Secrets`, which
 /// reads as `NeedsReauth`: an issuer that cannot be reached this minute has refused nothing, and
 /// calling it a rejected sign-in would stop a watch that only had to wait.
-pub(crate) fn exchange_fault(what: &str, fault: ExchangeFault) -> RuntimeError {
+pub(crate) fn exchange_fault(what: &str, fault: ExchangeFault) -> CredentialError {
     match fault {
         ExchangeFault::Refused => {
-            RuntimeError::Secrets(Failure::said(format!("{what}: the issuer refused it")))
+            CredentialError::Secrets(Failure::said(format!("{what}: the issuer refused it")))
         }
         ExchangeFault::Unreachable => {
-            RuntimeError::Connect(Failure::said(format!("{what}: token endpoint unreachable")))
+            CredentialError::connect(Failure::said(format!("{what}: token endpoint unreachable")))
         }
         // Unreadable, and a fault this build does not know, which is read as the same.
-        _ => RuntimeError::Connect(Failure::said(format!(
+        _ => CredentialError::connect(Failure::said(format!(
             "{what}: the token endpoint answered unreadably"
         ))),
     }
@@ -37,14 +37,15 @@ pub(crate) fn exchange_fault(what: &str, fault: ExchangeFault) -> RuntimeError {
 
 /// [`exchange_fault`] for a `*_detailed` call: the same meaning, and the issuer's own
 /// `error_description` (its `error` code when it gave none) after the fault, as mailo always showed it.
-pub(crate) fn exchange_failure(what: &str, failure: ExchangeFailure) -> RuntimeError {
+pub(crate) fn exchange_failure(what: &str, failure: ExchangeFailure) -> CredentialError {
     let said = failure
         .says
         .and_then(|says| says.description.or(says.error))
         .filter(|text| !text.is_empty());
     let mut error = exchange_fault(what, failure.fault);
     if let Some(said) = said
-        && let RuntimeError::Secrets(failure) | RuntimeError::Connect(failure) = &mut error
+        && let CredentialError::Secrets(failure) | CredentialError::Net(NetError::Connect(failure)) =
+            &mut error
     {
         failure.add_detail(&said);
     }
@@ -60,7 +61,7 @@ pub async fn sign_in(
     scopes: &[String],
     on_url: &dyn Fn(&str),
     now: UnixSeconds,
-) -> Result<Credential, RuntimeError> {
+) -> Result<Credential, CredentialError> {
     sign_in_within(client, scopes, on_url, now, WAIT).await
 }
 
@@ -72,10 +73,10 @@ pub async fn sign_in_within(
     on_url: &dyn Fn(&str),
     now: UnixSeconds,
     wait: Duration,
-) -> Result<Credential, RuntimeError> {
+) -> Result<Credential, CredentialError> {
     sign_in_told(client, scopes, on_url, now, wait)
         .await
-        .map_err(RuntimeError::from)
+        .map_err(CredentialError::from)
 }
 
 /// How a browser sign-in ended without a credential, told apart where a front end words them
@@ -94,23 +95,23 @@ pub enum SignInFault {
     Unfinished(LoopbackFault),
     /// The listener, the exchange or the issuer's answer failed.
     #[error(transparent)]
-    Failed(RuntimeError),
+    Failed(CredentialError),
 }
 
-impl From<SignInFault> for RuntimeError {
+impl From<SignInFault> for CredentialError {
     /// As [`sign_in_within`] has always said it: every fault is the issuer's or the sign-in's
     /// (`Secrets`), except what failed on its own.
     fn from(fault: SignInFault) -> Self {
         match fault {
             SignInFault::Declined(why) => {
-                RuntimeError::Secrets(Failure::new("authorization declined", why))
+                CredentialError::Secrets(Failure::new("authorization declined", why))
             }
-            SignInFault::TimedOut => RuntimeError::Secrets(Failure::new(
+            SignInFault::TimedOut => CredentialError::Secrets(Failure::new(
                 "the sign-in did not complete",
                 LoopbackFault::TimedOut,
             )),
             SignInFault::Unfinished(other) => {
-                RuntimeError::Secrets(Failure::new("the sign-in did not complete", other))
+                CredentialError::Secrets(Failure::new("the sign-in did not complete", other))
             }
             SignInFault::Failed(error) => error,
         }
@@ -128,7 +129,7 @@ pub async fn sign_in_told(
     let endpoints = crate::clients::endpoints(client).map_err(SignInFault::Failed)?;
     let listener = LoopbackServer::bind_with(RedirectPath::Bare)
         .await
-        .map_err(|e| SignInFault::Failed(RuntimeError::Connect(Failure::new("loopback", e))))?;
+        .map_err(|e| SignInFault::Failed(CredentialError::connect(Failure::new("loopback", e))))?;
     let redirect = listener.redirect_uri();
     let pkce = Pkce::from_random(rand::random(), rand::random());
     on_url(&authorize_url(&endpoints, client, &pkce, &redirect, scopes));
@@ -155,9 +156,11 @@ pub async fn sign_in_told(
     // No refresh token means the account works until the access token expires and then stops,
     // with no way to recover but a new browser round trip. Fail loudly now.
     let Some(refresh) = tokens.refresh_token.clone() else {
-        return Err(SignInFault::Failed(RuntimeError::Secrets(Failure::said(
-            "issuer returned no refresh token; access_type=offline may have been ignored",
-        ))));
+        return Err(SignInFault::Failed(CredentialError::Secrets(
+            Failure::said(
+                "issuer returned no refresh token; access_type=offline may have been ignored",
+            ),
+        )));
     };
     let granted = crate::tokens::granted(&tokens);
     Ok(Credential::OAuth {
@@ -183,6 +186,9 @@ pub fn identity_scopes(issuer: Issuer) -> &'static [&'static str] {
     }
 }
 
+/// Graph's `/me`: who an access token for Graph is for.
+const GRAPH_ME: &str = "https://graph.microsoft.com/v1.0/me";
+
 /// Where [`whoami`] reads an account's address: OpenID Connect's userinfo at Google, Graph's
 /// `/me` at Microsoft. A test points them at itself.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,7 +201,7 @@ impl Default for Profiles {
     fn default() -> Self {
         Profiles {
             google: "https://openidconnect.googleapis.com/v1/userinfo".to_owned(),
-            microsoft: crate::graph::read::ME.to_owned(),
+            microsoft: GRAPH_ME.to_owned(),
         }
     }
 }
@@ -211,12 +217,12 @@ pub async fn whoami(
     credential: &Credential,
     at: &Profiles,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<String, RuntimeError> {
+) -> Result<String, CredentialError> {
     let Credential::OAuth {
         access, refresh, ..
     } = credential
     else {
-        return Err(RuntimeError::Secrets(Failure::said(
+        return Err(CredentialError::Secrets(Failure::said(
             "only a browser sign-in names its account",
         )));
     };
@@ -235,7 +241,7 @@ pub async fn whoami(
             )
             .await?;
             let Credential::OAuth { access, .. } = minted else {
-                return Err(RuntimeError::Secrets(Failure::said(
+                return Err(CredentialError::Secrets(Failure::said(
                     "the issuer answered a refresh with no token",
                 )));
             };
@@ -246,7 +252,7 @@ pub async fn whoami(
             )
         }
         other => {
-            return Err(RuntimeError::Secrets(Failure::said(format!(
+            return Err(CredentialError::Secrets(Failure::said(format!(
                 "no way to ask {other:?} whose account signed in"
             ))));
         }
@@ -257,19 +263,19 @@ pub async fn whoami(
         .bearer_auth(token)
         .send()
         .await
-        .map_err(|e| RuntimeError::Connect(Failure::new("reading who signed in", e)))?;
+        .map_err(|e| CredentialError::connect(Failure::new("reading who signed in", e)))?;
     let status = answer.status();
     // Who signed in is a few hundred bytes of JSON.
     let body = mail_net::http::body_up_to(answer, 1024 * 1024)
         .await
-        .map_err(|e| RuntimeError::Connect(Failure::new("reading who signed in", e)))?;
+        .map_err(|e| CredentialError::connect(Failure::new("reading who signed in", e)))?;
     if !status.is_success() {
-        return Err(RuntimeError::Connect(Failure::said(format!(
+        return Err(CredentialError::connect(Failure::said(format!(
             "reading who signed in: the issuer answered {status}"
         ))));
     }
     let profile: serde_json::Value = serde_json::from_slice(&body)
-        .map_err(|e| RuntimeError::Connect(Failure::new("reading who signed in", e)))?;
+        .map_err(|e| CredentialError::connect(Failure::new("reading who signed in", e)))?;
     fields
         .iter()
         .filter_map(|field| profile.get(field).and_then(serde_json::Value::as_str))
@@ -277,7 +283,7 @@ pub async fn whoami(
         .find(|address| address.contains('@'))
         .map(str::to_lowercase)
         .ok_or_else(|| {
-            RuntimeError::Connect(Failure::said(
+            CredentialError::connect(Failure::said(
                 "reading who signed in: the issuer named no address",
             ))
         })

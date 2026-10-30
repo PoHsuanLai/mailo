@@ -111,7 +111,7 @@ impl Access for Imap {
                     .or_log_default("the folders could not be read to watch them")
             };
             let others = pushed_folders(account, &folders);
-            let build = |held: mail_runtime::Held| {
+            let build = |held: mail_secrets::Held| {
                 let engine = imap_engine(run.store, account, held, run.secrets.clone());
                 match &renewal {
                     Some(renewal) => engine.with_tokens(renewal.clone()),

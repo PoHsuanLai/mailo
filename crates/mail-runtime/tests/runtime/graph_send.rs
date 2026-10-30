@@ -15,8 +15,9 @@ use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Pop3Command, Pop3Session};
+use mail_runtime::AccountEngine;
 use mail_runtime::graph::{Limits, send_mime_within};
-use mail_runtime::{AccountEngine, AccountSecrets};
+use mail_secrets::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{Credential, SecretKey, SecretPurpose};
@@ -247,7 +248,7 @@ fn compose_as(port: u16, message: Option<Vec<u8>>) -> Sending {
         (SecretPurpose::IncomingPassword, "imap-token"),
         (SecretPurpose::OutgoingPassword, "graph-token"),
     ] {
-        mail_runtime::block_on(secrets.put(
+        mail_secrets::block_on(secrets.put(
             &SecretKey {
                 account: acct_account(),
                 purpose,

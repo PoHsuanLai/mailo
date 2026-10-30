@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use mail_crypto::openpgp::{self, Cert, Keys, KnownCert};
 use mail_domain::*;
 use mail_mime::Parsed;
-use mail_runtime::SigningStore;
+use mail_secrets::SigningStore;
 use mail_store::{SqliteStore, Store};
 use std::sync::Mutex;
 

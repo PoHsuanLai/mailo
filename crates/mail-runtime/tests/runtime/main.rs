@@ -37,7 +37,6 @@ mod sent_copy;
 mod server_drafts;
 mod server_search;
 mod sieve;
-mod sign_in;
 mod silent_server;
 mod submission_end_to_end;
 mod tokens;

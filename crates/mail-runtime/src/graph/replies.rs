@@ -6,11 +6,12 @@
 //! (`mail_domain::presets::GRAPH_SCOPES`). One made before lacks it, and Graph's `403` is said
 //! as that, with the way out: signing in again.
 
-use crate::{AccountSecrets, ClientRegistry, RuntimeError};
+use crate::RuntimeError;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Retry, Vacation};
 use mail_net::Failure;
 use mail_proto::automatic_replies::MAILBOX_SETTINGS;
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use porter_core::{AccountId, Credential};
 use serde_json::Value;
 use std::time::Duration;
@@ -31,13 +32,13 @@ pub async fn set(
             "an account that reads through Microsoft Graph signs in with Microsoft",
         )));
     };
-    let client = crate::clients::client(saved, *issuer).ok_or_else(|| {
+    let client = mail_secrets::clients::client(saved, *issuer).ok_or_else(|| {
         RuntimeError::Secrets(Failure::said(
             "no OAuth client id is configured, so Microsoft Graph cannot be signed in to",
         ))
     })?;
-    let reach = crate::tokens::GraphReach::of(plan);
-    let token = crate::tokens::graph_token(account, client, reach, secrets, now).await?;
+    let reach = mail_secrets::tokens::GraphReach::of(plan);
+    let token = mail_secrets::tokens::graph_token(account, client, reach, secrets, now).await?;
     let Credential::OAuth { access, .. } = token else {
         return Err(RuntimeError::Secrets(Failure::said(
             "the Microsoft Graph credential kept for this account is not a token",

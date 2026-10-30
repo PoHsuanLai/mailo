@@ -38,7 +38,7 @@ mod vacation;
 
 pub use client::{Auth, Client, find_session, safe_url};
 
-use crate::{AccountSecrets, RuntimeError, SyncReport};
+use crate::{RuntimeError, SyncReport};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, ArchiveMeans, Condstore, ConnectionBudget, ExpungeMeans, HttpAuth,
@@ -47,6 +47,7 @@ use mail_domain::{
 };
 use mail_net::Failure;
 use mail_proto::jmap::{Identity, Mailboxes};
+use mail_secrets::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::sync::Arc;

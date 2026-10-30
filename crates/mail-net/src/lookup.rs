@@ -5,7 +5,7 @@
 //! `porter_http::Http`. The first this module implements over the system resolver (hickory);
 //! the second is porter's own client (`porter_http_reqwest`), set to this module's limits.
 //!
-//! [`SystemDns`] also answers BIMI's TXT lookups ([`crate::bimi::Txt`]), which is why it is a
+//! [`SystemDns`] also answers BIMI's TXT lookups (`mail_runtime::bimi::Txt`), which is why it is a
 //! type of its own and not part of a discovery module.
 //!
 //! HTTPS only, with certificate verification, and no plain-HTTP fallback: a configuration

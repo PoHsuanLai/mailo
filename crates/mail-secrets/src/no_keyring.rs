@@ -3,7 +3,7 @@
 //! it succeeds, as forgetting a missing secret does, so a removal touches no keyring of the
 //! person's.
 
-use crate::RuntimeError;
+use crate::CredentialError;
 use crate::account_secrets::AccountSecrets;
 use crate::signing_store::SigningStore;
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
@@ -16,10 +16,10 @@ use std::pin::Pin;
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NoKeyring;
 
-type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, RuntimeError>> + Send + 'a>>;
+type Answer<'a, T> = Pin<Box<dyn Future<Output = Result<T, CredentialError>> + Send + 'a>>;
 
-fn none() -> RuntimeError {
-    RuntimeError::Secrets(Failure::said("this window has no keyring"))
+fn none() -> CredentialError {
+    CredentialError::Secrets(Failure::said("this window has no keyring"))
 }
 
 impl AccountSecrets for NoKeyring {
@@ -41,15 +41,15 @@ impl AccountSecrets for NoKeyring {
 }
 
 impl SigningStore for NoKeyring {
-    fn get(&self, _: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+    fn get(&self, _: &SigningKeyRef) -> Result<SigningSecret, CredentialError> {
         Err(none())
     }
 
-    fn put(&self, _: &SigningKeyRef, _: &SigningSecret) -> Result<(), RuntimeError> {
+    fn put(&self, _: &SigningKeyRef, _: &SigningSecret) -> Result<(), CredentialError> {
         Err(none())
     }
 
-    fn forget(&self, _: &SigningKeyRef) -> Result<(), RuntimeError> {
+    fn forget(&self, _: &SigningKeyRef) -> Result<(), CredentialError> {
         Ok(())
     }
 }

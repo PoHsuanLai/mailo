@@ -9,7 +9,8 @@ use crate::fixture::{acct_account, inbox, now};
 use chrono::TimeDelta;
 use mail_domain::*;
 use mail_runtime::graph::read::{OverHttp, Reader};
-use mail_runtime::{AccountEngine, AccountSecrets, Held, OAuthTokens, Searched};
+use mail_runtime::{AccountEngine, Searched};
+use mail_secrets::{AccountSecrets, Held, OAuthTokens};
 use mail_store::{SqliteStore, Store};
 use porter_core::EndpointUrl;
 use porter_core::SecretText;
@@ -343,9 +344,9 @@ fn account_with(port: u16, caps: AccountCaps) -> Account {
     mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-        mail_runtime::block_on(secrets.put(&key(purpose), &token("sign-in"))).unwrap();
+        mail_secrets::block_on(secrets.put(&key(purpose), &token("sign-in"))).unwrap();
     }
-    mail_runtime::block_on(
+    mail_secrets::block_on(
         secrets.put(&key(SecretPurpose::OutgoingPassword), &token("graph-token")),
     )
     .unwrap();
@@ -1107,7 +1108,7 @@ async fn a_refused_token_is_renewed_once_with_both_graph_permissions() {
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{issuer}/token")).unwrap(),
             revoke: None,
         }),
-        ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
+        ..mail_secrets::clients::entry(Issuer::Microsoft, "client-id", None)
     };
     let it = account(port);
     let renewal = OAuthTokens::new(
@@ -1141,7 +1142,7 @@ async fn a_refused_token_is_renewed_once_with_both_graph_permissions() {
         "one token for reading and sending: {scope}"
     );
     let stored =
-        mail_runtime::block_on(it.secrets.get(&key(SecretPurpose::OutgoingPassword))).unwrap();
+        mail_secrets::block_on(it.secrets.get(&key(SecretPurpose::OutgoingPassword))).unwrap();
     assert!(matches!(stored, Credential::OAuth { ref access, .. } if access.expose() == "renewed"));
     let first = seen.lock().unwrap()[0].clone();
     assert_eq!(first.header("authorization"), Some("Bearer graph-token"));

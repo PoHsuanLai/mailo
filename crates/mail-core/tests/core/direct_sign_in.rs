@@ -87,7 +87,7 @@ fn client(issuer: Issuer, port: u16) -> ClientEntry {
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
             revoke: None,
         }),
-        ..mail_runtime::clients::entry(issuer, "client-id", None)
+        ..mail_secrets::clients::entry(issuer, "client-id", None)
     }
 }
 
@@ -147,7 +147,7 @@ async fn signing_in_with_google_opens_the_page_once_and_adds_the_account_it_name
     let (port, asked) = issuer("you@example.test").await;
     let store = store();
     let secrets = MemorySecrets::default();
-    let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, port)]);
+    let saved = mail_secrets::clients::registry_of(vec![client(Issuer::Google, port)]);
     let opened = Arc::new(Mutex::new(Vec::new()));
     let browse = browser(opened.clone(), Some("/?code=the-code&state={state}"));
     let added = sign_in_with(
@@ -205,7 +205,7 @@ async fn a_microsoft_sign_in_reads_the_address_from_graph_with_a_profile_token()
     let (port, asked) = issuer("you@example.test").await;
     let store = store();
     let secrets = MemorySecrets::default();
-    let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Microsoft, port)]);
+    let saved = mail_secrets::clients::registry_of(vec![client(Issuer::Microsoft, port)]);
     let opened = Arc::new(Mutex::new(Vec::new()));
     let browse = browser(opened.clone(), Some("/?code=c&state={state}"));
     let added = sign_in_with(
@@ -264,7 +264,7 @@ async fn closing_the_page_in_the_browser_is_a_cancelled_sign_in_and_adds_nothing
     let (port, asked) = issuer("you@example.test").await;
     let store = store();
     let secrets = MemorySecrets::default();
-    let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, port)]);
+    let saved = mail_secrets::clients::registry_of(vec![client(Issuer::Google, port)]);
     let browse = browser(Arc::default(), Some("/?error=access_denied&state={state}"));
     let ended = sign_in_with(
         Issuer::Google,
@@ -300,7 +300,7 @@ async fn no_client_for_the_issuer_opens_no_page() {
         Direct {
             store: &store,
             secrets: &MemorySecrets::default(),
-            saved: &mail_runtime::ClientRegistry::default(),
+            saved: &mail_secrets::ClientRegistry::default(),
             environment: &Environment::default(),
             browse: &browse,
             profiles: &Profiles::default(),
@@ -317,7 +317,7 @@ async fn no_client_for_the_issuer_opens_no_page() {
 #[tokio::test(start_paused = true)]
 async fn nobody_coming_back_ends_at_the_deadline() {
     let store = store();
-    let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, 9)]);
+    let saved = mail_secrets::clients::registry_of(vec![client(Issuer::Google, 9)]);
     let opened = Arc::new(Mutex::new(Vec::new()));
     let browse = browser(opened.clone(), None);
     let started = tokio::time::Instant::now();
@@ -345,7 +345,7 @@ async fn nobody_coming_back_ends_at_the_deadline() {
 #[tokio::test(start_paused = true)]
 async fn cancelling_ends_the_wait_and_frees_the_listener() {
     let store = store();
-    let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, 9)]);
+    let saved = mail_secrets::clients::registry_of(vec![client(Issuer::Google, 9)]);
     let opened = Arc::new(Mutex::new(Vec::new()));
     let browse = browser(opened.clone(), None);
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
@@ -389,7 +389,7 @@ async fn signing_in_again_as_someone_else_keeps_nothing() {
     let (port, _) = issuer("someone-else@example.test").await;
     let store = store();
     let secrets = MemorySecrets::default();
-    let saved = mail_runtime::clients::registry_of(vec![client(Issuer::Google, port)]);
+    let saved = mail_secrets::clients::registry_of(vec![client(Issuer::Google, port)]);
     // The account being signed in again, added the ordinary way first.
     let browse = browser(Arc::default(), Some("/?code=c&state={state}"));
     let (first_port, _) = issuer("you@example.test").await;
@@ -399,7 +399,7 @@ async fn signing_in_again_as_someone_else_keeps_nothing() {
         Direct {
             store: &store,
             secrets: &secrets,
-            saved: &mail_runtime::clients::registry_of(vec![client(Issuer::Google, first_port)]),
+            saved: &mail_secrets::clients::registry_of(vec![client(Issuer::Google, first_port)]),
             environment: &Environment::default(),
             browse: &browse,
             profiles: &profiles(first_port),
@@ -442,7 +442,7 @@ async fn signing_in_again_as_someone_else_keeps_nothing() {
 
 /// Whether `account` has a browser sign-in kept.
 async fn signed_in(secrets: &MemorySecrets, account: AccountId) -> bool {
-    use mail_runtime::AccountSecrets;
+    use mail_secrets::AccountSecrets;
     matches!(
         secrets
             .get(&SecretKey {

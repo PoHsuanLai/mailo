@@ -6,8 +6,8 @@
 //! not ending the wait, a token answer without `expires_in`, and the issuer's own words in a
 //! refusal.
 
-use mail_runtime::RuntimeError;
-use mail_runtime::authorize::sign_in_within;
+use mail_secrets::CredentialError;
+use mail_secrets::authorize::sign_in_within;
 use porter_core::{Credential, EndpointUrl};
 use porter_ids::UnixSeconds;
 use porter_provider::{ClientEntry, Issuer, IssuerEndpoints};
@@ -67,7 +67,7 @@ async fn token_endpoint(status: &'static str, answer: &'static str) -> (ClientEn
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
             revoke: None,
         }),
-        ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
+        ..mail_secrets::clients::entry(Issuer::Microsoft, "client-id", None)
     };
     (client, bodies)
 }
@@ -101,7 +101,7 @@ async fn sign_in_visiting(
     client: &ClientEntry,
     visits: &'static [&'static str],
     wait: Duration,
-) -> (Result<Credential, RuntimeError>, Asked) {
+) -> (Result<Credential, CredentialError>, Asked) {
     let asked: Arc<Mutex<Option<Asked>>> = Arc::default();
     let seen = asked.clone();
     let on_url = move |address: &str| {

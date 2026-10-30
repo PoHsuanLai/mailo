@@ -1,11 +1,10 @@
-//! What a test swaps in at the runtime's seams: account secrets that live
-//! in a map, a signing store that does too, and OAuth clients that sign in nowhere.
+//! What a test swaps in at the credentials' seams: account secrets that live in a map, a signing
+//! store that does too, and OAuth clients that sign in nowhere.
 //!
 //! Behind the `testing` feature, which a crate enables for its tests and the program never does.
-//! None of it reaches a socket or the platform's keyring, so a test of the logic above (or of a
-//! library built on this crate) needs no more than these to run in a sandbox.
+//! None of it reaches a socket or the platform's keyring.
 
-use crate::RuntimeError;
+use crate::CredentialError;
 use crate::account_secrets::AccountSecrets;
 use crate::signing_store::stored::Stored;
 use crate::signing_store::{SigningStore, signing_entry_name, signing_secret, stored_signing};
@@ -32,18 +31,18 @@ pub struct MapSigningStore {
 }
 
 impl SigningStore for MapSigningStore {
-    fn get(&self, key: &SigningKeyRef) -> Result<SigningSecret, RuntimeError> {
+    fn get(&self, key: &SigningKeyRef) -> Result<SigningSecret, CredentialError> {
         let held = self
             .entries
             .lock()
             .expect("MapSigningStore mutex poisoned")
             .get(&signing_entry_name(key))
             .cloned()
-            .ok_or_else(|| RuntimeError::Secrets(Failure::said("no such signing key")))?;
+            .ok_or_else(|| CredentialError::Secrets(Failure::said("no such signing key")))?;
         signing_secret(held)
     }
 
-    fn put(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), RuntimeError> {
+    fn put(&self, key: &SigningKeyRef, value: &SigningSecret) -> Result<(), CredentialError> {
         self.entries
             .lock()
             .expect("MapSigningStore mutex poisoned")
@@ -51,7 +50,7 @@ impl SigningStore for MapSigningStore {
         Ok(())
     }
 
-    fn forget(&self, key: &SigningKeyRef) -> Result<(), RuntimeError> {
+    fn forget(&self, key: &SigningKeyRef) -> Result<(), CredentialError> {
         self.entries
             .lock()
             .expect("MapSigningStore mutex poisoned")

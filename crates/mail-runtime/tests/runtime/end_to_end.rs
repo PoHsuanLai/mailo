@@ -14,7 +14,8 @@ use crate::fixture::{acct_account, inbox, now};
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, Pop3Backend};
 use mail_proto::{Pop3Command, Pop3Session};
-use mail_runtime::{AccountEngine, AccountSecrets};
+use mail_runtime::AccountEngine;
+use mail_secrets::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{Credential, SecretKey, SecretPurpose};
@@ -245,7 +246,7 @@ fn fixture(port: u16) -> Fixture {
     mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
 
     let secrets = MemorySecrets::default();
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &SecretKey {
             account: acct_account(),
             purpose: SecretPurpose::IncomingPassword,

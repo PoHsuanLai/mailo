@@ -17,7 +17,7 @@ use crate::smime::Smime;
 use chrono::{DateTime, Utc};
 use mail_domain::*;
 use mail_mime::Parsed;
-use mail_runtime::SigningStore;
+use mail_secrets::SigningStore;
 use mail_store::SqliteStore;
 
 /// One way of protecting a message: OpenPGP, or S/MIME.

@@ -27,11 +27,9 @@ use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
 use mail_runtime::graph::read::{OverHttp, Reader};
-use mail_runtime::tokens::{self, Now};
-use mail_runtime::{
-    AccountEngine, AccountSecrets, ClientRegistry, Held, OAuthTokens, SyncReport, TokenSource,
-    clients,
-};
+use mail_runtime::{AccountEngine, SyncReport};
+use mail_secrets::tokens::{self, Now};
+use mail_secrets::{AccountSecrets, ClientRegistry, Held, OAuthTokens, TokenSource, clients};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
@@ -606,11 +604,11 @@ pub(crate) async fn stored_credential(
         .await
         // A credential that is not there is one to be asked for again; a keyring that did not
         // answer is waited for, and says so.
-        .map_err(|error| match mail_runtime::SecretTrouble::of(&error) {
-            mail_runtime::SecretTrouble::Absent => {
+        .map_err(|error| match mail_secrets::SecretTrouble::of(&error) {
+            mail_secrets::SecretTrouble::Absent => {
                 Failure::reauth(crate::account::no_credential(&account.plan.auth))
             }
-            trouble @ mail_runtime::SecretTrouble::Unreachable(why) => Failure {
+            trouble @ mail_secrets::SecretTrouble::Unreachable(why) => Failure {
                 retry: trouble.retry(),
                 why: why.to_owned(),
                 pause: crate::fetch::Pause::ServerBusy,

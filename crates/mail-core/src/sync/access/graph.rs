@@ -100,7 +100,7 @@ impl Access for Graph {
             let AuthPlan::OAuth { issuer, .. } = &run.account.plan.auth else {
                 return Err(unsupported("a Graph account signs in with Microsoft"));
             };
-            let client = mail_runtime::clients::client(run.registry, *issuer)
+            let client = mail_secrets::clients::client(run.registry, *issuer)
                 .ok_or_else(|| Lost::from(Failure::reauth(crate::account::no_client_id(*issuer))))?
                 .clone();
             let listener = Listener::open(

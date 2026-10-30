@@ -6,8 +6,8 @@
 //! rather than a `Clock` trait (`CONTRIBUTING.md`, "Time").
 
 use crate::error::Logged;
-use crate::tokens::{AfterRefusal, Token, TokenSource, refused_fresh};
-use crate::{AccountSecrets, Cancel, RuntimeError, drive, drive_within};
+use crate::error::refused_fresh;
+use crate::{Cancel, RuntimeError, drive, drive_within};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, BlobId, Condstore, FetchSince, Incoming, MailboxRef, MailboxRole,
@@ -19,6 +19,8 @@ use mail_net::Failure;
 use mail_net::Transport;
 use mail_proto::backend::SmtpBackend;
 use mail_proto::{Authentication, Backend, Moved, ProtoOutcome, SignIn, Submission};
+use mail_secrets::AccountSecrets;
+use mail_secrets::tokens::{AfterRefusal, Token, TokenSource};
 use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use std::sync::Arc;
@@ -868,7 +870,7 @@ impl<B: Backend> AccountEngine<B> {
     /// is the only place an OAuth token comes from, else what the account's secrets hold.
     async fn presented(&self, token: Token) -> Result<Credential, RuntimeError> {
         match &self.tokens {
-            Some(tokens) => tokens.current(token).await,
+            Some(tokens) => Ok(tokens.current(token).await?),
             None => {
                 self.secret(match token {
                     Token::Sending => SecretPurpose::OutgoingPassword,
@@ -880,12 +882,13 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     async fn secret(&self, purpose: SecretPurpose) -> Result<Credential, RuntimeError> {
-        self.secrets
+        Ok(self
+            .secrets
             .get(&SecretKey {
                 account: self.account.clone(),
                 purpose,
             })
-            .await
+            .await?)
     }
 
     /// Submit one composed message, over a connection to the outgoing server: the one the last
@@ -2870,12 +2873,13 @@ impl<B: Backend> AccountEngine<B> {
         &self,
         purpose: porter_core::SecretPurpose,
     ) -> Result<porter_core::Credential, RuntimeError> {
-        self.secrets
+        Ok(self
+            .secrets
             .get(&porter_core::SecretKey {
                 account: self.account.clone(),
                 purpose,
             })
-            .await
+            .await?)
     }
 }
 

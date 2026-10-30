@@ -190,7 +190,7 @@ mod compose {
         /// `mail_core::compose::queue_with`.
         pub fn queue_with(
             &self,
-            secrets: &dyn mail_runtime::SigningStore,
+            secrets: &dyn mail_secrets::SigningStore,
             ask: mail_core::pgp::Ask<'_>,
             draft: DraftId,
             leaves: Leaves,
@@ -273,7 +273,7 @@ mod compose {
         /// `mail_core::compose::queue_sized`.
         pub fn queue_sized(
             &self,
-            secrets: &dyn mail_runtime::SigningStore,
+            secrets: &dyn mail_secrets::SigningStore,
             ask: mail_core::pgp::Ask<'_>,
             draft: DraftId,
             leaves: Leaves,
@@ -693,7 +693,7 @@ mod pgp_keys {
     use mail_core::pgp::keys::*;
     use mail_core::pgp::{PgpError, WithSecret};
     use mail_domain::*;
-    use mail_runtime::SigningStore;
+    use mail_secrets::SigningStore;
 
     /// What the client calls in `mail_core::pgp::keys`.
     #[derive(Clone, Copy, Debug)]
@@ -1028,7 +1028,7 @@ mod smime_certs {
     use mail_core::smime::SmimeError;
     use mail_core::smime::certs::*;
     use mail_domain::*;
-    use mail_runtime::SigningStore;
+    use mail_secrets::SigningStore;
 
     /// What the client calls in `mail_core::smime::certs`.
     #[derive(Clone, Copy, Debug)]

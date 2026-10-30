@@ -16,8 +16,8 @@ use mail_core::fetch::{Event, Trigger};
 use mail_core::sync::live::{Heard, Watch};
 use mail_core::sync::{graph_push, live};
 use mail_domain::*;
-use mail_runtime::AccountSecrets;
 use mail_runtime::graph::push::{client_state, digest, secret_key};
+use mail_secrets::AccountSecrets;
 use mail_store::{Registered, SqliteStore, Subscribed};
 use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
 use porter_ids::UnixSeconds;
@@ -329,7 +329,7 @@ fn secrets() -> Arc<MemorySecrets> {
         expires_at: UnixSeconds((chrono::Utc::now() + chrono::TimeDelta::hours(2)).timestamp()),
         granted: Default::default(),
     };
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &SecretKey {
             account: account(),
             purpose: SecretPurpose::OutgoingPassword,
@@ -356,7 +356,7 @@ fn watching(store: Arc<SqliteStore>, secrets: Arc<MemorySecrets>, graph: &str) -
         crate::blocking::block_on(live::listen_at(
             store,
             secrets,
-            &mail_runtime::testing::fake_clients(),
+            &mail_secrets::testing::fake_clients(),
             &graph,
             account(),
             Watch {
@@ -429,7 +429,7 @@ async fn an_alert_from_the_relay_is_heard_as_mail_and_starts_a_pass() {
     } = held.registered.clone().unwrap();
     assert_eq!(registered_at, relay_at);
     let Credential::ApiKey(secret) =
-        mail_runtime::block_on(secrets.get(&secret_key(account()))).unwrap()
+        mail_secrets::block_on(secrets.get(&secret_key(account()))).unwrap()
     else {
         panic!("the listening secret is an account secret")
     };
@@ -502,7 +502,7 @@ async fn a_subscription_near_its_end_is_renewed_and_one_graph_removed_is_made_ag
         (digest(&client_state(secret)), digest(secret)),
     );
     graph.lock().unwrap().held.insert("sub-old".to_owned());
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &secret_key(account()),
         &Credential::ApiKey(SecretText::new(secret.to_owned())),
     ))
@@ -682,7 +682,7 @@ async fn a_renewal_graph_no_longer_knows_makes_the_subscription_again() {
         "kept-key".to_owned(),
         (digest(&client_state(secret)), digest(secret)),
     );
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &secret_key(account()),
         &Credential::ApiKey(SecretText::new(secret.to_owned())),
     ))
@@ -740,7 +740,7 @@ async fn a_relay_that_forgot_the_key_is_registered_with_again() {
     let store = store(Some(&relay_at));
     let secrets = secrets();
     // Registered and subscribed once, and the relay has since lost its storage.
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &secret_key(account()),
         &Credential::ApiKey(SecretText::new("old-secret".to_owned())),
     ))
@@ -792,7 +792,7 @@ fn a_graph_account_without_a_relay_is_polled() {
     let lost = crate::blocking::block_on(live::listen_at(
         store.clone(),
         secrets(),
-        &mail_runtime::testing::fake_clients(),
+        &mail_secrets::testing::fake_clients(),
         "http://127.0.0.1:9/v1.0/subscriptions",
         account(),
         Watch {
@@ -834,7 +834,7 @@ async fn an_unreachable_relay_is_a_loss_the_scheduler_waits_out_while_polling() 
         crate::blocking::block_on(live::listen_at(
             store,
             secrets,
-            &mail_runtime::testing::fake_clients(),
+            &mail_secrets::testing::fake_clients(),
             &graph_at,
             account(),
             Watch {

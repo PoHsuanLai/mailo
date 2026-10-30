@@ -11,7 +11,8 @@ use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{AccountEngine, AccountSecrets};
+use mail_runtime::AccountEngine;
+use mail_secrets::AccountSecrets;
 use mail_store::{PASSES_TO_FIND, SYNCS_TO_FIND, SqliteStore, Store};
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -307,7 +308,7 @@ fn engine(port: u16) -> Fixture {
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
     mail_store::testing::seed_account(&store, acct_account(), "me@example.test");
     let secrets = MemorySecrets::default();
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &SecretKey {
             account: acct_account(),
             purpose: SecretPurpose::IncomingPassword,

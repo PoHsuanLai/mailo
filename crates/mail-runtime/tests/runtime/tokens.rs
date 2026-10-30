@@ -17,10 +17,9 @@ use mail_domain::*;
 use mail_mime::posting;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
-use mail_runtime::tokens::Now;
-use mail_runtime::{
-    AccountEngine, AccountSecrets, Held, OAuthTokens, RuntimeError, Token, TokenSource,
-};
+use mail_runtime::{AccountEngine, RuntimeError};
+use mail_secrets::tokens::Now;
+use mail_secrets::{AccountSecrets, Held, OAuthTokens, Token, TokenSource};
 use mail_store::{SqliteStore, Store};
 use porter_core::EndpointUrl;
 use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
@@ -190,7 +189,7 @@ async fn token_endpoint(script: Vec<(&'static str, String)>) -> (ClientEntry, Se
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{port}/token")).unwrap(),
             revoke: None,
         }),
-        ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
+        ..mail_secrets::clients::entry(Issuer::Microsoft, "client-id", None)
     };
     (registration, seen)
 }
@@ -341,7 +340,7 @@ fn key(purpose: SecretPurpose) -> SecretKey {
 }
 
 fn access(secrets: &dyn AccountSecrets, purpose: SecretPurpose) -> String {
-    match mail_runtime::block_on(secrets.get(&key(purpose))).unwrap() {
+    match mail_secrets::block_on(secrets.get(&key(purpose))).unwrap() {
         Credential::OAuth { access, .. } => access.expose().to_owned(),
         other => panic!("{other:?}"),
     }
@@ -367,7 +366,7 @@ fn store() -> (Arc<SqliteStore>, tempfile::TempDir) {
 fn secrets(incoming: &Credential) -> Arc<dyn AccountSecrets> {
     let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-        mail_runtime::block_on(secrets.put(&key(purpose), incoming)).unwrap();
+        mail_secrets::block_on(secrets.put(&key(purpose), incoming)).unwrap();
     }
     secrets
 }
@@ -619,7 +618,7 @@ async fn an_unreachable_issuer_is_waited_out_rather_than_called_a_refusal() {
             token: EndpointUrl::parse(&format!("http://127.0.0.1:{closed}/token")).unwrap(),
             revoke: None,
         }),
-        ..mail_runtime::clients::entry(Issuer::Microsoft, "client-id", None)
+        ..mail_secrets::clients::entry(Issuer::Microsoft, "client-id", None)
     };
     let mut it = reading(
         imap_port,
@@ -637,7 +636,7 @@ async fn microsoft_renews_each_resource_with_its_own_scopes() {
     let (registration, asked) =
         token_endpoint(vec![issued("imap-new", None), issued("graph-new", None)]).await;
     let secrets = secrets(&token("imap-old", "r1", t0() - minutes(1)));
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &key(SecretPurpose::OutgoingPassword),
         &token("graph-old", "r1", t0() - minutes(1)),
     ))
@@ -708,7 +707,7 @@ async fn a_rotated_refresh_token_is_saved_and_spent_next_time() {
 
     renewal.ahead(Token::Incoming).await.unwrap();
     for purpose in [SecretPurpose::IncomingPassword, SecretPurpose::OAuthRefresh] {
-        match mail_runtime::block_on(secrets.get(&key(purpose))).unwrap() {
+        match mail_secrets::block_on(secrets.get(&key(purpose))).unwrap() {
             Credential::OAuth { refresh, .. } => assert_eq!(refresh.expose(), "r2", "{purpose:?}"),
             other => panic!("{other:?}"),
         }
@@ -740,7 +739,7 @@ struct Sending {
 fn queued(graph_port: u16, registration: ClientEntry, graph: Credential) -> Sending {
     let (store, dir) = store();
     let secrets = secrets(&token("imap-token", "r1", t0() + minutes(60)));
-    mail_runtime::block_on(secrets.put(&key(SecretPurpose::OutgoingPassword), &graph)).unwrap();
+    mail_secrets::block_on(secrets.put(&key(SecretPurpose::OutgoingPassword), &graph)).unwrap();
 
     let draft = Draft {
         id: DraftId::generate(),

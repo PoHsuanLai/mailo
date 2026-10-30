@@ -2,6 +2,7 @@
 
 use mail_domain::{Retry, Retryable};
 use mail_net::{Failure, NetError};
+use mail_secrets::{CredentialError, SecretTrouble};
 use std::time::Duration;
 
 /// Something went wrong outside the protocol machines.
@@ -91,7 +92,7 @@ impl Retryable for RuntimeError {
             RuntimeError::Proto(e) => e.retry(),
             RuntimeError::Store(e) => e.retry(),
             // Missing is a sign-in to ask for; a locked keyring is a wait (`SecretTrouble`).
-            RuntimeError::Secrets(_) => crate::SecretTrouble::of(self).retry(),
+            RuntimeError::Secrets(failure) => SecretTrouble::of_failure(failure).retry(),
             RuntimeError::UnsupportedIo(why) => Retry::Fatal(why.clone()),
             // Nothing will change: the account has no server and never will.
             RuntimeError::NoServer(_) => Retry::Fatal(self.to_string()),
@@ -116,6 +117,46 @@ impl From<NetError> for RuntimeError {
             NetError::Stalled { doing, after } => RuntimeError::Stalled { doing, after },
             NetError::Unsupported(why) => RuntimeError::UnsupportedIo(why),
         }
+    }
+}
+
+/// A failure over a credential is the runtime's failure of the same kind.
+impl From<CredentialError> for RuntimeError {
+    fn from(error: CredentialError) -> Self {
+        match error {
+            CredentialError::Secrets(why) => RuntimeError::Secrets(why),
+            CredentialError::Io(why) => RuntimeError::Io(why),
+            CredentialError::Net(error) => error.into(),
+        }
+    }
+}
+
+impl RuntimeError {
+    /// What this failure, from reading a secret, asks of the person: [`SecretTrouble::of`] for
+    /// the failures that are the store's, a sign-in for anything else.
+    pub fn secret_trouble(&self) -> SecretTrouble {
+        match self {
+            RuntimeError::Secrets(failure) => SecretTrouble::of_failure(failure),
+            _ => SecretTrouble::Absent,
+        }
+    }
+}
+
+/// A server's refusal of a token the issuer has just issued, said as what it is.
+///
+/// The rule every engine follows after `TokenSource::after_refusal`: a refusal of the token it
+/// minted (`AfterRefusal::TryAgain`, then refused), or of one it minted earlier
+/// (`AfterRefusal::StillRefused`), is not [`Retry::NeedsReauth`]. The issuer is the authority
+/// on the sign-in and has just renewed it, so asking the user to sign in again sends them
+/// round a loop that mints the same token: a Microsoft 365 mailbox with IMAP or SMTP switched
+/// off answers every token with `NO AUTHENTICATE failed.`, and read as a refused credential it
+/// asked for a sign-in straight after one had succeeded. Anything that is not a refused
+/// credential passes through as it was.
+pub fn refused_fresh(error: RuntimeError) -> RuntimeError {
+    if matches!(error.retry(), Retry::NeedsReauth) {
+        RuntimeError::RefusedFresh(Box::new(error))
+    } else {
+        error
     }
 }
 

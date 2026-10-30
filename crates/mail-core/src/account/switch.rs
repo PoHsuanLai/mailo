@@ -96,7 +96,8 @@ mod tests {
     use crate::environment::Environment;
     use crate::support_tests::now;
     use mail_domain::{Incoming, MailboxRef, RemoteRef, SyncCursor};
-    use mail_runtime::{AccountSecrets, Arrival, ClientRegistry};
+    use mail_runtime::Arrival;
+    use mail_secrets::{AccountSecrets, ClientRegistry};
     use mail_store::Store;
     use porter_core::{Credential, SecretText};
     use porter_ids::UnixSeconds;
@@ -119,7 +120,7 @@ mod tests {
         store: &SqliteStore,
         secrets: &MemorySecrets,
     ) -> (AccountId, mail_domain::MessageId) {
-        let added = mail_runtime::block_on(super::super::add_receiving(
+        let added = mail_secrets::block_on(super::super::add_receiving(
             store,
             Requested {
                 address: ADDRESS,
@@ -180,7 +181,7 @@ mod tests {
             None,
         );
         let message = mail_store::testing::message_ids(store)[0];
-        mail_runtime::block_on(secrets.put(
+        mail_secrets::block_on(secrets.put(
             &SecretKey {
                 account: account.clone(),
                 purpose: SecretPurpose::OutgoingPassword,
@@ -215,7 +216,7 @@ mod tests {
             "a work account on IMAP is offered Graph"
         );
 
-        let switched = mail_runtime::block_on(switch_to_graph(
+        let switched = mail_secrets::block_on(switch_to_graph(
             &store,
             account.clone(),
             now(),
@@ -259,7 +260,7 @@ mod tests {
             "the mail is kept, to be found again by its Message-ID"
         );
         assert!(
-            mail_runtime::block_on(secrets.get(&SecretKey {
+            mail_secrets::block_on(secrets.get(&SecretKey {
                 account: account.clone(),
                 purpose: SecretPurpose::OutgoingPassword,
             }))
@@ -307,7 +308,7 @@ mod tests {
             &gmail.plan,
             None,
         );
-        let refused = mail_runtime::block_on(switch_to_graph(
+        let refused = mail_secrets::block_on(switch_to_graph(
             &store,
             id.clone(),
             now(),
