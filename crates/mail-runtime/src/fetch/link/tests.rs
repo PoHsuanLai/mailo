@@ -177,6 +177,25 @@ fn failing_now_waits_a_few_seconds() {
 }
 
 #[test]
+fn failing_now_again_and_again_backs_off_after_the_second() {
+    // Interval 5 minutes: a few seconds once, then the same doubling as any other failure.
+    let mut link = current(t(0, 0), Live::Polling);
+    let mut now = t(0, 0);
+    let mut waits = vec![];
+    for _ in 0..5 {
+        let (running, _) = go(&link, Event::Start(Trigger::Poll), now);
+        let (next, _) = go(&running, failed(Retry::Now, Pause::Unreachable), now);
+        let Link::Waiting { until, .. } = next else {
+            panic!("{next:?}")
+        };
+        waits.push((until - now).num_seconds());
+        now = until;
+        link = next;
+    }
+    assert_eq!(waits, vec![5, 600, 1200, 1800, 1800]);
+}
+
+#[test]
 fn failing_after_doubles_to_the_ceiling() {
     // Interval 5 minutes: 5, 10, 20, then the 30 minute ceiling, and it stays there.
     let mut link = current(t(0, 0), Live::Polling);
