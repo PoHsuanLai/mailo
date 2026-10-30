@@ -34,7 +34,7 @@ use mail_core::ipc::watching::{Refused, Watching};
 use mail_core::schedule::End;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// The platform an app runs on, as far as staying open is concerned.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,6 +86,10 @@ pub const AGAIN: Duration = Duration::from_secs(60);
 
 /// How often the accounts are looked at, beside each write to the store.
 const ACCOUNTS_EVERY: Duration = Duration::from_secs(30);
+
+/// How soon after one look at the accounts the next may be. A sync writes to the store without
+/// stopping, each write saying so, and a look reads every account and its settings.
+const ACCOUNTS_GAP: Duration = Duration::from_secs(2);
 
 /// Set once the app's own watch holds the lock: a window of this process asks it before it
 /// knocks on the lock's door, so it leaves fetching to the app even where the door could not be
@@ -185,6 +189,29 @@ fn told(watched: &mail_core::sync::report::Watched) {
     }
 }
 
+/// Wait until the accounts are worth looking at again: a write heard on `written`, or `every`
+/// with none, but never sooner than `gap` after `looked`, when the last look was. Every write
+/// heard by then is taken as one, so a burst of them is a single look, and the one that ends it
+/// is not lost for having come early. A store that cannot be watched (its sender went with the
+/// watch that was never made) is looked at every `every` all the same.
+///
+/// Not by `data_version`: a commit through the store's own connection, which is where an account
+/// edited in this process is written, does not change it.
+fn wait_to_look(
+    written: &std::sync::mpsc::Receiver<()>,
+    looked: Option<Instant>,
+    every: Duration,
+    gap: Duration,
+) {
+    if let Err(std::sync::mpsc::RecvTimeoutError::Disconnected) = written.recv_timeout(every) {
+        std::thread::sleep(every);
+    }
+    if let Some(at) = looked {
+        std::thread::sleep(gap.saturating_sub(at.elapsed()));
+    }
+    while written.try_recv().is_ok() {}
+}
+
 /// A receiver that moves whenever the accounts that have a server, or how often each is
 /// fetched, have changed: read again after each write to the store, and every
 /// [`ACCOUNTS_EVERY`], by a thread of its own.
@@ -203,16 +230,10 @@ fn follow_accounts(store: &Arc<SqliteStore>) -> mail_core::ipc::watching::Asked 
                 })
             });
             let mut known = mail_core::sync::due::intervals(&store);
+            let mut looked = Some(Instant::now());
             loop {
-                // A write and a timeout are both a reason to look. A store that cannot be watched
-                // (its sender went with the watch that was never made) is looked at every
-                // ACCOUNTS_EVERY all the same.
-                if let Err(std::sync::mpsc::RecvTimeoutError::Disconnected) =
-                    written.recv_timeout(ACCOUNTS_EVERY)
-                {
-                    std::thread::sleep(ACCOUNTS_EVERY);
-                }
-                while written.try_recv().is_ok() {}
+                wait_to_look(&written, looked, ACCOUNTS_EVERY, ACCOUNTS_GAP);
+                looked = Some(Instant::now());
                 let now = mail_core::sync::due::intervals(&store);
                 if now != known {
                     known = now;

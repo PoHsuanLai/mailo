@@ -360,7 +360,12 @@ fn failed(
         )
     };
     match retry {
-        Retry::Now => wait(RETRY_NOW),
+        // The first failure is most likely a dropped connection, worth a quick second try. One
+        // that fails again is a server or a network that is not coming back in seconds, and
+        // knocking every few seconds for as long as that lasts is a load on it and on this
+        // machine for nothing.
+        Retry::Now if failures < 2 => wait(RETRY_NOW),
+        Retry::Now => wait(backoff(failures, every).max(RETRY_NOW)),
         Retry::After(named) => {
             let own = backoff(failures, every);
             match pause {

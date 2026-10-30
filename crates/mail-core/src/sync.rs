@@ -90,36 +90,50 @@ pub fn paused(store: &SqliteStore, account: AccountId) -> bool {
 }
 
 /// Read the accounts back out of the store.
+///
+/// An account whose plan or capabilities cannot be read is left out and logged, so that one bad
+/// row does not take every other account's syncing with it.
 pub(crate) fn configured(store: &SqliteStore) -> Result<Vec<Configured>, CoreError> {
     let mut out = Vec::new();
     for stored in store.list_accounts()? {
-        let address = stored.address;
-        let plan: AccountPlan = stored.plan.map_err(|e| CoreError::PlanUnreadable {
-            address: address.clone(),
-            why: why(&e),
-        })?;
-        let caps: AccountCaps = match stored.caps {
-            Some(caps) => caps.map_err(|e| CoreError::CapsUnreadable {
-                address: address.clone(),
-                why: why(&e),
-            })?,
-            // No capabilities yet means nothing has connected. The expected ones from the
-            // preset are a starting point, not a claim about the server.
-            None => return Err(CoreError::NoCaps { address }),
-        };
-        out.push(Configured {
-            id: stored.id,
-            address,
-            plan,
-            caps,
-            keep: crate::offline::Keep::default(),
-            every: crate::offline::Every::default(),
-            window: crate::offline::Window::default(),
-            remove: crate::offline::Remove::default(),
-            junk: crate::junk::Policy::default(),
-        });
+        match read_one(stored) {
+            Ok(account) => out.push(account),
+            // An account nothing has connected for yet is an ordinary state, and this is asked
+            // often; only a stored value that will not read is worth a line each time.
+            Err(CoreError::NoCaps { .. }) => {}
+            Err(error) => log::warn!("an account is left out: {error}"),
+        }
     }
     Ok(out)
+}
+
+/// One stored account as configured, or why it cannot be.
+fn read_one(stored: mail_store::StoredAccount) -> Result<Configured, CoreError> {
+    let address = stored.address;
+    let plan: AccountPlan = stored.plan.map_err(|e| CoreError::PlanUnreadable {
+        address: address.clone(),
+        why: why(&e),
+    })?;
+    let caps: AccountCaps = match stored.caps {
+        Some(caps) => caps.map_err(|e| CoreError::CapsUnreadable {
+            address: address.clone(),
+            why: why(&e),
+        })?,
+        // No capabilities yet means nothing has connected. The expected ones from the
+        // preset are a starting point, not a claim about the server.
+        None => return Err(CoreError::NoCaps { address }),
+    };
+    Ok(Configured {
+        id: stored.id,
+        address,
+        plan,
+        caps,
+        keep: crate::offline::Keep::default(),
+        every: crate::offline::Every::default(),
+        window: crate::offline::Window::default(),
+        remove: crate::offline::Remove::default(),
+        junk: crate::junk::Policy::default(),
+    })
 }
 
 /// A pass's classified failure as the error of a call that has no use for the classification.
@@ -423,10 +437,48 @@ async fn pass_over(
     )
 }
 
+/// How long a kept pass outcome is left as it is when the next pass ends the same way. Only the
+/// freshness a window shows reads it, and a minute's difference is not one a person can see.
+const KEPT_FOR: chrono::TimeDelta = chrono::TimeDelta::minutes(1);
+
+/// Whether `end`, ending a pass that began at `at`, says something the `stored` record does not:
+/// a different outcome, or the same one the record has held for [`KEPT_FOR`]. A pass that finds
+/// nothing is the common one, and writing it every time would tell every reader of the accounts
+/// of a change that is not one.
+fn worth_keeping(
+    stored: &mail_store::Passes,
+    end: &PassEnd,
+    at: chrono::DateTime<chrono::Utc>,
+) -> bool {
+    let recent = |kept: chrono::DateTime<chrono::Utc>| at.signed_duration_since(kept) < KEPT_FOR;
+    match end {
+        PassEnd::Finished(_) => {
+            stored.failed.is_some() || stored.finished.is_none_or(|kept| !recent(kept))
+        }
+        PassEnd::Failed { why: now, .. } => stored
+            .failed
+            .as_ref()
+            .is_none_or(|failed| failed.why != *now || !recent(failed.at)),
+        PassEnd::Cancelled { .. } => false,
+    }
+}
+
 /// Keep how `end` went, so a window opened later can tell an account that is quiet from one
 /// that has not been fetched in days ([`fresh`]). `at` is when the pass began: its mail is as
-/// current as that. A cancelled pass says nothing either way and is not kept.
+/// current as that. A cancelled pass says nothing either way and is not kept, and one that ended
+/// as the record already says is kept again only once the record is [`KEPT_FOR`] old.
 fn remember(store: &SqliteStore, end: &PassEnd, at: chrono::DateTime<chrono::Utc>) {
+    let account = match end {
+        PassEnd::Finished(report) => report.account.clone(),
+        PassEnd::Failed { account, .. } | PassEnd::Cancelled { account, .. } => account.clone(),
+    };
+    // A record that cannot be read is written over: the write is the way to get a good one.
+    let stored = store
+        .passes(account)
+        .or_log_default("how the last pass ended could not be read");
+    if !worth_keeping(&stored, end, at) {
+        return;
+    }
     let kept = match end {
         PassEnd::Finished(report) => store.pass_finished(report.account.clone(), at),
         PassEnd::Failed { account, why, .. } => store.pass_failed(account.clone(), at, why),
@@ -1486,6 +1538,138 @@ fn sasl_for(plan: &AccountPlan) -> Vec<SaslMech> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeDelta;
+
+    fn seen(minutes: i64) -> chrono::DateTime<chrono::Utc> {
+        crate::support_tests::now() + TimeDelta::minutes(minutes)
+    }
+
+    fn finished_end() -> PassEnd {
+        PassEnd::Finished(Done::default().of(&configured_account()))
+    }
+
+    fn failed_end(why: &str) -> PassEnd {
+        PassEnd::Failed {
+            account: crate::support_tests::account(),
+            address: "ada@example.test".to_owned(),
+            retry: Retry::Now,
+            why: why.to_owned(),
+            pause: crate::fetch::Pause::Unreachable,
+            offer: None,
+        }
+    }
+
+    fn configured_account() -> Configured {
+        let store = mail_store::testing::in_memory();
+        seed_readable(&store, crate::support_tests::account(), "ada@example.test");
+        configured(&store).unwrap().remove(0)
+    }
+
+    /// An account whose plan and capabilities both read.
+    fn seed_readable(store: &SqliteStore, id: AccountId, address: &str) {
+        let preset = mail_domain::presets::manual_pop3(
+            address,
+            &mail_domain::presets::ManualPop3 {
+                pop3_host: "pop.example.test".to_owned(),
+                pop3_port: 995,
+                smtp_host: "smtp.example.test".to_owned(),
+                smtp_port: 465,
+                login: None,
+            },
+            crate::support_tests::now(),
+        );
+        mail_store::testing::seed_account_plan(store, id.clone(), address, &preset.plan, None);
+        mail_store::testing::seed_caps(
+            store,
+            id,
+            &crate::support_tests::caps(),
+            crate::support_tests::now(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn one_account_that_will_not_read_does_not_take_the_others_with_it() {
+        let store = mail_store::testing::in_memory();
+        let good = |n: u128| {
+            mail_domain::id::account_id_from_uuid(uuid::Uuid::from_u128(
+                0x4000_8000_0000_0000_0000 + n,
+            ))
+        };
+        seed_readable(&store, good(1), "one@example.test");
+        // A plan that is not one, between two that are.
+        mail_store::testing::seed_account(&store, good(2), "broken@example.test");
+        seed_readable(&store, good(3), "three@example.test");
+        let read = configured(&store).unwrap();
+        let addresses: Vec<_> = read
+            .iter()
+            .map(|account| account.address.as_str())
+            .collect();
+        assert_eq!(addresses, vec!["one@example.test", "three@example.test"]);
+    }
+
+    #[test]
+    fn the_same_outcome_within_a_minute_is_not_kept_again() {
+        let finished = mail_store::Passes {
+            finished: Some(seen(0)),
+            failed: None,
+        };
+        assert!(!worth_keeping(
+            &finished,
+            &finished_end(),
+            seen(0) + TimeDelta::seconds(59)
+        ));
+        assert!(worth_keeping(&finished, &finished_end(), seen(1)));
+        let failed = mail_store::Passes {
+            finished: None,
+            failed: Some(mail_store::PassFailed {
+                at: seen(0),
+                why: "down".to_owned(),
+            }),
+        };
+        assert!(!worth_keeping(
+            &failed,
+            &failed_end("down"),
+            seen(0) + TimeDelta::seconds(59)
+        ));
+        assert!(worth_keeping(&failed, &failed_end("down"), seen(1)));
+    }
+
+    #[test]
+    fn a_different_outcome_is_kept_at_once() {
+        let finished = mail_store::Passes {
+            finished: Some(seen(0)),
+            failed: None,
+        };
+        assert!(worth_keeping(&finished, &failed_end("down"), seen(0)));
+        let failed = mail_store::Passes {
+            finished: Some(seen(0)),
+            failed: Some(mail_store::PassFailed {
+                at: seen(0),
+                why: "down".to_owned(),
+            }),
+        };
+        assert!(worth_keeping(&failed, &finished_end(), seen(0)));
+        assert!(worth_keeping(&failed, &failed_end("refused"), seen(0)));
+        assert!(worth_keeping(
+            &mail_store::Passes::default(),
+            &finished_end(),
+            seen(0)
+        ));
+    }
+
+    #[test]
+    fn a_pass_ended_the_same_way_writes_the_record_once() {
+        let store = mail_store::testing::in_memory();
+        let id = crate::support_tests::account();
+        seed_readable(&store, id.clone(), "ada@example.test");
+        let writes = store.subscribe();
+        remember(&store, &finished_end(), seen(0));
+        remember(&store, &finished_end(), seen(0) + TimeDelta::seconds(20));
+        remember(&store, &finished_end(), seen(0) + TimeDelta::seconds(40));
+        assert_eq!(writes.try_iter().count(), 1);
+        assert_eq!(store.passes(id).unwrap().finished, Some(seen(0)));
+    }
 
     #[test]
     fn the_auth_prelude_prefers_sasl_but_falls_back() {
