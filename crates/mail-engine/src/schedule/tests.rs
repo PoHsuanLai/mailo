@@ -2,11 +2,11 @@
 //! scripted, nothing that reaches a server.
 
 use super::*;
-use crate::fetch::{First, Pause, Step};
 use chrono::TimeZone;
 use mail_domain::Retry;
 use mail_domain::SyncCursor;
 use mail_domain::id::account_id_from_uuid;
+use mail_runtime::fetch::{First, Pause, Step};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 
@@ -103,9 +103,9 @@ fn what_a_watch_hears_is_what_the_link_is_told() {
 
 #[test]
 fn a_wake_is_told_as_what_it_was() {
-    assert_eq!(Heard::from(crate::Woke::Mail), Heard::Mail);
-    assert_eq!(Heard::from(crate::Woke::Due), Heard::Due);
-    assert_eq!(Heard::from(crate::Woke::Interval), Heard::Interval);
+    assert_eq!(Heard::from(mail_runtime::Woke::Mail), Heard::Mail);
+    assert_eq!(Heard::from(mail_runtime::Woke::Due), Heard::Due);
+    assert_eq!(Heard::from(mail_runtime::Woke::Interval), Heard::Interval);
 }
 
 #[test]

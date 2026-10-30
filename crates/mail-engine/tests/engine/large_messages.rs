@@ -10,8 +10,9 @@
 
 use crate::fixture::{acct_account, inbox, now};
 use mail_domain::*;
+use mail_engine::AccountEngine;
 use mail_proto::{Backend, IoReady, Progress, ProtoError, ProtoOutcome};
-use mail_runtime::{AccountEngine, Arrival};
+use mail_runtime::Arrival;
 use mail_store::{SqliteStore, Store};
 use porter_secrets::MemorySecrets;
 use std::sync::{Arc, Mutex};

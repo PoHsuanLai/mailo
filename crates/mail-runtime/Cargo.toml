@@ -9,7 +9,6 @@ rust-version.workspace = true
 
 [dependencies]
 porter-core.workspace = true
-porter-ids.workspace = true
 porter-provider.workspace = true
 # CardDAV's request bodies and `207 Multi-Status` replies, as text.
 dav-proto.workspace = true
@@ -69,11 +68,10 @@ default = []
 testing = ["mail-secrets/testing", "mail-net/testing"]
 
 [dev-dependencies]
-porter-capability.workspace = true
+porter-ids.workspace = true
 porter-secrets = { workspace = true, features = ["testing", "keyring"] }
-# The relay stream and the DEFLATE the drive and compression tests build their far ends with.
+# The relay stream the drive tests build their far ends with.
 porter-client.workspace = true
-flate2 = "1"
 # Seeding a store without writing SQL (`mail_store::testing`): the program never has it.
 mail-store = { workspace = true, features = ["testing"] }
 # Its own tests use the doubles it exports.

@@ -9,11 +9,12 @@
 use crate::fixture::now;
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_engine::AccountEngine;
+use mail_engine::engine::Dial;
 use mail_net::testing::memory_transport;
 use mail_proto::backend::ImapBackend;
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::engine::Dial;
-use mail_runtime::{AccountEngine, IDLE_REARM, RuntimeError, Woke};
+use mail_runtime::{IDLE_REARM, RuntimeError, Woke};
 use mail_secrets::testing::memory_secrets;
 use mail_store::SqliteStore;
 use porter_core::stream::{ByteStream, DuplexEnd};
@@ -279,7 +280,7 @@ async fn a_dead_read_is_stalled_and_the_next_attempt_connects_again() {
     // Not a sign-in to ask for, not a fatal stop: a reconnect, soon.
     let retry = err.retry();
     assert!(matches!(retry, Retry::After(_)), "{retry:?}");
-    let next = mail_runtime::schedule::reconnect(1, &retry, mail_runtime::fetch::RETRY_NOW);
+    let next = mail_engine::schedule::reconnect(1, &retry, mail_runtime::fetch::RETRY_NOW);
     assert!(next.wait <= Duration::from_secs(60), "{next:?}");
 
     // And the next attempt is a new connection, which answers.

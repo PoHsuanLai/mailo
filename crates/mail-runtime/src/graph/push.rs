@@ -25,9 +25,9 @@
 //! that closes or goes silent is an error, and the scheduler reconnects with its backoff while the
 //! account polls as before.
 
-use crate::engine::wait::due_alarm;
 use crate::error::Logged;
 use crate::graph::{detail, refusal_text, retry_after, segment};
+use crate::pass::due_alarm;
 use crate::{Cancel, IDLE_REARM, RuntimeError, Woke};
 use base64::Engine as _;
 use chrono::{DateTime, TimeDelta, Utc};
@@ -744,7 +744,7 @@ impl Listener {
             secret: Zeroizing::new(String::new()),
             subscription: None,
             socket: None,
-            outbox: crate::engine::Schedule::default().outbox,
+            outbox: crate::pass::OUTBOX_LOOK,
             owed: false,
             fresh: false,
             pacing: Pacing::default(),

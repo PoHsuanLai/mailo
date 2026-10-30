@@ -12,6 +12,7 @@ members = [
   "crates/mail-net",
   "crates/mail-secrets",
   "crates/mail-runtime",
+  "crates/mail-engine",
   "crates/mail-core",
   "crates/mail-client",
   "crates/mail-appkit",
@@ -57,6 +58,7 @@ mail-proto  = { package = "mailo-proto", path = "crates/mail-proto", version = "
 mail-net = { path = "crates/mail-net", default-features = false }
 mail-secrets = { path = "crates/mail-secrets", default-features = false }
 mail-runtime = { path = "crates/mail-runtime", default-features = false }
+mail-engine = { path = "crates/mail-engine", default-features = false }
 mail-store  = { path = "crates/mail-store" }
 # The accounts system's vocabulary, pinned by git rev like quire (porter is public). mailo names its
 # accounts, their secrets and their OAuth issuers with porter's types instead of its own, so the

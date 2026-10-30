@@ -11,9 +11,9 @@
 use crate::fixture::{acct_account, inbox, now};
 use chrono::{TimeZone, Utc};
 use mail_domain::*;
+use mail_engine::AccountEngine;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::AccountEngine;
 use mail_secrets::AccountSecrets;
 use mail_store::{SqliteStore, Store};
 use porter_core::SecretText;
@@ -2137,7 +2137,7 @@ async fn a_listing_with_no_inbox_is_an_error_and_not_an_empty_account() {
 mod pushing {
     use super::*;
     use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
-    use mail_runtime::Notify;
+    use mail_engine::Notify;
     use tokio::net::TcpStream;
 
     /// What the scripted server has and does.

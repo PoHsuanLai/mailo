@@ -8,9 +8,10 @@ use crate::sync::report::{Done, Failure};
 use crate::sync::run::{Run, Signed, signed_in};
 use crate::sync::{Mode, fetch_folder, imap_engine, poll_floor, pushed_folders, to_sync};
 use mail_domain::{Filter, LabelId, MailboxRef, MessageId};
+use mail_engine::{AccountEngine, Notify};
 use mail_proto::Storage;
 use mail_proto::backend::ImapBackend;
-use mail_runtime::{AccountEngine, Cancel, Notify, RuntimeError, Searched, Woke};
+use mail_runtime::{Cancel, RuntimeError, Searched, Woke};
 use std::time::Duration;
 use tokio::sync::watch;
 

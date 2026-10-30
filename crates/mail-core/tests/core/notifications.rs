@@ -10,9 +10,9 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_core::notify::{self, Notification, Notifier, Opens};
 use mail_core::sync;
 use mail_domain::*;
+use mail_engine::AccountEngine;
 use mail_proto::backend::{Authenticate, ImapBackend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::AccountEngine;
 use mail_store::{SqliteStore, Store};
 use porter_core::Credential;
 use porter_core::SecretText;
@@ -577,7 +577,7 @@ fn engine(port: u16, store: Arc<SqliteStore>) -> AccountEngine<ImapBackend> {
 
 /// Run a watch's passes for one account until `until` says stop, or give up after a while.
 ///
-/// The scheduler (`mail_runtime::schedule`) decides when a watch passes; what is checked here is
+/// The scheduler (`mail_engine::schedule`) decides when a watch passes; what is checked here is
 /// what the watch does with each pass that ends, so the passes are run on a short timer and each
 /// is handed to [`sync::watcher::told`], as the watch does. It never returns of its own accord,
 /// so it is raced against `until`, which the test uses to add mail to the server and decide when

@@ -20,9 +20,9 @@
 //!   without push does.
 
 use super::{Host, Note};
-use crate::Woke;
-use crate::fetch::{self, BACKOFF_CEILING, Event, Link, Live, Trigger};
 use mail_domain::Retry;
+use mail_runtime::Woke;
+use mail_runtime::fetch::{self, BACKOFF_CEILING, Event, Link, Live, Trigger};
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

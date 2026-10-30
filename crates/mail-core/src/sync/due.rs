@@ -19,7 +19,7 @@ use mail_domain::WatchMode;
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 
-pub use mail_runtime::schedule::MANUALLY;
+pub use mail_engine::schedule::MANUALLY;
 
 /// What an account that offers IDLE is polled at, since no connection is held open for it.
 pub const IDLE: Duration = Duration::from_secs(300);

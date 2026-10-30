@@ -81,6 +81,7 @@ pub use mail::{
     AccountOps, Clock, ContactOps, CryptoOps, DiscoverOps, FixedClock, Mail, OAuthClients, RuleOps,
     SyncOps, SystemClock,
 };
+pub use mail_engine::schedule;
 pub use mail_net::{Transport, remote_image};
 /// An account's storage as its server counts it ([`SyncOps::quota`]).
 pub use mail_proto::Storage;
@@ -90,7 +91,7 @@ pub use mail_runtime::wanted;
 /// through mail-core alone.
 pub use mail_runtime::{
     Arrival, Destination, Logged, Searched, ServerHits, absorb, absorb_into, assemble, fetch,
-    graph::push::RelayRefused, schedule, sieve::Pushed,
+    graph::push::RelayRefused, sieve::Pushed,
 };
 /// The doubles at the credentials' seams, for a front end's tests: secrets,
 /// signing store and OAuth clients that sign in nowhere.

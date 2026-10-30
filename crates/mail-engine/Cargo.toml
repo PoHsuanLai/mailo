@@ -1,0 +1,51 @@
+[package]
+name = "mail-engine"
+# The app side: I/O and policy, not a library for others.
+publish = false
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# The engines that run an account (sync passes, the outbox, the scheduler) over `mail-runtime`'s
+# drivers. The drivers name no engine: this crate depends on them, and not the other way round.
+[dependencies]
+porter-core.workspace = true
+mail-domain.workspace = true
+mail-proto.workspace = true
+mail-net.workspace = true
+mail-secrets.workspace = true
+mail-runtime.workspace = true
+mail-store.workspace = true
+mail-mime.workspace = true
+mail-archive.workspace = true
+chrono.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+uuid = { workspace = true }
+log.workspace = true
+
+[features]
+# Nothing is on by default.
+default = []
+# What a test swaps in at the seams below: `mail-runtime`'s and, through it, the in-memory
+# transport and the credentials' doubles. Off in the program.
+testing = ["mail-runtime/testing"]
+
+[dev-dependencies]
+mail-engine = { path = ".", features = ["testing"] }
+mail-store = { workspace = true, features = ["testing"] }
+porter-ids.workspace = true
+porter-provider.workspace = true
+porter-secrets = { workspace = true, features = ["testing"] }
+base64 = "0.22"
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+url = "2"
+# The DEFLATE the compression test builds its far end with.
+flate2 = "1"
+# `test-util` for the tests that wait out a deadline on a paused clock (`silent_server`).
+tokio = { version = "1", features = ["full", "test-util"] }
+tempfile = "3"
+
+[lints]
+workspace = true

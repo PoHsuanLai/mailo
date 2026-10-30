@@ -8,9 +8,10 @@ use crate::sync::run::{Run, Signed, signed_in};
 use crate::sync::{Mode, fetch_folder, graph_engine, poll_floor, sending_token};
 use mail_domain::AuthPlan;
 use mail_domain::{Filter, LabelId, MessageId};
+use mail_engine::AccountEngine;
 use mail_runtime::graph::push::Listener;
 use mail_runtime::graph::read::OverHttp;
-use mail_runtime::{AccountEngine, Cancel, RuntimeError, Searched, Woke};
+use mail_runtime::{Cancel, RuntimeError, Searched, Woke};
 use std::time::Duration;
 use tokio::sync::watch;
 

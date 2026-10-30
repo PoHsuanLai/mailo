@@ -7,36 +7,14 @@
 //! the outbox side is local: a query against the store, never a connection.
 
 use super::{AccountEngine, Notify};
-use crate::error::Logged;
-use crate::{Cancel, RuntimeError};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use mail_domain::{MailboxRef, WatchMode};
 use mail_proto::Backend;
-use mail_store::{SqliteStore, Store};
-use porter_core::AccountId;
-use std::sync::Arc;
+use mail_runtime::pass::due_alarm;
+use mail_runtime::{Cancel, RuntimeError};
+use mail_runtime::{IDLE_REARM, Woke};
 use std::time::Duration;
 use tokio::sync::watch;
-
-/// The longest one IMAP `IDLE` is held before it is ended and issued again.
-///
-/// RFC 2177 has a server drop an idle client after thirty minutes, and asks the client to
-/// re-issue IDLE within twenty-nine. Twenty-five leaves room for a slow `DONE` and matches the
-/// JMAP event stream's hold (`jmap::push`). It is also the longest a connection a NAT forgot can
-/// go unnoticed while it is parked: the exchange that ends it fails, or the pass after it does.
-pub const IDLE_REARM: Duration = Duration::from_secs(25 * 60);
-
-/// What ended a wait.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Woke {
-    /// The server said something changed.
-    Mail,
-    /// Something in the outbox came due: a scheduled send, or one whose grace for Undo ran out.
-    Due,
-    /// The interval ran out, the server ended its IDLE without news, or the IDLE was held for
-    /// [`IDLE_REARM`].
-    Interval,
-}
 
 /// Why a held IDLE was ended from this side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -147,31 +125,5 @@ impl<B: Backend> AccountEngine<B> {
                 }
             }
         }
-    }
-}
-
-/// Resolves when a never-tried outbox entry that was not yet due at `after` becomes due.
-///
-/// Looks again every `every`, so a send queued after the wait began is noticed; between looks it
-/// sleeps until the earliest time it knows of, so a known one is not late by the interval.
-pub(crate) async fn due_alarm(
-    store: Arc<SqliteStore>,
-    account: AccountId,
-    after: DateTime<Utc>,
-    every: Duration,
-) {
-    loop {
-        let now = Utc::now();
-        let next = store
-            .outbox_next(account.clone(), after)
-            .or_log("the outbox's next attempt could not be read")
-            .flatten();
-        if next.is_some_and(|at| at <= now) {
-            return;
-        }
-        let until = next
-            .and_then(|at| (at - now).to_std().ok())
-            .map_or(every, |left| left.min(every));
-        tokio::time::sleep(until).await;
     }
 }

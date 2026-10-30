@@ -55,7 +55,7 @@ impl JmapEngine {
                 // Not reached: only an IMAP move leaves a message with no address. Refused all
                 // the same, as `AccountEngine::drain_outbox` refuses it, rather than kept for good.
                 Dispatch::Lost(reason) => {
-                    crate::engine::given_up(&*self.store, id, reason, now, report)?;
+                    crate::pass::given_up(&*self.store, id, reason, now, report)?;
                     continue;
                 }
             };
@@ -154,7 +154,7 @@ impl JmapEngine {
 
     fn mark_draft(&self, draft: mail_domain::DraftId, state: SendState, now: DateTime<Utc>) {
         // As in `AccountEngine::mark_draft`: a draft deleted while queued is nobody's concern.
-        crate::engine::note_state(self.store.set_send_state(draft, &state, now));
+        crate::pass::note_state(self.store.set_send_state(draft, &state, now));
     }
 
     /// Queue the removal of a sent draft's copies from the server's Drafts mailbox

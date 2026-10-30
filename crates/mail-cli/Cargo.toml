@@ -53,6 +53,7 @@ mail-store = { workspace = true, features = ["testing"] }
 mail-core = { workspace = true, features = ["testing"] }
 mail-crypto = { workspace = true, features = ["testing"] }
 mail-runtime.workspace = true
+mail-engine.workspace = true
 mail-secrets.workspace = true
 porter-secrets = { workspace = true, features = ["testing"] }
 image = { version = "0.25", default-features = false, features = ["ico", "png", "jpeg", "gif", "webp"] }

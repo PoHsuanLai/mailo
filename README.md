@@ -191,7 +191,8 @@ Published libraries (each package is named `mailo-*`; its folder keeps the `crat
 Not published, app-side: `mail-store` (SQLite, FTS5, the outbox), `mail-net` (sockets, TLS, DNS and
 the HTTP clients, with the lookups that are one fetch; no store), `mail-secrets` (the keyrings, the
 OAuth clients, sign-in and token renewal; no store), `mail-runtime` (the protocol drivers over
-them, and the BIMI, key and image lookups), `mail-core` (everything the application does, with no window or terminal),
+them, and the BIMI and key lookups), `mail-engine` (the engines and the scheduler that run an
+account's passes and outbox over the drivers), `mail-core` (everything the application does, with no window or terminal),
 `mail-client` (the one door to mail: values already read, kept read as the store changes, and the
 calls the window makes), `mail-ui` (the window, with no store in its dependencies), `mail-appkit`
 (macOS only: the one place that needs `unsafe`, for the AppKit delegate), `mail-edge` (the

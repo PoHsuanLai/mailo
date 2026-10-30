@@ -5179,6 +5179,7 @@ dependencies = [
  "mail-client",
  "mail-core",
  "mail-edge",
+ "mail-engine",
  "mail-os",
  "mail-runtime",
  "mail-secrets",
@@ -5238,6 +5239,7 @@ dependencies = [
  "interprocess",
  "latchkey",
  "log",
+ "mail-engine",
  "mail-net",
  "mail-runtime",
  "mail-secrets",
@@ -5285,6 +5287,35 @@ dependencies = [
  "mail-store",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "mail-engine"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "flate2",
+ "log",
+ "mail-engine",
+ "mail-net",
+ "mail-runtime",
+ "mail-secrets",
+ "mail-store",
+ "mailo-archive",
+ "mailo-domain",
+ "mailo-mime",
+ "mailo-proto",
+ "porter-core",
+ "porter-ids",
+ "porter-provider",
+ "porter-secrets",
+ "reqwest",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "url",
+ "uuid",
 ]
 
 [[package]]
@@ -5378,7 +5409,6 @@ dependencies = [
  "blake3",
  "chrono",
  "dav-proto",
- "flate2",
  "futures-util",
  "log",
  "mail-net",
@@ -5391,7 +5421,6 @@ dependencies = [
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
- "porter-capability",
  "porter-client",
  "porter-core",
  "porter-ids",

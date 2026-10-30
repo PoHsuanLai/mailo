@@ -5,7 +5,7 @@
 //! it a borrowed notifier, and the window lends it signals. The set is a plain list because
 //! there are a few futures per account, not thousands.
 
-use crate::fetch::Link;
+use mail_runtime::fetch::Link;
 use porter_core::AccountId;
 use std::cell::RefCell;
 use std::collections::BTreeMap;

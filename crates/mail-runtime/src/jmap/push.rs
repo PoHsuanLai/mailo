@@ -8,7 +8,7 @@
 //! did arrive between the pass and the wait — the same question `UIDNEXT` answers for IDLE.
 
 use super::JmapEngine;
-use crate::engine::wait::due_alarm;
+use crate::pass::due_alarm;
 use crate::{Cancel, RuntimeError, Woke};
 use chrono::Utc;
 use mail_net::Failure;

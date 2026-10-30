@@ -13,7 +13,7 @@
 //! fetched anything is still the window's to fetch, because the watch reads its accounts when it
 //! starts and does not know one made since.
 
-use crate::fetch::{Event, Link, Trigger};
+use mail_runtime::fetch::{Event, Link, Trigger};
 
 /// Who decides when mail is fetched.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

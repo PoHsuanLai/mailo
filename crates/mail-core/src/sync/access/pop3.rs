@@ -6,8 +6,8 @@ use crate::error::CoreError;
 use crate::sync::report::{Done, Failure};
 use crate::sync::run::{Run, Signed, signed_in};
 use crate::sync::{Mode, Removing, pop3_engine, remove_copies};
+use mail_engine::AccountEngine;
 use mail_proto::backend::Pop3Backend;
-use mail_runtime::AccountEngine;
 use tokio::sync::watch;
 
 /// POP3.

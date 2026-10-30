@@ -1,9 +1,9 @@
 //! Where each account's link begins, and how the set of links follows the set of accounts.
 
-use crate::Logged;
-use crate::fetch::{Link, Live};
 use chrono::{DateTime, Utc};
 use mail_domain::{Filter, JMAP_ALL, MailboxRef};
+use mail_runtime::Logged;
+use mail_runtime::fetch::{Link, Live};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 use std::collections::{BTreeMap, BTreeSet};

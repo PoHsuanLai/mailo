@@ -13,8 +13,8 @@
 //! and on Gmail, where one message is at two addresses, it has it for the message. The next sync
 //! says what the server holds either way.
 
-use crate::RuntimeError;
 use mail_domain::{MessageId, Patch, ProtoOp, RemoteRef};
+use mail_runtime::RuntimeError;
 use mail_store::{Store, StoreError};
 use porter_core::AccountId;
 

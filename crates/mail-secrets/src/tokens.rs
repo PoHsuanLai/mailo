@@ -60,7 +60,7 @@ pub enum AfterRefusal {
     /// be refused for the same reason, and asking for it is a loop against the issuer.
     ///
     /// Nor is it the user's to fix by signing in again: the issuer has just stood by the grant,
-    /// and a new sign-in mints the same token. Whoever holds the error says so (`refused_fresh`, in the engines' crate).
+    /// and a new sign-in mints the same token. See `mail_runtime::error::refused_fresh`.
     StillRefused,
     /// What was refused is not a token this source renews, a password: its refusal is the
     /// user's to answer.

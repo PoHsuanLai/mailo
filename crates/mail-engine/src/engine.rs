@@ -5,9 +5,6 @@
 //! misrepresent ownership, and `Box<dyn Store>` per account would be worse. Time is an argument
 //! rather than a `Clock` trait (`CONTRIBUTING.md`, "Time").
 
-use crate::error::Logged;
-use crate::error::refused_fresh;
-use crate::{Cancel, RuntimeError, drive, drive_within};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     AccountCaps, AccountPlan, BlobId, Condstore, FetchSince, Incoming, MailboxRef, MailboxRole,
@@ -19,6 +16,10 @@ use mail_net::Failure;
 use mail_net::Transport;
 use mail_proto::backend::SmtpBackend;
 use mail_proto::{Authentication, Backend, Moved, ProtoOutcome, SignIn, Submission};
+use mail_runtime::error::Logged;
+use mail_runtime::error::refused_fresh;
+use mail_runtime::pass::{OUTBOX_LOOK, first_stored, given_up, note_state};
+use mail_runtime::{Cancel, RuntimeError, SyncReport, drive, drive_within};
 use mail_secrets::AccountSecrets;
 use mail_secrets::tokens::{AfterRefusal, Token, TokenSource};
 use mail_store::{Dispatch, OutboxEntry, Settle, SqliteStore, Store};
@@ -31,7 +32,6 @@ mod quota;
 mod search;
 mod split;
 pub(crate) mod wait;
-pub use wait::{IDLE_REARM, Woke};
 
 /// Bodies are fetched smallest band first.
 ///
@@ -109,160 +109,6 @@ fn by_band(wanted: &mut [(RemoteRef, u64)]) {
     wanted.sort_by_key(|(_, size)| BANDS.iter().position(|&band| *size <= band));
 }
 
-/// What a sync pass did, for the caller to log or show.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct SyncReport {
-    pub headers_fetched: usize,
-    pub bodies_fetched: usize,
-    /// Attachments a sync had left on the server, fetched by this pass because the account is
-    /// kept offline in full ([`AccountEngine::fetch_remote_parts`]).
-    pub parts_fetched: usize,
-    pub outbox_settled: usize,
-    /// Messages handed to the submission server and accepted.
-    pub submitted: usize,
-    /// Operations that failed in a way worth surfacing rather than retrying.
-    pub needs_attention: Vec<String>,
-    /// Still queued when the pass ended, waiting on a retry.
-    ///
-    /// Separate from `needs_attention` because it is not trouble: a refused connection backs off
-    /// and tries again, and interrupting the user about it would train them to ignore the
-    /// warnings that matter. But it is not *nothing* either — someone who has just run `send`
-    /// and then `sync` will otherwise read "0 sent" as success and believe their mail has gone.
-    pub still_queued: usize,
-    /// The server rejected the credential, on any account in this pass.
-    ///
-    /// Separate from `needs_attention`, which is prose for a person, because something has to
-    /// *act* on it: a rejected password retried every five minutes is two hundred and eighty
-    /// failed logins a day against the user's own mail server, which is how an account gets
-    /// locked. A poll loop must stop on this and wait for the user, not back off and continue.
-    pub needs_reauth: bool,
-    /// The desktop's account service no longer lets Mail use the account (`Retry::NeedsGrant`):
-    /// stopped on as `needs_reauth` is, and asked of the person as allowing, not signing in.
-    pub needs_grant: bool,
-    /// The longest wait a server asked for during this pass, where one asked.
-    ///
-    /// A rate limit is the one refusal whose entire remedy is doing nothing, and hammering
-    /// through it lengthens the lockout — so the number the server named (or the hour
-    /// `Retry::After` supplies when it names none) has to outlive the pass that saw it. Kept
-    /// apart from `needs_reauth` because they call for opposite things: stop and ask the user,
-    /// versus come back later unaided.
-    pub hold: Option<std::time::Duration>,
-    /// Messages this pass stored for the first time, in the order they were stored.
-    ///
-    /// Identities, not copies: by the time anyone reads this the same pass has applied the
-    /// server's flags and may have fetched bodies, so what a caller wants to know about a message
-    /// — is it still unread, is it still in the inbox — is the store's current answer, not the
-    /// one the header fetch built. A message already held that arrives again (a remap, a body
-    /// filling in, the same mail under a second UID) is not here: it did not *arrive*.
-    pub arrived: Vec<MessageId>,
-    /// Arrived messages a rule acted on, with the rules that did, in order.
-    pub ruled: Vec<(MessageId, Vec<String>)>,
-    /// Messages uploaded into a mailbox by this pass's outbox (`ProtoOp::Append`).
-    pub appended: usize,
-}
-
-/// A draft's new send state, written down without letting the write fail the drain. A draft
-/// deleted while its send was queued is nobody's concern; anything else the store says is logged.
-pub(crate) fn note_state(written: Result<(), mail_store::StoreError>) {
-    match written {
-        Ok(()) | Err(mail_store::StoreError::NoDraft(_)) => {}
-        Err(why) => log::warn!("a draft's send state was not recorded: {why}"),
-    }
-}
-
-/// Refuse queued entry `id`, given up because a message it names was never found
-/// ([`Dispatch::Lost`]): settled as [`Retry::Fatal`], so its undo puts back what
-/// the server has, and said, so the person whose change it was is told it did not happen.
-pub(crate) fn given_up(
-    store: &dyn Store,
-    id: mail_domain::OutboxId,
-    reason: String,
-    now: DateTime<Utc>,
-    report: &mut SyncReport,
-) -> Result<(), RuntimeError> {
-    let retry = Retry::Fatal(reason.clone());
-    report.saw(&retry);
-    report.needs_attention.push(reason.clone());
-    store.outbox_settle(id, Settle::Failed { reason, retry }, now)?;
-    Ok(())
-}
-
-/// The messages a patch stored for the first time.
-///
-/// Only meaningful for the patch of a header fetch: that path upserts a message only when its
-/// key is new, since a header carries no body to fill in. A body fetch's patch upserts messages
-/// already held, and must not be read with this.
-pub(crate) fn first_stored(patch: &mail_domain::Patch) -> impl Iterator<Item = MessageId> + '_ {
-    patch.changes.iter().filter_map(|change| match change {
-        mail_domain::Change::MessageUpsert(message) => Some(message.id),
-        _ => None,
-    })
-}
-
-impl SyncReport {
-    /// Keep what a write that stopped part-way had already committed, and say the rest did not
-    /// follow. True when `error` was such a stop: the pass then ends with what it has, so the
-    /// messages that did arrive still meet the rules and the notifications, and the next pass
-    /// writes the rest.
-    pub(crate) fn stopped_by(&mut self, error: &RuntimeError) -> bool {
-        let RuntimeError::Store(error) = error else {
-            return false;
-        };
-        let Some(written) = error.written() else {
-            return false;
-        };
-        self.arrived.extend(first_stored(written));
-        self.needs_attention.push(error.to_string());
-        true
-    }
-
-    /// Say that `count` messages of `mailbox` arrived and could not be read as messages. They
-    /// were skipped, and the pass's cursor has moved past them, so nothing will fetch them
-    /// again: the person is told rather than left with mail that silently never came.
-    pub(crate) fn unreadable(&mut self, mailbox: &MailboxRef, count: usize) {
-        if count > 0 {
-            self.needs_attention.push(format!(
-                "{count} message(s) in {} could not be read and were skipped",
-                mailbox.path
-            ));
-        }
-    }
-
-    /// Fold in the pass that followed this one, for a drain that queued work for itself.
-    /// What is still queued is the later pass's word, since it saw the queue last.
-    fn absorb(&mut self, later: SyncReport) {
-        self.outbox_settled += later.outbox_settled;
-        self.submitted += later.submitted;
-        self.appended += later.appended;
-        self.needs_attention.extend(later.needs_attention);
-        self.still_queued = later.still_queued;
-        self.needs_reauth |= later.needs_reauth;
-        self.needs_grant |= later.needs_grant;
-        self.hold = match (self.hold, later.hold) {
-            (Some(a), Some(b)) => Some(a.max(b)),
-            (a, b) => a.or(b),
-        };
-    }
-
-    /// Fold one operation's verdict into the pass.
-    ///
-    /// The two facts a caller has to *act* on, gathered in one place so the several sites that
-    /// see a `Retry` cannot disagree about which ones matter. `Retry::Now` and `Retry::Fatal`
-    /// are decided within the pass — reconnect, or give up on that operation — and leave nothing
-    /// for the caller to schedule.
-    pub fn saw(&mut self, retry: &Retry) {
-        match retry {
-            Retry::NeedsReauth => self.needs_reauth = true,
-            Retry::NeedsGrant => self.needs_grant = true,
-            // The longest wait anyone asked for. Ordinary backoffs land here too, at a minute or
-            // so, and are absorbed by the caller's own interval; a rate limit is an hour and is
-            // not. Both mean the same thing to a scheduler, so neither needs a special case.
-            Retry::After(wait) => self.hold = Some(self.hold.map_or(*wait, |had| had.max(*wait))),
-            Retry::Now | Retry::Fatal(_) => {}
-        }
-    }
-}
-
 /// Who files the copy of a message an account submits; see `AccountEngine::sent_copy`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SentCopy {
@@ -306,7 +152,7 @@ impl Default for Schedule {
             // Rarely: it is the most expensive of the three, and a message deleted elsewhere
             // lingering for a few minutes costs the user nothing.
             expunges: Duration::from_secs(900),
-            outbox: Duration::from_secs(15),
+            outbox: OUTBOX_LOOK,
         }
     }
 }
@@ -327,7 +173,7 @@ pub struct AccountEngine<B: Backend> {
     tokens: Option<Arc<dyn TokenSource>>,
     /// Where an account that reads through Microsoft Graph sends its operations, in place of
     /// `backend` and a connection. `None` for every other account.
-    graph: Option<crate::graph::read::Reader>,
+    graph: Option<mail_runtime::graph::read::Reader>,
     /// The mailboxes synced in full since the last drain: the folders a message the server moved
     /// without saying where has been looked for, counted when the drain begins
     /// ([`Store::unplaced_pass`]).
@@ -461,7 +307,7 @@ impl<B: Backend> AccountEngine<B> {
             store,
             secrets,
             schedule: Schedule::default(),
-            graph_url: crate::graph::SEND_MAIL.to_owned(),
+            graph_url: mail_runtime::graph::SEND_MAIL.to_owned(),
             tokens: None,
             graph: None,
             synced: Vec::new(),
@@ -476,8 +322,8 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// Read this account through Microsoft Graph: every operation goes to `reader`, over HTTPS,
-    /// and none to the backend, which is then [`crate::graph::read::OverHttp`].
-    pub fn with_graph_reader(mut self, reader: crate::graph::read::Reader) -> Self {
+    /// and none to the backend, which is then [`mail_runtime::graph::read::OverHttp`].
+    pub fn with_graph_reader(mut self, reader: mail_runtime::graph::read::Reader) -> Self {
         self.graph = Some(reader);
         self
     }
@@ -576,7 +422,7 @@ impl<B: Backend> AccountEngine<B> {
     /// Where the incoming server lives. `None` for an account that keeps its mail here.
     fn incoming(&self) -> Option<(&str, u16, Tls)> {
         // No socket to open for Graph or JMAP: both are HTTPS. JMAP has an engine of its own
-        // (`crate::jmap::JmapEngine`); an `AccountEngine` built for one connects nowhere.
+        // (`mail_runtime::jmap::JmapEngine`); an `AccountEngine` built for one connects nowhere.
         self.plan
             .incoming
             .server()
@@ -737,7 +583,7 @@ impl<B: Backend> AccountEngine<B> {
         // A draft's copy is made from the draft as it stands now, so what waited sends the
         // latest; one with nothing to put there any more is done with.
         if let ProtoOp::KeepDraft { draft, .. } = &op {
-            match crate::server_drafts::copy(&self.store, *draft)? {
+            match mail_runtime::server_drafts::copy(&self.store, *draft)? {
                 Some(bytes) => self.backend.stage_append(bytes),
                 None => return Ok(ProtoOutcome::Applied),
             }
@@ -746,8 +592,8 @@ impl<B: Backend> AccountEngine<B> {
         // `IDLE_REARM`; this is only the floor under that. Anything else that goes this quiet
         // is a connection that is gone.
         let quiet = match op {
-            ProtoOp::Watch { .. } => wait::IDLE_REARM + crate::drive::QUIET,
-            _ => crate::drive::QUIET,
+            ProtoOp::Watch { .. } => mail_runtime::IDLE_REARM + mail_runtime::drive::QUIET,
+            _ => mail_runtime::drive::QUIET,
         };
         // Asked last, so nothing that can fail comes between the backend agreeing to resume and
         // the operation beginning.
@@ -920,7 +766,7 @@ impl<B: Backend> AccountEngine<B> {
         // error to compile, not a message posted to the wrong company.
         let outgoing = match &self.plan.outgoing {
             Outgoing::Nowhere => return Err(RuntimeError::NoServer("send from")),
-            // Submitted by `crate::jmap::JmapEngine`, which holds the session this needs.
+            // Submitted by `mail_runtime::jmap::JmapEngine`, which holds the session this needs.
             Outgoing::Jmap => {
                 return Err(RuntimeError::UnsupportedIo(
                     "a JMAP account sends through its JMAP engine".to_owned(),
@@ -954,7 +800,7 @@ impl<B: Backend> AccountEngine<B> {
             }
             (done, _) => done,
         };
-        sent.map_err(|e| crate::sending::redirect_refused(e, resent))
+        sent.map_err(|e| mail_runtime::sending::redirect_refused(e, resent))
     }
 
     /// Submit `posting` on `kept`, or on a new connection to `outgoing`, and keep the
@@ -1097,7 +943,7 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// Keep what was just submitted as `raw`, dated `at`, as [`Self::sent_copy`] says: kept
-    /// here in Sent (see [`crate::assemble::sent`]), or queued as an upload into the server's
+    /// here in Sent (see [`mail_runtime::assemble::sent`]), or queued as an upload into the server's
     /// Sent mailbox so that going offline or a refusal retries it like any other operation.
     ///
     /// The copy is the message that went, with the blind recipients named in a `Bcc` field
@@ -1114,7 +960,9 @@ impl<B: Backend> AccountEngine<B> {
         let copy = mail_mime::with_blind(&sent, rcpt_to);
         match how {
             SentCopy::Server => Ok(None),
-            SentCopy::Here => crate::assemble::sent(&self.store, self.account.clone(), copy, at),
+            SentCopy::Here => {
+                mail_runtime::assemble::sent(&self.store, self.account.clone(), copy, at)
+            }
             SentCopy::Upload(path) => {
                 let raw = self.store.blobs().put(&copy)?;
                 self.store.enqueue(
@@ -1158,7 +1006,8 @@ impl<B: Backend> AccountEngine<B> {
             )));
         };
         let http = mail_net::http::http_client()?;
-        crate::graph::send_mime(&http, &self.graph_url, access.expose(), message, rcpt_to).await?;
+        mail_runtime::graph::send_mime(&http, &self.graph_url, access.expose(), message, rcpt_to)
+            .await?;
         Ok(ProtoOutcome::Submitted { remote: None })
     }
 
@@ -1234,9 +1083,9 @@ impl<B: Backend> AccountEngine<B> {
                 ProtoOp::Submit { draft, .. } => Some(*draft),
                 _ => None,
             };
-            // Sending apart from receiving (`crate::sending`): what a submission's failure asks
+            // Sending apart from receiving (`mail_runtime::sending`): what a submission's failure asks
             // for is its own row's, not the account's.
-            let tells_the_pass = crate::sending::tells_the_pass(&entry.op);
+            let tells_the_pass = mail_runtime::sending::tells_the_pass(&entry.op);
             // What a submission sent, and to whom, for the account that files its own copy of it.
             let copy = self.sent_copy();
             let submitted = match &entry.op {
@@ -1333,7 +1182,7 @@ impl<B: Backend> AccountEngine<B> {
                 Err(e) => {
                     let retry = match tells_the_pass {
                         true => e.retry(),
-                        false => crate::sending::settles(&e),
+                        false => mail_runtime::sending::settles(&e),
                     };
                     if tells_the_pass {
                         report.saw(&retry);
@@ -1487,10 +1336,10 @@ impl<B: Backend> AccountEngine<B> {
         let role = self.role_of(&mailbox);
         match remote {
             Some(remote) => {
-                crate::assemble::appended(
+                mail_runtime::assemble::appended(
                     &self.store,
                     self.account.clone(),
-                    crate::assemble::Destination { mailbox, role },
+                    mail_runtime::assemble::Destination { mailbox, role },
                     remote,
                     bytes,
                     &flags,
@@ -1499,10 +1348,10 @@ impl<B: Backend> AccountEngine<B> {
             }
             None => {
                 let placement = mail_archive::Placement::new(role, flags, Vec::new());
-                crate::assemble::keep(
+                mail_runtime::assemble::keep(
                     &self.store,
                     self.account.clone(),
-                    vec![crate::assemble::Keep {
+                    vec![mail_runtime::assemble::Keep {
                         raw: bytes,
                         placement,
                     }],
@@ -1637,7 +1486,7 @@ impl<B: Backend> AccountEngine<B> {
     }
 
     /// Queue the removal of a sent draft's copies from the server's Drafts folder
-    /// ([`crate::server_drafts`]), where this account keeps them: an IMAP account whose server
+    /// ([`mail_runtime::server_drafts`]), where this account keeps them: an IMAP account whose server
     /// names a Drafts folder. Whether anything was queued.
     fn drop_draft_copies(
         &self,
@@ -1648,8 +1497,8 @@ impl<B: Backend> AccountEngine<B> {
         if !self.plan.incoming.caps().writes_mailboxes || self.graph.is_some() {
             return Ok(false);
         }
-        // Nor does Gmail ([`crate::server_drafts::keeps_copies`]), whose EXPUNGE may archive.
-        if !crate::server_drafts::keeps_copies(self.caps()) {
+        // Nor does Gmail ([`mail_runtime::server_drafts::keeps_copies`]), whose EXPUNGE may archive.
+        if !mail_runtime::server_drafts::keeps_copies(self.caps()) {
             return Ok(false);
         }
         let Some(path) = self.folder_for(MailboxRole::Drafts) else {
@@ -1665,7 +1514,7 @@ impl<B: Backend> AccountEngine<B> {
             account: self.account.clone(),
             path,
         };
-        crate::server_drafts::queue_drop(&self.store, &draft, mailbox, now)
+        mail_runtime::server_drafts::queue_drop(&self.store, &draft, mailbox, now)
     }
 
     /// The server's path for a role, where it told us one.
@@ -1751,7 +1600,7 @@ impl<B: Backend> AccountEngine<B> {
     /// nothing; re-reading on every pass would be a wasted round trip every few minutes.
     ///
     /// A Graph account whose stored interval is slower than its folders now allow is stale at
-    /// once ([`Reader::polls_behind`](crate::graph::read::Reader::polls_behind)): it was written
+    /// once ([`Reader::polls_behind`](mail_runtime::graph::read::Reader::polls_behind)): it was written
     /// when Graph was polled every minute, and would otherwise keep that for up to a day. The
     /// folders are counted as the store holds them, as [`AccountEngine::refresh_caps`] counts
     /// them, so a refresh settles it and the next pass does not ask again.
@@ -2081,17 +1930,17 @@ impl<B: Backend> AccountEngine<B> {
         items: Vec<(RemoteRef, Vec<u8>)>,
         said: Said,
         now: DateTime<Utc>,
-    ) -> Result<crate::assemble::Absorbed, RuntimeError> {
+    ) -> Result<mail_runtime::assemble::Absorbed, RuntimeError> {
         let arrivals = items
             .into_iter()
-            .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+            .map(|(remote, raw)| mail_runtime::assemble::Arrival { remote, raw })
             .collect::<Vec<_>>();
         // Headers only: Body::Absent says the body has not arrived, rather than storing an empty
         // message that looks complete.
-        let stored = crate::assemble::absorb_counted(
+        let stored = mail_runtime::assemble::absorb_counted(
             &self.store,
             self.account.clone(),
-            crate::assemble::Destination {
+            mail_runtime::assemble::Destination {
                 mailbox: mailbox.clone(),
                 role: self.role_of(mailbox),
             },
@@ -2205,17 +2054,17 @@ impl<B: Backend> AccountEngine<B> {
         // flags, which the ingest below applies. Only the rest are new to this folder.
         let held: std::collections::HashSet<RemoteRef> =
             self.store.remote_refs(mailbox)?.into_iter().collect();
-        let new: Vec<crate::assemble::Arrival> = arrivals
+        let new: Vec<mail_runtime::assemble::Arrival> = arrivals
             .into_iter()
             .filter(|(remote, _)| !held.contains(remote))
-            .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+            .map(|(remote, raw)| mail_runtime::assemble::Arrival { remote, raw })
             .collect();
         if !new.is_empty() {
             report.headers_fetched += new.len();
-            let stored = match crate::assemble::absorb_counted(
+            let stored = match mail_runtime::assemble::absorb_counted(
                 &self.store,
                 self.account.clone(),
-                crate::assemble::Destination {
+                mail_runtime::assemble::Destination {
                     mailbox: mailbox.clone(),
                     role: self.role_of(mailbox),
                 },
@@ -2367,13 +2216,13 @@ impl<B: Backend> AccountEngine<B> {
     ) -> Result<(usize, Vec<RemoteRef>), RuntimeError> {
         let arrivals = items
             .into_iter()
-            .map(|(remote, raw)| crate::assemble::Arrival { remote, raw })
+            .map(|(remote, raw)| mail_runtime::assemble::Arrival { remote, raw })
             .collect::<Vec<_>>();
         let count = arrivals.len();
-        let stored = crate::assemble::absorb_counted(
+        let stored = mail_runtime::assemble::absorb_counted(
             &self.store,
             self.account.clone(),
-            crate::assemble::Destination {
+            mail_runtime::assemble::Destination {
                 mailbox: mailbox.clone(),
                 role: self.role_of(mailbox),
             },
@@ -2503,14 +2352,14 @@ impl<B: Backend> AccountEngine<B> {
                 whole.push(remote);
                 continue;
             };
-            crate::assemble::absorb_rebuilt_into(
+            mail_runtime::assemble::absorb_rebuilt_into(
                 &self.store,
                 self.account.clone(),
-                crate::assemble::Destination {
+                mail_runtime::assemble::Destination {
                     mailbox: mailbox.clone(),
                     role: self.role_of(mailbox),
                 },
-                vec![crate::assemble::Arrival { remote, raw }],
+                vec![mail_runtime::assemble::Arrival { remote, raw }],
                 now,
             )?;
             report.bodies_fetched += 1;
@@ -2839,7 +2688,7 @@ impl<B: Backend> AccountEngine<B> {
             .collect();
         let asked = limit.saturating_add(u32::try_from(resting.len()).unwrap_or(u32::MAX));
         let (mut order, mut first) =
-            crate::wanted::backlog(self.store.as_ref(), mailbox, self.since, asked)?;
+            mail_runtime::wanted::backlog(self.store.as_ref(), mailbox, self.since, asked)?;
         first -= order[..first]
             .iter()
             .filter(|r| resting.contains(*r))
