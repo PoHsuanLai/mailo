@@ -595,3 +595,129 @@ mod the_search_language {
         );
     }
 }
+
+/// What a list of one mailbox or one label costs when most of the store is somewhere else.
+mod membership {
+    use super::*;
+
+    const LABEL: LabelId = LabelId::from_uuid(uuid::uuid!("00000000-0000-4000-8000-0000000000b1"));
+    const THREADS: i64 = 40_000;
+
+    /// A store of [`THREADS`] summaries spread as a long-lived account's are: most in the
+    /// archive and the inbox, a few dozen drafts, a couple of hundred carrying the label.
+    ///
+    /// Made by copying one real summary row many times in SQL, so that seeding is one statement
+    /// and every column holds what the store itself wrote.
+    fn skewed_store() -> (SqliteStore, tempfile::TempDir) {
+        let (store, dir) = store();
+        fill(&store, 500);
+        {
+            let db = store.raw_connection();
+            db.execute_batch(&format!(
+            "CREATE TEMP TABLE model AS SELECT * FROM thread_summary LIMIT 1;
+             WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i + 1 < {THREADS}),
+             spread AS (
+                 SELECT i,
+                     printf('00000000-0000-4000-8001-%012x', i) AS id,
+                     CASE WHEN i % 800 = 7 THEN '[\"drafts\"]'
+                          WHEN i % 1000 < 400 THEN '[\"inbox\"]'
+                          WHEN i % 1000 < 880 THEN '[\"archive\"]'
+                          WHEN i % 1000 < 960 THEN '[\"sent\"]'
+                          WHEN i % 1000 < 990 THEN '[\"trash\"]'
+                          ELSE '[\"spam\"]' END AS mailboxes,
+                     CASE WHEN i % 200 = 3 THEN '[\"{LABEL}\"]' ELSE '[]' END AS labels
+                 FROM n)
+             INSERT INTO threads (id, account, snooze, pin)
+                 SELECT id, (SELECT account FROM model), 'null', 'null' FROM spread;"
+        ))
+        .unwrap();
+            // The model row's own snooze and pin, which are what a summary of an untouched thread
+            // carries, rather than a guess at their encoding.
+            db.execute_batch(&format!(
+                "UPDATE threads SET
+                 snooze = (SELECT snooze FROM threads WHERE id = (SELECT thread FROM model)),
+                 pin = (SELECT pin FROM threads WHERE id = (SELECT thread FROM model))
+             WHERE id LIKE '00000000-0000-4000-8001-%';
+             WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i + 1 < {THREADS})
+             INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
+                     participants, recipients, last_date, message_count, read, star, mailboxes,
+                     labels, attachments, snooze, pin, mute, follow_up, sort_subject,
+                     sort_sender, size, unread, starred, flag)
+                 SELECT printf('00000000-0000-4000-8001-%012x', i), m.account, m.subject,
+                     m.snippet, m.from_name, m.from_email, m.participants, m.recipients,
+                     strftime('%Y-%m-%dT%H:%M:%S', 1700000000 + i * 60, 'unixepoch')
+                         || '.000000000Z',
+                     m.message_count,
+                     CASE WHEN i % 3 = 0 THEN '\"unread\"' ELSE '\"read\"' END,
+                     m.star,
+                     CASE WHEN i % 800 = 7 THEN '[\"drafts\"]'
+                          WHEN i % 1000 < 400 THEN '[\"inbox\"]'
+                          WHEN i % 1000 < 880 THEN '[\"archive\"]'
+                          WHEN i % 1000 < 960 THEN '[\"sent\"]'
+                          WHEN i % 1000 < 990 THEN '[\"trash\"]'
+                          ELSE '[\"spam\"]' END,
+                     CASE WHEN i % 200 = 3 THEN '[\"{LABEL}\"]' ELSE '[]' END,
+                     m.attachments, m.snooze, m.pin, m.mute, m.follow_up, m.sort_subject,
+                     m.sort_sender, m.size, i % 3 = 0, m.starred, m.flag
+                 FROM n, model m;
+             INSERT OR IGNORE INTO thread_mailbox (thread, mailbox)
+                 SELECT ts.thread, j.value FROM thread_summary ts, json_each(ts.mailboxes) j;
+             INSERT OR IGNORE INTO thread_label (thread, label)
+                 SELECT ts.thread, j.value FROM thread_summary ts, json_each(ts.labels) j;
+             DELETE FROM threads WHERE id NOT LIKE '00000000-0000-4000-8001-%';
+             DROP TABLE model;"
+            ))
+            .unwrap();
+        }
+        (store, dir)
+    }
+
+    fn in_mailbox(role: MailboxRole) -> Filter {
+        Filter::InMailbox(role)
+    }
+
+    fn unread_in(role: MailboxRole) -> Filter {
+        Filter::And(vec![in_mailbox(role), Filter::Read(ReadState::Unread)])
+    }
+
+    /// Not a test of anything but a measurement: `cargo nextest run -p mail-store --release
+    /// --run-ignored only -E 'test(membership_costs)'`, then read the numbers it prints. The
+    /// lists and counts are the ones the window asks for, on the public store API.
+    #[test]
+    #[ignore = "a measurement; run it by name in release mode"]
+    fn membership_costs() {
+        let (store, _dir) = skewed_store();
+        assert_eq!(store.count(&Filter::All, at(0)).unwrap(), THREADS as u64);
+
+        let first = |name: &str, filter: Filter| {
+            let q = page(50, filter);
+            let took = best_of_three(|| {
+                store.threads(&q, at(0)).unwrap();
+            });
+            let got = store.threads(&q, at(0)).unwrap().items.len();
+            eprintln!("list  {name:<10} {took:>10.2?}  ({got} rows)");
+        };
+        first("inbox", in_mailbox(MailboxRole::Inbox));
+        first("archive", in_mailbox(MailboxRole::Archive));
+        first("drafts", in_mailbox(MailboxRole::Drafts));
+        first("label", Filter::HasLabel(LABEL));
+
+        let counted = |name: &str, filter: Filter| {
+            let took = best_of_three(|| {
+                store.count(&filter, at(0)).unwrap();
+            });
+            let n = store.count(&filter, at(0)).unwrap();
+            eprintln!("count {name:<10} {took:>10.2?}  ({n})");
+        };
+        for role in MailboxRole::ALL {
+            counted(role.as_str(), unread_in(role));
+        }
+        counted("label", Filter::HasLabel(LABEL));
+        let all_badges = best_of_three(|| {
+            for role in MailboxRole::ALL {
+                store.count(&unread_in(role), at(0)).unwrap();
+            }
+        });
+        eprintln!("count all six unread badges {all_badges:>10.2?}");
+    }
+}

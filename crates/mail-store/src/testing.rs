@@ -595,6 +595,8 @@ pub fn downgrade_to_before_reparse(db_path: &std::path::Path) {
              ALTER TABLE messages DROP COLUMN flag;
              ALTER TABLE thread_summary DROP COLUMN flag;
              DROP TABLE unreadable;
+             DROP TABLE thread_mailbox;
+             DROP TABLE thread_label;
              ALTER TABLE sync_state DROP COLUMN held_through;
              ALTER TABLE sync_state DROP COLUMN flags_swept_at;
              ALTER TABLE sync_state DROP COLUMN expunges_swept_at;

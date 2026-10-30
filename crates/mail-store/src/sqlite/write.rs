@@ -422,6 +422,14 @@ impl SqliteStore {
         let Some(facts) = mail_domain::SortFacts::of(&messages) else {
             return Ok(());
         };
+        let mailboxes = to_json("MailboxSet", &s.mailboxes)?;
+        let labels = to_json("labels", &s.labels)?;
+        // What the summary held before, to know below whether the membership rows still say it.
+        let before: Option<(String, String)> = self
+            .connection()
+            .prepare_cached("SELECT mailboxes, labels FROM thread_summary WHERE thread = ?1")?
+            .query_row(params![thread.to_string()], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
         self.connection()
             .prepare_cached(
                 "INSERT INTO thread_summary (thread, account, subject, snippet, from_name, from_email,
@@ -466,8 +474,8 @@ impl SqliteStore {
                 i64::from(s.message_count),
                 to_json("ReadState", &s.read)?,
                 to_json("Star", &s.star)?,
-                to_json("MailboxSet", &s.mailboxes)?,
-                to_json("labels", &s.labels)?,
+                mailboxes,
+                labels,
                 to_json("Attachments", &s.attachments)?,
                 to_json("Snooze", &s.snooze)?,
                 to_json("Pin", &s.pin)?,
@@ -480,6 +488,37 @@ impl SqliteStore {
                 s.star == mail_domain::Star::Starred,
                 to_json("Hue", &s.flag)?,
             ])?;
+        // Only what changed is rewritten, for the reason the summary itself is not: a write
+        // that changes nothing still costs its rows and their indexes.
+        if before.as_ref().map(|(m, _)| m) != Some(&mailboxes) {
+            let roles: Vec<String> = s.mailboxes.iter().map(|r| r.as_str().to_owned()).collect();
+            self.replace_membership("thread_mailbox", "mailbox", thread, &roles)?;
+        }
+        if before.as_ref().map(|(_, l)| l) != Some(&labels) {
+            let ids: Vec<String> = s.labels.iter().map(ToString::to_string).collect();
+            self.replace_membership("thread_label", "label", thread, &ids)?;
+        }
+        Ok(())
+    }
+
+    /// Make the rows of `table` for `thread` exactly `members`: the lists of a mailbox or a label
+    /// search these instead of reading the summaries' JSON, which no index can reach.
+    fn replace_membership(
+        &self,
+        table: &str,
+        column: &str,
+        thread: ThreadId,
+        members: &[String],
+    ) -> Result<(), StoreError> {
+        let db = self.connection();
+        db.prepare_cached(&format!("DELETE FROM {table} WHERE thread = ?1"))?
+            .execute(params![thread.to_string()])?;
+        let mut insert = db.prepare_cached(&format!(
+            "INSERT OR IGNORE INTO {table} (thread, {column}) VALUES (?1, ?2)"
+        ))?;
+        for member in members {
+            insert.execute(params![thread.to_string(), member])?;
+        }
         Ok(())
     }
 

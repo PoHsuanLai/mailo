@@ -29,6 +29,7 @@ mod ingest_to_search;
 mod jmap;
 mod junk;
 mod labels;
+mod membership;
 mod offline;
 mod opened;
 mod parity;

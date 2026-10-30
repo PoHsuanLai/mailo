@@ -764,6 +764,25 @@ enum Value {
     Int,
 }
 
+/// Whether `limit` threads or fewer are in `member`, which is what [`sql::compile_knowing`] starts
+/// a search from. Counted only up to one past the limit, so that asking about the Inbox costs
+/// that many index entries and not all of them. A count that fails says no, which is the plan
+/// that is right for any size and only slow for a small one.
+fn few_in(db: &Connection, member: sql::Member<'_>, limit: i64) -> bool {
+    let (table, column, value) = match member {
+        sql::Member::Mailbox(name) => ("thread_mailbox", "mailbox", name),
+        sql::Member::Label(id) => ("thread_label", "label", id),
+    };
+    let counted = db
+        .prepare_cached(&format!(
+            "SELECT count(*) FROM (SELECT 1 FROM {table} WHERE {column} = ?1 LIMIT ?2)"
+        ))
+        .and_then(|mut count| {
+            count.query_row(rusqlite::params![value, limit + 1], |r| r.get::<_, i64>(0))
+        });
+    matches!(counted, Ok(n) if n <= limit)
+}
+
 /// The columns a sort orders by, most significant first: its own, then the date, then the
 /// thread, so the order is total and two rows that sort alike stay newest first, or oldest first,
 /// whichever way the sort runs. The date sorts by itself and the thread alone.
@@ -831,7 +850,10 @@ impl Store for SqliteStore {
         query: &Query,
         now: DateTime<Utc>,
     ) -> Result<Page<ThreadSummary>, StoreError> {
-        let compiled = sql::compile(&query.filter, now);
+        let db = self.reader();
+        let compiled = sql::compile_knowing(&query.filter, now, &|member| {
+            few_in(&db, member, sql::FEW_TO_LIST)
+        });
         let columns = order_columns(query.sort.property);
         let dir = match query.sort.dir {
             SortDir::Asc => "ASC",
@@ -878,8 +900,6 @@ impl Store for SqliteStore {
         // One extra row tells us whether another page exists without a second COUNT query.
         let limit = i64::from(query.page.limit);
         bound.push(sql::SqlValue::Int(limit + 1));
-
-        let db = self.reader();
 
         // Cached: a list asks the same page again on every repaint, and the text differs only
         // with the filter and the sort.
@@ -937,12 +957,15 @@ impl Store for SqliteStore {
     }
 
     fn count(&self, filter: &Filter, now: DateTime<Utc>) -> Result<u64, StoreError> {
-        let compiled = sql::compile(filter, now);
+        let db = self.reader();
+        let compiled = sql::compile_knowing(filter, now, &|member| {
+            few_in(&db, member, sql::FEW_TO_COUNT)
+        });
         let sql_text = format!(
             "SELECT count(*) FROM thread_summary ts WHERE {}",
             compiled.where_clause
         );
-        let n: i64 = self.reader().prepare_cached(&sql_text)?.query_row(
+        let n: i64 = db.prepare_cached(&sql_text)?.query_row(
             rusqlite::params_from_iter(compiled.params.iter().map(|v| match v {
                 sql::SqlValue::Text(t) => rusqlite::types::Value::Text(t.clone()),
                 sql::SqlValue::Int(i) => rusqlite::types::Value::Integer(*i),
