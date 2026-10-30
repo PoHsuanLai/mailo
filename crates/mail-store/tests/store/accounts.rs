@@ -321,6 +321,18 @@ fn the_notify_floor_is_armed_once_and_then_read_back() {
 }
 
 #[test]
+fn arming_the_notify_floor_again_wakes_no_one_who_reads_the_accounts() {
+    let (store, id) = with_ada();
+    let rx = store.subscribe();
+
+    store.arm_notify_floor(id.clone(), at(3)).unwrap();
+    assert_eq!(rx.try_iter().count(), 1, "the first arming is a change");
+
+    store.arm_notify_floor(id, at(20)).unwrap();
+    assert_eq!(rx.try_iter().count(), 0, "a floor already armed is not");
+}
+
+#[test]
 fn a_hold_is_kept_replaced_listed_and_let_go() {
     let (store, id) = with_ada();
     let draft = DraftId::generate();

@@ -58,3 +58,25 @@ fn the_app_s_lock_is_the_watch_s_own_and_refuses_a_second_holder() {
     let second = step(mail_core::ipc::watching::claim_at(&agent));
     assert!(matches!(second, Step::Wait), "{second:?}");
 }
+
+#[test]
+fn a_burst_of_writes_is_one_look_and_looks_keep_their_distance() {
+    let (tx, written) = std::sync::mpsc::channel();
+    let gap = Duration::from_millis(150);
+    let every = Duration::from_secs(30);
+    let start = Instant::now();
+    let mut looked = None;
+    let mut looks = 0;
+    for _ in 0..3 {
+        for _ in 0..50 {
+            tx.send(()).unwrap();
+        }
+        wait_to_look(&written, looked, every, gap);
+        looked = Some(Instant::now());
+        looks += 1;
+        assert!(written.try_recv().is_err(), "the burst was taken as one");
+    }
+    assert_eq!(looks, 3);
+    // Three looks cannot be nearer than two gaps, however many writes asked for them.
+    assert!(start.elapsed() >= gap * 2, "{:?}", start.elapsed());
+}
