@@ -21,7 +21,7 @@ hand must not restart in a loop.
 | To | How | Where |
 | --- | --- | --- |
 | The notification server | `org.freedesktop.Notifications.Notify`: app name `mailo`, icon `mailo`, summary the sender, body the subject, action `default`, hints `category=email.arrived`, `desktop-entry=org.quire.Mail`, `x-mailo-thread`, `x-mailo-account` | `mail-core/src/notify/desktop.rs` |
-| The dock | `com.canonical.Unity.LauncherEntry.Update("application://org.quire.Mail.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-app/src/session.rs`, `mail-ui/src/launcher/` |
+| The dock | `com.canonical.Unity.LauncherEntry.Update("application://org.quire.Mail.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-app/src/session.rs`, `mail-os/src/launcher/` |
 
 With a watch running, the window leaves the launcher count to it (`mail_core::ipc::watching::running`):
 a dock forgets a count when its sender leaves the bus, so a count sent by a window would vanish when

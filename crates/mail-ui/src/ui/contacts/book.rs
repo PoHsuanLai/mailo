@@ -53,7 +53,7 @@ pub(in crate::ui) fn import(client: &Client, bytes: &[u8]) -> Result<String, Str
         .book()
         .import(bytes)
         .map(|done| {
-            crate::said::contacts::imported(&done)
+            mail_os::said::contacts::imported(&done)
                 .trim()
                 .replace('\n', ". ")
         })

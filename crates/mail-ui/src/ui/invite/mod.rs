@@ -87,7 +87,7 @@ pub(in crate::ui) fn answer(
     clock: Clock,
 ) -> Result<(String, Option<Card>), String> {
     let answered = client.invite().answer(message, attendance, note, now)?;
-    let said = crate::said::invite::said(&answered);
+    let said = mail_os::said::invite::said(&answered);
     let card = client
         .looking(looks)
         .invite_again(message)

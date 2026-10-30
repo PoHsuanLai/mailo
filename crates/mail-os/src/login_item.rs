@@ -20,7 +20,6 @@
 //!   mail is checked with no window open there whatever a switch would say; Settings shows none
 //!   ([`KEEPS`]).
 
-use crate::settings::WhileQuit;
 use std::sync::Arc;
 
 #[cfg(target_os = "macos")]
@@ -59,12 +58,13 @@ impl std::fmt::Debug for LoginItems {
     }
 }
 
-/// Make the login item what `wanted` says: registered when on, with where it stands; gone when
-/// off (`None`).
-pub fn apply(item: &dyn LoginItem, wanted: WhileQuit) -> Result<Option<Registered>, String> {
-    match wanted {
-        WhileQuit::On => item.register().map(Some),
-        WhileQuit::Off => item.unregister().map(|()| None),
+/// Make the login item what `wanted` says: registered when `wanted`, with where it stands; gone
+/// when not (`None`). The Settings sheet's switch is `wanted`.
+pub fn apply(item: &dyn LoginItem, wanted: bool) -> Result<Option<Registered>, String> {
+    if wanted {
+        item.register().map(Some)
+    } else {
+        item.unregister().map(|()| None)
     }
 }
 

@@ -6,17 +6,12 @@
 //! one. Its tests seed a store as fixtures (dev-dependencies) and hand the window a client over it.
 //!
 //! [`ui`] is the window. Beside it are the settings files it and the command line read
-//! ([`settings`]), what is said of a finished import, export or push ([`said`]), and the window's
-//! seams with the platform: the launcher's unread count ([`launcher`]), the system's mail-link
-//! handler ([`mail_handler`]), another program's ask to open a conversation ([`handoff`]) and the
-//! settings files found damaged at launch ([`damage`]).
+//! ([`settings`]), another program's ask to open a conversation ([`handoff`]) and the settings
+//! files found damaged at launch ([`damage`]). The seams with the platform that draw nothing, and
+//! what is said of a finished import, export or push, are `mail-os`'s.
 
 pub mod damage;
 pub mod handoff;
-pub mod launcher;
-pub mod login_item;
-pub mod mail_handler;
-pub mod said;
 pub mod settings;
 #[cfg(feature = "testing")]
 pub mod testing;

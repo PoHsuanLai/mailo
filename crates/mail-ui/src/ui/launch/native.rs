@@ -137,7 +137,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // closes, which a dock would otherwise forget along with this window's connection. On macOS
     // the Dock tile is the app's, and the app is the one voice, on a thread of its own, whether
     // a window is open or not and whoever watches: no other process can badge it.
-    let config = match crate::launcher::platform() {
+    let config = match mail_os::launcher::platform() {
         Some(launcher) if stays => {
             if let Some(keep) = &resident.keep_badge {
                 keep(launcher.0);
@@ -153,7 +153,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // the launched app has one; a test's window has none, so no test registers a login item.
     // Handed the switch as it stands once now, so an item made by a mailo since moved names the
     // program where it is.
-    let config = match crate::login_item::platform() {
+    let config = match mail_os::login_item::platform() {
         Some(items) => {
             if while_quit == Some(crate::settings::WhileQuit::On) {
                 let kept = items.clone();
@@ -161,9 +161,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
                 let started = std::thread::Builder::new()
                     .name("mailo-login-item".to_owned())
                     .spawn(move || {
-                        if let Err(why) =
-                            crate::login_item::apply(&*kept.0, crate::settings::WhileQuit::On)
-                        {
+                        if let Err(why) = mail_os::login_item::apply(&*kept.0, true) {
                             log::warn!("mail is not checked at login: {why}");
                         }
                     });
@@ -177,7 +175,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     };
     // Which application opens email links, and the system's question to make it mailo. Only an
     // installed mailo.app has one; a test's window has none, so no test changes the real handler.
-    let config = match crate::mail_handler::platform() {
+    let config = match mail_os::mail_handler::platform() {
         Some(handlers) => config.with_context(handlers),
         None => config,
     };

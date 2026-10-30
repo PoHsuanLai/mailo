@@ -1,12 +1,12 @@
-//! The window's unread count, handed to the launcher (`crate::launcher`).
+//! The window's unread count, handed to the launcher (`mail_os::launcher`).
 //!
 //! Counted when the store moves (any write, a sync's included) or the Space changes, on a
 //! blocking thread, and handed on only when the number changed, so a write that leaves it alone
 //! sends the dock nothing.
 
-use crate::launcher::{self, Launcher, Unread};
 use crate::ui::view::Shell;
 use dioxus::prelude::*;
+use mail_os::launcher::{self, Launcher, Unread};
 
 /// Keep the launcher's count. Does nothing in a window with no [`Launcher`], which is every test
 /// that does not hand it a recorder.
