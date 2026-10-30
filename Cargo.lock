@@ -5134,6 +5134,8 @@ dependencies = [
  "mail-runtime",
  "mail-store",
  "mail-ui",
+ "mailo-archive",
+ "mailo-crypto",
  "mailo-domain",
  "mailo-mime",
  "mailo-pim",
@@ -5210,6 +5212,8 @@ dependencies = [
  "log",
  "mail-runtime",
  "mail-store",
+ "mailo-archive",
+ "mailo-crypto",
  "mailo-domain",
  "mailo-mime",
  "mailo-pim",
@@ -5272,6 +5276,8 @@ dependencies = [
  "log",
  "mail-runtime",
  "mail-store",
+ "mailo-archive",
+ "mailo-crypto",
  "mailo-domain",
  "mailo-mime",
  "mailo-pim",
@@ -5365,6 +5371,8 @@ dependencies = [
  "mail-runtime",
  "mail-store",
  "mail-ui",
+ "mailo-archive",
+ "mailo-crypto",
  "mailo-domain",
  "mailo-mime",
  "mailo-pim",
@@ -5398,6 +5406,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "mailo-archive"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "mailo-domain",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "mailo-crypto"
+version = "0.1.0"
+dependencies = [
+ "aes 0.8.4",
+ "aes-gcm",
+ "base64 0.22.1",
+ "cbc 0.1.2",
+ "chrono",
+ "cms",
+ "const-oid 0.9.6",
+ "der",
+ "des",
+ "flate2",
+ "hmac 0.12.1",
+ "mail-parser",
+ "mailo-crypto",
+ "mailo-domain",
+ "mailo-mime",
+ "p256",
+ "p384",
+ "pgp",
+ "pkcs12",
+ "pkcs5",
+ "pkcs8",
+ "rand 0.8.8",
+ "rsa",
+ "sha1 0.10.7",
+ "sha2 0.10.9",
+ "signature",
+ "smallvec",
+ "spki",
+ "tempfile",
+ "thiserror 2.0.21",
+ "x509-cert",
+ "zeroize",
+]
+
+[[package]]
 name = "mailo-domain"
 version = "0.1.0"
 dependencies = [
@@ -5417,46 +5472,20 @@ dependencies = [
 name = "mailo-mime"
 version = "0.1.0"
 dependencies = [
- "aes 0.8.4",
- "aes-gcm",
  "ammonia",
  "base64 0.22.1",
- "cbc 0.1.2",
  "chardetng",
  "chrono",
- "cms",
- "const-oid 0.9.6",
  "cssparser 0.38.0",
- "der",
- "des",
  "encoding_rs",
- "flate2",
- "hmac 0.12.1",
  "html5ever 0.40.1",
  "mail-builder",
  "mail-parser",
  "mailo-domain",
- "mailo-mime",
- "p256",
- "p384",
- "pgp",
- "pkcs12",
- "pkcs5",
- "pkcs8",
  "proptest",
- "rand 0.8.8",
- "rsa",
- "sha1 0.10.7",
- "sha2 0.10.9",
- "signature",
- "smallvec",
- "spki",
- "tempfile",
  "thiserror 2.0.21",
  "url",
  "uuid",
- "x509-cert",
- "zeroize",
 ]
 
 [[package]]

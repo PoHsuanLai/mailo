@@ -9,8 +9,6 @@
 mod support;
 
 mod auth;
-#[cfg(feature = "smime")]
-mod bimi;
 mod blind;
 mod block_adversarial;
 mod block_heaviness;
@@ -23,8 +21,6 @@ mod build;
 mod imip;
 mod inline;
 mod mdn;
-#[cfg(feature = "openpgp")]
-mod openpgp;
 mod parse;
 mod print;
 mod raw_headers;
@@ -33,10 +29,6 @@ mod related;
 mod sanitize;
 mod sanitize_adversarial;
 mod sanitize_unrendered;
-#[cfg(feature = "smime")]
-mod smime;
-#[cfg(feature = "smime")]
-mod smime_openssl;
 mod unsubscribe;
 mod wire;
 

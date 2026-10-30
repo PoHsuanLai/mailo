@@ -38,7 +38,7 @@ const ALLOWED: &[(&str, &str)] = &[
         "Graph's `dateTimeTimeZone`, a wire format",
     ),
     (
-        "mail-mime/src/archive/mbox.rs",
+        "mail-archive/src/mbox.rs",
         "the mbox `From ` line, a file format",
     ),
     ("mail-proto/src/imap.rs", "IMAP's date-time (RFC 3501)"),

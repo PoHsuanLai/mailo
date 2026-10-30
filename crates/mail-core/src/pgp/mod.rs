@@ -2,7 +2,7 @@
 //!
 //! The pieces: [`keys`] makes, imports, exports and forgets keys; [`read`] opens a message when
 //! the reader shows it; [`send`] seals an outgoing one as Send is pressed. The cryptography is
-//! `mail_mime::openpgp`'s, the keyring and the Web Key Directory are `mail_runtime`'s, and this
+//! `mail_crypto::openpgp`'s, the keyring and the Web Key Directory are `mail_runtime`'s, and this
 //! module decides which keys to use.
 
 pub mod keys;
@@ -14,8 +14,8 @@ pub use read::{Protected, open_bytes, open_message};
 pub use seal::OpenPgp;
 
 use chrono::{DateTime, Utc};
+use mail_crypto::CryptoError;
 use mail_domain::{Fingerprint, KeySource, PgpKey};
-use mail_mime::MimeError;
 use mail_runtime::RuntimeError;
 use mail_store::{SqliteStore, Store, StoreError};
 
@@ -83,7 +83,7 @@ pub enum PgpError {
     )]
     SecretWouldBeLost(Fingerprint),
     #[error("{0}")]
-    Mime(MimeError),
+    Crypto(CryptoError),
     #[error("{0}")]
     Runtime(#[from] RuntimeError),
     #[error("store: {0}")]
@@ -107,11 +107,11 @@ impl PgpError {
     }
 }
 
-impl From<MimeError> for PgpError {
-    fn from(e: MimeError) -> Self {
+impl From<CryptoError> for PgpError {
+    fn from(e: CryptoError) -> Self {
         match e {
-            MimeError::KeyLocked(fingerprint) => PgpError::Locked(fingerprint),
-            other => PgpError::Mime(other),
+            CryptoError::KeyLocked(fingerprint) => PgpError::Locked(fingerprint),
+            other => PgpError::Crypto(other),
         }
     }
 }

@@ -3,12 +3,12 @@
 //! authEnveloped data (which OpenSSL streams as BER), and PKCS#12 files.
 //!
 //! `#[ignore]`d: it runs the `openssl` binary, which a test may not assume is installed. Run it
-//! by hand with `cargo test -p mailo-mime --test mime -- --ignored smime_openssl::`; each test says so
+//! by hand with `cargo test -p mailo-crypto --test crypto -- --ignored smime_openssl::`; each test says so
 //! and passes vacuously when there is no `openssl` on the PATH.
 
-use crate::support::smime::*;
+use mail_crypto::smime::{self, Identity, Keys, Sealing};
+use mail_crypto::testing::smime::*;
 use mail_domain::*;
-use mail_mime::smime::{self, Identity, Keys, Sealing};
 use std::path::Path;
 use std::process::Command;
 

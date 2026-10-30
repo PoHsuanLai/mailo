@@ -5,7 +5,6 @@
 //!
 //! [`IoNeed`]: https://docs.rs/mailo-proto
 
-pub mod archive;
 pub mod auth;
 pub mod bimi;
 pub mod block;
@@ -17,18 +16,12 @@ pub mod imip;
 pub mod inline;
 pub mod mailto;
 pub mod mdn;
-#[cfg(feature = "openpgp")]
-pub mod openpgp;
 pub mod parse;
 pub mod print;
 pub mod reconstruct;
 pub mod sanitize;
 pub mod script;
-#[cfg(feature = "smime")]
-pub mod smime;
 pub mod stamp;
-#[cfg(feature = "testing")]
-pub mod testing;
 pub mod unsubscribe;
 
 pub use auth::{AuthResults, Check, Receiver, Verdict, authentication_results};
@@ -41,7 +34,7 @@ pub use build::{
     Disclosure, Posting, Resending, base64_len, build, draft_copy, draft_message_id, posting,
     resent,
 };
-pub use error::{MboxError, MimeError, NotHttpsUrl, NotMailto, RecordError, UnsafeUrl};
+pub use error::{MimeError, NotHttpsUrl, NotMailto, RecordError, UnsafeUrl};
 pub use graph::{GraphBody, GraphDraft, GraphImportance, graph_draft};
 pub use imip::{CalendarPart, CalendarReply, calendar_part, calendar_reply};
 pub use inline::{

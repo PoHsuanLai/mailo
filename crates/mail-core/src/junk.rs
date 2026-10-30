@@ -207,9 +207,9 @@ pub fn spared(store: &SqliteStore, message: &Message, policy: &Policy, names: &[
 
 /// Whether the server that delivered `raw` said it is spam.
 pub fn server_says_spam(raw: &[u8]) -> bool {
-    let flag = mail_mime::archive::header(raw, "X-Spam-Flag")
+    let flag = mail_archive::header(raw, "X-Spam-Flag")
         .is_some_and(|value| value.trim().eq_ignore_ascii_case("yes"));
-    let status = mail_mime::archive::header(raw, "X-Spam-Status").is_some_and(|value| {
+    let status = mail_archive::header(raw, "X-Spam-Status").is_some_and(|value| {
         value
             .trim()
             .split([',', ' ', ';'])

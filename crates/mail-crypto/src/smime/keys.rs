@@ -8,7 +8,7 @@ use super::asn1;
 use super::cert::Cert;
 use super::sign::DigestAlg;
 use super::smime_error;
-use crate::MimeError;
+use crate::CryptoError;
 use der::{Decode, Encode};
 use spki::AlgorithmIdentifierOwned;
 use zeroize::Zeroizing;
@@ -43,7 +43,7 @@ impl Eq for PrivateKey {}
 
 impl PrivateKey {
     /// From PKCS#8 `PrivateKeyInfo`, DER.
-    pub fn from_pkcs8_der(der: &[u8]) -> Result<PrivateKey, MimeError> {
+    pub fn from_pkcs8_der(der: &[u8]) -> Result<PrivateKey, CryptoError> {
         use pkcs8::DecodePrivateKey;
         let info = pkcs8::PrivateKeyInfo::from_der(der).map_err(|e| smime_error("a key", e))?;
         let oid = info.algorithm.oid;
@@ -67,23 +67,23 @@ impl PrivateKey {
                     .map(PrivateKey::P384)
                     .map_err(|e| smime_error("a P-384 key", e));
             }
-            return Err(MimeError::Smime(format!(
+            return Err(CryptoError::Smime(format!(
                 "keys on the curve {curve} are not supported"
             )));
         }
-        Err(MimeError::Smime(format!(
+        Err(CryptoError::Smime(format!(
             "{} keys are not supported",
             asn1::name(&oid)
         )))
     }
 
     /// From a PKCS#8 PEM block (`BEGIN PRIVATE KEY`), as the keyring holds it.
-    pub fn from_pkcs8_pem(pem: &str) -> Result<PrivateKey, MimeError> {
+    pub fn from_pkcs8_pem(pem: &str) -> Result<PrivateKey, CryptoError> {
         let (label, der) =
             der::pem::decode_vec(pem.as_bytes()).map_err(|e| smime_error("a PEM key", e))?;
         let der = Zeroizing::new(der);
         if label != "PRIVATE KEY" {
-            return Err(MimeError::Smime(format!(
+            return Err(CryptoError::Smime(format!(
                 "a PEM block labelled {label:?} is not a PKCS#8 private key"
             )));
         }
@@ -91,7 +91,7 @@ impl PrivateKey {
     }
 
     /// PKCS#8 `PrivateKeyInfo`, DER.
-    pub fn to_pkcs8_der(&self) -> Result<Zeroizing<Vec<u8>>, MimeError> {
+    pub fn to_pkcs8_der(&self) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
         use pkcs8::EncodePrivateKey;
         let document = match self {
             PrivateKey::Rsa(key) => key.to_pkcs8_der(),
@@ -103,7 +103,7 @@ impl PrivateKey {
     }
 
     /// A PKCS#8 PEM block, as the keyring keeps it.
-    pub fn to_pkcs8_pem(&self) -> Result<Zeroizing<String>, MimeError> {
+    pub fn to_pkcs8_pem(&self) -> Result<Zeroizing<String>, CryptoError> {
         let der = self.to_pkcs8_der()?;
         der::pem::encode_string("PRIVATE KEY", der::pem::LineEnding::LF, &der)
             .map(Zeroizing::new)
@@ -136,7 +136,7 @@ impl PrivateKey {
     pub(crate) fn sign(
         &self,
         hash: &[u8],
-    ) -> Result<(Vec<u8>, AlgorithmIdentifierOwned), MimeError> {
+    ) -> Result<(Vec<u8>, AlgorithmIdentifierOwned), CryptoError> {
         use signature::hazmat::PrehashSigner;
         let failed = |e: &dyn std::fmt::Display| smime_error("signing", e);
         match self {
@@ -264,9 +264,9 @@ pub struct Identity {
 
 impl Identity {
     /// An identity from its parts. Refused when the key is not the certificate's.
-    pub fn new(key: PrivateKey, cert: Cert, chain: Vec<Cert>) -> Result<Identity, MimeError> {
+    pub fn new(key: PrivateKey, cert: Cert, chain: Vec<Cert>) -> Result<Identity, CryptoError> {
         if key.public_spki_der() != cert.spki_der() {
-            return Err(MimeError::Smime(
+            return Err(CryptoError::Smime(
                 "that private key does not belong to that certificate".to_owned(),
             ));
         }

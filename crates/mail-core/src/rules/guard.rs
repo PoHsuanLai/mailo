@@ -110,7 +110,7 @@ pub fn headers_allow(
     if crate::junk::server_says_spam(raw) {
         return Err(Refusal::Spam);
     }
-    let header = |name: &str| mail_mime::archive::header(raw, name);
+    let header = |name: &str| mail_archive::header(raw, name);
     if let Some(auto) = header("Auto-Submitted")
         && !auto.trim().eq_ignore_ascii_case("no")
     {

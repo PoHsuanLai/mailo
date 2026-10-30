@@ -122,7 +122,7 @@ pub fn with_blind(message: &[u8], rcpt_to: &[String]) -> Vec<u8> {
 /// The header block, and everything from the blank line that ends it.
 ///
 /// A message with no blank line is all header, which is what a reader would make of it too.
-pub(crate) fn split_head(message: &[u8]) -> (&[u8], &[u8]) {
+pub fn split_head(message: &[u8]) -> (&[u8], &[u8]) {
     let mut start = 0;
     while start < message.len() {
         let end = message[start..]
@@ -139,7 +139,7 @@ pub(crate) fn split_head(message: &[u8]) -> (&[u8], &[u8]) {
 }
 
 /// Each header field, with its continuation lines and line endings.
-pub(crate) fn fields(head: &[u8]) -> Vec<&[u8]> {
+pub fn fields(head: &[u8]) -> Vec<&[u8]> {
     let mut out = Vec::new();
     let mut field_start = 0;
     let mut line_start = 0;

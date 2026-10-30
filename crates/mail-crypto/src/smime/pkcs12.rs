@@ -13,7 +13,7 @@ use super::ber::{self, Implicit};
 use super::cert::Cert;
 use super::keys::{Identity, PrivateKey};
 use super::smime_error;
-use crate::MimeError;
+use crate::CryptoError;
 use crate::openpgp::Rng;
 use cms::content_info::ContentInfo;
 use cms::encrypted_data::EncryptedData;
@@ -34,13 +34,13 @@ const ITERATIONS: u32 = 100_000;
 /// The identity in a PKCS#12 file: its private key, the certificate that key belongs to, and
 /// every other certificate in the file as the chain.
 ///
-/// [`MimeError::WrongPassword`] when the password does not open it; an error naming the algorithm
+/// [`CryptoError::WrongPassword`] when the password does not open it; an error naming the algorithm
 /// when it is one this client does not read.
-pub fn read_pkcs12(bytes: &[u8], password: &str) -> Result<Identity, MimeError> {
+pub fn read_pkcs12(bytes: &[u8], password: &str) -> Result<Identity, CryptoError> {
     let pfx = ber::decode::<Pfx>(bytes, Implicit::Keep)
-        .ok_or_else(|| MimeError::Smime("that is not a PKCS#12 file".to_owned()))?;
+        .ok_or_else(|| CryptoError::Smime("that is not a PKCS#12 file".to_owned()))?;
     if pfx.auth_safe.content_type != asn1::DATA {
-        return Err(MimeError::Smime(
+        return Err(CryptoError::Smime(
             "a PKCS#12 file protected by a public key is not read here".to_owned(),
         ));
     }
@@ -49,7 +49,7 @@ pub fn read_pkcs12(bytes: &[u8], password: &str) -> Result<Identity, MimeError> 
         check_mac(mac, &safe, password)?;
     }
     let contents = ber::decode::<Vec<ContentInfo>>(&safe, Implicit::Keep)
-        .ok_or_else(|| MimeError::Smime("the PKCS#12 contents could not be read".to_owned()))?;
+        .ok_or_else(|| CryptoError::Smime("the PKCS#12 contents could not be read".to_owned()))?;
     let mut keys: Vec<PrivateKey> = Vec::new();
     let mut certs: Vec<Cert> = Vec::new();
     for info in &contents {
@@ -62,22 +62,22 @@ pub fn read_pkcs12(bytes: &[u8], password: &str) -> Result<Identity, MimeError> 
                     .map_err(|e| smime_error("PKCS#12", e))?;
                 let data = ber::decode::<EncryptedData>(&der, Implicit::Keep)
                     .or_else(|| ber::decode::<EncryptedData>(&der, Implicit::Join))
-                    .ok_or_else(|| MimeError::Smime("unreadable PKCS#12 contents".to_owned()))?;
+                    .ok_or_else(|| CryptoError::Smime("unreadable PKCS#12 contents".to_owned()))?;
                 let content = &data.enc_content_info;
                 let ciphertext = content
                     .encrypted_content
                     .as_ref()
-                    .ok_or_else(|| MimeError::Smime("empty PKCS#12 contents".to_owned()))?;
+                    .ok_or_else(|| CryptoError::Smime("empty PKCS#12 contents".to_owned()))?;
                 decrypt(&content.content_enc_alg, ciphertext.as_bytes(), password)?.to_vec()
             }
             other => {
-                return Err(MimeError::Smime(format!(
+                return Err(CryptoError::Smime(format!(
                     "PKCS#12 contents of type {other} are not read here"
                 )));
             }
         };
         let bags = ber::decode::<Vec<SafeBag>>(&bags, Implicit::Keep)
-            .ok_or_else(|| MimeError::Smime("unreadable PKCS#12 bags".to_owned()))?;
+            .ok_or_else(|| CryptoError::Smime("unreadable PKCS#12 bags".to_owned()))?;
         for bag in bags {
             read_bag(&bag, password, &mut keys, &mut certs)?;
         }
@@ -86,11 +86,11 @@ pub fn read_pkcs12(bytes: &[u8], password: &str) -> Result<Identity, MimeError> 
 }
 
 /// An OCTET STRING's contents, from the ANY it is carried as.
-fn octets(any: &Any) -> Result<Vec<u8>, MimeError> {
+fn octets(any: &Any) -> Result<Vec<u8>, CryptoError> {
     let der = any.to_der().map_err(|e| smime_error("PKCS#12", e))?;
     ber::decode::<OctetString>(&der, Implicit::Keep)
         .map(|o| o.as_bytes().to_vec())
-        .ok_or_else(|| MimeError::Smime("unreadable PKCS#12 contents".to_owned()))
+        .ok_or_else(|| CryptoError::Smime("unreadable PKCS#12 contents".to_owned()))
 }
 
 fn read_bag(
@@ -98,7 +98,7 @@ fn read_bag(
     password: &str,
     keys: &mut Vec<PrivateKey>,
     certs: &mut Vec<Cert>,
-) -> Result<(), MimeError> {
+) -> Result<(), CryptoError> {
     let value = bag
         .bag_value
         .to_der()
@@ -129,15 +129,15 @@ fn read_bag(
 
 /// The key and the certificate it belongs to; the other certificates are its chain, nearest
 /// issuer first as far as their names say.
-fn identity(keys: Vec<PrivateKey>, certs: Vec<Cert>) -> Result<Identity, MimeError> {
+fn identity(keys: Vec<PrivateKey>, certs: Vec<Cert>) -> Result<Identity, CryptoError> {
     let Some(key) = keys.into_iter().next() else {
-        return Err(MimeError::Smime(
+        return Err(CryptoError::Smime(
             "the PKCS#12 file holds no private key".to_owned(),
         ));
     };
     let public = key.public_spki_der();
     let Some(at) = certs.iter().position(|c| c.spki_der() == public) else {
-        return Err(MimeError::Smime(
+        return Err(CryptoError::Smime(
             "the PKCS#12 file holds no certificate for its key".to_owned(),
         ));
     };
@@ -164,7 +164,7 @@ fn identity(keys: Vec<PrivateKey>, certs: Vec<Cert>) -> Result<Identity, MimeErr
 }
 
 /// The integrity check: an HMAC over the contents, keyed from the password (RFC 7292 App. B).
-fn check_mac(mac: &MacData, data: &[u8], password: &str) -> Result<(), MimeError> {
+fn check_mac(mac: &MacData, data: &[u8], password: &str) -> Result<(), CryptoError> {
     let oid = mac.mac.algorithm.oid;
     let iterations = mac.iterations;
     let salt = mac.mac_salt.as_bytes();
@@ -179,7 +179,7 @@ fn check_mac(mac: &MacData, data: &[u8], password: &str) -> Result<(), MimeError
                 .map_err(|e| smime_error("PKCS#12", e))?;
             hmac.update(data);
             hmac.verify_slice(expected)
-                .map_err(|_| MimeError::WrongPassword)
+                .map_err(|_| CryptoError::WrongPassword)
         }};
     }
     match oid {
@@ -187,7 +187,7 @@ fn check_mac(mac: &MacData, data: &[u8], password: &str) -> Result<(), MimeError
         asn1::SHA256 => check!(sha2::Sha256, 32),
         asn1::SHA384 => check!(sha2::Sha384, 48),
         asn1::SHA512 => check!(sha2::Sha512, 64),
-        other => Err(MimeError::Smime(format!(
+        other => Err(CryptoError::Smime(format!(
             "a PKCS#12 file checked with {} is not read here",
             asn1::name(&other)
         ))),
@@ -199,7 +199,7 @@ fn decrypt(
     algorithm: &AlgorithmIdentifierOwned,
     ciphertext: &[u8],
     password: &str,
-) -> Result<Zeroizing<Vec<u8>>, MimeError> {
+) -> Result<Zeroizing<Vec<u8>>, CryptoError> {
     match algorithm.oid {
         asn1::PBES2 => {
             let der = algorithm
@@ -210,7 +210,7 @@ fn decrypt(
             scheme
                 .decrypt(password.as_bytes(), ciphertext)
                 .map(Zeroizing::new)
-                .map_err(|_| MimeError::WrongPassword)
+                .map_err(|_| CryptoError::WrongPassword)
         }
         asn1::PBE_SHA1_3DES => {
             use cbc::cipher::{BlockDecryptMut, KeyIvInit, block_padding::Pkcs7};
@@ -218,7 +218,7 @@ fn decrypt(
                 .parameters
                 .as_ref()
                 .and_then(|p| p.decode_as::<pkcs12::pbe_params::Pkcs12PbeParams>().ok())
-                .ok_or_else(|| MimeError::Smime("unreadable PKCS#12 parameters".to_owned()))?;
+                .ok_or_else(|| CryptoError::Smime("unreadable PKCS#12 parameters".to_owned()))?;
             let derive = |kind, len| {
                 derive_key_utf8::<sha1::Sha1>(
                     password,
@@ -236,9 +236,9 @@ fn decrypt(
                 .map_err(|e| smime_error("PKCS#12", e))?
                 .decrypt_padded_vec_mut::<Pkcs7>(ciphertext)
                 .map(Zeroizing::new)
-                .map_err(|_| MimeError::WrongPassword)
+                .map_err(|_| CryptoError::WrongPassword)
         }
-        other => Err(MimeError::Smime(format!(
+        other => Err(CryptoError::Smime(format!(
             "this PKCS#12 file is encrypted with {}, which is not read here; export it again \
              with AES (OpenSSL 3's default, or `openssl pkcs12 -export -certpbe AES-256-CBC \
              -keypbe AES-256-CBC`)",
@@ -253,7 +253,7 @@ pub fn write_pkcs12(
     identity: &Identity,
     password: &str,
     rng: &mut impl Rng,
-) -> Result<Vec<u8>, MimeError> {
+) -> Result<Vec<u8>, CryptoError> {
     let local_id = attribute_set(identity.cert.fingerprint().0.to_vec())?;
     let pkcs8 = identity.key.to_pkcs8_der()?;
     let mut salt = [0u8; 16];
@@ -293,7 +293,7 @@ pub fn write_pkcs12(
             bag_attributes: (index == 0).then(|| local_id.clone()),
         });
     }
-    let data = |bags: &Vec<SafeBag>| -> Result<ContentInfo, MimeError> {
+    let data = |bags: &Vec<SafeBag>| -> Result<ContentInfo, CryptoError> {
         let der = bags.to_der().map_err(|e| smime_error("PKCS#12", e))?;
         Ok(ContentInfo {
             content_type: asn1::DATA,
@@ -335,13 +335,13 @@ pub fn write_pkcs12(
     pfx.to_der().map_err(|e| smime_error("PKCS#12", e))
 }
 
-fn any<T: Encode>(value: &T) -> Result<Any, MimeError> {
+fn any<T: Encode>(value: &T) -> Result<Any, CryptoError> {
     let der = value.to_der().map_err(|e| smime_error("PKCS#12", e))?;
     Any::from_der(&der).map_err(|e| smime_error("PKCS#12", e))
 }
 
 /// The bag attributes naming which key goes with which certificate (`localKeyId`).
-fn attribute_set(id: Vec<u8>) -> Result<SetOfVec<Attribute>, MimeError> {
+fn attribute_set(id: Vec<u8>) -> Result<SetOfVec<Attribute>, CryptoError> {
     let mut values = SetOfVec::new();
     values
         .insert(any(

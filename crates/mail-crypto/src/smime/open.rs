@@ -4,7 +4,7 @@
 //! top or nested inside something else, and `application/pkcs7-mime` (§3.3, §3.5.2) holding
 //! signed-data, enveloped-data or authEnveloped-data — the `x-` spellings of both included, and
 //! the CMS read whether it arrives as DER or as the BER streaming encoders write. What comes back
-//! is a whole message again, ready for [`crate::parse`]: the decrypted or signed content under
+//! is a whole message again, ready for [`mail_mime::parse`]: the decrypted or signed content under
 //! the original header.
 //!
 //! Algorithms refused when reading (RFC 8551 §2.7, RFC 8550 §6): MD5 anywhere, SHA-1 in a
@@ -51,7 +51,7 @@ pub struct Signer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opened {
     /// The message as the reader should show it: decrypted, or with the signature taken off,
-    /// under the original header. Parse it with [`crate::parse`]. Not to be stored.
+    /// under the original header. Parse it with [`mail_mime::parse`]. Not to be stored.
     pub message: Vec<u8>,
     pub encryption: SmimeEncryption,
     pub verification: SmimeVerification,
@@ -219,7 +219,7 @@ pub(super) struct Checked {
 
 /// The CMS object in an `application/pkcs7-mime` or `-signature` part.
 fn content_info(entity: Entity<'_>) -> Option<ContentInfo> {
-    let bytes = crate::reconstruct::decode_part(entity.raw, b"");
+    let bytes = mail_mime::decode_part(entity.raw, b"");
     ber::decode::<ContentInfo>(&bytes, Implicit::Keep)
 }
 

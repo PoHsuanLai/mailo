@@ -233,10 +233,10 @@ fn run_typed(
                 let _ = writeln!(out, "imported {} {who}", one.key.fingerprint);
                 match one.secret {
                     None => {}
-                    Some(mail_mime::openpgp::Protection::Open) => {
+                    Some(mail_crypto::openpgp::Protection::Open) => {
                         let _ = writeln!(out, "  with its secret half, now in your keyring");
                     }
-                    Some(mail_mime::openpgp::Protection::Passphrase) => {
+                    Some(mail_crypto::openpgp::Protection::Passphrase) => {
                         let _ = writeln!(
                             out,
                             "  with its secret half, now in your keyring, still behind its \

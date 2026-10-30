@@ -3,7 +3,7 @@
 //!
 //! Only the content entity is signed or encrypted — its `Content-*` fields and body — never the
 //! message's own header. That is RFC 3156's design, and it is what lets the outbox rewrite
-//! `Date` as the message leaves (`crate::restamp`) without breaking the signature made when
+//! `Date` as the message leaves (`mail_mime::restamp`) without breaking the signature made when
 //! the user pressed Send.
 //!
 //! An encrypted message's subject would otherwise travel in the clear, so it is carried inside
@@ -15,7 +15,7 @@
 use super::entity::{Entity, crlf, field_name, fields, is_content_field};
 use super::keys::{Cert, live, newest, timestamp};
 use super::{Rng, Unlocking, pgp_error};
-use crate::MimeError;
+use crate::CryptoError;
 use chrono::{DateTime, Utc};
 use mail_domain::{Mode, PreferEncrypt};
 use pgp::composed::{
@@ -59,9 +59,9 @@ const PROTECTED: &[&str] = &[
     "References",
 ];
 
-/// `frozen` — a whole message as `crate::build` writes it — signed, encrypted, or both, as
+/// `frozen` — a whole message as `mail_mime::build` writes it — signed, encrypted, or both, as
 /// `how.mode` says.
-pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<u8>, MimeError> {
+pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<u8>, CryptoError> {
     let message = Entity::of(frozen);
     let (outer, content): (Vec<&[u8]>, Vec<&[u8]>) = fields(message.head)
         .into_iter()
@@ -73,7 +73,7 @@ pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<
     let boundary = boundary(how.boundary_prefix, rng);
     match how.mode {
         Mode::Sign => {
-            let signer = how.signer.ok_or(MimeError::NoSigningKey)?;
+            let signer = how.signer.ok_or(CryptoError::NoSigningKey)?;
             let entity =
                 crlf(&[content.concat(), b"\r\n".to_vec(), message.body.to_vec()].concat());
             let signature = detached(&entity, signer, how.now, rng)?;
@@ -81,10 +81,10 @@ pub fn seal(frozen: &[u8], how: &Sealing<'_>, rng: &mut impl Rng) -> Result<Vec<
         }
         Mode::Encrypt | Mode::SignAndEncrypt => {
             if how.recipients.is_empty() {
-                return Err(MimeError::NoRecipientKeys);
+                return Err(CryptoError::NoRecipientKeys);
             }
             let signer = if how.mode.signs() {
-                Some(how.signer.ok_or(MimeError::NoSigningKey)?)
+                Some(how.signer.ok_or(CryptoError::NoSigningKey)?)
             } else {
                 None
             };
@@ -207,7 +207,7 @@ fn protected(
 }
 
 /// The signature subpackets, with the creation time we were given rather than the clock's.
-fn subpackets(key: &dyn SigningKey, now: DateTime<Utc>) -> Result<SubpacketConfig, MimeError> {
+fn subpackets(key: &dyn SigningKey, now: DateTime<Utc>) -> Result<SubpacketConfig, CryptoError> {
     let hashed = vec![
         Subpacket::regular(SubpacketData::IssuerFingerprint(key.fingerprint()))
             .map_err(pgp_error)?,
@@ -226,7 +226,7 @@ fn detached(
     signer: &Unlocking,
     now: DateTime<Utc>,
     rng: &mut impl Rng,
-) -> Result<String, MimeError> {
+) -> Result<String, CryptoError> {
     let secret = unlocked(signer)?;
     let key = signing_key(secret)?;
     let password = Password::from(signer.passphrase.as_str());
@@ -255,13 +255,13 @@ fn encrypt(
     signer: Option<&Unlocking>,
     now: DateTime<Utc>,
     rng: &mut impl Rng,
-) -> Result<String, MimeError> {
+) -> Result<String, CryptoError> {
     let mut builder = MessageBuilder::from_bytes("", plaintext.to_vec())
         .seipd_v1(&mut *rng, SymmetricKeyAlgorithm::AES256);
     for cert in recipients {
         let targets = encryption_keys(cert, now);
         if targets.is_empty() {
-            return Err(MimeError::CannotEncryptTo(cert.fingerprint()));
+            return Err(CryptoError::CannotEncryptTo(cert.fingerprint()));
         }
         for target in targets {
             match target {
@@ -291,18 +291,18 @@ fn encrypt(
 
 /// The signer's key, refused up front when its passphrase does not open it: rPGP's own error
 /// for that says only that something failed.
-fn unlocked(signer: &Unlocking) -> Result<&SignedSecretKey, MimeError> {
+fn unlocked(signer: &Unlocking) -> Result<&SignedSecretKey, CryptoError> {
     if signer.key.protection() == super::Protection::Passphrase
         && !signer.key.unlocks_with(&signer.passphrase)
     {
-        return Err(MimeError::KeyLocked(signer.key.fingerprint()));
+        return Err(CryptoError::KeyLocked(signer.key.fingerprint()));
     }
     Ok(&signer.key.inner)
 }
 
 /// The part of a secret key that signs: the primary key when its flags let it (or it carries
 /// none and its algorithm can), otherwise the newest subkey flagged for signing.
-fn signing_key(secret: &SignedSecretKey) -> Result<&dyn SigningKey, MimeError> {
+fn signing_key(secret: &SignedSecretKey) -> Result<&dyn SigningKey, CryptoError> {
     let primary_flags = secret
         .details
         .users
@@ -325,7 +325,7 @@ fn signing_key(secret: &SignedSecretKey) -> Result<&dyn SigningKey, MimeError> {
         .rev()
         .find(|sub| newest(&sub.signatures).is_some_and(|sig| sig.key_flags().sign()))
         .map(|sub| &sub.key as &dyn SigningKey)
-        .ok_or_else(|| MimeError::OpenPgp("that key has no part that can sign".to_owned()))
+        .ok_or_else(|| CryptoError::OpenPgp("that key has no part that can sign".to_owned()))
 }
 
 /// Where to encrypt to in one certificate.
