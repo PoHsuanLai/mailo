@@ -34,7 +34,7 @@ use super::wire::{Heard, hear};
 use super::{ComposerPage, SendPill, composing};
 use crate::ui::appearance::WindowDirs;
 use crate::ui::view::Shell;
-use mail_core::rich_text::{InputEvent, Node, Person, Pos, Range};
+use mail_editor::{InputEvent, Node, Person, Pos, Range};
 
 /// A fixed instant, so nothing here depends on the clock.
 fn at(minutes: i64) -> DateTime<Utc> {
@@ -154,7 +154,7 @@ fn body(page: &Page) -> String {
         .nodes
         .iter()
         .map(|node| match node {
-            Node::Para { runs, .. } => mail_core::rich_text::runs_text(runs),
+            Node::Para { runs, .. } => mail_editor::runs_text(runs),
             Node::Object(_) => "[object]".to_owned(),
         })
         .collect::<Vec<_>>()
@@ -288,13 +288,13 @@ impl Window {
 
 #[test]
 fn a_reply_text_opens_as_paragraphs_a_signature_and_a_folded_original() {
-    use mail_core::rich_text::Object;
+    use mail_editor::Object;
     let text = "Sounds good.\r\n\r\n-- \r\nDana\r\n\r\nOn Wed, 23 Sep 2026 at 09:02, Sam Okafor wrote:\r\n> first line\r\n> second line\r\n";
     let nodes = mail_core::compose::doc_from_text(text);
     let shape: Vec<String> = nodes
         .iter()
         .map(|node| match node {
-            Node::Para { runs, .. } => format!("p:{}", mail_core::rich_text::runs_text(runs)),
+            Node::Para { runs, .. } => format!("p:{}", mail_editor::runs_text(runs)),
             Node::Object(Object::Signature) => "sig".to_owned(),
             Node::Object(Object::QuotedMessage { who, when, body }) => {
                 format!("quoted:{who}/{when}/{}", body.len())
@@ -320,7 +320,7 @@ fn a_flowed_text_draft_opens_as_its_paragraphs() {
     let para = "word ".repeat(40);
     let para = para.trim_end();
     let draft = Draft {
-        text: mail_core::rich_text::to_flowed(&mail_core::rich_text::Doc::from_text(para)),
+        text: mail_editor::to_flowed(&mail_editor::Doc::from_text(para)),
         html: None,
         ..Draft::blank(&mail_domain::testing::identity(), at(0))
     };
@@ -329,7 +329,7 @@ fn a_flowed_text_draft_opens_as_its_paragraphs() {
         .nodes
         .iter()
         .filter_map(|node| match node {
-            Node::Para { runs, .. } => Some(mail_core::rich_text::runs_text(runs)),
+            Node::Para { runs, .. } => Some(mail_editor::runs_text(runs)),
             Node::Object(_) => None,
         })
         .filter(|text| !text.is_empty())

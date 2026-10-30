@@ -8,13 +8,13 @@ mod signature {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::signature::*;
     #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -63,11 +63,11 @@ mod identity {
     #[allow(unused_imports)]
     use mail_core::identity::*;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -115,13 +115,13 @@ mod rules_block {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::rules::block::*;
     #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -161,11 +161,11 @@ mod erase {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -200,11 +200,11 @@ mod export {
     #[allow(unused_imports)]
     use mail_core::export::*;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -224,13 +224,13 @@ mod signature_more {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::signature::*;
     #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -282,11 +282,11 @@ mod identity_more {
     #[allow(unused_imports)]
     use mail_core::identity::*;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -306,13 +306,13 @@ mod graph_push {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_core::sync::graph_push::*;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -359,13 +359,13 @@ mod rules_manage {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::rules::manage::*;
     #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -402,11 +402,11 @@ mod compose {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -428,11 +428,11 @@ mod compose_weight {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -464,11 +464,11 @@ mod compose_modes {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]
@@ -494,13 +494,13 @@ mod sync_caps {
     #[allow(unused_imports)]
     use mail_core::error::CoreError;
     #[allow(unused_imports)]
-    use mail_core::rich_text::Doc;
-    #[allow(unused_imports)]
     use mail_core::sync::Configured;
     #[allow(unused_imports)]
     use mail_core::sync::*;
     #[allow(unused_imports)]
     use mail_domain::*;
+    #[allow(unused_imports)]
+    use mail_editor::Doc;
     #[allow(unused_imports)]
     use mail_store::*;
     #[allow(unused_imports)]

@@ -6,8 +6,8 @@
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::rich_text::doc::{Mark, Marks, Node, Run};
-use crate::rich_text::error::OpError;
+use crate::doc::{Mark, Marks, Node, Run};
+use crate::error::OpError;
 
 /// How many grapheme clusters `text` contains.
 pub fn grapheme_len(text: &str) -> usize {

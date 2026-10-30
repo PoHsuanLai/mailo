@@ -1,11 +1,10 @@
 //! The `/` menu: turn a line into a paragraph kind, or insert an object.
 //!
-//! Filtering is prefix on the name, then prefix on a keyword, then [`crate::search::match_list`].
-//! `search::fuzzy` is private; the matcher is the one the command menu re-exports. An empty
-//! query lists the whole menu, in catalog order.
+//! Filtering is prefix on the name, then prefix on a keyword, then the caller's fuzzy match
+//! (best first, as indices into the labels it is given). An empty query lists the whole menu, in
+//! catalog order.
 
-use crate::rich_text::doc::{Check, Level, ParaKind};
-use crate::search::match_list;
+use crate::doc::{Check, Level, ParaKind};
 
 /// What choosing the item does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -192,8 +191,9 @@ pub fn turn_into() -> Vec<&'static Item> {
 /// Items matching `query`.
 ///
 /// An empty query is the whole catalog. Otherwise names that start with the query come
-/// first, then keywords that start with it, then a fuzzy match on the name and keywords.
-pub fn filter(query: &str) -> Vec<&'static Item> {
+/// first, then keywords that start with it, then `fuzzy` on the name and keywords: it takes the
+/// query and one label per item, and returns the indices that match, best first.
+pub fn filter(query: &str, fuzzy: impl FnOnce(&str, &[&str]) -> Vec<usize>) -> Vec<&'static Item> {
     let query = query.trim().to_lowercase();
     if query.is_empty() {
         return ITEMS.iter().collect();
@@ -231,10 +231,10 @@ pub fn filter(query: &str) -> Vec<&'static Item> {
         })
         .collect();
     let haystacks: Vec<&str> = labels.iter().map(String::as_str).collect();
-    for hit in match_list(&query, &haystacks) {
-        if !seen[hit.index] {
-            out.push(&ITEMS[hit.index]);
-            seen[hit.index] = true;
+    for index in fuzzy(&query, &haystacks) {
+        if !seen[index] {
+            out.push(&ITEMS[index]);
+            seen[index] = true;
         }
     }
     out

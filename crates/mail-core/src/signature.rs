@@ -12,12 +12,12 @@ pub use doc::{Placement, nodes_of, plain_of, recognise, region, swap};
 
 use crate::compose::{doc_of, identity_of, save};
 use crate::error::CoreError;
-use crate::rich_text::{Doc, Node, Object, apply, to_flowed, to_html};
 use chrono::{DateTime, Utc};
 use mail_domain::{
     Draft, DraftId, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse,
     UNNAMED_SIGNATURE,
 };
+use mail_editor::{Doc, Node, Object, apply, to_flowed, to_html};
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 

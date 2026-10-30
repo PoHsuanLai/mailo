@@ -3,15 +3,15 @@
 //! This is what the composer holds. It owns no clock: every event arrives with the time the
 //! caller read, which is what groups typing into undo steps.
 
-use crate::rich_text::doc::{Doc, Marks, Node, Presence};
-use crate::rich_text::error::OpError;
-use crate::rich_text::format::settled;
-use crate::rich_text::input::{InputEvent, Record, interpret};
-use crate::rich_text::keys::Caret;
-use crate::rich_text::markdown::{self, Shortcut};
-use crate::rich_text::op::{Op, apply_all};
-use crate::rich_text::text::{marks_at, node_len};
-use crate::rich_text::undo::Log;
+use crate::doc::{Doc, Marks, Node, Presence};
+use crate::error::OpError;
+use crate::format::settled;
+use crate::input::{InputEvent, Record, interpret};
+use crate::keys::Caret;
+use crate::markdown::{self, Shortcut};
+use crate::op::{Op, apply_all};
+use crate::text::{marks_at, node_len};
+use crate::undo::Log;
 
 /// The body being written, with its history and caret.
 #[derive(Debug, Clone, PartialEq, Eq)]

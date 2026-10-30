@@ -17,7 +17,7 @@ use ds::style::icon::render::Glyph;
 use super::super::menu::Floating;
 use super::float::{object_items, pick_object};
 use super::page::{Float, Fold, Page};
-use mail_client::rich_text::{
+use mail_editor::{
     Align, Check, Layout, Mark, Node, Object, Op, ParaKind, Pos, Range, Run, TextSize,
 };
 

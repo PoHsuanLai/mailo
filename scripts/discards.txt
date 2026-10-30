@@ -7,7 +7,7 @@ mail-runtime let_underscore 4
 mail-runtime ok 21
 mail-runtime unwrap_or_default 13
 mail-core let_underscore 0
-mail-core ok 32
+mail-core ok 31
 mail-core unwrap_or_default 16
 mail-proto let_underscore 0
 mail-proto ok 11

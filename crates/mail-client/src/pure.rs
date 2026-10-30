@@ -69,16 +69,6 @@ pub mod discover {
         pub use mail_core::discover::providers::set;
     }
 }
-pub mod rich_text {
-    pub use mail_core::rich_text::{
-        Action, Align, Caret, Check, Doc, ImageRef, InputEvent, Item, Layout, Mark, Marks, Nest,
-        Node, Object, Op, ParaKind, Person, Pos, Presence, Range, Run, SNIPPET, Session, Table,
-        TextColor, TextSize, align_at, apply, apply_all, catalog, filter, grapheme_len, indent,
-        joins_cc, marks_at_start, missing_attachment, node_len, nodes_from_blocks,
-        nodes_from_plain, plain_to_flowed, quote, runs_text, settled, step_size, tab, to_flowed,
-        to_html, turn_into,
-    };
-}
 pub mod export {
     pub use mail_core::export::{Exported, RawHead, Target, usual};
 }

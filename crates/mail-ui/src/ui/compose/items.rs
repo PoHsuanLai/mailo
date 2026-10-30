@@ -4,7 +4,8 @@
 use super::super::menu::{MenuItem, Right, Tile};
 use super::page::Page;
 use ds::prelude::*;
-use mail_client::rich_text::{Action, Item, ParaKind, Person, filter, turn_into};
+use mail_client::search::match_list;
+use mail_editor::{Action, Item, ParaKind, Person, filter, turn_into};
 
 fn tile(item: &Item) -> Tile {
     match item.action {
@@ -42,10 +43,16 @@ fn row(item: &Item, grouped: bool, right: Right) -> MenuItem {
     }
 }
 
-/// The `/` menu for `query`, filtered by `editor::slash`.
+/// The `/` menu for `query`, filtered by `mail_editor::filter`, whose fuzzy tier is the same match every menu uses.
 pub(in crate::ui) fn slash_items(query: &str) -> Vec<MenuItem> {
     let grouped = query.trim().is_empty();
-    filter(query)
+    let fuzzy = |query: &str, labels: &[&str]| {
+        match_list(query, labels)
+            .into_iter()
+            .map(|hit| hit.index)
+            .collect()
+    };
+    filter(query, fuzzy)
         .into_iter()
         .map(|item| row(item, grouped, Right::Hint(item.markdown.to_owned())))
         .collect()

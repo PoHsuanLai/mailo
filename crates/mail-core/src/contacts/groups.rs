@@ -10,21 +10,13 @@
 use crate::error::CoreError;
 use crate::error::Logged;
 use mail_domain::filter::search_tokens;
+use mail_editor::Person;
 use mail_pim::vcard::{self, Member};
 use mail_store::{Contact, Group, GroupHome, GroupId, Store};
 use std::collections::BTreeSet;
 
 /// How many groups the To and Cc menus offer above the people.
 pub const OFFERED: usize = 3;
-
-/// Someone a message can be addressed to.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Person {
-    /// The name shown on the chip.
-    pub name: String,
-    /// The mailbox.
-    pub address: String,
-}
 
 /// A contact as a chip names it: their name, else the local part of the address.
 pub fn person_of(contact: &Contact) -> Person {

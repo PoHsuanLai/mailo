@@ -8,9 +8,9 @@
 
 use dioxus::prelude::*;
 use mail_client::Client;
-use mail_client::rich_text::{Caret, Doc, apply};
 use mail_client::signature::{self, Placement};
 use mail_domain::{Draft, Signature, SignatureId};
+use mail_editor::{Caret, Doc, apply};
 
 use super::super::menu::{MenuItem, Right};
 use super::float::commit;
@@ -50,9 +50,7 @@ pub(in crate::ui) fn adopt(client: &Client, page: &mut Page) {
     let Some(rich) = known.iter().find(|signature| signature.id == id) else {
         return;
     };
-    let mut nodes = vec![mail_client::rich_text::Node::Object(
-        mail_client::rich_text::Object::Signature,
-    )];
+    let mut nodes = vec![mail_editor::Node::Object(mail_editor::Object::Signature)];
     nodes.extend(signature::nodes_of(rich));
     // Not an edit: the draft says this already, so nothing is to be saved and nothing undone.
     page.session.doc.nodes.splice(at, nodes);

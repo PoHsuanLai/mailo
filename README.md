@@ -184,6 +184,7 @@ Published libraries (each package is named `mailo-*`; its folder keeps the `crat
 | `mailo-mime` (`crates/mail-mime`) | Parsing and building MIME, HTML sanitising, OpenPGP and S/MIME (behind features), iMIP, `mailto:`. |
 | `mailo-proto` (`crates/mail-proto`) | Sans-I/O protocol machines for IMAP, POP3, SMTP, ManageSieve, and JMAP's requests and responses: bytes in, "what I need next" out. |
 | `mailo-pim` (`crates/mail-pim`) | vCard, iCalendar invitations and the WebDAV/CardDAV conversation, as text in and values out. |
+| `mailo-editor` (`crates/mail-editor`) | The composer's rich-text document as pure edits: operations, undo, markdown shortcuts, slash commands, and writers to HTML and `format=flowed`. |
 
 Not published, app-side: `mail-store` (SQLite, FTS5, the outbox), `mail-runtime` (tokio and
 sockets), `mail-core` (everything the application does, with no window or terminal),

@@ -13,9 +13,8 @@ use std::ops::Range;
 use mail_domain::{Signature, SignatureId};
 use mail_mime::{RemoteImages, SanitizePolicy, from_html, sanitize};
 
-use crate::compose::FORWARDED;
-use crate::rich_text::{
-    Doc, Node, Object, Op, ParaKind, nodes_from_blocks, nodes_from_plain, runs_text,
+use mail_editor::{
+    Doc, FORWARDED, Node, Object, Op, ParaKind, nodes_from_blocks, nodes_from_plain, runs_text,
 };
 
 /// Where a reply's signature goes when it starts.
