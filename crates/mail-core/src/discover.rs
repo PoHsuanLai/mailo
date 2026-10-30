@@ -6,7 +6,7 @@
 //! implements the two seams `porter-discover` asks through). This is the part between porter's
 //! answer and the account: [`map`] turns it into mailo's [`Found`] (an account plan and where it
 //! came from), and a miss into a typed [`Failed`]. Saying what was found, and getting a yes before
-//! any of it is used, is the front-end's: at the terminal, `mail_app::cli::discover`.
+//! any of it is used, is the front-end's: at the terminal, `mail_cli::discover`.
 //!
 //! What stays here, because a provider file or a discovery answer has no place for it: the OAuth
 //! preset an issuer's mail servers take ([`mail_domain::presets::preset_for_issuer`], found from

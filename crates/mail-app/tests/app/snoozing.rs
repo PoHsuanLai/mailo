@@ -6,7 +6,7 @@
 
 use crate::store::acct_account;
 use chrono::{DateTime, TimeDelta, TimeZone, Utc};
-use mail_app::cli;
+use mail_cli as cli;
 use mail_core::snooze;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};

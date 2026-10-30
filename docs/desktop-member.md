@@ -21,7 +21,7 @@ hand must not restart in a loop.
 | To | How | Where |
 | --- | --- | --- |
 | The notification server | `org.freedesktop.Notifications.Notify`: app name `mailo`, icon `mailo`, summary the sender, body the subject, action `default`, hints `category=email.arrived`, `desktop-entry=org.quire.Mail`, `x-mailo-thread`, `x-mailo-account` | `mail-core/src/notify/desktop.rs` |
-| The dock | `com.canonical.Unity.LauncherEntry.Update("application://org.quire.Mail.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-app/src/session.rs`, `mail-ui/src/launcher/` |
+| The dock | `com.canonical.Unity.LauncherEntry.Update("application://org.quire.Mail.desktop", {count, count-visible})`, every account's unread inbox conversations, polled every 2 s and said again every minute | `mail-cli/src/session.rs`, `mail-ui/src/launcher/` |
 
 With a watch running, the window leaves the launcher count to it (`mail_core::ipc::watching::running`):
 a dock forgets a count when its sender leaves the bus, so a count sent by a window would vanish when
@@ -55,7 +55,7 @@ nothing yet needs a closed mailo to be started by a method call, because the wat
 `mailo intents` is mailo as a provider for the desktop's intent router (docket's `intentd`), the
 way a companion, the launcher or `quire-do mail` ask it to do something without its window. It owns
 `org.quire.Mail` on the session bus and serves `org.quire.IntentProvider1` at
-`/org/quire/IntentProvider1` (`crates/mail-app/src/intents`). The router starts it by D-Bus
+`/org/quire/IntentProvider1` (`crates/mail-intents/src`). The router starts it by D-Bus
 activation (`dbus-1/services/org.quire.Mail.service`, installed by `dist/install.sh` and by the
 packages) and it stays until the bus goes away; a second one finds the name taken and exits 0.
 Where systemd runs the bus, the service file's `SystemdService=` starts it as the user unit

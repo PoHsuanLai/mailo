@@ -5,7 +5,7 @@
 
 use crate::store::acct_account;
 use chrono::{DateTime, TimeZone, Utc};
-use mail_app::cli::compose as words;
+use mail_cli::compose as words;
 use mail_core::compose;
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;

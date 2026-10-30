@@ -29,6 +29,7 @@
 //! [`Schedule::Watch`]: mail_core::schedule::Schedule::Watch
 //! [`Daemon::Holding`]: mail_core::schedule::Daemon::Holding
 
+use mail_cli::exec::AGAIN;
 use mail_core::SqliteStore;
 use mail_core::ipc::watching::{Refused, Watching};
 use mail_core::schedule::End;
@@ -79,10 +80,6 @@ pub fn step<W>(claimed: Result<W, Refused>) -> Step<W> {
         }
     }
 }
-
-/// How long the app waits before asking for the lock again, and before starting the watch again
-/// after it ended on an error.
-pub const AGAIN: Duration = Duration::from_secs(60);
 
 /// How often the accounts are looked at, beside each write to the store.
 const ACCOUNTS_EVERY: Duration = Duration::from_secs(30);
@@ -151,8 +148,8 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
     );
     let tell = |watched: mail_core::sync::report::Watched| told(&watched);
     loop {
-        let mail = crate::edge::mail(store);
-        let ran = crate::edge::block_on(mail.sync().watch_until(
+        let mail = mail_edge::mail(store);
+        let ran = mail_edge::block_on(mail.sync().watch_until(
             Some(&notifier),
             mail_core::sync::watcher::Live {
                 whom: &|| notifier.whom(),
@@ -166,7 +163,7 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
         if let Err(why) = ran {
             log::warn!(
                 "checking for mail stopped: {}",
-                crate::cli::remedy::error(why)
+                mail_cli::remedy::error(why)
             );
         }
         std::thread::sleep(AGAIN);

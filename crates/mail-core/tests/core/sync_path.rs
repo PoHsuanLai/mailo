@@ -159,7 +159,7 @@ fn an_unreachable_server_is_reported_per_account_not_thrown() {
 
 #[test]
 fn no_accounts_is_a_run_with_no_account_in_it() {
-    // What to say about that is the command line's: see `mail_app::cli::sync`.
+    // What to say about that is the command line's: see `mail_cli::sync`.
     let store = Arc::new(mail_store::testing::in_memory());
     let ends = crate::blocking::run_with(
         store,

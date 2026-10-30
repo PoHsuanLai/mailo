@@ -30,7 +30,10 @@ pub use words::{
 
 use ds::prelude::Word;
 use ds_settings::schema::{AppId, FilePath, KeySpec, Page, Schema, SettingsSchema, WordLabels};
-use ds_settings::{AppName, ConfigRoot, FileName, Format, SettingsDoc, Store};
+use ds_settings::{AppName, FileName, Format, SettingsDoc, Store};
+// The root every settings call takes, named here for the callers (`mail-cli`) that hold one and
+// should not need `ds-settings` to say so.
+pub use ds_settings::ConfigRoot;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
