@@ -8,11 +8,11 @@
 use crate::error::{CoreError, Logged, TimeError};
 use crate::pgp::OpenPgp;
 use crate::protect::Seal;
-use crate::rich_text::plain_to_flowed;
 use crate::smime::Smime;
 use chrono::{DateTime, Local, Utc};
 use mail_domain::signing::{SigningKeyRef, SigningSecret};
 use mail_domain::*;
+use mail_editor::{FORWARDED, plain_to_flowed};
 use mail_mime::posting;
 use mail_runtime::{Failure, RuntimeError};
 use mail_store::{SqliteStore, Store};
@@ -922,10 +922,6 @@ pub fn new_sealed_message(
     Ok(Composed { draft, refused })
 }
 
-/// The line a forward's header block starts with. What follows it is the original's, not the
-/// sender's own words.
-pub const FORWARDED: &str = "---------- Forwarded message ----------";
-
 /// The forward body: what the user wrote, then the original beneath a header block.
 ///
 /// Not `>`-quoted. A forward is the message itself being passed on rather than answered, and
@@ -1133,18 +1129,16 @@ fn signed_new(
         .as_ref()
         .filter(|signature| signature.html.is_some())
         .map(|signature| {
-            let mut nodes = crate::rich_text::nodes_from_plain(body.trim());
+            let mut nodes = mail_editor::nodes_from_plain(body.trim());
             if nodes.is_empty() {
-                nodes.push(crate::rich_text::Node::plain(
-                    crate::rich_text::ParaKind::Paragraph,
+                nodes.push(mail_editor::Node::plain(
+                    mail_editor::ParaKind::Paragraph,
                     "",
                 ));
             }
-            nodes.push(crate::rich_text::Node::Object(
-                crate::rich_text::Object::Signature,
-            ));
+            nodes.push(mail_editor::Node::Object(mail_editor::Object::Signature));
             nodes.extend(signature::nodes_of(signature));
-            crate::rich_text::to_html(&crate::rich_text::Doc { nodes })
+            mail_editor::to_html(&mail_editor::Doc { nodes })
         });
     Ok((text, html))
 }

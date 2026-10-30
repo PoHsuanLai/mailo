@@ -12,11 +12,9 @@ mod delete;
 mod nodes;
 mod paint;
 
-use crate::rich_text::doc::{Doc, Layout, Mark, Marks, Node, ParaKind, Pos, Presence, Range, Run};
-use crate::rich_text::error::OpError;
-use crate::rich_text::text::{
-    delete_text, grapheme_len, insert_text, node_len, normalize_runs, para_len,
-};
+use crate::doc::{Doc, Layout, Mark, Marks, Node, ParaKind, Pos, Presence, Range, Run};
+use crate::error::OpError;
+use crate::text::{delete_text, grapheme_len, insert_text, node_len, normalize_runs, para_len};
 
 /// One edit.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -271,7 +269,7 @@ fn merge(doc: &mut Doc, node: usize) -> Result<Op, OpError> {
 /// A depth means a level of the kind it sits in: an indent for a paragraph, heading or list
 /// item, a quote level for a quote. It stays through a change within one of these and is
 /// zero when the change crosses between them (a quote becoming a paragraph, any kind
-/// becoming code), as [`crate::rich_text::format::quote`] leaves it.
+/// becoming code), as [`crate::format::quote`] leaves it.
 pub fn depth_for(from: ParaKind, to: ParaKind, depth: u8) -> u8 {
     fn family(kind: ParaKind) -> u8 {
         match kind {

@@ -10,10 +10,10 @@
 use super::enclosed::sent_bytes_of;
 use super::{answering, carried, identity_addressed, identity_of, quoted, quoting, save, signed};
 use crate::error::{CoreError, Logged};
-use crate::rich_text::plain_to_flowed;
 use crate::signature::{self, Placement};
 use chrono::{DateTime, Local, Utc};
 use mail_domain::*;
+use mail_editor::plain_to_flowed;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 

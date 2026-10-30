@@ -11,9 +11,7 @@ use mail_mime::{
     sanitize, unflow,
 };
 
-use crate::rich_text::{
-    Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain, runs_text,
-};
+use mail_editor::{Doc, Node, Object, ParaKind, nodes_from_blocks, nodes_from_plain, runs_text};
 
 /// The document a stored draft holds: its HTML when the composer wrote one, else its text. Its
 /// images are found among `inline`, the draft's own pictures; one not there is dropped.

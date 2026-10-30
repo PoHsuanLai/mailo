@@ -103,10 +103,27 @@ fn a_mention_resolves_and_joins_cc_once() {
     assert_eq!(joins_cc(&anna, &[shouting], &[]), None, "already on To");
 }
 
+/// Stands in for the caller's fuzzy match: the labels that hold the query's letters in order.
+fn subsequence(query: &str, labels: &[&str]) -> Vec<usize> {
+    let holds = |label: &str| {
+        let mut letters = label.chars().flat_map(char::to_lowercase);
+        query
+            .chars()
+            .all(|want| letters.by_ref().any(|have| have == want))
+    };
+    (0..labels.len())
+        .filter(|&index| holds(labels[index]))
+        .collect()
+}
+
 #[test]
 fn slash_filter_order() {
-    let names =
-        |query: &str| -> Vec<&str> { filter(query).into_iter().map(|item| item.name).collect() };
+    let names = |query: &str| -> Vec<&str> {
+        filter(query, subsequence)
+            .into_iter()
+            .map(|item| item.name)
+            .collect()
+    };
     assert_eq!(
         names("he")[..3],
         ["Heading 1", "Heading 2", "Heading 3"],
@@ -117,12 +134,12 @@ fn slash_filter_order() {
     assert_eq!(names("dvdr")[0], "Divider", "fuzzy, last");
     assert!(names("zzzz").is_empty());
     assert_eq!(
-        filter("").len(),
+        filter("", subsequence).len(),
         catalog().len(),
         "an empty query lists everything"
     );
     assert!(
-        filter("").windows(2).all(|pair| {
+        filter("", subsequence).windows(2).all(|pair| {
             let at = |name| catalog().iter().position(|item| item.name == name);
             at(pair[0].name) < at(pair[1].name)
         }),

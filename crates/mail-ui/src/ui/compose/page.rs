@@ -14,7 +14,7 @@ use mail_domain::{
 use porter_core::AccountId;
 
 use mail_client::compose::doc_of;
-use mail_client::rich_text::{Person, Pos, Range, Session};
+use mail_editor::{Person, Pos, Range, Session};
 
 /// Whether the page stands alone in the reader column or sits under a thread.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -475,9 +475,9 @@ impl Page {
             cc: self.cc.iter().map(address).collect(),
             bcc: self.bcc.iter().map(address).collect(),
             subject: self.subject.clone(),
-            text: mail_client::rich_text::to_flowed(doc),
+            text: mail_editor::to_flowed(doc),
             html: match self.format {
-                MessageFormat::Rich => Some(mail_client::rich_text::to_html(doc)),
+                MessageFormat::Rich => Some(mail_editor::to_html(doc)),
                 MessageFormat::Plain => None,
             },
             receipt: self.receipt,

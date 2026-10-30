@@ -48,6 +48,7 @@ mail-os.workspace = true
 mail-mime = { workspace = true, features = ["openpgp", "smime"] }
 mail-proto.workspace = true
 mail-pim.workspace = true
+mail-editor.workspace = true
 serde.workspace = true
 # What the window logs; the program installs the one logger it goes through.
 log.workspace = true

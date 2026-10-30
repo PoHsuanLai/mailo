@@ -1,10 +1,10 @@
 //! Where an editor event meets the page: [`hear`] turns what the surface handed over
-//! (`surface.rs`, through `adapt.rs`) into `rich_text::` calls on the page's session, with the IME
+//! (`surface.rs`, through `adapt.rs`) into `mail_editor::` calls on the page's session, with the IME
 //! rule and the choice of which range an event acts on.
 
 use super::float;
 use super::page::Page;
-use mail_client::rich_text::{InputEvent, Range};
+use mail_editor::{InputEvent, Range};
 
 /// An editor event, as the surface hands it to the page.
 #[derive(Debug, Clone, PartialEq, Eq)]

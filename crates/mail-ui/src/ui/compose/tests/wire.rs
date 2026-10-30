@@ -5,7 +5,7 @@ use super::super::page::{Float, RowShown};
 use super::super::render::{para_renders, reset_para_renders};
 use super::super::styling::tab_ops;
 use super::*;
-use mail_core::rich_text::{Level, Mark, Nest, Node, ParaKind, to_html};
+use mail_editor::{Level, Mark, Nest, Node, ParaKind, to_html};
 
 #[test]
 fn typed_markdown_becomes_a_bold_run_and_the_markup_shows_it() {
@@ -130,7 +130,7 @@ fn enter_backspace_and_a_cross_paragraph_delete() {
 #[test]
 fn a_composition_leaves_its_paragraph_alone_until_it_ends() {
     let (mut dom, mut page) = body_dom(page_of("ab\n\nsecond"));
-    dom.in_runtime(|| page.write().session.caret = mail_core::rich_text::Caret::at(0, 2));
+    dom.in_runtime(|| page.write().session.caret = mail_editor::Caret::at(0, 2));
     dom.render_immediate(&mut NoOpMutations);
     reset_para_renders();
     let key_before = dom.in_runtime(|| page.peek().node_key(0));
@@ -267,9 +267,7 @@ fn tab_is_taken_only_when_it_changes_a_list() {
         Node::plain(ParaKind::Bullet, "b"),
         Node::plain(ParaKind::Paragraph, "c"),
     ];
-    let at = |page: &mut Page, node: usize| {
-        page.session.caret = mail_core::rich_text::Caret::at(node, 0)
-    };
+    let at = |page: &mut Page, node: usize| page.session.caret = mail_editor::Caret::at(node, 0);
     at(&mut page, 0);
     assert!(
         tab_ops(&page, Nest::In).is_none(),

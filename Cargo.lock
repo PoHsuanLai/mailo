@@ -5206,6 +5206,7 @@ dependencies = [
  "mail-runtime",
  "mail-store",
  "mailo-domain",
+ "mailo-editor",
  "mailo-mime",
  "mailo-proto",
  "notify",
@@ -5234,6 +5235,7 @@ dependencies = [
  "mail-runtime",
  "mail-store",
  "mailo-domain",
+ "mailo-editor",
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
@@ -5259,7 +5261,6 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tokio-tungstenite",
- "unicode-segmentation",
  "url",
  "uuid",
  "zbus",
@@ -5436,6 +5437,7 @@ dependencies = [
  "mail-store",
  "mail-ui",
  "mailo-domain",
+ "mailo-editor",
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
@@ -5478,6 +5480,16 @@ dependencies = [
  "thiserror 2.0.21",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "mailo-editor"
+version = "0.1.0"
+dependencies = [
+ "mailo-domain",
+ "mailo-mime",
+ "proptest",
+ "unicode-segmentation",
 ]
 
 [[package]]

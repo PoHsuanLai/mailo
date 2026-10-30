@@ -7,10 +7,10 @@
 
 use mail_mime::{Align, TextColor, TextSize};
 
-use crate::rich_text::doc::{Doc, Layout, Marks, Node, ParaKind, Pos, Range};
-use crate::rich_text::op::{Op, apply_all, kind_targets};
-use crate::rich_text::text::{marks_at, para_len};
-use crate::rich_text::write::written_depths;
+use crate::doc::{Doc, Layout, Marks, Node, ParaKind, Pos, Range};
+use crate::op::{Op, apply_all, kind_targets};
+use crate::text::{marks_at, para_len};
+use crate::write::written_depths;
 
 /// Which way a level goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

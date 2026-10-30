@@ -57,7 +57,6 @@ pub mod query;
 pub mod receipt;
 pub mod recent;
 pub mod remedy;
-pub mod rich_text;
 pub mod rules;
 pub mod saved_search;
 pub mod scope;
