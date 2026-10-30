@@ -17,7 +17,7 @@ FORBIDDEN=(tokio rusqlite dioxus reqwest keyring-core porter-client porter-dbus 
 # renderer under it, so that the two front-ends (`mail-ui`, and `mail-app`'s `cli`) sit over one
 # core that knows neither.
 CORE=(mail-core mail-client)
-FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek)
+FORBIDDEN_CORE=(dioxus ds ds-settings ds-blitz blitz-dom dioxus-native-dom anyview-core anyview-peek mail-appkit)
 fail=0
 
 # A name `cargo tree` does not know prints nothing, which would read as a boundary that holds.
