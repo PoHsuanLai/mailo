@@ -14,6 +14,8 @@
 //! app's is. A one-time code in the message is never read into it, never offered on it and never
 //! copied on arrival: it shows in a message's open reader, and nowhere a locked screen can read.
 
+#[cfg(all(feature = "desktop", any(target_os = "macos", test)))]
+pub mod banner;
 #[cfg(all(unix, not(target_os = "macos"), feature = "desktop"))]
 pub mod click;
 #[cfg(feature = "desktop")]

@@ -12,6 +12,7 @@
 //! settings files found damaged at launch ([`damage`]).
 
 pub mod damage;
+pub mod desktop;
 pub mod handoff;
 pub mod launcher;
 pub mod login_item;

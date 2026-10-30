@@ -54,7 +54,7 @@ pub(super) fn run(opening: Opening) -> Result<(), ds_blitz::LaunchError> {
     // Which mailboxes, which sound and which accounts are muted are read as well, for the same
     // reason (`settings::Notices`).
     let notices = dirs.as_ref().map(|dirs| {
-        let desktop = mail_client::notify::desktop::Desktop::connect_in_window();
+        let desktop = crate::desktop::connect_in_window();
         crate::ui::follow_up::Notices(std::sync::Arc::new(crate::settings::Notices::new(
             Box::new(move |notification, sound| desktop.show_with(notification, sound)),
             crate::ui::prefs::root_of(dirs),

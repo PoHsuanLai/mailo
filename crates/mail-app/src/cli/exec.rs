@@ -447,7 +447,7 @@ pub fn execute(store: Arc<SqliteStore>, command: Command) -> Result<(), String> 
         let notices = match notify {
             super::WatchNotify::Never => None,
             super::WatchNotify::AsSet => {
-                let desktop = mail_core::notify::desktop::Desktop::connect();
+                let desktop = mail_ui::desktop::connect();
                 Some(mail_ui::settings::Notices::new(
                     Box::new(move |notification, sound| desktop.show_with(notification, sound)),
                     mail_ui::settings::person_root(),
