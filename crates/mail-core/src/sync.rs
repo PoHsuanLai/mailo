@@ -405,22 +405,27 @@ async fn pass_over(
     // Ended in the order the accounts are configured, which `join_all` preserves. A pass that
     // listed its accounts in whatever order they happened to finish would read differently
     // between runs for no reason the user could see.
-    Ok(
-        futures_util::future::join_all(accounts.iter().map(|account| async {
-            let run = Run {
-                store,
-                secrets: secrets.clone(),
-                registry,
-                now,
-                account,
-            };
-            let result = one(&run, mode, &hooks).await;
-            let end = ended(account, result, hooks.cancel.get(&account.id).cloned());
-            remember(store, &end, now);
-            end
-        }))
-        .await,
-    )
+    let ends = futures_util::future::join_all(accounts.iter().map(|account| async {
+        let run = Run {
+            store,
+            secrets: secrets.clone(),
+            registry,
+            now,
+            account,
+        };
+        let result = one(&run, mode, &hooks).await;
+        let end = ended(account, result, hooks.cancel.get(&account.id).cloned());
+        remember(store, &end, now);
+        end
+    }))
+    .await;
+    // Once the pass is over rather than after each account: a pass can write a great deal, and
+    // this is the moment its log is no longer being added to. Passive, so a window reading
+    // beside it is never waited on. Logged and no more: the log only stays larger until the next.
+    store
+        .checkpoint(mail_store::Checkpoint::Passive)
+        .or_log("the log could not be folded back after a pass");
+    Ok(ends)
 }
 
 /// Keep how `end` went, so a window opened later can tell an account that is quiet from one
