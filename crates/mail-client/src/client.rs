@@ -518,13 +518,6 @@ impl Drop for Inner {
 impl Inner {
     fn stop(&self, within: Duration) {
         self.shared.stopping.store(true, Ordering::Release);
-        // One pragma, so the file is left small for the next start. Before the threads are
-        // joined, which is when a reader may still be mid-read: the truncate waits those out for
-        // at most the store's busy timeout, and a failure only leaves the log as it was.
-        self.shared
-            .store
-            .checkpoint(Checkpoint::Truncate)
-            .or_log("the log could not be cut down at quit");
         // Nothing more is taken; what was given is still applied.
         self.shared.acts.lock().take();
         if let Some(stop) = self.shared.fetch_stop.lock().take() {
@@ -544,6 +537,13 @@ impl Inner {
                 let _ = thread.join();
             }
         }
+        // What the last changes wrote is folded back into the database, once they have all been
+        // applied. Passive, because this runs on the quitting thread: it never waits on a reader
+        // something else still holds, and a log it leaves large is cut down at the next start.
+        self.shared
+            .store
+            .checkpoint(Checkpoint::Passive)
+            .or_log("the log could not be folded back at quit");
     }
 }
 
