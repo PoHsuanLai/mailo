@@ -36,9 +36,10 @@ use ds::components::overlays::empty_state::EmptyForm;
 use ds::prelude::*;
 use mail_client::Client;
 use mail_client::Snapshot;
-use mail_client::message::{FrameBody, INLINE_BYTES, Sent};
+use mail_client::message::{INLINE_BYTES, Sent};
 use mail_client::query::{Conversation, Messages};
 use mail_domain::*;
+use mail_reader::FrameBody;
 pub(in crate::ui) use peek::sweep_left_open;
 pub(super) use peek::{PeekView, peek_key};
 pub(in crate::ui) use source::{Raw, RawAsked, RawSheet, ask as ask_raw, close as close_raw};
@@ -438,7 +439,7 @@ pub(super) fn Reader(
                 _ if !may => false,
                 Some(body) if body.blocked_remote() => true,
                 Some(body) if showing && body.frame_html().is_some() => {
-                    frame(mail_mime::SanitizePolicy::FRAME).is_some_and(|it| it.blocked_remote())
+                    frame(mail_reader::SanitizePolicy::FRAME).is_some_and(|it| it.blocked_remote())
                 }
                 _ => false,
             };

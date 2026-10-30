@@ -27,7 +27,7 @@ use mail_client::Client;
 #[cfg(test)]
 use mail_client::html_document::Printed;
 use mail_domain::ThreadId;
-use mail_mime::Pages;
+use mail_reader::Pages;
 use std::path::Path;
 
 pub use native_print::Printer;
@@ -238,7 +238,7 @@ mod native_print {
     ///
     /// Asked of the consent here, on the blocking thread, and not when the click came: what is
     /// printed is what stands when the print is made. Only the messages the grant covers are
-    /// fetched for, only the images their printout draws (`mail_mime::remote_images`), and if
+    /// fetched for, only the images their printout draws (`mail_reader::remote_images`), and if
     /// the grant is taken back while they come, none of them is drawn.
     pub(in crate::ui) fn made<Tz>(
         client: &mail_client::Client,

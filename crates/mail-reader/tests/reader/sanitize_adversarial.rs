@@ -6,7 +6,7 @@
 //! shapes that exploit the parser rather than the filter, and every attribute that makes a
 //! browser fetch something without the reader clicking.
 
-use mail_mime::{SanitizePolicy, sanitize};
+use mail_reader::{SanitizePolicy, sanitize};
 
 fn blocked() -> SanitizePolicy {
     SanitizePolicy::CURRENT
@@ -245,7 +245,7 @@ mod any_markup {
     use html5ever::tokenizer::{
         Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
     };
-    use mail_mime::{RemoteImages, SanitizePolicy, Styles, sanitize};
+    use mail_reader::{RemoteImages, SanitizePolicy, Styles, sanitize};
     use proptest::prelude::*;
     use std::cell::RefCell;
 

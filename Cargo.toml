@@ -8,6 +8,7 @@ members = [
   "crates/mail-proto",
   "crates/mail-pim",
   "crates/mail-editor",
+  "crates/mail-reader",
   "crates/mail-store",
   "crates/mail-runtime",
   "crates/mail-core",
@@ -51,6 +52,7 @@ mail-crypto = { package = "mailo-crypto", path = "crates/mail-crypto", version =
 mail-mime   = { package = "mailo-mime", path = "crates/mail-mime", version = "0.1.0", default-features = false }
 mail-pim    = { package = "mailo-pim", path = "crates/mail-pim", version = "0.1.0" }
 mail-editor = { package = "mailo-editor", path = "crates/mail-editor", version = "0.1.0" }
+mail-reader = { package = "mailo-reader", path = "crates/mail-reader", version = "0.1.0" }
 mail-proto  = { package = "mailo-proto", path = "crates/mail-proto", version = "0.1.0" }
 mail-runtime = { path = "crates/mail-runtime", default-features = false }
 mail-store  = { path = "crates/mail-store" }

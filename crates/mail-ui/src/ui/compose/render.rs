@@ -473,8 +473,8 @@ fn Obj(n: usize, object: Object, menu: bool, quoted: Fold, page: Signal<Page>) -
 }
 
 /// A quoted block's words, for the unfolded original.
-fn words(block: &mail_mime::Block) -> String {
-    use mail_mime::{Block, Span};
+fn words(block: &mail_reader::Block) -> String {
+    use mail_reader::{Block, Span};
     fn spans(parts: &[Span], out: &mut String) {
         for part in parts {
             match part {

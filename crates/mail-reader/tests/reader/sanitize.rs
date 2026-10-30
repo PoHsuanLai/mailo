@@ -1,6 +1,6 @@
 //! HTML from strangers, rendered in a WebView. Every dangerous token must be gone.
 
-use mail_mime::{RemoteImages, SanitizePolicy, sanitize};
+use mail_reader::{RemoteImages, SanitizePolicy, sanitize};
 
 struct Case {
     name: &'static str,
@@ -448,7 +448,7 @@ mod what_will_be_fetched {
 /// The reader's frame keeps the sender's layout: sheets, classes, presentational attributes.
 /// Whatever could fetch or run is gone from it all the same.
 mod kept_styles {
-    use mail_mime::{RemoteImages, SanitizePolicy, Styles, sanitize};
+    use mail_reader::{RemoteImages, SanitizePolicy, Styles, sanitize};
 
     fn kept(html: &str) -> String {
         let policy = SanitizePolicy {

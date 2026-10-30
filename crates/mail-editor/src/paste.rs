@@ -1,6 +1,6 @@
 //! A paste: clipboard HTML or plain text, turned into edits at the selection.
 
-use mail_mime::{RemoteImages, SanitizePolicy, Styles, from_html, sanitize};
+use mail_reader::{RemoteImages, SanitizePolicy, Styles, from_html, sanitize};
 
 use crate::convert::{nodes_from_blocks, nodes_from_plain};
 use crate::doc::{Doc, Node, ParaKind, Pos, Range};

@@ -7,7 +7,7 @@ so in the pull request rather than working around it.
 
 Effects live at the edges, and the layering encodes that:
 
-- `mail-domain`, `mail-mime`, `mail-crypto`, `mail-archive`, `mail-proto`, `mail-pim` and `mail-editor` are pure. They reach no socket, clock,
+- `mail-domain`, `mail-mime`, `mail-crypto`, `mail-archive`, `mail-proto`, `mail-pim`, `mail-editor` and `mail-reader` are pure. They reach no socket, clock,
   disk, runtime or window. When one seems to need an effect, the effect belongs to the caller:
   `Op::apply` returns a `RemoteIntent` rather than performing one, and `Machine::feed` returns an
   `IoNeed` rather than satisfying it.

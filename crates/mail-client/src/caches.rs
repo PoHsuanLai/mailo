@@ -6,12 +6,11 @@
 use crate::Client;
 use chrono::{DateTime, Utc};
 use mail_core::SigningStore;
-use mail_core::message::{
-    Bodies, FrameBody, Frames, Invited, Looks, Offer, Opening, Receipt, Sent,
-};
+use mail_core::message::{Bodies, Frames, Invited, Looks, Offer, Opening, Receipt, Sent};
 use mail_core::password::Password;
 use mail_domain::{BlobId, Message, MessageId, ThreadId};
-use mail_mime::{AuthResults, SanitizePolicy};
+use mail_mime::AuthResults;
+use mail_reader::{FrameBody, SanitizePolicy};
 use std::sync::Arc;
 
 impl Client {

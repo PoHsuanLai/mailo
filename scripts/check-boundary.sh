@@ -7,7 +7,7 @@
 set -uo pipefail
 
 # Package names, as `cargo tree -p` takes them: the pure crates are published as `mailo-*`.
-PURE=(mailo-domain mailo-mime mailo-crypto mailo-archive mailo-proto mailo-pim mailo-editor)
+PURE=(mailo-domain mailo-mime mailo-crypto mailo-archive mailo-proto mailo-pim mailo-editor mailo-reader)
 # Nor porter's client, its bus vocabulary or quire's capability probe: the sans-I/O crates know
 # nothing of the desktop's accountd. Nor anyview (the attachment peek and its card): only
 # `mail-ui` draws, behind its `anyview` feature.
@@ -333,7 +333,7 @@ fi
 # platform keyring, the desktop's extras, the Secret Service or the test doubles. `mail-crypto`'s
 # halves and `mail-core`'s `desktop` and `pdf` are the defaults a plain user expects; the rest the
 # program names. (`mail-app` is the program: its own `quire-desktop` default is its build's choice.)
-for crate in mail-domain mail-mime mail-crypto mail-archive mail-pim mail-editor mail-store mail-proto mail-runtime mail-core; do
+for crate in mail-domain mail-mime mail-crypto mail-archive mail-pim mail-editor mail-reader mail-store mail-proto mail-runtime mail-core; do
   if grep -E '^default[[:space:]]*=' "crates/$crate/Cargo.toml" | grep -E 'quire-desktop|keyring|oo7|testing'; then
     echo "crates/$crate/Cargo.toml: a library's default features must not include quire-desktop, keyring, oo7 or testing"
     fail=1

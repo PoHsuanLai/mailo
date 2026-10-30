@@ -2,20 +2,20 @@
 //! by quire (`ds_blitz::pdf`), with no webview anywhere.
 //!
 //! Blitz lays the document out and quire cuts it into pages. Neither reads CSS fragmentation
-//! (`break-before`, `break-inside`, `@page`), so the page rules `mail_mime::print` writes as CSS
+//! (`break-before`, `break-inside`, `@page`), so the page rules `mail_reader::print` writes as CSS
 //! are dropped; the builder writes the same things in the markers quire reads
-//! (`data-break-before`, `data-break-inside`: see `mail_mime::print`), and `@page`'s margins
+//! (`data-break-before`, `data-break-inside`: see `mail_reader::print`), and `@page`'s margins
 //! are the [`PageSpec`]'s, which are quire's default (18 mm above and below, 16 mm at the sides:
 //! the same as the document asks for). Nothing here edits the markup the builder wrote.
 //!
-//! What this module adds, through `mail_mime::Options`:
+//! What this module adds, through `mail_reader::Options`:
 //! - **The faces.** Each family names the CJK faces ahead of the generic one, since otherwise
 //!   fontique's fallback picks one (on some systems a thin or a bitmap-era face, and for
 //!   ideographs not necessarily the region's). Each region names Noto's face, which is Linux's,
 //!   then Windows's and macOS's own (Yu Mincho and Yu Gothic, Hiragino, Malgun Gothic, Microsoft
 //!   JhengHei, PingFang and others), then its sans where its serif is not installed. Which
 //!   regional face leads is the message's: the builder marks a message with the script its own headers or
-//!   text say (`data-script`, [`mail_mime::Script`]), and that message's families put that
+//!   text say (`data-script`, [`mail_reader::Script`]), and that message's families put that
 //!   script's face first ([`Cjk::for_script`]). The document's own lines (the "printed" line,
 //!   the note, the thread's title) follow the first message, which the builder marks on `<body>`;
 //!   a message that says nothing, and a document whose first message says nothing, lead with the
@@ -31,7 +31,7 @@
 use ds_blitz::{Margins, PageSize, PageSpec};
 use mail_client::Client;
 use mail_client::html_document::{LABELS, Pictures, Printed};
-use mail_mime::{Options, Script};
+use mail_reader::{Options, Script};
 
 /// What the top of a printout says when it names a picture instead of drawing it.
 pub(in crate::ui) const PICTURES_NOTE: &str = "Other pictures are named, not printed.";

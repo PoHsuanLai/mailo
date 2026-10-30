@@ -5,15 +5,12 @@
 //!
 //! No window is in here. What is drawn around the frame, and the words, are the front-end's.
 
-mod frame;
 mod frames;
 mod list;
 mod looks;
-mod quote;
 mod seal;
 
-pub use frame::{FOUND_CURRENT, FOUND_MARK, FrameBody, Prefer, Source, render};
-pub use frames::{FIRST_PAGE, Frames, INLINE_BYTES, Key, Sent, Unsealed, ahead};
+pub use frames::{FIRST_PAGE, Frames, INLINE_BYTES, Key, Sent, Unsealed, ahead, render};
 pub use list::{Offer, offer_of};
 pub use looks::{Bodies, Invited, Looks, Read, Receipt};
 pub use seal::{Opening, Protection, Scheme, Sealed, Tried};

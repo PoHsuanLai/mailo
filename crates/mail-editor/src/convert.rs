@@ -1,9 +1,9 @@
 //! Paste and the HTML round trip: blocks in, editor nodes out.
 //!
-//! [`mail_mime::from_html`] speaks [`Block`]. The composer speaks [`Node`]. This is the
+//! [`mail_reader::from_html`] speaks [`Block`]. The composer speaks [`Node`]. This is the
 //! lossy direction used when the clipboard is HTML and when a written document is read back.
 
-use mail_mime::{Block, ListKind, ParaStyle, Span};
+use mail_reader::{Block, ListKind, ParaStyle, Span};
 
 use crate::doc::{
     Check, ImageRef, Layout, Level, Mark, Marks, Node, Object, ParaKind, Presence, Run, Table,
@@ -146,10 +146,10 @@ fn push_blocks(blocks: &[Block], within: Within, out: &mut Vec<Node>) {
             }
             Block::Image { src, alt, .. } => {
                 let src = match src {
-                    mail_mime::ImgSrc::Remote(url) => ImageRef::new(url.as_str()),
+                    mail_reader::ImgSrc::Remote(url) => ImageRef::new(url.as_str()),
                     // A draft's own image, reopened: named by its part, as the HTML wrote it.
-                    mail_mime::ImgSrc::Inline(uri) => ImageRef::of_cid(uri.cid()),
-                    mail_mime::ImgSrc::Blocked { host } => ImageRef::new(host.clone()),
+                    mail_reader::ImgSrc::Inline(uri) => ImageRef::of_cid(uri.cid()),
+                    mail_reader::ImgSrc::Blocked { host } => ImageRef::new(host.clone()),
                 };
                 out.push(Node::Object(Object::Image {
                     src,

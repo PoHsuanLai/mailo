@@ -1,6 +1,6 @@
 //! `mailo print`: which messages an id names, where the document goes, and what it is called.
 //!
-//! What the document says is `mail-mime/tests/mime/print.rs`. This is the half that reads the store
+//! What the document says is `mail-reader/tests/reader/print.rs`. This is the half that reads the store
 //! and writes files.
 
 use crate::store::acct_account;
@@ -8,7 +8,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use mail_cli::{self as cli, Command, PrintTo};
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_mime::Pages;
+use mail_reader::Pages;
 use std::sync::Arc;
 
 fn at(n: i64) -> DateTime<Utc> {

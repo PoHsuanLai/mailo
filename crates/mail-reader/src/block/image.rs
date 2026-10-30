@@ -1,6 +1,6 @@
 //! `cid:` and remote images, resolved while the walk is reading the tag.
 //!
-//! An inline image becomes a `data:` URI only when [`crate::embeddable`]
+//! An inline image becomes a `data:` URI only when [`mail_mime::embeddable`]
 //! accepts the part's declared type. The spelling written into the URI is the
 //! allowlist's, never the message's. A remote image becomes a [`ImgSrc::Remote`]
 //! when the reader has allowed them, and a [`ImgSrc::Blocked`] naming the host
@@ -9,12 +9,12 @@
 use super::kind::{ImgSrc, Inlined};
 use super::url::SafeUrl;
 use super::url::image_host;
-use crate::inline::{INLINE_BUDGET, embeddable};
-use crate::parse::ParsedPart;
 use crate::sanitize::RemoteImages;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use mail_domain::Inline;
+use mail_mime::ParsedPart;
+use mail_mime::{INLINE_BUDGET, embeddable};
 
 /// Resolve an `img src` into the image the document will carry.
 pub(crate) fn resolve(
