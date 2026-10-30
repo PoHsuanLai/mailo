@@ -45,7 +45,7 @@ use crate::blob::BlobStore;
 use crate::changes::{Changes, Committed, Generation, Topics};
 use crate::{StoreError, migrate};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
@@ -284,7 +284,8 @@ impl SqliteStore {
         // Held for the whole pass: the lock is reentrant, so `refresh_summary` takes it again
         // inside this transaction rather than waiting on it.
         let db = self.connection();
-        let tx = db.unchecked_transaction().map_err(StoreError::db)?;
+        let tx = Transaction::new_unchecked(&db, TransactionBehavior::Immediate)
+            .map_err(StoreError::db)?;
         for thread in queued {
             let id: uuid::Uuid = thread
                 .parse()
@@ -384,7 +385,8 @@ fn backfill_fts(db: &Connection) -> Result<(), StoreError> {
         if rows.is_empty() {
             return Ok(());
         }
-        let tx = db.unchecked_transaction().map_err(StoreError::db)?;
+        let tx = Transaction::new_unchecked(db, TransactionBehavior::Immediate)
+            .map_err(StoreError::db)?;
         for (rowid, subject, from_name, from_email, recipients, body_text, attachments) in rows {
             // A row whose recipients no longer decode is indexed without them, rather than
             // stopping the database from opening over one message.
@@ -1085,7 +1087,7 @@ impl Store for SqliteStore {
         // first and keeps the second. One transaction, so a pick made meanwhile is not lost.
         {
             let db = self.touch(Topics::ACCOUNTS);
-            let tx = db.unchecked_transaction()?;
+            let tx = Transaction::new_unchecked(&db, TransactionBehavior::Immediate)?;
             account_prefs::write_caps(&tx, &account, caps, &row::from_time(now))?;
             tx.commit()?;
         }

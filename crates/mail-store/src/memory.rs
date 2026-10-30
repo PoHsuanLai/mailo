@@ -1322,28 +1322,46 @@ impl Inner {
             }
         }
 
+        // Only what differs from what is held, as `SqliteStore` does: the flags of a whole
+        // mailbox arrive every pass, and what has not changed has nothing to say.
         for (remote, read, star) in &ingest.flags {
-            if let Some(id) = self.message_by_remote(account.clone(), remote) {
-                let read_change = Change::MessageRead(id, *read);
-                let star_change = Change::MessageStar(id, *star);
-                self.write_change(&read_change)?;
-                self.write_change(&star_change)?;
-                changes.push(read_change);
-                changes.push(star_change);
-                if let Some(thread) = self.thread_of(id) {
-                    touched.insert(thread);
-                }
+            let Some(id) = self.message_by_remote(account.clone(), remote) else {
+                continue;
+            };
+            let Some(held) = self.messages.get(&id) else {
+                continue;
+            };
+            let mut differs = Vec::new();
+            if held.read != *read {
+                differs.push(Change::MessageRead(id, *read));
+            }
+            if held.star != *star {
+                differs.push(Change::MessageStar(id, *star));
+            }
+            if differs.is_empty() {
+                continue;
+            }
+            for change in differs {
+                self.write_change(&change)?;
+                changes.push(change);
+            }
+            if let Some(thread) = self.thread_of(id) {
+                touched.insert(thread);
             }
         }
 
         for (remote, hue) in &ingest.flag_colors {
-            if let Some(id) = self.message_by_remote(account.clone(), remote) {
-                let change = Change::MessageFlag(id, *hue);
-                self.write_change(&change)?;
-                changes.push(change);
-                if let Some(thread) = self.thread_of(id) {
-                    touched.insert(thread);
-                }
+            let Some(id) = self.message_by_remote(account.clone(), remote) else {
+                continue;
+            };
+            if self.messages.get(&id).is_none_or(|held| held.flag == *hue) {
+                continue;
+            }
+            let change = Change::MessageFlag(id, *hue);
+            self.write_change(&change)?;
+            changes.push(change);
+            if let Some(thread) = self.thread_of(id) {
+                touched.insert(thread);
             }
         }
 
