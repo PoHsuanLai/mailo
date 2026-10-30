@@ -138,7 +138,7 @@ where
 ///
 /// Every instant is stored in UTC, which is the only sane way to keep one, and every instant a
 /// person reads is in their own zone. Nothing converted between the two: the list, the reader
-/// and the drafts pane each formatted the `DateTime<Utc>` directly. On this machine —
+/// and the drafts list each formatted the `DateTime<Utc>` directly. On this machine —
 /// `Asia/Taipei`, `+0800` — mail that arrived at 09:02 was shown as 01:02, and every message
 /// that arrived after 16:00 was filed under the previous day. At the moment this was found the
 /// clock read 07:25 on the 22nd and the whole application was showing the 21st.

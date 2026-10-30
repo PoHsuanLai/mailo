@@ -306,7 +306,7 @@ impl std::fmt::Debug for Credentials<'_> {
 /// [`add`], with the password handed over rather than read from the environment, and the
 /// credential store named.
 ///
-/// The window's Add account sheet calls this: setting `MAILO_PASSWORD` from a running window
+/// The window's Add account step calls this: setting `MAILO_PASSWORD` from a running window
 /// would mean writing the environment while other threads read it. `add` calls it with the
 /// environment's value and the platform keyring.
 /// The password goes to `secrets` and nowhere else — not SQLite, not a file, not the value this
@@ -809,7 +809,7 @@ fn remember(typed: Option<&ClientEntry>) -> Result<Option<std::path::PathBuf>, C
 ///
 /// Waits for the person, and deliberately so: this is a one-shot setup command, the user is
 /// watching, and there is nothing else for the process to do while they sign in. The window's
-/// sheet waits on it too, on a thread of its own.
+/// add-account step waits on it too, on a thread of its own.
 pub async fn authorize(
     client: &ClientEntry,
     scopes: &[String],

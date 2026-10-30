@@ -2,7 +2,7 @@
 //! the keyboard and Reply, with no window in them.
 //!
 //! The window asks these and draws the answer. Which actions a row offers, which operation a
-//! button performs, which message a reply answers and how mute turns on a selection are about the
+//! press of a control performs, which message a reply answers and how mute turns on a selection are about the
 //! conversation and not about how it is shown, so they live here where a table can test them.
 
 use crate::mailbox_filter::{for_role, pending_snooze};
@@ -327,7 +327,7 @@ pub fn op_for(kind: OpKind) -> Option<Op> {
         OpKind::Star => Some(Op::SetStar(Star::Starred)),
         OpKind::Unstar => Some(Op::SetStar(Star::Unstarred)),
         // These need a label picked, a draft created, a date chosen, or the conversation's own
-        // state to say which way they go. Delete forever needs the confirmation sheet, which
+        // state to say which way they go. Delete forever needs its own confirmation, which
         // applies it itself: no row, key or bar performs it on a press (the window's bin).
         OpKind::Destroy
         | OpKind::AddLabel

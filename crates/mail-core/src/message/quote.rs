@@ -14,7 +14,7 @@
 /// The toggle's face: three middle dots, as the composer's quote marker reads.
 const TOGGLE: &str = "\u{b7}\u{b7}\u{b7}";
 
-/// The toggle's tooltip in the frame's document, which cannot reach the window's copy.
+/// The toggle's hover text in the frame's document, which cannot reach the window's copy.
 const TOGGLE_TIP: &str = "Show Quoted Text";
 
 /// What opens the fold, placed where the quoted tail starts.
@@ -30,9 +30,9 @@ fn opening() -> String {
 /// rendering rules, so a plain message's quote would otherwise stay in view.
 const CLOSING: &str = "</div></details>";
 
-/// The rules for the toggle, in the frame's own sheet: a small quiet pill on its own line, and
-/// the quote under it once open. `ink` is the soft ink of the sheet it joins.
-pub(super) fn sheet(ink: &str) -> String {
+/// The rules for the toggle, in the frame's own stylesheet: a small quiet pill on its own line, and
+/// the quote under it once open. `ink` is the soft ink of the stylesheet it joins.
+pub(super) fn stylesheet(ink: &str) -> String {
     format!(
         "details.mailo-quote {{ margin: 0; }} \
          details.mailo-quote > summary {{ display: inline-block; list-style: none; cursor: pointer; \
@@ -593,7 +593,7 @@ mod tests {
                 None,
             ),
             (
-                "a style sheet's text is not markup",
+                "a style stylesheet's text is not markup",
                 "<style>a > b { color: red }</style><p>Yes.</p><blockquote>Ten?</blockquote>",
                 Some("<blockquote>Ten?</blockquote>"),
             ),

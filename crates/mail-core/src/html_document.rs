@@ -159,7 +159,7 @@ where
     let none = BTreeMap::new();
     let fetched = match pictures {
         Some(pictures) if consented.contains(&true) => {
-            let wanted = mail_mime::remote_images(&sheets(messages, &parsed, &consented, &none));
+            let wanted = mail_mime::remote_images(&documents(messages, &parsed, &consented, &none));
             if wanted.is_empty() {
                 none.clone()
             } else {
@@ -174,7 +174,7 @@ where
             .map(|message| message.subject.clone())
             .unwrap_or_default(),
         html: mail_mime::print_with(
-            &sheets(messages, &parsed, &consented, &fetched),
+            &documents(messages, &parsed, &consented, &fetched),
             zone,
             now,
             options,
@@ -182,9 +182,9 @@ where
     }
 }
 
-/// Each message as a sheet: a consented one's remote images drawn from `fetched`, every other
+/// Each message as a document: a consented one's remote images drawn from `fetched`, every other
 /// one's named.
-fn sheets<'a>(
+fn documents<'a>(
     messages: &'a [Message],
     parsed: &'a [Option<Parsed>],
     consented: &[bool],

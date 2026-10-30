@@ -719,7 +719,7 @@ fn group_card(name: &str, uid: &str, members: &[&str]) -> String {
 /// A member naming a card no book here holds.
 const NOBODY_HERE: &str = "urn:uuid:ffffffff-0000-4000-8000-000000000000";
 
-/// Rename the group `id` and add `add` to it, as the Contacts sheet does.
+/// Rename the group `id` and add `add` to it, as the window does.
 fn edit_group(store: &MemoryStore, id: &GroupId, name: &str, add: &str) {
     let mut group = store.group(id).unwrap().unwrap();
     group.name = name.to_owned();

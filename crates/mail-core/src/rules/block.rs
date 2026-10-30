@@ -1,6 +1,6 @@
 //! "Block sender": a rule that sends one address's mail to Spam, and stops the rules after it.
 //!
-//! An ordinary [`Rule`], written through the same rows the Rules sheet and `mailo rules` use,
+//! An ordinary [`Rule`], written through the same rows the window's rules page and `mailo rules` use,
 //! so it is listed, edited, switched off and put on a Sieve server like any other. Its condition
 //! is the whole address (`TextMatch::Exact`), which the Sieve compiler writes as an `address
 //! :all :is "from"` test; a substring would also block every address that contains this one.
@@ -78,7 +78,7 @@ pub fn block(store: &SqliteStore, account: AccountId, email: &str) -> Result<Blo
         .chain((2..).map(|n| format!("{base} ({n})")))
         .find(|name| existing.iter().all(|rule| &rule.name != name))
         .unwrap_or(base); // `find` over an endless chain only ends by finding one.
-    // Before every other rule. Positions start at 1 from the sheet and the command line, so
+    // Before every other rule. Positions start at 1 from the window and the command line, so
     // this is 0; blocks share it and run in name order, which between blocks does not matter.
     let position = existing
         .iter()
