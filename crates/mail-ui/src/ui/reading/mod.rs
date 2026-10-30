@@ -226,6 +226,8 @@ pub(super) fn Reader(
     let read = super::live::use_live(use_reactive!(|thread| Conversation(thread)));
     let frames = use_frames();
     let looks = use_looks();
+    // The person's own addresses, as the client keeps the accounts read: no store is asked.
+    let accounts = super::data::use_account_rows();
     // ⌘F's frames, which every message's frame below joins (`find`).
     let found = find::use_find(shell);
     // The client may have moved under this conversation, here or in another window.
@@ -600,8 +602,9 @@ pub(super) fn Reader(
         only,
     );
     // The person's own addresses, for the header to leave out a To line of only them.
-    let yours: Vec<String> = super::data::account_rows(&client)
-        .into_iter()
+    let yours: Vec<String> = accounts
+        .read()
+        .iter()
         .map(|row| row.address.trim().to_lowercase())
         .collect();
     let toolbar = tools::toolbar_ops(&mail_client::conversation::allowed_actions(&loaded.summary));
@@ -718,7 +721,7 @@ pub(super) fn Reader(
                                 fetch::BodyPane {
                                     key: "{message.id}-pane",
                                     message: message.id,
-                                    account: message.account,
+                                    account: message.account.clone(),
                                     landed,
                                 }
                             },
@@ -742,6 +745,11 @@ pub(super) fn Reader(
                                 message: message.id,
                                 body: message.body.raw(),
                                 rows: attached,
+                                account: accounts
+                                    .read()
+                                    .iter()
+                                    .find(|row| row.id == message.account)
+                                    .map_or_else(|| copy::errors::THIS_ACCOUNT.to_owned(), |row| row.address.clone()),
                                 shell,
                             }
                     }

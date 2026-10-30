@@ -325,9 +325,10 @@ pub(in crate::ui) fn ReauthPrompt() -> Element {
     let Some(reauth) = try_consume_context::<Reauth>() else {
         return rsx! {};
     };
-    let client = crate::ui::live::client();
-    let names: BTreeMap<AccountId, String> = account_rows(&client)
-        .into_iter()
+    let accounts = crate::ui::data::use_account_rows();
+    let names: BTreeMap<AccountId, String> = accounts
+        .read()
+        .iter()
         .map(|row| (row.id.clone(), row.shown()))
         .collect();
     let asked: Vec<(AccountId, String, Need)> = reauth

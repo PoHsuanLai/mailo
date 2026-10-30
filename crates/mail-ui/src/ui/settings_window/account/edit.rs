@@ -23,21 +23,26 @@ use ds::root::common::Common;
 use mail_client::Syncing;
 use mail_domain::MailboxRole;
 
-/// Write one preference with `write`, then move the revision so everything that names the
-/// account reads it again; a client that refuses is said in `failed`.
+/// Write one preference with `write`, off the thread that draws (the store's writer may be
+/// held by a sync): what names the account reads it again when the client sees the store move,
+/// and a write that fails is said in `failed`.
 fn keep(
-    write: impl FnOnce(&mail_client::Stored<'_>) -> Result<(), mail_client::prelude::StoreError>,
+    write: impl FnOnce(&mail_client::Stored<'_>) -> Result<(), mail_client::prelude::StoreError>
+    + Send
+    + 'static,
     mut failed: Signal<Option<String>>,
 ) {
     let Some(client) = crate::ui::live::try_client() else {
         return;
     };
-    match write(&client.stored()) {
-        Ok(()) => {
-            failed.set(None);
+    spawn(async move {
+        let done = tokio::task::spawn_blocking(move || write(&client.stored())).await;
+        match done {
+            Ok(Ok(())) => failed.set(None),
+            Ok(Err(why)) => failed.set(Some(why.to_string())),
+            Err(why) => failed.set(Some(why.to_string())),
         }
-        Err(why) => failed.set(Some(why.to_string())),
-    }
+    });
 }
 
 /// The account's description and its Sync switch.

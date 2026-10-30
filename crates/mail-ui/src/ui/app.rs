@@ -1,7 +1,7 @@
 use super::actions::{self, Heard};
 use super::ask::{self, Open, Window};
 use super::compose::{self, SendPill};
-use super::data::{PAGE, accounts};
+use super::data::PAGE;
 use super::frame;
 use super::intent::{Intent, Scope, intent, on_thread};
 use super::list::ThreadList;
@@ -377,13 +377,22 @@ pub(super) fn App() -> Element {
     // was put, which may be no Space. Not while a part of the Space's menu is open: its close
     // writes the Spaces. Run again when the part closes, which also takes the account out of the
     // Space it kept.
+    // The ids as the client has read them; none while that read has not happened or failed,
+    // which must not look like every account gone. Equal ids are not news.
+    let account_ids = use_memo(move || {
+        every.read().value().map(|accounts| {
+            accounts
+                .iter()
+                .map(|account| account.id.clone())
+                .collect::<Vec<_>>()
+        })
+    });
     use_effect(move || {
-        let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
+        let known = account_ids();
         if handle.editing().is_some() {
             return;
         }
-        let client = crate::ui::live::client();
-        let Ok(known) = super::data::known_accounts(&client) else {
+        let Some(known) = known else {
             return;
         };
         let mut next = spaces.peek().clone();
@@ -414,7 +423,11 @@ pub(super) fn App() -> Element {
         };
         let space = spaces.peek().current().id;
         let now = chrono::Utc::now();
-        crate::ui::live::client().history().record(id, now);
+        // Off the thread that draws: the store's writer may be held by a sync.
+        let client = crate::ui::live::client();
+        drop(tokio::task::spawn_blocking(move || {
+            client.history().record(id, now)
+        }));
         today_list
             .write()
             .opened(space, id, crate::ui::today::at(now));
@@ -440,7 +453,6 @@ pub(super) fn App() -> Element {
 
     // Every account's drafts, kept read, while Drafts or Scheduled is shown; nothing is read
     // for any other place.
-    let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
     let held = crate::ui::live::use_live(move || {
         let listing = shell.read().listing(PAGE);
         mail_client::query::DraftsOf(match listing {
@@ -494,10 +506,11 @@ pub(super) fn App() -> Element {
     // Why the pane is empty, when it is. Counted rather than assumed: the shell cannot add an
     // account, so the first run needs to name the command that can.
     let nothing = use_memo(move || {
-        let _ = crate::ui::live::moved_for(mail_client::Topics::ACCOUNTS);
-        let client = crate::ui::live::client();
+        // Before the client has read the accounts there is no telling there are none, so the
+        // pane does not say "No account" for the moment the first read takes.
+        let count = every.read().value().map_or(1, |accounts| accounts.len());
         let shell = shell.read();
-        nothing_to_show(accounts(&client).len(), &shell.search, &shell.quick)
+        nothing_to_show(count, &shell.search, &shell.quick)
     });
 
     // The keyboard.

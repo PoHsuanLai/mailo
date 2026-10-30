@@ -12,12 +12,11 @@
 //!
 //! Which Space shows which account is the Space's menu's; this page is every account at once.
 
-use super::account::{AccountPage, back, row_of};
+use super::account::{AccountPage, back};
 use super::rows::link_row;
 use crate::ui::add_account::Join;
 use crate::ui::common::{add_mark, tile};
 use crate::ui::copy;
-use crate::ui::data::account_rows;
 use crate::ui::provider_chip;
 use crate::ui::view::{AccountStep, AccountsPage, Shell};
 use dioxus::prelude::*;
@@ -47,11 +46,14 @@ fn row_id(account: &AccountId) -> String {
 #[component]
 pub(super) fn Accounts(shell: Signal<Shell>) -> Element {
     let path = shell.read().accounts_pane.path.clone();
-    let title = use_callback(|page: AccountsPage| match page {
+    let named = crate::ui::data::use_account_rows();
+    let title = use_callback(move |page: AccountsPage| match page {
         AccountsPage::List => copy::titles::ACCOUNTS.to_owned(),
-        AccountsPage::Account(account) => {
-            row_of(&account).map_or_else(|| account.to_string(), |row| row.shown())
-        }
+        AccountsPage::Account(account) => named
+            .read()
+            .iter()
+            .find(|row| row.id == account)
+            .map_or_else(|| account.to_string(), |row| row.shown()),
         AccountsPage::OtherKeys => copy::titles::OTHER_KEYS.to_owned(),
     });
     let page = use_callback(move |page: AccountsPage| match page {
@@ -91,8 +93,7 @@ fn AccountList(shell: Signal<Shell>) -> Element {
     // from the Add Account… row.
     let mut adding = use_signal(|| None::<Vec<(porter_provider::Issuer, String)>>);
     let mut add_row = use_signal(|| None::<MountedRef>);
-    let client = crate::ui::live::try_client();
-    let rows = client.as_ref().map(account_rows).unwrap_or_default();
+    let rows = crate::ui::data::use_account_rows()();
     let mut items: Vec<ListItem<String>> = Vec::new();
     if rows.is_empty() {
         items.push(ListItem::row(
