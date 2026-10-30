@@ -176,12 +176,9 @@ impl Client {
         let mut threads = Vec::new();
         for n in 0..readers(&shared.store) {
             let shared = shared.clone();
-            threads.push(spawn(&format!("mailo-read-{n}"), move || {
-                // These hold a reader for as long as a read takes: the last is left for threads
-                // that must not wait on one of them, the window's drawing first.
-                SqliteStore::mark_worker_thread();
-                shared.read();
-            }));
+            // These hold a reader for as long as a read takes, on the readers that are not kept
+            // for a thread that must not wait (`SqliteStore::reserve_reader_for_this_thread`).
+            threads.push(spawn(&format!("mailo-read-{n}"), move || shared.read()));
         }
         {
             let shared = shared.clone();

@@ -574,10 +574,11 @@ mod a_reader_that_is_not_the_writer {
     }
 }
 
-/// A worker's pinned read does not keep the thread that draws from reading: workers stay off the
-/// last reader, which every other thread waits on, however long a worker holds its own.
+/// No other thread's read keeps the thread the last reader is kept for from reading: not the
+/// client's workers holding a snapshot each, and not a sync pass reading while they do, which
+/// waits for one of theirs rather than taking the kept one.
 #[test]
-fn the_drawing_thread_never_waits_on_a_workers_pinned_read() {
+fn the_thread_the_last_reader_is_kept_for_never_waits_on_another_s_read() {
     use std::sync::mpsc::channel;
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(SqliteStore::open(dir.path().join("mail.db"), dir.path()).unwrap());
@@ -591,7 +592,6 @@ fn the_drawing_thread_never_waits_on_a_workers_pinned_read() {
         .map(|_| {
             let (store, pinned, released) = (store.clone(), pinned.clone(), released.clone());
             std::thread::spawn(move || {
-                SqliteStore::mark_worker_thread();
                 store
                     .read_pinned(|| {
                         let _ = store.count(&Filter::All, at(0)).unwrap();
@@ -607,47 +607,43 @@ fn the_drawing_thread_never_waits_on_a_workers_pinned_read() {
         pinned_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     }
 
-    // Another thread holds the last reader a moment, as a sync pass reads; the drawing thread
-    // arrives while it does and must wait for that, and for nothing else.
-    let (holding, holding_rx) = channel::<()>();
+    // A sync pass reads while every worker holds its reader, and holds what it gets.
     let (let_go, let_go_rx) = channel::<()>();
-    let other = {
+    let syncing = {
         let store = store.clone();
         std::thread::spawn(move || {
             store
                 .read_pinned(|| {
-                    holding.send(()).unwrap();
+                    let _ = store.count(&Filter::All, at(0)).unwrap();
                     let _ = let_go_rx.recv();
                 })
                 .unwrap();
         })
     };
-    holding_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-    let (drew, drew_rx) = channel::<u64>();
-    let drawing = {
+    std::thread::sleep(Duration::from_millis(100));
+
+    let (read, read_rx) = channel::<u64>();
+    let kept = {
         let store = store.clone();
         std::thread::spawn(move || {
-            drew.send(store.count(&Filter::All, at(0)).unwrap())
+            SqliteStore::reserve_reader_for_this_thread();
+            read.send(store.count(&Filter::All, at(0)).unwrap())
                 .unwrap();
         })
     };
-    std::thread::sleep(Duration::from_millis(100));
-    let_go.send(()).unwrap();
-    let counted = drew_rx.recv_timeout(Duration::from_secs(5));
+    // Asked while every other read still holds its reader.
+    let counted = read_rx.recv_timeout(Duration::from_secs(5));
 
     for _ in &workers {
         let _ = release.send(());
     }
+    let _ = let_go.send(());
     for worker in workers {
         worker.join().unwrap();
     }
-    other.join().unwrap();
-    drawing.join().unwrap();
-    assert_eq!(
-        counted,
-        Ok(0),
-        "the read waited on a worker's pinned reader"
-    );
+    syncing.join().unwrap();
+    kept.join().unwrap();
+    assert_eq!(counted, Ok(0), "the read waited on another thread's reader");
 }
 
 /// An ingest larger than one chunk.
