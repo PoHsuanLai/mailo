@@ -22,9 +22,9 @@ use ds::components::lists::row::size::RowSize;
 use ds::prelude::*;
 use ds::root::common::Common;
 use mail_client::Logged;
-use mail_client::rich_text::{Doc, Node, ParaKind, Session};
 use mail_client::signature;
 use mail_domain::{Draft, Identity, IdentityId, IsDefault, Signature, SignatureId, SignatureUse};
+use mail_editor::{Doc, Node, ParaKind, Session};
 
 /// The stack's element id: its back button is `signatures-pane-back-detail`.
 const STACK: &str = "signatures-pane";

@@ -7,8 +7,8 @@
 use mail_mime::{Align, ParaStyle, RunStyle, SafeUrl};
 
 use super::{ListTag, block_text, list_end, same_list, written_depths};
-use crate::rich_text::doc::{Check, Doc, Layout, Level, Mark, Node, Object, ParaKind, Run};
-use crate::rich_text::text::runs_text;
+use crate::doc::{Check, Doc, Layout, Level, Mark, Node, Object, ParaKind, Run};
+use crate::text::runs_text;
 
 /// HTML for `Draft.html`.
 ///

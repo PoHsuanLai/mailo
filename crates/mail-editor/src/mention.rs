@@ -2,11 +2,21 @@
 //!
 //! The detector is a guard, not a judge. "I didn't attach it" still counts: the word is there.
 
-use crate::rich_text::doc::{Doc, Node, Object};
-use crate::rich_text::text::runs_text;
+use crate::doc::{Doc, Node, Object};
+use crate::text::runs_text;
 
-/// Someone the composer can add to Cc.
-pub use crate::contacts::groups::Person;
+/// Someone a message can be addressed to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Person {
+    /// The name shown on the chip.
+    pub name: String,
+    /// The mailbox.
+    pub address: String,
+}
+
+/// The line a forward's header block starts with. What follows it is the original's, not the
+/// sender's own words.
+pub const FORWARDED: &str = "---------- Forwarded message ----------";
 
 /// People whose name, then address, starts with `query`.
 ///
@@ -100,7 +110,7 @@ fn body_text(doc: &Doc) -> String {
     for node in &doc.nodes {
         if let Node::Para { runs, .. } = node {
             let text = runs_text(runs);
-            let (own, forwarded) = match text.find(crate::compose::FORWARDED) {
+            let (own, forwarded) = match text.find(FORWARDED) {
                 Some(at) => (&text[..at], Forward::Begins),
                 None => (text.as_str(), Forward::NotYet),
             };

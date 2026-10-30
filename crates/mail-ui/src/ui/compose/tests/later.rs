@@ -11,7 +11,7 @@ use crate::ui::fixtures::{acct_account, click, pick_named, right_click, seeded, 
 use crate::ui::space::Scope;
 use mail_core::SqliteStore;
 use mail_core::compose::Leaves;
-use mail_core::rich_text::to_html;
+use mail_editor::to_html;
 
 /// 2026-09-23 10:00 UTC, a Wednesday, read in UTC.
 fn wednesday(hour: u32, minute: u32) -> DateTime<Utc> {

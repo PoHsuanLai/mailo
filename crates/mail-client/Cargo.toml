@@ -27,6 +27,7 @@ mail-domain.workspace = true
 mail-store.workspace = true
 # What the calls it makes for a caller take and hand back (`calls`).
 mail-mime.workspace = true
+mail-editor.workspace = true
 mail-runtime.workspace = true
 mail-proto.workspace = true
 reqwest = { version = "0.12", default-features = false }

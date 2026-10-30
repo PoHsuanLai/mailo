@@ -1,5 +1,5 @@
 //! The paragraph and text styles the format bar and the keys set: alignment, indentation, quote
-//! level, size and colour. Each is `rich_text::` edits over the selection (or the caret's paragraph),
+//! level, size and colour. Each is `mail_editor::` edits over the selection (or the caret's paragraph),
 //! committed as one undo step with the selection kept, as the marks are. A size or a colour with
 //! nothing selected is what the next typed text takes.
 
@@ -16,7 +16,7 @@ use super::float::commit;
 use super::page::{Float, Page};
 use crate::ui::actions::{Own, hint_own};
 use crate::ui::copy;
-use mail_client::rich_text::{
+use mail_editor::{
     Align, Marks, Nest, Op, Range, TextColor, TextSize, align_at, indent, marks_at_start, quote,
     step_size, tab,
 };

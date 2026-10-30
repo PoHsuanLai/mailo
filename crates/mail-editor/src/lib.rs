@@ -43,7 +43,7 @@ pub use keys::{Caret, Grip, Motion, backspace, enter};
 pub use mail_mime::{Align, TextColor, TextSize};
 pub use markdown::{Shortcut, shortcuts};
 pub use mention::{
-    Person, has_attachment, joins_cc, mentions_attachment, missing_attachment, resolve,
+    FORWARDED, Person, has_attachment, joins_cc, mentions_attachment, missing_attachment, resolve,
 };
 pub use op::{Op, apply, apply_all, depth_for};
 pub use session::Session;

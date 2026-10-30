@@ -6,10 +6,10 @@
 //! into a paragraph before it will merge, and just after an object it arms the object so a second
 //! press deletes it.
 
-use crate::rich_text::doc::{Check, Doc, Marks, Node, ParaKind, Pos, Range};
-use crate::rich_text::error::OpError;
-use crate::rich_text::op::Op;
-use crate::rich_text::text::{node_len, para_len, runs_text};
+use crate::doc::{Check, Doc, Marks, Node, ParaKind, Pos, Range};
+use crate::error::OpError;
+use crate::op::Op;
+use crate::text::{node_len, para_len, runs_text};
 
 /// The object Backspace will delete on the next press.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

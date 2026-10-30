@@ -1,7 +1,7 @@
 //! The message body: quire's `EditSurface` (`surface.rs`), the `/`, `@` and `:` menus at the
 //! caret, and the selection bubble.
 //!
-//! Every handler here calls `rich_text::` through [`super::wire`] and [`super::float`]. The only
+//! Every handler here calls `mail_editor::` through [`super::wire`] and [`super::float`]. The only
 //! thing this file decides is which key goes where.
 
 use chordkit::StandardAction;
@@ -27,7 +27,7 @@ use super::templates::{self, TemplateFloat, page_slash_items};
 use crate::ui::actions::{Heard, Own};
 use crate::ui::copy;
 use crate::ui::view::Shell;
-use mail_client::rich_text::{self, InputEvent, Mark, Nest, Node, Op, Presence, Range};
+use mail_editor::{InputEvent, Mark, Nest, Node, Op, Presence, Range};
 
 /// Milliseconds on the wall clock, which is what groups typing into undo steps.
 pub(in crate::ui) fn now_ms() -> u64 {
@@ -289,9 +289,9 @@ pub(super) fn key_taken(
         Some(Heard::Own(Own::Outdent)) => styling::indentation(page, Nest::Out),
         Some(Heard::Own(Own::QuoteMore)) => styling::quote_level(page, Nest::In),
         Some(Heard::Own(Own::QuoteLess)) => styling::quote_level(page, Nest::Out),
-        Some(Heard::Own(Own::AlignLeft)) => styling::align(page, rich_text::Align::Left),
-        Some(Heard::Own(Own::AlignCenter)) => styling::align(page, rich_text::Align::Center),
-        Some(Heard::Own(Own::AlignRight)) => styling::align(page, rich_text::Align::Right),
+        Some(Heard::Own(Own::AlignLeft)) => styling::align(page, mail_editor::Align::Left),
+        Some(Heard::Own(Own::AlignCenter)) => styling::align(page, mail_editor::Align::Center),
+        Some(Heard::Own(Own::AlignRight)) => styling::align(page, mail_editor::Align::Right),
         // ⌘+ and ⌘− are the window's zoom, which its shell answers before the page hears them;
         // where they do reach the body they size the text, as in Apple Mail.
         Some(Heard::Own(Own::TextBigger) | Heard::Standard(StandardAction::Bigger)) => {
@@ -388,7 +388,7 @@ pub(in crate::ui) fn covered(page: &Page, range: Range, mark: Mark) -> bool {
             };
             let mut seen = 0usize;
             runs.iter().all(|run| {
-                let len = mail_client::rich_text::grapheme_len(&run.text);
+                let len = mail_editor::grapheme_len(&run.text);
                 let overlaps = seen < to && seen + len > from;
                 seen += len;
                 !overlaps || run.marks.has(mark)
