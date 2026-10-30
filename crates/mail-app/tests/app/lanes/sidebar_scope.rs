@@ -125,7 +125,7 @@ fn thread_called(store: &SqliteStore, subject: &str) -> ThreadId {
 /// `op` on `thread`, as the window would do it.
 fn act(store: &SqliteStore, thread: ThreadId, op: Op) {
     // The undo is the window's; nothing here takes it back.
-    let _ = mail_core::act::perform(store, thread, op, mail_core::when::Clock::H24);
+    let _ = mail_core::act::perform(store, thread, op);
 }
 
 /// The first account's Travel label on its first conversation, and a second account, an IMAP

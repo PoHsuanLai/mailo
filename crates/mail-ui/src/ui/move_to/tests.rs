@@ -367,8 +367,7 @@ fn queued_folders(store: &SqliteStore) -> Vec<String> {
 /// Filed into `path`, as a pick in the menu does it, with the undo it hands the toast.
 fn file(store: &Arc<SqliteStore>, thread: ThreadId, path: &str) -> mail_core::undo::Undo {
     let label = folder_label(&crate::ui::fixtures::client(store), acct_imap(), path).unwrap();
-    mail_core::act::perform(store, thread, Op::File(label), mail_core::when::Clock::H24)
-        .expect("the move was not made")
+    mail_core::act::perform(store, thread, Op::File(label)).expect("the move was not made")
 }
 
 #[test]

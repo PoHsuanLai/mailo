@@ -434,7 +434,7 @@ pub fn default_places() -> Vec<Place> {
 
 /// mailo's own places, the VIPs place listing the conversations from `vips`.
 ///
-/// Last, so that it moves no place before it, though the sidebar draws it under the Inbox; its
+/// Last, so that it moves no place before it, though it is meant to be listed under the Inbox; its
 /// filter is [`Vips::filter`], which is nothing until someone is a VIP, so it is built again as
 /// the list fills and empties.
 pub fn own_places(vips: &Vips) -> Vec<Place> {

@@ -83,7 +83,6 @@ fn mark_read(client: &Client, thread: ThreadId, only: Option<MessageId>) {
     };
     let ticket = super::live::client().act(mail_client::Perform {
         ops: vec![(thread, op)],
-        clock: super::clock::hours(),
         alone,
         then_erase: false,
     });

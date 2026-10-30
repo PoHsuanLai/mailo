@@ -513,7 +513,7 @@ proptest! {
         );
     }
 
-    /// `count` must agree with what `threads` actually returns, or a sidebar badge lies.
+    /// `count` must agree with what `threads` actually returns, or a count shown for a place lies.
     #[test]
     fn count_agrees_with_the_rows_it_counts(
         specs in prop::collection::vec(spec(), 1..8),

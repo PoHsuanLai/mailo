@@ -24,13 +24,8 @@ mod act {
 
     impl Act<'_> {
         /// `mail_core::act::perform`.
-        pub fn perform(
-            &self,
-            thread: ThreadId,
-            op: Op,
-            clock: mail_core::when::Clock,
-        ) -> Option<Undo> {
-            mail_core::act::perform(self.0.store(), thread, op, clock)
+        pub fn perform(&self, thread: ThreadId, op: Op) -> Option<Undo> {
+            mail_core::act::perform(self.0.store(), thread, op)
         }
 
         /// `mail_core::act::take_back`.

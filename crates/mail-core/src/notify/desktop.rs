@@ -263,7 +263,7 @@ impl Launch {
     /// seen and an Undo is offered.
     pub fn args(&self) -> Vec<String> {
         match (&self.act, &self.opens) {
-            // The archive the window does, with its toast and Undo; a failure is the window's to say.
+            // The archive the window does, with its Undo; a failure is the window's to say.
             (Act::Archive, Opens::Thread(thread)) => {
                 vec![
                     "open".to_owned(),

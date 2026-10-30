@@ -410,21 +410,14 @@ fn undoing_spam_and_not_spam_leaves_the_counts_as_they_were() {
         message(500, "promo@prizes.example", "Hello", SPAMMY),
         b"",
     );
-    let spam =
-        crate::act::perform(&store, arriving.thread, Op::Spam, crate::when::Clock::H24).unwrap();
+    let spam = crate::act::perform(&store, arriving.thread, Op::Spam).unwrap();
     assert_eq!(counts(), (before.0 + 1, before.1));
     assert!(crate::act::take_back(&store, &spam));
     assert_eq!(counts(), before, "Spam, undone");
 
     // Not Spam: from the Spam folder back out.
-    crate::act::perform(&store, arriving.thread, Op::Spam, crate::when::Clock::H24).unwrap();
-    let restored = crate::act::perform(
-        &store,
-        arriving.thread,
-        Op::Restore,
-        crate::when::Clock::H24,
-    )
-    .unwrap();
+    crate::act::perform(&store, arriving.thread, Op::Spam).unwrap();
+    let restored = crate::act::perform(&store, arriving.thread, Op::Restore).unwrap();
     // Spam taught spam, then Not Spam turned it to ham.
     assert_eq!(counts(), (before.0, before.1 + 1));
     assert!(crate::act::take_back(&store, &restored));
@@ -451,21 +444,10 @@ fn taking_the_junk_label_off_teaches_not_spam() {
         mail_domain::LabelOrigin::User,
     )
     .unwrap();
-    crate::act::perform(
-        &store,
-        arriving.thread,
-        Op::Label(label, Membership::In),
-        crate::when::Clock::H24,
-    )
-    .unwrap();
+    crate::act::perform(&store, arriving.thread, Op::Label(label, Membership::In)).unwrap();
     let before = counts();
-    let off = crate::act::perform(
-        &store,
-        arriving.thread,
-        Op::Label(label, Membership::Out),
-        crate::when::Clock::H24,
-    )
-    .unwrap();
+    let off =
+        crate::act::perform(&store, arriving.thread, Op::Label(label, Membership::Out)).unwrap();
     assert_eq!(counts(), before + 1);
     assert!(crate::act::take_back(&store, &off));
     assert_eq!(counts(), before);

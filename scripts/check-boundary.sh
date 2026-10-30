@@ -98,6 +98,16 @@ if grep -rnE "(crate|super|mail_app)::cli\b" crates/mail-ui/src/ui/; then
   fail=1
 fi
 
+# The crates below the window name no part of it: what a sidebar or a toast shows is the window's
+# to decide, so a lower crate says what happened and what a count is of, never where it is drawn.
+# Comments are held to it too. (A notification's own words for the operating system's concepts
+# live in `notify/` and are the one thing left out.)
+if grep -rniE '\b(sidebar|toast)s?\b' crates/mail-core/src crates/mail-core/tests crates/mail-client crates/mail-store/src crates/mail-store/tests crates/mail-runtime --include='*.rs' \
+  | grep -vE '^crates/mail-core/src/notify/'; then
+  echo "a crate below the window names its sidebar or its toasts: say what happened and let mail-ui word it"
+  fail=1
+fi
+
 # `mail-core` returns values for a front-end to word, not the words of a terminal. Two habits
 # still stand in the way, and each is held by an allowlist of the files that have not been
 # converted yet: a file is listed to be fixed, never to be excused, and a line comes off the

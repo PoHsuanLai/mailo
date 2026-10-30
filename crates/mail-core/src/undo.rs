@@ -1,4 +1,4 @@
-//! What the window can take back, and how to say what it did.
+//! What can be taken back, and the stack that holds it.
 //!
 //! An entry is an [`Applied`]'s undo kept beside the patch it undoes. Undoing writes the
 //! inverse through the store like any other patch, and — when the forward op told the server —
@@ -7,11 +7,10 @@
 //!
 //! [`Applied`]: mail_domain::Applied
 
-use crate::when::Clock;
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use mail_domain::{
-    Change, DraftId, FolderWork, FollowUp, Hue, LabelId, MailboxRole, Membership, MessageId, Mute,
-    NonEmpty, Op, Patch, Pin, ReadState, RemoteIntent, Snooze, Star, Subscription, ThreadId,
+    Change, DraftId, FolderWork, Hue, LabelId, MailboxRole, Membership, MessageId, NonEmpty, Patch,
+    ReadState, RemoteIntent, Star, Subscription, ThreadId,
 };
 use porter_core::AccountId;
 use std::collections::BTreeMap;
@@ -22,8 +21,6 @@ pub const DEPTH: usize = 20;
 /// One operation that can be taken back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Undo {
-    /// What the toast said: "Archived".
-    pub said: String,
     /// The conversation it acted on. `None` for work on an account's folders, which belongs
     /// to no conversation.
     pub thread: Option<ThreadId>,
@@ -51,8 +48,8 @@ pub struct Resend {
     pub pictures: crate::compose::PictureSize,
 }
 
-/// Which entry of the stack an undo means: what the toast carries back when it is pulled, so
-/// the pull takes back the op it named even when a later op has been pushed since.
+/// Which entry of the stack an undo means: what a caller carries back when it asks, so the ask
+/// takes back the op it named even when a later op has been pushed since.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct UndoHandle(pub u64);
 
@@ -347,61 +344,6 @@ pub fn reverse_folder(work: &FolderWork) -> Option<FolderWork> {
             },
         }),
     }
-}
-
-/// What the toast says an operation did, a time in it written as `clock` says.
-pub fn said<Tz: TimeZone>(op: &Op, zone: &Tz, clock: Clock) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    match op {
-        Op::Archive => "Archived".to_owned(),
-        Op::Trash => "Moved to Trash".to_owned(),
-        Op::Restore => "Moved to Inbox".to_owned(),
-        Op::Spam => "Marked as spam".to_owned(),
-        Op::SetRead(ReadState::Read) => "Marked read".to_owned(),
-        Op::SetRead(ReadState::Unread) => "Marked unread".to_owned(),
-        Op::SetStar(Star::Starred) => "Starred".to_owned(),
-        Op::SetStar(Star::Unstarred) => "Unstarred".to_owned(),
-        Op::Flag(hue) => format!("Flagged {hue}"),
-        Op::Label(_, Membership::In) => "Labelled".to_owned(),
-        Op::Label(_, Membership::Out) => "Label removed".to_owned(),
-        Op::SetSnooze(Snooze::Until(at)) => format!("Snoozed until {}", when(*at, zone, clock)),
-        Op::SetSnooze(Snooze::Inactive) => "Back in the inbox".to_owned(),
-        Op::SetPin(Pin::Rank(_)) => "Pinned".to_owned(),
-        Op::SetPin(Pin::Unpinned) => "Unpinned".to_owned(),
-        Op::SetMute(Mute::Muted) => "Muted".to_owned(),
-        Op::SetMute(Mute::Unmuted) => "Unmuted".to_owned(),
-        Op::SetFollowUp(FollowUp::Until { at, .. }) => {
-            format!("Reminder set for {} if no reply", when(*at, zone, clock))
-        }
-        Op::SetFollowUp(FollowUp::Returned { .. }) => "No reply yet".to_owned(),
-        Op::SetFollowUp(FollowUp::Inactive) => "Reminder cleared".to_owned(),
-        Op::File(_) => "Moved to folder".to_owned(),
-        Op::Copy(_) => "Copied to folder".to_owned(),
-        Op::Destroy => "Deleted forever".to_owned(),
-    }
-}
-
-/// What the toast says one gesture did to several conversations: "Archived 3 conversations".
-/// One conversation is said as [`said`] says it.
-pub fn said_of<Tz: TimeZone>(op: &Op, count: usize, zone: &Tz, clock: Clock) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    let one = said(op, zone, clock);
-    if count == 1 {
-        one
-    } else {
-        format!("{one} · {count} conversations")
-    }
-}
-
-fn when<Tz: TimeZone>(at: DateTime<Utc>, zone: &Tz, clock: Clock) -> String
-where
-    Tz::Offset: std::fmt::Display,
-{
-    crate::when::stamp(at, zone, crate::when::Stamp::Weekday, clock)
 }
 
 #[cfg(test)]

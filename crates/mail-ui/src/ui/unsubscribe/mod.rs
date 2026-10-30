@@ -167,14 +167,10 @@ fn inbox_from(client: &Client, sender: &str) -> Vec<ThreadId> {
 /// Archive every conversation in the inbox from `sender`, here, as ordinary ops with their
 /// undos.
 #[cfg(test)]
-pub(in crate::ui) fn archive_from(
-    client: &Client,
-    sender: &str,
-    clock: mail_core::when::Clock,
-) -> Vec<Undo> {
+pub(in crate::ui) fn archive_from(client: &Client, sender: &str) -> Vec<Undo> {
     inbox_from(client, sender)
         .into_iter()
-        .filter_map(|thread| client.acting().perform(thread, Op::Archive, clock))
+        .filter_map(|thread| client.acting().perform(thread, Op::Archive))
         .collect()
 }
 
@@ -185,12 +181,10 @@ pub(in crate::ui) fn archive_list(client: &Client, shell: Signal<Shell>, sender:
         .into_iter()
         .map(|thread| (thread, Op::Archive))
         .collect();
-    let hours = crate::ui::clock::hours();
     let motion = super::motion::motion();
     let gesture = super::motion::begin(motion);
     let ticket = crate::ui::live::client().act(Perform {
         ops,
-        clock: hours,
         alone: Vec::new(),
         then_erase: false,
     });

@@ -365,13 +365,7 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     let draft = threads[0];
 
     // Starring changes nothing about where the server holds it.
-    mail_core::act::perform(
-        &store,
-        draft,
-        Op::SetStar(Star::Starred),
-        mail_core::when::Clock::H24,
-    )
-    .unwrap();
+    mail_core::act::perform(&store, draft, Op::SetStar(Star::Starred)).unwrap();
     assert!(
         belongs(
             &crate::ui::fixtures::client(&store),
@@ -385,8 +379,7 @@ fn an_op_in_a_folder_place_keeps_the_row_while_its_mail_is_still_there() {
     // Trashed here, it leaves the folder's list at once (10.11): `InFolder` is held there *and*
     // filed as held, and a trashed message is filed as none of its folders. The server still
     // holds it in the folder until the move is made and seen, and its address stays.
-    let trashed =
-        mail_core::act::perform(&store, draft, Op::Trash, mail_core::when::Clock::H24).unwrap();
+    let trashed = mail_core::act::perform(&store, draft, Op::Trash).unwrap();
     assert!(
         !belongs(
             &crate::ui::fixtures::client(&store),

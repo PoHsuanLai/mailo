@@ -94,7 +94,7 @@ fn a_label_the_server_reports_is_created_attached_and_found() {
 #[test]
 fn the_same_name_twice_is_the_same_label() {
     // Two messages, one label. `UNIQUE (account, name)` is what makes that safe, and a client
-    // that made a new row per message would show the same label several times in a sidebar.
+    // that made a new row per message would show the same label several times in a list of labels.
     let store = sqlite();
     let first = message(&store, 42);
     let second = message(&store, 43);

@@ -253,7 +253,6 @@ pub(in crate::ui) fn act_saying(
     let gesture = begin(motion);
     let ticket = super::live::client().act(Perform {
         ops,
-        clock: hours,
         alone,
         then_erase,
     });
@@ -316,8 +315,7 @@ fn performed(
     let count = done.len();
     let said = match done.as_slice() {
         [] => return (0, None),
-        [(_, op, _), _, ..] => mail_client::undo::said_of(op, count, &chrono::Local, hours),
-        [(_, _, undo)] => undo.said.clone(),
+        [(_, op, _), ..] => copy::toasts::performed_on(op, count, &chrono::Local, hours),
     };
     let said = instead.unwrap_or(said);
     let undos = done.into_iter().map(|(.., undo)| undo).collect();
@@ -541,9 +539,8 @@ pub(in crate::ui) fn spam_and_offer_unblock(
     rule: Option<Rule>,
     text: String,
 ) {
-    let hours = crate::ui::clock::hours();
     let moved = resolve(client, thread, OpKind::Spam)
-        .and_then(|op| client.acting().perform(thread, op, hours))
+        .and_then(|op| client.acting().perform(thread, op))
         .and_then(|undo| shell.write().undo.push_all(vec![undo]));
     tell(text, Follow::Unblock { rule, undo: moved });
 }

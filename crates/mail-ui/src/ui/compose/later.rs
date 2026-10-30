@@ -246,7 +246,6 @@ pub(in crate::ui) fn cancel_scheduled(shell: Signal<Shell>, draft: DraftId) -> R
     record(
         shell,
         vec![Undo {
-            said: copy::toasts::SENDING_CANCELLED.to_owned(),
             thread: None,
             account: held.account,
             forward: nothing(),
