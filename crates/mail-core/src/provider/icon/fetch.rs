@@ -27,14 +27,21 @@ pub(crate) fn url(provider: Provider) -> Option<&'static str> {
 /// Five seconds, at most three redirects, https only. There is no cookie jar:
 /// this crate does not enable reqwest's `cookies` feature, and nothing here
 /// installs one.
+///
+/// Built once per process; a clone shares its connections.
 pub(crate) fn client() -> Result<reqwest::Client, IconError> {
-    reqwest::Client::builder()
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client.clone());
+    }
+    let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .connect_timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::limited(3))
         .https_only(true)
         .build()
-        .map_err(|err| IconError::Fetch(err.to_string()))
+        .map_err(|err| IconError::Fetch(err.to_string()))?;
+    Ok(CLIENT.get_or_init(|| client).clone())
 }
 
 /// Fetch the provider's icon bytes. The caller decodes and stores them.
