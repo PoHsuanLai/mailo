@@ -29,7 +29,8 @@ use chrono::{DateTime, Utc};
 use mail_core::fetch::Event;
 use mail_core::mail::{Clock, SystemClock};
 use mail_domain::MailboxRef;
-use mail_store::{Committed, SqliteStore, Topics};
+use mail_runtime::Logged;
+use mail_store::{Checkpoint, Committed, SqliteStore, Topics};
 use parking_lot::{Condvar, Mutex};
 use porter_core::AccountId;
 use std::any::{Any, TypeId};
@@ -168,6 +169,10 @@ struct Registry {
     every: Vec<Weak<dyn Job>>,
 }
 
+/// How large the write-ahead log may be at start before it is cut down: the size the store
+/// caps it to once a checkpoint has run.
+const LOG_LARGE: u64 = 64 * 1024 * 1024;
+
 impl Client {
     /// The client over `store`, its threads started.
     pub fn open(store: Arc<SqliteStore>, config: ClientConfig) -> Client {
@@ -197,6 +202,18 @@ impl Client {
                 for job in asked {
                     job(&shared.store);
                 }
+            }));
+        }
+        // A log left large by an earlier run is cut down here, on a thread of the client's own
+        // rather than the caller's: `open` is called while the window is coming up, and a
+        // truncate waits for every reader to finish. The thread ends when it is done.
+        if shared.store.log_size() > LOG_LARGE {
+            let shared = shared.clone();
+            threads.push(spawn("mailo-log", move || {
+                shared
+                    .store
+                    .checkpoint(Checkpoint::Truncate)
+                    .or_log("the log could not be cut down at start");
             }));
         }
         threads.push(crate::clock::start(shared.clone()));
@@ -501,6 +518,13 @@ impl Drop for Inner {
 impl Inner {
     fn stop(&self, within: Duration) {
         self.shared.stopping.store(true, Ordering::Release);
+        // One pragma, so the file is left small for the next start. Before the threads are
+        // joined, which is when a reader may still be mid-read: the truncate waits those out for
+        // at most the store's busy timeout, and a failure only leaves the log as it was.
+        self.shared
+            .store
+            .checkpoint(Checkpoint::Truncate)
+            .or_log("the log could not be cut down at quit");
         // Nothing more is taken; what was given is still applied.
         self.shared.acts.lock().take();
         if let Some(stop) = self.shared.fetch_stop.lock().take() {
