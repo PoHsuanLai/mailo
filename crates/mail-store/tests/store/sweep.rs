@@ -78,6 +78,18 @@ fn later() -> chrono::DateTime<Utc> {
     Utc::now() + Duration::hours(2)
 }
 
+/// Two sweeps a day apart, the second's, after the first has seen what is unnamed: what it takes
+/// is only what both saw.
+fn sweep_twice(store: &SqliteStore) -> mail_store::Swept {
+    let first = store.sweep_blobs(later()).unwrap();
+    assert_eq!(
+        (first.blobs, first.files),
+        (0, 0),
+        "the first sweep takes nothing"
+    );
+    store.sweep_blobs(later() + Duration::hours(25)).unwrap()
+}
+
 #[test]
 fn the_blobs_of_a_deleted_message_go_with_their_files_and_a_kept_message_keeps_its_own() {
     let dir = tempfile::tempdir().unwrap();
@@ -104,7 +116,11 @@ fn the_blobs_of_a_deleted_message_go_with_their_files_and_a_kept_message_keeps_i
     assert_eq!(nothing.blobs, 0);
     assert!(held(&store, gone_raw));
 
-    let swept = store.sweep_blobs(later()).unwrap();
+    // Seen unnamed by one sweep is not enough; a day later, by a second, it is.
+    let first = store.sweep_blobs(later()).unwrap();
+    assert_eq!(first.blobs, 0);
+    assert!(held(&store, gone_raw));
+    let swept = store.sweep_blobs(later() + Duration::hours(25)).unwrap();
 
     assert_eq!((swept.blobs, swept.files, swept.left), (2, 1, 0));
     assert!(!held(&store, gone_raw));
@@ -172,7 +188,7 @@ fn a_blob_a_draft_or_a_queued_send_names_survives_and_one_nothing_names_does_not
         .unwrap();
     age_all(&store);
 
-    store.sweep_blobs(Utc::now()).unwrap();
+    sweep_twice(&store);
 
     assert!(held(&store, in_draft));
     assert!(held(&store, in_outbox));
@@ -186,8 +202,9 @@ fn a_blob_put_a_moment_ago_survives_though_nothing_names_it_yet() {
     let fresh = store.blobs().put(&large(4)).unwrap();
 
     let swept = store.sweep_blobs(Utc::now()).unwrap();
+    let again = store.sweep_blobs(Utc::now() + Duration::hours(25)).unwrap();
 
-    assert_eq!(swept.blobs, 0);
+    assert_eq!((swept.blobs, again.blobs), (0, 0));
     assert!(held(&store, fresh));
 }
 
@@ -197,9 +214,18 @@ fn bytes_put_again_are_in_use_again_however_long_they_sat() {
     let store = opened(dir.path());
     let bytes = large(5);
     let id = store.blobs().put(&bytes).unwrap();
-    age_all(&store);
+    store
+        .raw_connection()
+        .execute(
+            "UPDATE blobs SET created_at = datetime('now', '-5 days')",
+            [],
+        )
+        .unwrap();
+    // Seen unnamed two days ago, so the next sweep would take it...
+    let seen = store.sweep_blobs(Utc::now() - Duration::days(2)).unwrap();
+    assert_eq!(seen.blobs, 0);
 
-    // A message about to name it, as a re-fetch is: the put is what the sweep must see.
+    // ...but a message about to name it, as a re-fetch is, puts it again first.
     assert_eq!(store.blobs().put(&bytes).unwrap(), id);
     store.sweep_blobs(Utc::now()).unwrap();
 
@@ -220,9 +246,13 @@ fn a_file_no_row_names_goes_once_it_is_an_hour_old_and_so_does_a_half_written_on
     store.sweep_blobs(Utc::now()).unwrap();
     assert!(orphan.exists() && half.exists(), "an hour has not passed");
 
+    // The half-written one is only an hour's wait; the orphan a day's more, over two sweeps.
     let swept = store.sweep_blobs(later()).unwrap();
-    assert_eq!(swept.files, 2);
-    assert!(!orphan.exists() && !half.exists());
+    assert_eq!(swept.files, 1);
+    assert!(orphan.exists() && !half.exists());
+    let swept = store.sweep_blobs(later() + Duration::hours(25)).unwrap();
+    assert_eq!(swept.files, 1);
+    assert!(!orphan.exists());
 }
 
 #[test]
@@ -241,7 +271,7 @@ fn a_file_a_row_names_is_kept_however_old() {
         .unwrap();
     age_all(&store);
 
-    let swept = store.sweep_blobs(later()).unwrap();
+    let swept = sweep_twice(&store);
 
     assert_eq!((swept.blobs, swept.files), (0, 0));
     assert!(held(&store, held_file));
@@ -267,4 +297,60 @@ fn the_daily_sweep_runs_once_a_day() {
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn a_blob_named_again_without_a_put_between_two_sweeps_survives() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = opened(dir.path());
+    let id = store.blobs().put(&large(7)).unwrap();
+    age_all(&store);
+    let first = store.sweep_blobs(later()).unwrap();
+    assert_eq!(first.blobs, 0, "the first sweep ever takes nothing");
+
+    // Named again by a row that reuses its id, as an undo restores one: no put.
+    store
+        .import(
+            account(),
+            Import {
+                messages: vec![kept("restored@x", id, &[])],
+            },
+        )
+        .unwrap();
+    store.sweep_blobs(later() + Duration::hours(25)).unwrap();
+    let third = store.sweep_blobs(later() + Duration::hours(50)).unwrap();
+
+    assert_eq!(third.blobs, 0);
+    assert!(held(&store, id));
+}
+
+#[test]
+fn a_blob_unnamed_at_two_sweeps_a_day_apart_goes() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = opened(dir.path());
+    let id = store.blobs().put(&large(8)).unwrap();
+    age_all(&store);
+
+    let swept = sweep_twice(&store);
+
+    assert_eq!((swept.blobs, swept.files), (1, 1));
+    assert!(!held(&store, id));
+}
+
+#[test]
+fn a_list_of_candidates_that_does_not_read_deletes_nothing() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = opened(dir.path());
+    let id = store.blobs().put(&large(9)).unwrap();
+    age_all(&store);
+    std::fs::write(
+        dir.path().join("blobs/.sweep-candidates"),
+        b"\xff\xfegarbage",
+    )
+    .unwrap();
+
+    let swept = store.sweep_blobs(later() + Duration::hours(25)).unwrap();
+
+    assert_eq!(swept.blobs, 0);
+    assert!(held(&store, id));
 }

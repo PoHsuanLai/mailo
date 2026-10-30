@@ -11,6 +11,18 @@
 //! put of bytes already kept says they are in use again ([`crate::blob`]), so one a message is
 //! about to name is not taken between the scan and the delete.
 //!
+//! That is not enough alone, because a blob's time is when it was last put, not when it stopped
+//! being named: a message whose blob is months old is deleted, a sweep runs right then, and the
+//! blob is old and unnamed at once, though anything that names it again without storing it (an
+//! undo, a restored row) would then point at bytes that are gone. So a sweep takes nothing the
+//! first time it sees it unnamed. It records what it saw ([`CANDIDATES`], beside the blobs, so it
+//! is one answer for every process and needs no migration) and takes only what an earlier sweep
+//! at least [`BLOB_GRACE_DELETE`] before also saw unnamed and this one still does. One named again
+//! in between drops off the list. A list that is missing or unreadable is no candidates, never a
+//! reason to delete. This also covers a reference written between the scan and the delete, which
+//! the scan on a reader's snapshot cannot see. Files with no row follow the same rule; a half
+//! written `.part` file is only an hour old at most before it goes.
+//!
 //! The rows go in one short transaction and their files are set aside inside it, as removing an
 //! account does, and deleted after it commits, when the writer is free again.
 
@@ -19,11 +31,18 @@ use super::forget::{Scan, each_text, select, tables, uuids};
 use crate::StoreError;
 use chrono::{DateTime, Utc};
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, SystemTime};
 
 /// How long a blob or a file with nothing naming it is left alone.
 const BLOB_GRACE: Duration = Duration::from_secs(60 * 60);
+
+/// How long a blob or file must have been seen unnamed, by an earlier sweep, before one takes it.
+const BLOB_GRACE_DELETE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// What a sweep saw unnamed, in the blob root: a line each of kind (`blob` or `file`), id or path,
+/// and the Unix time it was first seen so, separated by tabs.
+const CANDIDATES: &str = ".sweep-candidates";
 
 /// How often [`SqliteStore::sweep_blobs_daily`] sweeps.
 const EVERY: Duration = Duration::from_secs(24 * 60 * 60);
@@ -116,6 +135,24 @@ impl SqliteStore {
             }
         }
 
+        // Seen unnamed before, long enough ago, is what is taken; the rest wait, and are kept on
+        // the list with the time they were first seen.
+        let before = self.candidates_seen();
+        let first_time = now.timestamp();
+        let ripe = first_time - BLOB_GRACE_DELETE.as_secs() as i64;
+        let mut next: HashMap<(&'static str, String), i64> = HashMap::new();
+        unused.retain(|id, _| match before.get(&("blob", id.clone())) {
+            Some(first) if *first <= ripe => true,
+            Some(first) => {
+                next.insert(("blob", id.clone()), *first);
+                false
+            }
+            None => {
+                next.insert(("blob", id.clone()), first_time);
+                false
+            }
+        });
+
         let mut aside = Vec::new();
         if !unused.is_empty() {
             let db = self.connection();
@@ -187,13 +224,59 @@ impl SqliteStore {
             } else if named.contains(&rel) {
                 continue;
             } else {
-                self.files().remove_stored(&rel)
+                match before.get(&("file", rel.clone())) {
+                    Some(first) if *first <= ripe => self.files().remove_stored(&rel),
+                    seen => {
+                        next.insert(("file", rel.clone()), seen.copied().unwrap_or(first_time));
+                        continue;
+                    }
+                }
             };
             match removed {
                 Ok(()) => swept.files += 1,
                 Err(_) => swept.left += 1,
             }
         }
+        self.candidates_keep(&next)?;
         Ok(swept)
+    }
+
+    /// What earlier sweeps saw unnamed, and when each first did. Nothing when the list is not
+    /// there or does not read: that is no candidates, so nothing is taken until a sweep has seen
+    /// it again.
+    fn candidates_seen(&self) -> HashMap<(&'static str, String), i64> {
+        let Ok(text) = std::fs::read_to_string(self.files().root().join(CANDIDATES)) else {
+            return HashMap::new();
+        };
+        text.lines()
+            .filter_map(|line| {
+                let mut parts = line.split('\t');
+                let kind = match parts.next()? {
+                    "blob" => "blob",
+                    "file" => "file",
+                    _ => return None,
+                };
+                let what = parts.next()?.to_owned();
+                let Ok(first) = parts.next()?.parse() else {
+                    return None;
+                };
+                Some(((kind, what), first))
+            })
+            .collect()
+    }
+
+    /// Keep `candidates` as the list the next sweep reads, replacing the last whole.
+    fn candidates_keep(
+        &self,
+        candidates: &HashMap<(&'static str, String), i64>,
+    ) -> Result<(), StoreError> {
+        let mut text = String::new();
+        for ((kind, what), first) in candidates {
+            text.push_str(&format!("{kind}\t{what}\t{first}\n"));
+        }
+        let path = self.files().root().join(CANDIDATES);
+        std::fs::create_dir_all(self.files().root())
+            .and_then(|()| crate::file::write_atomic(&path, text.as_bytes(), Some(0o600)))
+            .map_err(|e| StoreError::Blob(CANDIDATES.to_owned(), e.to_string()))
     }
 }
