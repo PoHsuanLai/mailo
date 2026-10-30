@@ -37,12 +37,17 @@ fn wait(next: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Duration {
 pub(crate) fn start(shared: Arc<Shared>) -> JoinHandle<()> {
     crate::client::spawn("mailo-clock", move || {
         while !shared.stopping() {
-            let next = next(shared.store(), shared.now());
+            let next = crate::client::survive("finding the next moment on the clock", || {
+                next(shared.store(), shared.now())
+            })
+            .flatten();
             shared.clock_sleep(wait(next, shared.now()));
             // Woken early or not: a moment passed meanwhile is marked, so a commit that came
             // with it does not hide it.
             if next.is_some_and(|at| at <= shared.now()) {
-                shared.invalidate(Topics::CLOCK);
+                crate::client::survive("marking the clock moved", || {
+                    shared.invalidate(Topics::CLOCK);
+                });
             }
         }
     })

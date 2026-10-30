@@ -208,6 +208,36 @@ pub async fn follow(accounts: Option<Asked>, store: &SqliteStore, tx: UnboundedS
     std::future::pending::<()>().await;
 }
 
+/// Why a pass did not end in an answer.
+#[derive(Debug, thiserror::Error)]
+enum Stopped {
+    #[error("{0}")]
+    Failed(CoreError),
+    #[error("the sync pass stopped: {0}")]
+    Panicked(String),
+}
+
+/// `pass`, with a panic in it turned into a failed pass. The scheduler runs on the watch's own
+/// task, so a panic left to unwind would end the watch; a failed pass is one it backs off from
+/// and tries again, as the window's does ([`outcome`]).
+async fn survive<T>(
+    pass: impl std::future::Future<Output = Result<T, CoreError>>,
+) -> Result<T, Stopped> {
+    use futures_util::FutureExt;
+    match std::panic::AssertUnwindSafe(pass).catch_unwind().await {
+        Ok(done) => done.map_err(Stopped::Failed),
+        Err(panicked) => {
+            let what = panicked
+                .downcast_ref::<&str>()
+                .map(|text| (*text).to_owned())
+                .or_else(|| panicked.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a pass panicked".to_owned());
+            log::error!("a sync pass panicked: {what}");
+            Err(Stopped::Panicked(what))
+        }
+    }
+}
+
 /// What the scheduler is lent by a watch.
 struct Watching<'a> {
     mail: &'a Mail,
@@ -266,10 +296,7 @@ impl Host for Watching<'_> {
                 cancel: BTreeMap::from([(account.clone(), cancel)]),
             };
             let mail = self.mail_now();
-            let done = mail
-                .sync()
-                .run_due(std::slice::from_ref(&account), hooks)
-                .await;
+            let done = survive(mail.sync().run_due(std::slice::from_ref(&account), hooks)).await;
             let mut stored = Stored::Nothing;
             match &done {
                 Ok(ends) => {
@@ -341,6 +368,19 @@ mod tests {
         mail_store::testing::seed_account_plan(&store, account(), "ada@example.test", &plan, None);
         mail_store::testing::seed_caps(&store, account(), &caps, caps.observed_at).unwrap();
         store
+    }
+
+    /// A pass that panics is a failed pass the scheduler backs off from, not the end of the watch.
+    #[tokio::test]
+    async fn a_pass_that_panics_is_a_failed_pass() {
+        let failed = survive::<Vec<PassEnd>>(async { panic!("a bad message") }).await;
+        assert!(matches!(&failed, Err(Stopped::Panicked(what)) if what == "a bad message"));
+        assert!(matches!(outcome(failed, account()), Event::Failed { .. }));
+        // The next one runs as any other.
+        assert!(matches!(
+            survive(async { Ok::<_, CoreError>(7) }).await,
+            Ok(7)
+        ));
     }
 
     /// A watch that runs for days follows the junk filter's setting from its next pass.

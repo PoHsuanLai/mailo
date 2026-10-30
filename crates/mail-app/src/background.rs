@@ -84,6 +84,16 @@ pub fn step<W>(claimed: Result<W, Refused>) -> Step<W> {
 /// after it ended on an error.
 pub const AGAIN: Duration = Duration::from_secs(60);
 
+/// How long the watch is left down after its first panic, and the most it is left down for as
+/// each one after it doubles the wait.
+const REVIVE: Duration = Duration::from_secs(5);
+const REVIVE_AT_MOST: Duration = Duration::from_secs(300);
+
+/// How long to leave the watch down after a panic that follows one that took `after`.
+fn revive_after(after: Duration) -> Duration {
+    (after * 2).clamp(REVIVE, REVIVE_AT_MOST)
+}
+
 /// How often the accounts are looked at, beside each write to the store.
 const ACCOUNTS_EVERY: Duration = Duration::from_secs(30);
 
@@ -150,26 +160,54 @@ fn watch(store: &Arc<SqliteStore>, held: Watching) -> ! {
         mail_ui::settings::person_root(),
     );
     let tell = |watched: mail_core::sync::report::Watched| told(&watched);
+    let mut down = Duration::ZERO;
     loop {
-        let mail = crate::edge::mail(store);
-        let ran = crate::edge::block_on(mail.sync().watch_until(
-            Some(&notifier),
-            mail_core::sync::watcher::Live {
-                whom: &|| notifier.whom(),
-                junk: &mail_ui::settings::junk_policy,
-            },
-            &tell,
-            Some(held.asked()),
-            Some(accounts.clone()),
-            End::Never,
-        ));
-        if let Err(why) = ran {
-            log::warn!(
-                "checking for mail stopped: {}",
-                crate::cli::remedy::error(why)
-            );
+        let began = std::time::Instant::now();
+        // A panic in the watch ends this run of it, not the thread: the lock is the process's
+        // and stays held, so the same claim is used again and nothing is claimed twice.
+        let ran = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mail = crate::edge::mail(store);
+            crate::edge::block_on(mail.sync().watch_until(
+                Some(&notifier),
+                mail_core::sync::watcher::Live {
+                    whom: &|| notifier.whom(),
+                    junk: &mail_ui::settings::junk_policy,
+                },
+                &tell,
+                Some(held.asked()),
+                Some(accounts.clone()),
+                End::Never,
+            ))
+        }));
+        match ran {
+            Ok(Ok(_)) => std::thread::sleep(AGAIN),
+            Ok(Err(why)) => {
+                log::warn!(
+                    "checking for mail stopped: {}",
+                    crate::cli::remedy::error(why)
+                );
+                std::thread::sleep(AGAIN);
+            }
+            Err(panicked) => {
+                let what = panicked
+                    .downcast_ref::<&str>()
+                    .map(|text| (*text).to_owned())
+                    .or_else(|| panicked.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "the watch panicked".to_owned());
+                // A watch that ran a while before it fell starts the waits again from the
+                // shortest, so only one that keeps falling at once is left down for long.
+                down = if began.elapsed() > REVIVE_AT_MOST {
+                    REVIVE
+                } else {
+                    revive_after(down)
+                };
+                log::error!("checking for mail panicked, trying again in {down:?}: {what}");
+                // While it is down the window schedules for itself, as it does with no watch.
+                WATCHING_HERE.store(false, Ordering::Release);
+                std::thread::sleep(down);
+                WATCHING_HERE.store(true, Ordering::Release);
+            }
         }
-        std::thread::sleep(AGAIN);
     }
 }
 
