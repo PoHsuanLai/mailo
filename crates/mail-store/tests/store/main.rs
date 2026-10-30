@@ -22,6 +22,7 @@ mod graph_remote;
 mod groups;
 mod import;
 mod in_folder;
+mod ingest_diff;
 mod ingest_to_search;
 mod jmap;
 mod junk;
