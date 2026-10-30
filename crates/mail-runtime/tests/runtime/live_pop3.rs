@@ -14,8 +14,9 @@
 //! `#[ignore]`d; run it through `./scripts/live-tests.sh`.
 
 use mail_domain::Tls;
+use mail_net::Transport;
 use mail_proto::{Pop3Command, Pop3Reply, Pop3Session};
-use mail_runtime::{Transport, drive};
+use mail_runtime::drive;
 use tokio::sync::watch;
 
 const PORT: u16 = 11110;

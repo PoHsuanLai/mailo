@@ -4,13 +4,14 @@
 //! do: read and write the keyring, and write what arriving mail taught to the store. Nothing
 //! here decrypts anything — mail is decrypted when the reader opens it, never as it arrives.
 
-use crate::error::Failure;
-use crate::{RuntimeError, SigningStore};
+use crate::RuntimeError;
 use chrono::{DateTime, Utc};
 use mail_crypto::openpgp::{AutocryptHeader, SecretCert, autocrypt_of};
 use mail_domain::autocrypt::{self, Sighting, effective_date};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::{Fingerprint, KeySource};
+use mail_net::Failure;
+use mail_secrets::SigningStore;
 use mail_store::Store;
 use porter_core::AccountId;
 
@@ -43,10 +44,10 @@ pub fn keep_secret_key(
     account: AccountId,
     key: &SecretCert,
 ) -> Result<(), RuntimeError> {
-    secrets.put(
+    Ok(secrets.put(
         &entry(account, key.fingerprint()),
         &SigningSecret::OpenPgp(key.armored()?),
-    )
+    )?)
 }
 
 /// Remove the secret half of `fingerprint` from the keyring. Already gone is success.
@@ -55,7 +56,7 @@ pub fn forget_secret_key(
     account: AccountId,
     fingerprint: Fingerprint,
 ) -> Result<(), RuntimeError> {
-    secrets.forget(&entry(account, fingerprint))
+    Ok(secrets.forget(&entry(account, fingerprint))?)
 }
 
 /// Update the Autocrypt state for `from` from one arriving message, and keep the key its

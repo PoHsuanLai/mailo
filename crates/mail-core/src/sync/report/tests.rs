@@ -2,7 +2,7 @@ use super::*;
 use crate::support_tests::{account, caps, now, with_password};
 use crate::sync::run_with;
 use mail_domain::*;
-use mail_runtime::ClientRegistry;
+use mail_secrets::ClientRegistry;
 use mail_store::SqliteStore;
 use porter_secrets::MemorySecrets;
 use std::sync::Arc;

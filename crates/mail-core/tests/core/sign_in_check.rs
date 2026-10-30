@@ -9,7 +9,7 @@ use crate::support::{account, now};
 use mail_core::CoreError;
 use mail_core::sync::check_sign_in;
 use mail_domain::*;
-use mail_runtime::AccountSecrets;
+use mail_secrets::AccountSecrets;
 use mail_store::SqliteStore;
 use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
 use porter_secrets::MemorySecrets;
@@ -103,7 +103,7 @@ fn added_on(
     );
     mail_store::testing::seed_caps(&store, account(), &preset.expected_caps, now()).unwrap();
     let secrets: Arc<dyn AccountSecrets> = Arc::new(MemorySecrets::default());
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &SecretKey {
             account: account(),
             purpose: SecretPurpose::IncomingPassword,

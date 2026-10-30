@@ -6,7 +6,7 @@ use crate::error::CoreError;
 use chrono::{DateTime, Utc};
 use mail_pim::vcard::{self, Card, Email};
 use mail_runtime::carddav::{self, Dav, DavAuth};
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_capability::CapabilityKind;
 use porter_core::{Credential, SecretKey, SecretPurpose, SecretText};
@@ -396,14 +396,14 @@ async fn auth_for(
                 Ok(Credential::Password(password)) => password.expose().to_owned(),
                 // A keyring that did not answer may hold the password: it is waited for, not
                 // asked for again.
-                Err(error) => match mail_runtime::SecretTrouble::of(&error) {
-                    mail_runtime::SecretTrouble::Unreachable(why) => {
+                Err(error) => match mail_secrets::SecretTrouble::of(&error) {
+                    mail_secrets::SecretTrouble::Unreachable(why) => {
                         return Err(CoreError::KeyringUnreachable {
                             address: login.to_owned(),
                             why,
                         });
                     }
-                    mail_runtime::SecretTrouble::Absent => {
+                    mail_secrets::SecretTrouble::Absent => {
                         return Err(CoreError::NoServicePassword {
                             login: login.to_owned(),
                         });
@@ -427,7 +427,13 @@ async fn auth_for(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        .map_err(|e| CoreError::unread_credential(&account.address, &account.plan.auth, &e))?;
+        .map_err(|e| {
+            CoreError::unread_credential(
+                &account.address,
+                &account.plan.auth,
+                mail_secrets::SecretTrouble::of(&e),
+            )
+        })?;
     match crate::sync::renewed(account, stored, secrets, saved, now).await? {
         Credential::OAuth { access, .. } => Ok(DavAuth::Bearer(access.expose().to_owned())),
         // A pasted token is presented as it was given: a bearer, with no username.

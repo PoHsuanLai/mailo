@@ -25,15 +25,17 @@
 //! that closes or goes silent is an error, and the scheduler reconnects with its backoff while the
 //! account polls as before.
 
-use crate::engine::wait::due_alarm;
-use crate::error::{Failure, Logged, within};
+use crate::error::Logged;
 use crate::graph::{detail, refusal_text, retry_after, segment};
-use crate::tokens::{self, GraphReach};
-use crate::{AccountSecrets, Cancel, IDLE_REARM, RuntimeError, Woke};
+use crate::pass::due_alarm;
+use crate::{Cancel, IDLE_REARM, RuntimeError, Woke};
 use base64::Engine as _;
 use chrono::{DateTime, TimeDelta, Utc};
 use futures_util::{SinkExt, StreamExt};
 use mail_domain::{AccountPlan, Retry};
+use mail_net::{Failure, within};
+use mail_secrets::AccountSecrets;
+use mail_secrets::tokens::{self, GraphReach};
 use mail_store::{GraphPush, Registered, SqliteStore, Subscribed};
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose, SecretText};
 use porter_provider::ClientEntry;
@@ -329,7 +331,7 @@ fn relay_refused(status: u16, body: &str) -> RuntimeError {
     }
 }
 
-fn unreachable(what: &str, e: impl Into<crate::error::Source>) -> RuntimeError {
+fn unreachable(what: &str, e: impl Into<mail_net::Source>) -> RuntimeError {
     RuntimeError::Connect(Failure::new(what.to_owned(), e))
 }
 
@@ -498,7 +500,7 @@ async fn graph(
         return Ok(Answered::Gone);
     }
     if status.is_success() {
-        let text = crate::http::text_up_to(response, crate::http::MAX_REFUSAL)
+        let text = mail_net::http::text_up_to(response, mail_net::http::MAX_REFUSAL)
             .await
             .or_log_default("Microsoft Graph's answer about a subscription could not be read");
         return Ok(Answered::Body(
@@ -566,7 +568,7 @@ async fn open_socket(
             .await
             .map_err(|e| unreachable("the push relay", e))?;
         let io: Box<dyn Io> = if relay.secure() {
-            Box::new(crate::transport::Transport::wrap(tcp, relay.host()).await?)
+            Box::new(mail_net::transport::Transport::wrap(tcp, relay.host()).await?)
         } else {
             Box::new(tcp)
         };
@@ -735,14 +737,14 @@ impl Listener {
             secrets,
             client,
             reach: GraphReach::of(plan),
-            http: crate::http::http_client()?,
+            http: mail_net::http::http_client()?,
             subscriptions: subscriptions.trim_end_matches('/').to_owned(),
             relay,
             key: String::new(),
             secret: Zeroizing::new(String::new()),
             subscription: None,
             socket: None,
-            outbox: crate::engine::Schedule::default().outbox,
+            outbox: crate::pass::OUTBOX_LOOK,
             owed: false,
             fresh: false,
             pacing: Pacing::default(),
@@ -772,9 +774,9 @@ impl Listener {
         match self.secrets.get(&secret_key(self.account.clone())).await {
             Ok(Credential::ApiKey(secret)) => Ok(Some(Zeroizing::new(secret.expose().to_owned()))),
             Ok(_) => Ok(None),
-            Err(e) => match crate::SecretTrouble::of(&e) {
-                crate::SecretTrouble::Absent => Ok(None),
-                crate::SecretTrouble::Unreachable(_) => Err(e),
+            Err(e) => match mail_secrets::SecretTrouble::of(&e) {
+                mail_secrets::SecretTrouble::Absent => Ok(None),
+                mail_secrets::SecretTrouble::Unreachable(_) => Err(e.into()),
             },
         }
     }

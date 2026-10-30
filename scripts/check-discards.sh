@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A fallible result in a library crate is never discarded in silence.
 #
-# In mail-runtime, mail-core, mail-proto, mail-store and mail-client each failure is propagated with `?`,
+# In mail-net, mail-secrets, mail-runtime, mail-engine, mail-core, mail-proto, mail-store and mail-client each failure is propagated with `?`,
 # recorded where the person sees it (a pass's trouble, a counted field), or logged with
 # `Logged::or_log` / `or_log_default` (mail-runtime/src/error.rs). The few that are rightly
 # ignored (a channel send at shutdown, best-effort cleanup, a reply to a client that has gone,
@@ -13,13 +13,13 @@
 # a ratchet rather than a ban: scripts/discards.txt holds "<crate> <pattern> <lines>", and the
 # check fails when a count rises, and when one falls until that file says so.
 #
-# Tests are not counted: files named tests.rs or *_tests.rs, the test-support testing.rs,
+# Tests are not counted: files named tests.rs or *_tests.rs, the test-support testing.rs and testing/,
 # anything under a tests/ directory, and everything after a `#[cfg(test)]` that opens a `mod`. Plain bash, grep and awk:
 # nothing here builds.
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 2
 
-CRATES=(mail-runtime mail-core mail-proto mail-store mail-client)
+CRATES=(mail-net mail-secrets mail-runtime mail-engine mail-core mail-proto mail-store mail-client)
 LIST=scripts/discards.txt
 
 # The extended regex each pattern name stands for.
@@ -37,7 +37,7 @@ count() {
   local crate="$1" pattern
   pattern=$(regex_of "$2")
   find "crates/$crate/src" -name '*.rs' ! -name 'tests.rs' ! -name '*_tests.rs' \
-    ! -name 'testing.rs' ! -path '*/tests/*' -print0 \
+    ! -name 'testing.rs' ! -path '*/testing/*' ! -path '*/tests/*' -print0 \
     | xargs -0 -r env PAT="$pattern" awk '
         FNR == 1 { prev = ""; intest = 0 }
         prev ~ /^[[:space:]]*#\[cfg\(test\)\]/ && $0 ~ /^[[:space:]]*(pub(\([a-z]+\))? )?mod / { intest = 1 }

@@ -12,7 +12,7 @@
 
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::platform_secrets;
+use mail_secrets::platform_secrets;
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};

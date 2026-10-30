@@ -108,7 +108,8 @@ mail-ui.workspace = true
 # The launcher's count and the words the command line prints, which the window shares.
 mail-os.workspace = true
 # The platform keyring holds the account secrets and the signing keys: the library keeps it opt-in.
-mail-runtime = { workspace = true, features = ["keyring"] }
+mail-runtime.workspace = true
+mail-secrets = { workspace = true, features = ["keyring"] }
 # The one logger the libraries write through (`main.rs`): warnings to stderr, as they were printed.
 log.workspace = true
 # The channel the watch tells the accounts it follows by (`background.rs`); the runtime is
@@ -120,7 +121,7 @@ ds-settings = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e19728b7
 [target.'cfg(target_os = "linux")'.dependencies]
 # The account secrets in the Secret Service through oo7: Linux's store, which the other platforms
 # do not carry (the library keeps it a feature of its own).
-mail-runtime = { workspace = true, features = ["oo7"] }
+mail-secrets = { workspace = true, features = ["oo7"] }
 
 [dev-dependencies]
 # A watch's lock in a scratch directory (`background/tests.rs`), never the person's: the one

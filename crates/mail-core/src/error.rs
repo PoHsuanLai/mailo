@@ -445,18 +445,18 @@ impl CoreError {
     }
 
     /// A credential of `address` that could not be read: a sign-in to ask for when it is not
-    /// there, a wait when the keyring did not answer ([`mail_runtime::SecretTrouble`] decides).
+    /// there, a wait when the keyring did not answer ([`mail_secrets::SecretTrouble`] decides).
     pub(crate) fn unread_credential(
         address: &str,
         auth: &mail_domain::AuthPlan,
-        error: &mail_runtime::RuntimeError,
+        trouble: mail_secrets::SecretTrouble,
     ) -> Self {
-        match mail_runtime::SecretTrouble::of(error) {
-            mail_runtime::SecretTrouble::Absent => CoreError::NoCredential {
+        match trouble {
+            mail_secrets::SecretTrouble::Absent => CoreError::NoCredential {
                 address: address.to_owned(),
                 auth: auth.clone(),
             },
-            mail_runtime::SecretTrouble::Unreachable(why) => CoreError::KeyringUnreachable {
+            mail_secrets::SecretTrouble::Unreachable(why) => CoreError::KeyringUnreachable {
                 address: address.to_owned(),
                 why,
             },
@@ -472,6 +472,12 @@ impl CoreError {
 
 pub(crate) use mail_runtime::Logged;
 
+impl From<mail_secrets::CredentialError> for CoreError {
+    fn from(error: mail_secrets::CredentialError) -> Self {
+        CoreError::Runtime(error.into())
+    }
+}
+
 impl Retryable for CoreError {
     fn retry(&self) -> Retry {
         match self {
@@ -481,7 +487,7 @@ impl Retryable for CoreError {
             CoreError::Proto(e) => e.retry(),
             CoreError::PassFailed { retry, .. } => retry.clone(),
             CoreError::KeyringUnreachable { why, .. } => {
-                mail_runtime::SecretTrouble::Unreachable(why).retry()
+                mail_secrets::SecretTrouble::Unreachable(why).retry()
             }
             // A refusal of ours, or a fact about bytes already in hand: asking again gets the
             // same answer.
@@ -546,11 +552,12 @@ pub enum TimeError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_runtime::{Failure, RuntimeError};
+    use mail_net::Failure;
+    use mail_secrets::{CredentialError, SecretTrouble};
     use porter_secrets::SecretsError;
 
-    fn read_failed(why: SecretsError) -> RuntimeError {
-        RuntimeError::Secrets(Failure::caused(why))
+    fn read_failed(why: SecretsError) -> SecretTrouble {
+        SecretTrouble::of(&CredentialError::Secrets(Failure::caused(why)))
     }
 
     /// A locked keyring asked the person to sign in again, which fixed nothing: only a missing
@@ -564,7 +571,7 @@ mod tests {
         let missing = CoreError::unread_credential(
             "a@example.test",
             &auth,
-            &read_failed(SecretsError::Missing),
+            read_failed(SecretsError::Missing),
         );
         assert!(
             matches!(missing, CoreError::NoCredential { .. }),
@@ -576,7 +583,7 @@ mod tests {
         let locked = CoreError::unread_credential(
             "a@example.test",
             &auth,
-            &read_failed(SecretsError::Locked),
+            read_failed(SecretsError::Locked),
         );
         assert_eq!(locked.to_string(), "a@example.test: the keyring is locked");
         assert!(matches!(locked.retry(), Retry::After(_)), "{locked:?}");
@@ -585,7 +592,7 @@ mod tests {
         let unavailable = CoreError::unread_credential(
             "a@example.test",
             &auth,
-            &read_failed(SecretsError::Unavailable),
+            read_failed(SecretsError::Unavailable),
         );
         assert_eq!(
             unavailable.to_string(),

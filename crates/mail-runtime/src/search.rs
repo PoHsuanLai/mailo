@@ -34,7 +34,7 @@ pub struct ServerHits {
 
 impl ServerHits {
     /// Add `held` in order, each message once.
-    pub(crate) fn hold(&mut self, held: impl IntoIterator<Item = MessageId>) {
+    pub fn hold(&mut self, held: impl IntoIterator<Item = MessageId>) {
         for id in held {
             if !self.messages.contains(&id) {
                 self.messages.push(id);

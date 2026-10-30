@@ -26,12 +26,12 @@ pub use cache::{Cached, cached, remember};
 pub use draw::{SIZE, draw};
 
 use crate::error::Logged;
-use crate::http::BodyError;
-use crate::lookup::{Miss, SystemDns};
 use chrono::{DateTime, Utc};
 use mail_crypto::smime::Cert;
 use mail_crypto::vmc::{self, MarkProblem};
 use mail_mime::bimi::{self, BimiRecord};
+use mail_net::http::BodyError;
+use mail_net::lookup::{Miss, SystemDns};
 use std::future::Future;
 use std::path::Path;
 use std::time::Duration;
@@ -65,14 +65,14 @@ impl Txt for SystemDns {
 ///
 /// A builder so a test can trust its own certificate and point names at a local listener.
 pub fn client_builder() -> reqwest::ClientBuilder {
-    crate::public::guarded(reqwest::Client::builder())
+    mail_net::public::guarded(reqwest::Client::builder())
         .timeout(PER_REQUEST)
         .connect_timeout(PER_REQUEST)
         .https_only(true)
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= REDIRECTS
                 || attempt.url().scheme() != "https"
-                || !crate::public::url_is_public(attempt.url())
+                || !mail_net::public::url_is_public(attempt.url())
             {
                 attempt.stop()
             } else {
@@ -280,7 +280,7 @@ fn answered(result: Result<Vec<String>, Miss>) -> Result<Vec<String>, NoLogo> {
 /// The body at `url`, at most `max` bytes. Anything but a 2xx is unreachable.
 async fn fetch(http: &reqwest::Client, url: &str, max: usize) -> Result<Vec<u8>, NoLogo> {
     let unreachable = |why: String| NoLogo::Unreachable(format!("{url}: {why}"));
-    if !reqwest::Url::parse(url).is_ok_and(|url| crate::public::url_is_public(&url)) {
+    if !reqwest::Url::parse(url).is_ok_and(|url| mail_net::public::url_is_public(&url)) {
         return Err(NoLogo::Refused(format!(
             "{url}: not on the public internet"
         )));
@@ -293,7 +293,7 @@ async fn fetch(http: &reqwest::Client, url: &str, max: usize) -> Result<Vec<u8>,
     if !response.status().is_success() {
         return Err(unreachable(response.status().to_string()));
     }
-    crate::http::body_up_to(response, max)
+    mail_net::http::body_up_to(response, max)
         .await
         .map_err(|e| match e {
             BodyError::TooLarge(_) => NoLogo::Refused(format!("{url}: larger than {max} bytes")),

@@ -12,11 +12,15 @@ Effects live at the edges, and the layering encodes that:
   `Op::apply` returns a `RemoteIntent` rather than performing one, and `Machine::feed` returns an
   `IoNeed` rather than satisfying it.
 - `mail-store` may touch the disk, and is the only crate that speaks SQL.
-- `mail-runtime` is the only crate that opens a socket, spawns a task or reads the clock.
+- `mail-net`, `mail-secrets`, `mail-runtime` and `mail-engine` are the crates that open a socket,
+  spawn a task or read the clock: `mail-net` is the wire (connections, TLS, DNS, HTTP) and
+  `mail-secrets` the credentials, and neither names `mail-store`; `mail-runtime` is the protocol
+  drivers over them, and `mail-engine` the engines and scheduler over the drivers (no driver names
+  an engine).
 - `mail-core` drives them and may use tokio, but has no window and no terminal in it.
 - `mail-client` is the one door to mail: logic only, no window, over `mail-core` and `mail-store`.
 - `mail-ui` draws the window over a `mail-client`; its dependencies name no `mail-core`,
-  `mail-store` or `mail-runtime`.
+  `mail-store`, `mail-net`, `mail-secrets`, `mail-runtime` or `mail-engine`.
 - `mail-app` is the program: it makes the client, hands it to the window, and holds the terminal
   (`cli`). The window and the terminal never name each other: a helper both want belongs in
   `mail-core`.
@@ -77,7 +81,7 @@ One `error.rs` per crate, built with `thiserror`, carrying the cause a caller ca
 field. Every error type implements `mail_domain::Retryable`, because the outbox must choose
 between backing off, asking for reauthentication and giving up.
 
-- No `anyhow` below `mail-runtime`.
+- No `anyhow` below `mail-net`, `mail-secrets`, `mail-runtime` and `mail-engine`.
 - No `unwrap()` or `expect()` outside tests unless a comment on the line proves the invariant.
 - `panic!` is for programmer error only. Malformed mail is never a panic: every byte from the
   network is hostile.
@@ -85,7 +89,7 @@ between backing off, asking for reauthentication and giving up.
 ## Time
 
 `now: DateTime<Utc>` is an argument. There is no `Clock` trait and no `Utc::now()` below
-`mail-runtime`, tests included: tests use fixed instants. `Duration` for configured intervals,
+`mail-net`, `mail-secrets`, `mail-runtime` and `mail-engine`, tests included: tests use fixed instants. `Duration` for configured intervals,
 `chrono::TimeDelta` only for arithmetic on `DateTime`.
 
 ## Naming
@@ -149,8 +153,9 @@ for s in scripts/check-*.sh; do bash "$s"; done
 ```
 
 - `check-boundary.sh`: the pure crates reach none of tokio, rusqlite, dioxus, reqwest, the
-  keyring or the bus; `mail-core` reaches nothing that draws; `mail-store` and `mail-runtime`
-  reach no anyview; `ui` and `cli` do not name each other. It also ratchets the lines in
+  keyring or the bus; `mail-core` reaches nothing that draws; `mail-store`, `mail-net`, `mail-secrets`,
+  `mail-runtime` and `mail-engine` reach no anyview, `mail-net` and `mail-secrets` reach no
+  `mail-store`, and no driver crate reaches `mail-engine`; `ui` and `cli` do not name each other. It also ratchets the lines in
   `mail-app` that name a lower crate instead of `mail_core` (`scripts/app-lower-crate-uses.txt`)
   and the `mail-core` code listed in `scripts/core-prose-allowlist.txt` and
   `scripts/core-result-string-allowlist.txt`.

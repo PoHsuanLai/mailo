@@ -24,14 +24,13 @@ mod search;
 use crate::error::{CoreError, Logged};
 use access::{Pass, access};
 use mail_domain::*;
+use mail_engine::AccountEngine;
 use mail_proto::backend::{Authenticate, ImapBackend, Pop3Backend};
 use mail_proto::{ImapAuth, ImapCommand, ImapSession, Pop3Command, Pop3Session};
+use mail_runtime::SyncReport;
 use mail_runtime::graph::read::{OverHttp, Reader};
-use mail_runtime::tokens::{self, Now};
-use mail_runtime::{
-    AccountEngine, AccountSecrets, ClientRegistry, Held, OAuthTokens, SyncReport, TokenSource,
-    clients,
-};
+use mail_secrets::tokens::{self, Now};
+use mail_secrets::{AccountSecrets, ClientRegistry, Held, OAuthTokens, TokenSource, clients};
 use mail_store::SqliteStore;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
 use report::{Done, Emit, Failure, Hooks, PassEnd, Progress};
@@ -606,11 +605,11 @@ pub(crate) async fn stored_credential(
         .await
         // A credential that is not there is one to be asked for again; a keyring that did not
         // answer is waited for, and says so.
-        .map_err(|error| match mail_runtime::SecretTrouble::of(&error) {
-            mail_runtime::SecretTrouble::Absent => {
+        .map_err(|error| match mail_secrets::SecretTrouble::of(&error) {
+            mail_secrets::SecretTrouble::Absent => {
                 Failure::reauth(crate::account::no_credential(&account.plan.auth))
             }
-            trouble @ mail_runtime::SecretTrouble::Unreachable(why) => Failure {
+            trouble @ mail_secrets::SecretTrouble::Unreachable(why) => Failure {
                 retry: trouble.retry(),
                 why: why.to_owned(),
                 pause: crate::fetch::Pause::ServerBusy,
@@ -1047,7 +1046,7 @@ pub enum Mode {
 /// Drive one account through a single pass.
 ///
 /// How the pass ended is the return. Passes over time are the scheduler's
-/// (`mail_runtime::schedule`), which `mailo watch` and the window share; what a watch says
+/// (`mail_engine::schedule`), which `mailo watch` and the window share; what a watch says
 /// between them is [`watcher::told`].
 pub async fn drive<B: mail_proto::Backend>(
     engine: &mut AccountEngine<B>,
@@ -1234,7 +1233,7 @@ const BODIES_PER_PASS: usize = 100;
 /// offline in full: twenty attachments or 64 MiB, whichever comes first, and always at least
 /// one. A pass is what stands between the user and their next new mail, so a mailbox of large
 /// attachments is brought here over many passes rather than in one that does not end.
-const PARTS_PER_PASS: mail_runtime::PartBudget = mail_runtime::PartBudget {
+const PARTS_PER_PASS: mail_engine::PartBudget = mail_engine::PartBudget {
     parts: 20,
     bytes: 64 * 1024 * 1024,
 };

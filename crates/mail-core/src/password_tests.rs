@@ -5,7 +5,7 @@ use super::Password;
 use crate::Environment;
 use crate::account::{Credentials, Outcome, add_with_password};
 use crate::support_tests::{now, pop3};
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -50,7 +50,7 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
     let store = mail_store::testing::in_memory();
     let secrets = MemorySecrets::default();
     let password = Password::new(SECRET.to_owned());
-    let said = mail_runtime::block_on(add_with_password(
+    let said = mail_secrets::block_on(add_with_password(
         &store,
         "s1234567@example.edu",
         Some(&pop3(Some("s1234567"))),
@@ -84,7 +84,7 @@ fn add_with_password_keeps_the_password_in_the_store_it_is_handed_and_nowhere_el
         SecretPurpose::IncomingPassword,
         SecretPurpose::OutgoingPassword,
     ] {
-        let kept = mail_runtime::block_on(secrets.get(&SecretKey {
+        let kept = mail_secrets::block_on(secrets.get(&SecretKey {
             account: account.clone(),
             purpose,
         }))
@@ -107,7 +107,7 @@ fn no_password_stores_nothing_and_says_so() {
     let secrets = MemorySecrets::default();
     let empty = Password::default();
     for password in [None, Some(&empty)] {
-        let said = mail_runtime::block_on(add_with_password(
+        let said = mail_secrets::block_on(add_with_password(
             &store,
             "s1234567@example.edu",
             Some(&pop3(Some("s1234567"))),
@@ -131,7 +131,7 @@ fn no_password_stores_nothing_and_says_so() {
     }
     let account = account_of(&store, "s1234567@example.edu");
     assert!(
-        mail_runtime::block_on(secrets.get(&SecretKey {
+        mail_secrets::block_on(secrets.get(&SecretKey {
             account,
             purpose: SecretPurpose::IncomingPassword,
         }))
@@ -146,7 +146,7 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
     let store = mail_store::testing::in_memory();
     let secrets = MemorySecrets::default();
     let token = Password::new(SECRET.to_owned());
-    let said = mail_runtime::block_on(add_with_password(
+    let said = mail_secrets::block_on(add_with_password(
         &store,
         "me@example.test",
         Some(&crate::account::Setup::Jmap {
@@ -173,7 +173,7 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
     );
     assert!(!format!("{said:?}").contains(SECRET));
     let account = account_of(&store, "me@example.test");
-    let kept = mail_runtime::block_on(secrets.get(&SecretKey {
+    let kept = mail_secrets::block_on(secrets.get(&SecretKey {
         account: account.clone(),
         purpose: SecretPurpose::IncomingPassword,
     }))
@@ -205,13 +205,13 @@ fn a_jmap_bearer_token_goes_where_a_password_would_and_the_plan_says_bearer() {
 fn a_credential_a_sign_in_already_made_is_filed_without_asking_for_a_browser_again() {
     let store = mail_store::testing::in_memory();
     let secrets = MemorySecrets::default();
-    let saved = mail_runtime::clients::registry_of(vec![mail_runtime::clients::entry(
+    let saved = mail_secrets::clients::registry_of(vec![mail_secrets::clients::entry(
         porter_provider::Issuer::Google,
         "client-id",
         Some("client-secret"),
     )]);
     let signed = Credential::Password(SecretText::new("refresh-token"));
-    let said = mail_runtime::block_on(add_with_password(
+    let said = mail_secrets::block_on(add_with_password(
         &store,
         "ada@gmail.com",
         None,
@@ -233,7 +233,7 @@ fn a_credential_a_sign_in_already_made_is_filed_without_asking_for_a_browser_aga
         "{said:?}"
     );
     let account = account_of(&store, "ada@gmail.com");
-    let kept = mail_runtime::block_on(secrets.get(&SecretKey {
+    let kept = mail_secrets::block_on(secrets.get(&SecretKey {
         account,
         purpose: SecretPurpose::OAuthRefresh,
     }))

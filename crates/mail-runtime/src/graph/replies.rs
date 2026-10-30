@@ -6,11 +6,12 @@
 //! (`mail_domain::presets::GRAPH_SCOPES`). One made before lacks it, and Graph's `403` is said
 //! as that, with the way out: signing in again.
 
-use crate::error::Failure;
-use crate::{AccountSecrets, ClientRegistry, RuntimeError};
+use crate::RuntimeError;
 use chrono::{DateTime, Utc};
 use mail_domain::{AccountPlan, AuthPlan, Retry, Vacation};
+use mail_net::Failure;
 use mail_proto::automatic_replies::MAILBOX_SETTINGS;
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use porter_core::{AccountId, Credential};
 use serde_json::Value;
 use std::time::Duration;
@@ -31,19 +32,19 @@ pub async fn set(
             "an account that reads through Microsoft Graph signs in with Microsoft",
         )));
     };
-    let client = crate::clients::client(saved, *issuer).ok_or_else(|| {
+    let client = mail_secrets::clients::client(saved, *issuer).ok_or_else(|| {
         RuntimeError::Secrets(Failure::said(
             "no OAuth client id is configured, so Microsoft Graph cannot be signed in to",
         ))
     })?;
-    let reach = crate::tokens::GraphReach::of(plan);
-    let token = crate::tokens::graph_token(account, client, reach, secrets, now).await?;
+    let reach = mail_secrets::tokens::GraphReach::of(plan);
+    let token = mail_secrets::tokens::graph_token(account, client, reach, secrets, now).await?;
     let Credential::OAuth { access, .. } = token else {
         return Err(RuntimeError::Secrets(Failure::said(
             "the Microsoft Graph credential kept for this account is not a token",
         )));
     };
-    let http = crate::http::http_client()?;
+    let http = mail_net::http::http_client()?;
     let body = mail_proto::automatic_replies::automatic_replies(vacation, now);
     set_automatic_replies(&http, access.expose(), &body).await
 }
@@ -182,9 +183,14 @@ mod tests {
     async fn the_settings_are_patched_with_the_token_and_the_body() {
         let (url, request) = served("200 OK", serde_json::json!({})).await;
         let body = serde_json::json!({ "automaticRepliesSetting": { "status": "disabled" } });
-        patch_settings(&crate::http::http_client().unwrap(), &url, "token-1", &body)
-            .await
-            .unwrap();
+        patch_settings(
+            &mail_net::http::http_client().unwrap(),
+            &url,
+            "token-1",
+            &body,
+        )
+        .await
+        .unwrap();
         let request = request.await.unwrap();
         assert!(
             request.starts_with("PATCH /me/mailboxSettings "),
@@ -207,7 +213,7 @@ mod tests {
         let denied = serde_json::json!({ "error": { "code": "ErrorAccessDenied", "message": "Access is denied." } });
         let (url, _request) = served("403 Forbidden", denied).await;
         let err = patch_settings(
-            &crate::http::http_client().unwrap(),
+            &mail_net::http::http_client().unwrap(),
             &url,
             "token-1",
             &serde_json::json!({}),

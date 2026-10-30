@@ -3,12 +3,12 @@
 //! Config, state and cache directories, and the JSON files the switches (notifications,
 //! offline mode, brand logos, server search, ...) are kept in. Config, not mail: it lives
 //! under `$XDG_CONFIG_HOME/mailo/` (`~/.config/mailo/` when unset) on Linux and in the system's
-//! per-user folder on macOS and Windows (`mail_runtime::places`), never in the mail database.
+//! per-user folder on macOS and Windows (`mail_secrets::places`), never in the mail database.
 //! A cosmetic choice must not be a write to the file that holds someone's mail, or be able to
 //! fail a migration.
 
 use crate::error::CoreError;
-use mail_runtime::places::{self, Place};
+use mail_secrets::places::{self, Place};
 use std::path::{Path, PathBuf};
 
 /// Read `file_name` from `dir`.
@@ -84,7 +84,7 @@ pub fn home_dir() -> Option<PathBuf> {
 }
 
 /// mailo's config directory: `$XDG_CONFIG_HOME/mailo`, else `$HOME/.config/mailo`, on Linux;
-/// the system's per-user folder on macOS and Windows (`mail_runtime::places`); else None.
+/// the system's per-user folder on macOS and Windows (`mail_secrets::places`); else None.
 pub fn config_dir() -> Option<PathBuf> {
     places::dir(Place::Config)
 }

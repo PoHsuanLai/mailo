@@ -8,7 +8,7 @@
 use crate::support::{account, now};
 use mail_core::sync::live::{self, Heard};
 use mail_domain::*;
-use mail_runtime::{AccountSecrets, ClientRegistry};
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::SecretText;
 use porter_core::{AccountId, Credential, SecretKey, SecretPurpose};
@@ -127,7 +127,7 @@ fn configured(port: u16, watch: WatchMode) -> Arc<SqliteStore> {
 
 fn secrets() -> Arc<MemorySecrets> {
     let secrets = MemorySecrets::default();
-    mail_runtime::block_on(secrets.put(
+    mail_secrets::block_on(secrets.put(
         &SecretKey {
             account: account(),
             purpose: SecretPurpose::IncomingPassword,

@@ -47,7 +47,7 @@ mod search;
 pub use search::{GraphFound, GraphHit};
 
 use crate::RuntimeError;
-use crate::error::{Failure, Logged};
+use crate::error::Logged;
 use crate::graph::{detail, refusal_text, retry_after, segment};
 use base64::Engine as _;
 use chrono::{DateTime, Utc};
@@ -56,6 +56,7 @@ use mail_domain::{
     ReadState, RemoteRef, Retry, SpecialUse, Star, Subscription, SyncCursor, UidValidity,
     WatchMode, presets::graph_poll_every,
 };
+use mail_net::Failure;
 use mail_proto::ProtoOutcome;
 use porter_core::AccountId;
 use serde_json::{Value, json};
@@ -133,7 +134,7 @@ impl Reader {
     pub fn new(account: AccountId, caps: AccountCaps) -> Result<Self, RuntimeError> {
         Ok(Self {
             me: ME.to_owned(),
-            http: crate::http::http_client()?,
+            http: mail_net::http::http_client()?,
             account,
             caps,
             folders: HashMap::new(),
@@ -557,7 +558,7 @@ impl Reader {
             let text = refusal_text(response).await;
             return Err(refused(status, &text, after));
         }
-        let text = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
+        let text = mail_net::http::text_up_to(response, mail_net::http::MAX_DOCUMENT)
             .await
             .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         serde_json::from_str(&text).map(Some).map_err(|e| {
@@ -723,7 +724,7 @@ impl Reader {
         }
         // The draft was made: an answer that does not read leaves it unplaced, for the next sync
         // to find, rather than failing an upload that happened and sending it twice.
-        let text = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
+        let text = mail_net::http::text_up_to(response, mail_net::http::MAX_DOCUMENT)
             .await
             .or_log_default("Microsoft Graph's answer to an upload could not be read");
         let created: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -947,7 +948,7 @@ impl Reader {
             let text = refusal_text(response).await;
             return Err(refused(status, &text, after));
         }
-        let bytes = crate::http::body_up_to(response, crate::graph::MAX_MESSAGE as usize)
+        let bytes = mail_net::http::body_up_to(response, crate::graph::MAX_MESSAGE as usize)
             .await
             .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
         Ok(Answer::Done(bytes))

@@ -38,10 +38,11 @@ pub mod read;
 pub mod replies;
 
 use crate::RuntimeError;
-use crate::error::{Failure, Logged};
+use crate::error::Logged;
 use base64::Engine as _;
 use mail_domain::{Address, Inline, ReceiptRequest, Retry};
 use mail_mime::{GraphBody, GraphDraft, GraphImportance, ParsedPart};
+use mail_net::Failure;
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -260,7 +261,7 @@ async fn call(
         .map_err(|e| RuntimeError::Connect(Failure::new("Microsoft Graph", e)))?;
     let status = response.status();
     if status.is_success() {
-        let text = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
+        let text = mail_net::http::text_up_to(response, mail_net::http::MAX_DOCUMENT)
             .await
             .or_log_default("Microsoft Graph's answer could not be read");
         return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
@@ -314,7 +315,7 @@ async fn upload(
 
     // Not the caller's client: nothing here may carry the token, and a redirect away from the
     // pre-authenticated address is not somewhere the attachment should follow.
-    let put = crate::roots::trusting_system(reqwest::Client::builder())
+    let put = mail_net::roots::trusting_system(reqwest::Client::builder())
         .redirect(reqwest::redirect::Policy::none())
         .timeout(CHUNK_TIMEOUT)
         .build()
@@ -350,7 +351,7 @@ async fn upload(
         match response.status().as_u16() {
             200 | 201 => return Ok(()),
             202 => {
-                let text = crate::http::text_up_to(response, crate::http::MAX_DOCUMENT)
+                let text = mail_net::http::text_up_to(response, mail_net::http::MAX_DOCUMENT)
                     .await
                     .or_log_default("Microsoft Graph's answer to an upload could not be read");
                 let answer = serde_json::from_str(&text).unwrap_or(Value::Null);
@@ -534,7 +535,7 @@ fn refusal(status: u16, body: &str, after: Option<Duration>, asked: Asked) -> Ru
 /// The words of a refusal's body, for [`refusal`] to read. Ignoring a body that does not arrive
 /// is right: the status still speaks, and the refusal is never lost for want of its words.
 pub(crate) async fn refusal_text(response: reqwest::Response) -> String {
-    let text = crate::http::text_up_to(response, crate::http::MAX_REFUSAL).await;
+    let text = mail_net::http::text_up_to(response, mail_net::http::MAX_REFUSAL).await;
     // Deliberately: see above.
     text.unwrap_or_default()
 }

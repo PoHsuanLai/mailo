@@ -6,12 +6,13 @@
 //! arriving mail taught. Nothing here decrypts anything — mail is decrypted when the reader opens
 //! it, never as it arrives.
 
-use crate::error::Failure;
-use crate::{RuntimeError, SigningStore};
+use crate::RuntimeError;
 use chrono::{DateTime, Utc};
 use mail_crypto::smime::{self, Cert, Keys, PrivateKey};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::{CertFingerprint, CertProblem, CertSource, SmimeVerification};
+use mail_net::Failure;
+use mail_secrets::SigningStore;
 use mail_store::Store;
 use porter_core::AccountId;
 use std::sync::OnceLock;
@@ -50,10 +51,10 @@ pub fn keep_private_key(
     key: &PrivateKey,
 ) -> Result<(), RuntimeError> {
     let pem = key.to_pkcs8_pem()?;
-    secrets.put(
+    Ok(secrets.put(
         &entry(account, fingerprint),
         &SigningSecret::SmimeKey(pem.as_str().to_owned()),
-    )
+    )?)
 }
 
 /// Remove the private key of `fingerprint` from the keyring. Already gone is success.
@@ -62,7 +63,7 @@ pub fn forget_private_key(
     account: AccountId,
     fingerprint: CertFingerprint,
 ) -> Result<(), RuntimeError> {
-    secrets.forget(&entry(account, fingerprint))
+    Ok(secrets.forget(&entry(account, fingerprint))?)
 }
 
 /// The operating system's certificate authorities, read once per process.
@@ -75,7 +76,7 @@ pub fn forget_private_key(
 pub fn system_anchors() -> &'static [Cert] {
     static ANCHORS: OnceLock<Vec<Cert>> = OnceLock::new();
     ANCHORS.get_or_init(|| {
-        crate::roots::system()
+        mail_net::roots::system()
             .iter()
             .filter_map(|der| Cert::from_der(der.as_ref()).ok())
             .collect()

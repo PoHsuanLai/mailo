@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use mail_crypto::smime::{self, Cert, Identity, Keys};
 use mail_domain::*;
 use mail_mime::Parsed;
-use mail_runtime::SigningStore;
+use mail_secrets::SigningStore;
 use mail_store::{SqliteStore, Store};
 use std::sync::Mutex;
 

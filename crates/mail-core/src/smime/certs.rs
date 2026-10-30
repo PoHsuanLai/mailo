@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use mail_crypto::smime::{self, Cert, Identity};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
-use mail_runtime::SigningStore;
+use mail_secrets::SigningStore;
 use mail_store::{SqliteStore, Store};
 use porter_core::AccountId;
 

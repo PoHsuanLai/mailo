@@ -8,8 +8,9 @@
 //! Every wait on the transport here has a deadline, and running out of time is
 //! [`RuntimeError::Stalled`], never a hang: a connection a NAT forgot reads as open for ever.
 
-use crate::error::within;
-use crate::{RuntimeError, Transport};
+use crate::RuntimeError;
+use mail_net::Transport;
+use mail_net::within;
 use mail_proto::{IoNeed, IoReady, Machine, Progress};
 use std::time::Duration;
 use tokio::sync::watch;

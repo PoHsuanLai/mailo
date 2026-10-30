@@ -232,7 +232,7 @@ struct Paths {
 }
 
 /// The directories Profiles' paths are under: mailo's data directory (`$XDG_DATA_HOME/mailo` on
-/// Linux, the local application data folder on macOS and Windows; `mail_runtime::places`) and its
+/// Linux, the local application data folder on macOS and Windows; `mail_secrets::places`) and its
 /// config directory.
 /// The folders mailo keeps: the data and config roots, and the state and cache folders where they
 /// are elsewhere (on Linux each place is its own folder).
@@ -254,7 +254,7 @@ fn places_kept(roots: &mail_core::profile::Roots) -> Vec<std::path::PathBuf> {
 
 fn roots() -> Option<mail_core::profile::Roots> {
     Some(mail_core::profile::Roots {
-        data: mail_runtime::places::dir(mail_runtime::places::Place::Data)?,
+        data: mail_secrets::places::dir(mail_secrets::places::Place::Data)?,
         config: mail_core::config::config_dir()?,
     })
 }

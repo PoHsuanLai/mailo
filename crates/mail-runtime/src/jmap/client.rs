@@ -5,8 +5,8 @@
 //! the outbox can act on — `Retryable`.
 
 use crate::RuntimeError;
-use crate::error::Failure;
 use mail_domain::JmapBlobId;
+use mail_net::Failure;
 use mail_proto::jmap::{self, Call, Responses, Session};
 use mail_proto::{ProtoError, Refusal};
 use std::fmt;
@@ -233,7 +233,7 @@ impl Client {
 /// The body of a successful response, or the refusal an unsuccessful one means.
 async fn checked(response: reqwest::Response, what: &str) -> Result<Vec<u8>, RuntimeError> {
     if response.status().is_success() {
-        return crate::http::body_up_to(response, MAX_ANSWER)
+        return mail_net::http::body_up_to(response, MAX_ANSWER)
             .await
             .map_err(|e| RuntimeError::Io(Failure::new(format!("JMAP {what}"), e)));
     }
@@ -250,7 +250,7 @@ async fn refusal(response: reqwest::Response, what: &str) -> RuntimeError {
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse::<u64>().ok())
         .map(Duration::from_secs);
-    let body = crate::http::text_up_to(response, crate::http::MAX_REFUSAL).await;
+    let body = mail_net::http::text_up_to(response, mail_net::http::MAX_REFUSAL).await;
     // A refusal's body is only its words: one that does not arrive leaves the status to speak.
     let body = body.unwrap_or_default();
     RuntimeError::Proto(classify(status, &body, after, what))

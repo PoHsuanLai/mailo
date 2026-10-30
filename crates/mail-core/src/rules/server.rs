@@ -18,8 +18,9 @@ use mail_domain::{AccountPlan, DateRange, Incoming, IsDefault, Vacation};
 use mail_proto::sieve::{
     Active, NoSieve, Places, SieveJob, SieveOutcome, Takeover, Unmappable, compile, endpoint,
 };
+use mail_runtime::RuntimeError;
 use mail_runtime::sieve::{Pushed, SieveAuth};
-use mail_runtime::{AccountSecrets, ClientRegistry, RuntimeError};
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::{SqliteStore, Store};
 use porter_core::{Credential, SecretKey, SecretPurpose};
 use std::path::PathBuf;
@@ -537,7 +538,13 @@ async fn auth(
             purpose: SecretPurpose::IncomingPassword,
         })
         .await
-        .map_err(|e| CoreError::unread_credential(&account.address, &account.plan.auth, &e))?;
+        .map_err(|e| {
+            CoreError::unread_credential(
+                &account.address,
+                &account.plan.auth,
+                mail_secrets::SecretTrouble::of(&e),
+            )
+        })?;
     let credential = crate::sync::renewed(account, stored, secrets, saved, now).await?;
     Ok(SieveAuth {
         username: account.plan.username(),

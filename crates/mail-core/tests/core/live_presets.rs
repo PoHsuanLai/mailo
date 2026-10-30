@@ -21,8 +21,9 @@
 
 use mail_core::discover::{self, Source};
 use mail_domain::{AuthPlan, Incoming, Outgoing, SaslMech, Tls, Username};
+use mail_net::Transport;
 use mail_proto::{ImapAuth, ImapCommand, ImapSession};
-use mail_runtime::{Transport, drive};
+use mail_runtime::drive;
 use porter_core::{Credential, SecretText};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::TcpStream;

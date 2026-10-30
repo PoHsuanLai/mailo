@@ -7,9 +7,9 @@
 
 use super::{Answer, EXPAND, INBOX, Reader, SELECT, describe, well_known};
 use crate::RuntimeError;
-use crate::error::Failure;
 use crate::graph::segment;
 use mail_domain::{ReadState, RemoteRef, Star};
+use mail_net::Failure;
 use mail_proto::search::graph::{GraphPlace, GraphPlan, GraphQuery};
 use serde_json::Value;
 

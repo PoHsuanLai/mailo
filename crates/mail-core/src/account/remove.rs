@@ -11,7 +11,7 @@
 //! and the stored messages and attachment parts nothing else uses. Nothing on the server is
 //! touched, and keys and certificates stay: they are the user's, not the account's.
 
-use mail_runtime::AccountSecrets;
+use mail_secrets::AccountSecrets;
 use mail_store::{Freed, SqliteStore};
 use porter_core::AccountId;
 

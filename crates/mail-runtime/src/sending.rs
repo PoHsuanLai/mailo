@@ -41,7 +41,7 @@ pub const REDIRECT_REFUSED_FROM: &str = "the server will not send a message as s
 /// status 5.2.252 or 5.7.60 (Exchange Online), or JMAP's `forbiddenFrom` (RFC 8621 §7.5). Where
 /// `resent` says the message was a redirect, that refusal is the redirect's, and the person is
 /// told to forward it instead; anything else is as the server said.
-pub(crate) fn redirect_refused(error: RuntimeError, resent: bool) -> RuntimeError {
+pub fn redirect_refused(error: RuntimeError, resent: bool) -> RuntimeError {
     use mail_proto::{ProtoError, Refusal};
     let RuntimeError::Proto(ProtoError::Refused {
         kind: Refusal::Permanent,

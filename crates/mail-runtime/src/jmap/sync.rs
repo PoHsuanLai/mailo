@@ -374,7 +374,7 @@ impl JmapEngine {
                 report.unreadable(&self.mailbox(), stored.unreadable);
                 report
                     .arrived
-                    .extend(crate::engine::first_stored(&stored.patch));
+                    .extend(crate::pass::first_stored(&stored.patch));
             }
             // Flags and labels after the messages they sit on exist.
             truth.gone.clear();

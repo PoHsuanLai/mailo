@@ -1,6 +1,6 @@
 //! `mailo watch`: the scheduler the window runs, with its passes announced as they end.
 //!
-//! The loop is `mail_runtime::schedule`'s, so a watch and a window fetch the same way: a link per
+//! The loop is `mail_engine::schedule`'s, so a watch and a window fetch the same way: a link per
 //! account, a pass at each account's interval, a connection held to hear the server push where it
 //! can, a backoff after a failure, and no pass at all for an account whose credential the server
 //! refused. What this adds is what a watch is for. Each pass that ends is handed to the caller
@@ -16,7 +16,7 @@ use crate::junk::Policy;
 use crate::mail::{Mail, SyncOps};
 use crate::notify::{Notifier, Whom};
 use chrono::{DateTime, Utc};
-use mail_runtime::schedule::{
+use mail_engine::schedule::{
     Change, Daemon, End, Host, ListenCall, Local, Lost, Note, PassCall, Passed, Schedule,
     Scheduler, Stored,
 };

@@ -8,46 +8,26 @@
 mod fixture;
 #[path = "../jmap_fake/mod.rs"]
 mod jmap_fake;
-mod tls_fixture;
 
 mod assemble;
 mod bimi;
 mod carddav;
 mod cjk_search;
 mod drive;
-mod end_to_end;
-mod folder_outbox;
 mod folders;
 mod gmail_labels;
 mod gmail_threads;
-mod graph_read;
-mod graph_send;
-mod imap_end_to_end;
 mod jmap;
-mod large_messages;
 mod live_imap;
 mod live_pop3;
 mod live_probe;
 mod live_smtp;
 mod part_flood_ingest;
 mod pgp_learn;
-mod queued_moves;
 mod reparse;
-mod send_later;
-mod sent_copy;
-mod server_drafts;
-mod server_search;
 mod sieve;
-mod sign_in;
-mod silent_server;
-mod submission_end_to_end;
-mod tokens;
 mod two_accounts;
 mod unsubscribe;
-mod wkd;
-
-/// The tests that keep a binary of their own, each saying why at its top.
-const OWN_BINARY: &[&str] = &["tls_provider.rs"];
 
 /// A new `tests/*.rs` is a new binary, linking everything again: it belongs here as a module.
 #[test]
@@ -62,10 +42,6 @@ fn every_integration_test_is_in_this_binary() {
                     && path.file_name().is_some_and(|name| name != "runtime")
             } else {
                 path.extension().is_some_and(|ext| ext == "rs")
-                    && path
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .is_none_or(|name| !OWN_BINARY.contains(&name))
             }
         })
         .map(|path| path.display().to_string())

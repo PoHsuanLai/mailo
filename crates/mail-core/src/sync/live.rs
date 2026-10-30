@@ -1,6 +1,6 @@
 //! Waiting for the server to say something, as data.
 //!
-//! The scheduler (`mail_runtime::schedule`) runs the passes, and wants only the waiting from
+//! The scheduler (`mail_engine::schedule`) runs the passes, and wants only the waiting from
 //! here: one connection kept open (and, for an IMAP server with no `NOTIFY`, a few more for the
 //! folders besides the inbox), and a typed [`Heard`] each time the server, the outbox or the
 //! interval has something to say. [`SyncOps::listen`](crate::SyncOps) is that, built from the
@@ -8,7 +8,7 @@
 //! them ([`super::poll_floor`]), so the window and `mailo watch` cannot disagree about how a
 //! server is waited on.
 //!
-//! It runs no pass and holds no lock on the store: [`mail_runtime::AccountEngine::wait`] looks
+//! It runs no pass and holds no lock on the store: [`mail_engine::AccountEngine::wait`] looks
 //! at the outbox with one short query every few seconds and otherwise only sleeps on a socket.
 //!
 //! # What can be waited on
@@ -35,7 +35,8 @@ use super::{Configured, configured};
 use crate::error::Logged;
 use mail_domain::*;
 use mail_runtime::graph::push::SUBSCRIPTIONS;
-use mail_runtime::{AccountSecrets, Cancel, ClientRegistry, RuntimeError, Woke};
+use mail_runtime::{Cancel, RuntimeError, Woke};
+use mail_secrets::{AccountSecrets, ClientRegistry};
 use mail_store::SqliteStore;
 use porter_core::AccountId;
 use std::sync::Arc;
@@ -69,7 +70,7 @@ pub fn extra_idle(caps: &AccountCaps) -> usize {
         .min(EXTRA_IDLE)
 }
 
-pub use mail_runtime::schedule::{Heard, Lost};
+pub use mail_engine::schedule::{Heard, Lost};
 
 impl From<Failure> for Lost {
     fn from(failure: Failure) -> Self {
@@ -90,7 +91,7 @@ pub(super) fn unsupported(why: &str) -> Lost {
     Failure::fatal(why).into()
 }
 
-pub use mail_runtime::schedule::Hold;
+pub use mail_engine::schedule::Hold;
 
 /// Whether the account's stored plan and capabilities can be waited on, and the person left it to
 /// be: see the table above.

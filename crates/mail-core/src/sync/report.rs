@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use mail_domain::{MessageId, Retry, Retryable};
+use mail_net::NetError;
 use mail_proto::ProtoError;
 use mail_runtime::{RuntimeError, SyncReport};
 use porter_core::AccountId;
@@ -141,6 +142,21 @@ impl Pauses for RuntimeError {
     fn refused(&self) -> Option<ProtocolRefused> {
         matches!(self, RuntimeError::RefusedFresh(_) | RuntimeError::NoInbox)
             .then_some(ProtocolRefused)
+    }
+}
+
+impl Pauses for mail_secrets::CredentialError {
+    fn pause(&self) -> Pause {
+        match self {
+            mail_secrets::CredentialError::Io(_) => Pause::Unreachable,
+            mail_secrets::CredentialError::Net(
+                NetError::Connect(_)
+                | NetError::Io(_)
+                | NetError::Stalled { .. }
+                | NetError::Tls(_),
+            ) => Pause::Unreachable,
+            _ => Pause::ServerBusy,
+        }
     }
 }
 
