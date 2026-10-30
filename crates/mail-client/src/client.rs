@@ -147,6 +147,8 @@ pub(crate) struct Shared {
     clock_told: Condvar,
     /// How servers are reached, once the program says (`net`).
     pub(crate) reach: OnceLock<crate::net::Reach>,
+    /// The [`Mail`](mail_core::Mail) `reach` last made, and when (`Net::mail`).
+    pub(crate) mail: Mutex<Option<(Instant, mail_core::Mail)>>,
 }
 
 /// Fetching run where the caller runs it: what [`Client::fetch`] hands a client that reads on
@@ -378,6 +380,10 @@ impl Client {
         &self.0.shared.reach
     }
 
+    pub(crate) fn mail_kept(&self) -> &Mutex<Option<(Instant, mail_core::Mail)>> {
+        &self.0.shared.mail
+    }
+
     pub(crate) fn store_arc(&self) -> Arc<SqliteStore> {
         self.0.shared.store.clone()
     }
@@ -557,6 +563,7 @@ impl Shared {
             clock_poked: Mutex::new(false),
             clock_told: Condvar::new(),
             reach: OnceLock::new(),
+            mail: Mutex::new(None),
         }
     }
 

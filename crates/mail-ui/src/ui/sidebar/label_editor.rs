@@ -48,7 +48,8 @@ pub(super) fn choices() -> Vec<Choice<Option<Hue>>> {
         .collect()
 }
 
-/// Keep `hue` as `label`'s colour, saying only a failure.
+/// Keep `hue` as `label`'s colour, saying only a failure. Written off the thread that draws: the
+/// store's writer may be held by a sync.
 fn keep(label: &Label, hue: Option<Hue>) {
     let client = crate::ui::live::client();
     let changed = Label {
@@ -59,9 +60,17 @@ fn keep(label: &Label, hue: Option<Hue>) {
         id: ChangeId::generate(),
         changes: vec![Change::LabelUpsert(changed)],
     };
-    if let Err(why) = client.stored().apply(label.account.clone(), &patch) {
-        tell(why.to_string(), Follow::Nothing);
-    }
+    let account = label.account.clone();
+    spawn(async move {
+        let done =
+            tokio::task::spawn_blocking(move || client.stored().apply(account, &patch)).await;
+        let why = match done {
+            Ok(Ok(())) => return,
+            Ok(Err(why)) => why.to_string(),
+            Err(why) => why.to_string(),
+        };
+        tell(why, Follow::Nothing);
+    });
 }
 
 /// The editor for `label`, hung from `anchor`. `on_change` hears each colour kept.

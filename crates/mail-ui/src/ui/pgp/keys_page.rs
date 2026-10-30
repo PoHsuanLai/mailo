@@ -12,7 +12,6 @@ use ds::root::common::Common;
 use mail_domain::SecretHeld;
 
 use super::super::common::{Told, add_mark};
-use super::super::data::account_rows;
 use super::super::press::{available, on_primary};
 use super::certs::{IMPORT, cert_items, quiet_item};
 use super::key_row::{Asking, Confirm, KeyRow};
@@ -56,8 +55,10 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
     let mut busy = use_signal(|| Busy::Idle);
     let mut confirm = use_signal(|| Confirm::Nothing);
     let client = crate::ui::live::client();
-    let accounts: Vec<String> = account_rows(&client)
-        .into_iter()
+    let rows = crate::ui::data::use_account_rows();
+    let accounts: Vec<String> = rows
+        .read()
+        .iter()
         .filter(|row| !row.is_local())
         .map(|row| row.address.to_lowercase())
         .collect();
@@ -90,7 +91,7 @@ pub(in crate::ui) fn KeysPage(whose: Whose) -> Element {
         .filter(|cert| whose.lists(&cert.emails, cert.secret, &accounts))
         .collect();
     let make = match &whose {
-        Whose::Account(address) => keyless(&client)
+        Whose::Account(address) => keyless(&client, &rows.read())
             .into_iter()
             .filter(|keyless| keyless.eq_ignore_ascii_case(address))
             .collect(),

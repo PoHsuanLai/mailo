@@ -11,7 +11,7 @@
 use crate::ui::add_account::{AddPick, Join, add_menu, offered_redirects, picked};
 use crate::ui::appearance::WindowDirs;
 use crate::ui::copy;
-use crate::ui::data::account_rows;
+use crate::ui::data::{AccountRow, use_account_rows};
 use crate::ui::space::{Handle, Mail, Member, Recall, SpaceId, with_member};
 use crate::ui::today::Today;
 use dioxus::prelude::*;
@@ -22,15 +22,10 @@ use mail_client::profile::ProfileId;
 use porter_core::AccountId;
 
 /// Every account there is, in order, and how the window names it.
-pub(in crate::ui) fn accounts() -> Vec<(AccountId, String)> {
-    crate::ui::live::try_client()
-        .map(|client| {
-            account_rows(&client)
-                .into_iter()
-                .map(|row| (row.id.clone(), row.shown()))
-                .collect()
-        })
-        .unwrap_or_default()
+pub(in crate::ui) fn accounts(rows: &[AccountRow]) -> Vec<(AccountId, String)> {
+    rows.iter()
+        .map(|row| (row.id.clone(), row.shown()))
+        .collect()
 }
 
 /// A pick in Accounts ▸: an account put in or taken out, or a way to add one.
@@ -96,7 +91,8 @@ pub(in crate::ui) fn toggled(accounts: &[AccountId], account: AccountId) -> Vec<
 /// The Space's menu, wherever it was opened.
 #[component]
 pub(in crate::ui) fn MailSpaceMenu(handle: Handle, mut today: Signal<Today>) -> Element {
-    let every = accounts();
+    let rows = use_account_rows();
+    let every = accounts(&rows.read());
     let extra = handle
         .open()
         .and_then(|open| {

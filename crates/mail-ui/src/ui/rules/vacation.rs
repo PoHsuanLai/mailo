@@ -13,7 +13,7 @@ use mail_client::Client;
 use mail_client::when::Clock;
 
 use super::super::common::Told;
-use super::super::data::{AccountRow, account_rows};
+use super::super::data::{AccountRow, use_account_rows};
 use super::super::menus::when_words;
 use super::away::AwayPage;
 use super::server::reach_away;
@@ -39,18 +39,14 @@ pub(in crate::ui) fn back(mut shell: Signal<Shell>) {
 }
 
 /// The accounts a reply can be set on: every one with a server.
-fn replying(client: &Client) -> Vec<AccountRow> {
-    account_rows(client)
-        .into_iter()
-        .filter(|row| !row.is_local())
-        .collect()
+fn replying(rows: &[AccountRow]) -> Vec<AccountRow> {
+    rows.iter().filter(|row| !row.is_local()).cloned().collect()
 }
 
 /// The pane: the accounts at its root, one account's reply over them.
 #[component]
 pub(in crate::ui) fn VacationPage(shell: Signal<Shell>) -> Element {
-    let client = crate::ui::live::client();
-    let rows = replying(&client);
+    let rows = replying(&use_account_rows().read());
     let unpushed: Said = use_signal(|| None);
     // Bumped by every reply kept, so the list says it again.
     let mut changed = use_signal(|| 0u64);

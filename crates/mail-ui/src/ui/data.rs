@@ -1,5 +1,6 @@
 #[cfg(test)]
 use crate::ui::view::Listing;
+use dioxus::prelude::*;
 use mail_client::Client;
 use mail_client::Syncing;
 #[cfg(test)]
@@ -79,6 +80,21 @@ pub(super) fn account_rows(client: &Client) -> Vec<AccountRow> {
         .collect()
 }
 
+/// Every account as a row, from the accounts the client keeps read ([`mail_client::query::Accounts`],
+/// which carries each one's preferences): a component draws from it without asking the store, and
+/// draws again when an account, its folders or its preferences change. Empty until the client's
+/// first read, which is also what a read that failed shows.
+pub(super) fn use_account_rows() -> Memo<Vec<AccountRow>> {
+    let every = crate::ui::live::use_live(|| mail_client::query::Accounts);
+    use_memo(move || {
+        every
+            .read()
+            .value()
+            .map(|accounts| rows_of(accounts))
+            .unwrap_or_default()
+    })
+}
+
 /// [`account_rows`], from the accounts the client keeps read: no store is asked.
 pub(super) fn rows_of(accounts: &[mail_client::query::Account]) -> Vec<AccountRow> {
     accounts
@@ -155,6 +171,7 @@ fn fallback_plan(address: &str) -> AccountPlan {
 
 /// Every configured account, or why the client could not say. Where an empty answer would be
 /// acted on (taking accounts out of the Spaces), a failed read must not look like no accounts.
+#[cfg(test)]
 pub(super) fn known_accounts(
     client: &Client,
 ) -> Result<Vec<AccountId>, mail_client::prelude::StoreError> {
@@ -174,8 +191,32 @@ pub(super) fn accounts(client: &Client) -> Vec<AccountId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::fixtures::{seeded, thread_like};
+    use crate::ui::fixtures::{seeded, thread_like, work};
     use crate::ui::view::Shell;
+
+    /// What a window draws from the accounts the client keeps read is what asking the store
+    /// account by account gives, preferences included: a description, a pause.
+    #[test]
+    fn the_accounts_the_client_keeps_read_make_the_rows_the_store_gives() {
+        let built = work();
+        let client = crate::ui::fixtures::client(&built.store);
+        let asked = account_rows(&client);
+        assert!(asked.len() > 1, "the fixture has several accounts");
+        client
+            .stored()
+            .set_account_description(asked[0].id.clone(), Some("Work"))
+            .expect("described");
+        client
+            .stored()
+            .set_account_syncing(asked[1].id.clone(), Syncing::Paused)
+            .expect("paused");
+        let asked = account_rows(&client);
+        assert_eq!(asked[0].description.as_deref(), Some("Work"));
+        assert_eq!(asked[1].syncing, Syncing::Paused);
+
+        let kept = crate::ui::live::read_now(&client, mail_client::query::Accounts);
+        assert!(rows_of(&kept) == asked, "the kept accounts make other rows");
+    }
 
     #[test]
     fn the_history_place_lists_what_was_opened_and_nothing_before() {

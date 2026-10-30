@@ -124,18 +124,10 @@ pub(in crate::ui) fn close(mut shell: Signal<Shell>) {
 }
 
 /// The sheet's button: archive what it listed, as one gesture, then close.
-fn run(shell: Signal<Shell>) {
-    let Some(age) = shell.peek().tidying else {
-        return;
-    };
+fn run(shell: Signal<Shell>, threads: &[ThreadId]) {
     let client = crate::ui::live::client();
-    let scope = shell.peek().account_filter();
-    let threads: Vec<ThreadId> = candidates(&client, scope, age, crate::ui::clock::now())
-        .into_iter()
-        .map(|summary| summary.id)
-        .collect();
     close(shell);
-    crate::ui::motion::act_kind_all(&client, shell, &threads, OpKind::Archive);
+    crate::ui::motion::act_kind_all(&client, shell, threads, OpKind::Archive);
 }
 
 /// One conversation Tidy Up would archive, drawn as a row like the app's other lists: the
@@ -172,15 +164,33 @@ fn row(summary: &ThreadSummary, now: DateTime<Utc>, clock: Clock) -> ListItem<St
 /// archives as a grouped list, laid out as a Settings page is.
 #[component]
 pub(in crate::ui) fn TidySheet(shell: Signal<Shell>) -> Element {
+    // What the sheet lists, read off the thread that draws: it pages through every old
+    // conversation. Read again when the age, the Space, an archive or a sync changes it, and the
+    // last list stays until the next is in.
+    let listed = use_resource(move || {
+        let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
+        let age = shell.read().tidying;
+        let scope = shell.read().account_filter();
+        let client = crate::ui::live::client();
+        let now = crate::ui::clock::now();
+        async move {
+            let age = age?;
+            tokio::task::spawn_blocking(move || candidates(&client, scope, age, now))
+                .await
+                .inspect_err(|why| log::warn!("tidy up: the list was not read: {why}"))
+                .ok()
+        }
+    });
     let Some(age) = shell.read().tidying else {
         return rsx! {};
     };
-    // Read so an archive or a sync elsewhere redraws the count.
-    let _ = crate::ui::live::moved_for(mail_client::Topics::SUMMARIES);
-    let client = crate::ui::live::client();
     let now = crate::ui::clock::now();
     let clock = crate::ui::clock::hours();
-    let found = candidates(&client, shell.read().account_filter(), age, now);
+    // Not known until the first read is in: neither "nothing to archive" nor a count to press.
+    let known = listed.read().clone().flatten();
+    let reading = known.is_none();
+    let found = known.unwrap_or_default();
+    let ids: Vec<ThreadId> = found.iter().map(|summary| summary.id).collect();
     let count = found.len();
     let ages: Vec<MenuItem<Age>> = Age::ALL
         .iter()
@@ -223,7 +233,8 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>) -> Element {
                             }
                         }
                     }
-                    if count == 0 {
+                    if reading {
+                    } else if count == 0 {
                         EmptyState { title: copy::confirm::TIDY_NOTHING }
                     } else {
                         FormSection {
@@ -240,7 +251,7 @@ pub(in crate::ui) fn TidySheet(shell: Signal<Shell>) -> Element {
                         label: copy::controls::archive_count(count),
                         availability: available(count > 0),
                         common: crate::ui::sidebar::tagged("answer", "archive"),
-                        onclick: on_primary(move || run(shell)),
+                        onclick: on_primary(move || run(shell, &ids)),
                     }
                 }
             }

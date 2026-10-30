@@ -52,14 +52,29 @@ pub(in crate::ui) fn wait(next: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Du
     }
 }
 
+/// The least time between one sweep's start and the next's, whatever moves the store in between.
+///
+/// A sync commits summaries again and again, and each sweep reads every reminded conversation
+/// and its messages. A reply that ends a reminder is seen this much later at worst, which is
+/// no later than a person would look.
+const SWEEP_EVERY: Duration = Duration::from_secs(5);
+
 /// Sweep the reminders now and again whenever the next one comes due, and whenever the store
-/// moves, so a reply that just arrived or a reminder just set is seen at once. A sweep that
+/// moves, so a reply that just arrived or a reminder just set is seen soon. A sweep that
 /// changed anything moves the store, which redraws the list.
+///
+/// A reply arriving is a change to the summaries, and it is what ends a reminder, so the sweep
+/// follows them as well as the reminders and the clock; [`SWEEP_EVERY`] keeps a sync's stream of
+/// commits from sweeping with each. The sweep runs off the thread that draws, as it reads the
+/// store, and the window waits for its answer.
 ///
 /// The first sweep is the launch's: a reminder that came due while mailo was closed comes back
 /// then. The sleep is quire's, so it runs on the window's clock (a harness's virtual one in a
 /// test).
 pub(in crate::ui) fn use_reminders() {
+    // When the last sweep began, kept across the runs a commit starts, so a run that is started
+    // again before its turn waits only for what is left of the time, not for all of it.
+    let mut began = use_hook(|| CopyValue::new(None::<DateTime<Utc>>));
     let _sweeping = use_resource(move || {
         let _ = crate::ui::live::moved_for(
             mail_client::Topics::SUMMARIES
@@ -68,22 +83,42 @@ pub(in crate::ui) fn use_reminders() {
         );
         async move {
             loop {
+                let last = *began.peek();
+                if let Some(turn) = last.map(|last| last + SWEEP_EVERY)
+                    && let Ok(left) = (turn - super::clock::now()).to_std()
+                {
+                    ds::base::time::clock::sleep(left).await;
+                }
                 let now = super::clock::now();
+                began.set(Some(now));
                 let client = crate::ui::live::client();
                 let notices = speaking(
                     try_consume_context::<Notices>().as_ref(),
                     try_consume_context::<Signal<crate::settings::MailSettings>>(),
                 );
-                let notifier = notices.as_deref();
-                match client.follow_up().sweep_and_announce(notifier, now) {
+                let swept = tokio::task::spawn_blocking(move || {
+                    let swept = client
+                        .follow_up()
+                        .sweep_and_announce(notices.as_deref(), now);
+                    (swept, client.follow_up().next_due())
+                })
+                .await;
+                let next = match swept {
                     // The store moving starts this again, with the next due time.
-                    Ok(swept) if swept.changed() => {
+                    Ok((Ok(swept), _)) if swept.changed() => {
                         return;
                     }
-                    Ok(_) => {}
-                    Err(why) => log::warn!("reminders: {why}"),
-                }
-                ds::base::time::clock::sleep(wait(client.follow_up().next_due(), now)).await;
+                    Ok((Ok(_), next)) => next,
+                    Ok((Err(why), next)) => {
+                        log::warn!("reminders: {why}");
+                        next
+                    }
+                    Err(why) => {
+                        log::warn!("reminders: the sweep did not finish: {why}");
+                        None
+                    }
+                };
+                ds::base::time::clock::sleep(wait(next, now)).await;
             }
         }
     });
