@@ -61,6 +61,23 @@ impl<'a> Blobs<'a> {
 /// would make every unrelated query read it.
 const INLINE_MAX: usize = 32 * 1024;
 
+/// How long a blob or its file may go unused before a put of the same bytes says so again. Well
+/// under the sweep's grace period, which is how long a sweep leaves an unused one alone.
+const REFRESH_AFTER: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+const REFRESH_AFTER_SQL: &str = "-30 minutes";
+
+/// Say that the file at `path` is in use now, if it has not been said for a while.
+fn refresh_file(path: &Path) {
+    let old = fs::metadata(path)
+        .and_then(|meta| meta.modified())
+        .is_ok_and(|at| at.elapsed().is_ok_and(|age| age > REFRESH_AFTER));
+    if old && let Ok(file) = fs::OpenOptions::new().write(true).open(path) {
+        // A failure leaves the old time, which at worst lets a sweep take the file and the next
+        // put write it again.
+        let _ = file.set_modified(std::time::SystemTime::now());
+    }
+}
+
 /// Where a blob's bytes are: in its row, or in the file at a path relative to the root.
 enum Found {
     Inline(Vec<u8>),
@@ -105,7 +122,11 @@ impl BlobStore {
             // on every filesystem that matters.
             let rel = format!("{}/{}", &hash[..2], &hash[2..]);
             let full = self.root.join(&rel);
-            if !full.is_file() {
+            if full.is_file() {
+                // A put of bytes already kept says the file is in use, which is what keeps a
+                // sweep from taking it as an orphan between here and the row being written.
+                refresh_file(&full);
+            } else {
                 let dir = full.parent().expect("join always yields a parent");
                 fs::create_dir_all(dir)
                     .map_err(|e| StoreError::Blob(rel.clone(), e.to_string()))?;
@@ -136,6 +157,16 @@ impl BlobStore {
         bytes: &[u8],
     ) -> Result<BlobId, StoreError> {
         if let Some(existing) = self.lookup(db, &staged.hash)? {
+            // Put again, so it is in use now: a sweep takes only a row that has gone unused for
+            // a while, and without this one put again just as the sweep decides would lose it.
+            // Only when it is getting old, so the usual put of bytes already kept writes nothing.
+            db.prepare_cached(
+                "UPDATE blobs SET created_at = datetime('now')
+                 WHERE id = ?1 AND created_at < datetime('now', ?2)",
+            )
+            .map_err(StoreError::db)?
+            .execute(params![existing.to_string(), REFRESH_AFTER_SQL])
+            .map_err(StoreError::db)?;
             return Ok(existing);
         }
         let id = BlobId::generate();
@@ -293,6 +324,66 @@ impl BlobStore {
         let path = self.resolve(rel)?;
         fs::rename(path.with_extension("aside"), &path)
             .map_err(|e| StoreError::Blob(rel.to_owned(), e.to_string()))
+    }
+
+    /// Where the blob root is, which is also where a marker of the store's own can be kept.
+    pub(crate) fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Every file in the two-character directories under the root, as a path relative to it and
+    /// when it was last written. Includes what is not a blob's file (a half-written `.part`, a
+    /// set-aside `.aside`): telling them apart is the caller's. Nothing for a root not made yet.
+    pub(crate) fn stored_files(&self) -> Result<Vec<(String, std::time::SystemTime)>, StoreError> {
+        let mut found = Vec::new();
+        let fans = match fs::read_dir(&self.root) {
+            Ok(fans) => fans,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(found),
+            Err(e) => {
+                return Err(StoreError::Blob(
+                    self.root.display().to_string(),
+                    e.to_string(),
+                ));
+            }
+        };
+        for fan in fans.flatten() {
+            let Some(dir) = fan.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if dir.len() != 2 || !dir.chars().all(|c| c.is_ascii_hexdigit()) {
+                continue;
+            }
+            let files = match fs::read_dir(fan.path()) {
+                Ok(files) => files,
+                // Gone since the listing above: nothing in it to find.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(e) => return Err(StoreError::Blob(dir, e.to_string())),
+            };
+            for file in files.flatten() {
+                let Some(name) = file.file_name().to_str().map(str::to_owned) else {
+                    continue;
+                };
+                // Unreadable now is gone or not ours; either way not something to sweep.
+                let Ok(meta) = file.metadata() else { continue };
+                let Ok(modified) = meta.modified() else {
+                    continue;
+                };
+                if meta.is_file() {
+                    found.push((format!("{dir}/{name}"), modified));
+                }
+            }
+        }
+        Ok(found)
+    }
+
+    /// Delete the file at `rel`, a path [`BlobStore::stored_files`] gave. Already gone is the
+    /// state wanted.
+    pub(crate) fn remove_stored(&self, rel: &str) -> Result<(), StoreError> {
+        match fs::remove_file(self.root.join(rel)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(StoreError::Blob(rel.to_owned(), e.to_string())),
+        }
     }
 
     /// Join a stored relative path to the root, refusing anything that escapes it.

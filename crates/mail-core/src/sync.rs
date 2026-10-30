@@ -405,22 +405,43 @@ async fn pass_over(
     // Ended in the order the accounts are configured, which `join_all` preserves. A pass that
     // listed its accounts in whatever order they happened to finish would read differently
     // between runs for no reason the user could see.
-    Ok(
-        futures_util::future::join_all(accounts.iter().map(|account| async {
-            let run = Run {
-                store,
-                secrets: secrets.clone(),
-                registry,
-                now,
-                account,
-            };
-            let result = one(&run, mode, &hooks).await;
-            let end = ended(account, result, hooks.cancel.get(&account.id).cloned());
-            remember(store, &end, now);
-            end
-        }))
-        .await,
-    )
+    let ended = futures_util::future::join_all(accounts.iter().map(|account| async {
+        let run = Run {
+            store,
+            secrets: secrets.clone(),
+            registry,
+            now,
+            account,
+        };
+        let result = one(&run, mode, &hooks).await;
+        let end = ended(account, result, hooks.cancel.get(&account.id).cloned());
+        remember(store, &end, now);
+        end
+    }))
+    .await;
+    sweep_blobs_later(store);
+    Ok(ended)
+}
+
+/// Take back the stored bytes nothing names any more, if a day has gone by since anyone did.
+///
+/// After a pass because that is when the database has just been written to and is about to be
+/// quiet, and on a thread of its own because it reads every table, which is no work for the
+/// threads the network waits on, let alone the window's. Not waited for: a pass is not over any
+/// later for it, and a sweep that did not finish is found again by the next. The time is the
+/// clock's, not the pass's, because the rows it judges by are stamped by it.
+fn sweep_blobs_later(store: &Arc<SqliteStore>) {
+    // Without a runtime to lend a thread (a test driving a pass by hand) there is nothing to do.
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    let store = Arc::clone(store);
+    runtime.spawn_blocking(move || {
+        SqliteStore::mark_worker_thread();
+        store
+            .sweep_blobs_daily(chrono::Utc::now())
+            .or_log("the stored bytes nothing names could not be swept");
+    });
 }
 
 /// Keep how `end` went, so a window opened later can tell an account that is quiet from one
