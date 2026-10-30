@@ -14,8 +14,8 @@ use mail_core::Arrival;
 use mail_core::message::{Looks, Read};
 use mail_core::testing::MapSigningStore;
 use mail_core::{SqliteStore, Store};
+use mail_crypto::openpgp::{self, Cert, SecretCert, Unlocking};
 use mail_domain::*;
-use mail_mime::openpgp::{self, Cert, SecretCert, Unlocking};
 use rand::SeedableRng;
 
 use super::{Said, Seams, Tone, said};

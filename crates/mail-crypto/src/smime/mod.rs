@@ -37,8 +37,8 @@ pub use open::{Keys, Opened, RecipientId, Signer, open, recipients};
 pub use pkcs12::{read_pkcs12, write_pkcs12};
 pub use seal::{Sealing, seal};
 
-use crate::MimeError;
+use crate::CryptoError;
 
-fn smime_error(what: &str, e: impl std::fmt::Display) -> MimeError {
-    MimeError::Smime(format!("{what}: {e}"))
+fn smime_error(what: &str, e: impl std::fmt::Display) -> CryptoError {
+    CryptoError::Smime(format!("{what}: {e}"))
 }

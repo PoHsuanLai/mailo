@@ -3,7 +3,7 @@
 
 use super::asn1;
 use super::smime_error;
-use crate::MimeError;
+use crate::CryptoError;
 use chrono::{DateTime, Utc};
 use der::{Decode, Encode};
 use mail_domain::{CertFingerprint, CertSource, KeyTrust, SecretHeld, SmimeCert};
@@ -30,7 +30,7 @@ impl std::fmt::Debug for Cert {
 }
 
 /// Every certificate in `bytes`: one DER certificate, or any number of PEM blocks.
-pub fn read_certs(bytes: &[u8]) -> Result<Vec<Cert>, MimeError> {
+pub fn read_certs(bytes: &[u8]) -> Result<Vec<Cert>, CryptoError> {
     let text = String::from_utf8_lossy(bytes);
     if text.contains("-----BEGIN CERTIFICATE-----") {
         let mut out = Vec::new();
@@ -38,7 +38,7 @@ pub fn read_certs(bytes: &[u8]) -> Result<Vec<Cert>, MimeError> {
         while let Some(start) = rest.find("-----BEGIN CERTIFICATE-----") {
             let end_marker = "-----END CERTIFICATE-----";
             let Some(end) = rest[start..].find(end_marker) else {
-                return Err(MimeError::Smime(
+                return Err(CryptoError::Smime(
                     "a PEM certificate is cut short".to_owned(),
                 ));
             };
@@ -55,7 +55,7 @@ pub fn read_certs(bytes: &[u8]) -> Result<Vec<Cert>, MimeError> {
 
 impl Cert {
     /// A certificate from its DER encoding.
-    pub fn from_der(der: &[u8]) -> Result<Cert, MimeError> {
+    pub fn from_der(der: &[u8]) -> Result<Cert, CryptoError> {
         let inner = Certificate::from_der(der).map_err(|e| smime_error("a certificate", e))?;
         // Kept as re-encoded, which for a DER certificate is the bytes given.
         let der = inner

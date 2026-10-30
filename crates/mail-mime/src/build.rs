@@ -457,7 +457,7 @@ fn id_at(id: DraftId, from: &Address) -> String {
     format!("{id}@{domain}").to_ascii_lowercase()
 }
 
-pub(crate) fn is_domain(domain: &str) -> bool {
+pub fn is_domain(domain: &str) -> bool {
     !domain.is_empty()
         && !domain.starts_with('.')
         && !domain.ends_with('.')

@@ -10,7 +10,7 @@ description = "The logic of mailo: sync, fetch state machines, accounts, compose
 repository = "https://github.com/PoHsuanLai/mailo"
 authors = ["Po Hsuan Lai <pohsuanlai0208@gmail.com>"]
 
-# The I/O-capable core between the pure crates (mail-domain, mail-mime, mail-proto, mail-pim) and
+# The I/O-capable core between the pure crates (mail-domain, mail-mime, mail-crypto, mail-archive, mail-proto, mail-pim) and
 # the two front-ends in `mail-app` (the window and the command line). It may use tokio
 # and the network; it must never depend on dioxus, ds, ds-settings or ds-blitz, or on anything
 # else that draws. `scripts/check-boundary.sh` enforces that.
@@ -51,7 +51,9 @@ interprocess = "2"
 mail-domain.workspace = true
 mail-store.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
-mail-mime = { workspace = true, features = ["openpgp", "smime"] }
+mail-mime.workspace = true
+mail-crypto = { workspace = true, features = ["openpgp", "smime"] }
+mail-archive.workspace = true
 mail-proto.workspace = true
 mail-pim.workspace = true
 mail-runtime.workspace = true

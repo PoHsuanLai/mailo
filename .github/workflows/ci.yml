@@ -116,7 +116,7 @@ jobs:
       - name: Portable build (no desktop extras)
         run: cargo check --workspace --no-default-features
 
-      # Each library crate alone with nothing on, and mail-mime with each crypto half alone: a
+      # Each library crate alone with nothing on, and mail-crypto with each half alone: a
       # `--workspace` check unifies the features `mail-app` turns on and would not notice a crate
       # that needs one of its own.
       - name: Every library crate builds with no features

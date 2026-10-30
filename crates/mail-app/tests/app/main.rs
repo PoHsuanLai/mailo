@@ -20,7 +20,7 @@ mod row_menu;
 mod sealed;
 #[path = "../support/settle.rs"]
 mod settle;
-use mail_mime::testing::smime as smime_support;
+use mail_crypto::testing::smime as smime_support;
 #[path = "../support/store.rs"]
 mod store;
 #[path = "../support/typing.rs"]

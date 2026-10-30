@@ -332,7 +332,7 @@ async fn a_locked_key_is_asked_for_in_the_bar_and_a_wrong_passphrase_said() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSigningStore::default());
     let passphrase = "kestrel over the hill";
-    let key = mail_mime::openpgp::generate(
+    let key = mail_crypto::openpgp::generate(
         "Me <me@example.test>",
         Utc::now(),
         &mut rand::rngs::StdRng::seed_from_u64(81),

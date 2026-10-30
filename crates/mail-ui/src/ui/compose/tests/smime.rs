@@ -213,7 +213,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
     // With one, dana has none: S/MIME has no directory to ask, so only sending without
     // encryption is offered, and how her certificate would come is said.
     let me = identity(pki(), &Person::new("Me", &["me@example.test"], 20, 2001));
-    let file = mail_mime::smime::write_pkcs12(&me, PASSWORD, &mut rng(1)).unwrap();
+    let file = mail_crypto::smime::write_pkcs12(&me, PASSWORD, &mut rng(1)).unwrap();
     mail_core::smime::certs::import(
         &store,
         secrets.as_ref(),
@@ -252,7 +252,7 @@ async fn what_smime_check_says_stands_in_the_way_is_said_in_the_bar() {
 fn a_locked_openpgp_key_is_known_by_the_sends_typed_error() {
     let (store, _dir) = seeded();
     let secrets = Arc::new(MapSigningStore::default());
-    let key = mail_mime::openpgp::generate(
+    let key = mail_crypto::openpgp::generate(
         "Me <me@example.test>",
         Utc::now(),
         &mut rand::rngs::StdRng::seed_from_u64(83),

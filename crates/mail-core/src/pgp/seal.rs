@@ -23,9 +23,9 @@ use super::{Ask, PgpError, Protected, open_message};
 use crate::message::{Protection, Scheme};
 use crate::protect::Seal;
 use chrono::{DateTime, Utc};
+use mail_crypto::openpgp::{self, Cert, Sealing, Unlocking};
 use mail_domain::*;
 use mail_mime::Parsed;
-use mail_mime::openpgp::{self, Cert, Sealing, Unlocking};
 use mail_runtime::SigningStore;
 use mail_store::SqliteStore;
 

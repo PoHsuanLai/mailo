@@ -75,7 +75,7 @@ fn dated(cert: &Cert, at: DateTime<Utc>) -> Option<CertProblem> {
 }
 
 /// [`chain`], for another kind of certificate than a mail signer's: a mark certificate's
-/// (`bimi::vmc`), whose purpose and names are checked there.
+/// (`vmc`), whose purpose and names are checked there.
 pub(crate) fn chain_to_anchor<'a>(
     leaf: &'a Cert,
     pool: &'a [Cert],

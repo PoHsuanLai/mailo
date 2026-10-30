@@ -7,9 +7,9 @@ rust-version.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Email messages in and out: MIME parsing and building, HTML sanitizing for display, mbox, read receipts, and optional OpenPGP and S/MIME."
+description = "Email messages in and out: MIME parsing and building, HTML sanitizing for display, and read receipts."
 readme = "README.md"
-keywords = ["email", "mime", "sanitize", "openpgp", "smime"]
+keywords = ["email", "mime", "sanitize", "mdn", "bimi"]
 categories = ["email", "parser-implementations", "encoding"]
 
 # Published as mailo-mime; used in code as `mail_mime`, as the workspace always has.
@@ -37,76 +37,13 @@ chardetng = "1"
 # output, so it must tokenize it with the same parser that produced it. If an ammonia bump
 # moves this, move this line in the same commit.
 html5ever = "0.40"
-# OpenPGP (`openpgp/`): rPGP, MIT OR Apache-2.0. Sequoia is LGPL and stays out.
-# Pure — it takes the random number generator and every instant as arguments, as this crate's
-# callers already hand it the clock. Default features off: the only default is BZip2 compression,
-# whose C-derived implementation is under the bzip2-1.0.6 licence the allow-list does not name.
-# GnuPG compresses with ZIP or ZLIB, which rPGP reads without it; a BZip2-compressed message is
-# reported as unreadable rather than guessed at.
-pgp = { version = "0.20", default-features = false, optional = true }
-# rPGP's own `rand` generation: its APIs take a `rand 0.8` `CryptoRng + Rng`.
-rand = { version = "0.8", optional = true }
-# Web Key Directory: the SHA-1 of a local part names the key's file. Already in the tree via rPGP.
-sha1 = { version = "0.10", features = ["oid"], optional = true }
-# rPGP's key builder takes its algorithm preferences as `SmallVec`s. Already in the tree.
-smallvec = { version = "1", optional = true }
-# S/MIME (`smime/`): the RustCrypto formats and primitives, all MIT OR Apache-2.0 and pure.
-# CMS (RFC 5652) and X.509 structures; the builders make SignedData and EnvelopedData.
-cms = { version = "0.2", features = ["builder", "std"], optional = true }
-x509-cert = { version = "0.2", features = ["builder", "std"], optional = true }
-der = { version = "0.7", features = ["std", "pem", "zeroize", "derive", "oid"], optional = true }
-spki = { version = "0.7", optional = true }
-const-oid = { version = "0.9", features = ["db"], optional = true }
-# PKCS#12 identity files: the PFX structures and their key derivation, PBES2 (PKCS#5) for the
-# modern encryption, DES for the legacy triple-DES bag encryption older exports still use.
-pkcs12 = { version = "0.1", features = ["kdf"], optional = true }
-pkcs5 = { version = "0.7", features = ["pbes2", "alloc"], optional = true }
-pkcs8 = { version = "0.10", features = ["std"], optional = true }
-des = { version = "0.8", optional = true }
-rsa = { version = "0.9", features = ["sha2"], optional = true }
-p256 = { version = "0.13", features = ["ecdsa"], optional = true }
-p384 = { version = "0.13", features = ["ecdsa"], optional = true }
-aes = { version = "0.8", optional = true }
-cbc = { version = "0.1", features = ["std"], optional = true }
-aes-gcm = { version = "0.10", optional = true }
-sha2 = { version = "0.10", features = ["oid"], optional = true }
-hmac = { version = "0.12", optional = true }
-# A Verified Mark Certificate carries its logo gzipped (`bimi/vmc.rs`). Already in the tree
-# through usvg and reqwest.
-flate2 = { version = "1", optional = true }
-signature = { version = "2", optional = true }
-zeroize = { version = "1", optional = true }
-
-[features]
-# Nothing on: the parser, the sanitizer and the builder take none of the crypto stack, which is
-# about twenty crates. A dependent that signs, seals or reads a certificate names the feature it
-# uses.
-default = []
-# OpenPGP (`openpgp/`): keys, signing, sealing, opening, Web Key Directory.
-openpgp = ["dep:pgp", "dep:rand", "dep:sha1", "dep:smallvec"]
-# S/MIME (`smime/`) and what reads a certificate with it: the BIMI mark certificate (`bimi::vmc`).
-# It shares OpenPGP's random number generator and key entity, so it brings that half in.
-smime = [
-    "openpgp",
-    "dep:cms", "dep:x509-cert", "dep:der", "dep:spki", "dep:const-oid", "dep:pkcs12", "dep:pkcs5",
-    "dep:pkcs8", "dep:des", "dep:rsa", "dep:p256", "dep:p384", "dep:aes", "dep:cbc", "dep:aes-gcm",
-    "dep:sha2", "dep:hmac", "dep:flate2", "dep:signature", "dep:zeroize", "dep:sha1", "dep:rand",
-]
-
-# The throwaway certificate authorities (`mail_mime::testing`): off in the program. They are
-# S/MIME certificates, so they bring that half in.
-testing = ["smime"]
 
 [dev-dependencies]
-# Its own tests use the authorities it exports.
-mail-mime = { package = "mailo-mime", path = ".", features = ["testing"] }
 uuid.workspace = true
 # The values a test starts from (`mail_domain::testing`): the program never has them.
 mail-domain = { workspace = true, features = ["testing"] }
 chrono.workspace = true
 proptest = "1"
-# A directory for the S/MIME interoperability test to hand files to OpenSSL in.
-tempfile = "3"
 html5ever = "0.40"
 
 [lints]

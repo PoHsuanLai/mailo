@@ -1,16 +1,16 @@
 //! OpenPGP's effects: secret keys in and out of the OS keyring, and keys learnt from mail.
 //!
-//! The cryptography is `mail_mime::openpgp`'s and is pure. What happens here is what it cannot
+//! The cryptography is `mail_crypto::openpgp`'s and is pure. What happens here is what it cannot
 //! do: read and write the keyring, and write what arriving mail taught to the store. Nothing
 //! here decrypts anything — mail is decrypted when the reader opens it, never as it arrives.
 
 use crate::error::Failure;
 use crate::{RuntimeError, SigningStore};
 use chrono::{DateTime, Utc};
+use mail_crypto::openpgp::{AutocryptHeader, SecretCert, autocrypt_of};
 use mail_domain::autocrypt::{self, Sighting, effective_date};
 use mail_domain::signing::{SigningKeyId, SigningKeyRef, SigningSecret};
 use mail_domain::{Fingerprint, KeySource};
-use mail_mime::openpgp::{AutocryptHeader, SecretCert, autocrypt_of};
 use mail_store::Store;
 use porter_core::AccountId;
 
@@ -154,7 +154,7 @@ pub fn date_keys(store: &dyn Store) -> Result<usize, RuntimeError> {
         if key.created.is_some() {
             continue;
         }
-        let Ok(cert) = mail_mime::openpgp::Cert::from_bytes(&key.key) else {
+        let Ok(cert) = mail_crypto::openpgp::Cert::from_bytes(&key.key) else {
             continue;
         };
         store.put_pgp_key(mail_domain::PgpKey {

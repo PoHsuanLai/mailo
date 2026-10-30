@@ -20,7 +20,7 @@ pub use keys::{Cert, Protection, ReadKey, SecretCert, generate, read_keys};
 pub use open::{Opened, encrypted_to, open};
 pub use seal::{Sealing, seal};
 
-use crate::MimeError;
+use crate::CryptoError;
 use mail_domain::{Fingerprint, KeyId, KeyTrust};
 
 /// What rPGP needs of a random number generator. The caller supplies one — the OS generator in
@@ -63,8 +63,8 @@ pub struct Keys {
     pub secrets: Vec<Unlocking>,
 }
 
-fn pgp_error(e: pgp::errors::Error) -> MimeError {
-    MimeError::OpenPgp(e.to_string())
+fn pgp_error(e: pgp::errors::Error) -> CryptoError {
+    CryptoError::OpenPgp(e.to_string())
 }
 
 fn convert_fingerprint(fp: &pgp::types::Fingerprint) -> Option<Fingerprint> {

@@ -5,7 +5,7 @@
 //! this module holds a key whose parts were stitched together by someone else.
 
 use super::{Rng, convert_fingerprint, convert_key_id, pgp_error};
-use crate::MimeError;
+use crate::CryptoError;
 use chrono::{DateTime, Utc};
 use mail_domain::{Fingerprint, KeyId, KeySource, KeyTrust, PgpKey, SecretHeld};
 use pgp::composed::{
@@ -107,7 +107,7 @@ impl Cert {
     }
 
     /// The key ASCII-armored, as `mailo pgp export` writes it.
-    pub fn armored(&self) -> Result<String, MimeError> {
+    pub fn armored(&self) -> Result<String, CryptoError> {
         self.inner
             .to_armored_string(ArmorOptions::default())
             .map_err(pgp_error)
@@ -166,11 +166,11 @@ impl Cert {
     }
 
     /// Read back a key the store holds.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Cert, MimeError> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Cert, CryptoError> {
         match read_keys(bytes)?.into_iter().next() {
             Some(ReadKey::Public(cert)) => Ok(*cert),
             Some(ReadKey::Secret(secret)) => Ok(secret.public()),
-            None => Err(MimeError::OpenPgp("no key in the bytes".to_owned())),
+            None => Err(CryptoError::OpenPgp("no key in the bytes".to_owned())),
         }
     }
 }
@@ -220,7 +220,7 @@ impl SecretCert {
     }
 
     /// The key ASCII-armored: what the keyring holds, and what `export --secret` prints.
-    pub fn armored(&self) -> Result<String, MimeError> {
+    pub fn armored(&self) -> Result<String, CryptoError> {
         self.inner
             .to_armored_string(ArmorOptions::default())
             .map_err(pgp_error)
@@ -232,7 +232,7 @@ impl SecretCert {
         &self,
         passphrase: &str,
         rng: &mut impl Rng,
-    ) -> Result<SecretCert, MimeError> {
+    ) -> Result<SecretCert, CryptoError> {
         let password = Password::from(passphrase);
         let mut inner = self.inner.clone();
         inner
@@ -248,10 +248,10 @@ impl SecretCert {
     }
 
     /// Read back what [`SecretCert::armored`] wrote.
-    pub fn from_armored(text: &str) -> Result<SecretCert, MimeError> {
+    pub fn from_armored(text: &str) -> Result<SecretCert, CryptoError> {
         match read_keys(text.as_bytes())?.into_iter().next() {
             Some(ReadKey::Secret(secret)) => Ok(*secret),
-            Some(ReadKey::Public(_)) | None => Err(MimeError::OpenPgp(
+            Some(ReadKey::Public(_)) | None => Err(CryptoError::OpenPgp(
                 "the keyring entry holds no secret key".to_owned(),
             )),
         }
@@ -262,7 +262,7 @@ impl SecretCert {
 ///
 /// Each key's self-signatures are checked; a key whose user ids or subkeys are not bound by its
 /// own signature is refused, named by its fingerprint, rather than imported half-trusted.
-pub fn read_keys(bytes: &[u8]) -> Result<Vec<ReadKey>, MimeError> {
+pub fn read_keys(bytes: &[u8]) -> Result<Vec<ReadKey>, CryptoError> {
     let blocks = armor_blocks(bytes);
     let mut out = Vec::new();
     if blocks.is_empty() {
@@ -273,12 +273,12 @@ pub fn read_keys(bytes: &[u8]) -> Result<Vec<ReadKey>, MimeError> {
         }
     }
     if out.is_empty() {
-        return Err(MimeError::OpenPgp("no OpenPGP key was found".to_owned()));
+        return Err(CryptoError::OpenPgp("no OpenPGP key was found".to_owned()));
     }
     Ok(out)
 }
 
-fn read_block(bytes: &[u8], out: &mut Vec<ReadKey>) -> Result<(), MimeError> {
+fn read_block(bytes: &[u8], out: &mut Vec<ReadKey>) -> Result<(), CryptoError> {
     let (keys, _) = PublicOrSecret::from_reader_many(bytes).map_err(pgp_error)?;
     for key in keys {
         let key = key.map_err(pgp_error)?;
@@ -287,7 +287,7 @@ fn read_block(bytes: &[u8], out: &mut Vec<ReadKey>) -> Result<(), MimeError> {
                 PublicOrSecret::Public(k) => k.primary_key.fingerprint(),
                 PublicOrSecret::Secret(k) => k.primary_key.fingerprint(),
             };
-            return Err(MimeError::OpenPgp(format!(
+            return Err(CryptoError::OpenPgp(format!(
                 "key {} is not bound by its own signatures: {e}",
                 fingerprint_of(&fingerprint)
             )));
@@ -339,14 +339,14 @@ pub fn generate(
     user_id: &str,
     now: DateTime<Utc>,
     rng: &mut impl Rng,
-) -> Result<SecretCert, MimeError> {
+) -> Result<SecretCert, CryptoError> {
     let created = timestamp(now);
     let encrypting = SubkeyParamsBuilder::default()
         .key_type(KeyType::ECDH(ECCCurve::Curve25519Legacy))
         .can_encrypt(EncryptionCaps::All)
         .created_at(created)
         .build()
-        .map_err(|e| MimeError::OpenPgp(e.to_string()))?;
+        .map_err(|e| CryptoError::OpenPgp(e.to_string()))?;
     let params = SecretKeyParamsBuilder::default()
         .key_type(KeyType::Ed25519Legacy)
         .can_certify(true)
@@ -367,7 +367,7 @@ pub fn generate(
         ])
         .subkeys(vec![encrypting])
         .build()
-        .map_err(|e| MimeError::OpenPgp(e.to_string()))?;
+        .map_err(|e| CryptoError::OpenPgp(e.to_string()))?;
     let inner = params.generate(rng).map_err(pgp_error)?;
     Ok(SecretCert { inner })
 }

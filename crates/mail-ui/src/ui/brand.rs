@@ -32,7 +32,7 @@ enum Local {
     /// A drawn logo, from the cache.
     Drawn(Vec<u8>),
     /// Worth asking, with these roots.
-    Ask(Vec<mail_mime::smime::Cert>, mail_mime::AuthResults),
+    Ask(Vec<mail_crypto::smime::Cert>, mail_mime::AuthResults),
 }
 
 /// The switch, the checks (`checks`, asked only once the switch is on and the sender has a
@@ -113,7 +113,7 @@ fn use_brand_logo(
 
 /// Look the sender's domain up with the system's resolver.
 async fn ask(
-    anchors: &[mail_mime::smime::Cert],
+    anchors: &[mail_crypto::smime::Cert],
     results: &mail_mime::AuthResults,
     from: &str,
     dir: &std::path::Path,

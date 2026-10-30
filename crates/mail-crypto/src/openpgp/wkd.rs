@@ -30,7 +30,7 @@ pub struct WkdUrls {
 pub fn urls(address: &str) -> Option<WkdUrls> {
     let (local, domain) = address.trim().rsplit_once('@')?;
     let domain = domain.to_ascii_lowercase();
-    if local.is_empty() || !crate::build::is_domain(&domain) || !domain.contains('.') {
+    if local.is_empty() || !mail_mime::build::is_domain(&domain) || !domain.contains('.') {
         return None;
     }
     let hash = zbase32(&Sha1::digest(local.to_lowercase().as_bytes()));

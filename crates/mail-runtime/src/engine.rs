@@ -1498,7 +1498,7 @@ impl<B: Backend> AccountEngine<B> {
                 )?;
             }
             None => {
-                let placement = mail_mime::archive::Placement::new(role, flags, Vec::new());
+                let placement = mail_archive::Placement::new(role, flags, Vec::new());
                 crate::assemble::keep(
                     &self.store,
                     self.account.clone(),

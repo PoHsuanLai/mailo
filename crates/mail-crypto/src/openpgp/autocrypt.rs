@@ -8,10 +8,10 @@
 
 use super::entity::{Entity, fields, is_named, value};
 use super::keys::{Cert, ReadKey, read_keys};
-use crate::stamp;
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
 use mail_domain::PreferEncrypt;
+use mail_mime::stamp;
 
 /// One usable Autocrypt or Autocrypt-Gossip header.
 #[derive(Debug, Clone, PartialEq, Eq)]

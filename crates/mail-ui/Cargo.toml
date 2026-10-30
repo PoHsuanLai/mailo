@@ -42,7 +42,8 @@ mail-domain.workspace = true
 # can name. `desktop` names the desktop's notification service, which the window speaks to itself.
 mail-client = { workspace = true, features = ["desktop"] }
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
-mail-mime = { workspace = true, features = ["openpgp", "smime"] }
+mail-mime.workspace = true
+mail-crypto = { workspace = true, features = ["openpgp", "smime"] }
 mail-proto.workspace = true
 mail-pim.workspace = true
 serde.workspace = true
@@ -173,7 +174,9 @@ uuid = { workspace = true }
 # The linter (`lint::assert_clean`, the markup lint): quire's own crate, at the same tag.
 ds-lint = { git = "https://github.com/PoHsuanLai/quire.git", rev = "e19728b7ee9e369d360c646bf5e7ed559bc3d6f9" }  # e19728b7 (v0.3.58; forks blitz 841386a7, blitz-kit fd08b468)
 # The throwaway certificate authority the S/MIME tests build their fixtures with.
-mail-mime = { workspace = true, features = ["testing"] }
+mail-crypto = { workspace = true, features = ["testing"] }
+# The Maildir naming the import and export tests read a file with.
+mail-archive.workspace = true
 # What a test reads back of a key the keyring holds (`ui/pgp/tests.rs`).
 mail-runtime = { workspace = true }
 

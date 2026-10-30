@@ -94,6 +94,8 @@ pub enum RuntimeError {
     Store(#[from] mail_store::StoreError),
     #[error("composing: {0}")]
     Compose(#[from] mail_mime::MimeError),
+    #[error("cryptography: {0}")]
+    Crypto(#[from] mail_crypto::CryptoError),
     #[error("secret store: {0}")]
     Secrets(#[source] Failure),
     /// The machine wanted something the transport in use cannot provide.
@@ -158,6 +160,7 @@ impl Retryable for RuntimeError {
             // A fact about the message, not about the network. Retrying rebuilds the same
             // bytes and fails the same way, forever.
             RuntimeError::Compose(e) => e.retry(),
+            RuntimeError::Crypto(e) => e.retry(),
             // Delegate: the machines already classify their own failures, including the
             // transient/permanent split and rate limiting.
             RuntimeError::Proto(e) => e.retry(),

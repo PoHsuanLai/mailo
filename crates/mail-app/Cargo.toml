@@ -108,7 +108,8 @@ mail-client.workspace = true
 # The window, over the client.
 mail-ui.workspace = true
 # The OpenPGP and S/MIME halves are features of the library; this crate uses both.
-mail-mime = { workspace = true, features = ["openpgp", "smime"] }
+mail-mime.workspace = true
+mail-crypto = { workspace = true, features = ["openpgp", "smime"] }
 mail-proto.workspace = true
 mail-pim.workspace = true
 # The platform keyring holds the account secrets and the signing keys: the library keeps it opt-in.
@@ -188,7 +189,9 @@ rand = "0.8"
 # names, so the tree holds one pdfrum.
 pdfrum = { version = "0.5", default-features = false, features = ["vello-cpu"] }
 # The throwaway certificate authority `tests/app/smime.rs` builds its fixtures with.
-mail-mime = { workspace = true, features = ["testing"] }
+mail-crypto = { workspace = true, features = ["testing"] }
+# The mbox and Maildir the import and export tests read back (`tests/app/import_export.rs`).
+mail-archive.workspace = true
 uuid = { workspace = true }
 # The linter (`lint::assert_clean`, the markup lint) and the test driver (`Harness`, `Driver`,
 # `Query`, `snapshot`; `pdf` is `Harness::pdf` for the print tests): quire's own crates, at the

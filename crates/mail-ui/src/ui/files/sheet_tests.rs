@@ -78,7 +78,7 @@ fn a_maildir(under: &Path) -> PathBuf {
     for sub in ["cur", "new", "tmp"] {
         std::fs::create_dir_all(root.join(sub)).unwrap();
     }
-    let info = mail_mime::archive::maildir::INFO;
+    let info = mail_archive::maildir::INFO;
     for (name, subject) in [
         (format!("1699363251.M1.host{info}2,S"), "Lunch"),
         ("1699363252.M2.host".to_owned(), "Tea"),
