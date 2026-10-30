@@ -40,7 +40,7 @@ pub use format::{
 };
 pub use input::{Edit, InputEvent, Record, interpret};
 pub use keys::{Caret, Grip, Motion, backspace, enter};
-pub use mail_mime::{Align, TextColor, TextSize};
+pub use mail_reader::{Align, TextColor, TextSize};
 pub use markdown::{Shortcut, shortcuts};
 pub use mention::{
     FORWARDED, Person, has_attachment, joins_cc, mentions_attachment, missing_attachment, resolve,

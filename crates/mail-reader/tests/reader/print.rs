@@ -11,7 +11,8 @@ use html5ever::tokenizer::{
     Tag, TagKind, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
 use mail_domain::*;
-use mail_mime::{Labels, Options, Pages, Remote, Script, Sheet, parse, print_with, remote_images};
+use mail_mime::parse;
+use mail_reader::{Labels, Options, Pages, Remote, Script, Sheet, print_with, remote_images};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 

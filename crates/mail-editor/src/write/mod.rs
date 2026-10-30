@@ -7,7 +7,7 @@ mod html;
 pub use flowed::{plain_to_flowed, to_flowed};
 pub use html::to_html;
 
-use mail_mime::{Block, Span};
+use mail_reader::{Block, Span};
 
 use crate::doc::{Check, Node, ParaKind};
 

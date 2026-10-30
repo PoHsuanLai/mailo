@@ -5,7 +5,7 @@
 //! Alignment, size and colour need no help to be set: they are one [`Op`] each
 //! ([`Op::SetAlign`], [`Op::SetSize`], [`Op::SetColor`]).
 
-use mail_mime::{Align, TextColor, TextSize};
+use mail_reader::{Align, TextColor, TextSize};
 
 use crate::doc::{Doc, Layout, Marks, Node, ParaKind, Pos, Range};
 use crate::op::{Op, apply_all, kind_targets};

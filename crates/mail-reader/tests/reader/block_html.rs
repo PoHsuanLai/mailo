@@ -2,7 +2,7 @@
 
 use crate::support::block as support;
 
-use mail_mime::{Block, ImgSrc, RemoteImages, is_mapped, mapped_tags};
+use mail_reader::{Block, ImgSrc, RemoteImages, is_mapped, mapped_tags};
 use support::{html, html_images, part, sketch};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\n-pretend-";
@@ -210,9 +210,9 @@ fn a_layout_table_flattens_and_a_data_table_does_not() {
 
 #[test]
 fn a_span_styled_bold_or_italic_reads_as_one() {
-    let kept = mail_mime::SanitizePolicy {
-        styles: mail_mime::Styles::Kept,
-        ..mail_mime::SanitizePolicy::CURRENT
+    let kept = mail_reader::SanitizePolicy {
+        styles: mail_reader::Styles::Kept,
+        ..mail_reader::SanitizePolicy::CURRENT
     };
     let cases: &[(&str, &str)] = &[
         (r#"<span style="font-weight:700">a</span>"#, "*a*"),
@@ -231,8 +231,8 @@ fn a_span_styled_bold_or_italic_reads_as_one() {
         (r#"<span style="font-weight:heavy">a</span>"#, "a"),
     ];
     for (raw, want) in cases {
-        let safe = mail_mime::sanitize(&format!("<p>{raw}</p>"), kept);
-        let doc = mail_mime::from_html(&safe, &[], RemoteImages::Blocked);
+        let safe = mail_reader::sanitize(&format!("<p>{raw}</p>"), kept);
+        let doc = mail_reader::from_html(&safe, &[], RemoteImages::Blocked);
         assert_eq!(
             sketch(&doc),
             format!("letter nothing -\np ltr {want}\n"),

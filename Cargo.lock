@@ -5141,6 +5141,7 @@ dependencies = [
  "mailo-crypto",
  "mailo-domain",
  "mailo-mime",
+ "mailo-reader",
  "pdfrum",
  "porter-core",
  "porter-secrets",
@@ -5191,6 +5192,7 @@ dependencies = [
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
+ "mailo-reader",
  "porter-core",
  "porter-provider",
  "porter-secrets",
@@ -5216,6 +5218,7 @@ dependencies = [
  "mailo-editor",
  "mailo-mime",
  "mailo-proto",
+ "mailo-reader",
  "notify",
  "parking_lot",
  "porter-core",
@@ -5251,6 +5254,7 @@ dependencies = [
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
+ "mailo-reader",
  "notify-rust",
  "nucleo-matcher",
  "pdfrum",
@@ -5534,6 +5538,7 @@ dependencies = [
  "mailo-mime",
  "mailo-pim",
  "mailo-proto",
+ "mailo-reader",
  "pdfrum",
  "porter-capability",
  "porter-client-inproc",
@@ -5628,6 +5633,7 @@ version = "0.1.0"
 dependencies = [
  "mailo-domain",
  "mailo-mime",
+ "mailo-reader",
  "proptest",
  "unicode-segmentation",
 ]
@@ -5636,13 +5642,10 @@ dependencies = [
 name = "mailo-mime"
 version = "0.1.0"
 dependencies = [
- "ammonia",
  "base64 0.22.1",
  "chardetng",
  "chrono",
- "cssparser 0.38.0",
  "encoding_rs",
- "html5ever 0.40.1",
  "mail-builder",
  "mail-parser",
  "mailo-domain",
@@ -5683,6 +5686,21 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "uuid",
+]
+
+[[package]]
+name = "mailo-reader"
+version = "0.1.0"
+dependencies = [
+ "ammonia",
+ "base64 0.22.1",
+ "chrono",
+ "cssparser 0.38.0",
+ "html5ever 0.40.1",
+ "mailo-domain",
+ "mailo-mime",
+ "proptest",
+ "url",
 ]
 
 [[package]]

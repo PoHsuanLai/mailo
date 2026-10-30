@@ -9,15 +9,15 @@ use crate::support::block as support;
 use html5ever::buffer_queue::BufferQueue;
 use html5ever::tendril::StrTendril;
 use html5ever::tokenizer::{Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts};
-use mail_mime::{SafeUrl, from_html, sanitize};
+use mail_reader::{SafeUrl, from_html, sanitize};
 use proptest::prelude::*;
 use std::cell::RefCell;
 
 proptest! {
     #[test]
     fn block_text_matches_an_independent_walk(fragment in arb_fragment()) {
-        let safe = sanitize(&fragment, support::policy(mail_mime::RemoteImages::Blocked));
-        let doc = from_html(&safe, &[], mail_mime::RemoteImages::Blocked);
+        let safe = sanitize(&fragment, support::policy(mail_reader::RemoteImages::Blocked));
+        let doc = from_html(&safe, &[], mail_reader::RemoteImages::Blocked);
         let from_blocks = support::norm(&support::plain(&doc));
         let from_tokens = support::norm(&token_text(safe.as_str()));
         prop_assert_eq!(from_blocks, from_tokens, "fragment was {}", fragment);
@@ -25,8 +25,8 @@ proptest! {
 
     #[test]
     fn every_url_in_the_output_parses_back_to_itself(fragment in arb_fragment()) {
-        let safe = sanitize(&fragment, support::policy(mail_mime::RemoteImages::Allowed));
-        let doc = from_html(&safe, &[], mail_mime::RemoteImages::Allowed);
+        let safe = sanitize(&fragment, support::policy(mail_reader::RemoteImages::Allowed));
+        let doc = from_html(&safe, &[], mail_reader::RemoteImages::Allowed);
         for url in support::urls(&doc) {
             prop_assert_eq!(url.as_str().parse::<SafeUrl>().ok(), Some(url.clone()));
         }

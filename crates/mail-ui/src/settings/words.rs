@@ -397,11 +397,11 @@ pub enum RemoveUnedited {
     AfterMessageIsDeleted,
 }
 
-impl From<PreferPlainText> for mail_client::message::Prefer {
+impl From<PreferPlainText> for mail_reader::Prefer {
     fn from(plain: PreferPlainText) -> Self {
         match plain {
-            PreferPlainText::On => mail_client::message::Prefer::Plain,
-            PreferPlainText::Off => mail_client::message::Prefer::Html,
+            PreferPlainText::On => mail_reader::Prefer::Plain,
+            PreferPlainText::Off => mail_reader::Prefer::Html,
         }
     }
 }

@@ -11,7 +11,7 @@ use mail_client::compose::addresses::{join_addresses, parse_addresses};
 use mail_client::conversation::{mute_for_all, offers};
 use mail_client::mailbox_filter::for_role;
 use mail_domain::*;
-use mail_mime::{RemoteImages, SanitizePolicy};
+use mail_reader::{RemoteImages, SanitizePolicy};
 use porter_core::AccountId;
 use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
@@ -546,7 +546,7 @@ pub enum Preview {
 }
 
 /// A link's destination, as Peek's card draws it: what its anchor said, and where it goes,
-/// already checked as a click on it would be (`mail_mime::SafeUrl::link`).
+/// already checked as a click on it would be (`mail_reader::SafeUrl::link`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LinkCard {
     pub text: String,

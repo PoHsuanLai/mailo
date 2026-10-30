@@ -2,7 +2,7 @@
 
 use crate::support::block as support;
 
-use mail_mime::{ImgSrc, RemoteImages, SafeUrl};
+use mail_reader::{ImgSrc, RemoteImages, SafeUrl};
 use support::{html, html_images, sketch};
 
 /// `(case, href as sent, href the reader keeps)`.

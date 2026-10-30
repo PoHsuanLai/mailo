@@ -1,9 +1,10 @@
 //! The sketch and walkers the `block_*` tests read a document with.
 
 use mail_domain::Inline;
-use mail_mime::{
-    Block, Dir, Document, Flowed, ImgSrc, ListKind, ParsedPart, Reached, RemoteImages, SafeUrl,
-    SanitizePolicy, Shape, Span, from_html, from_text, sanitize,
+use mail_mime::{Flowed, ParsedPart};
+use mail_reader::{
+    Block, Dir, Document, ImgSrc, ListKind, Reached, RemoteImages, SafeUrl, SanitizePolicy, Shape,
+    Span, from_html, from_text, sanitize,
 };
 
 pub fn policy(images: RemoteImages) -> SanitizePolicy {

@@ -19,13 +19,13 @@ use self::tags::{Frame, Kind, flush_buf, frame_kind, is_void, presentational, pu
 use super::heaviness::Signals;
 use super::kind::{Block, first_strong, span_text, strip_overrides};
 use super::limits::{Limits, Reached};
-use crate::parse::ParsedPart;
 use crate::sanitize::RemoteImages;
 use html5ever::buffer_queue::BufferQueue;
 use html5ever::tendril::StrTendril;
 use html5ever::tokenizer::{
     Tag, TagToken, Token, TokenSink, TokenSinkResult, Tokenizer, TokenizerOpts,
 };
+use mail_mime::ParsedPart;
 use std::cell::RefCell;
 
 pub(crate) struct HtmlOut {

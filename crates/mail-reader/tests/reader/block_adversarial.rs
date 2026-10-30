@@ -6,7 +6,8 @@
 
 use crate::support::block as support;
 
-use mail_mime::{Flowed, ImgSrc, Reached, RemoteImages, SafeUrl, from_html, from_text, sanitize};
+use mail_mime::Flowed;
+use mail_reader::{ImgSrc, Reached, RemoteImages, SafeUrl, from_html, from_text, sanitize};
 use std::thread::Builder;
 
 #[test]

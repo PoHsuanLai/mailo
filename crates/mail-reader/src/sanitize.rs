@@ -126,7 +126,7 @@ impl SafeHtml {
 /// alternative — showing the user nothing — is worse than showing them the text.
 ///
 /// ```
-/// use mail_mime::{SanitizePolicy, sanitize};
+/// use mail_reader::{SanitizePolicy, sanitize};
 ///
 /// let safe = sanitize(
 ///     r#"<p>hi</p><script>alert(1)</script><img src="https://tracker.example/p.gif">"#,

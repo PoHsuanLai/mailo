@@ -10,25 +10,14 @@ mod support;
 
 mod auth;
 mod blind;
-mod block_adversarial;
-mod block_heaviness;
-mod block_html;
-mod block_proptest;
-mod block_quote;
-mod block_text;
-mod block_tracking;
 mod build;
 mod imip;
 mod inline;
 mod mdn;
 mod parse;
-mod print;
 mod raw_headers;
 mod reconstruct;
 mod related;
-mod sanitize;
-mod sanitize_adversarial;
-mod sanitize_unrendered;
 mod unsubscribe;
 mod wire;
 

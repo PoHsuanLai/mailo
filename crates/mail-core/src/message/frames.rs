@@ -1,6 +1,6 @@
 //! What the reader has already rendered, kept so opening a conversation twice costs a lookup.
 //!
-//! [`render`] is a pure function of the message's raw blob and the sanitize policy: a blob is
+//! [`frame_of`] is a pure function of the message's raw blob and the sanitize policy: a blob is
 //! content-addressed, so the same [`BlobId`] is the same bytes for ever, and the cache can never
 //! need invalidating. The whole [`SanitizePolicy`] is in the key, version included — a key
 //! without it would serve markup sanitized under one policy to a reader that asked for another,
@@ -11,14 +11,37 @@
 //! (a future spawned from a render is never polled). The cache is a value the front-end owns
 //! and hands to whoever renders, not a process global: two of them share nothing.
 
-use super::frame::{FrameBody, Prefer, Source, render};
 use crate::error::Logged;
 use mail_domain::{BlobId, Message, ThreadId};
-use mail_mime::{Parsed, SanitizePolicy};
+use mail_mime::Parsed;
+use mail_reader::{FrameBody, Prefer, SanitizePolicy, Source, frame_of};
 use mail_store::{SqliteStore, Store};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// Render a message body into its sandboxed frame, every time, saying what it rendered from.
+/// The reader's [`frame_of`], given the stored bytes this reads (`unsealed` is the body OpenPGP
+/// or S/MIME opened the message to, when it has been opened). [`Frames::rendered`] remembers the
+/// answer; this is the work itself, for the cache to call and for a measurement that must not
+/// hit it.
+pub fn render(
+    store: &SqliteStore,
+    message: &Message,
+    policy: SanitizePolicy,
+    prefer: Prefer,
+    unsealed: &dyn Fn(&Message) -> Option<Parsed>,
+) -> (FrameBody, Source) {
+    frame_of(message, policy, prefer, unsealed, &|message| {
+        let raw = message.body.raw()?;
+        // A reader, not the writer: a sync's ingest holds the writer for a whole batch.
+        let bytes = store
+            .blobs()
+            .get(raw)
+            .or_log("a message's bytes could not be read")?;
+        mail_mime::parse(&bytes).ok()
+    })
+}
 
 /// How much rendered html to keep, in bytes. A long newsletter is a few hundred kilobytes.
 const BUDGET: usize = 32 * 1024 * 1024;
@@ -368,7 +391,7 @@ pub fn ahead(open: Option<ThreadId>, list: &[ThreadId], page: usize) -> Vec<Thre
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mail_mime::RemoteImages;
+    use mail_reader::RemoteImages;
 
     fn html(n: usize) -> Arc<FrameBody> {
         Arc::new(FrameBody::Present {

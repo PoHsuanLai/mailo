@@ -19,6 +19,7 @@ name = "mail_editor"
 [dependencies]
 mail-domain.workspace = true
 mail-mime.workspace = true
+mail-reader.workspace = true
 # Grapheme clusters: the caret and its edits count what a person sees as one character.
 unicode-segmentation = "1.13"
 

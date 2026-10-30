@@ -2,7 +2,7 @@
 
 use crate::support::block as support;
 
-use mail_mime::{Block, Shape, Span};
+use mail_reader::{Block, Shape, Span};
 use support::{html, sketch};
 
 #[test]

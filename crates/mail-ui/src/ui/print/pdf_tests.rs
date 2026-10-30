@@ -12,7 +12,7 @@ use ds_blitz::{PageSize, PrintError, PrintOutcome};
 use mail_core::html_document::Printed;
 use mail_core::{SqliteStore, Store};
 use mail_domain::*;
-use mail_mime::{Pages, Script};
+use mail_reader::{Pages, Script};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 

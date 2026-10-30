@@ -4,8 +4,8 @@
 //! character, including an emoji family joined by ZWJ.
 
 use crate::text::normalize_runs;
-use mail_mime::block::Block;
-use mail_mime::{Align, ParaStyle, SafeUrl, TextColor, TextSize};
+use mail_reader::block::Block;
+use mail_reader::{Align, ParaStyle, SafeUrl, TextColor, TextSize};
 
 /// A heading's level. One, two, or three: deeper headings are not a thing this editor writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

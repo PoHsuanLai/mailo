@@ -17,7 +17,7 @@ mail-engine ok 0
 mail-engine unwrap_or_default 2
 mail-core let_underscore 0
 mail-core ok 31
-mail-core unwrap_or_default 16
+mail-core unwrap_or_default 15
 mail-proto let_underscore 0
 mail-proto ok 11
 mail-proto unwrap_or_default 8

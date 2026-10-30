@@ -41,30 +41,6 @@ pub enum Dir {
     Rtl,
 }
 
-/// Whether plain text may be rewrapped, and whether the flow space is real.
-///
-/// `delsp` is meaningless for [`Flowed::Fixed`], so it is not a separate flag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Flowed {
-    /// `format=fixed`. Lines are the sender's line breaks.
-    Fixed,
-    /// `format=flowed`. A trailing space joins the next line, except on `-- `.
-    Flowed {
-        /// Whether the trailing space is a marker to delete on join, or a real space that also
-        /// marks the join.
-        delsp: Delsp,
-    },
-}
-
-/// The `delsp` parameter of `format=flowed` (RFC 3676 section 4.2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Delsp {
-    /// `delsp=yes`: the trailing space is a marker and is deleted on join.
-    Yes,
-    /// Absent or `no`: the space is real, and also marks the join.
-    No,
-}
-
 /// Whether a list counts its items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ListKind {
@@ -163,7 +139,7 @@ pub enum ImgSrc {
 
 /// A `data:image/...;base64,...` URI.
 ///
-/// Built only from a part whose declared type [`crate::embeddable`] accepts.
+/// Built only from a part whose declared type [`mail_mime::embeddable`] accepts.
 /// The string is private so a caller cannot assemble `data:text/html` and hand
 /// it to the renderer as if this crate had checked it.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -2,7 +2,8 @@
 
 use crate::support::block as support;
 
-use mail_mime::{Block, Delsp, Dir, Flowed};
+use mail_mime::{Delsp, Flowed};
+use mail_reader::{Block, Dir};
 use support::{sketch, text};
 
 const LISTPOST: &str = include_str!("../fixtures/block/listpost.txt");
@@ -205,13 +206,13 @@ fn hebrew_and_english_take_their_own_directions() {
 
 /// Each link in `blocks`, as the text it shows and the URL it opens.
 fn links(blocks: &[Block]) -> Vec<(String, String)> {
-    fn spans_links(spans: &[mail_mime::Span], out: &mut Vec<(String, String)>) {
+    fn spans_links(spans: &[mail_reader::Span], out: &mut Vec<(String, String)>) {
         for span in spans {
-            if let mail_mime::Span::Link { url, spans } = span {
+            if let mail_reader::Span::Link { url, spans } = span {
                 let shown = spans
                     .iter()
                     .map(|span| match span {
-                        mail_mime::Span::Text(text) => text.as_str(),
+                        mail_reader::Span::Text(text) => text.as_str(),
                         _ => "",
                     })
                     .collect();

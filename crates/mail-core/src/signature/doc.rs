@@ -11,7 +11,7 @@
 use std::ops::Range;
 
 use mail_domain::{Signature, SignatureId};
-use mail_mime::{RemoteImages, SanitizePolicy, from_html, sanitize};
+use mail_reader::{RemoteImages, SanitizePolicy, from_html, sanitize};
 
 use mail_editor::{
     Doc, FORWARDED, Node, Object, Op, ParaKind, nodes_from_blocks, nodes_from_plain, runs_text,

@@ -1,6 +1,6 @@
 //! Setting an inline mark, a link, a size or a colour over a range, one paragraph at a time.
 
-use mail_mime::{SafeUrl, TextColor, TextSize};
+use mail_reader::{SafeUrl, TextColor, TextSize};
 
 use super::{Op, check_range, covers, one_or_seq, paragraph_mut};
 use crate::doc::{Doc, Mark, Marks, Node, Pos, Presence, Range, Run};

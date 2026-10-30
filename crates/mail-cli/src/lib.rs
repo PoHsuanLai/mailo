@@ -236,7 +236,7 @@ pub enum Command {
     Print {
         target: uuid::Uuid,
         out: PrintTo,
-        pages: mail_mime::Pages,
+        pages: mail_reader::Pages,
     },
     /// What to do with mail as it arrives.
     Rules(mail_core::rules::RulesCmd),
@@ -271,7 +271,7 @@ fn parse_print(args: &[String]) -> Result<Command, String> {
         .parse()
         .map_err(|_| format!("{raw:?} is not a thread or message id"))?;
     let mut out = PrintTo::Unsaid;
-    let mut pages = mail_mime::Pages::Flow;
+    let mut pages = mail_reader::Pages::Flow;
     let mut rest = args[1..].iter();
     while let Some(option) = rest.next() {
         match option.as_str() {
@@ -285,7 +285,7 @@ fn parse_print(args: &[String]) -> Result<Command, String> {
                     PrintTo::File(std::path::PathBuf::from(path))
                 };
             }
-            "--page-per-message" => pages = mail_mime::Pages::PerMessage,
+            "--page-per-message" => pages = mail_reader::Pages::PerMessage,
             other => return Err(format!("unknown option {other:?}\n\n{}", usage())),
         }
     }

@@ -10,7 +10,7 @@
 //! Self-contained on purpose: printing happens from a file on disk or a webview with the
 //! network nowhere in the picture, and a printout that fetched something would tell the sender
 //! it had been printed. The only URLs that load anything are `data:` URIs: those this crate
-//! built from the message's own parts, through [`crate::embeddable`]'s allowlist, and, for a
+//! built from the message's own parts, through [`mail_mime::embeddable`]'s allowlist, and, for a
 //! message whose remote images the reader consented to ([`Remote::Allowed`]), those the caller
 //! fetched already and hands in, held to the same allowlist. Nothing here fetches.
 //!
@@ -33,11 +33,11 @@ use crate::block::{
     Block, Dir, Document, ImgSrc, ListKind, ParaStyle, Reached, Span, from_html_describing,
     from_text_keeping_lines,
 };
-use crate::parse::Parsed;
 use crate::sanitize::{RemoteImages, SanitizePolicy, sanitize};
-use crate::script::{Script, script_of};
+use crate::script::{Script, script_of, script_of_parsed};
 use chrono::{DateTime, TimeZone, Utc};
 use mail_domain::{Address, Body, Message, human_size};
+use mail_mime::Parsed;
 use std::collections::BTreeMap;
 use std::fmt::Display;
 use std::fmt::Write as _;
@@ -248,7 +248,7 @@ fn marker(script: Option<Script>) -> String {
 fn script(sheet: &Sheet<'_>) -> Option<Script> {
     let subject = sheet.message.subject.as_str();
     match sheet.parsed {
-        Some(parsed) => parsed.script(subject),
+        Some(parsed) => script_of_parsed(parsed, subject),
         None => {
             let stored = match &sheet.message.body {
                 Body::Present { text, .. } => text.as_deref().unwrap_or(""),
@@ -303,7 +303,7 @@ fn collect_remote(blocks: &[Block], urls: &mut Vec<String>) {
     }
 }
 
-/// A `data:` URI this document may draw: base64 of one of [`crate::embeddable`]'s raster types,
+/// A `data:` URI this document may draw: base64 of one of [`mail_mime::embeddable`]'s raster types,
 /// and nothing that could end the attribute or say anything else.
 fn drawable(uri: &str) -> bool {
     let Some(rest) = uri.strip_prefix("data:") else {
@@ -312,7 +312,7 @@ fn drawable(uri: &str) -> bool {
     let Some((mime, data)) = rest.split_once(";base64,") else {
         return false;
     };
-    crate::embeddable(mime) == Some(mime)
+    mail_mime::embeddable(mime) == Some(mime)
         && !data.is_empty()
         && data
             .bytes()
@@ -439,7 +439,7 @@ fn document(sheet: &Sheet<'_>) -> Option<Document> {
     };
     let stored = text.as_deref().unwrap_or("");
     let Some(parsed) = sheet.parsed else {
-        return Some(from_text_keeping_lines(stored, crate::block::Flowed::Fixed));
+        return Some(from_text_keeping_lines(stored, mail_mime::Flowed::Fixed));
     };
     Some(match parsed.html.as_deref() {
         Some(html) => {

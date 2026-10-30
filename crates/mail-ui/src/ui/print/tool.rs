@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use ds::host::measure::MountedRef;
 use ds::prelude::*;
 use mail_domain::ThreadId;
-use mail_mime::Pages;
+use mail_reader::Pages;
 
 /// What a row of the menu does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

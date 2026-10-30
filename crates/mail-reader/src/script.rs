@@ -16,7 +16,7 @@
 //! `None` means the message does not say, or is not CJK at all: the caller's own default (a
 //! locale's, say) is then as good a guess as any. Pure: text in, a hint out.
 
-use crate::parse::Parsed;
+use mail_mime::Parsed;
 
 /// A CJK writing system, as far as choosing a face for it goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -177,19 +177,23 @@ pub fn script_of(
         .or_else(|| Script::from_text(text))
 }
 
-impl Parsed {
-    /// The script this message is written in, by its own `Content-Language` and `charset` and
-    /// then by `subject` and its body's text. See [`script_of`].
-    pub fn script(&self, subject: &str) -> Option<Script> {
-        let mut text = String::from(subject);
-        text.push('\n');
-        text.push_str(self.html.as_deref().or(self.text.as_deref()).unwrap_or(""));
-        script_of(
-            self.content_language.as_deref(),
-            self.charset.as_deref(),
-            &text,
-        )
-    }
+/// The script `parsed` is written in, by its own `Content-Language` and `charset` and then by
+/// `subject` and its body's text. See [`script_of`].
+pub fn script_of_parsed(parsed: &Parsed, subject: &str) -> Option<Script> {
+    let mut text = String::from(subject);
+    text.push('\n');
+    text.push_str(
+        parsed
+            .html
+            .as_deref()
+            .or(parsed.text.as_deref())
+            .unwrap_or(""),
+    );
+    script_of(
+        parsed.content_language.as_deref(),
+        parsed.charset.as_deref(),
+        &text,
+    )
 }
 
 #[cfg(test)]

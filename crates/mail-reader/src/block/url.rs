@@ -28,7 +28,7 @@ pub const LINK_TARGET: &str = "_blank";
 pub struct SafeUrl(String);
 
 impl std::str::FromStr for SafeUrl {
-    type Err = crate::UnsafeUrl;
+    type Err = mail_mime::UnsafeUrl;
 
     /// Parse `raw` into a URL this crate will keep.
     ///
@@ -36,7 +36,7 @@ impl std::str::FromStr for SafeUrl {
     /// `http`/`https`, or the string carries whitespace, a control character,
     /// or a bidi override (those reorder the host a person thinks they see).
     fn from_str(raw: &str) -> Result<Self, Self::Err> {
-        Self::read(raw).ok_or(crate::UnsafeUrl)
+        Self::read(raw).ok_or(mail_mime::UnsafeUrl)
     }
 }
 
