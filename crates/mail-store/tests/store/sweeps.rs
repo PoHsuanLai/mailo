@@ -83,3 +83,45 @@ fn a_mailbox_with_no_cursor_yet_holds_no_marks() {
         Swept::default()
     );
 }
+
+#[test]
+fn held_through_and_the_unreadable_read_back_and_go_with_the_mailbox() {
+    use mail_domain::RemoteRef;
+    let both = Both::new();
+    surveyed(&both, "INBOX");
+    let through = SyncCursor::Imap {
+        uidvalidity: 7,
+        uidnext: 9,
+        modseq: None,
+    };
+    let bad = RemoteRef::Imap {
+        mailbox: "INBOX".to_owned(),
+        uidvalidity: 7,
+        uid: 3,
+    };
+    assert_eq!(
+        both.agree(|s| s.held_through(&mailbox("INBOX")).unwrap()),
+        None
+    );
+    for (_, store) in both.each() {
+        store
+            .mark_held_through(&mailbox("INBOX"), &through)
+            .unwrap();
+        store
+            .mark_unreadable(&mailbox("INBOX"), std::slice::from_ref(&bad), at(10))
+            .unwrap();
+    }
+    assert_eq!(
+        both.agree(|s| s.held_through(&mailbox("INBOX")).unwrap()),
+        Some(through)
+    );
+    assert_eq!(
+        both.agree(|s| s.unreadable_since(&mailbox("INBOX"), at(5)).unwrap()),
+        vec![bad.clone()]
+    );
+    assert!(
+        both.agree(|s| s.unreadable_since(&mailbox("INBOX"), at(11)).unwrap())
+            .is_empty(),
+        "one tried before the cut is not resting"
+    );
+}

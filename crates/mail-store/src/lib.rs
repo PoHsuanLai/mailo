@@ -401,6 +401,47 @@ pub trait Store {
         at: DateTime<Utc>,
     ) -> Result<(), StoreError>;
 
+    /// The mailbox state up to which every message the server listed was held, headers at least.
+    ///
+    /// What an incremental survey resumes from. It is apart from [`Store::cursor`], which a flag
+    /// sweep moves on past messages no pass has fetched yet, so resuming from the cursor would
+    /// lose them. `None` for a mailbox no pass has held in full: the next one lists it all.
+    fn held_through(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError>;
+
+    /// Everything the server listed in this mailbox, up to `through`, is held. Does nothing for
+    /// a mailbox that has no cursor yet, which is then listed in full again.
+    fn mark_held_through(
+        &self,
+        mailbox: &MailboxRef,
+        through: &SyncCursor,
+    ) -> Result<(), StoreError>;
+
+    /// Which of this mailbox's messages arrived unreadable at `since` or later: those a pass
+    /// does not ask the server for again yet.
+    fn unreadable_since(
+        &self,
+        mailbox: &MailboxRef,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<mail_domain::RemoteRef>, StoreError>;
+
+    /// Record that these messages of the mailbox arrived and could not be read, at `at`.
+    /// Marking one again moves its time on.
+    fn mark_unreadable(
+        &self,
+        mailbox: &MailboxRef,
+        remotes: &[mail_domain::RemoteRef],
+        at: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
+
+    /// The sizes the server gave for the messages held at these addresses, for those it gave one
+    /// ([`Store::hold_server_sizes`]). A body pass orders by size, and an incremental survey has
+    /// not listed the sizes of what an earlier one did.
+    fn server_sizes_at(
+        &self,
+        account: AccountId,
+        remotes: &[mail_domain::RemoteRef],
+    ) -> Result<Vec<(mail_domain::RemoteRef, u64)>, StoreError>;
+
     /// What the server turned out to support, so the next run starts from fact not guess.
     ///
     /// Written once at account creation from the preset's *expectation* and never updated,

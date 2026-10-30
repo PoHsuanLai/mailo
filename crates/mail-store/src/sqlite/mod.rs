@@ -1187,6 +1187,101 @@ impl Store for SqliteStore {
         Ok(())
     }
 
+    fn held_through(&self, mailbox: &MailboxRef) -> Result<Option<SyncCursor>, StoreError> {
+        let text: Option<Option<String>> = self
+            .reader()
+            .query_row(
+                "SELECT held_through FROM sync_state WHERE account = ?1 AND mailbox = ?2",
+                rusqlite::params![mailbox.account.to_string(), mailbox.path],
+                |r| r.get(0),
+            )
+            .optional()?;
+        text.flatten()
+            .map(|t| row::json("SyncCursor", &t))
+            .transpose()
+    }
+
+    fn mark_held_through(
+        &self,
+        mailbox: &MailboxRef,
+        through: &SyncCursor,
+    ) -> Result<(), StoreError> {
+        self.connection().execute(
+            "UPDATE sync_state SET held_through = ?3 WHERE account = ?1 AND mailbox = ?2",
+            rusqlite::params![
+                mailbox.account.to_string(),
+                mailbox.path,
+                row::to_json("SyncCursor", through)?
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn unreadable_since(
+        &self,
+        mailbox: &MailboxRef,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<RemoteRef>, StoreError> {
+        let db = self.reader();
+        let mut stmt = db.prepare_cached(
+            "SELECT remote FROM unreadable
+             WHERE account = ?1 AND mailbox = ?2 AND tried_at >= ?3",
+        )?;
+        let rows = stmt.query_map(
+            rusqlite::params![
+                mailbox.account.to_string(),
+                mailbox.path,
+                row::from_time(since)
+            ],
+            |r| r.get::<_, String>(0),
+        )?;
+        rows.map(|text| row::json("RemoteRef", &text?)).collect()
+    }
+
+    fn mark_unreadable(
+        &self,
+        mailbox: &MailboxRef,
+        remotes: &[RemoteRef],
+        at: DateTime<Utc>,
+    ) -> Result<(), StoreError> {
+        let db = self.connection();
+        let tx = db.unchecked_transaction()?;
+        for remote in remotes {
+            tx.prepare_cached(
+                "INSERT INTO unreadable (account, mailbox, remote, tried_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(account, mailbox, remote) DO UPDATE SET tried_at = excluded.tried_at",
+            )?
+            .execute(rusqlite::params![
+                mailbox.account.to_string(),
+                mailbox.path,
+                row::to_json("RemoteRef", remote)?,
+                row::from_time(at)
+            ])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn server_sizes_at(
+        &self,
+        account: AccountId,
+        remotes: &[RemoteRef],
+    ) -> Result<Vec<(RemoteRef, u64)>, StoreError> {
+        let mut sizes = Vec::new();
+        for (remote, message) in self.read_held_at(account, remotes)? {
+            let size: i64 = self.reader().query_row(
+                "SELECT server_size FROM messages WHERE id = ?1",
+                rusqlite::params![message.to_string()],
+                |r| r.get(0),
+            )?;
+            if size > 0 {
+                sizes.push((remote, u64::try_from(size).unwrap_or(u64::MAX)));
+            }
+        }
+        Ok(sizes)
+    }
+
     fn put_caps(
         &self,
         account: AccountId,

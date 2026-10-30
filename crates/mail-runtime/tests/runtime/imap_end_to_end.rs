@@ -56,6 +56,16 @@ fn maildrop() -> Vec<(u32, String)> {
     ]
 }
 
+/// What the server holds under `fault`: the maildrop, and for [`Fault::Unreadable`] a third
+/// message with no header in it, which no parser can read as a message.
+fn maildrop_under(fault: Fault) -> Vec<(u32, String)> {
+    let mut held = maildrop();
+    if fault == Fault::Unreadable {
+        held.push((103, "this is not a message".to_owned()));
+    }
+    held
+}
+
 /// How the server should behave when a fetch or a listing arrives.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Fault {
@@ -68,6 +78,8 @@ enum Fault {
     Exchange,
     /// Answer `LIST` and `LSUB` with nothing at all.
     NoFolders,
+    /// Answer everything, and hold a third message that is not a message.
+    Unreadable,
 }
 
 /// The mailbox's `UIDVALIDITY`, which a test can change under the client.
@@ -183,7 +195,7 @@ async fn session(
         return;
     }
 
-    let mut drop = maildrop();
+    let mut drop = maildrop_under(fault);
     drop.truncate(present.load(Ordering::SeqCst));
     let mut buf = Vec::new();
     let mut idle_tag: Option<String> = None;
@@ -233,7 +245,7 @@ async fn session(
                          {tag} OK LIST completed.\r\n"
                     ),
                     Fault::NoFolders => format!("{tag} OK LIST completed.\r\n"),
-                    Fault::None | Fault::DropDuringFetch => format!(
+                    Fault::None | Fault::DropDuringFetch | Fault::Unreadable => format!(
                         "* LIST (\\HasNoChildren) \"/\" \"INBOX\"\r\n\
                          * LIST (\\HasNoChildren \\Sent) \"/\" \"Sent\"\r\n\
                          * LIST (\\HasNoChildren \\Drafts) \"/\" \"Drafts\"\r\n\
@@ -247,7 +259,7 @@ async fn session(
                          {tag} OK LSUB completed.\r\n"
                     ),
                     Fault::NoFolders => format!("{tag} OK LSUB completed.\r\n"),
-                    Fault::None | Fault::DropDuringFetch => {
+                    Fault::None | Fault::DropDuringFetch | Fault::Unreadable => {
                         format!("* LSUB () \"/\" \"INBOX\"\r\n{tag} OK done\r\n")
                     }
                 }
@@ -256,14 +268,14 @@ async fn session(
             } else if upper.starts_with("SELECT") || upper.starts_with("EXAMINE") {
                 // What the mailbox holds as it is selected, as a real server reports it, and
                 // not as it was when the connection opened: the client keeps one for a pass.
-                drop = maildrop();
+                drop = maildrop_under(fault);
                 drop.truncate(present.load(Ordering::SeqCst));
                 let validity = validity.load(Ordering::SeqCst);
                 // Asked to resynchronise, a QRESYNC server says what went: here, whatever has
                 // been taken out of the maildrop, and then a range far above any UID it ever
                 // issued, because servers do send those and only held UIDs may be acted on.
                 let vanished = if upper.contains("(QRESYNC") {
-                    let gone: Vec<String> = maildrop()
+                    let gone: Vec<String> = maildrop_under(fault)
                         .iter()
                         .map(|(uid, _)| *uid)
                         .filter(|uid| !drop.iter().any(|(held, _)| held == uid))
@@ -274,10 +286,13 @@ async fn session(
                 } else {
                     String::new()
                 };
+                // One past the last UID it holds, as a real server's is.
+                let uidnext = drop.last().map_or(101, |(uid, _)| uid + 1);
+                let exists = drop.len();
                 format!(
-                    "* 2 EXISTS\r\n\
+                    "* {exists} EXISTS\r\n\
                      * OK [UIDVALIDITY {validity}] uids valid\r\n\
-                     * OK [UIDNEXT 103] next\r\n\
+                     * OK [UIDNEXT {uidnext}] next\r\n\
                      * OK [HIGHESTMODSEQ 7788] modseq\r\n\
                      {vanished}\
                      {tag} OK [READ-ONLY] done\r\n"
@@ -299,7 +314,7 @@ async fn session(
                 } else if upper.contains("BODY.PEEK[HEADER]") {
                     headers(&drop, &upper, &tag)
                 } else {
-                    envelopes(&drop, &tag, &flags)
+                    envelopes(&drop, &upper, &tag, &flags)
                 }
             } else if upper.starts_with("UID MOVE") || upper.starts_with("UID COPY") {
                 format!("{tag} OK done\r\n")
@@ -408,9 +423,14 @@ fn apply_store(command: &str, flags: &Flags) {
     }
 }
 
-fn envelopes(drop: &[(u32, String)], tag: &str, flags: &Flags) -> String {
+fn envelopes(drop: &[(u32, String)], upper: &str, tag: &str, flags: &Flags) -> String {
+    let listed = wanted(upper, drop);
     let mut out = String::new();
-    for (seq, (uid, raw)) in drop.iter().enumerate() {
+    for (seq, (uid, raw)) in drop
+        .iter()
+        .enumerate()
+        .filter(|(_, (uid, _))| listed.contains(uid))
+    {
         let subject = raw
             .lines()
             .find_map(|l| l.strip_prefix("Subject: "))
@@ -446,8 +466,19 @@ fn wanted(upper: &str, drop: &[(u32, String)]) -> Vec<u32> {
         .strip_prefix("UID FETCH ")
         .and_then(|rest| rest.split(' ').next())
         .unwrap_or("");
-    if set.contains(':') {
-        return drop.iter().map(|(uid, _)| *uid).collect();
+    if let Some((from, _)) = set.split_once(':') {
+        // `from:*` names every UID from `from` up, and the last one the server has when none is:
+        // `*` is the highest UID, so the range is never empty on a mailbox that holds mail.
+        let from: u32 = from.parse().unwrap_or(1);
+        let above: Vec<u32> = drop
+            .iter()
+            .map(|(uid, _)| *uid)
+            .filter(|uid| *uid >= from)
+            .collect();
+        if above.is_empty() {
+            return drop.last().map(|(uid, _)| *uid).into_iter().collect();
+        }
+        return above;
     }
     let mut uids: Vec<u32> = set.split(',').filter_map(|n| n.parse().ok()).collect();
     uids.sort_unstable();
@@ -1200,6 +1231,140 @@ async fn a_sweep_is_not_repeated_by_the_next_pass_before_it_is_due() {
         (true, true),
         "deletions are due after 900 seconds"
     );
+}
+
+/// One pass as the schedule makes it: a fresh engine over `store`, a sync and then the sweep.
+/// What the sync sent the server.
+async fn a_pass(
+    port: u16,
+    store: &Arc<SqliteStore>,
+    seen: &Shared,
+    at: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
+    let mut engine = engine_over(port, store.clone(), caps_with(Condstore::Absent));
+    let (_tx, mut cancel) = watch::channel(false);
+    seen.lock().unwrap().commands.clear();
+    engine.sync(&inbox(), &mut cancel, at, 200).await.unwrap();
+    let sent = seen.lock().unwrap().commands.clone();
+    engine.sweep(&inbox(), &mut cancel, at).await.unwrap();
+    sent
+}
+
+/// The commands among `sent` that listed the mailbox's messages, whole or from a UID on.
+fn surveys(sent: &[String]) -> Vec<&str> {
+    sent.iter()
+        .filter(|c| c.starts_with("UID FETCH") && c.contains("RFC822.SIZE"))
+        .map(|c| c.split(' ').nth(2).unwrap_or(""))
+        .collect()
+}
+
+fn later(seconds: i64) -> chrono::DateTime<chrono::Utc> {
+    now() + chrono::TimeDelta::try_seconds(seconds).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_pass_asks_only_for_what_arrived_since_the_last_one() {
+    // A whole listing on every pass was every UID and flag of every followed mailbox, however
+    // large and however quiet. The first pass lists it all; the next, on a fresh engine over
+    // the same store, asks from the UID the server will give next.
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, _present) = serve_full(seen.clone(), Fault::None).await;
+    let it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Absent),
+    );
+
+    let first = a_pass(port, &it.store, &seen, now()).await;
+    assert_eq!(surveys(&first), ["1:*"], "the first pass lists everything");
+    assert_eq!(count(&it.store), 2);
+
+    let second = a_pass(port, &it.store, &seen, later(60)).await;
+    assert_eq!(surveys(&second), ["103:*"], "the next asks from UIDNEXT");
+    assert_eq!(count(&it.store), 2, "nothing arrived and nothing was added");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_delivered_between_passes_arrives_on_the_incremental_one() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, present) = serve_full(seen.clone(), Fault::None).await;
+    present.store(1, Ordering::SeqCst);
+    let it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Absent),
+    );
+    a_pass(port, &it.store, &seen, now()).await;
+    assert_eq!(count(&it.store), 1);
+
+    present.store(2, Ordering::SeqCst);
+    let second = a_pass(port, &it.store, &seen, later(60)).await;
+    assert_eq!(surveys(&second), ["102:*"]);
+    assert_eq!(count(&it.store), 2, "the new message did not arrive");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_changed_uidvalidity_forces_a_whole_listing() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, validity, _present) = serve_full(seen.clone(), Fault::None).await;
+    let it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Absent),
+    );
+    a_pass(port, &it.store, &seen, now()).await;
+
+    validity.store(99, Ordering::SeqCst);
+    let second = a_pass(port, &it.store, &seen, later(60)).await;
+    // Asked from where the old numbering ended, found it meant nothing, and listed it all.
+    assert_eq!(surveys(&second), ["103:*", "1:*"]);
+    assert_eq!(remote_rows(&it.store), 2);
+    assert_eq!(count(&it.store), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_whole_listing_is_made_again_when_the_deletions_sweep_is_due() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, _present) = serve_full(seen.clone(), Fault::None).await;
+    let it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Absent),
+    );
+    a_pass(port, &it.store, &seen, now()).await;
+
+    let within = a_pass(port, &it.store, &seen, later(899)).await;
+    assert_eq!(surveys(&within), ["103:*"]);
+    let due = a_pass(port, &it.store, &seen, later(901)).await;
+    assert_eq!(surveys(&due), ["1:*"]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_that_cannot_be_read_is_not_asked_for_again_until_a_day_has_passed() {
+    let seen: Shared = Arc::new(Mutex::new(Seen::default()));
+    let (port, _validity, present) = serve_full(seen.clone(), Fault::Unreadable).await;
+    present.store(3, Ordering::SeqCst);
+    let it = engine_with(
+        port,
+        tempfile::tempdir().unwrap(),
+        caps_with(Condstore::Absent),
+    );
+    let asked_for_headers = |sent: &[String]| sent.iter().any(|c| c.contains("BODY.PEEK[HEADER]"));
+
+    let first = a_pass(port, &it.store, &seen, now()).await;
+    assert!(asked_for_headers(&first));
+    assert_eq!(count(&it.store), 2, "the third is not a message");
+
+    // A whole listing, and the unreadable one is on it, but it is not asked for.
+    let second = a_pass(port, &it.store, &seen, later(901)).await;
+    assert_eq!(surveys(&second), ["1:*"]);
+    assert!(
+        !asked_for_headers(&second),
+        "an unreadable message was asked for again: {second:?}"
+    );
+
+    let third = a_pass(port, &it.store, &seen, later(86_401 + 901)).await;
+    assert!(asked_for_headers(&third), "it is tried again after a day");
 }
 
 /// A user's action, all the way to the server and back.
