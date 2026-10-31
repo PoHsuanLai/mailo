@@ -5676,6 +5676,9 @@ dependencies = [
  "porter-core",
  "porter-provider",
  "psl",
+ "serde",
+ "serde_json",
+ "uuid",
  "zeroize",
 ]
 

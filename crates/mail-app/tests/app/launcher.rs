@@ -5,12 +5,12 @@
 use chrono::{DateTime, TimeZone, Utc};
 use mail_cli::session::unread;
 use mail_core::notify::Places;
-use mail_core::scope::Scope;
 use mail_core::snooze;
 use mail_core::{Arrival, absorb};
 use mail_core::{SqliteStore, Store};
 use mail_domain::id::account_id_from_uuid;
 use mail_domain::*;
+use mail_logic::scope::Scope;
 use mail_os::launcher::Unread;
 use porter_core::AccountId;
 

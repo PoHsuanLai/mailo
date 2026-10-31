@@ -30,7 +30,7 @@ mod upgrade;
 
 pub use ds::components::app::spaces::SpaceId;
 pub use forget::{Forgot, forget_account, forget_unknown};
-pub use mail_client::scope::Scope;
+pub use mail_logic::scope::Scope;
 pub use member::{Member, with_member};
 pub use recall::Recall;
 

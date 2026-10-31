@@ -32,9 +32,9 @@ mod session;
 mod dock;
 
 use mail_client::notify::Places;
-use mail_client::scope::Scope;
 use mail_domain::{Filter, MailboxRole};
 use mail_logic::mailbox_filter::{for_role, unread_in};
+use mail_logic::scope::Scope;
 use std::sync::Arc;
 
 /// How many unread conversations the inbox holds, in the accounts being counted.

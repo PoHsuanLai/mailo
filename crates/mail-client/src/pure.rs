@@ -174,9 +174,6 @@ pub mod rules {
 pub mod schedule {
     pub use mail_core::schedule::{Daemon, Lost, Schedule, Timing, probe};
 }
-pub mod scope {
-    pub use mail_core::scope::Scope;
-}
 pub mod search {
     // `run` reads what it is handed: a caller has only the client's (`Client::source`).
     pub use mail_core::search::{
